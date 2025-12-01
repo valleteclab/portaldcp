@@ -1,0 +1,122 @@
+# 📄 PRD – Sistema Municipal de Licitações Eletrônicas (Licitafacil)
+**Versão:** 1.3 (Anti-Robô & Real-Time Control)
+**Data:** 23 de outubro de 2025
+**Base legal:** Lei nº 14.133/2021 (Nova Lei de Licitações)
+
+---
+
+## 1. Objetivo do Produto
+Plataforma SaaS para gestão de compras públicas com foco em **segurança jurídica, blindagem de identidade** e **controle técnico absoluto**. O sistema deve nascer preparado para alta performance (API-first), mas com restrições de automação ativas inicialmente para garantir isonomia.
+
+---
+
+## 2. Atores e Permissões
+
+| Ator | Visão na Fase de Lances | Poderes Especiais |
+|------|-------------------------|-------------------|
+| **Fornecedor** | Vê apenas "Licitante X" (Anônimo) e seus próprios lances | Enviar Lances (Humanos apenas - restrição ativa) |
+| **Pregoeiro** | Vê apenas "Licitante X" (Blindagem Total) | Gerir Sessão, Chat, Avisos, Prorrogar tempo |
+| **Monitor Técnico** | **Vê TUDO (CNPJ, Razão Social, IP, Fingerprint)** | **Paralisar/Encerrar Sessão (Instantâneo)**, Bloquear IP, Auditar |
+
+---
+
+## 3. Funcionalidades Críticas e Regras de Negócio
+
+### 3.1 Monitor Técnico em Tempo Real (God Mode) - RF-MON
+*Interface de controle de missão crítica para a equipe de engenharia.*
+
+- **Latência Zero:** Deve usar WebSocket/SSE para refletir o estado do banco de dados em tempo real (< 200ms).
+- **Controle de Pânico (Kill Switch):**
+  - O Monitor Técnico possui botões de ação imediata: **"PARALISAR SESSÃO"** e **"ENCERRAR SESSÃO"**.
+  - **Comportamento:** Ao acionar a paralisação, o backend rejeita imediatamente novos requests de lance (`HTTP 423 Locked`) e congela o cronômetro para todos os usuários.
+  - **Uso:** Ataques DDoS, falhas de infraestrutura, suspeita grave de fraude ou ordem judicial.
+- **Visão de Raio-X:** Tabela detalhada com dados reais (CNPJ, Nome) para auditoria, invisível aos outros atores.
+
+### 3.2 Política de Automação (Robôs) - RF-BOT
+
+#### Estado Atual (Fase 1 - Inibição)
+- **Objetivo:** Inibir o uso de softwares de remessa automática de lances (robôs) neste momento inicial.
+- **Mecanismos de Bloqueio:**
+  - **Rate Limiting Humano:** Limitar lances a, por exemplo, 1 lance a cada 3 segundos por token de usuário.
+  - **Desafios de Interação:** Implementar verificações se necessário (ex: confirmar slider em lances suspeitos).
+  - **Bloqueio por Padrão:** Rejeitar rajadas de lances com intervalos de tempo inumanos (ms).
+
+#### Preparação para o Futuro (API First - Ready)
+- **Arquitetura:** O backend deve ser construído **já suportando alta concorrência** (High Frequency Bidding), tratando a inibição apenas como uma camada de validação removível.
+- **Endpoints Padronizados:** A API de lances (`POST /api/v1/bids`) deve seguir padrões RESTful limpos e documentados (Swagger), pronta para ser aberta a integrações de terceiros (ERPs de licitantes) no futuro.
+- **Feature Flag:** A inibição de robôs deve ser controlada por configuração (`ALLOW_EXTERNAL_BOTS = false`). Quando houver consenso futuro, altera-se a flag para `true`, removendo o Rate Limiting restritivo.
+
+### 3.3 Blindagem Total (Double-Blind) - RF-BLIND
+- **Anonimato Bilateral:** Nem fornecedores nem o Pregoeiro podem ver a identidade de quem está dando lances.
+- **Segurança do Pregoeiro:** O Pregoeiro só conhece o vencedor na fase de Habilitação/Julgamento. Isso protege o pregoeiro de acusações de favorecimento.
+- **Chat Anonimizado:** Mensagens no chat aparecem com aliases ("Licitante 142").
+
+### 3.4 Auditoria e Anti-Conluio
+- **Fingerprinting:** O sistema coleta o *Device Fingerprint* e IP de quem dá o lance.
+- **Alerta no Monitor Técnico:** Se dois CNPJs diferentes derem lances do mesmo *Fingerprint/IP*, o Monitor Técnico destaca alerta de **Possível Conluio** para a equipe técnica agir.
+
+### 3.5 Integração com ERPs e Legados (RF-INT)
+*Funcionalidade para evitar retrabalho dos órgãos públicos.*
+- **API de Importação:** O sistema deve disponibilizar endpoint `POST /api/v1/import/licitacao` para receber dados estruturados (JSON/XML) de sistemas externos (ex: Betha, IPM, Elotech).
+- **Campos de Rastreabilidade:** Toda licitação importada deve manter o `codigo_externo` e o `sistema_origem` para facilitar auditoria e sincronização de status (webhook de volta para o ERP).
+- **Validação Híbrida:** Licitações importadas entram como **RASCUNHO** até que um usuário humano valide se os dados migrados (datas, valores) estão corretos conforme a Lei.
+
+---
+
+## 4. Requisitos Não Funcionais
+- **Auditabilidade:** Logs imutáveis de todas as tentativas de lance (inclusive as bloqueadas pelo anti-robô).
+- **Performance:** O Core de lances deve suportar milhares de conexões simultâneas (preparado para o cenário com robôs).
+- **Disponibilidade:** SLA de 99.9% durante sessões de pregão.
+
+---
+
+## 5. Fluxo de Dados (Fase de Lances)
+
+```mermaid
+sequenceDiagram
+    participant Robo_Fornecedor
+    participant Humano_Fornecedor
+    participant API_Gateway
+    participant Anti_Bot_Guard
+    participant Core_Engine
+    participant Monitor_Tecnico
+
+    rect rgb(255, 230, 230)
+    Note right of Robo_Fornecedor: Cenário Atual (Bloqueio)
+    Robo_Fornecedor->>API_Gateway: Rajada de Lances (10/seg)
+    API_Gateway->>Anti_Bot_Guard: Verifica Rate Limit
+    Anti_Bot_Guard--xRobo_Fornecedor: HTTP 429 (Too Many Requests)
+    end
+
+    rect rgb(230, 255, 230)
+    Note right of Humano_Fornecedor: Lance Válido
+    Humano_Fornecedor->>API_Gateway: Lance Manual
+    API_Gateway->>Anti_Bot_Guard: Verifica Rate Limit (OK)
+    Anti_Bot_Guard->>Core_Engine: Processa Lance
+    Core_Engine->>Monitor_Tecnico: PUSH Real-Time (Dados Reais)
+    end
+```
+
+---
+
+## 6. Stack Tecnológica e Padrões (RF-TECH)
+
+### 6.1 Backend (A Espinha Dorsal)
+- **Linguagem:** TypeScript (Node.js).
+- **Framework:** **NestJS**.
+  - *Motivo:* Padrão corporativo rígido (Arquitetura Modular, Injeção de Dependência), facilitando manutenção e escalabilidade.
+- **Database:** **PostgreSQL**.
+  - *Uso:* Dados relacionais críticos (Licitações, Usuários, Logs de Auditoria).
+- **Cache/PubSub:** **Redis**.
+  - *Uso:* Gerenciamento de filas de lances e comunicação real-time (Socket.io).
+
+### 6.2 Frontend (A Experiência)
+- **Framework:** **Next.js (React)**.
+  - *Motivo:* Performance híbrida (SSR para Portal da Transparência, CSR para Sala de Disputa).
+- **Design System:** **Shadcn/UI + TailwindCSS**.
+  - *Estilo:* **"Clean Corporate"**. Foco em legibilidade, alto contraste e tabelas densas de informação com baixa poluição visual.
+  - *Simplicidade:* Interfaces minimalistas. O Pregoeiro deve ver apenas o botão que ele precisa clicar naquele momento.
+
+### 6.3 Infraestrutura e DevOps
+- **Containerização:** Docker (obrigatório para ambientes de desenvolvimento e produção).
+- **CI/CD:** Pipelines automatizados para testes unitários antes do deploy.

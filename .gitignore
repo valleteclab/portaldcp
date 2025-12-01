@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Uploads (dados de produção)
+uploads/
+backend/uploads/
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# SSL certificates
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Backups
+*.sql
+backups/
+
+# Temp files
+*.tmp
+*.temp
+
+# PDFs e arquivos grandes
+*.pdf
+
+# Package locks duplicados
+package-lock.json
+
+# Arquivos temporários do Office
+~$*

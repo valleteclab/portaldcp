@@ -1,0 +1,40 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Build
+dist
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Tests
+coverage
+.nyc_output
+
+# Logs
+logs
+*.log
+
+# Uploads (serão montados como volume)
+uploads
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md

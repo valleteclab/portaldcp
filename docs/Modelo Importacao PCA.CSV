@@ -1,0 +1,11 @@
+Numero Item*;Categoria do Item*;Catálogo Utilizado*;Classificação do Catálogo*;Código da Classificação Superior (Classe/Grupo)*;Classificacao Superior Nome*;Código do PDM do Item;Nome do PDM do Item;Código do Item;Descrição do Item;Unidade de Fornecimento;Quantidade Estimada*;Valor Unitário Estimado (R$)*;Valor Total Estimado (R$)*;Valor orçamentário estimado para o exercício (R$)*;Renovação Contrato*;Data Desejada*;Unidade Requisitante;Grupo Contratação Codigo;Grupo Contratação Nome
+1;1-Material;2-Outros;2-Serviço;;;;;;"Serviço de Abastecimento de
+água tratada e coleta de
+esgoto.";UND;12;R$ 333,33;R$ 4.000,00;R$ 4.000,00;1-Sim;26/01/2023;Salvador;;
+2;2-Serviço;2-Outros;2-Serviço;32132321;Teste Homologacao;;;;Item de Teste2;Caixa 5Un;30;R$ 200,00;R$ 6.000,00;R$ 6.000,00;2-Não;26/01/2023;Salvador;;
+3;3-Obras;2-Outros;1-Material;321321;Teste Homologacao;;;;Item de teste;Caixa 100Un;5;R$ 10,00;R$ 50,00;R$ 50,00;1-Sim;26/01/2023;Salvador;;
+4;4-Serviços de Engenharia;2-Outros;2-Serviço;32132321;Teste Homologacao;;;;Item de Teste2;Caixa 5Un;30;R$ 200,00;R$ 6.000,00;R$ 6.000,00;2-Não;26/01/2023;Salvador;;
+5;5-Soluções de TIC;2-Outros;1-Material;321321;Teste Homologacao;;;;Item de teste;Caixa 100Un;5;R$ 10,00;R$ 50,00;R$ 50,00;1-Sim;26/01/2023;Salvador;;
+6;6-Locação de Imóveis;2-Outros;2-Serviço;32132321;Teste Homologacao;;;;Item de Teste2;Caixa 5Un;30;R$ 200,00;R$ 6.000,00;R$ 6.000,00;2-Não;26/01/2023;Salvador;;
+7;7-Alienação/Concessão/Permissão;2-Outros;1-Material;321321;Teste Homologacao;;;;Item de teste;Caixa 100Un;5;R$ 10,00;R$ 50,00;R$ 50,00;1-Sim;26/01/2023;Salvador;;
+8;8-Obras e Serviços de Engenharia;2-Outros;2-Serviço;32132321;Teste Homologacao;;;;Item de Teste2;Caixa 5Un;30;R$ 200,00;R$ 6.000,00;R$ 6.000,00;2-Não;26/01/2023;Salvador;;

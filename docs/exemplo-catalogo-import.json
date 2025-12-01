@@ -1,0 +1,35 @@
+{
+  "itens": [
+    {
+      "sequencial": "1",
+      "id": "27502",
+      "nome": "LICENÇA DE USO DE SOFTWARE - ANTIVÍRUS",
+      "tipo": "Serviço",
+      "unidade": {
+        "nomeUnidadeMedida": "LICENÇA",
+        "siglaUnidadeMedida": "LIC"
+      },
+      "codigoNcmNbs": "123456"
+    },
+    {
+      "sequencial": "2", 
+      "id": "150115",
+      "nome": "PAPEL A4 75G/M2 - RESMA 500 FOLHAS",
+      "tipo": "Material",
+      "unidade": {
+        "nomeUnidadeMedida": "RESMA",
+        "siglaUnidadeMedida": "RSM"
+      }
+    },
+    {
+      "sequencial": "3",
+      "id": "25992",
+      "nome": "LOCAÇÃO DE IMPRESSORA MULTIFUNCIONAL",
+      "tipo": "Serviço",
+      "unidade": {
+        "nomeUnidadeMedida": "UNIDADE",
+        "siglaUnidadeMedida": "UN"
+      }
+    }
+  ]
+}

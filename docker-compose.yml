@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # ============ BANCO DE DADOS ============
+  postgres:
+    image: postgres:15-alpine
+    container_name: licitafacil_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-licitafacil}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-LicitaFacil2025!}
+      POSTGRES_DB: ${DB_DATABASE:-licitafacil}
+      TZ: America/Sao_Paulo
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - licitanet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-licitafacil} -d ${DB_DATABASE:-licitafacil}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ REDIS (CACHE/SESSÕES) ============
+  redis:
+    image: redis:7-alpine
+    container_name: licitafacil_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - licitanet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ BACKEND (API NESTJS) ============
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: licitafacil_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-licitafacil}
+      DB_PASSWORD: ${DB_PASSWORD:-LicitaFacil2025!}
+      DB_DATABASE: ${DB_DATABASE:-licitafacil}
+      JWT_SECRET: ${JWT_SECRET:-LicitaFacilJWT2025SecretKey!}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:3001}
+      PNCP_API_URL: ${PNCP_API_URL:-https://treina.pncp.gov.br/api/pncp/v1}
+      PNCP_LOGIN: ${PNCP_LOGIN:-}
+      PNCP_SENHA: ${PNCP_SENHA:-}
+      PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO:-}
+      UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-52428800}
+      UPLOAD_DEST: /app/uploads
+      TZ: America/Sao_Paulo
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - licitanet
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============ FRONTEND (NEXTJS) ============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:3001}
+    container_name: licitafacil_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:3001}
+      TZ: America/Sao_Paulo
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - licitanet
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============ NGINX (PROXY REVERSO) ============
+  nginx:
+    image: nginx:alpine
+    container_name: licitafacil_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - uploads_data:/var/www/uploads:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - licitanet
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads_data:
+    driver: local
+
+networks:
+  licitanet:
+    driver: bridge
