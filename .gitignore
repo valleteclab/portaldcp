@@ -56,8 +56,8 @@ backups/
 # PDFs e arquivos grandes
 *.pdf
 
-# Package locks duplicados
-package-lock.json
+# Package locks duplicados (manter para deploy)
+# package-lock.json
 
 # Arquivos temporários do Office
 ~$*
