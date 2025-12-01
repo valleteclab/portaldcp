@@ -3,7 +3,8 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Building2, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react"
+import Image from "next/image"
+import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -62,9 +63,12 @@ export default function OrgaoLoginPage() {
       {/* Header */}
       <header className="bg-white border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2">
-            <Building2 className="h-8 w-8 text-blue-600" />
-            <span className="text-xl font-bold text-slate-800">LicitaFácil</span>
+          <Link href="/" className="flex items-center gap-3">
+            <Image src="/logo.png" alt="Portal DCP" width={40} height={40} className="rounded" />
+            <div>
+              <span className="text-xl font-bold text-slate-800">Portal DCP</span>
+              <p className="text-xs text-slate-500">Diário de Compras Públicas</p>
+            </div>
           </Link>
           <div className="flex items-center gap-4">
             <Link href="/login">
@@ -78,8 +82,8 @@ export default function OrgaoLoginPage() {
       <main className="flex-1 flex items-center justify-center px-4 py-12">
         <Card className="w-full max-w-md shadow-xl border-0">
           <CardHeader className="text-center pb-2">
-            <div className="h-16 w-16 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
-              <Building2 className="h-8 w-8 text-blue-600" />
+            <div className="mx-auto mb-4">
+              <Image src="/logo.png" alt="Portal DCP" width={64} height={64} className="rounded" />
             </div>
             <CardTitle className="text-2xl">Área do Órgão</CardTitle>
             <CardDescription>
@@ -160,7 +164,7 @@ export default function OrgaoLoginPage() {
       {/* Footer */}
       <footer className="border-t bg-white">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          © 2025 LicitaFácil. Todos os direitos reservados.
+          © 2025 Portal DCP. Todos os direitos reservados.
         </div>
       </footer>
     </div>

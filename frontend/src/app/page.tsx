@@ -1,5 +1,6 @@
 import Link from "next/link"
-import { Building2, Shield, FileCheck, Users, ArrowRight, CheckCircle2 } from "lucide-react"
+import Image from "next/image"
+import { Shield, FileCheck, Users, ArrowRight, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export default function Home() {
@@ -8,10 +9,19 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-8 w-8 text-blue-600" />
-            <span className="text-xl font-bold text-slate-800">LicitaFácil</span>
-          </div>
+          <Link href="/" className="flex items-center gap-3">
+            <Image 
+              src="/logo.png" 
+              alt="Portal DCP" 
+              width={45} 
+              height={45}
+              className="rounded"
+            />
+            <div>
+              <span className="text-xl font-bold text-slate-800">Portal DCP</span>
+              <p className="text-xs text-slate-500">O seu Diário de Compras Públicas</p>
+            </div>
+          </Link>
           <div className="flex items-center gap-4">
             <Link href="/login">
               <Button variant="ghost">Entrar</Button>
@@ -53,7 +63,7 @@ export default function Home() {
       {/* Features */}
       <section className="container mx-auto px-4 py-16">
         <h2 className="text-3xl font-bold text-center text-slate-800 mb-12">
-          Por que usar o LicitaFácil?
+          Por que usar o Portal DCP?
         </h2>
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
           <div className="bg-white rounded-xl p-6 shadow-lg border">
@@ -165,9 +175,18 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-4 gap-8">
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <Building2 className="h-6 w-6 text-blue-400" />
-                <span className="text-lg font-bold">LicitaFácil</span>
+              <div className="flex items-center gap-3 mb-4">
+                <Image 
+                  src="/logo.png" 
+                  alt="Portal DCP" 
+                  width={35} 
+                  height={35}
+                  className="rounded"
+                />
+                <div>
+                  <span className="text-lg font-bold">Portal DCP</span>
+                  <p className="text-xs text-slate-500">Diário de Compras Públicas</p>
+                </div>
               </div>
               <p className="text-slate-400 text-sm">
                 Plataforma de licitações públicas para fornecedores e órgãos governamentais.
@@ -198,7 +217,7 @@ export default function Home() {
             </div>
           </div>
           <div className="border-t border-slate-800 mt-8 pt-8 text-center text-sm text-slate-400">
-            © 2025 LicitaFácil. Todos os direitos reservados.
+            © 2025 Portal DCP - Diário de Compras Públicas. Todos os direitos reservados.
           </div>
         </div>
       </footer>

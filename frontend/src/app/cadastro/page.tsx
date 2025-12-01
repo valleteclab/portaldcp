@@ -3,8 +3,8 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { 
-  Building2, 
   Mail, 
   Lock, 
   Eye, 
@@ -88,9 +88,12 @@ export default function CadastroPage() {
       {/* Header */}
       <header className="bg-white border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2">
-            <Building2 className="h-8 w-8 text-blue-600" />
-            <span className="text-xl font-bold text-slate-800">LicitaFácil</span>
+          <Link href="/" className="flex items-center gap-3">
+            <Image src="/logo.png" alt="Portal DCP" width={40} height={40} className="rounded" />
+            <div>
+              <span className="text-xl font-bold text-slate-800">Portal DCP</span>
+              <p className="text-xs text-slate-500">Diário de Compras Públicas</p>
+            </div>
           </Link>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">Já tem cadastro?</span>
@@ -272,7 +275,7 @@ export default function CadastroPage() {
       {/* Footer */}
       <footer className="border-t bg-white mt-12">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          © 2025 LicitaFácil. Todos os direitos reservados.
+          © 2025 Portal DCP. Todos os direitos reservados.
         </div>
       </footer>
     </div>

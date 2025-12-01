@@ -1,4 +1,4 @@
-# 🏛️ LicitaFácil
+# 🏛️ Portal DCP - Diário de Compras Públicas
 
 Sistema completo de gestão de licitações públicas conforme Lei 14.133/2021.
 
