@@ -25,6 +25,7 @@ import { CredenciamentoModule } from './credenciamento/credenciamento.module';
 import { ContratacaoDiretaModule } from './contratacao-direta/contratacao-direta.module';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { DemandasModule } from './demandas/demandas.module';
+import { SeedModule } from './seed/seed.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { DemandasModule } from './demandas/demandas.module';
     ContratacaoDiretaModule,
     CatalogoModule,
     DemandasModule,
+    SeedModule,
   ],
   controllers: [HealthController],
   providers: [],
