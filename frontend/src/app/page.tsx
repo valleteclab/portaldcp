@@ -13,9 +13,9 @@ export default function Home() {
             <Image 
               src="/logo.png" 
               alt="Portal DCP" 
-              width={45} 
-              height={45}
-              className="rounded"
+              width={55} 
+              height={55}
+              className="rounded bg-white p-1"
             />
             <div>
               <span className="text-xl font-bold text-slate-800">Portal DCP</span>
@@ -179,9 +179,9 @@ export default function Home() {
                 <Image 
                   src="/logo.png" 
                   alt="Portal DCP" 
-                  width={35} 
-                  height={35}
-                  className="rounded"
+                  width={45} 
+                  height={45}
+                  className="rounded bg-white p-1"
                 />
                 <div>
                   <span className="text-lg font-bold">Portal DCP</span>

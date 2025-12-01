@@ -69,7 +69,7 @@ export default function LoginPage() {
       <header className="bg-white border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <Link href="/" className="flex items-center gap-3">
-            <Image src="/logo.png" alt="Portal DCP" width={40} height={40} className="rounded" />
+            <Image src="/logo.png" alt="Portal DCP" width={55} height={55} className="rounded bg-white p-1" />
             <div>
               <span className="text-xl font-bold text-slate-800">Portal DCP</span>
               <p className="text-xs text-slate-500">Diário de Compras Públicas</p>
@@ -89,7 +89,7 @@ export default function LoginPage() {
         <Card className="w-full max-w-md shadow-xl border-0">
           <CardHeader className="text-center pb-2">
             <div className="mx-auto mb-4">
-              <Image src="/logo.png" alt="Portal DCP" width={64} height={64} className="rounded" />
+              <Image src="/logo.png" alt="Portal DCP" width={80} height={80} className="rounded" />
             </div>
             <CardTitle className="text-2xl">Entrar</CardTitle>
             <CardDescription>

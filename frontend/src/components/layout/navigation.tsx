@@ -66,16 +66,17 @@ export function Sidebar({ userType }: SidebarProps) {
     <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col">
       <div className="p-4 border-b border-slate-700">
         <Link href="/" className="flex items-center gap-3">
-          <Image 
-            src="/logo.png" 
-            alt="Portal DCP" 
-            width={40} 
-            height={40}
-            className="rounded"
-          />
+          <div className="bg-white rounded-lg p-1.5">
+            <Image 
+              src="/logo.png" 
+              alt="Portal DCP" 
+              width={50} 
+              height={50}
+            />
+          </div>
           <div>
-            <h1 className="text-lg font-bold text-blue-400">Portal DCP</h1>
-            <p className="text-[10px] text-slate-400 leading-tight">Diário de Compras Públicas</p>
+            <h1 className="text-xl font-bold text-blue-400">Portal DCP</h1>
+            <p className="text-xs text-slate-400 leading-tight">Diário de Compras Públicas</p>
           </div>
         </Link>
         <p className="text-xs text-slate-500 mt-2">
