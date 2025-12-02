@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SolicitacaoAcesso, StatusSolicitacao } from './entities/solicitacao-acesso.entity';
 import { Orgao, TipoOrgao, EsferaAdministrativa } from './entities/orgao.entity';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class SolicitacoesService {
@@ -75,23 +76,29 @@ export class SolicitacoesService {
       if (orgaoExistente) {
         orgao = orgaoExistente;
       } else {
-        // Gerar senha temporária
+        // Gerar senha temporária (ou usar a informada pelo admin)
         const senhaTemporaria = data.senha_temporaria || this.gerarSenhaTemporaria();
+        const senhaHash = createHash('sha256').update(senhaTemporaria).digest('hex');
         
-        // Criar novo órgão
+        // Criar novo órgão com campos obrigatórios preenchidos
         const novoOrgao = this.orgaoRepository.create({
           codigo: solicitacao.cnpj.substring(0, 10),
           nome: solicitacao.razao_social,
           cnpj: solicitacao.cnpj,
           tipo: TipoOrgao.PREFEITURA,
           esfera: EsferaAdministrativa.MUNICIPAL,
+          logradouro: 'A definir',
+          bairro: 'A definir',
           cidade: 'A definir',
           uf: 'XX',
+          cep: '00000-000',
           email: solicitacao.email,
           telefone: solicitacao.telefone || '',
           responsavel_nome: solicitacao.nome_responsavel,
+          responsavel_cpf: '000.000.000-00',
           responsavel_cargo: solicitacao.cargo_responsavel || '',
           email_login: data.email_login || solicitacao.email,
+          senha_hash: senhaHash,
           ativo: true
         });
 

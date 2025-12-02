@@ -548,14 +548,53 @@ export class PncpService {
 
   // ============ PCA (Plano de Contratações Anual) ============
 
-  async enviarPCA(pcaId: string, pca: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+  async enviarPCA(pcaId: string, pcaPayload: any): Promise<PncpResponseDto> {
+    // Carrega PCA do banco com o órgão vinculado
+    const pcaEntity = await this.pcaRepository.findOne({
+      where: { id: pcaId },
+      relations: ['orgao'],
+    });
+
+    if (!pcaEntity) {
+      throw new HttpException('PCA não encontrado', HttpStatus.NOT_FOUND);
     }
 
+    const orgao = pcaEntity.orgao;
+    if (!orgao) {
+      throw new HttpException('PCA não está vinculado a um órgão', HttpStatus.BAD_REQUEST);
+    }
+
+    const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpjOrgaoLimpo = (orgao.cnpj || '').replace(/\D/g, '');
+    const cnpjPadraoLimpo = (cnpjPadrao || '').replace(/\D/g, '');
+
+    if (!cnpjPadraoLimpo) {
+      throw new HttpException('CNPJ padrão da plataforma (PNCP_CNPJ_ORGAO) não configurado', HttpStatus.BAD_REQUEST);
+    }
+
+    // Regra de envio do CNPJ:
+    // - Órgãos reais: usam seu próprio CNPJ (ex: 81.448.637/0001-47)
+    // - Órgão de teste "Prefeitura Municipal de Teste" (12.345.678/0001-99):
+    //   continua usando o CNPJ padrão da plataforma para manter compatibilidade
+    let cnpjEnvio: string;
+    if (cnpjOrgaoLimpo === '12345678000199') {
+      // CNPJ fictício usado apenas para testes locais
+      cnpjEnvio = cnpjPadraoLimpo;
+    } else if (cnpjOrgaoLimpo) {
+      cnpjEnvio = cnpjOrgaoLimpo;
+    } else {
+      throw new HttpException('CNPJ do órgão não informado', HttpStatus.BAD_REQUEST);
+    }
+
+    // Opcional: garantir que órgão está marcado como vinculado ao PNCP
+    if (!orgao.pncp_vinculado) {
+      throw new HttpException('Órgão não está vinculado ao PNCP na plataforma', HttpStatus.BAD_REQUEST);
+    }
+
+    const codigoUnidade = pcaPayload.codigo_unidade || orgao.pncp_codigo_unidade || '1';
+
     // Mapear dados do PCA para o formato PNCP (conforme documentação)
-    const itensPlano = (pca.itens || []).map((item: any, index: number) => {
+    const itensPlano = (pcaPayload.itens || []).map((item: any, index: number) => {
       const valorUnitario = parseFloat(item.valor_unitario_estimado) || parseFloat(item.valor_estimado) || 1000;
       const quantidade = parseFloat(item.quantidade_estimada) || 1;
       const valorTotal = valorUnitario * quantidade;
@@ -604,10 +643,10 @@ export class PncpService {
 
     // PCA é enviado com itensPlano incluídos
     const pcaDto = {
-      anoPca: pca.ano_exercicio,
-      codigoUnidade: pca.codigo_unidade || '1',
-      dataPublicacaoPncp: pca.data_publicacao || new Date().toISOString().split('T')[0],
-      itensPlano: itensPlano
+      anoPca: pcaEntity.ano_exercicio,
+      codigoUnidade: codigoUnidade,
+      dataPublicacaoPncp: pcaPayload.data_publicacao || pcaEntity.data_publicacao || new Date().toISOString().split('T')[0],
+      itensPlano: itensPlano,
     };
 
     // Criar registro de sincronização
@@ -621,7 +660,7 @@ export class PncpService {
 
     try {
       const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj.replace(/\D/g, '')}/pca`,
+        `/orgaos/${cnpjEnvio}/pca`,
         pcaDto
       );
 
@@ -645,16 +684,23 @@ export class PncpService {
         if (match) sequencial = parseInt(match[1]);
       }
 
+      const numeroControlePncp = response.data?.numeroControlePNCP ||
+                                 response.data?.numeroControle ||
+                                 response.data?.numeroControlePca ||
+                                 response.data?.numeroControlePlano ||
+                                 (cnpjEnvio && sequencial ? `${cnpjEnvio}-${pcaEntity.ano_exercicio}-${sequencial}` : null);
+
       sync.status = StatusSincronizacao.ENVIADO;
       sync.resposta_pncp = response.data;
-      sync.numero_controle_pncp = response.data.numeroControlePNCP;
+      sync.numero_controle_pncp = numeroControlePncp || undefined;
       await this.pncpSyncRepository.save(sync);
 
-      // Atualizar PCA no banco com sequencial e marcar como enviado
+      // Atualizar PCA no banco com número de controle, sequencial e marcar como enviado
       await this.pcaRepository.update(pcaId, {
         enviado_pncp: true,
+        numero_controle_pncp: numeroControlePncp,
         sequencial_pncp: sequencial,
-        data_envio_pncp: new Date()
+        data_envio_pncp: new Date(),
       });
 
       this.logger.log(`PCA enviado ao PNCP: ${response.data.numeroControlePNCP} - Sequencial: ${sequencial}`);
@@ -755,10 +801,7 @@ export class PncpService {
   // ============ PCA - RETIFICAÇÃO E EXCLUSÃO ============
 
   async retificarPCA(anoPca: string, sequencialPca: string, pca: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
 
     const pcaDto = {
       anoPca: parseInt(anoPca),
@@ -768,7 +811,7 @@ export class PncpService {
 
     try {
       const response = await this.axiosInstance.put(
-        `/orgaos/${cnpj.replace(/\D/g, '')}/pca/${anoPca}/${sequencialPca}`,
+        `/orgaos/${cnpj}/pca/${anoPca}/${sequencialPca}`,
         pcaDto
       );
 
@@ -787,15 +830,12 @@ export class PncpService {
   }
 
   async excluirPCA(anoPca: string, sequencialPca: string, justificativa?: string): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
 
     try {
       // PNCP requer justificativa para exclusão
       await this.axiosInstance.delete(
-        `/orgaos/${cnpj.replace(/\D/g, '')}/pca/${anoPca}/${sequencialPca}`,
+        `/orgaos/${cnpj}/pca/${anoPca}/${sequencialPca}`,
         { data: { justificativa: justificativa || 'Exclusão para teste de integração' } }
       );
 
@@ -811,6 +851,32 @@ export class PncpService {
         HttpStatus.BAD_REQUEST
       );
     }
+  }
+
+  private async obterCnpjParaOperacaoPca(anoPca: string | number, sequencialPca: string | number): Promise<string> {
+    const ano = parseInt(String(anoPca), 10);
+    const sequencial = parseInt(String(sequencialPca), 10);
+
+    const pca = await this.pcaRepository.findOne({
+      where: { ano_exercicio: ano, sequencial_pncp: sequencial },
+      relations: ['orgao'],
+    });
+
+    const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
+    const cnpjPadraoLimpo = cnpjPadrao.replace(/\D/g, '');
+
+    if (pca?.orgao?.cnpj) {
+      const cnpjOrgaoLimpo = pca.orgao.cnpj.replace(/\D/g, '');
+      if (cnpjOrgaoLimpo && cnpjOrgaoLimpo !== '12345678000199') {
+        return cnpjOrgaoLimpo;
+      }
+    }
+
+    if (!cnpjPadraoLimpo) {
+      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    }
+
+    return cnpjPadraoLimpo;
   }
 
   async retificarItemPCA(anoPca: string, sequencialPca: string, numeroItem: string, item: any): Promise<PncpResponseDto> {

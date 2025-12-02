@@ -80,6 +80,7 @@ interface PCA {
   enviado_pncp: boolean
   quantidade_itens: number
   valor_total_estimado: number
+  numero_controle_pncp?: string
   sequencial_pncp?: number
 }
 
@@ -130,6 +131,7 @@ export default function PncpPage() {
   const [pcas, setPcas] = useState<PCA[]>([])
   const [comprasEnviadas, setComprasEnviadas] = useState<CompraEnviada[]>([])
   const [config, setConfig] = useState<ConfigPNCP | null>(null)
+  const [orgaoAtual, setOrgaoAtual] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
   const [enviando, setEnviando] = useState<string | null>(null)
   const [testandoConexao, setTestandoConexao] = useState(false)
@@ -198,6 +200,7 @@ export default function PncpPage() {
     try {
       const orgaoData = localStorage.getItem('orgao')
       const orgao = orgaoData ? JSON.parse(orgaoData) : null
+      setOrgaoAtual(orgao)
 
       const [pendentesRes, errosRes, licitacoesRes, configRes, pcasRes] = await Promise.all([
         fetch(`${API_URL}/api/pncp/pendentes`),
@@ -218,6 +221,12 @@ export default function PncpPage() {
       setLoading(false)
     }
   }
+
+  // Erros filtrados para o órgão atual (usa entidade_id casando com PCA deste órgão)
+  const errosFiltrados = erros.filter((erro) => {
+    if (!erro.entidade_id) return true
+    return pcas.some((p) => p.id === erro.entidade_id)
+  })
 
   const testarConexao = async () => {
     setTestandoConexao(true)
@@ -1034,11 +1043,37 @@ export default function PncpPage() {
                             <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => excluirPcaPncp(pca)} disabled={enviando === pca.id}>
                               <Trash2 className="w-4 h-4 mr-1" /> Excluir
                             </Button>
-                            <Button variant="outline" size="sm" asChild>
-                              <a href={`https://treina.pncp.gov.br/app/pca/64435842000159/${pca.ano_exercicio}/${pca.sequencial_pncp}`} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="w-4 h-4 mr-1" /> Ver no PNCP
-                              </a>
-                            </Button>
+                            {pca.numero_controle_pncp ? (
+                              <Button variant="outline" size="sm" asChild>
+                                {(() => {
+                                  const numeroControle = pca.numero_controle_pncp!
+                                  const partes = numeroControle.split('-')
+                                  const cnpjPncp = (partes[0] || '').replace(/\D/g, '')
+
+                                  if (!cnpjPncp) {
+                                    return (
+                                      <span className="text-xs text-gray-500 px-2">
+                                        Número de controle PNCP inválido
+                                      </span>
+                                    )
+                                  }
+
+                                  return (
+                                    <a
+                                      href={`https://treina.pncp.gov.br/app/pca/${cnpjPncp}/${pca.ano_exercicio}/${pca.sequencial_pncp}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      <ExternalLink className="w-4 h-4 mr-1" /> Ver no PNCP
+                                    </a>
+                                  )
+                                })()}
+                              </Button>
+                            ) : (
+                              <Badge variant="outline" className="text-xs">
+                                Sem número de controle PNCP
+                              </Badge>
+                            )}
                           </>
                         ) : (
                           <Badge variant="secondary">Publique para enviar</Badge>
@@ -1746,7 +1781,7 @@ export default function PncpPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {erros.map((erro) => (
+                  {errosFiltrados.map((erro) => (
                     <div 
                       key={erro.id} 
                       className="p-4 border border-red-200 rounded-lg bg-red-50"
@@ -1815,11 +1850,21 @@ export default function PncpPage() {
                         </Badge>
                       </div>
 
-                      <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                        <span className="text-sm font-medium">CNPJ do Órgão</span>
-                        <span className="text-sm font-mono">
-                          {config.cnpjOrgao || <span className="text-red-500">Não configurado</span>}
-                        </span>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <span className="text-sm font-medium">CNPJ da Plataforma no PNCP</span>
+                          <span className="text-sm font-mono">
+                            {config.cnpjOrgao || <span className="text-red-500">Não configurado</span>}
+                          </span>
+                        </div>
+                        {orgaoAtual && (
+                          <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                            <span className="text-sm font-medium">CNPJ deste Órgão</span>
+                            <span className="text-sm font-mono">
+                              {orgaoAtual.cnpj || '---'}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between p-3 bg-muted rounded-lg">

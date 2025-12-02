@@ -78,6 +78,22 @@ export class OrgaosController {
     };
   }
 
+  @Post('reset-credenciais')
+  async resetCredenciais(@Body() body: { cnpj: string; email: string; senha: string }) {
+    const { cnpj, email, senha } = body;
+
+    if (!cnpj || !email || !senha) {
+      throw new UnauthorizedException('CNPJ, email e senha são obrigatórios');
+    }
+
+    const orgao = await this.orgaosService.resetCredenciais(cnpj, email, senha);
+
+    return {
+      success: true,
+      orgaoId: orgao.id,
+    };
+  }
+
   @Get()
   async findAll(): Promise<Orgao[]> {
     return await this.orgaosService.findAll();

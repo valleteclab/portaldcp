@@ -124,6 +124,12 @@ export default function AdminPNCPPage() {
   const [showInstrucoes, setShowInstrucoes] = useState(false)
   const [showCriarUsuario, setShowCriarUsuario] = useState(false)
   const [criandoUsuario, setCriandoUsuario] = useState(false)
+  const [resetandoUsuario, setResetandoUsuario] = useState(false)
+  const [erroCriarUsuario, setErroCriarUsuario] = useState<string | null>(null)
+  const [podeResetar, setPodeResetar] = useState(false)
+  const [showUsuariosOrgao, setShowUsuariosOrgao] = useState(false)
+  const [carregandoUsuarioOrgao, setCarregandoUsuarioOrgao] = useState(false)
+  const [dadosUsuarioOrgao, setDadosUsuarioOrgao] = useState<{ id: string; nome: string; cnpj: string; email_login?: string | null } | null>(null)
   const [formUsuario, setFormUsuario] = useState({
     email_login: '',
     senha: '',
@@ -230,6 +236,52 @@ export default function AdminPNCPPage() {
     setTimeout(() => setCopiado(null), 2000)
   }
 
+  const sincronizarUnidadePlataforma = async () => {
+    if (!orgaoSelecionado) return
+
+    const detalhes = orgaosDetalhes[orgaoSelecionado.cnpj]
+    const unidade = detalhes?.unidades?.[0]
+    if (!unidade) {
+      alert('Nenhuma unidade encontrada para este órgão no PNCP.')
+      return
+    }
+
+    try {
+      // Buscar órgão local pelo CNPJ
+      const orgaosRes = await fetch(`${API_URL}/api/orgaos`)
+      if (!orgaosRes.ok) {
+        throw new Error('Erro ao carregar órgãos locais')
+      }
+      const orgaos = await orgaosRes.json()
+      const orgaoLocal = orgaos.find((o: any) => o.cnpj.replace(/\D/g, '') === orgaoSelecionado.cnpj)
+
+      if (!orgaoLocal) {
+        alert('Órgão ainda não está cadastrado na plataforma. Crie o órgão primeiro.')
+        return
+      }
+
+      // Atualizar vínculo PNCP do órgão local com o código de unidade retornado pelo PNCP
+      const vinculoRes = await fetch(`${API_URL}/api/orgaos/${orgaoLocal.id}/pncp`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pncp_vinculado: true,
+          pncp_codigo_unidade: unidade.codigoUnidade || '1',
+        }),
+      })
+
+      if (vinculoRes.ok) {
+        alert(`✅ Unidade ${unidade.codigoUnidade} sincronizada como padrão na plataforma para este órgão.`)
+      } else {
+        const error = await vinculoRes.json()
+        alert('Erro ao salvar vínculo PNCP no órgão: ' + (error.message || 'Erro desconhecido'))
+      }
+    } catch (error: any) {
+      console.error('Erro ao sincronizar unidade:', error)
+      alert('Erro ao sincronizar unidade: ' + error.message)
+    }
+  }
+
   const abrirCriarUsuario = (ente: EnteAutorizado) => {
     setOrgaoSelecionado(ente)
     setFormUsuario({
@@ -237,64 +289,117 @@ export default function AdminPNCPPage() {
       senha: '',
       nome_responsavel: ''
     })
+    setErroCriarUsuario(null)
+    setPodeResetar(false)
     setShowCriarUsuario(true)
+  }
+
+  const abrirUsuariosOrgao = async (ente: EnteAutorizado) => {
+    setOrgaoSelecionado(ente)
+    setDadosUsuarioOrgao(null)
+    setFormUsuario({
+      email_login: '',
+      senha: '',
+      nome_responsavel: ''
+    })
+    setCarregandoUsuarioOrgao(true)
+    setShowUsuariosOrgao(true)
+
+    try {
+      // Busca todos os órgãos e filtra pelo CNPJ
+      const res = await fetch(`${API_URL}/api/orgaos`)
+      if (res.ok) {
+        const orgaos = await res.json()
+        const encontrado = orgaos.find((o: any) => o.cnpj.replace(/\D/g, '') === ente.cnpj)
+        if (encontrado) {
+          setDadosUsuarioOrgao({
+            id: encontrado.id,
+            nome: encontrado.nome,
+            cnpj: encontrado.cnpj,
+            email_login: encontrado.email_login,
+          })
+          setFormUsuario(prev => ({
+            ...prev,
+            email_login: encontrado.email_login || '',
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar usuário do órgão:', error)
+    } finally {
+      setCarregandoUsuarioOrgao(false)
+    }
   }
 
   const criarUsuarioOrgao = async () => {
     if (!orgaoSelecionado) return
     
     setCriandoUsuario(true)
+    setErroCriarUsuario(null)
+    setPodeResetar(false)
     try {
-      // Primeiro verificar se o órgão já existe no sistema
-      const checkRes = await fetch(`${API_URL}/api/orgaos`)
-      const orgaosExistentes = await checkRes.json()
-      const orgaoExistente = orgaosExistentes.find((o: any) => 
-        o.cnpj.replace(/\D/g, '') === orgaoSelecionado.cnpj
-      )
-
-      if (orgaoExistente) {
-        alert('Este órgão já está cadastrado no sistema!')
-        setShowCriarUsuario(false)
-        return
-      }
-
-      // Criar o órgão
-      const response = await fetch(`${API_URL}/api/orgaos`, {
+      // Criar órgão + usuário usando endpoint de registro (centraliza hash de senha)
+      const response = await fetch(`${API_URL}/api/orgaos/registro`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          codigo: orgaoSelecionado.cnpj.substring(0, 10),
-          nome: orgaoSelecionado.razaoSocial,
-          cnpj: formatarCNPJ(orgaoSelecionado.cnpj),
-          tipo: 'PREFEITURA',
-          esfera: 'MUNICIPAL',
-          logradouro: 'A definir',
-          bairro: 'A definir',
-          cidade: 'A definir',
-          uf: 'XX',
-          cep: '00000-000',
-          responsavel_nome: formUsuario.nome_responsavel || 'A definir',
-          responsavel_cpf: '000.000.000-00',
-          email_login: formUsuario.email_login,
+          email: formUsuario.email_login,
           senha: formUsuario.senha,
-          pncp_vinculado: true,
-          pncp_codigo_unidade: '1'
+          nome: orgaoSelecionado.razaoSocial,
+          cnpj: orgaoSelecionado.cnpj,
+          codigo: orgaoSelecionado.cnpj.substring(0, 10)
         })
       })
 
       if (response.ok) {
-        const orgao = await response.json()
+        await response.json()
         alert(`✅ Órgão criado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}`)
         setShowCriarUsuario(false)
       } else {
         const error = await response.json()
-        alert('Erro: ' + (error.message || 'Erro ao criar órgão'))
+        if (response.status === 409) {
+          // Já existe órgão ou email cadastrado
+          setErroCriarUsuario(error.message || 'Órgão ou email já cadastrado. Use a opção "Usuários" para gerenciar ou resetar o acesso.')
+          setPodeResetar(false)
+        } else {
+          alert('Erro: ' + (error.message || 'Erro ao criar órgão'))
+        }
       }
     } catch (error: any) {
       console.error('Erro ao criar órgão:', error)
       alert('Erro ao criar órgão: ' + error.message)
     } finally {
       setCriandoUsuario(false)
+    }
+  }
+
+  const resetUsuarioOrgao = async () => {
+    if (!orgaoSelecionado) return
+
+    setResetandoUsuario(true)
+    try {
+      const response = await fetch(`${API_URL}/api/orgaos/reset-credenciais`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cnpj: orgaoSelecionado.cnpj,
+          email: formUsuario.email_login,
+          senha: formUsuario.senha,
+        }),
+      })
+
+      if (response.ok) {
+        alert(`✅ Usuário resetado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}`)
+        setShowCriarUsuario(false)
+      } else {
+        const error = await response.json()
+        alert('Erro ao resetar usuário: ' + (error.message || 'Erro desconhecido'))
+      }
+    } catch (error: any) {
+      console.error('Erro ao resetar usuário:', error)
+      alert('Erro ao resetar usuário: ' + error.message)
+    } finally {
+      setResetandoUsuario(false)
     }
   }
 
@@ -583,12 +688,19 @@ export default function AdminPNCPPage() {
                             Detalhes
                           </Button>
                           <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => abrirUsuariosOrgao(ente)}
+                          >
+                            <Users className="w-4 h-4 mr-1" />
+                            Usuários
+                          </Button>
+                          <Button
                             size="sm"
                             onClick={() => abrirCriarUsuario(ente)}
                             disabled={!temUnidades}
                             title={!temUnidades ? 'Órgão precisa ter unidade cadastrada' : 'Criar usuário no sistema'}
                           >
-                            <Users className="w-4 h-4 mr-1" />
                             Criar Usuário
                           </Button>
                         </div>
@@ -669,11 +781,105 @@ export default function AdminPNCPPage() {
                 )}
               </div>
 
-              <div className="flex justify-end">
-                <Button variant="outline" onClick={() => setShowDetalhesOrgao(false)}>
-                  Fechar
-                </Button>
+              <div className="flex justify-between items-center gap-4">
+                <div className="text-xs text-gray-500">
+                  Use este órgão/unidade como base para configurar o vínculo PNCP na plataforma.
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={sincronizarUnidadePlataforma}
+                  >
+                    <Link2 className="w-4 h-4 mr-1" />
+                    Usar esta unidade na plataforma
+                  </Button>
+                  <Button variant="outline" onClick={() => setShowDetalhesOrgao(false)}>
+                    Fechar
+                  </Button>
+                </div>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Usuários do Órgão */}
+      <Dialog open={showUsuariosOrgao} onOpenChange={setShowUsuariosOrgao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Usuário do Órgão
+            </DialogTitle>
+            <DialogDescription>
+              {orgaoSelecionado?.razaoSocial}
+            </DialogDescription>
+          </DialogHeader>
+
+          {carregandoUsuarioOrgao ? (
+            <div className="py-6 text-center">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+              <p className="text-sm text-gray-600">Carregando informações do órgão...</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {dadosUsuarioOrgao ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-gray-500">CNPJ</Label>
+                      <p className="font-mono">{dadosUsuarioOrgao.cnpj}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-500">Nome</Label>
+                      <p className="font-medium">{dadosUsuarioOrgao.nome}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Email de Login</Label>
+                    <Input
+                      value={formUsuario.email_login}
+                      onChange={(e) => setFormUsuario({ ...formUsuario, email_login: e.target.value })}
+                      placeholder="email@orgao.gov.br"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Nova Senha</Label>
+                    <Input
+                      type="text"
+                      value={formUsuario.senha}
+                      onChange={(e) => setFormUsuario({ ...formUsuario, senha: e.target.value })}
+                      placeholder="Informe a nova senha para o órgão"
+                    />
+                    <p className="text-xs text-gray-500">A senha será redefinida para o órgão com esse email.</p>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowUsuariosOrgao(false)}>
+                      Fechar
+                    </Button>
+                    <Button
+                      onClick={resetUsuarioOrgao}
+                      disabled={resetandoUsuario || !formUsuario.email_login || !formUsuario.senha}
+                    >
+                      {resetandoUsuario ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Resetar usuário
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="py-6 text-center text-sm text-gray-600">
+                  Nenhum órgão encontrado no sistema com este CNPJ.
+                  <br />
+                  Use a opção "Criar Usuário" para cadastrar este órgão.
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
@@ -820,6 +1026,12 @@ Atenciosamente,
               <p>Ao criar o usuário, o órgão será cadastrado no sistema e poderá acessar o portal com as credenciais abaixo.</p>
             </div>
 
+            {erroCriarUsuario && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {erroCriarUsuario}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>CNPJ</Label>
               <Input
@@ -860,21 +1072,40 @@ Atenciosamente,
               <p className="text-xs text-gray-500">A senha será enviada ao órgão</p>
             </div>
 
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowCriarUsuario(false)}>
-                Cancelar
-              </Button>
-              <Button 
-                onClick={criarUsuarioOrgao}
-                disabled={criandoUsuario || !formUsuario.email_login || !formUsuario.senha}
-              >
-                {criandoUsuario ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                )}
-                Criar Usuário
-              </Button>
+            <div className="flex justify-between items-center gap-4">
+              {podeResetar && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                  onClick={resetUsuarioOrgao}
+                  disabled={resetandoUsuario}
+                >
+                  {resetandoUsuario ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  Resetar usuário existente
+                </Button>
+              )}
+
+              <div className="flex justify-end gap-2 ml-auto">
+                <Button variant="outline" onClick={() => setShowCriarUsuario(false)}>
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={criarUsuarioOrgao}
+                  disabled={criandoUsuario || !formUsuario.email_login || !formUsuario.senha}
+                >
+                  {criandoUsuario ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                  )}
+                  Criar Usuário
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Orgao } from './entities/orgao.entity';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import axios from 'axios';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class OrgaosService {
@@ -62,6 +63,25 @@ export class OrgaosService {
 
   async findByCnpj(cnpj: string): Promise<Orgao | null> {
     return await this.orgaoRepository.findOneBy({ cnpj });
+  }
+
+  async resetCredenciais(cnpj: string, email: string, senha: string): Promise<Orgao> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+
+    // Busca órgão ignorando máscara do CNPJ
+    const todos = await this.orgaoRepository.find();
+    const orgao = todos.find(o => (o.cnpj || '').replace(/\D/g, '') === cnpjLimpo);
+
+    if (!orgao) {
+      throw new NotFoundException(`Órgão com CNPJ ${cnpj} não encontrado`);
+    }
+
+    // Atualiza credenciais de acesso
+    orgao.email_login = email;
+    orgao.senha_hash = createHash('sha256').update(senha).digest('hex');
+    orgao.ativo = true;
+
+    return await this.orgaoRepository.save(orgao);
   }
 
   async update(id: string, updateData: Partial<CreateOrgaoDto>): Promise<Orgao> {
