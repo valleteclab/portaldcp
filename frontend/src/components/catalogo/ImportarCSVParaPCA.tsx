@@ -154,7 +154,17 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
     setErrosValidacao([])
     
     try {
-      const text = await file.text()
+      // Tentar ler como UTF-8 primeiro, se tiver caracteres inválidos, tentar Latin-1
+      let text = await file.text()
+      
+      // Detectar se há caracteres corrompidos (geralmente aparecem como �)
+      if (text.includes('�') || text.includes('Ã§') || text.includes('Ã£')) {
+        // Ler como ArrayBuffer e decodificar como Latin-1 (ISO-8859-1)
+        const buffer = await file.arrayBuffer()
+        const decoder = new TextDecoder('iso-8859-1')
+        text = decoder.decode(buffer)
+      }
+      
       const linhas = text.split('\n').filter(l => l.trim())
       
       if (linhas.length < 2) {
