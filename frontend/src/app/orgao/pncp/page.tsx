@@ -255,8 +255,8 @@ export default function PncpPage() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert(`PCA enviado ao PNCP com sucesso!\nNúmero de Controle: ${data.numeroControlePNCP}`)
-        carregarDados()
+        alert(`PCA enviado ao PNCP com sucesso!\nNúmero de Controle: ${data.numeroControlePNCP}\nSequencial: ${data.sequencial}`)
+        await carregarDados()
       } else {
         alert(data.message || 'Erro ao enviar PCA para o PNCP')
       }
@@ -557,8 +557,12 @@ export default function PncpPage() {
       )
       
       if (response.sucesso) {
-        alert('✅ PCA excluído com sucesso!')
-        carregarDados()
+        // Desmarcar PCA como enviado no nosso sistema
+        await fetch(`${API_URL}/api/pca/${pca.id}/desmarcar-enviado-pncp`, {
+          method: 'PATCH'
+        })
+        alert('✅ PCA excluído do PNCP com sucesso!')
+        await carregarDados()
       }
     } catch (error: any) {
       alert(`❌ Erro ao excluir PCA:\n${error.message}`)

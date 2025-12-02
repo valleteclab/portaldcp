@@ -644,15 +644,8 @@ export default function PcaPage() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        // Atualizar status do PCA no backend
-        await fetch(`${API_URL}/api/pca/${pcaAtual.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enviado_pncp: true })
-        })
-
-        alert(`PCA enviado ao PNCP com sucesso!\n\nNúmero de Controle: ${data.numeroControlePNCP}`)
-        carregarPCAs()
+        alert(`PCA enviado ao PNCP com sucesso!\n\nNúmero de Controle: ${data.numeroControlePNCP}\nSequencial: ${data.sequencial}`)
+        await carregarPCAs()
       } else {
         alert(`Erro ao enviar PCA ao PNCP:\n${data.message || 'Erro desconhecido'}`)
       }
@@ -674,7 +667,7 @@ export default function PcaPage() {
 
       if (response.ok) {
         alert(`PCA duplicado para ${pcaAtual.ano_exercicio + 1}!`)
-        carregarPCAs()
+        await carregarPCAs()
       }
     } catch (error) {
       console.error('Erro ao duplicar PCA:', error)
