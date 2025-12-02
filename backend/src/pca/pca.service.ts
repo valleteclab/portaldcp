@@ -96,6 +96,22 @@ export class PcaService {
     return this.pcaRepository.save(pca);
   }
 
+  async excluir(id: string): Promise<{ message: string }> {
+    const pca = await this.findOne(id);
+
+    if (pca.enviado_pncp || pca.status === StatusPCA.ENVIADO_PNCP) {
+      throw new BadRequestException('Não é possível excluir um PCA já enviado ao PNCP');
+    }
+
+    // Excluir itens primeiro
+    await this.itemPcaRepository.delete({ pca_id: id });
+    
+    // Excluir PCA
+    await this.pcaRepository.delete(id);
+
+    return { message: `PCA ${pca.ano_exercicio} excluído com sucesso` };
+  }
+
   async aprovar(id: string, responsavel: { id: string; nome: string; cargo: string }): Promise<PlanoContratacaoAnual> {
     const pca = await this.findOne(id);
 
@@ -133,6 +149,18 @@ export class PcaService {
     pca.numero_controle_pncp = numeroControle;
     pca.sequencial_pncp = sequencial;
     pca.data_envio_pncp = new Date();
+
+    return this.pcaRepository.save(pca);
+  }
+
+  async desmarcarEnviadoPNCP(id: string): Promise<PlanoContratacaoAnual> {
+    const pca = await this.findOne(id);
+
+    pca.status = StatusPCA.PUBLICADO;
+    pca.enviado_pncp = false;
+    pca.numero_controle_pncp = undefined as any;
+    pca.sequencial_pncp = undefined as any;
+    pca.data_envio_pncp = undefined as any;
 
     return this.pcaRepository.save(pca);
   }
@@ -453,6 +481,13 @@ export class PcaService {
     );
 
     for (const item of itensParaCopiar) {
+      // Ajustar data_desejada_contratacao para o novo ano (mantendo dia e mês)
+      let novaDataDesejada: Date | undefined = undefined;
+      if (item.data_desejada_contratacao) {
+        const dataOriginal = new Date(item.data_desejada_contratacao);
+        novaDataDesejada = new Date(proximoAno, dataOriginal.getMonth(), dataOriginal.getDate());
+      }
+
       await this.adicionarItem(novoPca.id, {
         categoria: item.categoria,
         descricao_objeto: item.descricao_objeto,
@@ -463,13 +498,18 @@ export class PcaService {
         descricao_item_catalogo: item.descricao_item_catalogo,
         catalogo_utilizado: item.catalogo_utilizado,
         classificacao_catalogo: item.classificacao_catalogo,
+        codigo_grupo: item.codigo_grupo,
+        nome_grupo: item.nome_grupo,
         unidade_requisitante: item.unidade_requisitante,
         responsavel_demanda: item.responsavel_demanda,
         email_responsavel: item.email_responsavel,
         valor_estimado: item.valor_estimado,
+        valor_unitario_estimado: item.valor_unitario_estimado,
+        valor_orcamentario_exercicio: item.valor_orcamentario_exercicio,
         quantidade_estimada: item.quantidade_estimada,
         unidade_medida: item.unidade_medida,
         trimestre_previsto: item.trimestre_previsto,
+        data_desejada_contratacao: novaDataDesejada as any,
         modalidade_prevista: item.modalidade_prevista,
         srp: item.srp,
         exclusivo_mpe: item.exclusivo_mpe,

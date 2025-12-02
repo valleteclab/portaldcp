@@ -156,6 +156,11 @@ export default function PcaPage() {
   const [loading, setLoading] = useState(true)
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
   const [showNovoItem, setShowNovoItem] = useState(false)
+  const [visualizacao, setVisualizacao] = useState<'lista' | 'detalhes'>('lista')
+  const [showNovoPCA, setShowNovoPCA] = useState(false)
+  const [anoNovoPCA, setAnoNovoPCA] = useState(new Date().getFullYear() + 1)
+  const [showConfirmarExclusaoPCA, setShowConfirmarExclusaoPCA] = useState(false)
+  const [pcaParaExcluir, setPcaParaExcluir] = useState<PCA | null>(null)
   const [novoItem, setNovoItem] = useState({
     categoria: 'SERVICO',
     descricao_objeto: '',
@@ -257,8 +262,13 @@ export default function PcaPage() {
       })
 
       if (response.ok) {
+        const novoPca = await response.json()
         alert('PCA criado com sucesso!')
-        carregarPCAs()
+        setShowNovoPCA(false)
+        await carregarPCAs()
+        // Abrir o novo PCA
+        setPcaAtual(novoPca)
+        setVisualizacao('detalhes')
       } else {
         const error = await response.json()
         alert(error.message || 'Erro ao criar PCA')
@@ -267,6 +277,72 @@ export default function PcaPage() {
       console.error('Erro ao criar PCA:', error)
       alert('Erro ao criar PCA')
     }
+  }
+
+  const criarNovoPCA = async () => {
+    try {
+      const orgaoData = localStorage.getItem('orgao')
+      if (!orgaoData) return
+
+      const orgao = JSON.parse(orgaoData)
+      const response = await fetch(`${API_URL}/api/pca`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgao_id: orgao.id,
+          ano_exercicio: anoNovoPCA
+        })
+      })
+
+      if (response.ok) {
+        const novoPca = await response.json()
+        alert('PCA criado com sucesso!')
+        setShowNovoPCA(false)
+        await carregarPCAs()
+        setPcaAtual(novoPca)
+        setVisualizacao('detalhes')
+      } else {
+        const error = await response.json()
+        alert(error.message || 'Erro ao criar PCA')
+      }
+    } catch (error) {
+      console.error('Erro ao criar PCA:', error)
+      alert('Erro ao criar PCA')
+    }
+  }
+
+  const excluirPCA = async () => {
+    if (!pcaParaExcluir) return
+
+    try {
+      const response = await fetch(`${API_URL}/api/pca/${pcaParaExcluir.id}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        alert('PCA excluído com sucesso!')
+        setShowConfirmarExclusaoPCA(false)
+        setPcaParaExcluir(null)
+        carregarPCAs()
+      } else {
+        const error = await response.json()
+        alert(error.message || 'Erro ao excluir PCA')
+      }
+    } catch (error) {
+      console.error('Erro ao excluir PCA:', error)
+      alert('Erro ao excluir PCA')
+    }
+  }
+
+  const abrirPCA = (pca: PCA) => {
+    setPcaAtual(pca)
+    setAnoSelecionado(pca.ano_exercicio)
+    setVisualizacao('detalhes')
+  }
+
+  const voltarParaLista = () => {
+    setVisualizacao('lista')
+    setPcaAtual(null)
   }
 
   const handleSelecionarItemCatalogo = (item: ItemCatalogo | null) => {
@@ -724,19 +800,192 @@ export default function PcaPage() {
     )
   }
 
+  // ============ VISUALIZAÇÃO: LISTA DE PCAs ============
+  if (visualizacao === 'lista') {
+    return (
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Planos de Contratações Anuais (PCA)</h1>
+            <p className="text-gray-600">Gerencie os planos de contratações do órgão</p>
+          </div>
+          <Button onClick={() => setShowNovoPCA(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Novo PCA
+          </Button>
+        </div>
+
+        {/* Lista de PCAs */}
+        {pcas.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-12">
+              <Calendar className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Nenhum PCA cadastrado</h3>
+              <p className="text-gray-600 mb-4">Crie o primeiro Plano de Contratações Anual para começar o planejamento.</p>
+              <Button onClick={() => setShowNovoPCA(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Criar Primeiro PCA
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4">
+            {pcas.sort((a, b) => b.ano_exercicio - a.ano_exercicio).map((pca) => (
+              <Card key={pca.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <Calendar className="w-8 h-8 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">PCA {pca.ano_exercicio}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge className={STATUS_PCA[pca.status as keyof typeof STATUS_PCA]?.cor || 'bg-gray-100'}>
+                            {STATUS_PCA[pca.status as keyof typeof STATUS_PCA]?.label || pca.status}
+                          </Badge>
+                          {pca.enviado_pncp && (
+                            <Badge className="bg-green-100 text-green-800">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Enviado PNCP
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-8">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-blue-600">{pca.quantidade_itens || 0}</p>
+                        <p className="text-sm text-gray-500">Itens</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">
+                          {formatarMoeda(pca.valor_total_estimado)}
+                        </p>
+                        <p className="text-sm text-gray-500">Valor Total</p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => abrirPCA(pca)}>
+                          <Eye className="w-4 h-4 mr-1" />
+                          Visualizar
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => abrirPCA(pca)}>
+                          <Pencil className="w-4 h-4 mr-1" />
+                          Editar
+                        </Button>
+                        {!pca.enviado_pncp && pca.status !== 'ENVIADO_PNCP' && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => {
+                              setPcaParaExcluir(pca)
+                              setShowConfirmarExclusaoPCA(true)
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            Excluir
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Modal Novo PCA */}
+        <Dialog open={showNovoPCA} onOpenChange={setShowNovoPCA}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Criar Novo PCA</DialogTitle>
+              <DialogDescription>
+                Selecione o ano para o novo Plano de Contratações Anual
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="text-sm font-medium">Ano do Exercício</label>
+                <Select value={anoNovoPCA.toString()} onValueChange={(v) => setAnoNovoPCA(parseInt(v))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {anos.map(ano => (
+                      <SelectItem 
+                        key={ano} 
+                        value={ano.toString()}
+                        disabled={pcas.some(p => p.ano_exercicio === ano)}
+                      >
+                        {ano} {pcas.some(p => p.ano_exercicio === ano) && '(já existe)'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowNovoPCA(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={criarNovoPCA}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Criar PCA {anoNovoPCA}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal Confirmar Exclusão PCA */}
+        <AlertDialog open={showConfirmarExclusaoPCA} onOpenChange={setShowConfirmarExclusaoPCA}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir PCA {pcaParaExcluir?.ano_exercicio}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Esta ação não pode ser desfeita. Todos os itens do PCA serão excluídos permanentemente.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setPcaParaExcluir(null)}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={excluirPCA} className="bg-red-600 hover:bg-red-700">
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    )
+  }
+
+  // ============ VISUALIZAÇÃO: DETALHES DO PCA ============
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
+      {/* Header com botão voltar */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Plano de Contratações Anual (PCA)</h1>
-          <p className="text-gray-600">Gerencie o planejamento de contratações do órgão</p>
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" onClick={voltarParaLista}>
+            <ArrowRight className="w-4 h-4 mr-2 rotate-180" />
+            Voltar
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Plano de Contratações Anual (PCA)</h1>
+            <p className="text-gray-600">Gerencie o planejamento de contratações do órgão</p>
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <Select value={anoSelecionado.toString()} onValueChange={(v) => {
             setAnoSelecionado(parseInt(v))
             const pca = pcas.find(p => p.ano_exercicio === parseInt(v))
-            setPcaAtual(pca || null)
+            if (pca) {
+              setPcaAtual(pca)
+            } else {
+              setVisualizacao('lista')
+            }
           }}>
             <SelectTrigger className="w-32">
               <SelectValue />
@@ -747,13 +996,6 @@ export default function PcaPage() {
               ))}
             </SelectContent>
           </Select>
-          
-          {!pcaAtual && (
-            <Button onClick={criarPCA}>
-              <Plus className="w-4 h-4 mr-2" />
-              Criar PCA {anoSelecionado}
-            </Button>
-          )}
         </div>
       </div>
 
@@ -762,10 +1004,9 @@ export default function PcaPage() {
           <CardContent className="text-center py-12">
             <Calendar className="w-12 h-12 mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-semibold mb-2">Nenhum PCA para {anoSelecionado}</h3>
-            <p className="text-gray-600 mb-4">Crie o Plano de Contratações Anual para começar o planejamento.</p>
-            <Button onClick={criarPCA}>
-              <Plus className="w-4 h-4 mr-2" />
-              Criar PCA {anoSelecionado}
+            <p className="text-gray-600 mb-4">Selecione outro ano ou volte para a lista.</p>
+            <Button onClick={voltarParaLista}>
+              Voltar para Lista
             </Button>
           </CardContent>
         </Card>

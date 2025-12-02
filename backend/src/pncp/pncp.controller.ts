@@ -3,6 +3,7 @@ import {
   Get, 
   Post, 
   Put,
+  Delete,
   Param, 
   Body, 
   Query,
@@ -155,7 +156,7 @@ export class PncpController {
     return this.pncpService.reenviar(syncId);
   }
 
-  // ============ PCA ============
+  // ============ PCA - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
 
   @Post('pca/:pcaId')
   async enviarPCA(
@@ -163,6 +164,24 @@ export class PncpController {
     @Body() pca: any
   ) {
     return this.pncpService.enviarPCA(pcaId, pca);
+  }
+
+  @Put('pca/:anoPca/:sequencialPca')
+  async retificarPCA(
+    @Param('anoPca') anoPca: string,
+    @Param('sequencialPca') sequencialPca: string,
+    @Body() pca: any
+  ) {
+    return this.pncpService.retificarPCA(anoPca, sequencialPca, pca);
+  }
+
+  @Delete('pca/:anoPca/:sequencialPca')
+  async excluirPCA(
+    @Param('anoPca') anoPca: string,
+    @Param('sequencialPca') sequencialPca: string,
+    @Body() body?: { justificativa?: string }
+  ) {
+    return this.pncpService.excluirPCA(anoPca, sequencialPca, body?.justificativa);
   }
 
   @Post('pca/:pcaId/itens')
@@ -173,9 +192,191 @@ export class PncpController {
     return this.pncpService.enviarItemPCA(pcaId, item);
   }
 
+  @Put('pca/:anoPca/:sequencialPca/itens/:numeroItem')
+  async retificarItemPCA(
+    @Param('anoPca') anoPca: string,
+    @Param('sequencialPca') sequencialPca: string,
+    @Param('numeroItem') numeroItem: string,
+    @Body() item: any
+  ) {
+    return this.pncpService.retificarItemPCA(anoPca, sequencialPca, numeroItem, item);
+  }
+
+  @Delete('pca/:anoPca/:sequencialPca/itens/:numeroItem')
+  async excluirItemPCA(
+    @Param('anoPca') anoPca: string,
+    @Param('sequencialPca') sequencialPca: string,
+    @Param('numeroItem') numeroItem: string
+  ) {
+    return this.pncpService.excluirItemPCA(anoPca, sequencialPca, numeroItem);
+  }
+
   @Get('pca/:pcaId/status')
   async consultarStatusPCA(@Param('pcaId') pcaId: string) {
     return this.pncpService.consultarStatusPCA(pcaId);
+  }
+
+  @Get('pca/orgao/listar')
+  async listarPCAsNoOrgao() {
+    return this.pncpService.consultarPCAsNoOrgao();
+  }
+
+  // ============ COMPRAS/EDITAIS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
+
+  @Post('compras')
+  async incluirCompra(@Body() compra: any) {
+    return this.pncpService.incluirCompra(compra);
+  }
+
+  @Put('compras/:anoCompra/:sequencialCompra')
+  async retificarCompra(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Body() compra: any
+  ) {
+    return this.pncpService.retificarCompra(anoCompra, sequencialCompra, compra);
+  }
+
+  @Delete('compras/:anoCompra/:sequencialCompra')
+  async excluirCompra(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Body() body: { justificativa: string }
+  ) {
+    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body.justificativa);
+  }
+
+  @Get('compras/:anoCompra/:sequencialCompra')
+  async consultarCompra(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string
+  ) {
+    return this.pncpService.consultarCompra(anoCompra, sequencialCompra);
+  }
+
+  // ============ RESULTADO DE ITENS DA COMPRA ============
+
+  @Post('compras/:anoCompra/:sequencialCompra/itens/:numeroItem/resultado')
+  async incluirResultadoItem(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Param('numeroItem') numeroItem: string,
+    @Body() resultado: any
+  ) {
+    return this.pncpService.incluirResultadoItem(anoCompra, sequencialCompra, numeroItem, resultado);
+  }
+
+  @Put('compras/:anoCompra/:sequencialCompra/itens/:numeroItem/resultado')
+  async retificarResultadoItem(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Param('numeroItem') numeroItem: string,
+    @Body() resultado: any
+  ) {
+    return this.pncpService.retificarResultadoItem(anoCompra, sequencialCompra, numeroItem, resultado);
+  }
+
+  // ============ ATA DE REGISTRO DE PREÇO ============
+
+  @Post('compras/:anoCompra/:sequencialCompra/atas')
+  async incluirAtaRegistroPreco(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Body() ata: any
+  ) {
+    return this.pncpService.incluirAtaRegistroPreco(anoCompra, sequencialCompra, ata);
+  }
+
+  @Put('compras/:anoCompra/:sequencialCompra/atas/:sequencialAta')
+  async retificarAtaRegistroPreco(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Param('sequencialAta') sequencialAta: string,
+    @Body() ata: any
+  ) {
+    return this.pncpService.retificarAtaRegistroPreco(anoCompra, sequencialCompra, sequencialAta, ata);
+  }
+
+  @Delete('compras/:anoCompra/:sequencialCompra/atas/:sequencialAta')
+  async excluirAtaRegistroPreco(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Param('sequencialAta') sequencialAta: string,
+    @Body() body: { justificativa: string }
+  ) {
+    return this.pncpService.excluirAtaRegistroPreco(anoCompra, sequencialCompra, sequencialAta, body.justificativa);
+  }
+
+  // ============ CONTRATOS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
+
+  @Post('contratos')
+  async incluirContrato(@Body() contrato: any) {
+    return this.pncpService.incluirContrato(contrato);
+  }
+
+  @Put('contratos/:anoContrato/:sequencialContrato')
+  async retificarContrato(
+    @Param('anoContrato') anoContrato: string,
+    @Param('sequencialContrato') sequencialContrato: string,
+    @Body() contrato: any
+  ) {
+    return this.pncpService.retificarContrato(anoContrato, sequencialContrato, contrato);
+  }
+
+  @Delete('contratos/:anoContrato/:sequencialContrato')
+  async excluirContrato(
+    @Param('anoContrato') anoContrato: string,
+    @Param('sequencialContrato') sequencialContrato: string,
+    @Body() body: { justificativa: string }
+  ) {
+    return this.pncpService.excluirContrato(anoContrato, sequencialContrato, body.justificativa);
+  }
+
+  @Get('contratos/:anoContrato/:sequencialContrato')
+  async consultarContrato(
+    @Param('anoContrato') anoContrato: string,
+    @Param('sequencialContrato') sequencialContrato: string
+  ) {
+    return this.pncpService.consultarContrato(anoContrato, sequencialContrato);
+  }
+
+  // ============ ÓRGÃOS E UNIDADES ============
+
+  @Get('orgaos/:cnpj')
+  async consultarOrgao(@Param('cnpj') cnpj: string) {
+    return this.pncpService.consultarOrgao(cnpj);
+  }
+
+  @Post('orgaos')
+  async cadastrarOrgao(@Body() orgao: any) {
+    return this.pncpService.cadastrarOrgao(orgao);
+  }
+
+  @Get('orgaos/:cnpj/unidades')
+  async listarUnidades(@Param('cnpj') cnpj: string) {
+    return this.pncpService.listarUnidades(cnpj);
+  }
+
+  @Post('orgaos/:cnpj/unidades')
+  async cadastrarUnidade(@Param('cnpj') cnpj: string, @Body() unidade: any) {
+    return this.pncpService.cadastrarUnidade(cnpj, unidade);
+  }
+
+  // ============ USUÁRIO E ENTES AUTORIZADOS ============
+
+  @Get('usuario')
+  async consultarUsuario() {
+    return this.pncpService.consultarUsuario();
+  }
+
+  @Put('usuario/entes-autorizados')
+  async atualizarEntesAutorizados(@Body() body: { cnpjs: string[] }) {
+    return this.pncpService.atualizarEntesAutorizados(body.cnpjs);
+  }
+
+  @Post('usuario/vincular-ente/:cnpj')
+  async vincularEnte(@Param('cnpj') cnpj: string) {
+    return this.pncpService.vincularEnte(cnpj);
   }
 
   // ============ CONFIGURAÇÃO ============

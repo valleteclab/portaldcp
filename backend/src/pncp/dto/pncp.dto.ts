@@ -1,7 +1,47 @@
-// DTOs para integração com PNCP
+/**
+ * DTOs para integração com PNCP - Portal Nacional de Contratações Públicas
+ * 
+ * Documentação: https://www.gov.br/pncp/pt-br/central-de-conteudo/manuais
+ * Swagger: https://pncp.gov.br/api/pncp/swagger-ui/index.html
+ * 
+ * @version 2.0.0
+ * @date 2025-12-01
+ */
 
 // ============ PCA - Plano de Contratações Anual ============
+
+/**
+ * Item do Plano de Contratação Anual
+ */
+export class ItemPcaDto {
+  numero_item: number;
+  categoria_item_pca: number;           // 1=Bens, 2=Serviços, 3=Obras
+  descricao: string;
+  unidade_fornecimento: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+  valor_orcamento_exercicio: number;
+  unidade_requisitante: string;
+  data_desejada: string;                // YYYY-MM-DD
+  classificacao_catalogo_id?: number;   // 1=CATMAT, 2=CATSER
+  codigo_classe?: string;               // Código CATMAT/CATSER
+  descricao_classe?: string;
+}
+
+/**
+ * Plano de Contratação Anual
+ */
 export class PcaDto {
+  ano_pca: number;
+  itens: ItemPcaDto[];
+}
+
+/**
+ * DTO legado para compatibilidade
+ * @deprecated Use PcaDto e ItemPcaDto
+ */
+export class PcaLegacyDto {
   anoExercicio: number;
   categoriaItemPca: number; // 1=Material, 2=Serviço, 3=Obra
   codigoClassificacaoSuperior?: string;
@@ -18,7 +58,58 @@ export class PcaDto {
   valorEstimadoUnitario: number;
 }
 
-// ============ Compra/Contratação ============
+// ============ COMPRA/EDITAL - DTOs de Entrada (Frontend -> Backend) ============
+
+/**
+ * Item da Compra para inclusão
+ */
+export class ItemCompraInputDto {
+  numero_item: number;
+  descricao: string;
+  tipo: 'MATERIAL' | 'SERVICO';
+  quantidade: number;
+  unidade_medida: string;
+  valor_unitario: number;
+  valor_total: number;
+  tipo_beneficio_id?: number;
+  criterio_julgamento_id?: number;
+  orcamento_sigiloso?: boolean;
+  item_categoria_id?: number;
+}
+
+/**
+ * Compra/Edital para inclusão
+ */
+export class CompraInputDto {
+  codigo_unidade: string;
+  ano_compra: number;
+  numero_compra?: string;
+  numero_processo: string;
+  objeto: string;
+  modalidade_id: number;              // 6=Pregão Eletrônico
+  modo_disputa_id: number;            // 1=Aberto
+  tipo_instrumento_id: number;        // 1=Edital
+  amparo_legal_id: number;            // Lei 14.133/2021
+  srp: boolean;
+  data_abertura_proposta: string;     // ISO 8601
+  data_encerramento_proposta: string;
+  informacao_complementar?: string;
+  titulo_documento: string;
+  link_sistema_origem?: string;
+  itens: ItemCompraInputDto[];
+}
+
+/**
+ * Compra/Edital para retificação
+ */
+export class CompraRetificacaoDto {
+  objeto?: string;
+  informacao_complementar?: string;
+  data_abertura_proposta?: string;
+  data_encerramento_proposta?: string;
+}
+
+// ============ Compra/Contratação - DTOs de Resposta (PNCP) ============
 export class OrgaoEntidadeDto {
   cnpj: string;
   razaoSocial: string;
@@ -86,7 +177,36 @@ export class DocumentoCompraDto {
   mimeType: string;
 }
 
-// ============ Resultado do Item ============
+// ============ RESULTADO DO ITEM - DTOs de Entrada ============
+
+/**
+ * Resultado do Item para inclusão
+ */
+export class ResultadoInputDto {
+  data_resultado: string;             // YYYY-MM-DD
+  cnpj_fornecedor: string;            // CNPJ ou CPF (será detectado automaticamente)
+  nome_fornecedor: string;
+  quantidade_homologada: number;
+  valor_unitario_homologado: number;
+  valor_total_homologado: number;
+  percentual_desconto?: number;
+  porte_fornecedor_id?: number;       // 1=ME, 2=EPP, 3=Demais
+  codigo_pais?: string;               // ISO Alpha-3: BRA
+  subcontratacao?: boolean;
+  aplicacao_margem_preferencia?: boolean;
+  aplicacao_beneficio_me_epp?: boolean;
+  aplicacao_criterio_desempate?: boolean;
+}
+
+/**
+ * Resultado do Item para retificação
+ */
+export class ResultadoRetificacaoDto extends ResultadoInputDto {
+  situacao_id: number;                // Obrigatório para retificação
+  sequencial_resultado?: number;      // Default: 1
+}
+
+// ============ Resultado do Item - DTO de Resposta (PNCP) ============
 export class ResultadoItemDto {
   dataResultado: string;
   niFornecedor: string; // CPF ou CNPJ
@@ -103,7 +223,46 @@ export class ResultadoItemDto {
   ordemClassificacao?: number;
 }
 
-// ============ Ata de Registro de Preços ============
+// ============ ATA DE REGISTRO DE PREÇO - DTOs de Entrada ============
+
+/**
+ * Item da Ata para inclusão
+ */
+export class ItemAtaInputDto {
+  numero_item: number;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+}
+
+/**
+ * Ata de Registro de Preço para inclusão
+ */
+export class AtaInputDto {
+  numero_ata: string;
+  ano_ata: number;
+  data_assinatura: string;            // YYYY-MM-DD
+  data_vigencia_inicio: string;
+  data_vigencia_fim: string;
+  cnpj_fornecedor: string;
+  nome_fornecedor: string;
+  itens: ItemAtaInputDto[];
+}
+
+/**
+ * Ata de Registro de Preço para retificação
+ */
+export class AtaRetificacaoDto {
+  numero_ata: string;
+  ano_ata: number;
+  data_assinatura: string;
+  data_vigencia_inicio: string;
+  data_vigencia_fim: string;
+  justificativa: string;              // Obrigatório para retificação
+  situacao_id?: number;
+}
+
+// ============ Ata de Registro de Preços - DTO de Resposta (PNCP) ============
 export class AtaRegistroPrecoDto {
   numeroAtaRegistroPreco: string;
   dataAssinatura: string;
@@ -159,6 +318,7 @@ export class PncpResponseDto {
   mensagem?: string;
   erros?: string[];
   dataHora?: string;
+  dados?: any; // Dados adicionais retornados pela API
 }
 
 // ============ Códigos de Domínio ============

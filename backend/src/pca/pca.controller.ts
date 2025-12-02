@@ -64,6 +64,11 @@ export class PcaController {
     return this.pcaService.atualizar(id, dados);
   }
 
+  @Delete(':id')
+  async excluir(@Param('id') id: string) {
+    return this.pcaService.excluir(id);
+  }
+
   @Patch(':id/aprovar')
   async aprovar(
     @Param('id') id: string,
@@ -75,6 +80,19 @@ export class PcaController {
   @Patch(':id/publicar')
   async publicar(@Param('id') id: string) {
     return this.pcaService.publicar(id);
+  }
+
+  @Patch(':id/marcar-enviado-pncp')
+  async marcarEnviadoPNCP(
+    @Param('id') id: string,
+    @Body() body: { numeroControle: string; sequencial: number }
+  ) {
+    return this.pcaService.marcarEnviadoPNCP(id, body.numeroControle, body.sequencial);
+  }
+
+  @Patch(':id/desmarcar-enviado-pncp')
+  async desmarcarEnviadoPNCP(@Param('id') id: string) {
+    return this.pcaService.desmarcarEnviadoPNCP(id);
   }
 
   @Post(':id/duplicar')

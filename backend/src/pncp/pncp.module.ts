@@ -5,11 +5,12 @@ import { PncpController } from './pncp.controller';
 import { PncpService } from './pncp.service';
 import { PncpSync } from './entities/pncp-sync.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([PncpSync, Licitacao])
+    TypeOrmModule.forFeature([PncpSync, Licitacao, PlanoContratacaoAnual])
   ],
   controllers: [PncpController],
   providers: [PncpService],
