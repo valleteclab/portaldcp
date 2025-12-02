@@ -102,6 +102,29 @@ export class Orgao {
   @Column({ default: true })
   ativo: boolean;
 
+  // ============ INTEGRAÇÃO PNCP ============
+  
+  @Column({ nullable: true })
+  pncp_habilitado: boolean;
+
+  @Column({ nullable: true })
+  pncp_login: string; // UUID do usuário no PNCP
+
+  @Column({ nullable: true })
+  pncp_senha: string; // Senha criptografada
+
+  @Column({ nullable: true })
+  pncp_ambiente: string; // 'TREINO' ou 'PRODUCAO'
+
+  @Column({ nullable: true })
+  pncp_codigo_unidade: string; // Código da unidade no PNCP (geralmente "1")
+
+  @Column({ nullable: true })
+  pncp_ultimo_teste: Date; // Data do último teste de conexão
+
+  @Column({ nullable: true })
+  pncp_status_conexao: string; // 'OK', 'ERRO', 'NAO_TESTADO'
+
   @CreateDateColumn()
   created_at: Date;
 
