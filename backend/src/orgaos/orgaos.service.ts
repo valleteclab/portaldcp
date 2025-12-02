@@ -60,6 +60,10 @@ export class OrgaosService {
     return await this.orgaoRepository.findOneBy({ email_login: email });
   }
 
+  async findByCnpj(cnpj: string): Promise<Orgao | null> {
+    return await this.orgaoRepository.findOneBy({ cnpj });
+  }
+
   async update(id: string, updateData: Partial<CreateOrgaoDto>): Promise<Orgao> {
     const orgao = await this.findOne(id);
     Object.assign(orgao, updateData);

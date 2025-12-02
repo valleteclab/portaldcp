@@ -1,0 +1,23 @@
+﻿{
+  "anoPca": 2025,
+  "codigoUnidade": "1",
+  "dataPublicacaoPncp": "2025-12-02",
+  "itensPlano": [{
+    "numeroItem": 1,
+    "categoriaItemPca": 2,
+    "descricao": "Teste com classificacaoCatalogo numerico",
+    "unidadeRequisitante": "Unidade",
+    "valorUnitario": 100,
+    "quantidade": 10,
+    "valorTotal": 1000,
+    "valorOrcamentoExercicio": 1000,
+    "unidadeFornecimento": "UNIDADE",
+    "catalogo": 2,
+    "classificacaoCatalogo": 2,
+    "classificacaoSuperiorCodigo": "100",
+    "classificacaoSuperiorNome": "SERVICOS",
+    "dataDesejada": "2025-06-01",
+    "grauPrioridade": 3,
+    "renovacaoContrato": false
+  }]
+}

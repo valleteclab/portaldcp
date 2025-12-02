@@ -1,0 +1,422 @@
+
+4
+
+Automatic Zoom
+{"openapi":"3.1.0","info":{"title":"API PNCP","description":"API REST de serviços do Portal Nacional
+de Contratações Públicas (PNCP)","contact":{"name":"Serviço Federal de Processamento de Dados -
+Serpro","url":"https://www.serpro.gov.br","email":"css.serpro@serpro.gov.br"},"version":"1.0"},"serv
+ers":[{"url":"/api/pncp"},{"url":"http://localhost:8080/pncp-api"}],"tags":
+[{"name":"Usuário","description":"Manutenção de Usuários"},{"name":"Plano de
+Contratação","description":"Manutenção de Planos de Contratação"},
+{"name":"Contratação","description":"Manutenção de Contratações"},{"name":"Fonte orçamentária da
+contratação","description":"Manutenção de fontes orçamentárias de uma contratação"},
+{"name":"Ata","description":"Manutenção de Atas de Registro de Preços"},
+{"name":"Contrato/Empenho","description":"Manutenção de Contratos/Empenhos"},{"name":"Instrumento de
+Cobrança de Contrato/Empenho","description":"Manutenção de Instrumento de Cobrança de
+Contrato/Empenho"},{"name":"Termo de Contrato","description":"Manutenção de Termos de Contrato"},
+{"name":"Órgão","description":"Manutenção de Órgãos"},{"name":"Unidade","description":"Manutenção de
+Unidades do Órgão"},{"name":"Login Único","description":"Manutenção de acesso via Gov.br"},
+{"name":"Credenciamento","description":"Manutenção de Credenciamentos"},{"name":"Instrumento
+convocatório","description":"Manutenção de instrumentos convocatórios"},
+{"name":"Modalidade","description":"Manutenção de modalidades de contratação"},{"name":"Amparo
+legal","description":"Manutenção de amparos legais"},{"name":"Modo de
+disputa","description":"Manutenção dos modos de disputas"},{"name":"Critério de
+julgamento","description":"Manutenção de critérios de julgamentos"},{"name":"Fonte
+orçamentária","description":"Manutenção de Fontes Orçamentárias"},
+{"name":"Catálogo","description":"Manutenção dos catálogos"},{"name":"Categoria de
+Item","description":"Manutenção das Categorias de Item"},{"name":"Tipo de Instrumento de
+Cobrança","description":"Manutenção dos Tipos de Instrumentos de Cobrança"},{"name":"Conformidade
+Instrumento Convocatório, Modalidade de Contratação e Amparo Legal","description":"Manutenção de
+Conformidade Instrumento Convocatório, Modalidade de Contratação e Amparo Legal"},
+{"name":"Conformidade Instrumento convocatório e Modo de disputa","description":"Manutenção de
+conformidade entre instrumentos convocatórios e modos de disputa"},{"name":"Conformidade Modalidade
+e Critério de Julgamento","description":"Manutenção de conformidade entre Modalidade de Contratação
+e Critério de Julgamento"},{"name":"Conformidade Modalidade e Fonte
+Orçamentaria","description":"Manutenção de conformidade entre Modalidade de Contratação e Fonte
+Orçamentaria"}],"paths":{"/v1/usuarios/{id}":{"get":{"tags":["Usuário"],"summary":"Consultar usuário
+por ID","operationId":"get","parameters":[{"name":"id","in":"path","required":true,"schema":
+{"type":"integer","format":"int64"}}],"responses":{"400":{"description":"Bad Request","content":
+{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/CredenciaisDTO"}}}}},"security":[{"bearerAuth":[]}]},"put":{"tags":
+["Usuário"],"summary":"Atualizar usuário","operationId":"put","parameters":
+[{"name":"id","in":"path","required":true,"schema":
+{"type":"integer","format":"int64"}}],"requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/AlterarUsuarioDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK"}},"security":[{"bearerAuth":[]}]},"delete":{"tags":
+["Usuário"],"summary":"Excluir usuário","operationId":"delete","parameters":
+[{"name":"id","in":"path","required":true,"schema":
+{"type":"integer","format":"int64"}}],"responses":{"400":{"description":"Bad Request","content":
+{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK"}},"security":[{"bearerAuth":[]}]}},"/v1/orgaos":{"put":{"tags":
+Estilos de formatação
+["Órgão"],"summary":"Atualizar Órgão","operationId":"putEnteGoverno","requestBody":{"content":
+{"application/json":{"schema":
+{"$ref":"#/components/schemas/IncluirOrgaoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"object"}}}}},"security":[{"bearerAuth":
+[]}]},"post":{"tags":["Órgão"],"summary":"Inserir
+Órgão","operationId":"postEnteGoverno","requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/IncluirOrgaoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"object"}}}}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/unidades":{"get":{"tags":["Unidade"],"summary":"Consultar
+Unidades","operationId":"recuperarUnidadesOrgao","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"array","items":
+{"$ref":"#/components/schemas/UnidadeOrgaoDTO"}}}}}}},"put":{"tags":["Unidade"],"summary":"Atualizar
+Unidade","operationId":"atualizarUnidadeOrgao","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"content":
+{"application/json":{"schema":
+{"$ref":"#/components/schemas/AlterarUnidadeOrgaoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK"}},"security":[{"bearerAuth":[]}]},"post":{"tags":["Unidade"],"summary":"Inserir
+Unidade","operationId":"salvarUnidadeOrgao","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"content":
+{"application/json":{"schema":
+{"$ref":"#/components/schemas/IncluirUnidadeOrgaoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/UnidadeOrgaoDTO"}}}}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/contratos/{ano}/{sequencial}":{"get":{"tags":
+["Contrato/Empenho"],"summary":"Consultar Contrato","operationId":"consultarContrato","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+Estilos de formatação
+{"type":"integer","format":"int32","minimum":1}}],"responses":{"400":{"description":"Bad
+Request","content":{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":
+{"type":"string"}},{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":
+{"description":"Unprocessable Entity","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"204":{"description":"No
+Content","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"500":{"description":"Internal Server Error","content":{"*/*":{"schema":
+{"type":"string"}}}},"401":{"description":"Unauthorized","content":{"*/*":{"schema":
+{"type":"string"}}}},"200":{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/RecuperarContratoDTO"}}}}}},"put":{"tags":
+["Contrato/Empenho"],"summary":"Retificar Contrato","operationId":"retificarContrato","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/AlterarContratoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"object"}}}}},"security":[{"bearerAuth":
+[]}]},"delete":{"tags":["Contrato/Empenho"],"summary":"Excluir
+Contrato","operationId":"removerContrato","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/ExclusaoDTO"}}}},"responses":{"400":{"description":"Bad
+Request","content":{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":
+{"type":"string"}},{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":
+{"description":"Unprocessable Entity","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"204":{"description":"No
+Content","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"500":{"description":"Internal Server Error","content":{"*/*":{"schema":
+{"type":"string"}}}},"401":{"description":"Unauthorized","content":{"*/*":{"schema":
+{"type":"string"}}}},"200":{"description":"OK"}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/contratos/{ano}/{sequencial}/termos/{sequencialTermoContrato}":{"get":
+{"tags":["Termo de Contrato"],"summary":"Consultar Termo de
+Contrato","operationId":"recuperarTermoContrato","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}},
+{"name":"sequencialTermoContrato","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"responses":{"400":{"description":"Bad
+Request","content":{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":
+{"type":"string"}},{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":
+{"description":"Unprocessable Entity","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"204":{"description":"No
+Content","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"500":{"description":"Internal Server Error","content":{"*/*":{"schema":
+{"type":"string"}}}},"401":{"description":"Unauthorized","content":{"*/*":{"schema":
+{"type":"string"}}}},"200":{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/RecuperarTermoContratoDTO"}}}}}},"put":{"tags":["Termo de
+Contrato"],"summary":"Retificar Termo de
+Contrato","operationId":"retificarTermoContrato","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}},
+{"name":"sequencialTermoContrato","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/AlterarTermoContratoDTO"}}},"required":true},"responses":
+{"400":{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+Estilos de formatação
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"object"}}}}},"security":[{"bearerAuth":
+[]}]},"delete":{"tags":["Termo de Contrato"],"summary":"Excluir Termo de
+Contrato","operationId":"removerContrato_1","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}},
+{"name":"sequencialTermoContrato","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/ExclusaoDTO"}}}},"responses":{"400":{"description":"Bad
+Request","content":{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":
+{"type":"string"}},{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":
+{"description":"Unprocessable Entity","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"204":{"description":"No
+Content","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"500":{"description":"Internal Server Error","content":{"*/*":{"schema":
+{"type":"string"}}}},"401":{"description":"Unauthorized","content":{"*/*":{"schema":
+{"type":"string"}}}},"200":{"description":"OK"}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/compras/{ano}/{sequencial}":{"put":{"tags":
+["Contratação"],"summary":"Retificar Contratação","operationId":"retificarCompra","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/AlterarCompraDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK"}},"security":[{"bearerAuth":[]}]},"delete":{"tags":
+["Contratação"],"summary":"Excluir Contratação","operationId":"removerCompra","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/ExclusaoDTO"}}}},"responses":{"400":{"description":"Bad
+Request","content":{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":
+{"type":"string"}},{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":
+{"description":"Unprocessable Entity","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"204":{"description":"No
+Content","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"500":{"description":"Internal Server Error","content":{"*/*":{"schema":
+{"type":"string"}}}},"401":{"description":"Unauthorized","content":{"*/*":{"schema":
+{"type":"string"}}}},"200":{"description":"OK"}},"security":[{"bearerAuth":[]}]},"patch":{"tags":
+["Contratação"],"summary":"Retificar parcialmente uma
+Contratação","operationId":"retificarParcialmenteCompra","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32","minimum":1}}],"requestBody":{"content":{"application/json":
+{"schema":{"$ref":"#/components/schemas/AlterarCompraParcialDTO"}}},"required":true},"responses":
+{"400":{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+Estilos de formatação
+{"description":"OK"}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/compras/{ano}/{sequencial}/itens/{numeroItem}":{"get":{"tags":
+["Contratação"],"summary":"Consultar Item de
+Contratação","operationId":"recuperarCompraItem","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"numeroItem","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"responses":{"400":{"description":"Bad Request","content":
+{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/RecuperarCompraItemSigiloDTO"}}}}}},"put":{"tags":
+["Contratação"],"summary":"Retificar Item de
+Contratação","operationId":"retificarCompraItem","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"numeroItem","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/AlterarCompraItemDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"object"}}}}},"security":[{"bearerAuth":
+[]}]},"patch":{"tags":["Contratação"],"summary":"Retificar Parcialmente um Item de
+Contratação","operationId":"retificarParcialmenteCompraItem","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"numeroItem","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/AlterarCompraItemParcialDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK"}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/compras/{ano}/{sequencial}/itens/{numeroItem}/resultados/{sequencialResult
+ado}":{"get":{"tags":["Contratação"],"summary":"Consultar Resultado de Item de
+Contratação","operationId":"recuperarResultado","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"numeroItem","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},
+{"name":"sequencialResultado","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"responses":{"400":{"description":"Bad Request","content":
+{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+Estilos de formatação
+{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/RecuperarCompraItemResultadoDTO"}}}}}},"put":{"tags":
+["Contratação"],"summary":"Retificar Resultado de Item de
+Contratação","operationId":"retificarCompraItemResultado","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},{"name":"ano","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencial","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"numeroItem","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},
+{"name":"sequencialResultado","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/AlterarCompraItemResultadoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":{"type":"object"}}}}},"security":[{"bearerAuth":
+[]}]}},"/v1/orgaos/{cnpj}/compras/{anoCompra}/{sequencialCompra}/atas/{sequencialAta}":{"get":
+{"tags":["Ata"],"summary":"Consultar Ata de Registro de
+Preço","operationId":"recuperarAtaRegistoPreco","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},
+{"name":"anoCompra","in":"path","required":true,"schema":{"type":"integer","format":"int32"}},
+{"name":"sequencialCompra","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencialAta","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"responses":{"400":{"description":"Bad Request","content":
+{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/RecuperarAtaRegistroPrecoDTO"}}}}}},"put":{"tags":
+["Ata"],"summary":"Retificar Ata de Registro de Preço","operationId":"retificarAta","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},
+{"name":"anoCompra","in":"path","required":true,"schema":{"type":"integer","format":"int32"}},
+{"name":"sequencialCompra","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencialAta","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/AtaRegistroPrecoAlteracaoDTO"}}},"required":true},"responses":{"400":
+{"description":"Bad Request","content":{"*/*":{"schema":{"oneOf":
+[{"type":"object","additionalProperties":{"type":"string"}},
+{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":{"description":"Unprocessable
+Entity","content":{"*/*":{"schema":{"type":"object","additionalProperties":
+{"type":"string"}}}}},"204":{"description":"No Content","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"500":{"description":"Internal Server
+Error","content":{"*/*":{"schema":{"type":"string"}}}},"401":
+{"description":"Unauthorized","content":{"*/*":{"schema":{"type":"string"}}}},"200":
+{"description":"OK","content":{"*/*":{"schema":
+{"$ref":"#/components/schemas/AtaRegistroPrecoDTO"}}}}},"security":[{"bearerAuth":[]}]},"delete":
+{"tags":["Ata"],"summary":"Excluir Ata de Registro de Preço","operationId":"deleteAta","parameters":
+[{"name":"cnpj","in":"path","required":true,"schema":{"type":"string","pattern":"([0-9]{2}[.]?[0-9]
+{3}[.]?[0-9]{3}[/]?[0-9]{4}[-]?[0-9]{2})"}},
+{"name":"anoCompra","in":"path","required":true,"schema":{"type":"integer","format":"int32"}},
+{"name":"sequencialCompra","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}},{"name":"sequencialAta","in":"path","required":true,"schema":
+{"type":"integer","format":"int32"}}],"requestBody":{"content":{"application/json":{"schema":
+{"$ref":"#/components/schemas/ExclusaoDTO"}}}},"responses":{"400":{"description":"Bad
+Request","content":{"*/*":{"schema":{"oneOf":[{"type":"object","additionalProperties":
+{"type":"string"}},{"$ref":"#/components/schemas/RespostaErroValidacaoDTO"}]}}}},"422":
+{"description":"Unprocessable Entity","content":{"*/*":{"schema":
+{"type":"object","additionalProperties":{"type":"string"}}}}},"204":{"description":"No
+Estilos de formatação
