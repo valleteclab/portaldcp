@@ -72,106 +72,46 @@ export class OrgaosService {
     return await this.orgaoRepository.save(orgao);
   }
 
-  // ============ CONFIGURAÇÃO PNCP ============
+  // ============ VINCULAÇÃO PNCP ============
+  // A plataforma LicitaFácil tem UMA credencial no PNCP
+  // Aqui gerenciamos quais órgãos estão vinculados à plataforma
 
-  async configurarPNCP(id: string, config: {
-    pncp_habilitado: boolean;
-    pncp_login: string;
-    pncp_senha: string;
-    pncp_ambiente: string;
+  async vincularPNCP(id: string, config: {
+    pncp_vinculado: boolean;
     pncp_codigo_unidade: string;
   }): Promise<Orgao> {
     const orgao = await this.findOne(id);
     
-    orgao.pncp_habilitado = config.pncp_habilitado;
-    orgao.pncp_login = config.pncp_login;
-    orgao.pncp_senha = config.pncp_senha;
-    orgao.pncp_ambiente = config.pncp_ambiente || 'TREINO';
+    orgao.pncp_vinculado = config.pncp_vinculado;
     orgao.pncp_codigo_unidade = config.pncp_codigo_unidade || '1';
-    orgao.pncp_status_conexao = 'NAO_TESTADO';
+    orgao.pncp_data_vinculacao = config.pncp_vinculado ? new Date() : undefined as any;
+    orgao.pncp_status = config.pncp_vinculado ? 'VINCULADO' : 'PENDENTE';
     
     return await this.orgaoRepository.save(orgao);
   }
 
-  async testarConexaoPNCP(id: string): Promise<{
-    sucesso: boolean;
-    mensagem: string;
-    detalhes?: any;
-  }> {
-    const orgao = await this.findOne(id);
-    
-    if (!orgao.pncp_login || !orgao.pncp_senha) {
-      throw new HttpException('Credenciais PNCP não configuradas para este órgão', HttpStatus.BAD_REQUEST);
-    }
-
-    const apiUrl = orgao.pncp_ambiente === 'PRODUCAO' 
-      ? 'https://pncp.gov.br/api/pncp/v1'
-      : 'https://treina.pncp.gov.br/api/pncp/v1';
-
-    try {
-      const response = await axios.post(
-        `${apiUrl}/usuarios/login`,
-        { 
-          login: orgao.pncp_login, 
-          senha: orgao.pncp_senha 
-        }
-      );
-
-      const token = response.headers['authorization'];
-      
-      if (token) {
-        // Atualizar status no banco
-        orgao.pncp_ultimo_teste = new Date();
-        orgao.pncp_status_conexao = 'OK';
-        await this.orgaoRepository.save(orgao);
-
-        return {
-          sucesso: true,
-          mensagem: 'Conexão com PNCP realizada com sucesso!',
-          detalhes: {
-            ambiente: orgao.pncp_ambiente,
-            cnpj: orgao.cnpj,
-            dataUltimoTeste: orgao.pncp_ultimo_teste
-          }
-        };
-      } else {
-        throw new Error('Token não retornado');
-      }
-    } catch (error: any) {
-      // Atualizar status de erro
-      orgao.pncp_ultimo_teste = new Date();
-      orgao.pncp_status_conexao = 'ERRO';
-      await this.orgaoRepository.save(orgao);
-
-      const mensagemErro = error.response?.data?.message || error.message || 'Erro desconhecido';
-      
-      return {
-        sucesso: false,
-        mensagem: `Falha na conexão: ${mensagemErro}`,
-        detalhes: {
-          ambiente: orgao.pncp_ambiente,
-          erro: mensagemErro
-        }
-      };
-    }
-  }
-
   async statusPNCP(id: string): Promise<{
-    habilitado: boolean;
-    configurado: boolean;
-    ambiente: string;
-    ultimoTeste: Date | null;
-    statusConexao: string;
+    vinculado: boolean;
+    codigoUnidade: string;
+    dataVinculacao: Date | null;
+    ultimoEnvio: Date | null;
+    status: string;
   }> {
     const orgao = await this.findOne(id);
     
     return {
-      habilitado: orgao.pncp_habilitado || false,
-      configurado: !!(orgao.pncp_login && orgao.pncp_senha),
-      ambiente: orgao.pncp_ambiente || 'NAO_CONFIGURADO',
-      ultimoTeste: orgao.pncp_ultimo_teste || null,
-      statusConexao: orgao.pncp_status_conexao || 'NAO_TESTADO'
+      vinculado: orgao.pncp_vinculado || false,
+      codigoUnidade: orgao.pncp_codigo_unidade || '1',
+      dataVinculacao: orgao.pncp_data_vinculacao || null,
+      ultimoEnvio: orgao.pncp_ultimo_envio || null,
+      status: orgao.pncp_status || 'PENDENTE'
     };
+  }
+
+  async atualizarUltimoEnvio(id: string): Promise<Orgao> {
+    const orgao = await this.findOne(id);
+    orgao.pncp_ultimo_envio = new Date();
+    return await this.orgaoRepository.save(orgao);
   }
 
   // Buscar todos os órgãos (incluindo inativos) - para admin

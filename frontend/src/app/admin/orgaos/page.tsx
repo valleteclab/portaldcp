@@ -39,14 +39,11 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Settings,
   CheckCircle,
   XCircle,
   AlertCircle,
   RefreshCw,
   Search,
-  Eye,
-  EyeOff,
   Loader2,
   Shield,
   Link2
@@ -66,13 +63,12 @@ interface Orgao {
   uf: string
   email_login?: string
   ativo: boolean
-  pncp_habilitado?: boolean
-  pncp_login?: string
-  pncp_senha?: string
-  pncp_ambiente?: string
+  // PNCP - Vinculação à plataforma
+  pncp_vinculado?: boolean
   pncp_codigo_unidade?: string
-  pncp_ultimo_teste?: string
-  pncp_status_conexao?: string
+  pncp_data_vinculacao?: string
+  pncp_ultimo_envio?: string
+  pncp_status?: string
 }
 
 const TIPOS_ORGAO = [
@@ -104,8 +100,6 @@ export default function AdminOrgaosPage() {
   const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
   
   const [orgaoSelecionado, setOrgaoSelecionado] = useState<Orgao | null>(null)
-  const [testando, setTestando] = useState(false)
-  const [mostrarSenha, setMostrarSenha] = useState(false)
   
   // Form state
   const [formOrgao, setFormOrgao] = useState({
@@ -131,10 +125,7 @@ export default function AdminOrgaosPage() {
   })
   
   const [formPNCP, setFormPNCP] = useState({
-    pncp_habilitado: false,
-    pncp_login: '',
-    pncp_senha: '',
-    pncp_ambiente: 'TREINO',
+    pncp_vinculado: false,
     pncp_codigo_unidade: '1'
   })
 
@@ -251,36 +242,6 @@ export default function AdminOrgaosPage() {
     }
   }
 
-  const testarConexaoPNCP = async () => {
-    if (!orgaoSelecionado) return
-
-    setTestando(true)
-    try {
-      // Primeiro salvar a configuração
-      await salvarConfiguracaoPNCP()
-
-      // Depois testar
-      const response = await fetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/pncp/testar`, {
-        method: 'POST'
-      })
-
-      const data = await response.json()
-
-      if (data.sucesso) {
-        alert('✅ ' + data.mensagem)
-      } else {
-        alert('❌ ' + data.mensagem)
-      }
-
-      carregarOrgaos()
-    } catch (error: any) {
-      console.error('Erro ao testar conexão:', error)
-      alert('Erro ao testar conexão: ' + error.message)
-    } finally {
-      setTestando(false)
-    }
-  }
-
   const limparForm = () => {
     setFormOrgao({
       codigo: '',
@@ -334,10 +295,7 @@ export default function AdminOrgaosPage() {
   const abrirConfigurarPNCP = (orgao: Orgao) => {
     setOrgaoSelecionado(orgao)
     setFormPNCP({
-      pncp_habilitado: orgao.pncp_habilitado || false,
-      pncp_login: orgao.pncp_login || '',
-      pncp_senha: orgao.pncp_senha || '',
-      pncp_ambiente: orgao.pncp_ambiente || 'TREINO',
+      pncp_vinculado: orgao.pncp_vinculado || false,
       pncp_codigo_unidade: orgao.pncp_codigo_unidade || '1'
     })
     setShowConfigurarPNCP(true)
@@ -349,19 +307,16 @@ export default function AdminOrgaosPage() {
   }
 
   const getStatusPNCPBadge = (orgao: Orgao) => {
-    if (!orgao.pncp_habilitado) {
-      return <Badge variant="outline" className="text-gray-500">Desabilitado</Badge>
+    if (!orgao.pncp_vinculado) {
+      return <Badge variant="outline" className="text-gray-500">Não Vinculado</Badge>
     }
-    if (!orgao.pncp_login) {
-      return <Badge variant="outline" className="text-yellow-600">Não Configurado</Badge>
-    }
-    switch (orgao.pncp_status_conexao) {
-      case 'OK':
-        return <Badge className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />Conectado</Badge>
+    switch (orgao.pncp_status) {
+      case 'VINCULADO':
+        return <Badge className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />Vinculado</Badge>
       case 'ERRO':
         return <Badge className="bg-red-100 text-red-800"><XCircle className="w-3 h-3 mr-1" />Erro</Badge>
       default:
-        return <Badge variant="outline" className="text-blue-600"><AlertCircle className="w-3 h-3 mr-1" />Não Testado</Badge>
+        return <Badge variant="outline" className="text-yellow-600"><AlertCircle className="w-3 h-3 mr-1" />Pendente</Badge>
     }
   }
 
@@ -425,8 +380,8 @@ export default function AdminOrgaosPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">PNCP Habilitado</p>
-                <p className="text-2xl font-bold text-blue-600">{orgaos.filter(o => o.pncp_habilitado).length}</p>
+                <p className="text-sm text-gray-500">PNCP Vinculado</p>
+                <p className="text-2xl font-bold text-blue-600">{orgaos.filter(o => o.pncp_vinculado).length}</p>
               </div>
               <Link2 className="w-8 h-8 text-blue-600" />
             </div>
@@ -436,8 +391,8 @@ export default function AdminOrgaosPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">PNCP Conectado</p>
-                <p className="text-2xl font-bold text-green-600">{orgaos.filter(o => o.pncp_status_conexao === 'OK').length}</p>
+                <p className="text-sm text-gray-500">Com Envios</p>
+                <p className="text-2xl font-bold text-green-600">{orgaos.filter(o => o.pncp_ultimo_envio).length}</p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
@@ -760,65 +715,28 @@ export default function AdminOrgaosPage() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
+            {/* Informação sobre o modelo */}
+            <div className="p-3 bg-blue-50 rounded-lg text-sm">
+              <p className="font-medium text-blue-800">ℹ️ Como funciona a integração PNCP</p>
+              <p className="text-blue-700 mt-1">
+                A plataforma LicitaFácil possui uma única credencial no PNCP. 
+                Ao vincular este órgão, você autoriza o envio de dados em nome do CNPJ: <strong>{formatarCNPJ(orgaoSelecionado?.cnpj || '')}</strong>
+              </p>
+            </div>
+
             <div className="flex items-center justify-between">
               <div>
-                <Label>Habilitar Integração PNCP</Label>
-                <p className="text-sm text-gray-500">Permite enviar dados ao PNCP</p>
+                <Label>Vincular ao PNCP</Label>
+                <p className="text-sm text-gray-500">Permite enviar dados deste órgão ao PNCP</p>
               </div>
               <Switch
-                checked={formPNCP.pncp_habilitado}
-                onCheckedChange={(checked) => setFormPNCP({ ...formPNCP, pncp_habilitado: checked })}
+                checked={formPNCP.pncp_vinculado}
+                onCheckedChange={(checked) => setFormPNCP({ ...formPNCP, pncp_vinculado: checked })}
               />
             </div>
 
-            {formPNCP.pncp_habilitado && (
+            {formPNCP.pncp_vinculado && (
               <>
-                <div>
-                  <Label>Ambiente</Label>
-                  <Select 
-                    value={formPNCP.pncp_ambiente} 
-                    onValueChange={(v) => setFormPNCP({ ...formPNCP, pncp_ambiente: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="TREINO">Treinamento (treina.pncp.gov.br)</SelectItem>
-                      <SelectItem value="PRODUCAO">Produção (pncp.gov.br)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label>Login PNCP (UUID)</Label>
-                  <Input
-                    value={formPNCP.pncp_login}
-                    onChange={(e) => setFormPNCP({ ...formPNCP, pncp_login: e.target.value })}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">UUID fornecido pelo PNCP</p>
-                </div>
-
-                <div>
-                  <Label>Senha PNCP</Label>
-                  <div className="relative">
-                    <Input
-                      type={mostrarSenha ? 'text' : 'password'}
-                      value={formPNCP.pncp_senha}
-                      onChange={(e) => setFormPNCP({ ...formPNCP, pncp_senha: e.target.value })}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full"
-                      onClick={() => setMostrarSenha(!mostrarSenha)}
-                    >
-                      {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                </div>
-
                 <div>
                   <Label>Código da Unidade</Label>
                   <Input
@@ -829,18 +747,24 @@ export default function AdminOrgaosPage() {
                   <p className="text-xs text-gray-500 mt-1">Geralmente "1" para a unidade principal</p>
                 </div>
 
-                {orgaoSelecionado?.pncp_ultimo_teste && (
+                {orgaoSelecionado?.pncp_data_vinculacao && (
                   <div className="p-3 bg-gray-50 rounded-lg">
                     <p className="text-sm">
-                      <strong>Último teste:</strong>{' '}
-                      {new Date(orgaoSelecionado.pncp_ultimo_teste).toLocaleString('pt-BR')}
+                      <strong>Data de Vinculação:</strong>{' '}
+                      {new Date(orgaoSelecionado.pncp_data_vinculacao).toLocaleString('pt-BR')}
                     </p>
+                    {orgaoSelecionado?.pncp_ultimo_envio && (
+                      <p className="text-sm">
+                        <strong>Último Envio:</strong>{' '}
+                        {new Date(orgaoSelecionado.pncp_ultimo_envio).toLocaleString('pt-BR')}
+                      </p>
+                    )}
                     <p className="text-sm">
                       <strong>Status:</strong>{' '}
-                      {orgaoSelecionado.pncp_status_conexao === 'OK' ? (
-                        <span className="text-green-600">Conectado</span>
+                      {orgaoSelecionado.pncp_status === 'VINCULADO' ? (
+                        <span className="text-green-600">Vinculado</span>
                       ) : (
-                        <span className="text-red-600">Erro</span>
+                        <span className="text-yellow-600">Pendente</span>
                       )}
                     </p>
                   </div>
@@ -849,27 +773,13 @@ export default function AdminOrgaosPage() {
             )}
           </div>
 
-          <div className="flex justify-between">
-            <Button
-              variant="outline"
-              onClick={testarConexaoPNCP}
-              disabled={!formPNCP.pncp_habilitado || !formPNCP.pncp_login || !formPNCP.pncp_senha || testando}
-            >
-              {testando ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              Testar Conexão
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowConfigurarPNCP(false)}>
+              Cancelar
             </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowConfigurarPNCP(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={salvarConfiguracaoPNCP}>
-                Salvar
-              </Button>
-            </div>
+            <Button onClick={salvarConfiguracaoPNCP}>
+              Salvar
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

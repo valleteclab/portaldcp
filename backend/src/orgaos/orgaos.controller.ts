@@ -106,25 +106,19 @@ export class OrgaosController {
     return await this.orgaosService.deactivate(id);
   }
 
-  // ============ CONFIGURAÇÃO PNCP ============
+  // ============ VINCULAÇÃO PNCP ============
+  // A plataforma LicitaFácil tem UMA credencial no PNCP
+  // Aqui gerenciamos quais órgãos estão vinculados à plataforma
 
   @Put(':id/pncp')
-  async configurarPNCP(
+  async vincularPNCP(
     @Param('id') id: string,
     @Body() config: {
-      pncp_habilitado: boolean;
-      pncp_login: string;
-      pncp_senha: string;
-      pncp_ambiente: string;
+      pncp_vinculado: boolean;
       pncp_codigo_unidade: string;
     }
   ): Promise<Orgao> {
-    return await this.orgaosService.configurarPNCP(id, config);
-  }
-
-  @Post(':id/pncp/testar')
-  async testarConexaoPNCP(@Param('id') id: string) {
-    return await this.orgaosService.testarConexaoPNCP(id);
+    return await this.orgaosService.vincularPNCP(id, config);
   }
 
   @Get(':id/pncp/status')
