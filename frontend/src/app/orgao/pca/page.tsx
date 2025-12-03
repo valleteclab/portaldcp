@@ -289,17 +289,29 @@ export default function PcaPage() {
   // Carregar unidades do órgão - usa mesmo endpoint do admin/pncp
   const carregarUnidadesOrgao = async () => {
     const orgaoData = localStorage.getItem('orgao')
-    if (!orgaoData) return
+    console.log('[DEBUG] orgaoData:', orgaoData)
+    if (!orgaoData) {
+      console.log('[DEBUG] Sem orgaoData no localStorage')
+      setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
+      return
+    }
     
     const orgao = JSON.parse(orgaoData)
-    if (!orgao?.cnpj) return
+    console.log('[DEBUG] orgao:', orgao)
+    if (!orgao?.cnpj) {
+      console.log('[DEBUG] Sem CNPJ no orgao')
+      setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
+      return
+    }
     
     setCarregandoUnidades(true)
     try {
       const cnpjLimpo = orgao.cnpj.replace(/\D/g, '')
-      // Endpoint correto: /api/pncp/orgaos/{cnpj}/unidades (plural)
-      const response = await fetch(`${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`)
+      const url = `${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`
+      console.log('[DEBUG] Buscando unidades:', url)
+      const response = await fetch(url)
       const data = await response.json()
+      console.log('[DEBUG] Resposta unidades:', data)
       
       if (response.ok && data.unidades && data.unidades.length > 0) {
         // Converter codigoUnidade para string (API retorna como número)
