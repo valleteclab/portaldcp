@@ -1840,52 +1840,43 @@ export class PncpService {
       
       this.logger.log(`Consultando unidades do órgão: ${cnpjLimpo}`);
       
-      // Endpoint para listar unidades: GET /v1/orgaos/{cnpj}/pca/{uasg}/{ano}/sequenciaisplano
-      // Mas primeiro precisamos descobrir as unidades disponíveis
-      // Vamos tentar buscar os sequenciais de plano para descobrir as unidades
+      // Usar endpoint de consulta pública para buscar dados do órgão com suas unidades
+      // GET /consulta/v1/orgaos/{cnpj}
+      const apiUrl = this.getEnvVar('PNCP_API_URL') || '';
+      const baseUrl = apiUrl.replace('/api/pncp/v1', '');
       
-      const unidadesEncontradas: any[] = [];
-      const anoAtual = new Date().getFullYear();
+      const response = await axios.get(`${baseUrl}/api/consulta/v1/orgaos/${cnpjLimpo}`);
       
-      // Tentar buscar unidades pelos sequenciais de plano dos últimos anos
-      for (const ano of [anoAtual - 1, anoAtual, anoAtual + 1]) {
-        // Tentar unidades de 1 a 10
-        for (let uasg = 1; uasg <= 10; uasg++) {
-          try {
-            const url = `/orgaos/${cnpjLimpo}/pca/${uasg}/${ano}/sequenciaisplano`;
-            const response = await this.axiosInstance.get(url);
-            
-            if (response.data) {
-              // Se retornou dados, essa unidade existe
-              const unidadeExistente = unidadesEncontradas.find(u => u.codigoUnidade === String(uasg));
-              if (!unidadeExistente) {
-                unidadesEncontradas.push({
-                  codigoUnidade: String(uasg),
-                  nomeUnidade: `Unidade ${uasg}`,
-                  sequenciaisPlano: response.data
-                });
-                this.logger.log(`Unidade ${uasg} encontrada para ano ${ano}`);
-              }
-            }
-          } catch (err: any) {
-            // 404 ou erro = unidade não existe para esse ano, continua
-          }
-        }
+      if (response.data && response.data.unidades) {
+        const unidades = response.data.unidades.map((u: any) => ({
+          codigoUnidade: String(u.codigoUnidade),
+          nomeUnidade: u.nomeUnidade || `Unidade ${u.codigoUnidade}`,
+          municipio: u.municipio?.nomeIBGE || '',
+          uf: u.uf?.siglaUF || ''
+        }));
+        
+        this.logger.log(`Encontradas ${unidades.length} unidades para o órgão ${cnpjLimpo}`);
+        
+        return {
+          cnpj: cnpjLimpo,
+          nomeOrgao: response.data.razaoSocial || response.data.nomeFantasia,
+          idPncp: response.data.id,
+          unidades: unidades,
+          total: unidades.length
+        };
       }
       
-      // Se não encontrou nenhuma, retornar pelo menos a unidade padrão "1"
-      if (unidadesEncontradas.length === 0) {
-        unidadesEncontradas.push({
-          codigoUnidade: '1',
-          nomeUnidade: 'Unidade Principal',
-          sequenciaisPlano: []
-        });
-      }
-      
+      // Fallback: retornar unidade padrão
       return {
         cnpj: cnpjLimpo,
-        unidades: unidadesEncontradas,
-        total: unidadesEncontradas.length
+        unidades: [{
+          codigoUnidade: '1',
+          nomeUnidade: 'Unidade Principal',
+          municipio: '',
+          uf: ''
+        }],
+        total: 1,
+        mensagem: 'Nenhuma unidade encontrada. Usando unidade padrão.'
       };
     } catch (error: any) {
       this.logger.error(`Erro ao consultar unidades: ${error.message}`);
@@ -1895,7 +1886,8 @@ export class PncpService {
         unidades: [{
           codigoUnidade: '1',
           nomeUnidade: 'Unidade Principal',
-          sequenciaisPlano: []
+          municipio: '',
+          uf: ''
         }],
         total: 1,
         mensagem: 'Não foi possível consultar unidades no PNCP. Usando unidade padrão.'
