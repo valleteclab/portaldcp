@@ -391,6 +391,39 @@ export class PncpController {
     return this.pncpService.testarConexao();
   }
 
+  // ============ IMPORTAÇÃO DE PCAs DO PNCP ============
+
+  @Get('importar/pcas/:cnpj')
+  async consultarPCAsNoPncp(
+    @Param('cnpj') cnpj: string,
+    @Query('ano') ano?: string
+  ) {
+    return this.pncpService.consultarPCAsNoPncp(cnpj, ano ? parseInt(ano) : undefined);
+  }
+
+  @Get('importar/pca/:cnpj/:ano/:sequencial')
+  async consultarPCADetalhado(
+    @Param('cnpj') cnpj: string,
+    @Param('ano') ano: string,
+    @Param('sequencial') sequencial: string
+  ) {
+    return this.pncpService.consultarPCADetalhado(cnpj, parseInt(ano), parseInt(sequencial));
+  }
+
+  @Post('importar/pca')
+  async importarPCADoPncp(
+    @Body() body: { orgaoId: string; cnpj: string; ano: number; sequencial: number }
+  ) {
+    return this.pncpService.importarPCADoPncp(body.orgaoId, body.cnpj, body.ano, body.sequencial);
+  }
+
+  @Post('importar/pcas/todos')
+  async sincronizarTodosPCAsDoPncp(
+    @Body() body: { orgaoId: string; cnpj: string }
+  ) {
+    return this.pncpService.sincronizarTodosPCAsDoPncp(body.orgaoId, body.cnpj);
+  }
+
   // ============ HELPERS ============
 
   private mapearTipoDocumento(tipo: string): number {

@@ -1553,19 +1553,34 @@ export class PncpService {
     ambiente: string;
     cnpjOrgao: string | null;
     loginConfigurado: boolean;
+    debug?: any;
   }> {
     const apiUrl = this.configService.get<string>('PNCP_API_URL') || '';
     const login = this.configService.get<string>('PNCP_LOGIN');
+    const senha = this.configService.get<string>('PNCP_SENHA');
     const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
 
     const ambiente = apiUrl.includes('treina') ? 'TREINAMENTO' : 
                      apiUrl.includes('pncp.gov.br') ? 'PRODUÇÃO' : 'NÃO CONFIGURADO';
 
+    // Log para debug no Railway
+    this.logger.log(`[CONFIG] PNCP_API_URL: ${apiUrl ? 'DEFINIDO' : 'NÃO DEFINIDO'} (${apiUrl?.substring(0, 30)}...)`);
+    this.logger.log(`[CONFIG] PNCP_LOGIN: ${login ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
+    this.logger.log(`[CONFIG] PNCP_SENHA: ${senha ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
+    this.logger.log(`[CONFIG] PNCP_CNPJ_ORGAO: ${cnpj ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
+
     return {
-      configurado: !!(login && cnpj && apiUrl),
+      configurado: !!(login && cnpj && apiUrl && senha),
       ambiente,
       cnpjOrgao: cnpj ? this.formatarCNPJ(cnpj) : null,
-      loginConfigurado: !!login
+      loginConfigurado: !!login,
+      debug: {
+        apiUrlDefinido: !!apiUrl,
+        loginDefinido: !!login,
+        senhaDefinida: !!senha,
+        cnpjDefinido: !!cnpj,
+        apiUrlParcial: apiUrl ? apiUrl.substring(0, 40) : null
+      }
     };
   }
 
@@ -1801,6 +1816,230 @@ export class PncpService {
     const novosEntes = [...cnpjsAtuais, cnpjLimpo];
     
     return this.atualizarEntesAutorizados(novosEntes);
+  }
+
+  // ============ IMPORTAÇÃO DE PCAs DO PNCP ============
+
+  async consultarPCAsNoPncp(cnpj: string, ano?: number): Promise<any> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    
+    try {
+      // Garantir token válido
+      await this.getValidToken();
+      
+      this.logger.log(`Consultando PCAs para CNPJ: ${cnpjLimpo}`);
+      
+      const pcasEncontrados: any[] = [];
+      const anoAtual = new Date().getFullYear();
+      const anosParaBuscar = ano ? [ano] : [anoAtual - 2, anoAtual - 1, anoAtual, anoAtual + 1];
+      
+      for (const anoBusca of anosParaBuscar) {
+        try {
+          // Primeiro, consultar quantidade de PCAs no ano
+          // GET /v1/orgaos/{cnpj}/pca/{ano}/quantidade
+          const urlQuantidade = `/orgaos/${cnpjLimpo}/pca/${anoBusca}/quantidade`;
+          this.logger.log(`Consultando quantidade: ${urlQuantidade}`);
+          
+          const respQuantidade = await this.axiosInstance.get(urlQuantidade);
+          const quantidade = respQuantidade.data?.quantidade || respQuantidade.data || 0;
+          
+          this.logger.log(`Ano ${anoBusca}: ${quantidade} PCA(s) encontrado(s)`);
+          
+          if (quantidade > 0) {
+            // Buscar cada PCA pelo sequencial
+            for (let seq = 1; seq <= quantidade + 5; seq++) {
+              try {
+                // GET /v1/orgaos/{cnpj}/pca/{ano}/{sequencial}/itens/plano
+                const urlPlano = `/orgaos/${cnpjLimpo}/pca/${anoBusca}/${seq}/itens/plano`;
+                this.logger.log(`Buscando PCA: ${urlPlano}`);
+                
+                const respPlano = await this.axiosInstance.get(urlPlano);
+                if (respPlano.data) {
+                  pcasEncontrados.push({
+                    ...respPlano.data,
+                    anoPca: anoBusca,
+                    sequencialPca: seq,
+                    quantidadeItensPlano: respPlano.data?.itens?.length || 0
+                  });
+                  this.logger.log(`PCA encontrado: ${anoBusca}/${seq}`);
+                }
+              } catch (err: any) {
+                // 404 = não existe esse sequencial, continua
+                if (err.response?.status !== 404) {
+                  this.logger.warn(`Erro ao buscar PCA ${anoBusca}/${seq}: ${err.response?.status}`);
+                }
+              }
+            }
+          }
+        } catch (err: any) {
+          // Erro ao consultar quantidade do ano, tentar próximo ano
+          this.logger.warn(`Erro ao consultar quantidade para ano ${anoBusca}: ${err.response?.status}`);
+        }
+      }
+      
+      this.logger.log(`Total de PCAs encontrados: ${pcasEncontrados.length}`);
+      
+      return {
+        cnpj: cnpjLimpo,
+        pcas: pcasEncontrados,
+        total: pcasEncontrados.length,
+        ambienteTreinamento: false
+      };
+    } catch (error: any) {
+      this.logger.error(`Erro ao consultar PCAs no PNCP: ${error.message}`);
+      return {
+        cnpj: cnpjLimpo,
+        pcas: [],
+        total: 0,
+        ambienteTreinamento: true,
+        mensagem: 'Erro ao consultar PCAs. Use a importação manual.'
+      };
+    }
+  }
+
+  async consultarPCADetalhado(cnpj: string, ano: number, sequencial: number): Promise<any> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    
+    try {
+      // Garantir token válido
+      await this.getValidToken();
+      
+      // Usar a API autenticada: GET /orgaos/{cnpj}/pca/{ano}/{sequencial}/itens/plano
+      const url = `/orgaos/${cnpjLimpo}/pca/${ano}/${sequencial}/itens/plano`;
+      this.logger.log(`Consultando PCA detalhado: ${url}`);
+      
+      const response = await this.axiosInstance.get(url);
+      return {
+        sucesso: true,
+        pca: response.data
+      };
+    } catch (error: any) {
+      this.logger.error(`Erro ao consultar PCA detalhado: ${error.message}`, error.response?.data);
+      if (error.response?.status === 404) {
+        return {
+          sucesso: false,
+          mensagem: 'PCA não encontrado no PNCP'
+        };
+      }
+      throw new HttpException(
+        `Erro ao consultar PCA: ${this.extrairMensagemErro(error)}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  async importarPCADoPncp(orgaoId: string, cnpj: string, ano: number, sequencial: number): Promise<any> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    
+    // 1. Buscar dados do PCA no PNCP
+    const pcaDetalhado = await this.consultarPCADetalhado(cnpjLimpo, ano, sequencial);
+    
+    if (!pcaDetalhado.sucesso) {
+      throw new HttpException(pcaDetalhado.mensagem || 'PCA não encontrado no PNCP', HttpStatus.NOT_FOUND);
+    }
+
+    const pcaPncp = pcaDetalhado.pca;
+    
+    // 2. Verificar se já existe PCA local para este ano/órgão
+    const pcaExistente = await this.pcaRepository.findOne({
+      where: { orgao_id: orgaoId, ano_exercicio: ano }
+    });
+
+    if (pcaExistente) {
+      // Atualizar PCA existente com dados do PNCP
+      pcaExistente.enviado_pncp = true;
+      pcaExistente.sequencial_pncp = sequencial;
+      pcaExistente.numero_controle_pncp = `${cnpjLimpo}-${ano}-${sequencial}`;
+      pcaExistente.data_envio_pncp = pcaPncp.dataPublicacaoPncp ? new Date(pcaPncp.dataPublicacaoPncp) : new Date();
+      pcaExistente.status = 'ENVIADO_PNCP' as any;
+      
+      await this.pcaRepository.save(pcaExistente);
+      
+      this.logger.log(`PCA ${ano}/${sequencial} sincronizado com registro existente`);
+      
+      return {
+        sucesso: true,
+        mensagem: 'PCA sincronizado com registro existente',
+        pca: pcaExistente,
+        acao: 'atualizado'
+      };
+    }
+
+    // 3. Criar novo PCA local com dados do PNCP
+    const novoPca = this.pcaRepository.create({
+      orgao_id: orgaoId,
+      ano_exercicio: ano,
+      numero_pca: `PCA ${ano}`,
+      status: 'ENVIADO_PNCP' as any,
+      enviado_pncp: true,
+      sequencial_pncp: sequencial,
+      numero_controle_pncp: `${cnpjLimpo}-${ano}-${sequencial}`,
+      data_envio_pncp: pcaPncp.dataPublicacaoPncp ? new Date(pcaPncp.dataPublicacaoPncp) : new Date(),
+      data_publicacao: pcaPncp.dataPublicacaoPncp ? new Date(pcaPncp.dataPublicacaoPncp) : undefined,
+      valor_total_estimado: 0,
+      quantidade_itens: pcaPncp.quantidadeItensPlano || 0,
+      observacoes: `Importado do PNCP em ${new Date().toISOString()}`
+    });
+
+    await this.pcaRepository.save(novoPca);
+    
+    this.logger.log(`PCA ${ano}/${sequencial} importado do PNCP`);
+
+    return {
+      sucesso: true,
+      mensagem: 'PCA importado do PNCP com sucesso',
+      pca: novoPca,
+      acao: 'criado'
+    };
+  }
+
+  async sincronizarTodosPCAsDoPncp(orgaoId: string, cnpj: string): Promise<any> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    
+    // 1. Buscar todos os PCAs do órgão no PNCP
+    const resultado = await this.consultarPCAsNoPncp(cnpjLimpo);
+    
+    if (!resultado.pcas || resultado.pcas.length === 0) {
+      return {
+        sucesso: true,
+        mensagem: 'Nenhum PCA encontrado no PNCP para importar',
+        importados: 0,
+        atualizados: 0,
+        erros: []
+      };
+    }
+
+    const resultados = {
+      importados: 0,
+      atualizados: 0,
+      erros: [] as string[]
+    };
+
+    // 2. Importar cada PCA
+    for (const pcaPncp of resultado.pcas) {
+      try {
+        const importacao = await this.importarPCADoPncp(
+          orgaoId, 
+          cnpjLimpo, 
+          pcaPncp.anoPca, 
+          pcaPncp.sequencialPca
+        );
+        
+        if (importacao.acao === 'criado') {
+          resultados.importados++;
+        } else {
+          resultados.atualizados++;
+        }
+      } catch (error: any) {
+        resultados.erros.push(`PCA ${pcaPncp.anoPca}/${pcaPncp.sequencialPca}: ${error.message}`);
+      }
+    }
+
+    return {
+      sucesso: true,
+      mensagem: `Sincronização concluída: ${resultados.importados} importados, ${resultados.atualizados} atualizados`,
+      ...resultados
+    };
   }
 
   // ============ ESTATÍSTICAS ============

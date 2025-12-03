@@ -172,6 +172,14 @@ export default function PncpPage() {
   })
   const [itensPca, setItensPca] = useState<ItemPcaForm[]>([])
   
+  // Estados para Importação do PNCP
+  const [modalImportarPncp, setModalImportarPncp] = useState(false)
+  const [pcasNoPncp, setPcasNoPncp] = useState<any[]>([])
+  const [carregandoPcasPncp, setCarregandoPcasPncp] = useState(false)
+  const [importandoPca, setImportandoPca] = useState<string | null>(null)
+  const [ambienteTreinamento, setAmbienteTreinamento] = useState(false)
+  const [formImportManual, setFormImportManual] = useState({ ano: new Date().getFullYear(), sequencial: 1 })
+
   // Estados para Contratos
   const [contratos, setContratos] = useState<ContratoPNCP[]>([])
   const [modalContrato, setModalContrato] = useState(false)
@@ -241,6 +249,159 @@ export default function PncpPage() {
       setStatusConexao({ sucesso: false, mensagem: 'Erro ao testar conexão' })
     } finally {
       setTestandoConexao(false)
+    }
+  }
+
+  // Funções para importar PCAs do PNCP
+  const buscarPCAsNoPncp = async () => {
+    if (!orgaoAtual?.cnpj) {
+      alert('CNPJ do órgão não encontrado')
+      return
+    }
+
+    setCarregandoPcasPncp(true)
+    try {
+      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
+      const response = await fetch(`${API_URL}/api/pncp/importar/pcas/${cnpjLimpo}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        setPcasNoPncp(data.pcas || [])
+        setAmbienteTreinamento(data.ambienteTreinamento || false)
+      } else {
+        alert(data.message || 'Erro ao buscar PCAs no PNCP')
+      }
+    } catch (error: any) {
+      console.error('Erro ao buscar PCAs no PNCP:', error)
+      alert('Erro ao buscar PCAs no PNCP')
+    } finally {
+      setCarregandoPcasPncp(false)
+    }
+  }
+
+  // Importar PCA manualmente (para ambiente de treinamento)
+  const importarPcaManual = async () => {
+    if (!orgaoAtual?.id || !orgaoAtual?.cnpj) {
+      alert('Dados do órgão não encontrados')
+      return
+    }
+
+    const { ano, sequencial } = formImportManual
+    if (!ano || !sequencial) {
+      alert('Informe o ano e sequencial do PCA')
+      return
+    }
+
+    setImportandoPca(`${ano}-${sequencial}`)
+    try {
+      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
+      const response = await fetch(`${API_URL}/api/pncp/importar/pca`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgaoId: orgaoAtual.id,
+          cnpj: cnpjLimpo,
+          ano,
+          sequencial
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.sucesso) {
+        alert(`PCA ${ano}/${sequencial} importado com sucesso!\n${data.mensagem}`)
+        await carregarDados()
+        setModalImportarPncp(false)
+      } else {
+        alert(data.message || data.mensagem || 'Erro ao importar PCA')
+      }
+    } catch (error: any) {
+      console.error('Erro ao importar PCA:', error)
+      alert('Erro ao importar PCA do PNCP')
+    } finally {
+      setImportandoPca(null)
+    }
+  }
+
+  const importarPcaDoPncp = async (pcaPncp: any) => {
+    if (!orgaoAtual?.id || !orgaoAtual?.cnpj) {
+      alert('Dados do órgão não encontrados')
+      return
+    }
+
+    const chave = `${pcaPncp.anoPca}-${pcaPncp.sequencialPca}`
+    setImportandoPca(chave)
+    
+    try {
+      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
+      const response = await fetch(`${API_URL}/api/pncp/importar/pca`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgaoId: orgaoAtual.id,
+          cnpj: cnpjLimpo,
+          ano: pcaPncp.anoPca,
+          sequencial: pcaPncp.sequencialPca
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.sucesso) {
+        alert(`PCA ${pcaPncp.anoPca} importado com sucesso!\n${data.mensagem}`)
+        await carregarDados()
+        // Remover da lista de PCAs no PNCP
+        setPcasNoPncp(prev => prev.filter(p => 
+          !(p.anoPca === pcaPncp.anoPca && p.sequencialPca === pcaPncp.sequencialPca)
+        ))
+      } else {
+        alert(data.message || 'Erro ao importar PCA')
+      }
+    } catch (error: any) {
+      console.error('Erro ao importar PCA:', error)
+      alert('Erro ao importar PCA do PNCP')
+    } finally {
+      setImportandoPca(null)
+    }
+  }
+
+  const importarTodosPcasDoPncp = async () => {
+    if (!orgaoAtual?.id || !orgaoAtual?.cnpj) {
+      alert('Dados do órgão não encontrados')
+      return
+    }
+
+    if (!confirm('Deseja importar todos os PCAs encontrados no PNCP?')) {
+      return
+    }
+
+    setCarregandoPcasPncp(true)
+    try {
+      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
+      const response = await fetch(`${API_URL}/api/pncp/importar/pcas/todos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgaoId: orgaoAtual.id,
+          cnpj: cnpjLimpo
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.sucesso) {
+        alert(`Sincronização concluída!\n\nImportados: ${data.importados}\nAtualizados: ${data.atualizados}${data.erros?.length > 0 ? `\nErros: ${data.erros.length}` : ''}`)
+        await carregarDados()
+        setModalImportarPncp(false)
+        setPcasNoPncp([])
+      } else {
+        alert(data.message || 'Erro ao sincronizar PCAs')
+      }
+    } catch (error: any) {
+      console.error('Erro ao sincronizar PCAs:', error)
+      alert('Erro ao sincronizar PCAs do PNCP')
+    } finally {
+      setCarregandoPcasPncp(false)
     }
   }
 
@@ -841,13 +1002,162 @@ export default function PncpPage() {
                   Gerencie os PCAs no Portal Nacional de Contratações Públicas
                 </CardDescription>
               </div>
-              <Dialog open={modalPca} onOpenChange={setModalPca}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Novo PCA
-                  </Button>
-                </DialogTrigger>
+              <div className="flex gap-2">
+                {/* Botão Importar do PNCP */}
+                <Dialog open={modalImportarPncp} onOpenChange={(open) => {
+                  setModalImportarPncp(open)
+                  if (open) buscarPCAsNoPncp()
+                }}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Importar do PNCP
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Importar PCAs do PNCP</DialogTitle>
+                      <DialogDescription>
+                        Busque e importe PCAs já enviados ao PNCP para sincronizar com a plataforma
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                      {carregandoPcasPncp ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-8 h-8 animate-spin mr-2" />
+                          <span>Verificando ambiente PNCP...</span>
+                        </div>
+                      ) : ambienteTreinamento ? (
+                        <div className="space-y-4">
+                          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <p className="text-sm text-yellow-800">
+                              <strong>Ambiente de Treinamento:</strong> A busca automática de PCAs não está disponível neste ambiente. 
+                              Informe manualmente o ano e sequencial do PCA que deseja importar.
+                            </p>
+                            <p className="text-xs text-yellow-600 mt-2">
+                              Você pode encontrar essas informações na URL do PCA no portal PNCP: 
+                              <code className="bg-yellow-100 px-1 rounded">treina.pncp.gov.br/app/pca/CNPJ/ANO/SEQUENCIAL</code>
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label>Ano do PCA</Label>
+                              <Input
+                                type="number"
+                                value={formImportManual.ano}
+                                onChange={(e) => setFormImportManual(prev => ({ ...prev, ano: parseInt(e.target.value) }))}
+                                placeholder="Ex: 2025"
+                              />
+                            </div>
+                            <div>
+                              <Label>Sequencial</Label>
+                              <Input
+                                type="number"
+                                value={formImportManual.sequencial}
+                                onChange={(e) => setFormImportManual(prev => ({ ...prev, sequencial: parseInt(e.target.value) }))}
+                                placeholder="Ex: 1"
+                              />
+                            </div>
+                          </div>
+                          <Button 
+                            onClick={importarPcaManual}
+                            disabled={importandoPca !== null}
+                            className="w-full"
+                          >
+                            {importandoPca ? (
+                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importando...</>
+                            ) : (
+                              <><Upload className="w-4 h-4 mr-2" /> Importar PCA</>
+                            )}
+                          </Button>
+                        </div>
+                      ) : pcasNoPncp.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                          <p>Nenhum PCA encontrado no PNCP para este órgão.</p>
+                          <Button 
+                            variant="outline" 
+                            className="mt-4"
+                            onClick={buscarPCAsNoPncp}
+                          >
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Buscar Novamente
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center">
+                            <p className="text-sm text-muted-foreground">
+                              {pcasNoPncp.length} PCA(s) encontrado(s) no PNCP
+                            </p>
+                            <Button 
+                              onClick={importarTodosPcasDoPncp}
+                              disabled={carregandoPcasPncp}
+                            >
+                              Importar Todos
+                            </Button>
+                          </div>
+                          <div className="border rounded-lg divide-y">
+                            {pcasNoPncp.map((pcaPncp) => {
+                              const chave = `${pcaPncp.anoPca}-${pcaPncp.sequencialPca}`
+                              const jaExiste = pcas.some(p => 
+                                p.ano_exercicio === pcaPncp.anoPca && p.sequencial_pncp === pcaPncp.sequencialPca
+                              )
+                              return (
+                                <div key={chave} className="p-4 flex items-center justify-between">
+                                  <div>
+                                    <p className="font-medium">PCA {pcaPncp.anoPca}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Sequencial: {pcaPncp.sequencialPca} | 
+                                      Itens: {pcaPncp.quantidadeItensPlano || 0}
+                                    </p>
+                                    {pcaPncp.dataPublicacaoPncp && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Publicado em: {new Date(pcaPncp.dataPublicacaoPncp).toLocaleDateString('pt-BR')}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {jaExiste ? (
+                                      <Badge variant="outline" className="text-green-600">
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Já importado
+                                      </Badge>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        onClick={() => importarPcaDoPncp(pcaPncp)}
+                                        disabled={importandoPca === chave}
+                                      >
+                                        {importandoPca === chave ? (
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <>
+                                            <Upload className="w-4 h-4 mr-1" />
+                                            Importar
+                                          </>
+                                        )}
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Botão Novo PCA */}
+                <Dialog open={modalPca} onOpenChange={setModalPca}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Novo PCA
+                    </Button>
+                  </DialogTrigger>
                 <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Incluir PCA no PNCP</DialogTitle>
@@ -985,6 +1295,7 @@ export default function PncpPage() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+              </div>
             </CardHeader>
             <CardContent>
               {pcas.length === 0 ? (
