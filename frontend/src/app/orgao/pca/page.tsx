@@ -120,6 +120,9 @@ interface PCA {
   data_publicacao: string
   enviado_pncp: boolean
   itens: ItemPCA[]
+  // Campos de unidade
+  codigo_unidade?: string
+  nome_unidade?: string
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -159,6 +162,10 @@ export default function PcaPage() {
   const [visualizacao, setVisualizacao] = useState<'lista' | 'detalhes'>('lista')
   const [showNovoPCA, setShowNovoPCA] = useState(false)
   const [anoNovoPCA, setAnoNovoPCA] = useState(new Date().getFullYear() + 1)
+  const [codigoUnidadeNovoPCA, setCodigoUnidadeNovoPCA] = useState('1')
+  const [nomeUnidadeNovoPCA, setNomeUnidadeNovoPCA] = useState('Unidade Principal')
+  const [unidadesOrgao, setUnidadesOrgao] = useState<any[]>([])
+  const [carregandoUnidades, setCarregandoUnidades] = useState(false)
   const [showConfirmarExclusaoPCA, setShowConfirmarExclusaoPCA] = useState(false)
   const [pcaParaExcluir, setPcaParaExcluir] = useState<PCA | null>(null)
   const [novoItem, setNovoItem] = useState({
@@ -279,6 +286,37 @@ export default function PcaPage() {
     }
   }
 
+  // Carregar unidades do órgão
+  const carregarUnidadesOrgao = async () => {
+    const orgaoData = localStorage.getItem('orgao')
+    if (!orgaoData) return
+    
+    const orgao = JSON.parse(orgaoData)
+    if (!orgao?.cnpj) return
+    
+    setCarregandoUnidades(true)
+    try {
+      const cnpjLimpo = orgao.cnpj.replace(/\D/g, '')
+      const response = await fetch(`${API_URL}/api/pncp/orgao/${cnpjLimpo}/unidades`)
+      const data = await response.json()
+      
+      if (response.ok && data.unidades) {
+        setUnidadesOrgao(data.unidades)
+        // Se só tem uma unidade, selecionar automaticamente
+        if (data.unidades.length === 1) {
+          setCodigoUnidadeNovoPCA(data.unidades[0].codigoUnidade)
+          setNomeUnidadeNovoPCA(data.unidades[0].nomeUnidade)
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar unidades:', error)
+      // Usar unidade padrão em caso de erro
+      setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
+    } finally {
+      setCarregandoUnidades(false)
+    }
+  }
+
   const criarNovoPCA = async () => {
     try {
       const orgaoData = localStorage.getItem('orgao')
@@ -290,7 +328,9 @@ export default function PcaPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orgao_id: orgao.id,
-          ano_exercicio: anoNovoPCA
+          ano_exercicio: anoNovoPCA,
+          codigo_unidade: codigoUnidadeNovoPCA,
+          nome_unidade: nomeUnidadeNovoPCA
         })
       })
 
@@ -893,12 +933,15 @@ export default function PcaPage() {
         )}
 
         {/* Modal Novo PCA */}
-        <Dialog open={showNovoPCA} onOpenChange={setShowNovoPCA}>
+        <Dialog open={showNovoPCA} onOpenChange={(open) => {
+          setShowNovoPCA(open)
+          if (open) carregarUnidadesOrgao()
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Criar Novo PCA</DialogTitle>
               <DialogDescription>
-                Selecione o ano para o novo Plano de Contratações Anual
+                Selecione o ano e a unidade para o novo Plano de Contratações Anual
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -913,19 +956,53 @@ export default function PcaPage() {
                       <SelectItem 
                         key={ano} 
                         value={ano.toString()}
-                        disabled={pcas.some(p => p.ano_exercicio === ano)}
+                        disabled={pcas.some(p => p.ano_exercicio === ano && p.codigo_unidade === codigoUnidadeNovoPCA)}
                       >
-                        {ano} {pcas.some(p => p.ano_exercicio === ano) && '(já existe)'}
+                        {ano} {pcas.some(p => p.ano_exercicio === ano && p.codigo_unidade === codigoUnidadeNovoPCA) && '(já existe para esta unidade)'}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+              
+              <div>
+                <label className="text-sm font-medium">Unidade do Órgão</label>
+                {carregandoUnidades ? (
+                  <div className="flex items-center gap-2 h-10">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Carregando unidades...</span>
+                  </div>
+                ) : (
+                  <Select
+                    value={codigoUnidadeNovoPCA}
+                    onValueChange={(value) => {
+                      const unidade = unidadesOrgao.find(u => u.codigoUnidade === value)
+                      setCodigoUnidadeNovoPCA(value)
+                      setNomeUnidadeNovoPCA(unidade?.nomeUnidade || `Unidade ${value}`)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a unidade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unidadesOrgao.map((unidade) => (
+                        <SelectItem key={unidade.codigoUnidade} value={unidade.codigoUnidade}>
+                          {unidade.codigoUnidade} - {unidade.nomeUnidade}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cada unidade pode ter seu próprio PCA
+                </p>
+              </div>
+              
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setShowNovoPCA(false)}>
                   Cancelar
                 </Button>
-                <Button onClick={criarNovoPCA}>
+                <Button onClick={criarNovoPCA} disabled={carregandoUnidades}>
                   <Plus className="w-4 h-4 mr-2" />
                   Criar PCA {anoNovoPCA}
                 </Button>
