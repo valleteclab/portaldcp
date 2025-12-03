@@ -38,8 +38,13 @@ export class PncpService {
     this.initializeAxios();
   }
 
+  // Helper para obter variáveis de ambiente (ConfigService ou process.env)
+  private getEnvVar(key: string): string | undefined {
+    return this.configService.get<string>(key) || process.env[key];
+  }
+
   private initializeAxios() {
-    const baseURL = this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1';
+    const baseURL = this.getEnvVar('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1';
     
     this.axiosInstance = axios.create({
       baseURL,
@@ -76,16 +81,18 @@ export class PncpService {
   // ============ AUTENTICAÇÃO ============
 
   async login(): Promise<string> {
-    const login = this.configService.get<string>('PNCP_LOGIN');
-    const senha = this.configService.get<string>('PNCP_SENHA');
+    const login = this.getEnvVar('PNCP_LOGIN');
+    const senha = this.getEnvVar('PNCP_SENHA');
+    const apiUrl = this.getEnvVar('PNCP_API_URL');
 
     if (!login || !senha) {
+      this.logger.error(`Credenciais PNCP não configuradas. Login: ${!!login}, Senha: ${!!senha}, ApiUrl: ${!!apiUrl}`);
       throw new HttpException('Credenciais PNCP não configuradas', HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     try {
       const response = await axios.post(
-        `${this.configService.get<string>('PNCP_API_URL')}/usuarios/login`,
+        `${apiUrl}/usuarios/login`,
         { login, senha }
       );
 
@@ -1555,10 +1562,11 @@ export class PncpService {
     loginConfigurado: boolean;
     debug?: any;
   }> {
-    const apiUrl = this.configService.get<string>('PNCP_API_URL') || '';
-    const login = this.configService.get<string>('PNCP_LOGIN');
-    const senha = this.configService.get<string>('PNCP_SENHA');
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    // Usar getEnvVar para garantir que funcione no Railway
+    const apiUrl = this.getEnvVar('PNCP_API_URL') || '';
+    const login = this.getEnvVar('PNCP_LOGIN');
+    const senha = this.getEnvVar('PNCP_SENHA');
+    const cnpj = this.getEnvVar('PNCP_CNPJ_ORGAO');
 
     const ambiente = apiUrl.includes('treina') ? 'TREINAMENTO' : 
                      apiUrl.includes('pncp.gov.br') ? 'PRODUÇÃO' : 'NÃO CONFIGURADO';
@@ -1568,6 +1576,7 @@ export class PncpService {
     this.logger.log(`[CONFIG] PNCP_LOGIN: ${login ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
     this.logger.log(`[CONFIG] PNCP_SENHA: ${senha ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
     this.logger.log(`[CONFIG] PNCP_CNPJ_ORGAO: ${cnpj ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
+    this.logger.log(`[CONFIG] RAILWAY_ENVIRONMENT: ${process.env.RAILWAY_ENVIRONMENT || 'NÃO DEFINIDO'}`);
 
     return {
       configurado: !!(login && cnpj && apiUrl && senha),
@@ -1579,7 +1588,8 @@ export class PncpService {
         loginDefinido: !!login,
         senhaDefinida: !!senha,
         cnpjDefinido: !!cnpj,
-        apiUrlParcial: apiUrl ? apiUrl.substring(0, 40) : null
+        apiUrlParcial: apiUrl ? apiUrl.substring(0, 40) : null,
+        railwayEnv: process.env.RAILWAY_ENVIRONMENT || null
       }
     };
   }

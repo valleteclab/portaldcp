@@ -9,6 +9,9 @@ async function bootstrap() {
   console.log('PNCP_LOGIN:', process.env.PNCP_LOGIN ? 'DEFINIDO' : 'NÃO DEFINIDO');
   console.log('PNCP_SENHA:', process.env.PNCP_SENHA ? 'DEFINIDO' : 'NÃO DEFINIDO');
   console.log('PNCP_CNPJ_ORGAO:', process.env.PNCP_CNPJ_ORGAO ? 'DEFINIDO' : 'NÃO DEFINIDO');
+  console.log('RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT || 'NÃO DEFINIDO');
+  console.log('NODE_ENV:', process.env.NODE_ENV || 'NÃO DEFINIDO');
+  console.log('Total ENV vars:', Object.keys(process.env).length);
   console.log('======================');
 
   const app = await NestFactory.create(AppModule);
