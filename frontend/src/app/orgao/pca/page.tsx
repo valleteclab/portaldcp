@@ -302,11 +302,16 @@ export default function PcaPage() {
       const data = await response.json()
       
       if (response.ok && data.unidades && data.unidades.length > 0) {
-        setUnidadesOrgao(data.unidades)
+        // Converter codigoUnidade para string (API retorna como número)
+        const unidadesFormatadas = data.unidades.map((u: any) => ({
+          ...u,
+          codigoUnidade: String(u.codigoUnidade)
+        }))
+        setUnidadesOrgao(unidadesFormatadas)
         // Se só tem uma unidade, selecionar automaticamente
-        if (data.unidades.length === 1) {
-          setCodigoUnidadeNovoPCA(String(data.unidades[0].codigoUnidade))
-          setNomeUnidadeNovoPCA(data.unidades[0].nomeUnidade || `Unidade ${data.unidades[0].codigoUnidade}`)
+        if (unidadesFormatadas.length === 1) {
+          setCodigoUnidadeNovoPCA(unidadesFormatadas[0].codigoUnidade)
+          setNomeUnidadeNovoPCA(unidadesFormatadas[0].nomeUnidade || `Unidade ${unidadesFormatadas[0].codigoUnidade}`)
         }
       } else {
         // Fallback
