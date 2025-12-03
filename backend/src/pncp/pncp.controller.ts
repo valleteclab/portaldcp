@@ -424,6 +424,13 @@ export class PncpController {
     return this.pncpService.sincronizarTodosPCAsDoPncp(body.orgaoId, body.cnpj);
   }
 
+  // ============ UNIDADES DO ÓRGÃO ============
+
+  @Get('orgao/:cnpj/unidades')
+  async consultarUnidadesOrgao(@Param('cnpj') cnpj: string) {
+    return this.pncpService.consultarUnidadesOrgao(cnpj);
+  }
+
   // ============ HELPERS ============
 
   private mapearTipoDocumento(tipo: string): number {

@@ -160,7 +160,13 @@ export default function PncpPage() {
   const [modalRetificarItem, setModalRetificarItem] = useState(false)
   const [pcaSelecionado, setPcaSelecionado] = useState<PCA | null>(null)
   const [itemParaRetificar, setItemParaRetificar] = useState<any>(null)
-  const [formPca, setFormPca] = useState({ ano_pca: new Date().getFullYear() })
+  const [formPca, setFormPca] = useState({ 
+    ano_pca: new Date().getFullYear(),
+    codigo_unidade: '1',
+    nome_unidade: 'Unidade Principal'
+  })
+  const [unidadesOrgao, setUnidadesOrgao] = useState<any[]>([])
+  const [carregandoUnidades, setCarregandoUnidades] = useState(false)
   const [formPcaItem, setFormPcaItem] = useState<Partial<ItemPcaForm>>({
     numero_item: 1,
     categoria_item_pca: 1,
@@ -249,6 +255,36 @@ export default function PncpPage() {
       setStatusConexao({ sucesso: false, mensagem: 'Erro ao testar conexão' })
     } finally {
       setTestandoConexao(false)
+    }
+  }
+
+  // Carregar unidades do órgão
+  const carregarUnidadesOrgao = async () => {
+    if (!orgaoAtual?.cnpj) return
+    
+    setCarregandoUnidades(true)
+    try {
+      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
+      const response = await fetch(`${API_URL}/api/pncp/orgao/${cnpjLimpo}/unidades`)
+      const data = await response.json()
+      
+      if (response.ok && data.unidades) {
+        setUnidadesOrgao(data.unidades)
+        // Se só tem uma unidade, selecionar automaticamente
+        if (data.unidades.length === 1) {
+          setFormPca(prev => ({
+            ...prev,
+            codigo_unidade: data.unidades[0].codigoUnidade,
+            nome_unidade: data.unidades[0].nomeUnidade
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar unidades:', error)
+      // Usar unidade padrão em caso de erro
+      setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
+    } finally {
+      setCarregandoUnidades(false)
     }
   }
 
@@ -593,10 +629,17 @@ export default function PncpPage() {
       return
     }
     
+    if (!formPca.codigo_unidade) {
+      alert('Selecione a unidade do órgão')
+      return
+    }
+    
     setEnviando('pca')
     try {
       const response = await pncpService.incluirPca({
         ano_pca: formPca.ano_pca,
+        codigo_unidade: formPca.codigo_unidade,
+        nome_unidade: formPca.nome_unidade,
         itens: itensPca
       })
       
@@ -1151,7 +1194,10 @@ export default function PncpPage() {
                 </Dialog>
 
                 {/* Botão Novo PCA */}
-                <Dialog open={modalPca} onOpenChange={setModalPca}>
+                <Dialog open={modalPca} onOpenChange={(open) => {
+                  setModalPca(open)
+                  if (open) carregarUnidadesOrgao()
+                }}>
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="w-4 h-4 mr-2" />
@@ -1166,13 +1212,50 @@ export default function PncpPage() {
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
-                    <div>
-                      <Label>Ano do PCA</Label>
-                      <Input
-                        type="number"
-                        value={formPca.ano_pca}
-                        onChange={(e) => setFormPca({ ano_pca: parseInt(e.target.value) })}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Ano do PCA</Label>
+                        <Input
+                          type="number"
+                          value={formPca.ano_pca}
+                          onChange={(e) => setFormPca(prev => ({ ...prev, ano_pca: parseInt(e.target.value) }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>Unidade do Órgão</Label>
+                        {carregandoUnidades ? (
+                          <div className="flex items-center gap-2 h-10">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="text-sm text-muted-foreground">Carregando unidades...</span>
+                          </div>
+                        ) : (
+                          <Select
+                            value={formPca.codigo_unidade}
+                            onValueChange={(value) => {
+                              const unidade = unidadesOrgao.find(u => u.codigoUnidade === value)
+                              setFormPca(prev => ({
+                                ...prev,
+                                codigo_unidade: value,
+                                nome_unidade: unidade?.nomeUnidade || `Unidade ${value}`
+                              }))
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione a unidade" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {unidadesOrgao.map((unidade) => (
+                                <SelectItem key={unidade.codigoUnidade} value={unidade.codigoUnidade}>
+                                  {unidade.codigoUnidade} - {unidade.nomeUnidade}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Código da unidade no PNCP (cada unidade tem seu próprio PCA)
+                        </p>
+                      </div>
                     </div>
                     
                     <div className="border-t pt-4">

@@ -42,6 +42,16 @@ export class PlanoContratacaoAnual {
   @Column()
   orgao_id: string;
 
+  // Unidade do órgão (para órgãos com múltiplas unidades)
+  @Column({ nullable: true })
+  unidade_id: string;
+
+  @Column({ nullable: true })
+  codigo_unidade: string; // Código da unidade no PNCP (ex: "1", "2")
+
+  @Column({ nullable: true })
+  nome_unidade: string; // Nome da unidade para referência
+
   // Identificação
   @Column({ type: 'int' })
   ano_exercicio: number;

@@ -39,6 +39,8 @@ export interface ItemPca {
 
 export interface Pca {
   ano_pca: number;
+  codigo_unidade?: string;  // Código da unidade no PNCP (ex: "1", "2")
+  nome_unidade?: string;    // Nome da unidade para referência
   itens: ItemPca[];
 }
 

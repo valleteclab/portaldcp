@@ -702,11 +702,13 @@ export class PncpService {
       sync.numero_controle_pncp = numeroControlePncp || undefined;
       await this.pncpSyncRepository.save(sync);
 
-      // Atualizar PCA no banco com número de controle, sequencial e marcar como enviado
+      // Atualizar PCA no banco com número de controle, sequencial, unidade e marcar como enviado
       await this.pcaRepository.update(pcaId, {
         enviado_pncp: true,
         numero_controle_pncp: numeroControlePncp,
         sequencial_pncp: sequencial,
+        codigo_unidade: codigoUnidade,
+        nome_unidade: pcaPayload.nome_unidade || `Unidade ${codigoUnidade}`,
         data_envio_pncp: new Date(),
       });
 
@@ -1826,6 +1828,79 @@ export class PncpService {
     const novosEntes = [...cnpjsAtuais, cnpjLimpo];
     
     return this.atualizarEntesAutorizados(novosEntes);
+  }
+
+  // ============ UNIDADES DO ÓRGÃO ============
+
+  async consultarUnidadesOrgao(cnpj: string): Promise<any> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    
+    try {
+      await this.getValidToken();
+      
+      this.logger.log(`Consultando unidades do órgão: ${cnpjLimpo}`);
+      
+      // Endpoint para listar unidades: GET /v1/orgaos/{cnpj}/pca/{uasg}/{ano}/sequenciaisplano
+      // Mas primeiro precisamos descobrir as unidades disponíveis
+      // Vamos tentar buscar os sequenciais de plano para descobrir as unidades
+      
+      const unidadesEncontradas: any[] = [];
+      const anoAtual = new Date().getFullYear();
+      
+      // Tentar buscar unidades pelos sequenciais de plano dos últimos anos
+      for (const ano of [anoAtual - 1, anoAtual, anoAtual + 1]) {
+        // Tentar unidades de 1 a 10
+        for (let uasg = 1; uasg <= 10; uasg++) {
+          try {
+            const url = `/orgaos/${cnpjLimpo}/pca/${uasg}/${ano}/sequenciaisplano`;
+            const response = await this.axiosInstance.get(url);
+            
+            if (response.data) {
+              // Se retornou dados, essa unidade existe
+              const unidadeExistente = unidadesEncontradas.find(u => u.codigoUnidade === String(uasg));
+              if (!unidadeExistente) {
+                unidadesEncontradas.push({
+                  codigoUnidade: String(uasg),
+                  nomeUnidade: `Unidade ${uasg}`,
+                  sequenciaisPlano: response.data
+                });
+                this.logger.log(`Unidade ${uasg} encontrada para ano ${ano}`);
+              }
+            }
+          } catch (err: any) {
+            // 404 ou erro = unidade não existe para esse ano, continua
+          }
+        }
+      }
+      
+      // Se não encontrou nenhuma, retornar pelo menos a unidade padrão "1"
+      if (unidadesEncontradas.length === 0) {
+        unidadesEncontradas.push({
+          codigoUnidade: '1',
+          nomeUnidade: 'Unidade Principal',
+          sequenciaisPlano: []
+        });
+      }
+      
+      return {
+        cnpj: cnpjLimpo,
+        unidades: unidadesEncontradas,
+        total: unidadesEncontradas.length
+      };
+    } catch (error: any) {
+      this.logger.error(`Erro ao consultar unidades: ${error.message}`);
+      // Retornar unidade padrão em caso de erro
+      return {
+        cnpj: cnpjLimpo,
+        unidades: [{
+          codigoUnidade: '1',
+          nomeUnidade: 'Unidade Principal',
+          sequenciaisPlano: []
+        }],
+        total: 1,
+        mensagem: 'Não foi possível consultar unidades no PNCP. Usando unidade padrão.'
+      };
+    }
   }
 
   // ============ IMPORTAÇÃO DE PCAs DO PNCP ============
