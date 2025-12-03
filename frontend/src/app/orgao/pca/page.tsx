@@ -286,7 +286,7 @@ export default function PcaPage() {
     }
   }
 
-  // Carregar unidades do órgão
+  // Carregar unidades do órgão - usa mesmo endpoint do admin/pncp
   const carregarUnidadesOrgao = async () => {
     const orgaoData = localStorage.getItem('orgao')
     if (!orgaoData) return
@@ -297,20 +297,23 @@ export default function PcaPage() {
     setCarregandoUnidades(true)
     try {
       const cnpjLimpo = orgao.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/orgao/${cnpjLimpo}/unidades`)
+      // Endpoint correto: /api/pncp/orgaos/{cnpj}/unidades (plural)
+      const response = await fetch(`${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`)
       const data = await response.json()
       
-      if (response.ok && data.unidades) {
+      if (response.ok && data.unidades && data.unidades.length > 0) {
         setUnidadesOrgao(data.unidades)
         // Se só tem uma unidade, selecionar automaticamente
         if (data.unidades.length === 1) {
-          setCodigoUnidadeNovoPCA(data.unidades[0].codigoUnidade)
-          setNomeUnidadeNovoPCA(data.unidades[0].nomeUnidade)
+          setCodigoUnidadeNovoPCA(String(data.unidades[0].codigoUnidade))
+          setNomeUnidadeNovoPCA(data.unidades[0].nomeUnidade || `Unidade ${data.unidades[0].codigoUnidade}`)
         }
+      } else {
+        // Fallback
+        setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
       }
     } catch (error) {
       console.error('Erro ao carregar unidades:', error)
-      // Usar unidade padrão em caso de erro
       setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
     } finally {
       setCarregandoUnidades(false)
