@@ -32,6 +32,7 @@ import { SeedModule } from './seed/seed.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      ignoreEnvFile: process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT,
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
