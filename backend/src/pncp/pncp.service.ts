@@ -1840,57 +1840,61 @@ export class PncpService {
       
       this.logger.log(`Consultando unidades do órgão: ${cnpjLimpo}`);
       
-      // Usar endpoint de consulta pública para buscar dados do órgão com suas unidades
-      // GET /consulta/v1/orgaos/{cnpj}
-      const apiUrl = this.getEnvVar('PNCP_API_URL') || '';
-      const baseUrl = apiUrl.replace('/api/pncp/v1', '');
+      // Endpoint oficial: GET /v1/orgaos/{cnpj}/unidades
+      const url = `/orgaos/${cnpjLimpo}/unidades`;
+      const response = await this.axiosInstance.get(url);
       
-      const response = await axios.get(`${baseUrl}/api/consulta/v1/orgaos/${cnpjLimpo}`);
-      
-      if (response.data && response.data.unidades) {
-        const unidades = response.data.unidades.map((u: any) => ({
+      if (response.data && Array.isArray(response.data)) {
+        const unidades = response.data.map((u: any) => ({
           codigoUnidade: String(u.codigoUnidade),
           nomeUnidade: u.nomeUnidade || `Unidade ${u.codigoUnidade}`,
-          municipio: u.municipio?.nomeIBGE || '',
-          uf: u.uf?.siglaUF || ''
+          municipio: u.municipio?.nomeIBGE || u.municipioNome || '',
+          uf: u.uf?.siglaUF || u.ufSigla || ''
         }));
         
         this.logger.log(`Encontradas ${unidades.length} unidades para o órgão ${cnpjLimpo}`);
         
         return {
           cnpj: cnpjLimpo,
-          nomeOrgao: response.data.razaoSocial || response.data.nomeFantasia,
-          idPncp: response.data.id,
           unidades: unidades,
           total: unidades.length
         };
       }
       
-      // Fallback: retornar unidade padrão
+      // Se retornou objeto único ao invés de array
+      if (response.data && response.data.codigoUnidade) {
+        return {
+          cnpj: cnpjLimpo,
+          unidades: [{
+            codigoUnidade: String(response.data.codigoUnidade),
+            nomeUnidade: response.data.nomeUnidade || `Unidade ${response.data.codigoUnidade}`,
+            municipio: response.data.municipio?.nomeIBGE || '',
+            uf: response.data.uf?.siglaUF || ''
+          }],
+          total: 1
+        };
+      }
+      
+      // Fallback
       return {
         cnpj: cnpjLimpo,
         unidades: [{
           codigoUnidade: '1',
-          nomeUnidade: 'Unidade Principal',
-          municipio: '',
-          uf: ''
+          nomeUnidade: 'Unidade Principal'
         }],
         total: 1,
-        mensagem: 'Nenhuma unidade encontrada. Usando unidade padrão.'
+        mensagem: 'Nenhuma unidade encontrada.'
       };
     } catch (error: any) {
       this.logger.error(`Erro ao consultar unidades: ${error.message}`);
-      // Retornar unidade padrão em caso de erro
       return {
         cnpj: cnpjLimpo,
         unidades: [{
           codigoUnidade: '1',
-          nomeUnidade: 'Unidade Principal',
-          municipio: '',
-          uf: ''
+          nomeUnidade: 'Unidade Principal'
         }],
         total: 1,
-        mensagem: 'Não foi possível consultar unidades no PNCP. Usando unidade padrão.'
+        erro: error.message
       };
     }
   }
