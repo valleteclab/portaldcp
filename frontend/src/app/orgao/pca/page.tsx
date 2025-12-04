@@ -226,6 +226,13 @@ export default function PcaPage() {
     carregarPCAs()
   }, [])
 
+  // Carregar unidades quando o modal de novo PCA abrir
+  useEffect(() => {
+    if (showNovoPCA) {
+      carregarUnidadesOrgao()
+    }
+  }, [showNovoPCA])
+
   const carregarPCAs = async () => {
     setLoading(true)
     try {
@@ -289,17 +296,13 @@ export default function PcaPage() {
   // Carregar unidades do órgão - usa mesmo endpoint do admin/pncp
   const carregarUnidadesOrgao = async () => {
     const orgaoData = localStorage.getItem('orgao')
-    console.log('[DEBUG] orgaoData:', orgaoData)
     if (!orgaoData) {
-      console.log('[DEBUG] Sem orgaoData no localStorage')
       setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
       return
     }
     
     const orgao = JSON.parse(orgaoData)
-    console.log('[DEBUG] orgao:', orgao)
     if (!orgao?.cnpj) {
-      console.log('[DEBUG] Sem CNPJ no orgao')
       setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
       return
     }
@@ -307,26 +310,22 @@ export default function PcaPage() {
     setCarregandoUnidades(true)
     try {
       const cnpjLimpo = orgao.cnpj.replace(/\D/g, '')
-      const url = `${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`
-      console.log('[DEBUG] Buscando unidades:', url)
-      const response = await fetch(url)
+      const response = await fetch(`${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`)
       const data = await response.json()
-      console.log('[DEBUG] Resposta unidades:', data)
       
       if (response.ok && data.unidades && data.unidades.length > 0) {
-        // Converter codigoUnidade para string (API retorna como número)
         const unidadesFormatadas = data.unidades.map((u: any) => ({
-          ...u,
-          codigoUnidade: String(u.codigoUnidade)
+          codigoUnidade: String(u.codigoUnidade),
+          nomeUnidade: u.nomeUnidade || `Unidade ${u.codigoUnidade}`
         }))
         setUnidadesOrgao(unidadesFormatadas)
+        
         // Se só tem uma unidade, selecionar automaticamente
         if (unidadesFormatadas.length === 1) {
           setCodigoUnidadeNovoPCA(unidadesFormatadas[0].codigoUnidade)
-          setNomeUnidadeNovoPCA(unidadesFormatadas[0].nomeUnidade || `Unidade ${unidadesFormatadas[0].codigoUnidade}`)
+          setNomeUnidadeNovoPCA(unidadesFormatadas[0].nomeUnidade)
         }
       } else {
-        // Fallback
         setUnidadesOrgao([{ codigoUnidade: '1', nomeUnidade: 'Unidade Principal' }])
       }
     } catch (error) {
@@ -953,10 +952,7 @@ export default function PcaPage() {
         )}
 
         {/* Modal Novo PCA */}
-        <Dialog open={showNovoPCA} onOpenChange={(open) => {
-          setShowNovoPCA(open)
-          if (open) carregarUnidadesOrgao()
-        }}>
+        <Dialog open={showNovoPCA} onOpenChange={setShowNovoPCA}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Criar Novo PCA</DialogTitle>
