@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual - Compras/Licitações PNCP | Portal DCP</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        
+        header h1 {
+            color: #4f46e5;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            color: #6b7280;
+            font-size: 1.1rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            color: #4f46e5;
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card h2 .icon {
+            width: 32px;
+            height: 32px;
+            background: #4f46e5;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .card h3 {
+            color: #374151;
+            font-size: 1.2rem;
+            margin: 20px 0 10px 0;
+        }
+        
+        .step {
+            background: #f9fafb;
+            border-left: 4px solid #4f46e5;
+            padding: 15px 20px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .step-number {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            background: #4f46e5;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            color: #1f2937;
+        }
+        
+        .step-content {
+            margin-top: 10px;
+            color: #4b5563;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        tr:hover {
+            background: #f9fafb;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .badge-required {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+        
+        .badge-optional {
+            background: #f0fdf4;
+            color: #16a34a;
+        }
+        
+        .badge-info {
+            background: #eff6ff;
+            color: #2563eb;
+        }
+        
+        .code-block {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            margin: 15px 0;
+        }
+        
+        .code-block .comment {
+            color: #9ca3af;
+        }
+        
+        .code-block .key {
+            color: #93c5fd;
+        }
+        
+        .code-block .string {
+            color: #86efac;
+        }
+        
+        .code-block .number {
+            color: #fcd34d;
+        }
+        
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        
+        .alert-warning {
+            background: #fffbeb;
+            border: 1px solid #fbbf24;
+            color: #92400e;
+        }
+        
+        .alert-info {
+            background: #eff6ff;
+            border: 1px solid #3b82f6;
+            color: #1e40af;
+        }
+        
+        .alert-success {
+            background: #f0fdf4;
+            border: 1px solid #22c55e;
+            color: #166534;
+        }
+        
+        .alert-icon {
+            font-size: 1.5rem;
+        }
+        
+        .endpoint {
+            background: #f3f4f6;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .method {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+        
+        .method-post {
+            background: #22c55e;
+            color: white;
+        }
+        
+        .method-put {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .method-delete {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .method-get {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .toc {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .toc h3 {
+            margin-bottom: 15px;
+            color: #374151;
+        }
+        
+        .toc ul {
+            list-style: none;
+        }
+        
+        .toc li {
+            margin: 8px 0;
+        }
+        
+        .toc a {
+            color: #4f46e5;
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+            
+            header h1 {
+                font-size: 1.8rem;
+            }
+        }
+        
+        .status-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .status-item {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: white;
+        }
+        
+        footer a {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📋 Manual de Compras/Licitações</h1>
+            <p>Integração com o Portal Nacional de Contratações Públicas (PNCP)</p>
+        </header>
+        
+        <!-- Índice -->
+        <div class="card">
+            <div class="toc">
+                <h3>📑 Índice</h3>
+                <ul>
+                    <li><a href="#visao-geral">1. Visão Geral</a></li>
+                    <li><a href="#fluxo">2. Fluxo de Trabalho</a></li>
+                    <li><a href="#incluir-compra">3. Incluir Compra/Licitação</a></li>
+                    <li><a href="#campos">4. Campos Obrigatórios</a></li>
+                    <li><a href="#modalidades">5. Modalidades de Licitação</a></li>
+                    <li><a href="#documentos">6. Anexar Documentos</a></li>
+                    <li><a href="#retificar">7. Retificar Compra</a></li>
+                    <li><a href="#excluir">8. Excluir Compra</a></li>
+                    <li><a href="#resultado">9. Registrar Resultado</a></li>
+                    <li><a href="#ata">10. Ata de Registro de Preço</a></li>
+                    <li><a href="#erros">11. Erros Comuns</a></li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Visão Geral -->
+        <div class="card" id="visao-geral">
+            <h2><span class="icon">1</span> Visão Geral</h2>
+            <p>O módulo de Compras/Licitações permite publicar e gerenciar processos licitatórios no PNCP. Após a publicação, o processo recebe um número de controle único e fica disponível para consulta pública.</p>
+            
+            <div class="alert alert-info">
+                <span class="alert-icon">ℹ️</span>
+                <div>
+                    <strong>Ambiente de Treinamento:</strong> https://treina.pncp.gov.br<br>
+                    <strong>Ambiente de Produção:</strong> https://pncp.gov.br
+                </div>
+            </div>
+            
+            <h3>Endpoints Disponíveis</h3>
+            <div class="endpoint">
+                <span class="method method-post">POST</span>
+                <code>/api/pncp/compras</code> - Incluir nova compra
+            </div>
+            <div class="endpoint">
+                <span class="method method-put">PUT</span>
+                <code>/api/pncp/compras/:ano/:sequencial</code> - Retificar compra
+            </div>
+            <div class="endpoint">
+                <span class="method method-delete">DELETE</span>
+                <code>/api/pncp/compras/:ano/:sequencial</code> - Excluir compra
+            </div>
+            <div class="endpoint">
+                <span class="method method-get">GET</span>
+                <code>/api/pncp/compras/:ano/:sequencial</code> - Consultar compra
+            </div>
+        </div>
+        
+        <!-- Fluxo de Trabalho -->
+        <div class="card" id="fluxo">
+            <h2><span class="icon">2</span> Fluxo de Trabalho</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <span class="step-title">Criar Licitação no Sistema</span>
+                <div class="step-content">
+                    Cadastre a licitação localmente com todos os dados necessários (objeto, modalidade, valores, datas).
+                </div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">2</span>
+                <span class="step-title">Anexar Documentos</span>
+                <div class="step-content">
+                    Anexe o edital e demais documentos obrigatórios (PDF, máximo 50MB por arquivo).
+                </div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">3</span>
+                <span class="step-title">Enviar ao PNCP</span>
+                <div class="step-content">
+                    Clique em "Enviar ao PNCP" para publicar. O sistema retornará o número de controle.
+                </div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">4</span>
+                <span class="step-title">Registrar Resultado</span>
+                <div class="step-content">
+                    Após a homologação, registre o resultado dos itens com os fornecedores vencedores.
+                </div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">5</span>
+                <span class="step-title">Gerar Ata/Contrato</span>
+                <div class="step-content">
+                    Para SRP, gere a Ata de Registro de Preço. Para demais casos, gere o Contrato.
+                </div>
+            </div>
+        </div>
+        
+        <!-- Incluir Compra -->
+        <div class="card" id="incluir-compra">
+            <h2><span class="icon">3</span> Incluir Compra/Licitação</h2>
+            
+            <p>Para incluir uma nova compra no PNCP, envie uma requisição POST com os dados da licitação e o arquivo do edital.</p>
+            
+            <div class="alert alert-warning">
+                <span class="alert-icon">⚠️</span>
+                <div>
+                    <strong>Importante:</strong> O envio utiliza <code>multipart/form-data</code> pois inclui upload de arquivo (edital).
+                </div>
+            </div>
+            
+            <h3>Exemplo de Payload</h3>
+            <div class="code-block">
+<span class="comment">// POST /api/pncp/compras</span>
+{
+  <span class="key">"modalidade_id"</span>: <span class="number">8</span>,           <span class="comment">// Pregão Eletrônico</span>
+  <span class="key">"modo_disputa_id"</span>: <span class="number">1</span>,         <span class="comment">// Aberto</span>
+  <span class="key">"tipo_contratacao_id"</span>: <span class="number">1</span>,     <span class="comment">// Material</span>
+  <span class="key">"srp"</span>: <span class="number">true</span>,                    <span class="comment">// Sistema Registro de Preço</span>
+  <span class="key">"numero_compra"</span>: <span class="string">"001/2025"</span>,
+  <span class="key">"ano_compra"</span>: <span class="number">2025</span>,
+  <span class="key">"objeto_compra"</span>: <span class="string">"Aquisição de materiais de escritório"</span>,
+  <span class="key">"valor_total_estimado"</span>: <span class="number">150000.00</span>,
+  <span class="key">"data_abertura_proposta"</span>: <span class="string">"2025-01-15T09:00:00"</span>,
+  <span class="key">"data_encerramento_proposta"</span>: <span class="string">"2025-01-30T18:00:00"</span>,
+  <span class="key">"informacao_complementar"</span>: <span class="string">"Licitação exclusiva para ME/EPP"</span>,
+  <span class="key">"link_sistema_origem"</span>: <span class="string">"https://compras.gov.br/..."</span>,
+  <span class="key">"codigo_unidade"</span>: <span class="string">"10"</span>,       <span class="comment">// Unidade do órgão</span>
+  <span class="key">"arquivo"</span>: [arquivo_edital.pdf]
+}
+            </div>
+        </div>
+        
+        <!-- Campos Obrigatórios -->
+        <div class="card" id="campos">
+            <h2><span class="icon">4</span> Campos Obrigatórios</h2>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Campo</th>
+                        <th>Tipo</th>
+                        <th>Descrição</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>modalidade_id</code></td>
+                        <td>number</td>
+                        <td>ID da modalidade de licitação</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>modo_disputa_id</code></td>
+                        <td>number</td>
+                        <td>Modo de disputa (1=Aberto, 2=Fechado, etc)</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tipo_contratacao_id</code></td>
+                        <td>number</td>
+                        <td>Tipo (1=Material, 2=Serviço, 3=Obra)</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>numero_compra</code></td>
+                        <td>string</td>
+                        <td>Número do processo (ex: "001/2025")</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>ano_compra</code></td>
+                        <td>number</td>
+                        <td>Ano da compra</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>objeto_compra</code></td>
+                        <td>string</td>
+                        <td>Descrição do objeto</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>valor_total_estimado</code></td>
+                        <td>number</td>
+                        <td>Valor total estimado em R$</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>data_abertura_proposta</code></td>
+                        <td>datetime</td>
+                        <td>Data/hora de abertura das propostas</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>data_encerramento_proposta</code></td>
+                        <td>datetime</td>
+                        <td>Data/hora de encerramento</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>srp</code></td>
+                        <td>boolean</td>
+                        <td>Se é Sistema de Registro de Preço</td>
+                        <td><span class="badge badge-optional">Opcional</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>codigo_unidade</code></td>
+                        <td>string</td>
+                        <td>Código da unidade do órgão</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>arquivo</code></td>
+                        <td>file</td>
+                        <td>Arquivo do edital (PDF)</td>
+                        <td><span class="badge badge-required">Obrigatório</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Modalidades -->
+        <div class="card" id="modalidades">
+            <h2><span class="icon">5</span> Modalidades de Licitação</h2>
+            
+            <div class="grid-2">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Modalidade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>1</td><td>Leilão - Eletrônico</td></tr>
+                        <tr><td>2</td><td>Diálogo Competitivo</td></tr>
+                        <tr><td>3</td><td>Concurso</td></tr>
+                        <tr><td>4</td><td>Concorrência - Eletrônica</td></tr>
+                        <tr><td>5</td><td>Concorrência - Presencial</td></tr>
+                        <tr><td>6</td><td>Pregão - Eletrônico</td></tr>
+                        <tr><td>7</td><td>Pregão - Presencial</td></tr>
+                        <tr><td>8</td><td>Dispensa de Licitação</td></tr>
+                        <tr><td>9</td><td>Inexigibilidade</td></tr>
+                    </tbody>
+                </table>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Modo de Disputa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>1</td><td>Aberto</td></tr>
+                        <tr><td>2</td><td>Fechado</td></tr>
+                        <tr><td>3</td><td>Aberto-Fechado</td></tr>
+                        <tr><td>4</td><td>Fechado-Aberto</td></tr>
+                        <tr><td>5</td><td>Não se aplica</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <h3>Tipos de Contratação</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tipo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>1</td><td>Material</td></tr>
+                    <tr><td>2</td><td>Serviço</td></tr>
+                    <tr><td>3</td><td>Obra</td></tr>
+                    <tr><td>4</td><td>Serviço de Engenharia</td></tr>
+                    <tr><td>5</td><td>Solução de TIC</td></tr>
+                    <tr><td>6</td><td>Locação de Imóvel</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Documentos -->
+        <div class="card" id="documentos">
+            <h2><span class="icon">6</span> Anexar Documentos</h2>
+            
+            <p>Após incluir a compra, você pode anexar documentos adicionais:</p>
+            
+            <div class="endpoint">
+                <span class="method method-post">POST</span>
+                <code>/api/pncp/compras/:ano/:sequencial/documentos</code>
+            </div>
+            
+            <h3>Tipos de Documento</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tipo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>1</td><td>Edital</td></tr>
+                    <tr><td>2</td><td>Termo de Referência</td></tr>
+                    <tr><td>3</td><td>Anexo</td></tr>
+                    <tr><td>4</td><td>Ata</td></tr>
+                    <tr><td>5</td><td>Aviso de Licitação</td></tr>
+                    <tr><td>6</td><td>Outros</td></tr>
+                </tbody>
+            </table>
+            
+            <div class="alert alert-warning">
+                <span class="alert-icon">⚠️</span>
+                <div>
+                    <strong>Limites:</strong><br>
+                    • Tamanho máximo: 50MB por arquivo<br>
+                    • Formatos aceitos: PDF, DOC, DOCX, XLS, XLSX, ZIP
+                </div>
+            </div>
+        </div>
+        
+        <!-- Retificar -->
+        <div class="card" id="retificar">
+            <h2><span class="icon">7</span> Retificar Compra</h2>
+            
+            <p>Para corrigir informações de uma compra já publicada:</p>
+            
+            <div class="endpoint">
+                <span class="method method-put">PUT</span>
+                <code>/api/pncp/compras/:ano/:sequencial</code>
+            </div>
+            
+            <div class="code-block">
+<span class="comment">// PUT /api/pncp/compras/2025/1</span>
+{
+  <span class="key">"objeto_compra"</span>: <span class="string">"Descrição corrigida do objeto"</span>,
+  <span class="key">"valor_total_estimado"</span>: <span class="number">175000.00</span>,
+  <span class="key">"justificativa"</span>: <span class="string">"Correção de valor estimado"</span>
+}
+            </div>
+            
+            <div class="alert alert-info">
+                <span class="alert-icon">ℹ️</span>
+                <div>
+                    A justificativa é obrigatória para retificações. Informe o motivo da alteração.
+                </div>
+            </div>
+        </div>
+        
+        <!-- Excluir -->
+        <div class="card" id="excluir">
+            <h2><span class="icon">8</span> Excluir Compra</h2>
+            
+            <p>Para excluir uma compra do PNCP (apenas se ainda não houver resultados registrados):</p>
+            
+            <div class="endpoint">
+                <span class="method method-delete">DELETE</span>
+                <code>/api/pncp/compras/:ano/:sequencial</code>
+            </div>
+            
+            <div class="code-block">
+<span class="comment">// DELETE /api/pncp/compras/2025/1</span>
+{
+  <span class="key">"justificativa"</span>: <span class="string">"Licitação cancelada por decisão administrativa"</span>
+}
+            </div>
+            
+            <div class="alert alert-warning">
+                <span class="alert-icon">⚠️</span>
+                <div>
+                    <strong>Atenção:</strong> A exclusão é irreversível. Compras com resultados homologados não podem ser excluídas.
+                </div>
+            </div>
+        </div>
+        
+        <!-- Resultado -->
+        <div class="card" id="resultado">
+            <h2><span class="icon">9</span> Registrar Resultado</h2>
+            
+            <p>Após a homologação, registre o resultado de cada item:</p>
+            
+            <div class="endpoint">
+                <span class="method method-post">POST</span>
+                <code>/api/pncp/compras/:ano/:seq/itens/:item/resultado</code>
+            </div>
+            
+            <div class="code-block">
+<span class="comment">// POST /api/pncp/compras/2025/1/itens/1/resultado</span>
+{
+  <span class="key">"situacao_id"</span>: <span class="number">1</span>,              <span class="comment">// 1=Homologado</span>
+  <span class="key">"quantidade_homologada"</span>: <span class="number">100</span>,
+  <span class="key">"valor_unitario_homologado"</span>: <span class="number">45.50</span>,
+  <span class="key">"valor_total_homologado"</span>: <span class="number">4550.00</span>,
+  <span class="key">"percentual_desconto"</span>: <span class="number">15.5</span>,
+  <span class="key">"fornecedor"</span>: {
+    <span class="key">"tipo_pessoa_id"</span>: <span class="string">"PJ"</span>,     <span class="comment">// PJ, PF ou PE</span>
+    <span class="key">"cpf_cnpj"</span>: <span class="string">"12345678000199"</span>,
+    <span class="key">"razao_social"</span>: <span class="string">"Empresa Vencedora LTDA"</span>,
+    <span class="key">"porte_id"</span>: <span class="number">1</span>,              <span class="comment">// 1=ME, 2=EPP, 3=Demais</span>
+    <span class="key">"pais"</span>: <span class="string">"BRA"</span>               <span class="comment">// ISO Alpha-3</span>
+  }
+}
+            </div>
+            
+            <h3>Situações do Item</h3>
+            <div class="status-list">
+                <span class="status-item" style="background: #dcfce7; color: #166534;">1 - Homologado</span>
+                <span class="status-item" style="background: #fee2e2; color: #991b1b;">2 - Cancelado</span>
+                <span class="status-item" style="background: #fef3c7; color: #92400e;">3 - Deserto</span>
+                <span class="status-item" style="background: #e0e7ff; color: #3730a3;">4 - Fracassado</span>
+                <span class="status-item" style="background: #f3f4f6; color: #374151;">5 - Revogado</span>
+                <span class="status-item" style="background: #fce7f3; color: #9d174d;">6 - Anulado</span>
+            </div>
+        </div>
+        
+        <!-- Ata -->
+        <div class="card" id="ata">
+            <h2><span class="icon">10</span> Ata de Registro de Preço</h2>
+            
+            <p>Para licitações com SRP=true, após registrar os resultados, gere a Ata:</p>
+            
+            <div class="endpoint">
+                <span class="method method-post">POST</span>
+                <code>/api/pncp/compras/:ano/:seq/atas</code>
+            </div>
+            
+            <div class="code-block">
+<span class="comment">// POST /api/pncp/compras/2025/1/atas</span>
+{
+  <span class="key">"numero_ata"</span>: <span class="string">"001/2025"</span>,
+  <span class="key">"data_assinatura"</span>: <span class="string">"2025-02-01"</span>,
+  <span class="key">"data_vigencia_inicio"</span>: <span class="string">"2025-02-01"</span>,
+  <span class="key">"data_vigencia_fim"</span>: <span class="string">"2026-01-31"</span>,
+  <span class="key">"fornecedor"</span>: {
+    <span class="key">"tipo_pessoa_id"</span>: <span class="string">"PJ"</span>,
+    <span class="key">"cpf_cnpj"</span>: <span class="string">"12345678000199"</span>,
+    <span class="key">"razao_social"</span>: <span class="string">"Empresa Vencedora LTDA"</span>
+  },
+  <span class="key">"itens"</span>: [
+    {
+      <span class="key">"numero_item"</span>: <span class="number">1</span>,
+      <span class="key">"quantidade"</span>: <span class="number">100</span>,
+      <span class="key">"valor_unitario"</span>: <span class="number">45.50</span>,
+      <span class="key">"valor_total"</span>: <span class="number">4550.00</span>
+    }
+  ]
+}
+            </div>
+            
+            <div class="alert alert-success">
+                <span class="alert-icon">✅</span>
+                <div>
+                    <strong>Dica:</strong> A Ata pode ter vigência de até 12 meses, prorrogável por mais 12 meses.
+                </div>
+            </div>
+        </div>
+        
+        <!-- Erros Comuns -->
+        <div class="card" id="erros">
+            <h2><span class="icon">11</span> Erros Comuns</h2>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Erro</th>
+                        <th>Solução</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-info">400</span></td>
+                        <td>Campo obrigatório não informado</td>
+                        <td>Verifique se todos os campos obrigatórios foram preenchidos</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-info">401</span></td>
+                        <td>Token inválido ou expirado</td>
+                        <td>Faça login novamente no PNCP</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-info">403</span></td>
+                        <td>Sem permissão para o órgão</td>
+                        <td>Verifique se o usuário está vinculado ao órgão</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-info">404</span></td>
+                        <td>Compra não encontrada</td>
+                        <td>Verifique o ano e sequencial informados</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-info">409</span></td>
+                        <td>Compra já existe</td>
+                        <td>Use retificação ao invés de inclusão</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-info">422</span></td>
+                        <td>Dados inválidos</td>
+                        <td>Verifique formato de datas, valores e IDs</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="alert alert-info">
+                <span class="alert-icon">💡</span>
+                <div>
+                    <strong>Dica:</strong> Consulte a aba "Erros" na página de integração PNCP para ver o histórico de erros e suas soluções.
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Portal DCP - Documentação de Integração PNCP</p>
+            <p>Versão 1.0 | Dezembro 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

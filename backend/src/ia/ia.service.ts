@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
+// Chave deve ser configurada via variável de ambiente OPENROUTER_API_KEY
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 
 // Prompts especializados para cada tipo de documento da Lei 14.133/2021
 const PROMPTS_DOCUMENTOS: Record<string, string> = {
