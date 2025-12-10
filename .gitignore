@@ -54,7 +54,7 @@ backups/
 *.temp
 
 # PDFs e arquivos grandes
-*.pdf
+
 
 # Package locks duplicados (manter para deploy)
 # package-lock.json

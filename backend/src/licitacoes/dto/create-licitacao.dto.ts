@@ -89,6 +89,12 @@ export class CreateLicitacaoDto {
   @IsOptional()
   tratamento_diferenciado_mpe?: boolean;
 
+  @IsOptional()
+  modo_beneficio_mpe?: 'GERAL' | 'POR_LOTE' | 'POR_ITEM';
+
+  @IsOptional()
+  tipo_beneficio_mpe?: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA';
+
   @IsBoolean()
   @IsOptional()
   exclusivo_mpe?: boolean;

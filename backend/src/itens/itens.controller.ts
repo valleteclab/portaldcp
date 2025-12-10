@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe } from '@nestjs/common';
 import { ItensService } from './itens.service';
-import { CreateItemDto, UpdateItemDto, AdjudicarItemDto } from './dto/create-item.dto';
+import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemLicitacao } from './entities/item-licitacao.entity';
 
 @Controller('itens')
@@ -75,5 +75,54 @@ export class ItensController {
   @Put(':id/homologar')
   async homologar(@Param('id') id: string): Promise<ItemLicitacao> {
     return await this.itensService.homologar(id);
+  }
+
+  @Delete(':id')
+  async delete(@Param('id') id: string): Promise<{ message: string }> {
+    await this.itensService.delete(id);
+    return { message: 'Item excluído com sucesso' };
+  }
+
+  // ============ INTEGRAÇÃO COM PCA ============
+
+  // Buscar itens do PCA disponíveis para importação
+  // Apenas PCAs enviados ao PNCP
+  @Get('pca/disponiveis/:orgaoId')
+  async buscarItensPcaDisponiveis(
+    @Param('orgaoId') orgaoId: string,
+    @Query('ano') ano?: string,
+    @Query('categoria') categoria?: string,
+    @Query('busca') busca?: string
+  ) {
+    return await this.itensService.buscarItensPcaDisponiveis(
+      orgaoId, 
+      ano ? parseInt(ano) : undefined,
+      categoria,
+      busca
+    );
+  }
+
+  // Verificar saldo de um item do PCA
+  @Get('pca/:itemPcaId/saldo')
+  async verificarSaldoPca(@Param('itemPcaId') itemPcaId: string) {
+    return await this.itensService.verificarSaldoPca(itemPcaId);
+  }
+
+  // Importar itens do PCA para licitação
+  @Post('importar-pca')
+  async importarDoPca(@Body() dto: ImportarItensPcaDto) {
+    return await this.itensService.importarDoPca(dto);
+  }
+
+  // Criar item sem PCA (com justificativa)
+  @Post('sem-pca')
+  async createSemPca(@Body(new ValidationPipe()) dto: CreateItemDto) {
+    return await this.itensService.createSemPca(dto);
+  }
+
+  // Estatísticas de vinculação com PCA
+  @Get('licitacao/:licitacaoId/estatisticas-pca')
+  async getEstatisticasPca(@Param('licitacaoId') licitacaoId: string) {
+    return await this.itensService.getEstatisticasPca(licitacaoId);
   }
 }

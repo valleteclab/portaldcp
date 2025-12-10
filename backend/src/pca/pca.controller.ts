@@ -46,6 +46,15 @@ export class PcaController {
     return this.pcaService.getItensPendentes(orgaoId);
   }
 
+  // Buscar itens do PCA por órgão e ano (para vinculação em licitações)
+  @Get('itens')
+  async buscarItensPca(
+    @Query('orgao_id') orgaoId: string,
+    @Query('ano') ano?: string
+  ) {
+    return this.pcaService.buscarItensPorOrgao(orgaoId, ano ? parseInt(ano) : undefined);
+  }
+
   @Get('ano/:ano')
   async findByAno(
     @Param('ano') ano: string,

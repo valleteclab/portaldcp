@@ -54,11 +54,11 @@ export class ItemCatalogo {
 
   @Column()
   @Index()
-  codigo: string; // "100844" (código CATMAT/CATSER)
+  codigo: string; // "446820" (código CATMAT/CATSER)
 
-  @Column()
+  @Column({ type: 'text' })
   @Index()
-  descricao: string; // "SERVIÇO DE GRÁFICA"
+  descricao: string; // Descrição completa do item
 
   @Column({ type: 'text', nullable: true })
   descricao_detalhada: string;
@@ -72,7 +72,17 @@ export class ItemCatalogo {
   classe_id: string;
 
   @Column({ nullable: true })
-  codigo_classe: string; // Código da classe para referência rápida
+  codigo_classe: string; // "1005" - Código da classe para referência rápida
+
+  @Column({ nullable: true })
+  nome_classe: string; // "ARMAS DE FOGO DE CALIBRE ATÉ 120MM"
+
+  // Grupo (hierarquia acima da classe)
+  @Column({ nullable: true })
+  codigo_grupo: string; // "10"
+
+  @Column({ nullable: true })
+  nome_grupo: string; // "ARMAMENTO"
 
   @Column({
     type: 'enum',
@@ -87,10 +97,14 @@ export class ItemCatalogo {
 
   // PDM (Padrão Descritivo de Materiais)
   @Column({ nullable: true })
-  codigo_pdm: string;
+  codigo_pdm: string; // "1712"
 
   @Column({ nullable: true })
-  nome_pdm: string;
+  nome_pdm: string; // "PEÇAS / ACESSÓRIOS ARMAMENTO"
+
+  // NCM (Nomenclatura Comum do Mercosul)
+  @Column({ nullable: true })
+  codigo_ncm: string;
 
   // Características para busca
   @Column({ type: 'text', nullable: true })

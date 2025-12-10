@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pncp-sync.entity';
-import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import {
   CompraDto,
@@ -26,6 +26,14 @@ export class PncpService {
   private token: string = '';
   private tokenExpiration: Date | null = null;
 
+  // Credenciais da plataforma armazenadas em memória
+  private static platformCredentials = {
+    apiUrl: '',
+    login: '',
+    senha: '',
+    cnpjOrgao: ''
+  };
+
   constructor(
     @InjectRepository(PncpSync)
     private pncpSyncRepository: Repository<PncpSync>,
@@ -35,17 +43,127 @@ export class PncpService {
     private pcaRepository: Repository<PlanoContratacaoAnual>,
     private configService: ConfigService,
   ) {
+    // Debug: verificar se as variáveis estão sendo lidas
+    this.logger.log(`[INIT] ConfigService PNCP_LOGIN: ${this.configService.get('PNCP_LOGIN') ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
+    this.logger.log(`[INIT] process.env PNCP_LOGIN: ${process.env.PNCP_LOGIN ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
+    this.logger.log(`[INIT] process.env PNCP_API_URL: ${process.env.PNCP_API_URL || 'NÃO DEFINIDO'}`);
     this.initializeAxios();
   }
 
-  // Helper para obter variáveis de ambiente (ConfigService ou process.env)
+  // Helper para obter variáveis de ambiente
+  // Prioriza process.env pois o dotenv é carregado no main.ts antes do NestJS
   private getEnvVar(key: string): string | undefined {
-    return this.configService.get<string>(key) || process.env[key];
+    return process.env[key] || this.configService.get<string>(key);
+  }
+
+  // ============ CREDENCIAIS DA PLATAFORMA ============
+
+  setPlatformCredentials(credentials: {
+    apiUrl?: string;
+    login?: string;
+    senha?: string;
+    cnpjOrgao?: string;
+  }): void {
+    if (credentials.apiUrl !== undefined) {
+      PncpService.platformCredentials.apiUrl = credentials.apiUrl;
+    }
+    if (credentials.login !== undefined) {
+      PncpService.platformCredentials.login = credentials.login;
+    }
+    if (credentials.senha !== undefined) {
+      PncpService.platformCredentials.senha = credentials.senha;
+    }
+    if (credentials.cnpjOrgao !== undefined) {
+      PncpService.platformCredentials.cnpjOrgao = credentials.cnpjOrgao;
+    }
+    
+    // Reinicializar axios com nova URL se fornecida
+    if (credentials.apiUrl) {
+      this.initializeAxiosWithUrl(credentials.apiUrl);
+    }
+    
+    // Limpar token para forçar novo login
+    this.token = '';
+    this.tokenExpiration = null;
+    
+    this.logger.log('[PLATFORM] Credenciais da plataforma atualizadas');
+  }
+
+  getPlatformCredentials(): {
+    apiUrl: string | null;
+    login: string | null;
+    cnpjOrgao: string | null;
+    configured: boolean;
+  } {
+    return {
+      apiUrl: PncpService.platformCredentials.apiUrl || null,
+      login: PncpService.platformCredentials.login || null,
+      cnpjOrgao: PncpService.platformCredentials.cnpjOrgao || null,
+      configured: !!(
+        PncpService.platformCredentials.apiUrl && 
+        PncpService.platformCredentials.login && 
+        PncpService.platformCredentials.senha && 
+        PncpService.platformCredentials.cnpjOrgao
+      )
+    };
+  }
+
+  async testPlatformConnection(): Promise<{
+    sucesso: boolean;
+    mensagem: string;
+  }> {
+    const creds = PncpService.platformCredentials;
+    
+    // Usar credenciais da plataforma ou fallback para env vars
+    const apiUrl = creds.apiUrl || this.getEnvVar('PNCP_API_URL') || '';
+    const login = creds.login || this.getEnvVar('PNCP_LOGIN') || '';
+    const senha = creds.senha || this.getEnvVar('PNCP_SENHA') || '';
+    
+    if (!apiUrl || !login || !senha) {
+      return {
+        sucesso: false,
+        mensagem: 'Credenciais PNCP não configuradas'
+      };
+    }
+
+    try {
+      this.logger.log(`[TEST] Testando conexão com PNCP: ${apiUrl}`);
+      
+      const response = await axios.post(
+        `${apiUrl}/usuarios/login`,
+        { login, senha },
+        {
+          timeout: 30000,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      if (response.data.token || response.headers.authorization) {
+        return {
+          sucesso: true,
+          mensagem: 'Conexão com PNCP testada com sucesso!'
+        };
+      } else {
+        return {
+          sucesso: false,
+          mensagem: 'Resposta inesperada do PNCP'
+        };
+      }
+    } catch (error: any) {
+      this.logger.error('Erro ao testar conexão PNCP:', error.response?.data || error.message);
+      return {
+        sucesso: false,
+        mensagem: `Erro na conexão: ${error.response?.data?.message || error.message || 'Erro desconhecido'}`
+      };
+    }
   }
 
   private initializeAxios() {
     const baseURL = this.getEnvVar('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1';
-    
+    this.initializeAxiosWithUrl(baseURL);
+  }
+
+  private initializeAxiosWithUrl(baseURL: string) {
     this.axiosInstance = axios.create({
       baseURL,
       timeout: 60000, // 60 segundos para operações do PNCP
@@ -80,10 +198,31 @@ export class PncpService {
 
   // ============ AUTENTICAÇÃO ============
 
-  async login(): Promise<string> {
-    const login = this.getEnvVar('PNCP_LOGIN');
-    const senha = this.getEnvVar('PNCP_SENHA');
-    const apiUrl = this.getEnvVar('PNCP_API_URL');
+  private async login(request?: any): Promise<string> {
+    // Prioridade: 1) Credenciais da plataforma, 2) Variáveis de ambiente, 3) Headers da requisição
+    let apiUrl = PncpService.platformCredentials.apiUrl || this.getEnvVar('PNCP_API_URL') || '';
+    let login = PncpService.platformCredentials.login || this.getEnvVar('PNCP_LOGIN');
+    let senha = PncpService.platformCredentials.senha || this.getEnvVar('PNCP_SENHA');
+
+    // Debug: mostrar todos os headers recebidos
+    if (request) {
+      this.logger.log(`[LOGIN DEBUG] Headers recebidos:`, Object.keys(request.headers));
+      this.logger.log(`[LOGIN DEBUG] Headers relevantes:`, {
+        'x-pncp-api-url': request.headers['x-pncp-api-url'],
+        'x-pncp-login': request.headers['x-pncp-login'],
+        'x-pncp-senha': request.headers['x-pncp-senha'],
+        'x-pncp-cnpj-orgao': request.headers['x-pncp-cnpj-orgao']
+      });
+    }
+
+    // Se não tiver nas credenciais da plataforma nem no env, tentar dos headers da requisição
+    if (request && !login && !senha) {
+      apiUrl = request.headers['x-pncp-api-url'] || apiUrl;
+      login = request.headers['x-pncp-login'];
+      senha = request.headers['x-pncp-senha'];
+    }
+
+    this.logger.log(`[LOGIN] Usando credenciais - ApiUrl: ${apiUrl?.substring(0, 30)}..., Login: ${!!login}, Senha: ${!!senha}, UsouPlatform: ${!!PncpService.platformCredentials.login}`);
 
     if (!login || !senha) {
       this.logger.error(`Credenciais PNCP não configuradas. Login: ${!!login}, Senha: ${!!senha}, ApiUrl: ${!!apiUrl}`);
@@ -91,8 +230,18 @@ export class PncpService {
     }
 
     try {
-      const response = await axios.post(
-        `${apiUrl}/usuarios/login`,
+      // Criar instância axios dinâmica para usar a URL correta
+      const dynamicAxios = axios.create({
+        baseURL: apiUrl,
+        timeout: 60000,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      const response = await dynamicAxios.post(
+        `/usuarios/login`,
         { login, senha }
       );
 
@@ -101,10 +250,15 @@ export class PncpService {
       // Token expira em 1 hora, renovar antes
       this.tokenExpiration = new Date(Date.now() + 55 * 60 * 1000);
       
+      // Reconfigurar axios instance com a nova URL se veio dos headers
+      if (request && request.headers['x-pncp-api-url']) {
+        this.initializeAxiosWithUrl(apiUrl);
+      }
+      
       this.logger.log('Login PNCP realizado com sucesso');
       return this.token;
-    } catch (error) {
-      this.logger.error('Erro ao fazer login no PNCP', error);
+    } catch (error: any) {
+      this.logger.error('Erro ao fazer login no PNCP', error.response?.data || error.message);
       throw new HttpException('Falha na autenticação PNCP', HttpStatus.UNAUTHORIZED);
     }
   }
@@ -116,9 +270,179 @@ export class PncpService {
     return this.token;
   }
 
+  async getValidTokenWithRequest(request: any): Promise<string> {
+    if (!this.token || !this.tokenExpiration || new Date() >= this.tokenExpiration) {
+      await this.login(request);
+    }
+    return this.token;
+  }
+
+  // ============ VALIDAÇÃO/CHECKLIST PNCP ============
+
+  async validarLicitacaoParaPNCP(licitacaoId: string): Promise<{
+    valido: boolean;
+    erros: string[];
+    avisos: string[];
+    checklist: { campo: string; status: 'ok' | 'erro' | 'aviso'; mensagem: string }[];
+    dadosEnvio?: any;
+  }> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao', 'itens']
+    });
+
+    if (!licitacao) {
+      return {
+        valido: false,
+        erros: ['Licitação não encontrada'],
+        avisos: [],
+        checklist: [{ campo: 'licitacao', status: 'erro', mensagem: 'Licitação não encontrada' }]
+      };
+    }
+
+    const erros: string[] = [];
+    const avisos: string[] = [];
+    const checklist: { campo: string; status: 'ok' | 'erro' | 'aviso'; mensagem: string }[] = [];
+
+    // === DADOS DO ÓRGÃO ===
+    if (licitacao.orgao?.cnpj) {
+      const cnpjLimpo = licitacao.orgao.cnpj.replace(/\D/g, '');
+      if (cnpjLimpo.length === 14) {
+        checklist.push({ campo: 'CNPJ do Órgão', status: 'ok', mensagem: `CNPJ: ${cnpjLimpo}` });
+      } else {
+        erros.push('CNPJ do órgão inválido (deve ter 14 dígitos)');
+        checklist.push({ campo: 'CNPJ do Órgão', status: 'erro', mensagem: 'CNPJ inválido' });
+      }
+    } else {
+      erros.push('Órgão não possui CNPJ cadastrado');
+      checklist.push({ campo: 'CNPJ do Órgão', status: 'erro', mensagem: 'CNPJ não cadastrado' });
+    }
+
+    // === UNIDADE COMPRADORA (PNCP) ===
+    if (licitacao.orgao?.pncp_codigo_unidade) {
+      checklist.push({ campo: 'Unidade PNCP', status: 'ok', mensagem: `Código: ${licitacao.orgao.pncp_codigo_unidade}` });
+    } else {
+      erros.push('Código da unidade PNCP não configurado no órgão. Configure em Configurações > PNCP.');
+      checklist.push({ campo: 'Unidade PNCP', status: 'erro', mensagem: 'Código da unidade não configurado' });
+    }
+
+    // === DADOS BÁSICOS ===
+    if (licitacao.numero_processo) {
+      checklist.push({ campo: 'Número do Processo', status: 'ok', mensagem: licitacao.numero_processo });
+    } else {
+      erros.push('Número do processo é obrigatório');
+      checklist.push({ campo: 'Número do Processo', status: 'erro', mensagem: 'Não informado' });
+    }
+
+    if (licitacao.objeto && licitacao.objeto.length >= 10) {
+      checklist.push({ campo: 'Objeto', status: 'ok', mensagem: `${licitacao.objeto.substring(0, 50)}...` });
+    } else {
+      erros.push('Objeto da licitação é obrigatório (mínimo 10 caracteres)');
+      checklist.push({ campo: 'Objeto', status: 'erro', mensagem: 'Objeto não informado ou muito curto' });
+    }
+
+    // === MODALIDADE ===
+    const modalidadesValidas = ['PREGAO_ELETRONICO', 'CONCORRENCIA', 'CONCURSO', 'LEILAO', 'DIALOGO_COMPETITIVO'];
+    if (modalidadesValidas.includes(licitacao.modalidade)) {
+      checklist.push({ campo: 'Modalidade', status: 'ok', mensagem: licitacao.modalidade });
+    } else {
+      erros.push(`Modalidade inválida: ${licitacao.modalidade}`);
+      checklist.push({ campo: 'Modalidade', status: 'erro', mensagem: 'Modalidade não suportada pelo PNCP' });
+    }
+
+    // === DATAS ===
+    if (licitacao.data_abertura_sessao) {
+      const dataAbertura = new Date(licitacao.data_abertura_sessao);
+      if (!isNaN(dataAbertura.getTime())) {
+        if (dataAbertura > new Date()) {
+          checklist.push({ campo: 'Data Abertura', status: 'ok', mensagem: dataAbertura.toISOString().slice(0, 19) });
+        } else {
+          avisos.push('Data de abertura está no passado');
+          checklist.push({ campo: 'Data Abertura', status: 'aviso', mensagem: 'Data no passado' });
+        }
+      } else {
+        erros.push('Data de abertura inválida');
+        checklist.push({ campo: 'Data Abertura', status: 'erro', mensagem: 'Formato inválido' });
+      }
+    } else {
+      erros.push('Data de abertura da sessão é obrigatória');
+      checklist.push({ campo: 'Data Abertura', status: 'erro', mensagem: 'Não informada' });
+    }
+
+    // === FASE INTERNA ===
+    if (licitacao.fase_interna_concluida) {
+      checklist.push({ campo: 'Fase Interna', status: 'ok', mensagem: 'Concluída' });
+    } else {
+      erros.push('Fase interna (preparatória) não foi concluída');
+      checklist.push({ campo: 'Fase Interna', status: 'erro', mensagem: 'Não concluída - Art. 18 Lei 14.133/2021' });
+    }
+
+    // === ITENS ===
+    if (licitacao.itens && licitacao.itens.length > 0) {
+      checklist.push({ campo: 'Quantidade de Itens', status: 'ok', mensagem: `${licitacao.itens.length} item(s)` });
+      
+      let valorTotal = 0;
+      licitacao.itens.forEach((item: any, index: number) => {
+        const numeroItem = item.numero_item || (index + 1);
+        const descricao = item.descricao_resumida || item.descricao;
+        const quantidade = parseFloat(item.quantidade) || 0;
+        const valorUnitario = parseFloat(item.valor_unitario_estimado) || 0;
+        
+        if (!descricao || descricao.length < 5) {
+          erros.push(`Item ${numeroItem}: Descrição obrigatória (mínimo 5 caracteres)`);
+          checklist.push({ campo: `Item ${numeroItem} - Descrição`, status: 'erro', mensagem: 'Descrição inválida' });
+        }
+        
+        if (quantidade <= 0) {
+          erros.push(`Item ${numeroItem}: Quantidade deve ser maior que zero`);
+          checklist.push({ campo: `Item ${numeroItem} - Quantidade`, status: 'erro', mensagem: 'Quantidade inválida' });
+        }
+        
+        if (valorUnitario <= 0) {
+          erros.push(`Item ${numeroItem}: Valor unitário deve ser maior que zero`);
+          checklist.push({ campo: `Item ${numeroItem} - Valor`, status: 'erro', mensagem: 'Valor inválido' });
+        }
+        
+        valorTotal += quantidade * valorUnitario;
+      });
+      
+      checklist.push({ campo: 'Valor Total Estimado', status: 'ok', mensagem: `R$ ${valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` });
+    } else {
+      erros.push('Licitação deve ter pelo menos 1 item');
+      checklist.push({ campo: 'Itens', status: 'erro', mensagem: 'Nenhum item cadastrado' });
+    }
+
+    // === RESULTADO ===
+    const valido = erros.length === 0;
+    
+    // Se válido, gerar preview dos dados que serão enviados
+    let dadosEnvio = null;
+    if (valido) {
+      const cnpj = licitacao.orgao?.cnpj || '';
+      dadosEnvio = this.mapearLicitacaoParaCompra(licitacao, cnpj);
+    }
+
+    return {
+      valido,
+      erros,
+      avisos,
+      checklist,
+      dadosEnvio
+    };
+  }
+
   // ============ COMPRA/LICITAÇÃO ============
 
   async enviarCompra(licitacaoId: string): Promise<PncpResponseDto> {
+    // Primeiro validar
+    const validacao = await this.validarLicitacaoParaPNCP(licitacaoId);
+    if (!validacao.valido) {
+      throw new HttpException(
+        `Licitação não pode ser enviada ao PNCP:\n${validacao.erros.join('\n')}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
       relations: ['orgao', 'itens']
@@ -128,10 +452,20 @@ export class PncpService {
       throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
     }
 
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO') || licitacao.orgao?.cnpj;
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    if (!licitacao.data_abertura_sessao) {
+      throw new HttpException(
+        'A data de abertura da sessão é obrigatória para enviar ao PNCP.',
+        HttpStatus.BAD_REQUEST
+      );
     }
+
+    // Priorizar CNPJ do órgão da licitação, não da plataforma
+    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    if (!cnpj) {
+      throw new HttpException('CNPJ do órgão não configurado. Verifique se o órgão da licitação possui CNPJ cadastrado.', HttpStatus.BAD_REQUEST);
+    }
+    
+    this.logger.log(`Enviando compra para órgão CNPJ: ${cnpj}`);
 
     // Verificar se já foi enviada
     const syncExistente = await this.pncpSyncRepository.findOne({
@@ -160,43 +494,234 @@ export class PncpService {
     await this.pncpSyncRepository.save(sync);
 
     try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj}/compras`,
-        compraDto
-      );
-
-      sync.status = StatusSincronizacao.ENVIADO;
-      sync.resposta_pncp = response.data;
-      sync.numero_controle_pncp = response.data.numeroControlePNCP;
-      sync.ano_compra = response.data.ano;
-      sync.sequencial_compra = response.data.sequencial;
-      await this.pncpSyncRepository.save(sync);
-
-      // Atualizar licitação com número de controle PNCP
-      await this.licitacaoRepository.update(licitacaoId, {
-        numero_controle_pncp: response.data.numeroControlePNCP
+      // Obter token válido
+      await this.getValidToken();
+      
+      // PNCP requer multipart/form-data para compras
+      const FormData = require('form-data');
+      const formData = new FormData();
+      
+      // Adicionar dados da compra como JSON
+      const compraBuffer = Buffer.from(JSON.stringify(compraDto), 'utf-8');
+      formData.append('compra', compraBuffer, {
+        filename: 'compra.json',
+        contentType: 'application/json'
+      });
+      
+      // Criar PDF mínimo válido para o documento obrigatório
+      const pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
+      formData.append('documento', pdfContent, {
+        filename: 'edital.pdf',
+        contentType: 'application/pdf'
       });
 
-      this.logger.log(`Compra enviada ao PNCP: ${response.data.numeroControlePNCP}`);
+      // Determinar tipo de documento baseado na modalidade
+      // TABELA "Tipo de Documento" do PNCP (diferente de "Instrumento Convocatório"):
+      // 1 = Aviso de Contratação Direta
+      // 2 = Edital ← Para pregão, concorrência, etc.
+      // 3 = Minuta do Contrato
+      // 4 = Termo de Referência
+      // etc.
+      let tipoDocumentoId = '2'; // Default: Edital (código 2 na tabela Tipo de Documento)
+      let tituloDocumento = 'Edital de Licitacao';
+      
+      const modalidade = licitacao.modalidade?.toUpperCase() || '';
+      if (modalidade.includes('DISPENSA') || modalidade.includes('INEXIGIBILIDADE')) {
+        tipoDocumentoId = '1'; // Aviso de Contratação Direta (código 1 na tabela Tipo de Documento)
+        tituloDocumento = 'Aviso de Contratacao Direta';
+      }
+      
+      this.logger.log(`Tipo de documento: ${tipoDocumentoId} (${tituloDocumento}) - Modalidade: ${modalidade}`);
+      this.logger.log(`Enviando compra ao PNCP: ${JSON.stringify(compraDto)}`);
+
+      const response = await axios.post(
+        `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpj.replace(/\D/g, '')}/compras`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            'Authorization': `Bearer ${this.token}`,
+            'Titulo-Documento': tituloDocumento,
+            'Tipo-Documento-Id': tipoDocumentoId,
+          },
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        }
+      );
+
+      this.logger.log(`Resposta PNCP data: ${JSON.stringify(response.data)}`);
+      this.logger.log(`Resposta PNCP headers: ${JSON.stringify(response.headers)}`);
+      
+      // Extrair dados da resposta (PNCP pode retornar em diferentes formatos)
+      // Tentar do body primeiro, depois do header Location
+      let numeroControlePNCP = response.data?.numeroControlePNCP || response.data?.numeroControle;
+      
+      // Se não veio no body, tentar extrair do header Location
+      // Formato típico: /orgaos/CNPJ/compras/ANO/SEQUENCIAL
+      if (!numeroControlePNCP && response.headers?.location) {
+        const locationMatch = response.headers.location.match(/\/compras\/(\d+)\/(\d+)/);
+        if (locationMatch) {
+          const [, anoFromLocation, seqFromLocation] = locationMatch;
+          // Construir número de controle
+          const cnpjLimpo = cnpj.replace(/\D/g, '');
+          numeroControlePNCP = `${cnpjLimpo}-1-${seqFromLocation.padStart(6, '0')}/${anoFromLocation}`;
+          this.logger.log(`Número de controle extraído do header Location: ${numeroControlePNCP}`);
+        }
+      }
+      
+      // Extrair ano e sequencial do número de controle se não vier separado
+      // Formato: "81448637000147-1-000003/2025" -> sequencial=3, ano=2025
+      let anoCompra = response.data.ano || response.data.anoCompra;
+      let sequencialCompra = response.data.sequencial || response.data.sequencialCompra;
+      
+      if ((!anoCompra || !sequencialCompra) && numeroControlePNCP) {
+        // Formato completo: CNPJ-UNIDADE-SEQUENCIAL/ANO
+        const matchCompleto = numeroControlePNCP.match(/\d+-\d+-(\d+)\/(\d+)$/);
+        if (matchCompleto) {
+          sequencialCompra = parseInt(matchCompleto[1]); // Remove zeros à esquerda automaticamente
+          anoCompra = parseInt(matchCompleto[2]);
+        }
+      }
+      
+      sync.status = StatusSincronizacao.ENVIADO;
+      sync.resposta_pncp = response.data;
+      sync.numero_controle_pncp = numeroControlePNCP;
+      sync.ano_compra = anoCompra;
+      sync.sequencial_compra = sequencialCompra;
+      await this.pncpSyncRepository.save(sync);
+
+      // Gerar link do PNCP
+      const cnpjLimpo = cnpj.replace(/\D/g, '');
+      const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
+        ? 'https://treina.pncp.gov.br' 
+        : 'https://pncp.gov.br';
+      const linkPncp = `${baseUrl}/app/editais/${cnpjLimpo}/${anoCompra}/${sequencialCompra}`;
+
+      // Atualizar licitação com número de controle PNCP e mudar fase para PUBLICADO
+      // Conforme Art. 17 da Lei 14.133/2021, a publicação do edital marca o início da fase externa
+      await this.licitacaoRepository.update(licitacaoId, {
+        numero_controle_pncp: numeroControlePNCP, // Usar a variável já extraída (pode vir do body ou header)
+        ano_compra_pncp: anoCompra,
+        sequencial_compra_pncp: sequencialCompra,
+        link_pncp: linkPncp,
+        enviado_pncp: true,
+        fase: FaseLicitacao.PUBLICADO, // Transição para fase externa - Art. 17, II da Lei 14.133/2021
+        data_publicacao_edital: new Date() // Registrar data real de publicação
+      });
+
+      this.logger.log(`Compra enviada ao PNCP: ${numeroControlePNCP} - Link: ${linkPncp}`);
 
       return {
         sucesso: true,
-        numeroControlePNCP: response.data.numeroControlePNCP,
-        ano: response.data.ano,
-        sequencial: response.data.sequencial
+        numeroControlePNCP: numeroControlePNCP, // Usar a variável já extraída
+        ano: anoCompra,
+        sequencial: sequencialCompra,
+        link: linkPncp
       };
     } catch (error) {
+      const mensagemErro = this.extrairMensagemErro(error);
+      
+      // Verificar se o erro indica que a compra já existe
+      // Formato: "Id contratação PNCP: 81448637000147-1-000002/2025"
+      const matchJaExiste = mensagemErro.match(/Id contrata[çc][aã]o PNCP:\s*(\d+)-(\d+)-(\d+)\/(\d+)/i);
+      
+      if (matchJaExiste) {
+        // Extrair dados do ID existente
+        const [, cnpjExistente, unidadeExistente, sequencialStr, anoStr] = matchJaExiste;
+        const anoExistente = parseInt(anoStr);
+        const sequencialExistente = parseInt(sequencialStr);
+        const numeroControlePNCP = `${cnpjExistente}-${unidadeExistente}-${sequencialStr.padStart(6, '0')}/${anoStr}`;
+        
+        // Gerar link
+        const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
+          ? 'https://treina.pncp.gov.br' 
+          : 'https://pncp.gov.br';
+        const linkPncp = `${baseUrl}/app/editais/${cnpjExistente}/${anoExistente}/${sequencialExistente}`;
+        
+        // Vincular automaticamente
+        await this.licitacaoRepository.update(licitacaoId, {
+          numero_controle_pncp: numeroControlePNCP,
+          ano_compra_pncp: anoExistente,
+          sequencial_compra_pncp: sequencialExistente,
+          link_pncp: linkPncp,
+          enviado_pncp: true,
+          fase: FaseLicitacao.PUBLICADO
+        });
+        
+        sync.status = StatusSincronizacao.ENVIADO;
+        sync.numero_controle_pncp = numeroControlePNCP;
+        sync.ano_compra = anoExistente;
+        sync.sequencial_compra = sequencialExistente;
+        await this.pncpSyncRepository.save(sync);
+        
+        this.logger.log(`Compra já existia no PNCP, vinculada: ${numeroControlePNCP}`);
+        
+        return {
+          sucesso: true,
+          mensagem: 'Compra já existia no PNCP e foi vinculada automaticamente',
+          numeroControlePNCP,
+          ano: anoExistente,
+          sequencial: sequencialExistente,
+          link: linkPncp
+        };
+      }
+      
       sync.status = StatusSincronizacao.ERRO;
-      sync.erro_mensagem = this.extrairMensagemErro(error);
+      sync.erro_mensagem = mensagemErro;
       sync.tentativas += 1;
       sync.ultima_tentativa = new Date();
       await this.pncpSyncRepository.save(sync);
 
       throw new HttpException(
-        `Erro ao enviar compra ao PNCP: ${sync.erro_mensagem}`,
+        `Erro ao enviar compra ao PNCP: ${mensagemErro}`,
         HttpStatus.BAD_REQUEST
       );
     }
+  }
+
+  // Vincular manualmente uma licitação já enviada ao PNCP
+  async vincularLicitacaoExistente(
+    licitacaoId: string,
+    numeroControlePNCP: string,
+    anoCompra: number,
+    sequencialCompra: number
+  ): Promise<PncpResponseDto> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao']
+    });
+
+    if (!licitacao) {
+      throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
+    }
+
+    // Gerar link do PNCP
+    const cnpj = licitacao.orgao?.cnpj?.replace(/\D/g, '') || '';
+    const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
+      ? 'https://treina.pncp.gov.br' 
+      : 'https://pncp.gov.br';
+    const linkPncp = `${baseUrl}/app/editais/${cnpj}/${anoCompra}/${sequencialCompra}`;
+
+    // Atualizar licitação
+    await this.licitacaoRepository.update(licitacaoId, {
+      numero_controle_pncp: numeroControlePNCP,
+      ano_compra_pncp: anoCompra,
+      sequencial_compra_pncp: sequencialCompra,
+      link_pncp: linkPncp,
+      enviado_pncp: true,
+      fase: FaseLicitacao.PUBLICADO
+    });
+
+    this.logger.log(`Licitação ${licitacao.numero_processo} vinculada ao PNCP: ${numeroControlePNCP}`);
+
+    return {
+      sucesso: true,
+      mensagem: 'Licitação vinculada ao PNCP com sucesso',
+      numeroControlePNCP,
+      ano: anoCompra,
+      sequencial: sequencialCompra,
+      link: linkPncp
+    };
   }
 
   async atualizarCompra(licitacaoId: string, sync: PncpSync): Promise<PncpResponseDto> {
@@ -209,7 +734,8 @@ export class PncpService {
       throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
     }
 
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO') || licitacao.orgao?.cnpj;
+    // Priorizar CNPJ do órgão da licitação
+    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const compraDto = this.mapearLicitacaoParaCompra(licitacao, cnpj);
 
     try {
@@ -258,15 +784,16 @@ export class PncpService {
 
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
-      relations: ['itens']
+      relations: ['itens', 'orgao']
     });
 
     if (!licitacao?.itens?.length) {
       throw new HttpException('Licitação não possui itens', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    const itensDto = licitacao.itens.map((item, index) => this.mapearItemParaPNCP(item, index + 1));
+    // Priorizar CNPJ do órgão da licitação
+    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const itensDto = licitacao.itens.map((item, index) => this.mapearItemParaPNCP(item, index + 1, licitacao));
 
     try {
       const response = await this.axiosInstance.post(
@@ -481,48 +1008,236 @@ export class PncpService {
   private mapearLicitacaoParaCompra(licitacao: any, cnpj: string): CompraDto {
     const anoCompra = new Date(licitacao.created_at).getFullYear();
     
-    return {
-      anoCompra,
-      codigoModalidadeContratacao: MODALIDADE_SISTEMA_PARA_PNCP[licitacao.modalidade] || 6,
-      codigoModoDisputa: MODO_DISPUTA.ABERTO,
-      codigoSituacaoCompra: FASE_SISTEMA_PARA_PNCP[licitacao.fase] || SITUACAO_COMPRA.DIVULGADA,
-      dataAberturaProposta: licitacao.data_abertura_sessao,
-      dataEncerramentoProposta: licitacao.data_encerramento_propostas,
-      dataInclusao: new Date().toISOString().split('T')[0],
-      numeroCompra: licitacao.numero_processo,
-      numeroProcesso: licitacao.numero_processo,
-      objetoCompra: licitacao.objeto,
-      orgaoEntidade: {
-        cnpj: cnpj.replace(/\D/g, ''),
-        razaoSocial: licitacao.orgao?.razao_social || 'Órgão'
-      },
-      srp: licitacao.srp || false,
-      unidadeOrgao: {
-        codigoUnidade: '001',
-        nomeUnidade: licitacao.orgao?.razao_social || 'Unidade Principal'
-      },
-      valorTotalEstimado: parseFloat(licitacao.valor_total_estimado) || 0,
-      linkSistemaOrigem: `${this.configService.get('APP_URL')}/licitacoes/${licitacao.id}`,
-      informacaoComplementar: licitacao.informacoes_complementares || ''
+    // Formatar datas no padrão ISO 8601 (YYYY-MM-DDTHH:mm:ss) SEM converter para UTC
+    // O PNCP espera horário de Brasília, não UTC
+    const formatarDataHora = (data: any): string => {
+      if (!data) {
+        // Se não tem data, usar data futura padrão (30 dias)
+        const dataFutura = new Date();
+        dataFutura.setDate(dataFutura.getDate() + 30);
+        // Formatar em horário local (Brasília)
+        const ano = dataFutura.getFullYear();
+        const mes = String(dataFutura.getMonth() + 1).padStart(2, '0');
+        const dia = String(dataFutura.getDate()).padStart(2, '0');
+        const hora = String(dataFutura.getHours()).padStart(2, '0');
+        const min = String(dataFutura.getMinutes()).padStart(2, '0');
+        const seg = String(dataFutura.getSeconds()).padStart(2, '0');
+        return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
+      }
+      
+      // Se já é string no formato correto, usar diretamente
+      if (typeof data === 'string') {
+        // Se já tem T, extrair apenas a parte datetime
+        if (data.includes('T')) {
+          return data.slice(0, 19);
+        }
+        // Se é só data (YYYY-MM-DD), adicionar horário padrão
+        return `${data}T00:00:00`;
+      }
+      
+      const d = new Date(data);
+      if (isNaN(d.getTime())) {
+        const dataFutura = new Date();
+        dataFutura.setDate(dataFutura.getDate() + 30);
+        const ano = dataFutura.getFullYear();
+        const mes = String(dataFutura.getMonth() + 1).padStart(2, '0');
+        const dia = String(dataFutura.getDate()).padStart(2, '0');
+        return `${ano}-${mes}-${dia}T00:00:00`;
+      }
+      
+      // Formatar em horário local (Brasília), não UTC
+      const ano = d.getFullYear();
+      const mes = String(d.getMonth() + 1).padStart(2, '0');
+      const dia = String(d.getDate()).padStart(2, '0');
+      const hora = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const seg = String(d.getSeconds()).padStart(2, '0');
+      return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
     };
-  }
 
-  private mapearItemParaPNCP(item: any, numeroItem: number): ItemCompraDto {
-    return {
-      numeroItem,
+    // Datas do cronograma:
+    // - data_inicio_acolhimento: Início do recebimento de propostas
+    // - data_fim_acolhimento: Fim do recebimento de propostas
+    // - data_abertura_sessao: Data/hora da sessão pública
+    
+    // Data de início de recebimento de propostas
+    const dataInicioPropostas = formatarDataHora(licitacao.data_inicio_acolhimento || licitacao.data_abertura_sessao);
+    
+    // Data de fim de recebimento de propostas (antes da sessão)
+    let dataFimPropostas = licitacao.data_fim_acolhimento;
+    if (!dataFimPropostas) {
+      // Se não definida, usar data da sessão como fim
+      dataFimPropostas = licitacao.data_abertura_sessao;
+    }
+    dataFimPropostas = formatarDataHora(dataFimPropostas);
+    
+    this.logger.log(`[mapearLicitacaoParaCompra] Datas: inicio=${dataInicioPropostas}, fim=${dataFimPropostas}`);
+    
+    // Mapear itens da licitação
+    const itensCompra = (licitacao.itens || []).map((item: any, index: number) => ({
+      numeroItem: item.numero_item || (index + 1),
+      descricao: item.descricao_resumida || item.descricao || 'Item sem descrição',
       materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
       tipoBeneficioId: 1,
       incentivoProdutivoBasico: false,
-      descricao: item.descricao,
+      quantidade: parseFloat(item.quantidade) || 1,
+      unidadeMedida: item.unidade_medida || 'Unidade',
+      valorUnitarioEstimado: parseFloat(item.valor_unitario_estimado) || 0,
+      valorTotal: (parseFloat(item.quantidade) || 1) * (parseFloat(item.valor_unitario_estimado) || 0),
+      criterioJulgamentoId: 1,
+      orcamentoSigiloso: false,
+      itemCategoriaId: 3, // 3 = Não se aplica
+      aplicabilidadeMargemPreferenciaNormal: false,
+      aplicabilidadeMargemPreferenciaAdicional: false,
+    }));
+
+    // Determinar tipo de instrumento convocatório baseado na modalidade
+    // 1 = Edital (pregão, concorrência, diálogo competitivo, concurso, leilão, manifestação de interesse, pré-qualificação, credenciamento)
+    // 2 = Aviso de Contratação Direta (dispensa com disputa)
+    // 3 = Ato que autoriza a Contratação Direta (dispensa sem disputa, inexigibilidade)
+    let tipoInstrumento = 1; // Edital por padrão
+    const modalidadeUpper = (licitacao.modalidade || '').toUpperCase();
+    
+    if (modalidadeUpper.includes('DISPENSA')) {
+      // Verificar se é dispensa com ou sem disputa
+      if (licitacao.modo_disputa === 'ABERTO' || licitacao.modo_disputa === 'FECHADO' || licitacao.modo_disputa === 'ABERTO_FECHADO') {
+        tipoInstrumento = 2; // Aviso de Contratação Direta (dispensa com disputa)
+      } else {
+        tipoInstrumento = 3; // Ato que autoriza a Contratação Direta (dispensa sem disputa)
+      }
+    } else if (modalidadeUpper.includes('INEXIGIBILIDADE')) {
+      tipoInstrumento = 3; // Ato que autoriza a Contratação Direta
+    }
+    
+    this.logger.log(`[mapearLicitacaoParaCompra] Modalidade: ${licitacao.modalidade}, tipoInstrumento: ${tipoInstrumento}`);
+
+    // Determinar modo de disputa
+    // 1=Aberto, 2=Fechado, 3=Aberto-Fechado, 4=Fechado-Aberto, 5=Não se aplica
+    let modoDisputa = 1; // Aberto por padrão
+    if (licitacao.modo_disputa === 'FECHADO') modoDisputa = 2;
+    else if (licitacao.modo_disputa === 'ABERTO_FECHADO') modoDisputa = 3;
+    else if (licitacao.modo_disputa === 'FECHADO_ABERTO') modoDisputa = 4;
+    else if (licitacao.modalidade === 'DISPENSA' || licitacao.modalidade === 'INEXIGIBILIDADE') modoDisputa = 5;
+
+    // Calcular valor total se não informado
+    let valorTotal = parseFloat(licitacao.valor_total_estimado) || 0;
+    if (valorTotal === 0 && itensCompra.length > 0) {
+      valorTotal = itensCompra.reduce((sum: number, item: any) => sum + (item.valorTotal || 0), 0);
+    }
+
+    // Formato conforme método incluirCompra que funciona (testado em 01/12/2025)
+    // IMPORTANTE: Priorizar a unidade da licitação, senão usar a do órgão
+    const codigoUnidade = licitacao.codigo_unidade_compradora || licitacao.orgao?.pncp_codigo_unidade;
+    if (!codigoUnidade) {
+      throw new Error('Código da unidade compradora não definido na licitação. Selecione a unidade compradora antes de enviar ao PNCP.');
+    }
+    
+    this.logger.log(`[mapearLicitacaoParaCompra] Unidade compradora: ${codigoUnidade} (${licitacao.nome_unidade_compradora || 'sem nome'})`);
+
+    return {
+      codigoUnidadeCompradora: codigoUnidade,
+      anoCompra,
+      numeroCompra: licitacao.numero_processo,
+      numeroProcesso: licitacao.numero_processo,
+      objetoCompra: licitacao.objeto,
+      tipoInstrumentoConvocatorioId: tipoInstrumento, // 1=Edital, 2=Aviso, 3=Ato
+      modalidadeId: MODALIDADE_SISTEMA_PARA_PNCP[licitacao.modalidade] || 6,
+      modoDisputaId: modoDisputa, // 1=Aberto, 2=Fechado, 5=Não se aplica
+      srp: licitacao.srp || false,
+      dataAberturaProposta: dataInicioPropostas,
+      dataEncerramentoProposta: dataFimPropostas,
+      informacaoComplementar: licitacao.informacoes_complementares || '',
+      amparoLegalId: 1, // 1 = Lei nº 14.133/2021, Art. 28, caput
+      linkSistemaOrigem: `${this.configService.get('APP_URL') || 'http://localhost:3000'}/licitacoes/${licitacao.id}`,
+      itensCompra: itensCompra
+    } as any;
+  }
+
+  private mapearItemParaPNCP(item: any, numeroItem: number, licitacao?: any): ItemCompraDto {
+    // Campos da entidade ItemLicitacao:
+    // - descricao_resumida (obrigatório)
+    // - descricao_detalhada (opcional)
+    // - unidade_medida (enum)
+    // - valor_unitario_estimado
+    // - valor_total_estimado
+    const descricao = item.descricao_resumida || item.descricao || '';
+    const valorTotal = parseFloat(item.valor_total_estimado) || parseFloat(item.valor_total) || 0;
+    
+    // Orçamento sigiloso vem da LICITAÇÃO (aba Configuração), não do item
+    // Campo: sigilo_orcamento = 'PUBLICO' | 'SIGILOSO'
+    const orcamentoSigiloso = licitacao?.sigilo_orcamento === 'SIGILOSO';
+    
+    // Margem de preferência vem do item (campo margem_preferencia)
+    // Se não tem margem, não envia os campos de percentual (evita inconsistência)
+    const margemPreferencia = item.margem_preferencia === true;
+    
+    // Tipo de benefício ME/EPP
+    // PNCP: 1=Exclusivo ME/EPP, 2=Cota reservada, 3=Subcontratação, 4=Sem benefício
+    // Hierarquia: modo_beneficio_mpe define de onde vem o benefício
+    // - GERAL: usa tipo_beneficio_mpe da licitação
+    // - POR_LOTE: usa tipo_beneficio_mpe do lote (futuro)
+    // - POR_ITEM: usa tipo_participacao do item
+    let tipoBeneficioId = 4; // Default: Sem benefício (Ampla participação)
+    
+    const modoBeneficio = licitacao?.modo_beneficio_mpe || 'GERAL';
+    
+    if (modoBeneficio === 'POR_ITEM') {
+      // Usa o tipo_participacao do item
+      if (item.tipo_participacao === 'EXCLUSIVO_MPE') {
+        tipoBeneficioId = 1;
+      } else if (item.tipo_participacao === 'COTA_RESERVADA') {
+        tipoBeneficioId = 2;
+      }
+    } else if (modoBeneficio === 'POR_LOTE') {
+      // TODO: Implementar quando lotes tiverem tipo_beneficio_mpe
+      // Por enquanto, usa o tipo_participacao do item como fallback
+      if (item.tipo_participacao === 'EXCLUSIVO_MPE') {
+        tipoBeneficioId = 1;
+      } else if (item.tipo_participacao === 'COTA_RESERVADA') {
+        tipoBeneficioId = 2;
+      }
+    } else {
+      // GERAL: usa tipo_beneficio_mpe da licitação
+      if (licitacao?.tipo_beneficio_mpe === 'EXCLUSIVO') {
+        tipoBeneficioId = 1;
+      } else if (licitacao?.tipo_beneficio_mpe === 'COTA_RESERVADA') {
+        tipoBeneficioId = 2;
+      }
+      // Fallback para campos antigos (compatibilidade)
+      else if (licitacao?.exclusivo_mpe === true) {
+        tipoBeneficioId = 1;
+      } else if (licitacao?.cota_reservada === true) {
+        tipoBeneficioId = 2;
+      }
+    }
+    
+    const itemDto: any = {
+      numeroItem,
+      materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
+      tipoBeneficioId: tipoBeneficioId,
+      incentivoProdutivoBasico: false,
+      descricao: descricao,
       quantidade: parseFloat(item.quantidade) || 1,
       unidadeMedida: item.unidade_medida || 'UN',
       valorUnitarioEstimado: parseFloat(item.valor_unitario_estimado) || 0,
-      valorTotal: parseFloat(item.valor_total) || 0,
+      valorTotal: valorTotal,
       situacaoCompraItemId: 1,
       criterioJulgamentoId: 1,
       codigoItemCatalogo: item.codigo_catalogo || '',
-      patrimonio: false
+      patrimonio: false,
+      orcamentoSigiloso: orcamentoSigiloso,
+      // Margem de preferência - campos obrigatórios
+      aplicabilidadeMargemPreferenciaNormal: margemPreferencia,
+      aplicabilidadeMargemPreferenciaAdicional: false
     };
+    
+    // Só adiciona percentuais se tiver margem de preferência
+    if (margemPreferencia) {
+      itemDto.percentualMargemPreferenciaNormal = parseFloat(item.percentual_margem) || 0;
+      itemDto.percentualMargemPreferenciaAdicional = 0;
+    }
+    
+    return itemDto;
   }
 
   private extrairMensagemErro(error: any): string {
@@ -1060,23 +1775,68 @@ export class PncpService {
   }
 
   async retificarCompra(anoCompra: string, sequencialCompra: string, compra: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    // Buscar licitação para obter CNPJ do órgão
+    let cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    
+    if (compra.licitacaoId) {
+      const licitacao = await this.licitacaoRepository.findOne({
+        where: { id: compra.licitacaoId },
+        relations: ['orgao']
+      });
+      if (licitacao?.orgao?.cnpj) {
+        cnpj = licitacao.orgao.cnpj;
+      }
+    }
+
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
 
     const compraDto: any = {};
+    
+    // Objeto
+    if (compra.objetoCompra) compraDto.objetoCompra = compra.objetoCompra;
     if (compra.objeto) compraDto.objetoCompra = compra.objeto;
-    if (compra.valor_total_estimado) compraDto.valorTotalEstimado = parseFloat(compra.valor_total_estimado);
-    if (compra.valor_total_homologado) compraDto.valorTotalHomologado = parseFloat(compra.valor_total_homologado);
-    if (compra.situacao_id) compraDto.situacaoCompraId = compra.situacao_id;
+    
+    // Informações complementares
     if (compra.informacao_complementar) compraDto.informacaoComplementar = compra.informacao_complementar;
+    if (compra.informacaoComplementar) compraDto.informacaoComplementar = compra.informacaoComplementar;
+    
+    // Valores
+    if (compra.valor_total_estimado) compraDto.valorTotalEstimado = parseFloat(compra.valor_total_estimado);
+    if (compra.valorTotalEstimado) compraDto.valorTotalEstimado = parseFloat(compra.valorTotalEstimado);
+    if (compra.valor_total_homologado) compraDto.valorTotalHomologado = parseFloat(compra.valor_total_homologado);
+    if (compra.valorTotalHomologado) compraDto.valorTotalHomologado = parseFloat(compra.valorTotalHomologado);
+    
+    // Status
+    if (compra.situacao_id) compraDto.situacaoCompraId = compra.situacao_id;
+    if (compra.situacaoCompraId) compraDto.situacaoCompraId = compra.situacaoCompraId;
+    
+    // Datas (formato ISO 8601)
+    if (compra.dataAberturaProposta) compraDto.dataAberturaProposta = compra.dataAberturaProposta;
+    if (compra.dataEncerramentoProposta) compraDto.dataEncerramentoProposta = compra.dataEncerramentoProposta;
+    
+    this.logger.log(`[retificarCompra] Datas recebidas: inicio=${compra.dataAberturaProposta}, fim=${compra.dataEncerramentoProposta}`);
+    this.logger.log(`[retificarCompra] DTO enviado: ${JSON.stringify(compraDto)}`);
+    
+    // Justificativa (obrigatória para retificação)
+    if (compra.justificativa) compraDto.justificativaRetificacao = compra.justificativa;
+    if (compra.justificativaRetificacao) compraDto.justificativaRetificacao = compra.justificativaRetificacao;
 
     try {
+      await this.getValidToken();
+      
       await this.axiosInstance.patch(
         `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}`,
         compraDto
       );
+
+      // Atualizar licitação local se informado
+      if (compra.licitacaoId && compra.objetoCompra) {
+        await this.licitacaoRepository.update(compra.licitacaoId, {
+          objeto: compra.objetoCompra
+        });
+      }
 
       this.logger.log(`Compra retificada: ${anoCompra}/${sequencialCompra}`);
 
@@ -1092,17 +1852,254 @@ export class PncpService {
     }
   }
 
-  async excluirCompra(anoCompra: string, sequencialCompra: string, justificativa: string): Promise<PncpResponseDto> {
+  async consultarQuantidadeItens(anoCompra: string, sequencialCompra: string): Promise<any> {
     const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
 
     try {
+      await this.getValidToken();
+      
+      // Consultar quantidade de itens via API de consulta do PNCP
+      const response = await axios.get(
+        `https://treina.pncp.gov.br/api/consulta/v1/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/itens/quantidade`,
+        {
+          headers: { 'Authorization': `Bearer ${this.token}` }
+        }
+      );
+
+      return {
+        sucesso: true,
+        quantidade: response.data?.quantidade || response.data || 0
+      };
+    } catch (error) {
+      // Se falhar, retorna 0 para não bloquear
+      this.logger.warn(`Erro ao consultar quantidade de itens: ${this.extrairMensagemErro(error)}`);
+      return { sucesso: false, quantidade: 0 };
+    }
+  }
+
+  async incluirItemCompra(
+    anoCompra: string, 
+    sequencialCompra: string, 
+    itemInput: any
+  ): Promise<PncpResponseDto> {
+    // Buscar licitação com o item do banco de dados
+    if (!itemInput.licitacaoId) {
+      throw new HttpException('licitacaoId é obrigatório', HttpStatus.BAD_REQUEST);
+    }
+
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: itemInput.licitacaoId },
+      relations: ['itens', 'orgao']
+    });
+
+    if (!licitacao) {
+      throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
+    }
+
+    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    
+    if (!cnpj) {
+      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    }
+
+    // Buscar o item específico do banco de dados
+    const itemDb = licitacao.itens?.find(i => 
+      i.numero_item === parseInt(itemInput.numeroItem) || 
+      i.id === itemInput.itemId
+    );
+
+    if (!itemDb) {
+      throw new HttpException(`Item ${itemInput.numeroItem} não encontrado na licitação`, HttpStatus.BAD_REQUEST);
+    }
+
+    // Usar o mesmo mapeamento que funciona no enviarItens
+    // Passa a licitação para obter sigilo_orcamento
+    const itemDto = this.mapearItemParaPNCP(itemDb, parseInt(itemInput.numeroItem), licitacao);
+
+    this.logger.log(`[INCLUIR ITEM] Item do banco: ${JSON.stringify(itemDb)}`);
+    this.logger.log(`[INCLUIR ITEM] DTO enviado: ${JSON.stringify(itemDto)}`);
+
+    try {
+      await this.getValidToken();
+      
+      // PNCP espera um ARRAY de itens
+      await this.axiosInstance.post(
+        `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/itens`,
+        [itemDto]
+      );
+
+      this.logger.log(`Item ${itemInput.numeroItem} incluído na compra ${anoCompra}/${sequencialCompra}`);
+
+      return {
+        sucesso: true,
+        mensagem: `Item ${itemInput.numeroItem} incluído com sucesso`
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Erro ao incluir item: ${this.extrairMensagemErro(error)}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  async retificarItemCompra(
+    anoCompra: string, 
+    sequencialCompra: string, 
+    numeroItem: string,
+    itemInput: any
+  ): Promise<PncpResponseDto> {
+    // Buscar licitação com itens para obter dados completos
+    if (!itemInput.licitacaoId) {
+      throw new HttpException('licitacaoId é obrigatório', HttpStatus.BAD_REQUEST);
+    }
+
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: itemInput.licitacaoId },
+      relations: ['itens', 'orgao']
+    });
+
+    if (!licitacao) {
+      throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
+    }
+
+    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    
+    if (!cnpj) {
+      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    }
+
+    // Buscar o item do banco de dados
+    const itemDb = licitacao.itens?.find(i => 
+      i.numero_item === parseInt(numeroItem)
+    );
+
+    if (!itemDb) {
+      throw new HttpException(`Item ${numeroItem} não encontrado na licitação`, HttpStatus.BAD_REQUEST);
+    }
+
+    // Usar o mesmo mapeamento que funciona no enviarItens
+    const itemDto = this.mapearItemParaPNCP(itemDb, parseInt(numeroItem), licitacao);
+    
+    // Adicionar justificativa se fornecida
+    if (itemInput.justificativaRetificacao) {
+      (itemDto as any).justificativa = itemInput.justificativaRetificacao;
+    }
+
+    this.logger.log(`[RETIFICAR ITEM] DTO enviado: ${JSON.stringify(itemDto)}`);
+
+    try {
+      await this.getValidToken();
+      
+      await this.axiosInstance.patch(
+        `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/itens/${numeroItem}`,
+        itemDto
+      );
+
+      this.logger.log(`Item ${numeroItem} da compra ${anoCompra}/${sequencialCompra} retificado`);
+
+      return {
+        sucesso: true,
+        mensagem: `Item ${numeroItem} retificado com sucesso`
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Erro ao retificar item: ${this.extrairMensagemErro(error)}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  async excluirItemCompra(
+    anoCompra: string, 
+    sequencialCompra: string, 
+    numeroItem: string,
+    justificativa?: string
+  ): Promise<PncpResponseDto> {
+    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    
+    if (!cnpj) {
+      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      await this.getValidToken();
+      
+      // A API do PNCP usa DELETE para excluir item
+      // Pode requerer justificativa no body ou query param
+      const url = `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/itens/${numeroItem}`;
+      
+      this.logger.log(`[EXCLUIR ITEM] URL: ${url}`);
+      
+      await this.axiosInstance.delete(url, {
+        data: justificativa ? { justificativa } : undefined
+      });
+
+      this.logger.log(`Item ${numeroItem} da compra ${anoCompra}/${sequencialCompra} excluído`);
+
+      return {
+        sucesso: true,
+        mensagem: `Item ${numeroItem} excluído com sucesso`
+      };
+    } catch (error) {
+      this.logger.error(`Erro ao excluir item: ${this.extrairMensagemErro(error)}`);
+      throw new HttpException(
+        `Erro ao excluir item: ${this.extrairMensagemErro(error)}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  async excluirCompra(anoCompra: string, sequencialCompra: string, dados: any): Promise<PncpResponseDto> {
+    const justificativa = typeof dados === 'string' ? dados : dados?.justificativa;
+    const licitacaoId = typeof dados === 'object' ? dados?.licitacaoId : null;
+
+    // Buscar licitação para obter CNPJ do órgão
+    let cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    
+    if (licitacaoId) {
+      const licitacao = await this.licitacaoRepository.findOne({
+        where: { id: licitacaoId },
+        relations: ['orgao']
+      });
+      if (licitacao?.orgao?.cnpj) {
+        cnpj = licitacao.orgao.cnpj;
+      }
+    }
+
+    if (!cnpj) {
+      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      await this.getValidToken();
+      
       await this.axiosInstance.delete(
         `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}`,
-        { data: { justificativa: justificativa || 'Exclusão para teste de integração' } }
+        { data: { justificativa: justificativa || 'Exclusão solicitada pelo órgão' } }
       );
+
+      // Limpar dados PNCP da licitação local
+      if (licitacaoId) {
+        await this.licitacaoRepository
+          .createQueryBuilder()
+          .update()
+          .set({
+            numero_controle_pncp: () => 'NULL',
+            ano_compra_pncp: () => 'NULL',
+            sequencial_compra_pncp: () => 'NULL',
+            link_pncp: () => 'NULL',
+            enviado_pncp: false,
+            fase: FaseLicitacao.PLANEJAMENTO // Volta para planejamento
+          })
+          .where('id = :id', { id: licitacaoId })
+          .execute();
+        
+        this.logger.log(`Licitação ${licitacaoId} - dados PNCP limpos após exclusão`);
+      }
 
       this.logger.log(`Compra excluída: ${anoCompra}/${sequencialCompra}`);
 
@@ -1132,6 +2129,7 @@ export class PncpService {
       return {
         encontrado: true,
         compra: response.data,
+        numeroControlePNCP: response.data?.numeroControlePNCP || response.data?.numeroControle,
         link: `https://treina.pncp.gov.br/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`
       };
     } catch (error: any) {
@@ -1146,6 +2144,30 @@ export class PncpService {
         HttpStatus.BAD_REQUEST
       );
     }
+  }
+
+  // Método auxiliar para atualizar número de controle na licitação
+  async atualizarNumeroControleLicitacao(
+    licitacaoId: string, 
+    numeroControlePNCP: string, 
+    ano: number, 
+    sequencial: number
+  ): Promise<void> {
+    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
+      ? 'https://treina.pncp.gov.br' 
+      : 'https://pncp.gov.br';
+    const linkPncp = `${baseUrl}/app/editais/${cnpj?.replace(/\D/g, '')}/${ano}/${sequencial}`;
+    
+    await this.licitacaoRepository.update(licitacaoId, {
+      numero_controle_pncp: numeroControlePNCP,
+      ano_compra_pncp: ano,
+      sequencial_compra_pncp: sequencial,
+      link_pncp: linkPncp,
+      enviado_pncp: true
+    });
+    
+    this.logger.log(`Número de controle atualizado: ${numeroControlePNCP}`);
   }
 
   // ============ RESULTADO DE ITENS DA COMPRA ============
@@ -1557,32 +2579,34 @@ export class PncpService {
 
   // ============ CONFIGURAÇÃO E TESTE ============
 
-  async verificarConfiguracao(): Promise<{
-    configurado: boolean;
-    ambiente: string;
-    cnpjOrgao: string | null;
-    loginConfigurado: boolean;
-    debug?: any;
-  }> {
+  async verificarConfiguracao(): Promise<any> {
+    console.log('[SERVICE] verificarConfiguracao iniciado');
+    
+    // Teste direto do process.env
+    console.log('[SERVICE] process.env direto:', {
+      PNCP_API_URL: process.env.PNCP_API_URL ? 'DEFINIDO' : 'NÃO DEFINIDO',
+      PNCP_LOGIN: process.env.PNCP_LOGIN ? 'DEFINIDO' : 'NÃO DEFINIDO',
+      PNCP_SENHA: process.env.PNCP_SENHA ? 'DEFINIDO' : 'NÃO DEFINIDO',
+      PNCP_CNPJ_ORGAO: process.env.PNCP_CNPJ_ORGAO ? 'DEFINIDO' : 'NÃO DEFINIDO'
+    });
+    
     // Usar getEnvVar para garantir que funcione no Railway
     const apiUrl = this.getEnvVar('PNCP_API_URL') || '';
     const login = this.getEnvVar('PNCP_LOGIN');
     const senha = this.getEnvVar('PNCP_SENHA');
     const cnpj = this.getEnvVar('PNCP_CNPJ_ORGAO');
-
-    const ambiente = apiUrl.includes('treina') ? 'TREINAMENTO' : 
-                     apiUrl.includes('pncp.gov.br') ? 'PRODUÇÃO' : 'NÃO CONFIGURADO';
-
-    // Log para debug no Railway
-    this.logger.log(`[CONFIG] PNCP_API_URL: ${apiUrl ? 'DEFINIDO' : 'NÃO DEFINIDO'} (${apiUrl?.substring(0, 30)}...)`);
-    this.logger.log(`[CONFIG] PNCP_LOGIN: ${login ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
-    this.logger.log(`[CONFIG] PNCP_SENHA: ${senha ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
-    this.logger.log(`[CONFIG] PNCP_CNPJ_ORGAO: ${cnpj ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
-    this.logger.log(`[CONFIG] RAILWAY_ENVIRONMENT: ${process.env.RAILWAY_ENVIRONMENT || 'NÃO DEFINIDO'}`);
+    
+    console.log('[SERVICE] Variáveis lidas via getEnvVar:', { 
+      apiUrl: !!apiUrl, 
+      login: !!login, 
+      senha: !!senha, 
+      cnpj: !!cnpj 
+    });
 
     return {
       configurado: !!(login && cnpj && apiUrl && senha),
-      ambiente,
+      ambiente: apiUrl.includes('treina') ? 'TREINAMENTO' : 
+               apiUrl.includes('pncp.gov.br') ? 'PRODUÇÃO' : 'NÃO CONFIGURADO',
       cnpjOrgao: cnpj ? this.formatarCNPJ(cnpj) : null,
       loginConfigurado: !!login,
       debug: {
@@ -1596,30 +2620,70 @@ export class PncpService {
     };
   }
 
-  async testarConexao(): Promise<{
+  async testarConexao(request?: any): Promise<{
     sucesso: boolean;
     mensagem: string;
     detalhes?: any;
   }> {
     try {
-      // Tentar fazer login
-      await this.login();
+      // Tentar fazer login com credenciais da requisição se disponíveis
+      if (request) {
+        await this.getValidTokenWithRequest(request);
+      } else {
+        await this.login();
+      }
       
       return {
         sucesso: true,
-        mensagem: 'Conexão com PNCP estabelecida com sucesso!',
-        detalhes: {
-          tokenObtido: !!this.token,
-          expiracao: this.tokenExpiration
-        }
+        mensagem: 'Conexão com PNCP estabelecida com sucesso!'
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         sucesso: false,
-        mensagem: `Falha na conexão: ${error.message}`,
-        detalhes: {
-          erro: this.extrairMensagemErro(error)
-        }
+        mensagem: `Erro na conexão: ${this.extrairMensagemErro(error)}`,
+        detalhes: error.response?.data
+      };
+    }
+  }
+
+  async atualizarConfiguracao(config: {
+    apiUrl?: string;
+    login?: string;
+    senha?: string;
+    cnpjOrgao?: string;
+  }): Promise<{
+    sucesso: boolean;
+    mensagem: string;
+  }> {
+    try {
+      // Atualizar variáveis de ambiente em tempo de execução
+      if (config.apiUrl) {
+        process.env.PNCP_API_URL = config.apiUrl;
+      }
+      if (config.login) {
+        process.env.PNCP_LOGIN = config.login;
+      }
+      if (config.senha) {
+        process.env.PNCP_SENHA = config.senha;
+      }
+      if (config.cnpjOrgao) {
+        process.env.PNCP_CNPJ_ORGAO = config.cnpjOrgao;
+      }
+
+      // Reconfigurar axios com novas credenciais
+      this.initializeAxios();
+
+      this.logger.log('[CONFIG] Configurações PNCP atualizadas com sucesso');
+      
+      return {
+        sucesso: true,
+        mensagem: 'Configurações PNCP atualizadas com sucesso!'
+      };
+    } catch (error: any) {
+      this.logger.error('[CONFIG] Erro ao atualizar configurações PNCP:', error);
+      return {
+        sucesso: false,
+        mensagem: `Erro ao atualizar configurações: ${error.message}`
       };
     }
   }
@@ -1748,9 +2812,13 @@ export class PncpService {
     }
   }
 
-  async consultarUsuario(): Promise<any> {
-    // Garantir que temos um token válido
-    await this.getValidToken();
+  async consultarUsuario(request?: any): Promise<any> {
+    // Garantir que temos um token válido com as credenciais da requisição
+    if (request) {
+      await this.getValidTokenWithRequest(request);
+    } else {
+      await this.getValidToken();
+    }
     const idUsuario = this.getIdUsuarioFromToken();
     
     if (!idUsuario) {

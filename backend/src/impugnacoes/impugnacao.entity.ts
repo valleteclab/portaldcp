@@ -71,6 +71,19 @@ export class Impugnacao {
   @Column('text', { nullable: true })
   alteracoes_edital: string;
 
+  // Documento anexado (PDF)
+  @Column({ nullable: true })
+  documento_nome: string; // Nome original do arquivo
+
+  @Column({ nullable: true })
+  documento_caminho: string; // Caminho no servidor
+
+  @Column({ nullable: true })
+  documento_tamanho: number; // Tamanho em bytes
+
+  @Column({ nullable: true })
+  documento_mime_type: string; // Tipo MIME (application/pdf)
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -591,4 +591,20 @@ export class PcaService {
 
     return { itensAdicionados, demandasConsolidadas };
   }
+
+  // Buscar itens do PCA por órgão (para vinculação em licitações)
+  async buscarItensPorOrgao(orgaoId: string, ano?: number): Promise<ItemPCA[]> {
+    const anoFiltro = ano || new Date().getFullYear();
+    
+    const query = this.itemPcaRepository.createQueryBuilder('item')
+      .leftJoinAndSelect('item.pca', 'pca')
+      .where('pca.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('pca.ano_exercicio = :ano', { ano: anoFiltro })
+      .andWhere('item.status IN (:...status)', { 
+        status: [StatusItemPCA.PLANEJADO, StatusItemPCA.EM_PREPARACAO] 
+      })
+      .orderBy('item.descricao_objeto', 'ASC');
+
+    return query.getMany();
+  }
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Get } from '@nestjs/common';
 import { IaService } from './ia.service';
 
 interface GerarConteudoDto {
@@ -20,6 +20,20 @@ interface SugerirMelhoriasDto {
 @Controller('ia')
 export class IaController {
   constructor(private readonly iaService: IaService) {}
+
+  @Get('status')
+  async verificarStatus() {
+    try {
+      // Tenta obter a chave via service (que usa ConfigService)
+      const testResult = await this.iaService.testarConexao();
+      return testResult;
+    } catch (error: any) {
+      return {
+        configurado: false,
+        mensagem: error.message || 'Erro ao verificar configuração'
+      };
+    }
+  }
 
   @Post('gerar')
   async gerarConteudo(@Body() dto: GerarConteudoDto) {

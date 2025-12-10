@@ -1,30 +1,38 @@
 import { Injectable } from '@nestjs/common';
-
-// Chave deve ser configurada via variável de ambiente OPENROUTER_API_KEY
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+import { ConfigService } from '@nestjs/config';
 
 // Prompts especializados para cada tipo de documento da Lei 14.133/2021
 const PROMPTS_DOCUMENTOS: Record<string, string> = {
-  ETP: `Você é um especialista em licitações públicas e na Lei 14.133/2021 (Nova Lei de Licitações).
-Sua função é ajudar a elaborar o Estudo Técnico Preliminar (ETP) conforme Art. 18, §1º da Lei 14.133/2021.
+  ETP: `Você é um especialista em elaboração de Estudos Técnicos Preliminares (ETP) conforme a Lei 14.133/2021.
 
-O ETP deve conter:
-1. Descrição da necessidade da contratação
-2. Área requisitante e responsável
-3. Descrição dos requisitos da contratação
-4. Estimativas das quantidades
-5. Levantamento de mercado
-6. Estimativa do valor da contratação
-7. Descrição da solução como um todo
-8. Justificativas para o parcelamento ou não
-9. Resultados pretendidos
-10. Análise de riscos
-11. Providências para adequação do ambiente
+CONTEXTO: O usuário está no CHAT do assistente, coletando informações para gerar o ETP.
 
-Responda de forma técnica, objetiva e em português brasileiro.`,
+SUA FUNÇÃO:
+1. Fazer PERGUNTAS objetivas para coletar as informações necessárias
+2. Uma pergunta por vez, de forma clara e direta
+3. Quando tiver TODAS as informações, gere o ETP COMPLETO e formatado
 
-  TR: `Você é um especialista em licitações públicas e na Lei 14.133/2021 (Nova Lei de Licitações).
-Sua função é ajudar a elaborar o Termo de Referência conforme Art. 6º, XXIII da Lei 14.133/2021.
+INFORMAÇÕES NECESSÁRIAS PARA O ETP:
+- Objeto da contratação (o que será adquirido/contratado)
+- Justificativa/necessidade
+- Quantidade e justificativa da quantidade
+- Setor requisitante e responsável
+- Especificações técnicas
+- Valor estimado e fonte da pesquisa de preços
+
+FORMATO DAS PERGUNTAS:
+Seja direto. Exemplo: "Qual a quantidade de itens necessária e como você chegou a esse número?"
+
+Quando o usuário fornecer todas as informações, responda APENAS com o ETP formatado, sem textos introdutórios como "Aqui está" ou "Segue abaixo".`,
+
+  TR: `Você é um assistente especializado em licitações públicas e na Lei 14.133/2021.
+Sua função é AJUDAR o usuário a elaborar o Termo de Referência conforme Art. 6º, XXIII.
+
+REGRAS IMPORTANTES:
+1. NUNCA invente informações - pergunte ao usuário o que falta
+2. Analise o que foi fornecido e sugira melhorias específicas
+3. Indique campos incompletos e faça perguntas para completá-los
+4. Seja colaborativo e interativo
 
 O Termo de Referência deve conter:
 1. Definição do objeto (clara, precisa e suficiente)
@@ -35,10 +43,15 @@ O Termo de Referência deve conter:
 6. Modelo de gestão do contrato
 7. Critérios de medição e pagamento
 8. Forma de seleção do fornecedor
-9. Estimativas de preços
+9. Estimativas de preços (com fonte)
 10. Adequação orçamentária
 
-Responda de forma técnica, objetiva e em português brasileiro.`,
+Ao analisar:
+- Pontos POSITIVOS
+- Pontos que PRECISAM DE MELHORIA  
+- PERGUNTAS para completar informações faltantes
+
+Responda em português brasileiro.`,
 
   PP: `Você é um especialista em licitações públicas e na Lei 14.133/2021 (Nova Lei de Licitações).
 Sua função é ajudar a elaborar a Pesquisa de Preços conforme Art. 23 da Lei 14.133/2021 e IN SEGES/ME nº 65/2021.
@@ -210,20 +223,74 @@ Lembre-se: você está ajudando a garantir que o processo licitatório seja lega
 @Injectable()
 export class IaService {
   private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-  private readonly model = 'anthropic/claude-3.5-sonnet'; // Modelo recomendado para tarefas complexas
+  private readonly model = 'anthropic/claude-3.5-sonnet';
+
+  constructor(private configService: ConfigService) {}
+
+  private getApiKey(): string {
+    const key = this.configService.get<string>('OPENROUTER_API_KEY');
+    if (!key) {
+      throw new Error('OPENROUTER_API_KEY não configurada. Configure a variável de ambiente.');
+    }
+    return key;
+  }
+
+  async testarConexao(): Promise<{ configurado: boolean; chave: string; mensagem: string }> {
+    try {
+      const key = this.getApiKey();
+      return {
+        configurado: true,
+        chave: `${key.substring(0, 15)}...`,
+        mensagem: 'API Key configurada corretamente'
+      };
+    } catch (error: any) {
+      return {
+        configurado: false,
+        chave: 'NÃO CONFIGURADA',
+        mensagem: error.message
+      };
+    }
+  }
 
   async gerarConteudo(tipoDocumento: string, contexto: string, objeto?: string): Promise<string> {
-    const promptEspecifico = PROMPTS_DOCUMENTOS[tipoDocumento] || SYSTEM_PROMPT;
+    const apiKey = this.getApiKey();
+    
+    // Prompt específico para GERAÇÃO de documento (botão "Gerar com IA")
+    const promptGeracao = `Você é um especialista em documentos de licitação conforme a Lei 14.133/2021.
+
+Gere um ${tipoDocumento} COMPLETO e PROFISSIONAL com base nas informações fornecidas pelo usuário.
+
+REGRAS:
+1. Gere APENAS o documento, sem introduções como "Aqui está", "Segue abaixo", etc.
+2. Use formatação profissional com seções numeradas
+3. Preencha todos os campos obrigatórios do ${tipoDocumento}
+4. Use as informações fornecidas pelo usuário
+5. Para campos não informados, use marcadores como [INFORMAR] para o usuário completar depois
+6. O documento deve estar pronto para uso oficial
+
+Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
+1. DESCRIÇÃO DA NECESSIDADE
+2. ÁREA REQUISITANTE
+3. REQUISITOS DA CONTRATAÇÃO
+4. ESTIMATIVA DE QUANTIDADES
+5. LEVANTAMENTO DE MERCADO
+6. ESTIMATIVA DE VALOR
+7. DESCRIÇÃO DA SOLUÇÃO
+8. JUSTIFICATIVA DO PARCELAMENTO
+9. RESULTADOS PRETENDIDOS
+10. ANÁLISE DE RISCOS
+11. PROVIDÊNCIAS PARA ADEQUAÇÃO`;
     
     const mensagemUsuario = objeto 
-      ? `Objeto da licitação: ${objeto}\n\nContexto/Solicitação: ${contexto}`
+      ? `Objeto da licitação: ${objeto}\n\nInformações fornecidas: ${contexto}`
       : contexto;
 
     try {
+      console.log('Chamando OpenRouter com modelo:', this.model);
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://licitafacil.com.br',
           'X-Title': 'LicitaFácil',
@@ -231,7 +298,7 @@ export class IaService {
         body: JSON.stringify({
           model: this.model,
           messages: [
-            { role: 'system', content: promptEspecifico },
+            { role: 'system', content: promptGeracao },
             { role: 'user', content: mensagemUsuario },
           ],
           temperature: 0.7,
@@ -254,6 +321,8 @@ export class IaService {
   }
 
   async chat(mensagens: Array<{ role: string; content: string }>, tipoDocumento?: string): Promise<string> {
+    const apiKey = this.getApiKey();
+    
     const systemPrompt = tipoDocumento && PROMPTS_DOCUMENTOS[tipoDocumento] 
       ? PROMPTS_DOCUMENTOS[tipoDocumento] 
       : SYSTEM_PROMPT;
@@ -262,7 +331,7 @@ export class IaService {
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://licitafacil.com.br',
           'X-Title': 'LicitaFácil',
@@ -293,17 +362,53 @@ export class IaService {
   }
 
   async sugerirMelhorias(tipoDocumento: string, conteudoAtual: string): Promise<string> {
-    const prompt = `Analise o seguinte ${tipoDocumento} e sugira melhorias para adequá-lo à Lei 14.133/2021:
+    const apiKey = this.getApiKey();
+    
+    const promptRevisao = `Você é um revisor especializado em documentos de licitação conforme a Lei 14.133/2021.
 
+Revise o ${tipoDocumento} abaixo e gere uma VERSÃO MELHORADA do documento.
+
+REGRAS:
+1. Mantenha TODAS as informações fornecidas pelo usuário
+2. Melhore a redação e formatação
+3. Adicione elementos obrigatórios que estejam faltando (com marcador [INFORMAR] onde necessário)
+4. Corrija erros de estrutura conforme a Lei 14.133/2021
+5. Gere APENAS o documento revisado, sem comentários ou explicações
+6. O documento deve estar pronto para uso oficial
+
+DOCUMENTO ATUAL:
 ${conteudoAtual}
 
-Por favor, indique:
-1. Pontos que estão corretos
-2. Pontos que precisam de ajuste
-3. Elementos faltantes
-4. Sugestões de melhoria
-5. Versão revisada (se necessário)`;
+Gere a versão revisada e melhorada:`;
 
-    return this.gerarConteudo(tipoDocumento, prompt);
+    try {
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://licitafacil.com.br',
+          'X-Title': 'LicitaFácil',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: 'user', content: promptRevisao },
+          ],
+          temperature: 0.5,
+          max_tokens: 4000,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro na API: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0]?.message?.content || conteudoAtual;
+    } catch (error) {
+      console.error('Erro ao revisar documento:', error);
+      throw error;
+    }
   }
 }

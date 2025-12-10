@@ -55,7 +55,8 @@ import {
   Info,
   Mail,
   Copy,
-  Check
+  Check,
+  Save
 } from 'lucide-react'
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
@@ -135,24 +136,57 @@ export default function AdminPNCPPage() {
     senha: '',
     nome_responsavel: ''
   })
+  
+  // Estado para configuração manual de credenciais PNCP
+  const [pncpCredentials, setPncpCredentials] = useState({
+    orgaoId: '',
+    apiUrl: '',
+    login: '',
+    senha: '',
+    cnpjOrgao: ''
+  })
+  const [showCredentialsForm, setShowCredentialsForm] = useState(false)
+  const [savingCredentials, setSavingCredentials] = useState(false)
 
   useEffect(() => {
     carregarDados()
+    // Carregar credenciais do localStorage
+    const savedCredentials = localStorage.getItem('pncp_credentials')
+    if (savedCredentials) {
+      try {
+        setPncpCredentials(JSON.parse(savedCredentials))
+      } catch (error) {
+        console.error('Erro ao carregar credenciais do localStorage:', error)
+      }
+    }
   }, [])
 
   const carregarDados = async () => {
     setLoading(true)
     setErro(null)
     try {
+      // Preparar headers com credenciais do localStorage se disponíveis
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      }
+      
+      // Adicionar credenciais PNCP do localStorage nos headers
+      if (pncpCredentials.apiUrl && pncpCredentials.login && pncpCredentials.senha) {
+        headers['X-PNCP-API-URL'] = pncpCredentials.apiUrl
+        headers['X-PNCP-Login'] = pncpCredentials.login
+        headers['X-PNCP-Senha'] = pncpCredentials.senha
+        headers['X-PNCP-CNPJ-Orgao'] = pncpCredentials.cnpjOrgao
+      }
+
       // Carregar status da configuração
-      const configRes = await fetch(`${API_URL}/api/pncp/config/status`)
+      const configRes = await fetch(`${API_URL}/api/pncp/config/status`, { headers })
       if (configRes.ok) {
         const config = await configRes.json()
         setConfigStatus(config)
       }
 
-      // Carregar usuário e entes autorizados
-      const usuarioRes = await fetch(`${API_URL}/api/pncp/usuario`)
+      // Carregar usuário e entes autorizados com credenciais
+      const usuarioRes = await fetch(`${API_URL}/api/pncp/usuario`, { headers })
       if (usuarioRes.ok) {
         const data = await usuarioRes.json()
         setUsuario(data.usuario)
@@ -279,6 +313,138 @@ export default function AdminPNCPPage() {
     } catch (error: any) {
       console.error('Erro ao sincronizar unidade:', error)
       alert('Erro ao sincronizar unidade: ' + error.message)
+    }
+  }
+
+  // Funções para gerenciar credenciais PNCP da PLATAFORMA
+  const salvarCredenciaisPNCP = async () => {
+    setSavingCredentials(true)
+    try {
+      // Validar campos obrigatórios
+      if (!pncpCredentials.apiUrl || !pncpCredentials.login || !pncpCredentials.senha || !pncpCredentials.cnpjOrgao) {
+        alert('Todos os campos são obrigatórios!')
+        return
+      }
+
+      // Salvar credenciais da plataforma no backend
+      const response = await fetch(`${API_URL}/api/pncp/credentials`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          apiUrl: pncpCredentials.apiUrl,
+          login: pncpCredentials.login,
+          senha: pncpCredentials.senha,
+          cnpjOrgao: pncpCredentials.cnpjOrgao
+        })
+      })
+
+      if (response.ok) {
+        alert('✅ Credenciais PNCP da plataforma salvas com sucesso!')
+        setShowCredentialsForm(false)
+        
+        // Recarregar dados para mostrar as credenciais salvas
+        await carregarCredenciaisPNCP()
+        await carregarDados()
+      } else {
+        const error = await response.json()
+        alert(`❌ Erro ao salvar credenciais: ${error.message || 'Erro desconhecido'}`)
+      }
+    } catch (error: any) {
+      console.error('Erro ao salvar credenciais:', error)
+      alert(`❌ Erro ao salvar credenciais: ${error.message}`)
+    } finally {
+      setSavingCredentials(false)
+    }
+  }
+
+  const carregarCredenciaisPNCP = async () => {
+    try {
+      // Carregar credenciais da plataforma PNCP
+      const response = await fetch(`${API_URL}/api/pncp/credentials`)
+      if (response.ok) {
+        const credentials = await response.json()
+        setPncpCredentials({
+          orgaoId: 'platform', // Indica que são credenciais da plataforma
+          apiUrl: credentials.apiUrl || '',
+          login: credentials.login || '',
+          senha: '', // Não retornamos a senha do backend por segurança
+          cnpjOrgao: credentials.cnpjOrgao || ''
+        })
+      }
+    } catch (error) {
+      console.error('Erro ao carregar credenciais PNCP:', error)
+    }
+  }
+
+  const limparCredenciaisPNCP = async () => {
+    if (confirm('Tem certeza que deseja limpar as credenciais PNCP da plataforma?')) {
+      try {
+        const response = await fetch(`${API_URL}/api/pncp/credentials`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            apiUrl: '',
+            login: '',
+            senha: '',
+            cnpjOrgao: ''
+          })
+        })
+
+        if (response.ok) {
+          setPncpCredentials({
+            orgaoId: 'platform',
+            apiUrl: '',
+            login: '',
+            senha: '',
+            cnpjOrgao: ''
+          })
+          alert('✅ Credenciais PNCP da plataforma limpas com sucesso!')
+          carregarDados()
+        } else {
+          alert('❌ Erro ao limpar credenciais')
+        }
+      } catch (error) {
+        console.error('Erro ao limpar credenciais:', error)
+        alert('❌ Erro ao limpar credenciais')
+      }
+    }
+  }
+
+  const testarCredenciaisPNCP = async () => {
+    if (!pncpCredentials.apiUrl || !pncpCredentials.login || !pncpCredentials.senha) {
+      alert('Configure as credenciais antes de testar!')
+      return
+    }
+
+    try {
+      // Primeiro salvar as credenciais da plataforma no backend
+      await salvarCredenciaisPNCP()
+
+      // Testar conexão usando o endpoint da plataforma
+      const response = await fetch(`${API_URL}/api/pncp/credentials/test`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.sucesso) {
+          alert('✅ Credenciais PNCP da plataforma testadas com sucesso!')
+          // Recarregar dados para mostrar os entes autorizados
+          await carregarDados()
+        } else {
+          alert(`❌ Erro ao testar credenciais: ${data.mensagem}`)
+        }
+      } else {
+        const errorData = await response.json()
+        alert(`❌ Erro ao testar credenciais: ${errorData.message || 'Erro desconhecido'}`)
+      }
+    } catch (error: any) {
+      console.error('Erro ao testar credenciais:', error)
+      alert(`❌ Erro ao testar credenciais: ${error.message}`)
     }
   }
 
@@ -521,6 +687,164 @@ export default function AdminPNCPPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Configuração Manual de Credenciais PNCP */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5" />
+                Configuração Manual de Credenciais PNCP
+              </CardTitle>
+              <CardDescription>
+                Configure as credenciais do PNCP manualmente (apenas para desenvolvimento local)
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              {pncpCredentials.apiUrl && (
+                <Button variant="outline" onClick={testarCredenciaisPNCP}>
+                  <Globe className="w-4 h-4 mr-2" />
+                  Testar Conexão
+                </Button>
+              )}
+              {pncpCredentials.apiUrl ? (
+                <Button variant="destructive" onClick={limparCredenciaisPNCP}>
+                  <XCircle className="w-4 h-4 mr-2" />
+                  Limpar Credenciais
+                </Button>
+              ) : (
+                <Button onClick={() => setShowCredentialsForm(true)}>
+                  <Shield className="w-4 h-4 mr-2" />
+                  Configurar Credenciais
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {pncpCredentials.apiUrl ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-gray-500">URL da API</Label>
+                  <p className="font-medium text-sm">{pncpCredentials.apiUrl}</p>
+                </div>
+                <div>
+                  <Label className="text-gray-500">Login</Label>
+                  <p className="font-medium text-sm">{pncpCredentials.login}</p>
+                </div>
+                <div>
+                  <Label className="text-gray-500">CNPJ do Órgão</Label>
+                  <p className="font-medium text-sm">{formatarCNPJ(pncpCredentials.cnpjOrgao)}</p>
+                </div>
+                <div>
+                  <Label className="text-gray-500">Status</Label>
+                  <p className="font-medium text-sm text-green-600">✅ Configurado no localStorage</p>
+                </div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">Aviso de Segurança</span>
+                </div>
+                <p className="text-xs text-amber-700 mt-1">
+                  As credenciais estão armazenadas no localStorage do navegador. 
+                  Esta configuração é apenas para desenvolvimento local. 
+                  Em produção, use variáveis de ambiente no servidor.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Shield className="w-12 h-12 mx-auto mb-4 opacity-20" />
+              <p>Nenhuma credencial PNCP configurada</p>
+              <p className="text-sm">Clique em "Configurar Credenciais" para adicionar as credenciais do PNCP</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Modal de Configuração de Credenciais */}
+      <Dialog open={showCredentialsForm} onOpenChange={setShowCredentialsForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Configurar Credenciais PNCP
+            </DialogTitle>
+            <DialogDescription>
+              Insira as credenciais de acesso ao Portal Nacional de Contratações Públicas
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>URL da API PNCP *</Label>
+                <Input
+                  value={pncpCredentials.apiUrl}
+                  onChange={(e) => setPncpCredentials({...pncpCredentials, apiUrl: e.target.value})}
+                  placeholder="https://treina.pncp.gov.br/api/pncp/v1"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Login PNCP *</Label>
+                <Input
+                  value={pncpCredentials.login}
+                  onChange={(e) => setPncpCredentials({...pncpCredentials, login: e.target.value})}
+                  placeholder="UUID de acesso ao PNCP"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Senha PNCP *</Label>
+                <Input
+                  type="password"
+                  value={pncpCredentials.senha}
+                  onChange={(e) => setPncpCredentials({...pncpCredentials, senha: e.target.value})}
+                  placeholder="Senha de acesso ao PNCP"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>CNPJ do Órgão *</Label>
+                <Input
+                  value={pncpCredentials.cnpjOrgao}
+                  onChange={(e) => setPncpCredentials({...pncpCredentials, cnpjOrgao: e.target.value})}
+                  placeholder="CNPJ do órgão no PNCP"
+                />
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-blue-800 mb-2">Ambientes Disponíveis:</p>
+              <div className="space-y-1 text-xs text-blue-700">
+                <div>• <strong>Treinamento:</strong> https://treina.pncp.gov.br/api/pncp/v1</div>
+                <div>• <strong>Produção:</strong> https://pncp.gov.br/api/pncp/v1</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setShowCredentialsForm(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={salvarCredenciaisPNCP}
+              disabled={savingCredentials}
+            >
+              {savingCredentials ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
+              Salvar Credenciais
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Informações do Usuário */}
       {usuario && (

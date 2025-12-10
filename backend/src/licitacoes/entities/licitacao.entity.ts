@@ -1,6 +1,40 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
+import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
+import { ItemPCA } from '../../pca/entities/pca.entity';
+
+/**
+ * ============================================================================
+ * MODOS DE VINCULAÇÃO AO PCA
+ * ============================================================================
+ * 
+ * Lei 14.133/2021, Art. 12, VII:
+ * "As contratações públicas deverão submeter-se a práticas contínuas e 
+ * permanentes de gestão de riscos e de controle preventivo, inclusive 
+ * mediante adoção de recursos de tecnologia da informação, e, além de 
+ * estar subordinadas ao controle social, sujeitar-se-ão às seguintes 
+ * linhas de defesa: VII - o plano de contratações anual"
+ * 
+ * O sistema oferece 3 modos de vinculação ao PCA:
+ * 
+ * 1. POR_LICITACAO: Todos os itens vinculam ao mesmo PCA
+ *    - Ideal para objetos homogêneos
+ *    - Ex: "Aquisição de Equipamentos de TI"
+ * 
+ * 2. POR_LOTE: Cada lote vincula a um PCA diferente
+ *    - Ideal para objetos parcelados (Art. 40, §3º)
+ *    - Ex: "Computadores (Lote 1) + Alimentos (Lote 2)"
+ * 
+ * 3. POR_ITEM: Cada item vincula individualmente
+ *    - Ideal para casos especiais ou itens avulsos
+ *    - Ex: Contratações emergenciais
+ */
+export enum ModoVinculacaoPCA {
+  POR_LICITACAO = 'POR_LICITACAO',
+  POR_LOTE = 'POR_LOTE',
+  POR_ITEM = 'POR_ITEM',
+}
 
 // === ENUMS CONFORME LEI 14.133/2021 ===
 
@@ -103,6 +137,13 @@ export class Licitacao {
   @Column({ nullable: true })
   orgao_id: string;
 
+  // === UNIDADE COMPRADORA (PNCP) ===
+  @Column({ nullable: true })
+  codigo_unidade_compradora: string; // Código da unidade no PNCP (ex: "1", "10", "15")
+
+  @Column({ nullable: true })
+  nome_unidade_compradora: string; // Nome da unidade para referência
+
   // === OBJETO ===
   @Column({ type: 'text' })
   objeto: string;
@@ -178,19 +219,20 @@ export class Licitacao {
   data_autorizacao: Date;
 
   // === DATAS - FASE EXTERNA ===
-  @Column({ type: 'timestamp', nullable: true })
+  // Usando 'timestamp without time zone' para armazenar horário de Brasília sem conversão UTC
+  @Column({ type: 'timestamp without time zone', nullable: true })
   data_publicacao_edital: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp without time zone', nullable: true })
   data_limite_impugnacao: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp without time zone', nullable: true })
   data_inicio_acolhimento: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp without time zone', nullable: true })
   data_fim_acolhimento: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp without time zone', nullable: true })
   data_abertura_sessao: Date;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -221,7 +263,14 @@ export class Licitacao {
   @Column({ default: true })
   tratamento_diferenciado_mpe: boolean; // ME/EPP
 
-  // === PREFERÊNCIAS ===
+  // === BENEFÍCIO ME/EPP (LC 123/2006) ===
+  @Column({ default: 'GERAL' })
+  modo_beneficio_mpe: 'GERAL' | 'POR_LOTE' | 'POR_ITEM'; // Modo de aplicação do benefício
+
+  @Column({ default: 'NENHUM' })
+  tipo_beneficio_mpe: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA'; // Tipo de benefício quando GERAL
+
+  // === PREFERÊNCIAS (mantidos para compatibilidade) ===
   @Column({ default: false })
   exclusivo_mpe: boolean; // Exclusivo para ME/EPP
 
@@ -275,6 +324,9 @@ export class Licitacao {
   sequencial_compra_pncp: number;
 
   @Column({ default: false })
+  enviado_pncp: boolean; // Indica se foi enviado ao PNCP
+
+  @Column({ default: false })
   srp: boolean; // Sistema de Registro de Preços
 
   // === AUDITORIA ===
@@ -284,6 +336,93 @@ export class Licitacao {
   // === RELAÇÃO COM ITENS ===
   @OneToMany(() => ItemLicitacao, item => item.licitacao)
   itens: ItemLicitacao[];
+
+  // ============================================================================
+  // VINCULAÇÃO COM PCA - Lei 14.133/2021, Art. 12, VII
+  // ============================================================================
+
+  /**
+   * Modo de vinculação ao PCA
+   * 
+   * Lei 14.133/2021, Art. 12, VII:
+   * "As contratações públicas deverão submeter-se a práticas contínuas e 
+   * permanentes de gestão de riscos e de controle preventivo, inclusive 
+   * mediante adoção de recursos de tecnologia da informação, e, além de 
+   * estar subordinadas ao controle social, sujeitar-se-ão às seguintes 
+   * linhas de defesa: VII - o plano de contratações anual"
+   * 
+   * - POR_LICITACAO: Todos os itens vinculam ao mesmo PCA (objeto homogêneo)
+   * - POR_LOTE: Cada lote vincula a um PCA diferente (objeto parcelado - Art. 40, §3º)
+   * - POR_ITEM: Cada item vincula individualmente (casos especiais)
+   */
+  @Column({
+    type: 'enum',
+    enum: ModoVinculacaoPCA,
+    default: ModoVinculacaoPCA.POR_ITEM
+  })
+  modo_vinculacao_pca: ModoVinculacaoPCA;
+
+  /**
+   * Vinculação direta com Item do PCA (quando modo = POR_LICITACAO)
+   * 
+   * Quando o modo é POR_LICITACAO, todos os itens da licitação
+   * herdam automaticamente este item_pca_id.
+   */
+  @ManyToOne(() => ItemPCA, { nullable: true })
+  @JoinColumn({ name: 'item_pca_id' })
+  item_pca: ItemPCA;
+
+  @Column({ type: 'uuid', nullable: true })
+  item_pca_id: string;
+
+  /**
+   * Flag para indicar se a licitação não possui vinculação com PCA
+   * 
+   * Lei 14.133/2021, Art. 12, §1º:
+   * "A não observância do disposto no inciso VII do caput deste artigo 
+   * deverá ser justificada pelo ordenador de despesa"
+   */
+  @Column({ type: 'boolean', default: false })
+  sem_pca: boolean;
+
+  /**
+   * Justificativa para licitação sem vinculação ao PCA
+   * OBRIGATÓRIA quando sem_pca = true
+   */
+  @Column({ type: 'text', nullable: true })
+  justificativa_sem_pca: string;
+
+  // ============================================================================
+  // LOTES - Lei 14.133/2021, Art. 40, §3º
+  // ============================================================================
+
+  /**
+   * Flag para indicar se a licitação utiliza lotes
+   * 
+   * Lei 14.133/2021, Art. 40, §3º:
+   * "O parcelamento será adotado quando técnica e economicamente viável, 
+   * e deverá ser justificado quando não for adotado."
+   * 
+   * Quando true, os itens devem ser organizados em lotes.
+   */
+  @Column({ type: 'boolean', default: false })
+  usa_lotes: boolean;
+
+  /**
+   * Relação com os lotes da licitação
+   */
+  @OneToMany(() => LoteLicitacao, lote => lote.licitacao)
+  lotes: LoteLicitacao[];
+
+  /**
+   * Justificativa para não parcelamento (quando usa_lotes = false)
+   * 
+   * Lei 14.133/2021, Art. 40, §3º:
+   * "O parcelamento será adotado quando técnica e economicamente viável, 
+   * e deverá ser justificado quando não for adotado."
+   */
+  @Column({ type: 'text', nullable: true })
+  justificativa_nao_parcelamento: string;
 
   @CreateDateColumn()
   created_at: Date;

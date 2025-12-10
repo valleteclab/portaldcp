@@ -10,17 +10,49 @@ import {
   UseInterceptors,
   UploadedFile,
   HttpException,
-  HttpStatus
+  HttpStatus,
+  Req
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PncpService } from './pncp.service';
 import { ResultadoItemDto, ContratoDto, TIPO_DOCUMENTO } from './dto/pncp.dto';
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 @Controller('pncp')
 export class PncpController {
-  constructor(private readonly pncpService: PncpService) {}
+  constructor(private readonly pncpService: PncpService) {
+    console.log('[PncpController] Controller initialized');
+  }
+
+  // ============ CREDENCIAIS PNCP DA PLATAFORMA ============
+
+  @Get('credentials')
+  getPlatformCredentials() {
+    return this.pncpService.getPlatformCredentials();
+  }
+
+  @Put('credentials')
+  setPlatformCredentials(@Body() body: {
+    apiUrl?: string;
+    login?: string;
+    senha?: string;
+    cnpjOrgao?: string;
+  }) {
+    this.pncpService.setPlatformCredentials(body);
+    return { success: true, message: 'Credenciais PNCP da plataforma atualizadas!' };
+  }
+
+  @Post('credentials/test')
+  async testPlatformConnection() {
+    return this.pncpService.testPlatformConnection();
+  }
 
   // ============ COMPRA/LICITAÇÃO ============
+
+  @Get('compras/:licitacaoId/validar')
+  async validarLicitacao(@Param('licitacaoId') licitacaoId: string) {
+    return this.pncpService.validarLicitacaoParaPNCP(licitacaoId);
+  }
 
   @Post('compras/:licitacaoId')
   async enviarCompra(@Param('licitacaoId') licitacaoId: string) {
@@ -37,24 +69,81 @@ export class PncpController {
     // Envia compra + itens em sequência
     const resultadoCompra = await this.pncpService.enviarCompra(licitacaoId);
     
+    console.log('[PNCP] Resultado enviarCompra:', JSON.stringify(resultadoCompra));
+    
     if (resultadoCompra.sucesso) {
+      let numeroControlePNCP = resultadoCompra.numeroControlePNCP;
+      let link = resultadoCompra.link;
+      let ano = resultadoCompra.ano;
+      let sequencial = resultadoCompra.sequencial;
+      
+      // Se não veio o número de controle, consultar no PNCP
+      if (!numeroControlePNCP && ano && sequencial) {
+        try {
+          const consulta = await this.pncpService.consultarCompra(String(ano), String(sequencial));
+          if (consulta?.numeroControlePNCP) {
+            numeroControlePNCP = consulta.numeroControlePNCP;
+            // Atualizar na licitação
+            await this.pncpService.atualizarNumeroControleLicitacao(
+              licitacaoId, 
+              consulta.numeroControlePNCP, 
+              ano as number, 
+              sequencial as number
+            );
+          }
+        } catch (e) {
+          console.log('Não foi possível consultar compra após envio:', e.message);
+        }
+      }
+      
       try {
         const resultadoItens = await this.pncpService.enviarItens(licitacaoId);
-        return {
+        const resposta = {
           sucesso: true,
+          numeroControlePNCP,
+          ano,
+          sequencial,
+          link,
           compra: resultadoCompra,
           itens: resultadoItens
         };
+        console.log('[PNCP] Resposta final ao frontend:', JSON.stringify(resposta));
+        return resposta;
       } catch (error) {
-        return {
+        const resposta = {
           sucesso: true,
+          numeroControlePNCP,
+          ano,
+          sequencial,
+          link,
           compra: resultadoCompra,
           itens: { sucesso: false, erro: error.message }
         };
+        console.log('[PNCP] Resposta final ao frontend (erro itens):', JSON.stringify(resposta));
+        return resposta;
       }
     }
     
+    console.log('[PNCP] Retornando resultadoCompra direto:', JSON.stringify(resultadoCompra));
     return resultadoCompra;
+  }
+
+  // Vincular manualmente uma licitação já enviada ao PNCP
+  @Post('compras/:licitacaoId/vincular')
+  async vincularLicitacaoPNCP(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      numeroControlePNCP: string;
+      anoCompra: number;
+      sequencialCompra: number;
+    }
+  ) {
+    return this.pncpService.vincularLicitacaoExistente(
+      licitacaoId,
+      body.numeroControlePNCP,
+      body.anoCompra,
+      body.sequencialCompra
+    );
   }
 
   // ============ DOCUMENTOS ============
@@ -241,9 +330,9 @@ export class PncpController {
   async excluirCompra(
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
-    @Body() body: { justificativa: string }
+    @Body() body: { justificativa: string; licitacaoId?: string }
   ) {
-    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body.justificativa);
+    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body);
   }
 
   @Get('compras/:anoCompra/:sequencialCompra')
@@ -252,6 +341,45 @@ export class PncpController {
     @Param('sequencialCompra') sequencialCompra: string
   ) {
     return this.pncpService.consultarCompra(anoCompra, sequencialCompra);
+  }
+
+  // ============ ITENS DA COMPRA ============
+
+  @Get('compras/:anoCompra/:sequencialCompra/itens/quantidade')
+  async consultarQuantidadeItens(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string
+  ) {
+    return this.pncpService.consultarQuantidadeItens(anoCompra, sequencialCompra);
+  }
+
+  @Post('compras/:anoCompra/:sequencialCompra/itens')
+  async incluirItemCompra(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Body() item: any
+  ) {
+    return this.pncpService.incluirItemCompra(anoCompra, sequencialCompra, item);
+  }
+
+  @Put('compras/:anoCompra/:sequencialCompra/itens/:numeroItem')
+  async retificarItemCompra(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Param('numeroItem') numeroItem: string,
+    @Body() item: any
+  ) {
+    return this.pncpService.retificarItemCompra(anoCompra, sequencialCompra, numeroItem, item);
+  }
+
+  @Delete('compras/:anoCompra/:sequencialCompra/itens/:numeroItem')
+  async excluirItemCompra(
+    @Param('anoCompra') anoCompra: string,
+    @Param('sequencialCompra') sequencialCompra: string,
+    @Param('numeroItem') numeroItem: string,
+    @Body() body?: { justificativa?: string }
+  ) {
+    return this.pncpService.excluirItemCompra(anoCompra, sequencialCompra, numeroItem, body?.justificativa);
   }
 
   // ============ RESULTADO DE ITENS DA COMPRA ============
@@ -365,8 +493,8 @@ export class PncpController {
   // ============ USUÁRIO E ENTES AUTORIZADOS ============
 
   @Get('usuario')
-  async consultarUsuario() {
-    return this.pncpService.consultarUsuario();
+  async consultarUsuario(@Req() request: any) {
+    return this.pncpService.consultarUsuario(request);
   }
 
   @Put('usuario/entes-autorizados')
@@ -383,12 +511,25 @@ export class PncpController {
 
   @Get('config/status')
   async verificarConfiguracao() {
+    console.log('[CONTROLLER] verificarConfiguracao chamado');
     return this.pncpService.verificarConfiguracao();
   }
 
   @Post('config/testar-conexao')
-  async testarConexao() {
-    return this.pncpService.testarConexao();
+  async testarConexao(@Req() request: any) {
+    return this.pncpService.testarConexao(request);
+  }
+
+  @Post('config-update')
+  async atualizarConfiguracao(@Body() config: any) {
+    console.log('[CONTROLLER] atualizarConfiguracao chamado com:', config);
+    return this.pncpService.atualizarConfiguracao(config);
+  }
+
+  @Post('test-endpoint')
+  async testEndpoint() {
+    console.log('[CONTROLLER] testEndpoint chamado');
+    return { message: 'Test endpoint working!' };
   }
 
   // ============ IMPORTAÇÃO DE PCAs DO PNCP ============

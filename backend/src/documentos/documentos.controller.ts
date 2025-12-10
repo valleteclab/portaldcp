@@ -100,6 +100,29 @@ export class DocumentosController {
     res.status(HttpStatus.OK).send(buffer);
   }
 
+  // Vincular documento já existente (arquivo já foi enviado via /uploads)
+  @Post('licitacao/:licitacaoId/vincular')
+  async vincular(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      tipo: TipoDocumentoLicitacao;
+      titulo: string;
+      nome_original: string;
+      caminho: string;
+      descricao?: string;
+      publico?: boolean;
+    }
+  ) {
+    return this.documentosService.vincularDocumentoExistente(licitacaoId, {
+      tipo: body.tipo,
+      titulo: body.titulo,
+      nome_original: body.nome_original,
+      caminho: body.caminho,
+      descricao: body.descricao,
+      publico: body.publico ?? true
+    });
+  }
+
   // Publicar documento
   @Put(':id/publicar')
   async publicar(@Param('id') id: string) {

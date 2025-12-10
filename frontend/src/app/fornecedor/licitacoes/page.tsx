@@ -14,6 +14,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 interface Licitacao {
   id: string
   numero_processo: string
+  numero_edital?: string
   objeto: string
   modalidade: string
   fase: string
@@ -52,7 +53,13 @@ export default function LicitacoesDisponiveisPage() {
   }, [])
 
   const filteredLicitacoes = licitacoes.filter(l => {
-    if (busca && !l.objeto?.toLowerCase().includes(busca.toLowerCase()) && !l.numero_processo?.includes(busca)) return false
+    const buscaLower = busca.toLowerCase()
+    if (busca && 
+        !l.objeto?.toLowerCase().includes(buscaLower) && 
+        !l.numero_processo?.toLowerCase().includes(buscaLower) &&
+        !l.numero_edital?.toLowerCase().includes(buscaLower) &&
+        !l.orgao?.nome?.toLowerCase().includes(buscaLower)
+    ) return false
     if (filtroModalidade && filtroModalidade !== 'all' && l.modalidade !== filtroModalidade) return false
     if (filtroStatus && filtroStatus !== 'all' && l.fase !== filtroStatus) return false
     return true
@@ -157,7 +164,7 @@ export default function LicitacoesDisponiveisPage() {
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="font-semibold text-blue-600">{licitacao.numero_processo}</span>
+                        <span className="font-semibold text-blue-600">{licitacao.numero_edital || licitacao.numero_processo}</span>
                         {getFaseBadge(licitacao.fase)}
                       </div>
                       <h3 className="font-medium text-lg mb-2">{licitacao.objeto}</h3>

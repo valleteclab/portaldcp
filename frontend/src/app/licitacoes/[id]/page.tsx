@@ -36,12 +36,18 @@ interface Documento {
 
 interface Item {
   id: string
-  numero: number
-  descricao: string
+  numero_item: number
+  numero_lote?: number
+  descricao_resumida: string
+  descricao_detalhada?: string
   unidade_medida: string
   quantidade: number
   valor_unitario_estimado: number
-  valor_total: number
+  valor_total_estimado: number
+  codigo_catmat?: string
+  codigo_catser?: string
+  codigo_catalogo?: string
+  tipo_participacao?: string
 }
 
 interface Licitacao {
@@ -330,32 +336,67 @@ export default function DetalheLicitacaoPublicaPage() {
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
-                          <thead>
+                          <thead className="bg-gray-50">
                             <tr className="border-b">
-                              <th className="text-left py-3 px-2">Item</th>
-                              <th className="text-left py-3 px-2">Descrição</th>
-                              <th className="text-center py-3 px-2">Unid.</th>
-                              <th className="text-right py-3 px-2">Qtd.</th>
-                              <th className="text-right py-3 px-2">Valor Unit.</th>
-                              <th className="text-right py-3 px-2">Valor Total</th>
+                              <th className="text-left py-3 px-3 font-semibold">Item</th>
+                              <th className="text-left py-3 px-3 font-semibold">Descrição</th>
+                              <th className="text-center py-3 px-3 font-semibold">Catálogo</th>
+                              <th className="text-center py-3 px-3 font-semibold">Unid.</th>
+                              <th className="text-right py-3 px-3 font-semibold">Qtd.</th>
+                              <th className="text-right py-3 px-3 font-semibold">Valor Unit.</th>
+                              <th className="text-right py-3 px-3 font-semibold">Valor Total</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {licitacao.itens.map((item) => (
-                              <tr key={item.id} className="border-b hover:bg-gray-50">
-                                <td className="py-3 px-2 font-medium">{item.numero}</td>
-                                <td className="py-3 px-2">{item.descricao}</td>
-                                <td className="py-3 px-2 text-center">{item.unidade_medida}</td>
-                                <td className="py-3 px-2 text-right">{item.quantidade}</td>
-                                <td className="py-3 px-2 text-right">{formatarMoeda(item.valor_unitario_estimado)}</td>
-                                <td className="py-3 px-2 text-right font-medium">{formatarMoeda(item.valor_total)}</td>
-                              </tr>
-                            ))}
+                            {licitacao.itens.map((item) => {
+                              const valorTotal = Number(item.valor_total_estimado) || (Number(item.quantidade) * Number(item.valor_unitario_estimado))
+                              return (
+                                <tr key={item.id} className="border-b hover:bg-gray-50">
+                                  <td className="py-3 px-3">
+                                    <span className="font-medium text-blue-600">
+                                      {item.numero_lote ? `Lote ${item.numero_lote} - ` : ''}Item {item.numero_item}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <div className="max-w-md">
+                                      <p className="font-medium">{item.descricao_resumida}</p>
+                                      {item.descricao_detalhada && (
+                                        <p className="text-sm text-gray-500 mt-1 line-clamp-2">{item.descricao_detalhada}</p>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    {item.codigo_catmat && (
+                                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                        CATMAT: {item.codigo_catmat}
+                                      </Badge>
+                                    )}
+                                    {item.codigo_catser && (
+                                      <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                                        CATSER: {item.codigo_catser}
+                                      </Badge>
+                                    )}
+                                    {!item.codigo_catmat && !item.codigo_catser && item.codigo_catalogo && (
+                                      <Badge variant="outline" className="text-xs">
+                                        {item.codigo_catalogo}
+                                      </Badge>
+                                    )}
+                                    {!item.codigo_catmat && !item.codigo_catser && !item.codigo_catalogo && (
+                                      <span className="text-gray-400">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-3 text-center">{item.unidade_medida}</td>
+                                  <td className="py-3 px-3 text-right">{Number(item.quantidade).toLocaleString('pt-BR')}</td>
+                                  <td className="py-3 px-3 text-right">{formatarMoeda(item.valor_unitario_estimado)}</td>
+                                  <td className="py-3 px-3 text-right font-medium text-green-600">{formatarMoeda(valorTotal)}</td>
+                                </tr>
+                              )
+                            })}
                           </tbody>
                           <tfoot>
-                            <tr className="bg-gray-50">
-                              <td colSpan={5} className="py-3 px-2 text-right font-semibold">Total Estimado:</td>
-                              <td className="py-3 px-2 text-right font-bold text-lg">
+                            <tr className="bg-blue-50">
+                              <td colSpan={6} className="py-4 px-3 text-right font-semibold text-lg">Total Estimado:</td>
+                              <td className="py-4 px-3 text-right font-bold text-xl text-green-600">
                                 {formatarMoeda(licitacao.valor_total_estimado)}
                               </td>
                             </tr>

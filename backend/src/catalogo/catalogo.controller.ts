@@ -1,9 +1,14 @@
 import { Controller, Get, Query, Param, Post, Body } from '@nestjs/common';
 import { CatalogoService, BuscaCatalogoDto } from './catalogo.service';
+import { CatalogoImportService } from './catalogo-import.service';
+import * as path from 'path';
 
 @Controller('catalogo')
 export class CatalogoController {
-  constructor(private readonly catalogoService: CatalogoService) {}
+  constructor(
+    private readonly catalogoService: CatalogoService,
+    private readonly catalogoImportService: CatalogoImportService,
+  ) {}
 
   // ============ CLASSES ============
 
@@ -86,5 +91,48 @@ export class CatalogoController {
     origem?: string;
   }) {
     return this.catalogoService.importarItem(itemData);
+  }
+
+  // ============ IMPORTAR CSV DO COMPRASGOV ============
+
+  @Post('importar-csv')
+  async importarCSV(@Body() body: { tipo: 'MATERIAL' | 'SERVICO'; caminho?: string }) {
+    // Caminho do arquivo CSV - pode ser passado ou usar padrão
+    const csvPath = body.caminho || path.resolve(
+      process.cwd(),
+      'docs',
+      body.tipo === 'MATERIAL' 
+        ? 'Catálogo de Materiais - 21112025.CSV'
+        : 'Catálogo de Serviços.CSV'
+    );
+    return this.catalogoImportService.importarCSV(csvPath, body.tipo);
+  }
+
+  // ============ BUSCA AVANÇADA DE ITENS ============
+
+  @Get('buscar')
+  async buscarItensAvancado(
+    @Query('termo') termo?: string,
+    @Query('tipo') tipo?: 'MATERIAL' | 'SERVICO',
+    @Query('codigo_grupo') codigoGrupo?: string,
+    @Query('codigo_classe') codigoClasse?: string,
+    @Query('limite') limite?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.catalogoImportService.buscarItens({
+      termo,
+      tipo,
+      codigoGrupo,
+      codigoClasse,
+      limite: limite ? parseInt(limite) : 50,
+      offset: offset ? parseInt(offset) : 0,
+    });
+  }
+
+  // ============ ESTATÍSTICAS DO CATÁLOGO IMPORTADO ============
+
+  @Get('estatisticas-importacao')
+  async estatisticasImportacao() {
+    return this.catalogoImportService.getEstatisticas();
   }
 }

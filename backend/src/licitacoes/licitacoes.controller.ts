@@ -1,11 +1,15 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe } from '@nestjs/common';
 import { LicitacoesService } from './licitacoes.service';
+import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
 
 @Controller('licitacoes')
 export class LicitacoesController {
-  constructor(private readonly licitacoesService: LicitacoesService) {}
+  constructor(
+    private readonly licitacoesService: LicitacoesService,
+    private readonly schedulerService: LicitacoesSchedulerService,
+  ) {}
 
   // === CRUD ===
   @Post()
@@ -107,6 +111,15 @@ export class LicitacoesController {
     @Body() body: { fase_destino?: string }
   ): Promise<Licitacao> {
     return await this.licitacoesService.retomar(id, body.fase_destino);
+  }
+
+  /**
+   * Atualiza a fase da licitação baseado nas datas do cronograma
+   * Útil após editar o cronograma ou para forçar atualização
+   */
+  @Put(':id/atualizar-fase')
+  async atualizarFase(@Param('id') id: string): Promise<Licitacao> {
+    return await this.schedulerService.atualizarFaseLicitacao(id);
   }
 
   @Delete(':id')

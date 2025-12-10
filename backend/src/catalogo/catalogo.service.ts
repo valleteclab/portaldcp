@@ -98,11 +98,30 @@ export class CatalogoService {
       .where('item.ativo = :ativo', { ativo: true });
 
     if (termo) {
-      // Busca ignorando acentos usando unaccent do PostgreSQL
-      queryBuilder.andWhere(
-        '(unaccent(item.descricao) ILIKE unaccent(:termo) OR item.codigo ILIKE :termo OR unaccent(item.palavras_chave) ILIKE unaccent(:termo))',
-        { termo: `%${termo}%` }
-      );
+      // Busca melhorada: prioriza itens que começam com o termo
+      // e usa busca em múltiplas palavras
+      const termoNormalizado = termo.trim().toLowerCase();
+      const palavras = termoNormalizado.split(/\s+/).filter(p => p.length >= 2);
+      
+      if (palavras.length > 1) {
+        // Busca com múltiplas palavras: todas devem estar presentes
+        const conditions = palavras.map((_, i) => 
+          `(unaccent(LOWER(item.descricao)) LIKE unaccent(:palavra${i}) OR unaccent(LOWER(item.palavras_chave)) LIKE unaccent(:palavra${i}))`
+        ).join(' AND ');
+        
+        const params: any = {};
+        palavras.forEach((p, i) => {
+          params[`palavra${i}`] = `%${p}%`;
+        });
+        
+        queryBuilder.andWhere(`(${conditions})`, params);
+      } else {
+        // Busca simples: termo único
+        queryBuilder.andWhere(
+          '(unaccent(LOWER(item.descricao)) LIKE unaccent(LOWER(:termo)) OR item.codigo ILIKE :termo OR unaccent(LOWER(item.palavras_chave)) LIKE unaccent(LOWER(:termo)))',
+          { termo: `%${termoNormalizado}%` }
+        );
+      }
     }
 
     if (tipo) {
@@ -117,8 +136,15 @@ export class CatalogoService {
       queryBuilder.andWhere('item.codigo_classe = :codigo_classe', { codigo_classe });
     }
 
+    // Ordenação inteligente: prioriza itens que começam com o termo
     const [dados, total] = await queryBuilder
-      .orderBy('item.descricao', 'ASC')
+      .orderBy(
+        termo 
+          ? `CASE WHEN unaccent(LOWER(item.descricao)) LIKE unaccent(LOWER('${termo.trim()}%')) THEN 0 ELSE 1 END`
+          : 'item.descricao',
+        'ASC'
+      )
+      .addOrderBy('item.descricao', 'ASC')
       .skip((pagina - 1) * limite)
       .take(limite)
       .getManyAndCount();

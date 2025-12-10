@@ -8,6 +8,7 @@ import { CatalogoController } from './catalogo.controller';
 import { ComprasGovService } from './comprasgov.service';
 import { CatalogoProprioService } from './catalogo-proprio.service';
 import { CatalogoProprioController } from './catalogo-proprio.controller';
+import { CatalogoImportService } from './catalogo-import.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { CatalogoProprioController } from './catalogo-proprio.controller';
     ScheduleModule.forRoot(),
   ],
   controllers: [CatalogoController, CatalogoProprioController],
-  providers: [CatalogoService, ComprasGovService, CatalogoProprioService],
-  exports: [CatalogoService, ComprasGovService, CatalogoProprioService],
+  providers: [CatalogoService, ComprasGovService, CatalogoProprioService, CatalogoImportService],
+  exports: [CatalogoService, ComprasGovService, CatalogoProprioService, CatalogoImportService],
 })
 export class CatalogoModule {}

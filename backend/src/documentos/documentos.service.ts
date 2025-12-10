@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DocumentoLicitacao, TipoDocumentoLicitacao, StatusDocumento } from './entities/documento-licitacao.entity';
@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class DocumentosService {
+  private readonly logger = new Logger(DocumentosService.name);
   private readonly uploadPath = process.env.UPLOAD_PATH || './uploads/documentos';
 
   constructor(
@@ -100,6 +101,82 @@ export class DocumentosService {
     return this.documentoRepository.save(documento);
   }
 
+  // Vincular documento já existente (arquivo já foi enviado via /uploads)
+  async vincularDocumentoExistente(
+    licitacaoId: string,
+    dados: {
+      tipo: TipoDocumentoLicitacao;
+      titulo: string;
+      nome_original: string;
+      caminho: string;
+      descricao?: string;
+      publico?: boolean;
+    }
+  ): Promise<DocumentoLicitacao> {
+    // Verificar se licitação existe
+    const licitacao = await this.licitacaoRepository.findOne({ where: { id: licitacaoId } });
+    if (!licitacao) {
+      throw new NotFoundException('Licitação não encontrada');
+    }
+
+    // Verificar versão anterior
+    const documentoAnterior = await this.documentoRepository.findOne({
+      where: { licitacao_id: licitacaoId, tipo: dados.tipo, status: StatusDocumento.PUBLICADO },
+      order: { versao: 'DESC' }
+    });
+
+    const versao = documentoAnterior ? documentoAnterior.versao + 1 : 1;
+
+    // Se houver documento anterior, marcar como substituído
+    if (documentoAnterior) {
+      await this.documentoRepository.update(documentoAnterior.id, {
+        status: StatusDocumento.SUBSTITUIDO
+      });
+    }
+
+    // Determinar o caminho completo do arquivo
+    // Se for uma URL de API (/api/uploads/...), converter para caminho de arquivo
+    let caminhoCompleto = dados.caminho;
+    if (dados.caminho.startsWith('/api/uploads/')) {
+      // Extrair o caminho relativo: /api/uploads/tipo/arquivo.pdf -> uploads/tipo/arquivo.pdf
+      const relativePath = dados.caminho.replace('/api/uploads/', 'uploads/');
+      caminhoCompleto = path.join(process.cwd(), relativePath);
+    } else if (dados.caminho.startsWith('/uploads/')) {
+      caminhoCompleto = path.join(process.cwd(), dados.caminho.substring(1));
+    } else if (dados.caminho.startsWith('/')) {
+      caminhoCompleto = path.join(process.cwd(), dados.caminho);
+    }
+
+    // Obter tamanho do arquivo se existir
+    let tamanhoBytes = 0;
+    if (fs.existsSync(caminhoCompleto)) {
+      const stats = fs.statSync(caminhoCompleto);
+      tamanhoBytes = stats.size;
+    } else {
+      this.logger.warn(`Arquivo não encontrado: ${caminhoCompleto} (caminho original: ${dados.caminho})`);
+    }
+
+    // Criar registro do documento
+    const documento = this.documentoRepository.create({
+      licitacao_id: licitacaoId,
+      tipo: dados.tipo,
+      titulo: dados.titulo,
+      descricao: dados.descricao,
+      nome_arquivo: path.basename(dados.caminho),
+      nome_original: dados.nome_original,
+      caminho_arquivo: caminhoCompleto,
+      mime_type: 'application/pdf', // Assume PDF por padrão
+      tamanho_bytes: tamanhoBytes,
+      versao,
+      documento_anterior_id: documentoAnterior?.id,
+      status: StatusDocumento.PUBLICADO, // Já publica direto
+      publico: dados.publico ?? true,
+      data_publicacao: new Date()
+    });
+
+    return this.documentoRepository.save(documento);
+  }
+
   async publicar(id: string): Promise<DocumentoLicitacao> {
     const documento = await this.documentoRepository.findOne({ where: { id } });
     if (!documento) {
@@ -148,11 +225,44 @@ export class DocumentosService {
   async getArquivo(id: string): Promise<{ buffer: Buffer; documento: DocumentoLicitacao }> {
     const documento = await this.findOne(id);
     
-    if (!fs.existsSync(documento.caminho_arquivo)) {
-      throw new NotFoundException('Arquivo não encontrado no servidor');
+    // Tentar diferentes caminhos possíveis
+    let caminhoFinal = documento.caminho_arquivo;
+    
+    // Se o caminho não existir, tentar variações
+    if (!fs.existsSync(caminhoFinal)) {
+      const possiveisCaminhos = [
+        documento.caminho_arquivo,
+        // Caminho relativo a partir do cwd
+        path.join(process.cwd(), documento.caminho_arquivo),
+        // Se for URL de API, converter para caminho de arquivo
+        documento.caminho_arquivo.startsWith('/api/uploads/') 
+          ? path.join(process.cwd(), documento.caminho_arquivo.replace('/api/uploads/', 'uploads/'))
+          : null,
+        // Se começar com /uploads/
+        documento.caminho_arquivo.startsWith('/uploads/')
+          ? path.join(process.cwd(), documento.caminho_arquivo.substring(1))
+          : null,
+        // Caminho no diretório de uploads padrão
+        path.join(process.cwd(), 'uploads', documento.nome_arquivo),
+        path.join(process.cwd(), 'uploads', 'documentos', documento.nome_arquivo),
+        path.join(process.cwd(), 'uploads', 'licitacoes', documento.nome_arquivo),
+      ].filter(Boolean);
+
+      for (const caminho of possiveisCaminhos) {
+        if (caminho && fs.existsSync(caminho)) {
+          caminhoFinal = caminho;
+          this.logger.log(`Arquivo encontrado em: ${caminho}`);
+          break;
+        }
+      }
     }
 
-    const buffer = fs.readFileSync(documento.caminho_arquivo);
+    if (!fs.existsSync(caminhoFinal)) {
+      this.logger.error(`Arquivo não encontrado. Caminho original: ${documento.caminho_arquivo}, Nome: ${documento.nome_arquivo}`);
+      throw new NotFoundException(`Arquivo não encontrado no servidor. Caminho: ${documento.caminho_arquivo}`);
+    }
+
+    const buffer = fs.readFileSync(caminhoFinal);
     return { buffer, documento };
   }
 

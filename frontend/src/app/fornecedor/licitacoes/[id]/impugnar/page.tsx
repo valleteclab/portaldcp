@@ -10,7 +10,10 @@ import {
   Loader2,
   FileText,
   CheckCircle,
-  Clock
+  Clock,
+  Upload,
+  X,
+  Download
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -36,6 +39,8 @@ interface MinhaImpugnacao {
   resposta?: string
   created_at: string
   data_resposta?: string
+  documento_nome?: string
+  documento_caminho?: string
 }
 
 export default function ImpugnarPage() {
@@ -52,6 +57,7 @@ export default function ImpugnarPage() {
   const [texto, setTexto] = useState('')
   const [itemEdital, setItemEdital] = useState('')
   const [fundamentacao, setFundamentacao] = useState('')
+  const [arquivo, setArquivo] = useState<File | null>(null)
 
   useEffect(() => {
     carregarDados()
@@ -81,9 +87,44 @@ export default function ImpugnarPage() {
     }
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.type !== 'application/pdf') {
+        alert('Apenas arquivos PDF são permitidos')
+        e.target.value = ''
+        return
+      }
+      if (file.size > 10 * 1024 * 1024) { // 10MB
+        alert('O arquivo deve ter no máximo 10MB')
+        e.target.value = ''
+        return
+      }
+      setArquivo(file)
+    }
+  }
+
+  const removerArquivo = () => {
+    setArquivo(null)
+    // Limpar o input file
+    const input = document.getElementById('arquivo-impugnacao') as HTMLInputElement
+    if (input) input.value = ''
+  }
+
+  const formatarTamanho = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
   const enviarImpugnacao = async () => {
     if (!texto.trim()) {
       alert('Digite o texto da impugnação')
+      return
+    }
+
+    if (!arquivo) {
+      alert('Anexe o documento PDF da impugnação')
       return
     }
 
@@ -91,17 +132,19 @@ export default function ImpugnarPage() {
     try {
       const fornecedor = JSON.parse(localStorage.getItem('fornecedor') || '{}')
       
+      // Usar FormData para enviar arquivo
+      const formData = new FormData()
+      formData.append('licitacao_id', licitacaoId)
+      formData.append('fornecedor_id', fornecedor.id || '')
+      formData.append('texto_impugnacao', texto)
+      formData.append('is_cidadao', 'false')
+      if (itemEdital) formData.append('item_edital_impugnado', itemEdital)
+      if (fundamentacao) formData.append('fundamentacao_legal', fundamentacao)
+      formData.append('documento', arquivo)
+
       const res = await fetch(`${API_URL}/api/impugnacoes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          licitacao_id: licitacaoId,
-          fornecedor_id: fornecedor.id,
-          texto_impugnacao: texto,
-          item_edital_impugnado: itemEdital || null,
-          fundamentacao_legal: fundamentacao || null,
-          is_cidadao: false
-        })
+        body: formData
       })
 
       if (res.ok) {
@@ -109,6 +152,7 @@ export default function ImpugnarPage() {
         setTexto('')
         setItemEdital('')
         setFundamentacao('')
+        setArquivo(null)
         carregarDados()
       } else {
         const error = await res.json()
@@ -243,7 +287,52 @@ export default function ImpugnarPage() {
               </div>
             </div>
 
-            <Button onClick={enviarImpugnacao} disabled={enviando}>
+            {/* Upload de Documento PDF */}
+            <div>
+              <Label>Documento da Impugnação (PDF) *</Label>
+              <div className="mt-1">
+                {!arquivo ? (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+                    <input
+                      type="file"
+                      id="arquivo-impugnacao"
+                      accept=".pdf,application/pdf"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <label htmlFor="arquivo-impugnacao" className="cursor-pointer">
+                      <Upload className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm text-gray-600">
+                        Clique para selecionar ou arraste o arquivo PDF
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Apenas PDF, máximo 10MB
+                      </p>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-8 w-8 text-green-600" />
+                      <div>
+                        <p className="font-medium text-sm text-green-800">{arquivo.name}</p>
+                        <p className="text-xs text-green-600">{formatarTamanho(arquivo.size)}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={removerArquivo}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Button onClick={enviarImpugnacao} disabled={enviando || !arquivo}>
               {enviando ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
@@ -281,6 +370,22 @@ export default function ImpugnarPage() {
                 </div>
                 
                 <p className="text-sm mb-3 whitespace-pre-wrap">{imp.texto_impugnacao}</p>
+
+                {/* Documento anexado */}
+                {imp.documento_nome && (
+                  <div className="flex items-center gap-2 mb-3 p-2 bg-gray-50 rounded">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm text-gray-700">{imp.documento_nome}</span>
+                    <a
+                      href={`${API_URL}/api/impugnacoes/${imp.id}/documento`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto text-blue-600 hover:text-blue-800"
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
+                  </div>
+                )}
 
                 {imp.resposta && (
                   <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-3">

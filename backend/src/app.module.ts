@@ -26,13 +26,17 @@ import { ContratacaoDiretaModule } from './contratacao-direta/contratacao-direta
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { DemandasModule } from './demandas/demandas.module';
 import { SeedModule } from './seed/seed.module';
+import { SystemConfigModule } from './system-config/system-config.module';
+import { LotesModule } from './lotes/lotes.module';
+import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
-      ignoreEnvFile: process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT,
+      // Não especificar envFilePath - o dotenv já foi carregado no main.ts
+      // Isso evita problemas de caminho quando executado de dist/
+      ignoreEnvFile: true, // Já carregamos manualmente no main.ts
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
@@ -70,6 +74,9 @@ import { SeedModule } from './seed/seed.module';
     CatalogoModule,
     DemandasModule,
     SeedModule,
+    SystemConfigModule,
+    LotesModule,
+    EsclarecimentosModule,
   ],
   controllers: [HealthController],
   providers: [],

@@ -203,6 +203,24 @@ export default function PropostasPage() {
     return ((estimado - valorProposta) / estimado) * 100
   }
 
+  // Verifica se pode revelar identidade do fornecedor
+  // Só revela após a fase de disputa (julgamento, habilitação, etc)
+  const podeRevelarFornecedor = () => {
+    if (!licitacao) return false
+    const fasesReveladas = ['JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO']
+    return fasesReveladas.includes(licitacao.fase)
+  }
+
+  // Anonimiza o nome do fornecedor
+  const anonimizarNome = (index: number) => {
+    return `Fornecedor ${String.fromCharCode(65 + index)}` // A, B, C, D...
+  }
+
+  // Anonimiza o CNPJ
+  const anonimizarCnpj = () => {
+    return '**.***.***/****-**'
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -330,14 +348,26 @@ export default function PropostasPage() {
                       </div>
                       <CardTitle className="text-base flex items-center gap-2">
                         <Building2 className="h-4 w-4" />
-                        {proposta.fornecedor?.razao_social}
+                        {podeRevelarFornecedor() 
+                          ? proposta.fornecedor?.razao_social 
+                          : anonimizarNome(index)}
                       </CardTitle>
                       <CardDescription className="flex items-center gap-4 mt-1">
-                        <span>{proposta.fornecedor?.cpf_cnpj}</span>
+                        <span>
+                          {podeRevelarFornecedor() 
+                            ? proposta.fornecedor?.cpf_cnpj 
+                            : anonimizarCnpj()}
+                        </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
                           {formatarData(proposta.data_envio)}
                         </span>
+                        {!podeRevelarFornecedor() && (
+                          <Badge variant="outline" className="text-xs">
+                            <Eye className="h-3 w-3 mr-1" />
+                            Identificação sigilosa
+                          </Badge>
+                        )}
                       </CardDescription>
                     </div>
                     <div className="text-right">
@@ -419,41 +449,68 @@ export default function PropostasPage() {
                     )}
 
                     {/* Dados do Fornecedor */}
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <Label className="text-muted-foreground">Email</Label>
-                        <p>{proposta.fornecedor?.email}</p>
+                    {podeRevelarFornecedor() ? (
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <Label className="text-muted-foreground">Email</Label>
+                          <p>{proposta.fornecedor?.email}</p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">CNPJ/CPF</Label>
+                          <p>{proposta.fornecedor?.cpf_cnpj}</p>
+                        </div>
                       </div>
-                      <div>
-                        <Label className="text-muted-foreground">CNPJ/CPF</Label>
-                        <p>{proposta.fornecedor?.cpf_cnpj}</p>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <p className="text-sm text-amber-800 flex items-center gap-2">
+                          <Eye className="h-4 w-4" />
+                          <strong>Identificação sigilosa:</strong> Os dados do fornecedor serão revelados após a fase de disputa.
+                        </p>
                       </div>
-                    </div>
+                    )}
 
                     {/* Itens da Proposta */}
                     {proposta.itens_proposta && proposta.itens_proposta.length > 0 && (
                       <div>
-                        <Label className="text-muted-foreground">Itens da Proposta</Label>
+                        <Label className="text-muted-foreground">Itens da Proposta ({proposta.itens_proposta.length} itens)</Label>
                         <div className="mt-2 border rounded-lg overflow-hidden">
                           <table className="w-full text-sm">
                             <thead className="bg-slate-50">
                               <tr>
-                                <th className="text-left p-2">Item</th>
-                                <th className="text-right p-2">Qtd</th>
+                                <th className="text-left p-2 w-12">#</th>
+                                <th className="text-left p-2">Descrição</th>
+                                <th className="text-left p-2">Marca/Modelo</th>
+                                <th className="text-center p-2">Qtd</th>
                                 <th className="text-right p-2">Valor Unit.</th>
                                 <th className="text-right p-2">Total</th>
                               </tr>
                             </thead>
                             <tbody>
                               {proposta.itens_proposta.map((item: any, i: number) => (
-                                <tr key={i} className="border-t">
-                                  <td className="p-2">{item.descricao}</td>
-                                  <td className="text-right p-2">{item.quantidade}</td>
+                                <tr key={i} className="border-t align-top">
+                                  <td className="p-2 text-slate-500">{i + 1}</td>
+                                  <td className="p-2 max-w-md">
+                                    <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
+                                  </td>
+                                  <td className="p-2">
+                                    {item.marca ? (
+                                      <Badge variant="outline">{item.marca}</Badge>
+                                    ) : (
+                                      <span className="text-muted-foreground">-</span>
+                                    )}
+                                  </td>
+                                  <td className="text-center p-2">{item.quantidade} {item.unidade}</td>
                                   <td className="text-right p-2">{formatarMoeda(item.valor_unitario)}</td>
-                                  <td className="text-right p-2">{formatarMoeda(item.quantidade * item.valor_unitario)}</td>
+                                  <td className="text-right p-2 font-medium">{formatarMoeda(item.quantidade * item.valor_unitario)}</td>
                                 </tr>
                               ))}
                             </tbody>
+                            <tfoot className="bg-slate-100 font-medium">
+                              <tr>
+                                <td colSpan={5} className="p-2 text-right">Total da Proposta:</td>
+                                <td className="p-2 text-right text-green-600">{formatarMoeda(proposta.valor_total_proposta)}</td>
+                              </tr>
+                            </tfoot>
                           </table>
                         </div>
                       </div>

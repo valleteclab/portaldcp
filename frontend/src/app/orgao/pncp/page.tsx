@@ -63,6 +63,12 @@ interface Licitacao {
   ano_compra?: number
   sequencial_pncp?: number
   itens?: any[]
+  fase_interna_concluida?: boolean
+  // Campos PNCP
+  link_pncp?: string
+  ano_compra_pncp?: number
+  sequencial_compra_pncp?: number
+  enviado_pncp?: boolean
 }
 
 interface ConfigPNCP {
@@ -474,10 +480,47 @@ export default function PncpPage() {
     }
   }
 
+  const validarParaPNCP = async (licitacaoId: string) => {
+    try {
+      const token = localStorage.getItem('orgao_token')
+      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/validar`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      return await response.json()
+    } catch (error) {
+      console.error('Erro ao validar:', error)
+      return { valido: false, erros: ['Erro ao conectar com o servidor'] }
+    }
+  }
+
   const enviarParaPNCP = async (licitacaoId: string) => {
     setEnviando(licitacaoId)
     try {
       const token = localStorage.getItem('orgao_token')
+      
+      // Primeiro validar
+      const validacao = await validarParaPNCP(licitacaoId)
+      
+      if (!validacao.valido) {
+        const mensagemErros = validacao.erros?.join('\n') || 'Licitação com dados inválidos'
+        alert(`❌ Não é possível enviar ao PNCP:\n\n${mensagemErros}`)
+        setEnviando(null)
+        return
+      }
+
+      // Se válido, confirmar envio
+      const confirmar = confirm(
+        `✅ Licitação validada com sucesso!\n\n` +
+        `Checklist:\n` +
+        validacao.checklist?.map((c: any) => `${c.status === 'ok' ? '✓' : '⚠'} ${c.campo}: ${c.mensagem}`).join('\n') +
+        `\n\nDeseja enviar ao PNCP?`
+      )
+
+      if (!confirmar) {
+        setEnviando(null)
+        return
+      }
+
       const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
@@ -486,14 +529,36 @@ export default function PncpPage() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert('Licitação enviada ao PNCP com sucesso!')
-        carregarDados()
+        // Buscar dados da resposta (agora vem diretamente no root)
+        const numeroControle = data.numeroControlePNCP || data.compra?.numeroControlePNCP || ''
+        const ano = data.ano || data.compra?.ano
+        const sequencial = data.sequencial || data.compra?.sequencial
+        const link = data.link || data.compra?.link || ''
+        
+        // Se não tiver link mas tiver ano/sequencial, gerar
+        let linkFinal = link
+        if (!linkFinal && ano && sequencial) {
+          const cnpj = orgaoAtual?.cnpj?.replace(/\D/g, '') || ''
+          linkFinal = `https://treina.pncp.gov.br/app/editais/${cnpj}/${ano}/${sequencial}`
+        }
+        
+        // Recarregar dados ANTES de mostrar o alert para atualizar a lista
+        await carregarDados()
+        
+        if (linkFinal && !linkFinal.includes('undefined')) {
+          const abrirLink = confirm(`✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero Controle: ${numeroControle}\nLink: ${linkFinal}\n\nDeseja abrir no navegador?`)
+          if (abrirLink) {
+            window.open(linkFinal, '_blank')
+          }
+        } else {
+          alert(`✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero Controle: ${numeroControle}`)
+        }
       } else {
-        alert(data.message || 'Erro ao enviar para o PNCP')
+        alert(`❌ Erro ao enviar compra ao PNCP: ${data.message || 'Erro desconhecido'}`)
       }
     } catch (error) {
       console.error('Erro ao enviar:', error)
-      alert('Erro ao enviar para o PNCP')
+      alert('❌ Erro ao enviar para o PNCP. Verifique o console.')
     } finally {
       setEnviando(null)
     }
@@ -515,6 +580,85 @@ export default function PncpPage() {
       }
     } catch (error) {
       alert('Erro ao reenviar')
+    }
+  }
+
+  // ============ FUNÇÕES PNCP - RETIFICAR/EXCLUIR COMPRA ============
+
+  const retificarCompra = async (licitacao: Licitacao) => {
+    const novoObjeto = prompt('Digite o novo objeto da licitação (ou cancele para manter):', licitacao.objeto)
+    if (novoObjeto === null) return
+
+    const justificativa = prompt('Justificativa da retificação (obrigatório):')
+    if (!justificativa) {
+      alert('Justificativa é obrigatória para retificação')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('orgao_token')
+      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`, {
+        method: 'PUT',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          licitacaoId: licitacao.id,
+          objetoCompra: novoObjeto || licitacao.objeto,
+          justificativa
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.sucesso) {
+        alert('✅ Compra retificada no PNCP com sucesso!')
+        carregarDados()
+      } else {
+        alert(`❌ Erro ao retificar: ${data.message || 'Erro desconhecido'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao retificar:', error)
+      alert('❌ Erro ao retificar compra')
+    }
+  }
+
+  const excluirCompra = async (licitacao: Licitacao) => {
+    const confirmar = confirm(`Tem certeza que deseja EXCLUIR a compra ${licitacao.numero_processo} do PNCP?\n\nEsta ação não pode ser desfeita!`)
+    if (!confirmar) return
+
+    const justificativa = prompt('Justificativa da exclusão (obrigatório):')
+    if (!justificativa) {
+      alert('Justificativa é obrigatória para exclusão')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('orgao_token')
+      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`, {
+        method: 'DELETE',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          licitacaoId: licitacao.id,
+          justificativa
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.sucesso) {
+        alert('✅ Compra excluída do PNCP com sucesso!')
+        carregarDados()
+      } else {
+        alert(`❌ Erro ao excluir: ${data.message || 'Erro desconhecido'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao excluir:', error)
+      alert('❌ Erro ao excluir compra')
     }
   }
 
@@ -586,36 +730,6 @@ export default function PncpPage() {
       }
     } catch (error: any) {
       alert(`❌ Erro ao incluir ata:\n${error.message}`)
-    } finally {
-      setEnviando(null)
-    }
-  }
-
-  // ============ FUNÇÕES PNCP - EXCLUSÃO ============
-  
-  const excluirCompra = async (compra: CompraEnviada) => {
-    const justificativa = prompt('Informe a justificativa para exclusão:')
-    if (!justificativa) {
-      alert('Justificativa é obrigatória para exclusão')
-      return
-    }
-    
-    if (!confirm(`Tem certeza que deseja excluir a compra ${compra.numero_processo}?`)) return
-    
-    setEnviando(compra.id)
-    try {
-      const response = await pncpService.excluirCompra(
-        compra.ano,
-        compra.sequencial,
-        justificativa
-      )
-      
-      if (response.sucesso) {
-        alert('✅ Compra excluída com sucesso!')
-        carregarDados()
-      }
-    } catch (error: any) {
-      alert(`❌ Erro ao excluir compra:\n${error.message}`)
     } finally {
       setEnviando(null)
     }
@@ -922,9 +1036,15 @@ export default function PncpPage() {
     )
   }
 
+  // Licitações prontas para envio ao PNCP:
+  // - Não foram enviadas ainda (sem numero_controle_pncp)
+  // - Fase interna concluída OU já estão em fase externa
   const licitacoesNaoEnviadas = licitacoes.filter(l => 
     !l.numero_controle_pncp && 
-    ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(l.fase)
+    (
+      l.fase_interna_concluida || 
+      ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(l.fase)
+    )
   )
 
   const licitacoesEnviadas = licitacoes.filter(l => l.numero_controle_pncp)
@@ -1371,28 +1491,68 @@ export default function PncpPage() {
                   {licitacoesEnviadas.map((licitacao) => (
                     <div 
                       key={licitacao.id} 
-                      className="flex items-center justify-between p-4 border rounded-lg"
+                      className="flex items-center justify-between p-4 border rounded-lg bg-green-50"
                     >
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <CheckCircle className="w-4 h-4 text-green-500" />
                           <span className="font-medium">{licitacao.numero_processo}</span>
-                          <Badge variant="default">Enviada</Badge>
+                          <Badge variant="default" className="bg-green-600">Enviada</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">
-                          Controle PNCP: <code className="bg-muted px-1 rounded">{licitacao.numero_controle_pncp}</code>
+                          {licitacao.objeto}
                         </p>
+                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                          <span>Controle: <code className="bg-muted px-1 rounded">{licitacao.numero_controle_pncp}</code></span>
+                          {licitacao.ano_compra_pncp && licitacao.sequencial_compra_pncp && (
+                            <span>Ano/Seq: {licitacao.ano_compra_pncp}/{licitacao.sequencial_compra_pncp}</span>
+                          )}
+                        </div>
                       </div>
-                      <Button variant="outline" asChild>
-                        <a 
-                          href={`https://pncp.gov.br/app/editais/${licitacao.numero_controle_pncp}`} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
+                      <div className="flex gap-2">
+                        {licitacao.link_pncp ? (
+                          <Button variant="outline" size="sm" asChild>
+                            <a 
+                              href={licitacao.link_pncp} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" />
+                              Ver
+                            </a>
+                          </Button>
+                        ) : (
+                          <Button 
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const cnpj = orgaoAtual?.cnpj?.replace(/\D/g, '') || ''
+                              const link = `https://treina.pncp.gov.br/app/editais/${cnpj}/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`
+                              window.open(link, '_blank')
+                            }}
+                            disabled={!licitacao.ano_compra_pncp || !licitacao.sequencial_compra_pncp}
+                          >
+                            <ExternalLink className="w-4 h-4 mr-2" />
+                            Ver
+                          </Button>
+                        )}
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => retificarCompra(licitacao)}
                         >
-                          <ExternalLink className="w-4 h-4 mr-2" />
-                          Ver no PNCP
-                        </a>
-                      </Button>
+                          <Edit className="w-4 h-4 mr-2" />
+                          Retificar
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          onClick={() => excluirCompra(licitacao)}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Excluir
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

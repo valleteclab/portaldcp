@@ -841,7 +841,7 @@ export default function PcaPage() {
     XLSX.writeFile(wb, nomeArquivo)
   }
 
-  const anos = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + i - 1)
+  const anos = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() + i - 1) // Anos de -1 até +10
 
   if (loading) {
     return (

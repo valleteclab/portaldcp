@@ -138,7 +138,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
   const canProceed = () => {
     if (currentStep === 1) {
-      return declaracoes.termos && declaracoes.inexistenciaFatos && declaracoes.menor && declaracoes.integridade
+      // Integridade é opcional (Art. 60 - apenas contratos acima de R$ 200 milhões)
+      return declaracoes.termos && declaracoes.inexistenciaFatos && declaracoes.menor
     }
     if (currentStep === 2) {
       return itensPropostos.length > 0 && itensPropostos.every(item => item.valorProposto > 0)
@@ -313,11 +314,14 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                 />
               </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center justify-between p-4 border rounded-lg bg-gray-50">
                 <div className="flex-1">
-                  <Label className="font-medium">Programa de Integridade *</Label>
+                  <Label className="font-medium">Programa de Integridade</Label>
                   <p className="text-sm text-muted-foreground">
                     Declaro que desenvolvo programa de integridade conforme Art. 60 da Lei 14.133/2021.
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Opcional - Exigido apenas para contratos de grande vulto (acima de R$ 200 milhões)
                   </p>
                 </div>
                 <Switch 
@@ -378,9 +382,11 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               <TableBody>
                 {itensPropostos.map((item, index) => (
                   <TableRow key={item.id}>
-                    <TableCell className="font-medium">{index + 1}</TableCell>
-                    <TableCell>{item.descricao}</TableCell>
-                    <TableCell className="text-center">{item.quantidade} {item.unidade}</TableCell>
+                    <TableCell className="font-medium align-top">{index + 1}</TableCell>
+                    <TableCell className="max-w-md align-top">
+                      <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
+                    </TableCell>
+                    <TableCell className="text-center align-top">{item.quantidade} {item.unidade}</TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       R$ {item.valorEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </TableCell>
@@ -452,11 +458,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               </div>
             </div>
 
-            <Alert className="bg-yellow-50 border-yellow-200">
-              <AlertCircle className="h-4 w-4 text-yellow-600" />
-              <AlertTitle className="text-yellow-800">Atencao</AlertTitle>
-              <AlertDescription className="text-yellow-700">
-                Apos o envio, a proposta nao podera ser alterada. Verifique todos os valores antes de confirmar.
+            <Alert className="bg-blue-50 border-blue-200">
+              <Info className="h-4 w-4 text-blue-600" />
+              <AlertTitle className="text-blue-800">Informação</AlertTitle>
+              <AlertDescription className="text-blue-700">
+                Você poderá alterar sua proposta até o encerramento do prazo de acolhimento. 
+                Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro 
+                (ex: adequação de preços após fase de lances).
               </AlertDescription>
             </Alert>
           </CardContent>

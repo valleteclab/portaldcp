@@ -3,12 +3,32 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
+import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
+
+// Formata Date para string ISO local (sem conversão UTC)
+// Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
+function formatarDataLocal(date: Date | null | undefined): string | null {
+  if (!date) return null;
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, '0');
+  const dia = String(date.getDate()).padStart(2, '0');
+  const hora = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  const seg = String(date.getSeconds()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
+}
 
 @Injectable()
 export class LicitacoesService {
   constructor(
     @InjectRepository(Licitacao)
     private readonly licitacaoRepository: Repository<Licitacao>,
+    @InjectRepository(ItemLicitacao)
+    private readonly itemRepository: Repository<ItemLicitacao>,
+    @InjectRepository(LoteLicitacao)
+    private readonly loteRepository: Repository<LoteLicitacao>,
   ) {}
 
   // === CRUD ===
@@ -52,18 +72,30 @@ export class LicitacoesService {
     });
   }
 
-  async findOne(id: string): Promise<Licitacao> {
+  async findOne(id: string): Promise<any> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id },
-      relations: ['orgao']
+      relations: ['orgao', 'itens', 'itens.item_pca', 'itens.item_pca.pca', 'lotes', 'lotes.item_pca', 'lotes.item_pca.pca', 'item_pca', 'item_pca.pca']
     });
     if (!licitacao) {
       throw new NotFoundException(`Licitação com ID ${id} não encontrada`);
     }
-    return licitacao;
+    
+    // Formatar datas do cronograma como strings ISO locais (sem conversão UTC)
+    // Isso garante que o frontend receba exatamente o horário de Brasília
+    const resultado = {
+      ...licitacao,
+      data_publicacao_edital: formatarDataLocal(licitacao.data_publicacao_edital),
+      data_limite_impugnacao: formatarDataLocal(licitacao.data_limite_impugnacao),
+      data_inicio_acolhimento: formatarDataLocal(licitacao.data_inicio_acolhimento),
+      data_fim_acolhimento: formatarDataLocal(licitacao.data_fim_acolhimento),
+      data_abertura_sessao: formatarDataLocal(licitacao.data_abertura_sessao),
+    };
+    
+    return resultado;
   }
 
-  async update(id: string, updateData: Partial<CreateLicitacaoDto>): Promise<Licitacao> {
+  async update(id: string, updateData: Partial<CreateLicitacaoDto> & { itens?: any[]; lotes?: any[] }): Promise<Licitacao> {
     const licitacao = await this.findOne(id);
     
     // Não permite alterar se já está em fase externa avançada
@@ -80,8 +112,93 @@ export class LicitacoesService {
       throw new BadRequestException('Não é possível alterar licitação nesta fase');
     }
 
-    Object.assign(licitacao, updateData);
-    return await this.licitacaoRepository.save(licitacao);
+    // Extrair itens e lotes do updateData
+    const { itens, lotes, ...dadosLicitacao } = updateData;
+
+    // Atualizar dados da licitação
+    Object.assign(licitacao, dadosLicitacao);
+    await this.licitacaoRepository.save(licitacao);
+
+    // Função auxiliar para validar UUID
+    const isValidUUID = (str: string): boolean => {
+      if (!str) return false;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      return uuidRegex.test(str);
+    };
+
+    // Salvar itens se fornecidos
+    if (itens && Array.isArray(itens)) {
+      // Remover itens antigos
+      await this.itemRepository.delete({ licitacao_id: id });
+      
+      // Criar novos itens com mapeamento de campos
+      for (let i = 0; i < itens.length; i++) {
+        const item = itens[i];
+        const valorUnitario = item.valor_unitario || item.valor_unitario_estimado || 0;
+        const quantidade = item.quantidade || 1;
+        
+        // Validar lote_id - só usar se for UUID válido
+        const loteId = isValidUUID(item.lote_id) ? item.lote_id : undefined;
+        
+        const novoItem = this.itemRepository.create({
+          licitacao_id: id,
+          numero_item: item.numero || item.numero_item || (i + 1),
+          descricao_resumida: item.descricao || item.descricao_resumida || 'Item sem descrição',
+          descricao_detalhada: item.descricao_detalhada,
+          quantidade: quantidade,
+          unidade_medida: item.unidade || item.unidade_medida || 'UNIDADE',
+          valor_unitario_estimado: valorUnitario,
+          valor_total_estimado: quantidade * valorUnitario,
+          // Dados do Catálogo de Compras (compras.gov.br)
+          codigo_catalogo: item.codigo_catalogo || item.codigo_catmat || item.codigo_catser,
+          codigo_catmat: item.codigo_catmat,
+          codigo_catser: item.codigo_catser,
+          codigo_pdm: item.codigo_pdm,
+          nome_pdm: item.nome_pdm,
+          classe_catalogo: item.classe_catalogo,
+          codigo_grupo: item.codigo_grupo,
+          nome_grupo: item.nome_grupo,
+          // Vinculação com lote e PCA
+          lote_id: loteId,
+          numero_lote: item.lote_numero || item.numero_lote,
+          item_pca_id: isValidUUID(item.item_pca_id) ? item.item_pca_id : undefined,
+          sem_pca: item.sem_pca || false,
+          justificativa_sem_pca: item.justificativa_sem_pca,
+          tipo_participacao: item.tipo_participacao || 'AMPLA',
+          margem_preferencia: item.margem_preferencia || false,
+          percentual_margem: item.percentual_margem,
+          status: item.status || 'ATIVO',
+          observacoes: item.observacoes,
+        });
+        await this.itemRepository.save(novoItem);
+      }
+    }
+
+    // Salvar lotes se fornecidos
+    if (lotes && Array.isArray(lotes)) {
+      // Remover lotes antigos
+      await this.loteRepository.delete({ licitacao_id: id });
+      
+      // Criar novos lotes
+      for (const lote of lotes) {
+        // Extrair itens do lote (não deve ser salvo diretamente na entidade)
+        const { itens: itensDoLote, item_pca, ...dadosLote } = lote;
+        
+        const novoLote = this.loteRepository.create({
+          ...dadosLote,
+          licitacao_id: id,
+          id: undefined,
+        });
+        await this.loteRepository.save(novoLote);
+      }
+    }
+
+    // Retornar licitação atualizada com itens
+    const result = await this.licitacaoRepository.findOne({
+      where: { id },
+      relations: ['itens', 'lotes']
+    });
+    return result!;
   }
 
   // === GESTÃO DE FASES ===

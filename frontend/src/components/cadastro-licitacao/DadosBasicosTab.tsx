@@ -1,12 +1,22 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { FileText, Import, AlertCircle } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { FileText, Import, AlertCircle, Building2, Loader2 } from "lucide-react"
 import { DadosBasicos } from "./types"
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+
+interface UnidadeOrgao {
+  codigoUnidade: string
+  nomeUnidade: string
+  ativo?: boolean
+}
 
 interface DadosBasicosTabProps {
   dados: DadosBasicos
@@ -16,8 +26,47 @@ interface DadosBasicosTabProps {
 }
 
 export function DadosBasicosTab({ dados, onChange, modoImportacao, onToggleModo }: DadosBasicosTabProps) {
+  const [unidades, setUnidades] = useState<UnidadeOrgao[]>([])
+  const [carregandoUnidades, setCarregandoUnidades] = useState(false)
+
+  // Carregar unidades do órgão
+  useEffect(() => {
+    const carregarUnidades = async () => {
+      setCarregandoUnidades(true)
+      try {
+        // Buscar CNPJ do órgão do localStorage
+        const orgaoSalvo = localStorage.getItem('orgao')
+        if (orgaoSalvo) {
+          const orgao = JSON.parse(orgaoSalvo)
+          const cnpj = orgao.cnpj?.replace(/\D/g, '')
+          if (cnpj) {
+            const res = await fetch(`${API_URL}/api/pncp/orgaos/${cnpj}/unidades`)
+            if (res.ok) {
+              const data = await res.json()
+              setUnidades(data.unidades || [])
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao carregar unidades:', e)
+      } finally {
+        setCarregandoUnidades(false)
+      }
+    }
+    carregarUnidades()
+  }, [])
+
   const updateField = (field: keyof DadosBasicos, value: string) => {
     onChange({ ...dados, [field]: value })
+  }
+
+  const handleUnidadeChange = (codigoUnidade: string) => {
+    const unidade = unidades.find(u => u.codigoUnidade === codigoUnidade)
+    onChange({
+      ...dados,
+      codigo_unidade_compradora: codigoUnidade,
+      nome_unidade_compradora: unidade?.nomeUnidade || `Unidade ${codigoUnidade}`
+    })
   }
 
   return (
@@ -109,6 +158,43 @@ export function DadosBasicosTab({ dados, onChange, modoImportacao, onToggleModo 
                 />
                 <p className="text-xs text-muted-foreground">
                   Formato sugerido: NNN/AAAA
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="unidade_compradora">Unidade Compradora *</Label>
+                {carregandoUnidades ? (
+                  <div className="flex items-center gap-2 h-10 px-3 border rounded-md bg-muted/50">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Carregando unidades...</span>
+                  </div>
+                ) : unidades.length > 0 ? (
+                  <Select
+                    value={dados.codigo_unidade_compradora || ''}
+                    onValueChange={handleUnidadeChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a unidade compradora" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unidades.map((unidade) => (
+                        <SelectItem key={unidade.codigoUnidade} value={unidade.codigoUnidade}>
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-muted-foreground" />
+                            <span>{unidade.codigoUnidade} - {unidade.nomeUnidade}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-2 h-10 px-3 border rounded-md bg-amber-50 border-amber-200">
+                    <AlertCircle className="w-4 h-4 text-amber-600" />
+                    <span className="text-sm text-amber-700">Nenhuma unidade cadastrada no PNCP</span>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Unidade responsável pela compra no PNCP
                 </p>
               </div>
             </div>

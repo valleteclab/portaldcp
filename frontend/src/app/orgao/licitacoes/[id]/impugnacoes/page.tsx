@@ -16,7 +16,8 @@ import {
   User,
   Calendar,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Download
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -49,6 +50,9 @@ interface Impugnacao {
   altera_edital: boolean
   alteracoes_edital?: string
   created_at: string
+  documento_nome?: string
+  documento_caminho?: string
+  documento_tamanho?: number
 }
 
 interface Licitacao {
@@ -332,6 +336,36 @@ export default function ImpugnacoesPage() {
                       <div>
                         <Label className="text-sm text-muted-foreground">Fundamentação Legal</Label>
                         <p className="mt-1">{imp.fundamentacao_legal}</p>
+                      </div>
+                    )}
+
+                    {/* Documento Anexado */}
+                    {imp.documento_nome && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Documento Anexado</Label>
+                        <div className="mt-1 flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <FileText className="h-8 w-8 text-blue-600" />
+                          <div className="flex-1">
+                            <p className="font-medium text-blue-800">{imp.documento_nome}</p>
+                            {imp.documento_tamanho && (
+                              <p className="text-xs text-blue-600">
+                                {imp.documento_tamanho < 1024 * 1024 
+                                  ? `${(imp.documento_tamanho / 1024).toFixed(1)} KB`
+                                  : `${(imp.documento_tamanho / (1024 * 1024)).toFixed(1)} MB`
+                                }
+                              </p>
+                            )}
+                          </div>
+                          <a
+                            href={`${API_URL}/api/impugnacoes/${imp.id}/documento`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Download className="h-4 w-4" />
+                            Baixar
+                          </a>
+                        </div>
                       </div>
                     )}
 

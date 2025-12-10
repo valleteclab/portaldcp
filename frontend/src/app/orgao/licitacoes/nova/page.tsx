@@ -31,9 +31,11 @@ import {
   DocumentosTab,
   CronogramaTab,
   ConfiguracoesTab,
+  LotesManager,
   DadosBasicos,
   Classificacao,
   ItemLicitacao,
+  LoteLicitacao,
   DocumentoLicitacao,
   Cronograma,
   Configuracoes,
@@ -64,6 +66,8 @@ export default function NovaLicitacaoPage() {
   const [modoFaseInterna, setModoFaseInterna] = useState<ModoFaseInterna>(modoParam)
   const [activeTab, setActiveTab] = useState('dados-basicos')
   const [loading, setLoading] = useState(false)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
+  const [mensagemRascunho, setMensagemRascunho] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [modoImportacao, setModoImportacao] = useState(false)
   const [faseInternaConcluida, setFaseInternaConcluida] = useState(false)
@@ -130,13 +134,20 @@ export default function NovaLicitacaoPage() {
     tipo_contratacao: 'COMPRA',
     criterio_julgamento: 'MENOR_PRECO',
     modo_disputa: 'ABERTO',
-    exclusivo_mpe: false,
+    // Benefício ME/EPP (LC 123/2006)
     tratamento_diferenciado_mpe: true,
+    modo_beneficio_mpe: 'GERAL',
+    tipo_beneficio_mpe: 'NENHUM',
+    exclusivo_mpe: false,
     cota_reservada: false,
     percentual_cota_reservada: 25,
+    // Vinculação com PCA (Lei 14.133/2021, Art. 12, VII)
+    modo_vinculacao_pca: 'POR_ITEM',
+    usa_lotes: false,
   })
 
   const [itens, setItens] = useState<ItemLicitacao[]>([])
+  const [lotes, setLotes] = useState<LoteLicitacao[]>([])
 
   const [documentos, setDocumentos] = useState<DocumentoLicitacao[]>([])
 
@@ -158,6 +169,45 @@ export default function NovaLicitacaoPage() {
     sigilo_orcamento: 'PUBLICO',
     justificativa_sigilo: '',
   })
+
+  // Handler para mudanças na classificação que limpa itens/lotes quando necessário
+  const handleClassificacaoChange = (novaClassificacao: Classificacao) => {
+    const mudouUsaLotes = novaClassificacao.usa_lotes !== classificacao.usa_lotes
+    
+    if (mudouUsaLotes) {
+      if (novaClassificacao.usa_lotes) {
+        // Mudou para usar lotes - perguntar se quer limpar itens soltos
+        if (itens.length > 0 && itens.some(i => !i.lote_id)) {
+          const confirmar = confirm(
+            `Você tem ${itens.filter(i => !i.lote_id).length} item(ns) sem lote.\n\n` +
+            'Ao ativar lotes, esses itens ficarão "soltos" até serem vinculados a um lote.\n\n' +
+            'Deseja limpar os itens existentes?'
+          )
+          if (confirmar) {
+            setItens([])
+          }
+        }
+      } else {
+        // Mudou para não usar lotes - perguntar se quer limpar lotes e itens
+        if (lotes.length > 0) {
+          const confirmar = confirm(
+            `Você tem ${lotes.length} lote(s) com ${itens.filter(i => i.lote_id).length} item(ns).\n\n` +
+            'Ao desativar lotes, os lotes serão removidos.\n\n' +
+            'Deseja também limpar os itens vinculados aos lotes?'
+          )
+          if (confirmar) {
+            setItens(itens.filter(i => !i.lote_id)) // Mantém apenas itens sem lote
+          } else {
+            // Remove vinculação dos itens com lotes
+            setItens(itens.map(i => ({ ...i, lote_id: undefined, lote_numero: undefined })))
+          }
+          setLotes([])
+        }
+      }
+    }
+    
+    setClassificacao(novaClassificacao)
+  }
 
   // Validação e atualização de status das abas
   const atualizarStatusAba = (aba: string, status: StatusAba) => {
@@ -185,6 +235,63 @@ export default function NovaLicitacaoPage() {
     return itens.reduce((total, item) => total + (item.quantidade * item.valor_unitario), 0)
   }
 
+  // Salvar rascunho no localStorage
+  const salvarRascunho = () => {
+    setSalvandoRascunho(true)
+    setMensagemRascunho(null)
+    
+    try {
+      const rascunho = {
+        dadosBasicos,
+        classificacao,
+        itens,
+        lotes,
+        documentos,
+        cronograma,
+        configuracoes,
+        activeTab,
+        dataUltimaEdicao: new Date().toISOString()
+      }
+      
+      localStorage.setItem('rascunho_licitacao', JSON.stringify(rascunho))
+      
+      setMensagemRascunho('✓ Rascunho salvo com sucesso!')
+      
+      // Limpar mensagem após 3 segundos
+      setTimeout(() => {
+        setMensagemRascunho(null)
+      }, 3000)
+    } catch (e) {
+      setMensagemRascunho('❌ Erro ao salvar rascunho')
+    } finally {
+      setSalvandoRascunho(false)
+    }
+  }
+
+  // Carregar rascunho do localStorage
+  useEffect(() => {
+    const rascunhoSalvo = localStorage.getItem('rascunho_licitacao')
+    if (rascunhoSalvo) {
+      try {
+        const rascunho = JSON.parse(rascunhoSalvo)
+        if (rascunho.dadosBasicos) setDadosBasicos(rascunho.dadosBasicos)
+        if (rascunho.classificacao) setClassificacao(rascunho.classificacao)
+        if (rascunho.itens) setItens(rascunho.itens)
+        if (rascunho.lotes) setLotes(rascunho.lotes)
+        if (rascunho.documentos) setDocumentos(rascunho.documentos)
+        if (rascunho.cronograma) setCronograma(rascunho.cronograma)
+        if (rascunho.configuracoes) setConfiguracoes(rascunho.configuracoes)
+        if (rascunho.activeTab) setActiveTab(rascunho.activeTab)
+        
+        // Mostrar mensagem de rascunho recuperado
+        setMensagemRascunho('📋 Rascunho anterior recuperado')
+        setTimeout(() => setMensagemRascunho(null), 3000)
+      } catch (e) {
+        console.error('Erro ao carregar rascunho:', e)
+      }
+    }
+  }, [])
+
   // Salvar licitação
   const salvarLicitacao = async (publicar: boolean = false) => {
     setLoading(true)
@@ -208,6 +315,8 @@ export default function NovaLicitacaoPage() {
         objeto: dadosBasicos.objeto,
         objeto_detalhado: dadosBasicos.objeto_detalhado,
         justificativa: dadosBasicos.justificativa,
+        codigo_unidade_compradora: dadosBasicos.codigo_unidade_compradora,
+        nome_unidade_compradora: dadosBasicos.nome_unidade_compradora,
         modalidade: classificacao.modalidade,
         tipo_contratacao: classificacao.tipo_contratacao,
         criterio_julgamento: classificacao.criterio_julgamento,
@@ -248,20 +357,55 @@ export default function NovaLicitacaoPage() {
       // Salvar itens
       if (itens.length > 0) {
         for (const item of itens) {
+          console.log('Salvando item com catálogo:', {
+            numero: item.numero,
+            codigo_catmat: item.codigo_catmat,
+            codigo_catser: item.codigo_catser,
+            codigo_catalogo: item.codigo_catalogo,
+            descricao: item.descricao
+          });
           await fetch(`${API_URL}/api/itens`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               licitacao_id: licitacao.id,
               numero_item: item.numero,
-              descricao: item.descricao,
+              descricao_resumida: item.descricao, // Campo correto do backend
               quantidade: item.quantidade,
-              unidade: item.unidade,
+              unidade_medida: item.unidade || 'UNIDADE', // Campo correto do backend
               valor_unitario_estimado: item.valor_unitario,
+              // Dados do Catálogo de Compras (compras.gov.br)
+              codigo_catalogo: item.codigo_catalogo,
               codigo_catmat: item.codigo_catmat,
               codigo_catser: item.codigo_catser,
+              codigo_pdm: item.codigo_pdm,
+              nome_pdm: item.nome_pdm,
+              classe_catalogo: item.classe_catalogo,
+              codigo_grupo: item.codigo_grupo,
+              nome_grupo: item.nome_grupo,
             }),
           })
+        }
+      }
+
+      // Salvar documentos vinculados à licitação
+      if (documentos.length > 0) {
+        for (const doc of documentos) {
+          try {
+            await fetch(`${API_URL}/api/documentos/licitacao/${licitacao.id}/vincular`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tipo: doc.tipo,
+                titulo: doc.nome,
+                nome_original: doc.nome,
+                caminho: doc.url,
+                publico: true, // Documentos da licitação são públicos por padrão
+              }),
+            })
+          } catch (docError) {
+            console.error('Erro ao salvar documento:', docError)
+          }
         }
       }
 
@@ -480,15 +624,38 @@ export default function NovaLicitacaoPage() {
         {activeTab === 'classificacao' && (
           <ClassificacaoTab 
             dados={classificacao}
-            onChange={setClassificacao}
+            onChange={handleClassificacaoChange}
+            orgaoId={orgaoId || undefined}
           />
         )}
 
         {activeTab === 'itens' && (
-          <ItensTab 
-            itens={itens}
-            onChange={setItens}
-          />
+          <div className="space-y-6">
+            {/* Gerenciador de Lotes - quando usa_lotes está ativo */}
+            {classificacao.usa_lotes && (
+              <LotesManager
+                lotes={lotes}
+                itens={itens}
+                itensPca={[]}
+                onLotesChange={setLotes}
+                onItensChange={setItens}
+                onLoadItensPca={() => {}}
+                orgaoId={orgaoId || undefined}
+              />
+            )}
+            
+            {/* Aba de Itens */}
+            <ItensTab 
+              itens={itens}
+              onChange={setItens}
+              orgaoId={orgaoId || undefined}
+              modoVinculacaoPca={classificacao.modo_vinculacao_pca}
+              itemPcaSelecionado={classificacao.item_pca}
+              usaLotes={classificacao.usa_lotes}
+              lotes={lotes}
+              modoBeneficioMpe={classificacao.modo_beneficio_mpe}
+            />
+          </div>
         )}
 
         {activeTab === 'documentos' && (
@@ -502,6 +669,7 @@ export default function NovaLicitacaoPage() {
           <CronogramaTab 
             dados={cronograma}
             onChange={setCronograma}
+            modalidade={classificacao.modalidade}
           />
         )}
 
@@ -523,9 +691,29 @@ export default function NovaLicitacaoPage() {
           <ArrowLeft className="mr-2 h-4 w-4" /> Anterior
         </Button>
 
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={loading}>
-            <Save className="mr-2 h-4 w-4" /> Salvar Rascunho
+        <div className="flex items-center gap-2">
+          {/* Mensagem de feedback do rascunho */}
+          {mensagemRascunho && (
+            <span className={`text-sm px-3 py-1 rounded ${
+              mensagemRascunho.includes('✓') ? 'bg-green-100 text-green-700' :
+              mensagemRascunho.includes('❌') ? 'bg-red-100 text-red-700' :
+              'bg-blue-100 text-blue-700'
+            }`}>
+              {mensagemRascunho}
+            </span>
+          )}
+          
+          <Button 
+            variant="outline" 
+            onClick={salvarRascunho}
+            disabled={loading || salvandoRascunho}
+          >
+            {salvandoRascunho ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Salvar Rascunho
           </Button>
           
           {activeTab !== abas[abas.length - 1].id ? (

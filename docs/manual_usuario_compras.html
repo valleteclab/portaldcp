@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Como Publicar Licitações no PNCP | Portal DCP</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: #f5f7fa;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .intro {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .intro h2 {
+            color: #4f46e5;
+            margin-bottom: 15px;
+            font-size: 1.4rem;
+        }
+        
+        .intro p {
+            color: #555;
+        }
+        
+        .passo {
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+        
+        .passo-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: white;
+            padding: 20px 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .passo-numero {
+            width: 50px;
+            height: 50px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        
+        .passo-titulo {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        
+        .passo-conteudo {
+            padding: 25px;
+        }
+        
+        .passo-conteudo p {
+            margin-bottom: 15px;
+            color: #555;
+        }
+        
+        .campo {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        
+        .campo-nome {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 5px;
+        }
+        
+        .campo-desc {
+            color: #64748b;
+            font-size: 0.95rem;
+        }
+        
+        .campo-obrigatorio {
+            display: inline-block;
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 8px;
+        }
+        
+        .dica {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .dica-titulo {
+            font-weight: 600;
+            color: #92400e;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .dica-texto {
+            color: #78350f;
+        }
+        
+        .alerta {
+            background: #fef2f2;
+            border-left: 4px solid #ef4444;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .alerta-titulo {
+            font-weight: 600;
+            color: #991b1b;
+            margin-bottom: 5px;
+        }
+        
+        .alerta-texto {
+            color: #7f1d1d;
+        }
+        
+        .sucesso {
+            background: #f0fdf4;
+            border-left: 4px solid #22c55e;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .sucesso-titulo {
+            font-weight: 600;
+            color: #166534;
+            margin-bottom: 5px;
+        }
+        
+        .sucesso-texto {
+            color: #14532d;
+        }
+        
+        .lista-check {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .lista-check li {
+            padding: 10px 0;
+            padding-left: 35px;
+            position: relative;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        
+        .lista-check li:last-child {
+            border-bottom: none;
+        }
+        
+        .lista-check li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #22c55e;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        
+        .botao-exemplo {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #4f46e5;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            margin: 10px 0;
+        }
+        
+        .botao-exemplo:hover {
+            background: #4338ca;
+        }
+        
+        .imagem-exemplo {
+            background: #f1f5f9;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            color: #64748b;
+            margin: 15px 0;
+        }
+        
+        .tabela-simples {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        
+        .tabela-simples th,
+        .tabela-simples td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .tabela-simples th {
+            background: #f8fafc;
+            font-weight: 600;
+            color: #475569;
+        }
+        
+        .tabela-simples tr:hover {
+            background: #f8fafc;
+        }
+        
+        .fluxo {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .fluxo-item {
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+            position: relative;
+        }
+        
+        .fluxo-item::after {
+            content: "→";
+            position: absolute;
+            right: -20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+            font-size: 1.5rem;
+        }
+        
+        .fluxo-item:last-child::after {
+            display: none;
+        }
+        
+        .fluxo-icone {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+        
+        .fluxo-texto {
+            font-size: 0.9rem;
+            color: #475569;
+        }
+        
+        .faq {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .faq h2 {
+            color: #4f46e5;
+            margin-bottom: 20px;
+        }
+        
+        .faq-item {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 15px 0;
+        }
+        
+        .faq-item:last-child {
+            border-bottom: none;
+        }
+        
+        .faq-pergunta {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+        
+        .faq-resposta {
+            color: #64748b;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: #64748b;
+        }
+        
+        @media (max-width: 600px) {
+            .fluxo {
+                flex-direction: column;
+            }
+            
+            .fluxo-item::after {
+                display: none;
+            }
+            
+            header h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>📋 Como Publicar Licitações no PNCP</h1>
+        <p>Guia passo a passo para publicar suas licitações no Portal Nacional de Contratações Públicas</p>
+    </header>
+    
+    <div class="container">
+        <!-- Introdução -->
+        <div class="intro">
+            <h2>🎯 O que você vai aprender</h2>
+            <p>Este guia vai te ensinar a publicar licitações no PNCP de forma simples e rápida. Siga os passos abaixo e em poucos minutos sua licitação estará publicada!</p>
+            
+            <div class="fluxo">
+                <div class="fluxo-item">
+                    <div class="fluxo-icone">📝</div>
+                    <div class="fluxo-texto">Preencher dados</div>
+                </div>
+                <div class="fluxo-item">
+                    <div class="fluxo-icone">📎</div>
+                    <div class="fluxo-texto">Anexar edital</div>
+                </div>
+                <div class="fluxo-item">
+                    <div class="fluxo-icone">🚀</div>
+                    <div class="fluxo-texto">Enviar ao PNCP</div>
+                </div>
+                <div class="fluxo-item">
+                    <div class="fluxo-icone">✅</div>
+                    <div class="fluxo-texto">Publicado!</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Passo 1 -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">1</div>
+                <div class="passo-titulo">Acesse a página de Licitações</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>No menu lateral, clique em <strong>"Licitações"</strong> e depois em <strong>"Nova Licitação"</strong>.</p>
+                
+                <div class="imagem-exemplo">
+                    📸 Imagem: Menu lateral com opção "Licitações" destacada
+                </div>
+                
+                <div class="dica">
+                    <div class="dica-titulo">💡 Dica</div>
+                    <div class="dica-texto">Você também pode acessar pelo botão "+ Nova Licitação" na página principal de licitações.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Passo 2 -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">2</div>
+                <div class="passo-titulo">Preencha os dados básicos</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>Preencha as informações principais da licitação:</p>
+                
+                <div class="campo">
+                    <div class="campo-nome">Número do Processo <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Exemplo: 001/2025, PE-001/2025</div>
+                </div>
+                
+                <div class="campo">
+                    <div class="campo-nome">Objeto da Licitação <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Descreva o que será contratado. Exemplo: "Aquisição de materiais de escritório para atender as necessidades da Secretaria de Administração"</div>
+                </div>
+                
+                <div class="campo">
+                    <div class="campo-nome">Modalidade <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Selecione: Pregão Eletrônico, Concorrência, Dispensa, etc.</div>
+                </div>
+                
+                <div class="campo">
+                    <div class="campo-nome">Valor Estimado <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Valor total estimado da contratação em reais</div>
+                </div>
+                
+                <div class="dica">
+                    <div class="dica-titulo">💡 Dica</div>
+                    <div class="dica-texto">O objeto deve ser claro e completo. Evite abreviações e termos técnicos que possam gerar dúvidas.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Passo 3 -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">3</div>
+                <div class="passo-titulo">Defina as datas</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>Informe as datas importantes do processo:</p>
+                
+                <div class="campo">
+                    <div class="campo-nome">Data de Abertura das Propostas <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Quando os fornecedores poderão começar a enviar propostas</div>
+                </div>
+                
+                <div class="campo">
+                    <div class="campo-nome">Data de Encerramento <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Prazo final para envio de propostas</div>
+                </div>
+                
+                <div class="alerta">
+                    <div class="alerta-titulo">⚠️ Atenção</div>
+                    <div class="alerta-texto">A data de encerramento deve respeitar os prazos mínimos da Lei 14.133/2021. Para Pregão Eletrônico, o prazo mínimo é de 8 dias úteis.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Passo 4 -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">4</div>
+                <div class="passo-titulo">Selecione a Unidade</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>Escolha a unidade do órgão responsável pela licitação:</p>
+                
+                <div class="campo">
+                    <div class="campo-nome">Unidade do Órgão <span class="campo-obrigatorio">Obrigatório</span></div>
+                    <div class="campo-desc">Selecione a unidade que está realizando a licitação. As unidades são cadastradas no PNCP.</div>
+                </div>
+                
+                <div class="dica">
+                    <div class="dica-titulo">💡 Dica</div>
+                    <div class="dica-texto">Se sua unidade não aparecer na lista, entre em contato com o administrador do sistema para cadastrá-la no PNCP.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Passo 5 -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">5</div>
+                <div class="passo-titulo">Anexe o Edital</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>Faça o upload do arquivo do edital:</p>
+                
+                <ul class="lista-check">
+                    <li>O arquivo deve estar em formato <strong>PDF</strong></li>
+                    <li>Tamanho máximo: <strong>50 MB</strong></li>
+                    <li>O edital deve estar assinado digitalmente (recomendado)</li>
+                    <li>Verifique se o arquivo não está corrompido antes de enviar</li>
+                </ul>
+                
+                <div class="imagem-exemplo">
+                    📸 Imagem: Área de upload de arquivo com botão "Selecionar arquivo"
+                </div>
+                
+                <div class="alerta">
+                    <div class="alerta-titulo">⚠️ Importante</div>
+                    <div class="alerta-texto">O edital é obrigatório para publicação no PNCP. Sem ele, a licitação não poderá ser enviada.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Passo 6 -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">6</div>
+                <div class="passo-titulo">Revise e Envie</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>Antes de enviar, revise todas as informações:</p>
+                
+                <ul class="lista-check">
+                    <li>Número do processo está correto?</li>
+                    <li>Objeto está claro e completo?</li>
+                    <li>Modalidade está correta?</li>
+                    <li>Datas estão dentro dos prazos legais?</li>
+                    <li>Valor estimado está correto?</li>
+                    <li>Edital foi anexado?</li>
+                </ul>
+                
+                <p>Se tudo estiver correto, clique no botão <strong>"Enviar ao PNCP"</strong>.</p>
+                
+                <div class="sucesso">
+                    <div class="sucesso-titulo">✅ Pronto!</div>
+                    <div class="sucesso-texto">Após o envio, você receberá um número de controle do PNCP. Guarde esse número, pois ele será usado para consultas e atualizações.</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Após a publicação -->
+        <div class="passo">
+            <div class="passo-header">
+                <div class="passo-numero">7</div>
+                <div class="passo-titulo">Após a Publicação</div>
+            </div>
+            <div class="passo-conteudo">
+                <p>Depois que a licitação for publicada, você pode:</p>
+                
+                <table class="tabela-simples">
+                    <tr>
+                        <th>Ação</th>
+                        <th>Quando usar</th>
+                    </tr>
+                    <tr>
+                        <td><strong>📝 Retificar</strong></td>
+                        <td>Corrigir informações (objeto, datas, valores)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>📎 Anexar documentos</strong></td>
+                        <td>Adicionar anexos, respostas a pedidos de esclarecimento</td>
+                    </tr>
+                    <tr>
+                        <td><strong>✅ Registrar resultado</strong></td>
+                        <td>Após homologação, informar os vencedores</td>
+                    </tr>
+                    <tr>
+                        <td><strong>❌ Cancelar</strong></td>
+                        <td>Se a licitação for revogada ou anulada</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <!-- FAQ -->
+        <div class="faq">
+            <h2>❓ Perguntas Frequentes</h2>
+            
+            <div class="faq-item">
+                <div class="faq-pergunta">Posso editar uma licitação depois de publicada?</div>
+                <div class="faq-resposta">Sim! Use a opção "Retificar" para corrigir informações. Será necessário informar uma justificativa para a alteração.</div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-pergunta">O que é o número de controle do PNCP?</div>
+                <div class="faq-resposta">É um código único gerado pelo PNCP que identifica sua licitação. Exemplo: 62203670000162-1-000001/2025. Guarde esse número!</div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-pergunta">Posso excluir uma licitação do PNCP?</div>
+                <div class="faq-resposta">Sim, desde que ainda não tenha resultados registrados. Será necessário informar uma justificativa.</div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-pergunta">O que fazer se der erro ao enviar?</div>
+                <div class="faq-resposta">Verifique se todos os campos obrigatórios foram preenchidos e se o edital foi anexado. Se o erro persistir, consulte a aba "Erros" na página de integração PNCP.</div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-pergunta">Como registro o resultado da licitação?</div>
+                <div class="faq-resposta">Após a homologação, acesse a licitação e clique em "Registrar Resultado". Informe os dados do fornecedor vencedor e os valores homologados.</div>
+            </div>
+        </div>
+        
+        <!-- Contato -->
+        <div class="intro">
+            <h2>🆘 Precisa de Ajuda?</h2>
+            <p>Se você tiver dúvidas ou encontrar problemas, entre em contato com o suporte:</p>
+            <ul class="lista-check">
+                <li>Email: suporte@portaldcp.com.br</li>
+                <li>Telefone: (XX) XXXX-XXXX</li>
+                <li>Chat online disponível no sistema</li>
+            </ul>
+        </div>
+        
+        <footer>
+            <p>Portal DCP - Guia do Usuário</p>
+            <p>Versão 1.0 | Dezembro 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

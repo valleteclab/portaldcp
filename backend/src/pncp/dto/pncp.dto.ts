@@ -120,6 +120,23 @@ export class UnidadeOrgaoDto {
   nomeUnidade: string;
 }
 
+export class ItemCompraEnvioDto {
+  numeroItem: number;
+  descricao: string;
+  materialOuServico: 'M' | 'S';
+  tipoBeneficioId: number;
+  incentivoProdutivoBasico: boolean;
+  quantidade: number;
+  unidadeMedida: string;
+  valorUnitarioEstimado: number;
+  valorTotal: number;
+  criterioJulgamentoId: number;
+  orcamentoSigiloso: boolean;
+  itemCategoriaId: number;
+  aplicabilidadeMargemPreferenciaNormal: boolean;
+  aplicabilidadeMargemPreferenciaAdicional: boolean;
+}
+
 export class CompraDto {
   anoCompra: number;
   codigoModalidadeContratacao: number;
@@ -146,6 +163,7 @@ export class CompraDto {
   amparoLegalId?: number;
   justificativaPresencial?: string;
   linkEdital?: string;
+  itensCompra?: ItemCompraEnvioDto[]; // Itens da compra para envio ao PNCP
 }
 
 // ============ Item da Compra ============
@@ -319,6 +337,7 @@ export class PncpResponseDto {
   erros?: string[];
   dataHora?: string;
   dados?: any; // Dados adicionais retornados pela API
+  link?: string; // Link para visualização no PNCP
 }
 
 // ============ Códigos de Domínio ============

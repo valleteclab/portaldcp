@@ -2,12 +2,17 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Search, Plus, FileText, Eye, Calendar, Building2, Loader2 } from "lucide-react"
+import { Search, Plus, FileText, Eye, Calendar, Building2, Loader2, CheckCircle2, Edit2, Trash2, AlertTriangle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, 
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { useRouter } from "next/navigation"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -20,6 +25,9 @@ interface Licitacao {
   valor_total_estimado: number | string
   data_abertura_sessao: string
   created_at: string
+  fase_interna_concluida?: boolean
+  enviado_pncp?: boolean
+  numero_controle_pncp?: string
 }
 
 const FASES_INTERNAS = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA']
@@ -87,11 +95,14 @@ const formatarMoeda = (valor: number | string) => {
 }
 
 export default function LicitacoesOrgaoPage() {
+  const router = useRouter()
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroFase, setFiltroFase] = useState("")
   const [filtroModalidade, setFiltroModalidade] = useState("")
   const [busca, setBusca] = useState("")
+  const [licitacaoParaDeletar, setLicitacaoParaDeletar] = useState<Licitacao | null>(null)
+  const [deletando, setDeletando] = useState(false)
 
   useEffect(() => {
     carregarLicitacoes()
@@ -108,6 +119,28 @@ export default function LicitacoesOrgaoPage() {
       console.error('Erro ao carregar licitações:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const deletarLicitacao = async () => {
+    if (!licitacaoParaDeletar) return
+    setDeletando(true)
+    try {
+      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoParaDeletar.id}`, {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        setLicitacoes(licitacoes.filter(l => l.id !== licitacaoParaDeletar.id))
+        setLicitacaoParaDeletar(null)
+      } else {
+        const error = await res.json()
+        alert(error.message || 'Erro ao deletar licitação')
+      }
+    } catch (error) {
+      console.error('Erro ao deletar licitação:', error)
+      alert('Erro ao deletar licitação')
+    } finally {
+      setDeletando(false)
     }
   }
 
@@ -272,6 +305,12 @@ export default function LicitacoesOrgaoPage() {
                         <Badge className={getFaseBadgeColor(lic.fase)}>
                           {getFaseLabel(lic.fase)}
                         </Badge>
+                        {lic.enviado_pncp && (
+                          <Badge className="bg-green-100 text-green-700">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            PNCP
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-slate-700 mb-2 line-clamp-2">{lic.objeto}</p>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -290,12 +329,29 @@ export default function LicitacoesOrgaoPage() {
                         </span>
                       </div>
                     </div>
-                    <Link href={`/orgao/licitacoes/${lic.id}`}>
-                      <Button variant="outline" size="sm">
-                        <Eye className="h-4 w-4 mr-1" />
-                        Ver
+                    <div className="flex items-center gap-2">
+                      <Link href={`/orgao/licitacoes/${lic.id}`}>
+                        <Button variant="outline" size="sm">
+                          <Eye className="h-4 w-4 mr-1" />
+                          Visualizar
+                        </Button>
+                      </Link>
+                      <Link href={`/orgao/licitacoes/${lic.id}/editar`}>
+                        <Button variant="outline" size="sm">
+                          <Edit2 className="h-4 w-4 mr-1" />
+                          Editar
+                        </Button>
+                      </Link>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setLicitacaoParaDeletar(lic)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Excluir
                       </Button>
-                    </Link>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -303,6 +359,48 @@ export default function LicitacoesOrgaoPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog de confirmação de exclusão */}
+      <AlertDialog open={!!licitacaoParaDeletar} onOpenChange={() => setLicitacaoParaDeletar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              Confirmar Exclusão
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir a licitação <strong>{licitacaoParaDeletar?.numero_processo}</strong>?
+              <br /><br />
+              <span className="text-red-600">Esta ação não pode ser desfeita.</span>
+              {licitacaoParaDeletar?.enviado_pncp && (
+                <span className="block mt-2 text-yellow-600">
+                  ⚠️ Esta licitação já foi enviada ao PNCP. A exclusão local não remove do portal.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletando}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={deletarLicitacao}
+              disabled={deletando}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deletando ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Excluir
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

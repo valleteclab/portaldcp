@@ -255,6 +255,13 @@ export class ItemPCA {
   @Column({ nullable: true })
   numero_processo: string;
 
+  // Controle de utilização do valor
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  valor_utilizado: number; // Soma dos valores das licitações vinculadas
+
+  @Column({ default: false })
+  esgotado: boolean; // true quando valor_utilizado >= valor_estimado
+
   // Prioridade
   @Column({ type: 'int', default: 3 })
   prioridade: number; // 1=Muito Alta, 2=Alta, 3=Média, 4=Baixa, 5=Muito Baixa

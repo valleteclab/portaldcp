@@ -30,7 +30,17 @@ import {
   Ban,
   RotateCcw,
   AlertTriangle,
-  MessageSquare
+  MessageSquare,
+  Send,
+  ExternalLink,
+  Download,
+  HelpCircle,
+  FileWarning,
+  Building2,
+  Calendar,
+  RefreshCw,
+  Plus,
+  Edit
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -38,10 +48,11 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
-// Fases conforme Lei 14.133/2021
+// Fases conforme Lei 14.133/2021 - Art. 17
 const FASES_INTERNAS = [
   { id: 'PLANEJAMENTO', label: 'Planejamento', icon: FileText, docs: ['DFD', 'ETP'] },
   { id: 'TERMO_REFERENCIA', label: 'Termo de Referência', icon: FileText, docs: ['TR', 'JC'] },
@@ -73,9 +84,18 @@ interface Licitacao {
   valor_total_estimado: number
   data_publicacao_edital: string
   data_abertura_sessao: string
+  data_fim_propostas: string
   pregoeiro_nome: string
   sigilo_orcamento: string
   created_at: string
+  enviado_pncp?: boolean
+  numero_controle_pncp?: string
+  sequencial_compra_pncp?: number
+  ano_compra_pncp?: number
+  orgao?: {
+    nome: string
+    cnpj: string
+  }
 }
 
 interface Documento {
@@ -83,6 +103,11 @@ interface Documento {
   tipo: string
   titulo: string
   status: string
+  nome_original?: string
+  tamanho?: number
+  publico?: boolean
+  created_at: string
+  descricao?: string
 }
 
 interface Proposta {
@@ -96,6 +121,44 @@ interface Proposta {
     cpf_cnpj: string
     porte?: string
   }
+}
+
+interface Impugnacao {
+  id: string
+  texto_impugnacao: string
+  nome_impugnante: string
+  cpf_cnpj_impugnante: string
+  email_impugnante: string
+  is_cidadao: boolean
+  status: string
+  resposta?: string
+  respondido_por?: string
+  data_resposta?: string
+  created_at: string
+}
+
+interface EventoHistorico {
+  id: string
+  tipo: string
+  descricao: string
+  usuario_nome?: string
+  created_at: string
+  dados_adicionais?: any
+}
+
+interface ItemLicitacao {
+  id: string
+  numero_item: number
+  numero_lote?: number
+  descricao_resumida: string
+  descricao_detalhada?: string
+  quantidade: number
+  unidade_medida: string
+  valor_unitario_estimado: number
+  valor_total_estimado: number
+  tipo_participacao: string
+  status: string
+  codigo_catalogo?: string
 }
 
 interface FaseInfo {
@@ -121,6 +184,32 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   const [actionModal, setActionModal] = useState<{ type: string; title: string } | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [motivoAcao, setMotivoAcao] = useState('')
+  const [enviandoPncp, setEnviandoPncp] = useState(false)
+  const [impugnacoes, setImpugnacoes] = useState<Impugnacao[]>([])
+  const [historico, setHistorico] = useState<EventoHistorico[]>([])
+  const [itens, setItens] = useState<ItemLicitacao[]>([])
+  const [loadingItens, setLoadingItens] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editingLicitacao, setEditingLicitacao] = useState<Partial<Licitacao>>({})
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [showItemModal, setShowItemModal] = useState(false)
+  const [editingItem, setEditingItem] = useState<Partial<ItemLicitacao> | null>(null)
+  const [savingItem, setSavingItem] = useState(false)
+  const [estatisticas, setEstatisticas] = useState<{
+    totalDocumentos: number
+    totalPropostas: number
+    totalImpugnacoes: number
+    impugnacoesPendentes: number
+  }>({ totalDocumentos: 0, totalPropostas: 0, totalImpugnacoes: 0, impugnacoesPendentes: 0 })
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [uploadingDoc, setUploadingDoc] = useState(false)
+  const [novoDocumento, setNovoDocumento] = useState({
+    tipo: 'EDITAL',
+    titulo: '',
+    descricao: '',
+    publico: true
+  })
+  const [arquivoSelecionado, setArquivoSelecionado] = useState<File | null>(null)
 
   // Informações detalhadas de cada fase
   const FASES_INFO: Record<string, FaseInfo> = {
@@ -210,12 +299,26 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
         setLicitacao(licData)
       }
 
-      // Carregar documentos da fase interna
-      const resDocs = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
+      // Carregar documentos da licitação (ambos endpoints)
+      let todosDocumentos: Documento[] = []
+      
+      // Documentos do módulo de documentos
+      const resDocs = await fetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}`)
       if (resDocs.ok) {
         const docsData = await resDocs.json()
-        setDocumentos(docsData)
+        todosDocumentos = [...todosDocumentos, ...docsData]
       }
+      
+      // Documentos da fase interna
+      const resDocsFase = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
+      if (resDocsFase.ok) {
+        const docsFaseData = await resDocsFase.json()
+        if (Array.isArray(docsFaseData)) {
+          todosDocumentos = [...todosDocumentos, ...docsFaseData]
+        }
+      }
+      
+      setDocumentos(todosDocumentos)
 
       // Carregar resumo da fase interna
       const resResumo = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/resumo`)
@@ -230,6 +333,45 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
         const propostasData = await resPropostas.json()
         setPropostas(propostasData)
       }
+
+      // Carregar impugnações
+      const resImpugnacoes = await fetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
+      if (resImpugnacoes.ok) {
+        const impugnacoesData = await resImpugnacoes.json()
+        setImpugnacoes(impugnacoesData)
+      }
+
+      // Carregar itens da licitação
+      const resItens = await fetch(`${API_URL}/api/itens/licitacao/${licitacaoId}`)
+      if (resItens.ok) {
+        const itensData = await resItens.json()
+        setItens(itensData)
+      }
+
+      // Carregar histórico/eventos da sessão (se existir)
+      try {
+        const resSessao = await fetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
+        if (resSessao.ok) {
+          const sessaoData = await resSessao.json()
+          if (sessaoData?.id) {
+            const resEventos = await fetch(`${API_URL}/api/sessao/${sessaoData.id}/eventos`)
+            if (resEventos.ok) {
+              const eventosData = await resEventos.json()
+              setHistorico(eventosData)
+            }
+          }
+        }
+      } catch (e) {
+        // Sessão pode não existir ainda
+      }
+
+      // Calcular estatísticas
+      setEstatisticas({
+        totalDocumentos: documentos.length,
+        totalPropostas: propostas.length,
+        totalImpugnacoes: impugnacoes.length,
+        impugnacoesPendentes: impugnacoes.filter(i => i.status === 'PENDENTE').length
+      })
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -285,6 +427,45 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
       VENCEDORA: { label: 'Vencedora', className: 'bg-emerald-100 text-emerald-700' },
     }
     return map[status] || { label: status, className: 'bg-gray-100 text-gray-700' }
+  }
+
+  // Upload de documento
+  const uploadDocumento = async () => {
+    if (!arquivoSelecionado || !novoDocumento.titulo) {
+      alert('Selecione um arquivo e preencha o título')
+      return
+    }
+
+    setUploadingDoc(true)
+    try {
+      const formData = new FormData()
+      formData.append('arquivo', arquivoSelecionado)
+      formData.append('tipo', novoDocumento.tipo)
+      formData.append('titulo', novoDocumento.titulo)
+      formData.append('descricao', novoDocumento.descricao)
+      formData.append('publico', String(novoDocumento.publico))
+
+      const res = await fetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}`, {
+        method: 'POST',
+        body: formData
+      })
+
+      if (res.ok) {
+        alert('Documento enviado com sucesso!')
+        setShowUploadModal(false)
+        setArquivoSelecionado(null)
+        setNovoDocumento({ tipo: 'EDITAL', titulo: '', descricao: '', publico: true })
+        carregarDados()
+      } else {
+        const error = await res.json()
+        alert(`Erro ao enviar documento: ${error.message || 'Erro desconhecido'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao enviar documento:', error)
+      alert('Erro ao enviar documento')
+    } finally {
+      setUploadingDoc(false)
+    }
   }
 
   // Ações de gerenciamento da licitação
@@ -364,6 +545,24 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
   // Verifica se está suspenso (pode retomar)
   const estaSuspenso = () => licitacao?.fase === 'SUSPENSO'
+
+  // Sincronizar fase baseado no cronograma (datas)
+  const sincronizarFase = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/atualizar-fase`, {
+        method: 'PUT',
+      })
+      if (res.ok) {
+        carregarDados()
+        alert('Fase sincronizada com o cronograma!')
+      } else {
+        const error = await res.json()
+        alert(`Erro: ${error.message}`)
+      }
+    } catch (error) {
+      alert('Erro ao sincronizar fase')
+    }
+  }
 
   // Avançar para próxima fase
   const avancarFase = async () => {
@@ -469,6 +668,108 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     } catch (error) {
       alert('Erro ao homologar')
     }
+  }
+
+  // Suspender licitação
+  const suspenderLicitacao = async () => {
+    const motivo = prompt('Informe o motivo da suspensão:')
+    if (!motivo) return
+    
+    try {
+      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/suspender`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo })
+      })
+      if (res.ok) {
+        carregarDados()
+        alert('Licitação suspensa com sucesso!')
+      } else {
+        const error = await res.json()
+        alert(`Erro: ${error.message}`)
+      }
+    } catch (error) {
+      alert('Erro ao suspender licitação')
+    }
+  }
+
+  // Marcar fase interna como concluída (quando feita fora do sistema)
+  const marcarFaseInternaConcluida = async () => {
+    if (!licitacao) return
+    
+    const confirmou = window.confirm('Confirma que a fase interna (preparatória) foi concluída?\n\nIsso indica que os documentos obrigatórios (ETP, TR, Orçamento, Parecer Jurídico e Autorização) já foram elaborados, mesmo que fora deste sistema.\n\nApós confirmar, você poderá enviar a licitação ao PNCP.')
+    
+    if (!confirmou) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          fase_interna_concluida: true
+        })
+      })
+
+      if (response.ok) {
+        window.alert('✅ Fase interna marcada como concluída!\n\nAgora você pode enviar a licitação ao PNCP.')
+        await carregarDados()
+      } else {
+        const data = await response.json()
+        window.alert(`❌ Erro: ${data.message || 'Erro ao atualizar'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao marcar fase interna:', error)
+      window.alert('Erro ao conectar com o servidor.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Enviar para o PNCP
+  const enviarParaPNCP = async () => {
+    if (!licitacao) return
+    
+    if (!confirm('Deseja enviar esta licitação para o PNCP?\n\nEsta ação publicará a compra no Portal Nacional de Contratações Públicas.')) {
+      return
+    }
+
+    setEnviandoPncp(true)
+    try {
+      const token = localStorage.getItem('orgao_token')
+      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.sucesso) {
+        alert(`✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero de Controle: ${data.numeroControlePNCP || 'Gerado'}`)
+        carregarDados()
+      } else {
+        alert(`❌ Erro ao enviar para o PNCP:\n\n${data.message || data.erro || 'Erro desconhecido'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao enviar para PNCP:', error)
+      alert('Erro ao conectar com o servidor. Verifique sua conexão.')
+    } finally {
+      setEnviandoPncp(false)
+    }
+  }
+
+  // Verificar se pode enviar ao PNCP
+  const podeEnviarPNCP = () => {
+    if (!licitacao) return false
+    // Pode enviar se fase interna concluída e ainda não foi enviado
+    return licitacao.fase_interna_concluida && !licitacao.enviado_pncp
   }
 
   // Obter ações disponíveis para a fase atual
@@ -650,8 +951,106 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
               <Trash2 className="mr-2 h-4 w-4" />Excluir
             </Button>
           )}
+          {/* Botão PNCP */}
+          {podeEnviarPNCP() && (
+            <Button 
+              onClick={enviarParaPNCP}
+              disabled={enviandoPncp}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {enviandoPncp ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Enviando...</>
+              ) : (
+                <><Send className="mr-2 h-4 w-4" />Enviar ao PNCP</>
+              )}
+            </Button>
+          )}
+          {licitacao.enviado_pncp && (
+            <Badge className="bg-green-100 text-green-700 px-3 py-2">
+              <CheckCircle2 className="w-4 h-4 mr-1" />
+              Enviado ao PNCP
+            </Badge>
+          )}
         </div>
       </div>
+
+      {/* Status PNCP */}
+      {licitacao.enviado_pncp && licitacao.numero_controle_pncp && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-green-800">Publicado no PNCP</p>
+                  <p className="text-sm text-green-600">
+                    Nº Controle: {licitacao.numero_controle_pncp}
+                    {licitacao.sequencial_compra_pncp && ` | Sequencial: ${licitacao.sequencial_compra_pncp}`}
+                    {licitacao.ano_compra_pncp && ` | Ano: ${licitacao.ano_compra_pncp}`}
+                  </p>
+                </div>
+              </div>
+              <a 
+                href={`https://pncp.gov.br/app/editais/${licitacao.numero_controle_pncp}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm" className="text-green-700 border-green-300">
+                  <ExternalLink className="w-4 h-4 mr-1" />
+                  Ver no PNCP
+                </Button>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Controle de Fase - Art. 17 Lei 14.133/2021 */}
+      {licitacao.enviado_pncp && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-blue-800">Controle de Fase</p>
+                  <p className="text-sm text-blue-600">
+                    Fase atual: <strong>{FASES_EXTERNAS.find(f => f.id === licitacao.fase)?.label || licitacao.fase}</strong>
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {/* Sincronizar fase baseado no cronograma */}
+                {['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) && (
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={sincronizarFase}
+                    title="Atualiza a fase automaticamente baseado nas datas do cronograma"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                    Sincronizar
+                  </Button>
+                )}
+                {!['CONCLUIDO', 'FRACASSADO', 'DESERTO', 'REVOGADO', 'ANULADO'].includes(licitacao.fase) && (
+                  <Button 
+                    size="sm" 
+                    onClick={avancarFase}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <ChevronRight className="w-4 h-4 mr-1" />
+                    Avançar Fase
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Info Cards */}
       <div className="grid grid-cols-4 gap-4">
@@ -669,7 +1068,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Fase Atual</p>
             <p className="text-xl font-bold text-blue-600">
-              {FASES_EXTERNAS.find(f => f.id === licitacao.fase)?.label || licitacao.fase}
+              {FASES_EXTERNAS.find(f => f.id === licitacao.fase)?.label || FASES_INTERNAS.find(f => f.id === licitacao.fase)?.label || licitacao.fase}
             </p>
           </CardContent>
         </Card>
@@ -687,13 +1086,93 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
         </Card>
       </div>
 
+      {/* Estatísticas do Processo */}
+      <div className="grid grid-cols-4 gap-4">
+        <Card className="border-l-4 border-l-blue-500">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Documentos</p>
+                <p className="text-2xl font-bold">{documentos.length}</p>
+              </div>
+              <FileText className="h-8 w-8 text-blue-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Propostas</p>
+                <p className="text-2xl font-bold">{propostas.length}</p>
+              </div>
+              <Users className="h-8 w-8 text-green-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={`border-l-4 ${impugnacoes.some(i => i.status === 'PENDENTE') ? 'border-l-yellow-500' : 'border-l-slate-300'}`}>
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Impugnações</p>
+                <p className="text-2xl font-bold">
+                  {impugnacoes.length}
+                  {impugnacoes.some(i => i.status === 'PENDENTE') && (
+                    <span className="text-sm text-yellow-600 ml-2">
+                      ({impugnacoes.filter(i => i.status === 'PENDENTE').length} pendentes)
+                    </span>
+                  )}
+                </p>
+              </div>
+              <FileWarning className="h-8 w-8 text-yellow-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-purple-500">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Eventos</p>
+                <p className="text-2xl font-bold">{historico.length}</p>
+              </div>
+              <Clock className="h-8 w-8 text-purple-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Tabs */}
       <Tabs defaultValue="fases">
         <TabsList>
           <TabsTrigger value="fases">Fases do Processo</TabsTrigger>
-          <TabsTrigger value="documentos">Documentos</TabsTrigger>
-          <TabsTrigger value="propostas">Propostas</TabsTrigger>
-          <TabsTrigger value="historico">Historico</TabsTrigger>
+          <TabsTrigger value="documentos">
+            Documentos
+            {documentos.length > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">{documentos.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="impugnacoes">
+            Impugnações
+            {impugnacoes.length > 0 && (
+              <Badge variant={impugnacoes.some(i => i.status === 'PENDENTE') ? 'destructive' : 'secondary'} className="ml-2 text-xs">
+                {impugnacoes.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="propostas">
+            Propostas
+            {propostas.length > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">{propostas.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="itens">
+            Itens
+            {itens.length > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">{itens.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="dados">Dados da Licitação</TabsTrigger>
+          <TabsTrigger value="historico">Histórico</TabsTrigger>
         </TabsList>
 
         <TabsContent value="fases" className="space-y-6">
@@ -713,9 +1192,19 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                     <Check className="w-4 h-4 mr-1" /> Concluída
                   </Badge>
                 ) : (
-                  <Link href={`/orgao/licitacoes/${licitacao.id}/fase-interna`}>
-                    <Button size="sm"><Settings className="mr-2 h-4 w-4" /> Gerenciar</Button>
-                  </Link>
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={marcarFaseInternaConcluida}
+                      title="Use esta opção se a fase interna foi feita fora do sistema"
+                    >
+                      <CheckCircle2 className="mr-2 h-4 w-4" /> Marcar como Concluída
+                    </Button>
+                    <Link href={`/orgao/licitacoes/${licitacao.id}/fase-interna`}>
+                      <Button size="sm"><Settings className="mr-2 h-4 w-4" /> Gerenciar no Sistema</Button>
+                    </Link>
+                  </div>
                 )}
               </div>
             </CardHeader>
@@ -741,6 +1230,12 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                   )
                 })}
               </div>
+              {!licitacao.fase_interna_concluida && (
+                <p className="text-xs text-muted-foreground mt-4 bg-amber-50 p-2 rounded border border-amber-200">
+                  <strong>Nota:</strong> Se a fase interna foi realizada fora deste sistema (em papel ou outro software), 
+                  clique em "Marcar como Concluída" para liberar o envio ao PNCP.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -819,17 +1314,36 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-4">
-                {licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' && (
+                {/* Ações comuns - Ver Impugnações e Esclarecimentos */}
+                <Link href={`/orgao/licitacoes/${licitacaoId}/impugnacoes`} className="contents">
+                  <Button variant="outline" className="h-20 flex-col">
+                    <MessageSquare className="h-6 w-6 mb-2" />
+                    Ver Impugnações
+                  </Button>
+                </Link>
+                <Link href={`/orgao/licitacoes/${licitacaoId}/esclarecimentos`} className="contents">
+                  <Button variant="outline" className="h-20 flex-col">
+                    <HelpCircle className="h-6 w-6 mb-2" />
+                    Ver Esclarecimentos
+                  </Button>
+                </Link>
+
+                {/* Ações específicas por fase */}
+                {['ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS'].includes(licitacao.fase) && (
                   <>
-                    <Button variant="outline" className="h-20 flex-col">
-                      <Users className="h-6 w-6 mb-2" />
-                      Ver Propostas
-                    </Button>
-                    <Button className="h-20 flex-col">
-                      <Play className="h-6 w-6 mb-2" />
-                      Iniciar Sessao Publica
-                    </Button>
-                    <Button variant="outline" className="h-20 flex-col">
+                    <Link href={`/orgao/licitacoes/${licitacaoId}/propostas`} className="contents">
+                      <Button variant="outline" className="h-20 flex-col">
+                        <Users className="h-6 w-6 mb-2" />
+                        Ver Propostas
+                      </Button>
+                    </Link>
+                    <Link href={`/orgao/licitacoes/${licitacaoId}/sessao`} className="contents">
+                      <Button className="h-20 flex-col">
+                        <Play className="h-6 w-6 mb-2" />
+                        Iniciar Sessão Pública
+                      </Button>
+                    </Link>
+                    <Button variant="outline" className="h-20 flex-col" onClick={() => suspenderLicitacao()}>
                       <Pause className="h-6 w-6 mb-2" />
                       Suspender Processo
                     </Button>
@@ -837,15 +1351,15 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                 )}
                 {licitacao.fase === 'EM_DISPUTA' && (
                   <>
-                    <Link href={`/orgao/licitacoes/${licitacao.id}/sala`} className="contents">
+                    <Link href={`/orgao/licitacoes/${licitacaoId}/sala`} className="contents">
                       <Button variant="destructive" className="h-20 flex-col">
                         <Gavel className="h-6 w-6 mb-2" />
                         Acessar Sala de Disputa
                       </Button>
                     </Link>
-                    <Button variant="outline" className="h-20 flex-col">
+                    <Button variant="outline" className="h-20 flex-col" onClick={() => suspenderLicitacao()}>
                       <Pause className="h-6 w-6 mb-2" />
-                      Suspender Sessao
+                      Suspender Sessão
                     </Button>
                   </>
                 )}
@@ -858,36 +1372,164 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Documentos do Processo</CardTitle>
-                <Button size="sm">
+                <div>
+                  <CardTitle>Documentos do Processo</CardTitle>
+                  <CardDescription>
+                    {documentos.length} documento(s) cadastrado(s) | {documentos.filter(d => d.publico).length} público(s)
+                  </CardDescription>
+                </div>
+                <Button size="sm" onClick={() => setShowUploadModal(true)}>
                   <Upload className="mr-2 h-4 w-4" /> Adicionar Documento
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {documentos.map((doc) => {
-                  const statusConfig = getStatusDocumento(doc.status)
-                  const StatusIcon = statusConfig.icon
-                  return (
-                    <div key={doc.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-slate-50">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded flex items-center justify-center">
-                          <FileText className="h-5 w-5 text-blue-600" />
+              {documentos.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p>Nenhum documento cadastrado</p>
+                  <p className="text-sm">Adicione documentos como Edital, Termo de Referência, etc.</p>
+                  <Button className="mt-4" onClick={() => setShowUploadModal(true)}>
+                    <Upload className="mr-2 h-4 w-4" /> Adicionar Primeiro Documento
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {documentos.map((doc) => {
+                    const statusConfig = getStatusDocumento(doc.status)
+                    const StatusIcon = statusConfig.icon
+                    return (
+                      <div key={doc.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-100 rounded flex items-center justify-center">
+                            <FileText className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{doc.titulo || doc.nome_original}</p>
+                              {doc.publico && (
+                                <Badge variant="outline" className="text-xs">Público</Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {doc.tipo} • {doc.tamanho ? `${(doc.tamanho / 1024).toFixed(1)} KB` : ''} • {formatarData(doc.created_at)}
+                            </p>
+                            {doc.descricao && (
+                              <p className="text-xs text-slate-500 mt-1">{doc.descricao}</p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{doc.titulo}</p>
-                          <p className="text-sm text-muted-foreground">Tipo: {doc.tipo}</p>
+                        <div className="flex items-center gap-2">
+                          <Badge className={statusConfig.className}>
+                            <StatusIcon className="w-3 h-3 mr-1" />
+                            {statusConfig.label}
+                          </Badge>
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            onClick={() => window.open(`${API_URL}/api/documentos/${doc.id}/download`, '_blank')}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost">
+                            <Eye className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <Badge className={statusConfig.className}>
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {statusConfig.label}
-                      </Badge>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Aba de Impugnações - Art. 164 da Lei 14.133/2021 */}
+        <TabsContent value="impugnacoes">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileWarning className="h-5 w-5" />
+                    Impugnações e Esclarecimentos
+                  </CardTitle>
+                  <CardDescription>
+                    Art. 164 da Lei 14.133/2021 - Prazo de 3 dias úteis para resposta
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Badge className="bg-yellow-100 text-yellow-700">
+                    {impugnacoes.filter(i => i.status === 'PENDENTE').length} Pendentes
+                  </Badge>
+                  <Badge className="bg-green-100 text-green-700">
+                    {impugnacoes.filter(i => i.status === 'RESPONDIDA' || i.status === 'DEFERIDA' || i.status === 'INDEFERIDA').length} Respondidas
+                  </Badge>
+                </div>
               </div>
+            </CardHeader>
+            <CardContent>
+              {impugnacoes.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <HelpCircle className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p>Nenhuma impugnação ou pedido de esclarecimento</p>
+                  <p className="text-sm">As impugnações aparecerão aqui quando forem registradas</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {impugnacoes.map((impugnacao) => (
+                    <div key={impugnacao.id} className="border rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge className={
+                              impugnacao.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-700' :
+                              impugnacao.status === 'EM_ANALISE' ? 'bg-blue-100 text-blue-700' :
+                              impugnacao.status === 'DEFERIDA' ? 'bg-green-100 text-green-700' :
+                              impugnacao.status === 'INDEFERIDA' ? 'bg-red-100 text-red-700' :
+                              'bg-slate-100 text-slate-700'
+                            }>
+                              {impugnacao.status.replace('_', ' ')}
+                            </Badge>
+                            {impugnacao.is_cidadao && (
+                              <Badge variant="outline">Cidadão</Badge>
+                            )}
+                          </div>
+                          <p className="font-medium">{impugnacao.nome_impugnante}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {impugnacao.cpf_cnpj_impugnante} • {impugnacao.email_impugnante}
+                          </p>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{formatarData(impugnacao.created_at)}</p>
+                      </div>
+                      
+                      <div className="bg-slate-50 rounded p-3 mb-3">
+                        <p className="text-sm font-medium text-slate-700 mb-1">Texto da Impugnação:</p>
+                        <p className="text-sm">{impugnacao.texto_impugnacao}</p>
+                      </div>
+
+                      {impugnacao.resposta && (
+                        <div className="bg-blue-50 rounded p-3 mb-3">
+                          <p className="text-sm font-medium text-blue-700 mb-1">
+                            Resposta ({impugnacao.respondido_por} - {formatarData(impugnacao.data_resposta || '')}):
+                          </p>
+                          <p className="text-sm">{impugnacao.resposta}</p>
+                        </div>
+                      )}
+
+                      {impugnacao.status === 'PENDENTE' && (
+                        <div className="flex gap-2">
+                          <Link href={`/orgao/licitacoes/${licitacaoId}/impugnacoes`}>
+                            <Button size="sm">
+                              <MessageSquare className="h-4 w-4 mr-1" /> Responder
+                            </Button>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -984,29 +1626,560 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
         <TabsContent value="historico">
           <Card>
             <CardHeader>
-              <CardTitle>Historico do Processo</CardTitle>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Histórico do Processo</CardTitle>
+                  <CardDescription>Registro de todos os eventos e ações realizadas</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" onClick={carregarDados}>
+                  <RefreshCw className="h-4 w-4 mr-2" /> Atualizar
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {[
-                  { data: '2025-11-20 09:00', evento: 'Edital publicado no PNCP', usuario: 'Maria Silva' },
-                  { data: '2025-11-15 14:30', evento: 'Parecer juridico aprovado', usuario: 'Dr. Joao Santos' },
-                  { data: '2025-11-10 10:00', evento: 'Termo de Referencia aprovado', usuario: 'Carlos Oliveira' },
-                  { data: '2025-11-05 11:00', evento: 'Processo iniciado', usuario: 'Maria Silva' },
-                ].map((item, index) => (
-                  <div key={index} className="flex gap-4 items-start">
-                    <div className="w-2 h-2 mt-2 rounded-full bg-blue-500" />
-                    <div>
-                      <p className="font-medium">{item.evento}</p>
-                      <p className="text-sm text-muted-foreground">{item.data} - {item.usuario}</p>
+              {historico.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Clock className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p>Nenhum evento registrado ainda</p>
+                  <p className="text-sm">O histórico será preenchido conforme o processo avançar</p>
+                  
+                  {/* Mostrar informações básicas da licitação como histórico inicial */}
+                  {licitacao && (
+                    <div className="mt-6 text-left max-w-md mx-auto">
+                      <p className="text-sm font-medium text-slate-700 mb-3">Informações do Processo:</p>
+                      <div className="space-y-2">
+                        <div className="flex gap-4 items-start">
+                          <div className="w-2 h-2 mt-2 rounded-full bg-green-500" />
+                          <div>
+                            <p className="font-medium text-slate-800">Processo criado</p>
+                            <p className="text-sm text-muted-foreground">{formatarData(licitacao.created_at)}</p>
+                          </div>
+                        </div>
+                        {licitacao.fase_interna_concluida && (
+                          <div className="flex gap-4 items-start">
+                            <div className="w-2 h-2 mt-2 rounded-full bg-green-500" />
+                            <div>
+                              <p className="font-medium text-slate-800">Fase interna concluída</p>
+                              <p className="text-sm text-muted-foreground">Processo pronto para publicação</p>
+                            </div>
+                          </div>
+                        )}
+                        {licitacao.enviado_pncp && (
+                          <div className="flex gap-4 items-start">
+                            <div className="w-2 h-2 mt-2 rounded-full bg-blue-500" />
+                            <div>
+                              <p className="font-medium text-slate-800">Enviado ao PNCP</p>
+                              <p className="text-sm text-muted-foreground">Nº Controle: {licitacao.numero_controle_pncp}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {historico.map((evento) => (
+                    <div key={evento.id} className="flex gap-4 items-start">
+                      <div className={`w-2 h-2 mt-2 rounded-full ${
+                        evento.tipo.includes('ERRO') ? 'bg-red-500' :
+                        evento.tipo.includes('APROVAD') ? 'bg-green-500' :
+                        evento.tipo.includes('INICIADA') ? 'bg-blue-500' :
+                        'bg-slate-400'
+                      }`} />
+                      <div className="flex-1">
+                        <p className="font-medium">{evento.descricao}</p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>{formatarData(evento.created_at)}</span>
+                          {evento.usuario_nome && (
+                            <>
+                              <span>•</span>
+                              <span>{evento.usuario_nome}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Aba de Itens */}
+        <TabsContent value="itens">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Itens da Licitação</CardTitle>
+                  <CardDescription>
+                    {itens.length} item(ns) cadastrado(s) | Valor total estimado: {formatarMoeda(itens.reduce((sum, i) => sum + Number(i.valor_total_estimado), 0))}
+                  </CardDescription>
+                </div>
+                <Button size="sm" onClick={() => {
+                  setEditingItem({
+                    numero_item: itens.length + 1,
+                    quantidade: 1,
+                    unidade_medida: 'UNIDADE',
+                    valor_unitario_estimado: 0,
+                    tipo_participacao: 'AMPLA',
+                    status: 'ATIVO'
+                  })
+                  setShowItemModal(true)
+                }}>
+                  <Plus className="mr-2 h-4 w-4" /> Adicionar Item
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {itens.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p>Nenhum item cadastrado</p>
+                  <p className="text-sm">Adicione os itens que serão licitados</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium">Item</th>
+                          <th className="px-4 py-3 text-left font-medium">Descrição</th>
+                          <th className="px-4 py-3 text-right font-medium">Qtd</th>
+                          <th className="px-4 py-3 text-left font-medium">Unid.</th>
+                          <th className="px-4 py-3 text-right font-medium">Valor Unit.</th>
+                          <th className="px-4 py-3 text-right font-medium">Valor Total</th>
+                          <th className="px-4 py-3 text-center font-medium">Status</th>
+                          <th className="px-4 py-3 text-center font-medium">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {itens.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 font-medium">
+                              {item.numero_lote ? `L${item.numero_lote}-` : ''}{item.numero_item}
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="font-medium">{item.descricao_resumida}</p>
+                              {item.codigo_catalogo && (
+                                <p className="text-xs text-muted-foreground">Cód: {item.codigo_catalogo}</p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">{Number(item.quantidade).toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3">{item.unidade_medida}</td>
+                            <td className="px-4 py-3 text-right">{formatarMoeda(item.valor_unitario_estimado)}</td>
+                            <td className="px-4 py-3 text-right font-medium">{formatarMoeda(item.valor_total_estimado)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge className={
+                                item.status === 'ATIVO' ? 'bg-green-100 text-green-700' :
+                                item.status === 'ADJUDICADO' ? 'bg-blue-100 text-blue-700' :
+                                item.status === 'HOMOLOGADO' ? 'bg-emerald-100 text-emerald-700' :
+                                item.status === 'CANCELADO' ? 'bg-red-100 text-red-700' :
+                                'bg-slate-100 text-slate-700'
+                              }>
+                                {item.status}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => {
+                                  setEditingItem(item)
+                                  setShowItemModal(true)
+                                }}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={async () => {
+                                  if (confirm(`Excluir item ${item.numero_item}?`)) {
+                                    try {
+                                      const res = await fetch(`${API_URL}/api/itens/${item.id}`, { method: 'DELETE' })
+                                      if (res.ok) {
+                                        carregarDados()
+                                      } else {
+                                        alert('Erro ao excluir item')
+                                      }
+                                    } catch (e) {
+                                      alert('Erro ao excluir item')
+                                    }
+                                  }
+                                }}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-100 font-medium">
+                        <tr>
+                          <td colSpan={5} className="px-4 py-3 text-right">Total Estimado:</td>
+                          <td className="px-4 py-3 text-right">{formatarMoeda(itens.reduce((sum, i) => sum + Number(i.valor_total_estimado), 0))}</td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
-                ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Aba de Dados da Licitação */}
+        <TabsContent value="dados">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Dados da Licitação</CardTitle>
+                  <CardDescription>Informações gerais do processo licitatório</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => {
+                  setEditingLicitacao({...licitacao})
+                  setShowEditModal(true)
+                }}>
+                  <Settings className="mr-2 h-4 w-4" /> Editar
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Número do Processo</p>
+                    <p className="font-medium">{licitacao.numero_processo}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Objeto</p>
+                    <p className="font-medium">{licitacao.objeto}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Modalidade</p>
+                    <p className="font-medium">{licitacao.modalidade?.replace(/_/g, ' ')}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Valor Total Estimado</p>
+                    <p className="font-medium">{formatarMoeda(licitacao.valor_total_estimado)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Órgão</p>
+                    <p className="font-medium">{licitacao.orgao?.nome || '-'}</p>
+                    {licitacao.orgao?.cnpj && <p className="text-sm text-muted-foreground">CNPJ: {licitacao.orgao.cnpj}</p>}
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Data de Publicação</p>
+                    <p className="font-medium">{formatarData(licitacao.data_publicacao_edital)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Data de Abertura da Sessão</p>
+                    <p className="font-medium">{formatarData(licitacao.data_abertura_sessao)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Pregoeiro</p>
+                    <p className="font-medium">{licitacao.pregoeiro_nome || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Sigilo do Orçamento</p>
+                    <p className="font-medium">{licitacao.sigilo_orcamento || 'Público'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Status PNCP</p>
+                    {licitacao.enviado_pncp ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-green-100 text-green-700">Enviado</Badge>
+                        {licitacao.numero_controle_pncp && <span className="text-sm">Nº: {licitacao.numero_controle_pncp}</span>}
+                      </div>
+                    ) : (
+                      <Badge className="bg-slate-100 text-slate-700">Não enviado</Badge>
+                    )}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de Edição da Licitação */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowEditModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
+              <h2 className="text-lg font-semibold">Editar Licitação</h2>
+              <button onClick={() => setShowEditModal(false)} className="p-1 hover:bg-slate-100 rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Número do Processo</label>
+                <Input 
+                  value={editingLicitacao.numero_processo || ''} 
+                  onChange={(e) => setEditingLicitacao({...editingLicitacao, numero_processo: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Objeto</label>
+                <Textarea 
+                  value={editingLicitacao.objeto || ''} 
+                  onChange={(e) => setEditingLicitacao({...editingLicitacao, objeto: e.target.value})}
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Valor Total Estimado</label>
+                  <Input 
+                    type="number"
+                    step="0.01"
+                    value={editingLicitacao.valor_total_estimado || ''} 
+                    onChange={(e) => setEditingLicitacao({...editingLicitacao, valor_total_estimado: parseFloat(e.target.value)})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Pregoeiro</label>
+                  <Input 
+                    value={editingLicitacao.pregoeiro_nome || ''} 
+                    onChange={(e) => setEditingLicitacao({...editingLicitacao, pregoeiro_nome: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Data de Publicação</label>
+                  <Input 
+                    type="date"
+                    value={editingLicitacao.data_publicacao_edital?.split('T')[0] || ''} 
+                    onChange={(e) => setEditingLicitacao({...editingLicitacao, data_publicacao_edital: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Data de Abertura</label>
+                  <Input 
+                    type="datetime-local"
+                    value={editingLicitacao.data_abertura_sessao?.slice(0, 16) || ''} 
+                    onChange={(e) => setEditingLicitacao({...editingLicitacao, data_abertura_sessao: e.target.value})}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t bg-slate-50 flex justify-end gap-2 sticky bottom-0">
+              <Button variant="outline" onClick={() => setShowEditModal(false)}>
+                Cancelar
+              </Button>
+              <Button 
+                onClick={async () => {
+                  setSavingEdit(true)
+                  try {
+                    const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(editingLicitacao)
+                    })
+                    if (res.ok) {
+                      alert('Licitação atualizada com sucesso!')
+                      setShowEditModal(false)
+                      carregarDados()
+                    } else {
+                      const error = await res.json()
+                      alert(`Erro: ${error.message || 'Falha ao salvar'}`)
+                    }
+                  } catch (error) {
+                    console.error('Erro:', error)
+                    alert('Erro ao salvar alterações')
+                  } finally {
+                    setSavingEdit(false)
+                  }
+                }}
+                disabled={savingEdit}
+              >
+                {savingEdit ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar Alterações'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Criar/Editar Item */}
+      {showItemModal && editingItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowItemModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
+              <h2 className="text-lg font-semibold">{editingItem.id ? 'Editar Item' : 'Novo Item'}</h2>
+              <button onClick={() => setShowItemModal(false)} className="p-1 hover:bg-slate-100 rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nº Item *</label>
+                  <Input 
+                    type="number"
+                    value={editingItem.numero_item || ''} 
+                    onChange={(e) => setEditingItem({...editingItem, numero_item: parseInt(e.target.value)})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nº Lote</label>
+                  <Input 
+                    type="number"
+                    value={editingItem.numero_lote || ''} 
+                    onChange={(e) => setEditingItem({...editingItem, numero_lote: parseInt(e.target.value) || undefined})}
+                    placeholder="Opcional"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Código Catálogo</label>
+                  <Input 
+                    value={editingItem.codigo_catalogo || ''} 
+                    onChange={(e) => setEditingItem({...editingItem, codigo_catalogo: e.target.value})}
+                    placeholder="CATMAT/CATSER"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Descrição Resumida *</label>
+                <Input 
+                  value={editingItem.descricao_resumida || ''} 
+                  onChange={(e) => setEditingItem({...editingItem, descricao_resumida: e.target.value})}
+                  placeholder="Descrição do item"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Descrição Detalhada</label>
+                <Textarea 
+                  value={editingItem.descricao_detalhada || ''} 
+                  onChange={(e) => setEditingItem({...editingItem, descricao_detalhada: e.target.value})}
+                  rows={3}
+                  placeholder="Especificações técnicas, marca de referência, etc."
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Quantidade *</label>
+                  <Input 
+                    type="number"
+                    step="0.0001"
+                    value={editingItem.quantidade || ''} 
+                    onChange={(e) => setEditingItem({...editingItem, quantidade: parseFloat(e.target.value)})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Unidade *</label>
+                  <select 
+                    className="w-full border rounded-md px-3 py-2"
+                    value={editingItem.unidade_medida || 'UNIDADE'}
+                    onChange={(e) => setEditingItem({...editingItem, unidade_medida: e.target.value})}
+                  >
+                    <option value="UNIDADE">Unidade</option>
+                    <option value="PECA">Peça</option>
+                    <option value="CAIXA">Caixa</option>
+                    <option value="PACOTE">Pacote</option>
+                    <option value="METRO">Metro</option>
+                    <option value="METRO_QUADRADO">Metro²</option>
+                    <option value="METRO_CUBICO">Metro³</option>
+                    <option value="LITRO">Litro</option>
+                    <option value="QUILOGRAMA">Quilograma</option>
+                    <option value="TONELADA">Tonelada</option>
+                    <option value="HORA">Hora</option>
+                    <option value="DIARIA">Diária</option>
+                    <option value="MES">Mês</option>
+                    <option value="ANO">Ano</option>
+                    <option value="SERVICO">Serviço</option>
+                    <option value="GLOBAL">Global</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Valor Unitário *</label>
+                  <Input 
+                    type="number"
+                    step="0.0001"
+                    value={editingItem.valor_unitario_estimado || ''} 
+                    onChange={(e) => setEditingItem({...editingItem, valor_unitario_estimado: parseFloat(e.target.value)})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Tipo de Participação</label>
+                  <select 
+                    className="w-full border rounded-md px-3 py-2"
+                    value={editingItem.tipo_participacao || 'AMPLA'}
+                    onChange={(e) => setEditingItem({...editingItem, tipo_participacao: e.target.value})}
+                  >
+                    <option value="AMPLA">Ampla Concorrência</option>
+                    <option value="EXCLUSIVO_MPE">Exclusivo ME/EPP</option>
+                    <option value="COTA_RESERVADA">Cota Reservada ME/EPP</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Valor Total Estimado</label>
+                  <Input 
+                    type="text"
+                    value={formatarMoeda((editingItem.quantidade || 0) * (editingItem.valor_unitario_estimado || 0))}
+                    disabled
+                    className="bg-slate-50"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t bg-slate-50 flex justify-end gap-2 sticky bottom-0">
+              <Button variant="outline" onClick={() => setShowItemModal(false)}>
+                Cancelar
+              </Button>
+              <Button 
+                onClick={async () => {
+                  if (!editingItem.descricao_resumida || !editingItem.quantidade || !editingItem.valor_unitario_estimado) {
+                    alert('Preencha os campos obrigatórios')
+                    return
+                  }
+                  setSavingItem(true)
+                  try {
+                    const itemData = {
+                      ...editingItem,
+                      licitacao_id: licitacaoId,
+                      valor_total_estimado: (editingItem.quantidade || 0) * (editingItem.valor_unitario_estimado || 0)
+                    }
+                    
+                    const url = editingItem.id 
+                      ? `${API_URL}/api/itens/${editingItem.id}`
+                      : `${API_URL}/api/itens`
+                    
+                    const res = await fetch(url, {
+                      method: editingItem.id ? 'PUT' : 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(itemData)
+                    })
+                    
+                    if (res.ok) {
+                      alert(editingItem.id ? 'Item atualizado!' : 'Item criado!')
+                      setShowItemModal(false)
+                      setEditingItem(null)
+                      carregarDados()
+                    } else {
+                      const error = await res.json()
+                      alert(`Erro: ${error.message || 'Falha ao salvar'}`)
+                    }
+                  } catch (error) {
+                    console.error('Erro:', error)
+                    alert('Erro ao salvar item')
+                  } finally {
+                    setSavingItem(false)
+                  }
+                }}
+                disabled={savingItem}
+              >
+                {savingItem ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...</> : (editingItem.id ? 'Atualizar Item' : 'Criar Item')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Informações da Fase */}
       {faseModal && (
@@ -1058,23 +2231,53 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                 </div>
               )}
 
-              {/* Se não é fase atual, mostra status */}
+              {/* Se não é fase atual, mostra status e ações de consulta */}
               {licitacao?.fase !== faseModal.id && (
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
                   <p className="text-sm text-slate-600">
                     {FASES_EXTERNAS.findIndex(f => f.id === faseModal.id) < FASES_EXTERNAS.findIndex(f => f.id === licitacao?.fase)
                       ? '✓ Esta fase já foi concluída'
                       : '○ Esta fase ainda não foi iniciada'}
                   </p>
+                  
+                  {/* Botões de consulta para fases concluídas */}
+                  {FASES_EXTERNAS.findIndex(f => f.id === faseModal.id) < FASES_EXTERNAS.findIndex(f => f.id === licitacao?.fase) && (
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-200">
+                      {faseModal.id === 'IMPUGNACAO' && (
+                        <Link href={`/orgao/licitacoes/${licitacaoId}/impugnacoes`}>
+                          <Button size="sm" variant="outline">
+                            <MessageSquare className="h-4 w-4 mr-1" />
+                            Ver Impugnações Recebidas
+                          </Button>
+                        </Link>
+                      )}
+                      {faseModal.id === 'PUBLICADO' && (
+                        <Link href={`/orgao/licitacoes/${licitacaoId}/esclarecimentos`}>
+                          <Button size="sm" variant="outline">
+                            <HelpCircle className="h-4 w-4 mr-1" />
+                            Ver Esclarecimentos
+                          </Button>
+                        </Link>
+                      )}
+                      {faseModal.id === 'ACOLHIMENTO_PROPOSTAS' && (
+                        <Link href={`/orgao/licitacoes/${licitacaoId}/propostas`}>
+                          <Button size="sm" variant="outline">
+                            <Users className="h-4 w-4 mr-1" />
+                            Ver Propostas Recebidas
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Checklist da Fase</p>
+                <p className="text-sm text-muted-foreground mb-2">Requisitos da Fase</p>
                 <ul className="space-y-1">
                   {faseModal.acoes.map((acao, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" className="rounded" />
+                    <li key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                      <ChevronRight className="h-3 w-3" />
                       {acao}
                     </li>
                   ))}
@@ -1099,6 +2302,123 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                 )}
               </div>
               <Button variant="outline" onClick={() => setFaseModal(null)}>Fechar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Upload de Documento */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowUploadModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <Upload className="h-5 w-5 text-blue-600" />
+                <h2 className="text-lg font-semibold">Adicionar Documento</h2>
+              </div>
+              <button onClick={() => setShowUploadModal(false)} className="p-1 hover:bg-slate-100 rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Tipo de Documento *</label>
+                <select 
+                  className="w-full border rounded-md p-2"
+                  value={novoDocumento.tipo}
+                  onChange={(e) => setNovoDocumento({...novoDocumento, tipo: e.target.value})}
+                >
+                  <option value="EDITAL">Edital</option>
+                  <option value="TERMO_REFERENCIA">Termo de Referência</option>
+                  <option value="ESTUDO_TECNICO">Estudo Técnico Preliminar</option>
+                  <option value="PESQUISA_PRECOS">Pesquisa de Preços</option>
+                  <option value="PARECER_JURIDICO">Parecer Jurídico</option>
+                  <option value="ATA">Ata</option>
+                  <option value="CONTRATO">Contrato</option>
+                  <option value="ANEXO">Anexo</option>
+                  <option value="ESCLARECIMENTO">Esclarecimento</option>
+                  <option value="IMPUGNACAO">Impugnação</option>
+                  <option value="RECURSO">Recurso</option>
+                  <option value="OUTROS">Outros</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Título *</label>
+                <Input 
+                  placeholder="Ex: Edital de Pregão Eletrônico nº 001/2025"
+                  value={novoDocumento.titulo}
+                  onChange={(e) => setNovoDocumento({...novoDocumento, titulo: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Descrição</label>
+                <Textarea 
+                  placeholder="Descrição opcional do documento..."
+                  value={novoDocumento.descricao}
+                  onChange={(e) => setNovoDocumento({...novoDocumento, descricao: e.target.value})}
+                  rows={2}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Arquivo *</label>
+                <div className="border-2 border-dashed rounded-lg p-4 text-center">
+                  {arquivoSelecionado ? (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-blue-600" />
+                        <span className="text-sm">{arquivoSelecionado.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({(arquivoSelecionado.size / 1024).toFixed(1)} KB)
+                        </span>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => setArquivoSelecionado(null)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer">
+                      <input 
+                        type="file" 
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                        onChange={(e) => setArquivoSelecionado(e.target.files?.[0] || null)}
+                      />
+                      <div className="text-muted-foreground">
+                        <Upload className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>Clique para selecionar ou arraste o arquivo</p>
+                        <p className="text-xs mt-1">PDF, DOC, DOCX, XLS, XLSX, PNG, JPG (máx. 10MB)</p>
+                      </div>
+                    </label>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="publico" 
+                  checked={novoDocumento.publico}
+                  onChange={(e) => setNovoDocumento({...novoDocumento, publico: e.target.checked})}
+                  className="rounded"
+                />
+                <label htmlFor="publico" className="text-sm">
+                  Documento público (visível para fornecedores)
+                </label>
+              </div>
+            </div>
+            <div className="p-4 border-t bg-slate-50 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowUploadModal(false)}>
+                Cancelar
+              </Button>
+              <Button 
+                onClick={uploadDocumento}
+                disabled={uploadingDoc || !arquivoSelecionado || !novoDocumento.titulo}
+              >
+                {uploadingDoc ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Enviando...</>
+                ) : (
+                  <><Upload className="mr-2 h-4 w-4" /> Enviar Documento</>
+                )}
+              </Button>
             </div>
           </div>
         </div>

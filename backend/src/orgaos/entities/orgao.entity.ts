@@ -98,19 +98,32 @@ export class Orgao {
   @Column({ nullable: true })
   senha_hash: string;
 
-  // Status
-  @Column({ default: true })
+  @Column({ nullable: true })
+  pncp_codigo_unidade: string;
+
+  @Column({ default: false })
   ativo: boolean;
+
+  // ============ CREDENCIAIS PNCP ============
+
+  @Column({ nullable: true })
+  pncp_api_url: string;
+
+  @Column({ nullable: true })
+  pncp_login: string;
+
+  @Column({ nullable: true })
+  pncp_senha: string; // Será criptografada
+
+  @Column({ nullable: true })
+  pncp_cnpj_orgao: string;
 
   // ============ INTEGRAÇÃO PNCP ============
   // A plataforma (LicitaFácil) tem UMA credencial no PNCP
   // e vincula os CNPJs dos órgãos à plataforma
-  
+
   @Column({ nullable: true, default: false })
   pncp_vinculado: boolean; // Se o CNPJ do órgão está vinculado à plataforma no PNCP
-
-  @Column({ nullable: true })
-  pncp_codigo_unidade: string; // Código da unidade no PNCP (geralmente "1")
 
   @Column({ nullable: true })
   pncp_data_vinculacao: Date; // Data em que foi vinculado à plataforma
