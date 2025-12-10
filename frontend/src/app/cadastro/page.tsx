@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+
 export default function CadastroPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
@@ -53,7 +55,7 @@ export default function CadastroPage() {
     setLoading(true)
 
     try {
-      const response = await fetch("http://localhost:3001/api/fornecedores/registro", {
+      const response = await fetch(`${API_URL}/api/fornecedores/registro`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, senha }),
