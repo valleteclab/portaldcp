@@ -5,6 +5,19 @@ import { Proposta, StatusProposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { ItensService } from '../itens/itens.service';
+import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+
+function formatarDataLocal(date: Date | null | undefined): string | null {
+  if (!date) return null;
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, '0');
+  const dia = String(date.getDate()).padStart(2, '0');
+  const hora = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  const seg = String(date.getSeconds()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
+}
 
 @Injectable()
 export class PropostasService {
@@ -13,10 +26,28 @@ export class PropostasService {
     private readonly propostaRepository: Repository<Proposta>,
     @InjectRepository(PropostaItem)
     private readonly propostaItemRepository: Repository<PropostaItem>,
+    @InjectRepository(Licitacao)
+    private readonly licitacaoRepository: Repository<Licitacao>,
     private readonly itensService: ItensService,
   ) {}
 
+  private async validarAntesAberturaSessao(licitacaoId: string): Promise<void> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+    });
+
+    const abertura = licitacao?.data_abertura_sessao;
+    if (abertura instanceof Date && !isNaN(abertura.getTime())) {
+      const agora = new Date();
+      if (agora >= abertura) {
+        throw new BadRequestException('Não é possível enviar/alterar proposta após a abertura da sessão');
+      }
+    }
+  }
+
   async create(createDto: CreatePropostaDto): Promise<Proposta> {
+    await this.validarAntesAberturaSessao(createDto.licitacao_id);
+
     // Verifica se já existe proposta deste fornecedor para esta licitação
     const existing = await this.propostaRepository.findOne({
       where: {
@@ -25,8 +56,11 @@ export class PropostasService {
       }
     });
 
-    if (existing && existing.status !== StatusProposta.CANCELADA) {
-      throw new ConflictException('Fornecedor já possui proposta para esta licitação');
+    if (existing) {
+      throw new ConflictException({
+        message: 'Fornecedor já possui proposta para esta licitação',
+        propostaId: existing.id,
+      });
     }
 
     // Valida declarações obrigatórias
@@ -91,18 +125,61 @@ export class PropostasService {
   }
 
   async findByLicitacao(licitacaoId: string): Promise<Proposta[]> {
-    return await this.propostaRepository.find({
+    const propostas = await this.propostaRepository.find({
       where: { licitacao_id: licitacaoId },
-      relations: ['fornecedor'],
+      relations: ['fornecedor', 'itens', 'itens.item_licitacao'],
       order: { valor_total_proposta: 'ASC' }
+    });
+
+    return propostas.map((proposta) => {
+      const itens_proposta = (proposta.itens || []).map((pi) => {
+        const item = pi.item_licitacao;
+        return {
+          id: pi.id,
+          item_licitacao_id: pi.item_licitacao_id,
+          numero_item: item?.numero_item,
+          descricao: item?.descricao_detalhada || item?.descricao_resumida,
+          quantidade: item?.quantidade,
+          unidade: item?.unidade_medida,
+          valor_unitario: pi.valor_unitario,
+          valor_total: pi.valor_total,
+          marca: pi.marca,
+          modelo: pi.modelo,
+          fabricante: pi.fabricante,
+          descricao_complementar: pi.descricao_complementar,
+          prazo_entrega_dias: pi.prazo_entrega_dias,
+          garantia_meses: pi.garantia_meses,
+        };
+      });
+
+      return {
+        ...proposta,
+        itens_proposta,
+      } as any;
     });
   }
 
   async findByFornecedor(fornecedorId: string): Promise<Proposta[]> {
-    return await this.propostaRepository.find({
+    const propostas = await this.propostaRepository.find({
       where: { fornecedor_id: fornecedorId },
       relations: ['licitacao'],
       order: { created_at: 'DESC' }
+    });
+
+    return propostas.map((p) => {
+      const lic = (p as any).licitacao;
+      if (!lic) return p;
+      return {
+        ...p,
+        licitacao: {
+          ...lic,
+          data_publicacao_edital: formatarDataLocal(lic.data_publicacao_edital),
+          data_limite_impugnacao: formatarDataLocal(lic.data_limite_impugnacao),
+          data_inicio_acolhimento: formatarDataLocal(lic.data_inicio_acolhimento),
+          data_fim_acolhimento: formatarDataLocal(lic.data_fim_acolhimento),
+          data_abertura_sessao: formatarDataLocal(lic.data_abertura_sessao),
+        }
+      } as any;
     });
   }
 
@@ -114,7 +191,21 @@ export class PropostasService {
     if (!proposta) {
       throw new NotFoundException(`Proposta com ID ${id} não encontrada`);
     }
-    return proposta;
+
+    const lic = (proposta as any).licitacao;
+    if (!lic) return proposta;
+
+    return {
+      ...proposta,
+      licitacao: {
+        ...lic,
+        data_publicacao_edital: formatarDataLocal(lic.data_publicacao_edital),
+        data_limite_impugnacao: formatarDataLocal(lic.data_limite_impugnacao),
+        data_inicio_acolhimento: formatarDataLocal(lic.data_inicio_acolhimento),
+        data_fim_acolhimento: formatarDataLocal(lic.data_fim_acolhimento),
+        data_abertura_sessao: formatarDataLocal(lic.data_abertura_sessao),
+      }
+    } as any;
   }
 
   async getItens(propostaId: string): Promise<PropostaItem[]> {
@@ -127,6 +218,8 @@ export class PropostasService {
 
   async enviar(id: string): Promise<Proposta> {
     const proposta = await this.findOne(id);
+
+    await this.validarAntesAberturaSessao(proposta.licitacao_id);
 
     if (proposta.status !== StatusProposta.RASCUNHO) {
       throw new BadRequestException('Proposta já foi enviada');
@@ -176,6 +269,37 @@ export class PropostasService {
     return await this.propostaRepository.save(proposta);
   }
 
+  async remove(id: string, fornecedorId: string): Promise<void> {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+
+    const proposta = await this.propostaRepository.findOne({
+      where: { id },
+    });
+    if (!proposta) {
+      throw new NotFoundException(`Proposta com ID ${id} não encontrada`);
+    }
+
+    if (proposta.fornecedor_id !== fornecedorId) {
+      throw new BadRequestException('Apenas o fornecedor da proposta pode excluí-la');
+    }
+
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: proposta.licitacao_id },
+    });
+
+    const abertura = licitacao?.data_abertura_sessao;
+    if (abertura instanceof Date && !isNaN(abertura.getTime())) {
+      const agora = new Date();
+      if (agora >= abertura) {
+        throw new BadRequestException('Não é possível excluir a proposta após a abertura da sessão');
+      }
+    }
+
+    await this.propostaRepository.remove(proposta);
+  }
+
   // Ranking de propostas por item
   async getRankingPorItem(itemLicitacaoId: string) {
     const propostaItens = await this.propostaItemRepository.find({
@@ -201,6 +325,8 @@ export class PropostasService {
   // Atualizar proposta
   async update(id: string, dados: { valor_total_proposta?: number }): Promise<Proposta> {
     const proposta = await this.findOne(id);
+
+    await this.validarAntesAberturaSessao(proposta.licitacao_id);
     
     // Só permite editar se não estiver desclassificada ou cancelada
     if (proposta.status === StatusProposta.DESCLASSIFICADA || proposta.status === StatusProposta.CANCELADA) {
@@ -229,6 +355,8 @@ export class PropostasService {
     if (item.proposta.status === StatusProposta.DESCLASSIFICADA || item.proposta.status === StatusProposta.CANCELADA) {
       throw new BadRequestException('Esta proposta não pode ser editada');
     }
+
+    await this.validarAntesAberturaSessao(item.proposta.licitacao_id);
 
     if (dados.valor_unitario !== undefined) {
       item.valor_unitario = dados.valor_unitario;

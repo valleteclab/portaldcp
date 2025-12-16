@@ -8,7 +8,7 @@ export class PropostaItem {
   id: string;
 
   // Relacionamentos
-  @ManyToOne(() => Proposta, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Proposta, (proposta) => proposta.itens, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'proposta_id' })
   proposta: Proposta;
 

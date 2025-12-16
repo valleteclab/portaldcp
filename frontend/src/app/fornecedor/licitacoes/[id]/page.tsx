@@ -97,7 +97,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [loading, setLoading] = useState(true)
-  const [minhaProposta] = useState<null | { valorTotal: number; status: string }>(null)
+  const [minhaProposta, setMinhaProposta] = useState<null | { id: string; valorTotal: number; status: string }>(null)
 
   useEffect(() => {
     carregarDados()
@@ -118,6 +118,23 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
       if (docRes.ok) {
         setDocumentos(await docRes.json())
       }
+
+      const fornecedorStr = localStorage.getItem('fornecedor')
+      if (fornecedorStr) {
+        const fornecedor = JSON.parse(fornecedorStr)
+        const resPropostas = await fetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+        if (resPropostas.ok) {
+          const propostas = await resPropostas.json()
+          const existente = propostas.find((p: any) => p.licitacao_id === licitacaoId)
+          if (existente) {
+            setMinhaProposta({
+              id: existente.id,
+              valorTotal: existente.valor_total_proposta,
+              status: existente.status,
+            })
+          }
+        }
+      }
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -129,14 +146,34 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
   }
 
+  const parseIsoLocal = (value?: string) => {
+    if (!value) return undefined
+    const match = value.match(/^\s*(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?\s*$/)
+    if (!match) return undefined
+    const [, ano, mes, dia, hora, min, seg = '00'] = match
+    const date = new Date(
+      parseInt(ano),
+      parseInt(mes) - 1,
+      parseInt(dia),
+      parseInt(hora),
+      parseInt(min),
+      parseInt(seg)
+    )
+    return isNaN(date.getTime()) ? undefined : date
+  }
+
   const formatarData = (data?: string) => {
     if (!data) return '-'
-    return new Date(data).toLocaleDateString('pt-BR')
+    const d = parseIsoLocal(data)
+    if (!d) return '-'
+    return d.toLocaleDateString('pt-BR')
   }
 
   const formatarDataHora = (data?: string) => {
     if (!data) return '-'
-    return new Date(data).toLocaleString('pt-BR', {
+    const d = parseIsoLocal(data)
+    if (!d) return '-'
+    return d.toLocaleString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -211,33 +248,38 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   }
 
   const diasRestantes = () => {
-    if (!licitacao?.data_fim_acolhimento) return 0
+    if (!licitacao?.data_abertura_sessao) return 0
     const hoje = new Date()
-    const fim = new Date(licitacao.data_fim_acolhimento)
-    const diff = Math.ceil((fim.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+    const abertura = parseIsoLocal(licitacao.data_abertura_sessao)
+    if (!abertura) return 0
+    const diff = Math.ceil((abertura.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
     return diff
   }
 
   // Verifica se estamos no período de acolhimento baseado nas datas
   const estaNoPeriodoAcolhimento = () => {
-    if (!licitacao?.data_inicio_acolhimento || !licitacao?.data_fim_acolhimento) return false
+    if (!licitacao?.data_inicio_acolhimento || !licitacao?.data_abertura_sessao) return false
     const agora = new Date()
-    const inicio = new Date(licitacao.data_inicio_acolhimento)
-    const fim = new Date(licitacao.data_fim_acolhimento)
-    return agora >= inicio && agora <= fim
+    const inicio = parseIsoLocal(licitacao.data_inicio_acolhimento)
+    const abertura = parseIsoLocal(licitacao.data_abertura_sessao)
+    if (!inicio || !abertura) return false
+    return agora >= inicio && agora < abertura
   }
 
   // Verifica se o período de acolhimento ainda não começou
   const acolhimentoAindaNaoComecou = () => {
     if (!licitacao?.data_inicio_acolhimento) return true
     const agora = new Date()
-    const inicio = new Date(licitacao.data_inicio_acolhimento)
+    const inicio = parseIsoLocal(licitacao.data_inicio_acolhimento)
+    if (!inicio) return true
     return agora < inicio
   }
 
   // Pode enviar proposta se: está no período OU fase é ACOLHIMENTO_PROPOSTAS
   const podeEnviarProposta = () => {
     if (minhaProposta) return false
+    const abertura = parseIsoLocal(licitacao?.data_abertura_sessao)
+    if (abertura && new Date() >= abertura) return false
     if (licitacao?.fase === 'ACOLHIMENTO_PROPOSTAS') return true
     if (estaNoPeriodoAcolhimento()) return true
     return false
@@ -334,7 +376,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                 }`}>
                   <p className="text-xs font-medium">Envio de Propostas</p>
                   <p className="text-sm font-bold">
-                    {formatarData(licitacao.data_inicio_acolhimento)} - {formatarData(licitacao.data_fim_acolhimento)}
+                    {formatarData(licitacao.data_inicio_acolhimento)} - {formatarDataHora(licitacao.data_abertura_sessao)}
                   </p>
                 </div>
                 <div className="w-4 h-0.5 bg-gray-300" />
@@ -381,6 +423,13 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   </div>
                   <p className="font-semibold text-green-700">Proposta Enviada</p>
                   <p className="text-sm text-muted-foreground">Aguardando abertura da sessão</p>
+                  <div className="mt-4">
+                    <Link href={`/fornecedor/propostas/${minhaProposta.id}`}>
+                      <Button size="lg" className="w-full" variant="outline">
+                        Ver / Editar Proposta
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               )}
               {/* Aguardando período - apenas se ainda não começou e não tem proposta */}
@@ -669,8 +718,8 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                     <p className="font-medium">{formatarDataHora(licitacao.data_inicio_acolhimento)}</p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-lg">
-                    <p className="text-sm text-muted-foreground">Fim do Acolhimento</p>
-                    <p className="font-medium">{formatarDataHora(licitacao.data_fim_acolhimento)}</p>
+                    <p className="text-sm text-muted-foreground">Prazo Final para Envio</p>
+                    <p className="font-medium">{formatarDataHora(licitacao.data_abertura_sessao)}</p>
                   </div>
                   <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                     <p className="text-sm text-blue-600">Abertura da Sessão</p>
@@ -756,7 +805,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               </div>
 
               {/* Botão de Ação */}
-              {licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' && (
+              {podeEnviarProposta() && (
                 <div className="pt-4 border-t">
                   <Link href={`/fornecedor/licitacoes/${licitacao.id}/proposta`}>
                     <Button size="lg" className="w-full">
@@ -771,7 +820,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
       </Tabs>
 
       {/* CTA */}
-      {licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' && !minhaProposta && (
+      {podeEnviarProposta() && !minhaProposta && (
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -780,7 +829,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                 <div>
                   <p className="font-medium text-blue-900">Pronto para participar?</p>
                   <p className="text-sm text-blue-700">
-                    Envie sua proposta até {formatarDataHora(licitacao.data_fim_acolhimento)}
+                    Envie sua proposta até {formatarDataHora(licitacao.data_abertura_sessao)}
                   </p>
                 </div>
               </div>

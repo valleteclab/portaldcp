@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 import { Fornecedor } from '../../fornecedores/entities/fornecedor.entity';
+import { PropostaItem } from './proposta-item.entity';
 
 export enum StatusProposta {
   RASCUNHO = 'RASCUNHO',
@@ -105,4 +106,7 @@ export class Proposta {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @OneToMany(() => PropostaItem, (item) => item.proposta)
+  itens: PropostaItem[];
 }

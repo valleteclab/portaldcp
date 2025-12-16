@@ -31,17 +31,38 @@ export default function LicitacoesDisponiveisPage() {
   const [busca, setBusca] = useState("")
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
   const [loading, setLoading] = useState(true)
+  const [propostasPorLicitacao, setPropostasPorLicitacao] = useState<Record<string, { id: string; status: string }>>({})
 
   useEffect(() => {
     const fetchLicitacoes = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/licitacoes`)
-        if (res.ok) {
-          const data = await res.json()
-          // Filtra apenas licitações em fases visíveis para fornecedores
+        const [resLic, resProps] = await Promise.all([
+          fetch(`${API_URL}/api/licitacoes`),
+          (async () => {
+            const fornecedorStr = localStorage.getItem('fornecedor')
+            if (!fornecedorStr) return null
+            const fornecedor = JSON.parse(fornecedorStr)
+            const r = await fetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+            return r.ok ? r : null
+          })()
+        ])
+
+        if (resLic.ok) {
+          const data = await resLic.json()
           const fasesVisiveis = ['PUBLICADO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO']
           const licitacoesVisiveis = data.filter((l: Licitacao) => fasesVisiveis.includes(l.fase))
           setLicitacoes(licitacoesVisiveis)
+        }
+
+        if (resProps) {
+          const propostas = await resProps.json()
+          const map: Record<string, { id: string; status: string }> = {}
+          for (const p of propostas) {
+            if (p.licitacao_id && p.id) {
+              map[p.licitacao_id] = { id: p.id, status: p.status }
+            }
+          }
+          setPropostasPorLicitacao(map)
         }
       } catch (error) {
         console.error('Erro ao buscar licitações:', error)
@@ -184,10 +205,10 @@ export default function LicitacoesDisponiveisPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Link href={`/fornecedor/licitacoes/${licitacao.id}`}>
+                      <Link href={propostasPorLicitacao[licitacao.id]?.id ? `/fornecedor/propostas/${propostasPorLicitacao[licitacao.id].id}` : `/fornecedor/licitacoes/${licitacao.id}`}>
                         <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4 mr-1" />
-                          Ver Detalhes
+                          {propostasPorLicitacao[licitacao.id]?.id ? 'Acompanhar Proposta' : 'Ver Detalhes'}
                         </Button>
                       </Link>
                     </div>

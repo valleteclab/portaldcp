@@ -46,6 +46,7 @@ interface Licitacao {
   criterio_julgamento: string
   modo_disputa: string
   orgao?: { nome: string }
+  data_abertura_sessao?: string
 }
 
 const steps = [
@@ -62,6 +63,28 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   const [error, setError] = useState<string | null>(null)
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const parseIsoLocal = (value?: string) => {
+    if (!value) return undefined
+    const match = value.match(/^\s*(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?\s*$/)
+    if (!match) return undefined
+    const [, ano, mes, dia, hora, min, seg = '00'] = match
+    const date = new Date(
+      parseInt(ano),
+      parseInt(mes) - 1,
+      parseInt(dia),
+      parseInt(hora),
+      parseInt(min),
+      parseInt(seg)
+    )
+    return isNaN(date.getTime()) ? undefined : date
+  }
+
+  const envioEncerrado = () => {
+    const abertura = parseIsoLocal(licitacao?.data_abertura_sessao)
+    if (!abertura) return false
+    return new Date() >= abertura
+  }
   
   const [declaracoes, setDeclaracoes] = useState({
     termos: false,
@@ -87,6 +110,20 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const fornecedorStr = localStorage.getItem('fornecedor')
+        if (fornecedorStr) {
+          const fornecedor = JSON.parse(fornecedorStr)
+          const resPropostas = await fetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+          if (resPropostas.ok) {
+            const propostas = await resPropostas.json()
+            const existente = propostas.find((p: any) => p.licitacao_id === resolvedParams.id)
+            if (existente) {
+              router.replace(`/fornecedor/propostas/${existente.id}`)
+              return
+            }
+          }
+        }
+
         // Buscar licitação
         const resLicitacao = await fetch(`${API_URL}/api/licitacoes/${resolvedParams.id}`)
         if (resLicitacao.ok) {
@@ -152,6 +189,12 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
     setError(null)
     
     try {
+      if (envioEncerrado()) {
+        setError('Não é possível enviar proposta após a abertura da sessão')
+        setIsSubmitting(false)
+        return
+      }
+
       // Buscar fornecedor logado
       const fornecedorStr = localStorage.getItem('fornecedor')
       if (!fornecedorStr) {
@@ -188,6 +231,10 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
       if (!res.ok) {
         const errorData = await res.json()
+        if (res.status === 409 && errorData?.propostaId) {
+          router.replace(`/fornecedor/propostas/${errorData.propostaId}`)
+          return
+        }
         throw new Error(errorData.message || 'Erro ao enviar proposta')
       }
 
@@ -232,6 +279,16 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
           <AlertCircle className="h-4 w-4 text-red-600" />
           <AlertTitle className="text-red-800">Erro</AlertTitle>
           <AlertDescription className="text-red-700">{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {envioEncerrado() && (
+        <Alert className="bg-yellow-50 border-yellow-200">
+          <AlertCircle className="h-4 w-4 text-yellow-600" />
+          <AlertTitle className="text-yellow-800">Envio encerrado</AlertTitle>
+          <AlertDescription className="text-yellow-700">
+            A abertura da sessão já ocorreu. Não é possível enviar uma nova proposta.
+          </AlertDescription>
         </Alert>
       )}
 
@@ -462,7 +519,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               <Info className="h-4 w-4 text-blue-600" />
               <AlertTitle className="text-blue-800">Informação</AlertTitle>
               <AlertDescription className="text-blue-700">
-                Você poderá alterar sua proposta até o encerramento do prazo de acolhimento. 
+                Você poderá alterar sua proposta até a abertura da sessão.
                 Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro 
                 (ex: adequação de preços após fase de lances).
               </AlertDescription>
@@ -474,27 +531,26 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       <div className="flex justify-between">
         <Button 
           variant="outline" 
-          onClick={() => setCurrentStep(prev => prev - 1)}
-          disabled={currentStep === 1}
+          onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))} 
+          disabled={currentStep === 1 || envioEncerrado()}
         >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Anterior
+          <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
         </Button>
 
         {currentStep < 3 ? (
           <Button 
-            onClick={() => setCurrentStep(prev => prev + 1)}
-            disabled={!canProceed()}
+            onClick={() => setCurrentStep(prev => Math.min(3, prev + 1))} 
+            disabled={!canProceed() || envioEncerrado()}
           >
-            Proximo <ArrowRight className="ml-2 h-4 w-4" />
+            Próximo <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         ) : (
           <Button 
-            onClick={handleSubmit}
-            disabled={isSubmitting}
+            onClick={handleSubmit} 
+            disabled={!canProceed() || isSubmitting || envioEncerrado()}
             className="bg-green-600 hover:bg-green-700"
           >
-            {isSubmitting ? "Enviando..." : "Enviar Proposta"}
-            <Send className="ml-2 h-4 w-4" />
+            <Send className="mr-2 h-4 w-4" /> {isSubmitting ? 'Enviando...' : 'Enviar Proposta'}
           </Button>
         )}
       </div>

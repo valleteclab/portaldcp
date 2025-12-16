@@ -61,6 +61,7 @@ interface Proposta {
     objeto: string
     fase: string
     data_fim_acolhimento?: string
+    data_abertura_sessao?: string
   }
   itens?: PropostaItem[]
 }
@@ -103,14 +104,73 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
     fetchProposta()
   }, [resolvedParams.id])
 
+  const parseIsoLocal = (value?: string) => {
+    if (!value) return undefined
+    const match = value.match(/^\s*(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?\s*$/)
+    if (!match) return undefined
+    const [, ano, mes, dia, hora, min, seg = '00'] = match
+    const date = new Date(
+      parseInt(ano),
+      parseInt(mes) - 1,
+      parseInt(dia),
+      parseInt(hora),
+      parseInt(min),
+      parseInt(seg)
+    )
+    return isNaN(date.getTime()) ? undefined : date
+  }
+
+  const podeExcluir = () => {
+    if (!proposta?.licitacao?.data_abertura_sessao) return false
+    const abertura = parseIsoLocal(proposta.licitacao.data_abertura_sessao)
+    if (!abertura) return false
+    return new Date() < abertura
+  }
+
   const podeEditar = () => {
     if (!proposta) return false
     // Pode editar se a proposta não foi desclassificada/cancelada e a licitação ainda está em acolhimento
     const statusEditaveis = ['RASCUNHO', 'ENVIADA', 'RECEBIDA', 'CLASSIFICADA']
     const fasesEditaveis = ['PUBLICADO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS']
-    return statusEditaveis.includes(proposta.status) && 
-           proposta.licitacao && 
-           fasesEditaveis.includes(proposta.licitacao.fase)
+    if (!statusEditaveis.includes(proposta.status)) return false
+    if (!proposta.licitacao || !fasesEditaveis.includes(proposta.licitacao.fase)) return false
+    const abertura = parseIsoLocal(proposta.licitacao.data_abertura_sessao)
+    if (!abertura) return true
+    return new Date() < abertura
+  }
+
+  const handleExcluir = async () => {
+    try {
+      setError(null)
+      setSuccess(null)
+
+      const fornecedorStr = localStorage.getItem('fornecedor')
+      if (!fornecedorStr) {
+        setError('Você precisa estar logado')
+        return
+      }
+      const fornecedor = JSON.parse(fornecedorStr)
+
+      if (!confirm('Deseja realmente excluir esta proposta?')) return
+
+      const res = await fetch(`${API_URL}/api/propostas/${resolvedParams.id}?fornecedorId=${fornecedor.id}`, {
+        method: 'DELETE'
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.message || 'Erro ao excluir proposta')
+      }
+
+      const licId = proposta?.licitacao?.id
+      if (licId) {
+        router.replace(`/fornecedor/licitacoes/${licId}`)
+      } else {
+        router.replace('/fornecedor/licitacoes')
+      }
+    } catch (e: any) {
+      setError(e.message || 'Erro ao excluir proposta')
+    }
   }
 
   const updateItemValue = (itemId: string, field: string, value: string | number) => {
@@ -238,6 +298,11 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         </div>
         <div className="flex items-center gap-2">
           {getStatusBadge(proposta.status)}
+          {podeExcluir() && !editMode && (
+            <Button variant="destructive" onClick={handleExcluir}>
+              Excluir Proposta
+            </Button>
+          )}
           {podeEditar() && !editMode && (
             <Button onClick={() => setEditMode(true)}>
               <Edit className="mr-2 h-4 w-4" /> Editar Proposta
@@ -278,7 +343,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
           <Clock className="h-4 w-4 text-yellow-600" />
           <AlertTitle className="text-yellow-800">Proposta bloqueada</AlertTitle>
           <AlertDescription className="text-yellow-700">
-            Esta proposta não pode mais ser editada pois a fase de acolhimento já foi encerrada.
+            Esta proposta não pode mais ser editada pois a abertura da sessão já ocorreu.
           </AlertDescription>
         </Alert>
       )}
@@ -401,7 +466,11 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
               {itensEditados.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">{item.item_licitacao?.numero_item}</TableCell>
-                  <TableCell>{item.item_licitacao?.descricao_resumida}</TableCell>
+                  <TableCell>
+                    <p className="whitespace-pre-wrap break-words">
+                      {item.item_licitacao?.descricao_resumida}
+                    </p>
+                  </TableCell>
                   <TableCell className="text-center">
                     {item.item_licitacao?.quantidade} {item.item_licitacao?.unidade_medida}
                   </TableCell>

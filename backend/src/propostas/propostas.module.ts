@@ -5,10 +5,11 @@ import { PropostaItem } from './entities/proposta-item.entity';
 import { PropostasService } from './propostas.service';
 import { PropostasController } from './propostas.controller';
 import { ItensModule } from '../itens/itens.module';
+import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Proposta, PropostaItem]),
+    TypeOrmModule.forFeature([Proposta, PropostaItem, Licitacao]),
     ItensModule,
   ],
   controllers: [PropostasController],

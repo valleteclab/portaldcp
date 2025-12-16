@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe } from '@nestjs/common';
 import { PropostasService } from './propostas.service';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { Proposta } from './entities/proposta.entity';
@@ -80,5 +80,14 @@ export class PropostasController {
     @Body() dados: { valor_unitario?: number; marca?: string; modelo?: string }
   ): Promise<PropostaItem> {
     return await this.propostasService.updateItem(itemId, dados);
+  }
+
+  @Delete(':id')
+  async remove(
+    @Param('id') id: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ): Promise<{ ok: true }> {
+    await this.propostasService.remove(id, fornecedorId);
+    return { ok: true };
   }
 }
