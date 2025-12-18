@@ -62,6 +62,7 @@ interface Proposta {
     fase: string
     data_fim_acolhimento?: string
     data_abertura_sessao?: string
+    sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
   }
   itens?: PropostaItem[]
 }
@@ -456,7 +457,9 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
                 <TableHead className="w-[50px]">Item</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead className="text-center">Qtd</TableHead>
-                <TableHead className="text-right">Valor Ref.</TableHead>
+                {proposta?.licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                  <TableHead className="text-right">Valor Ref.</TableHead>
+                )}
                 <TableHead className="text-right">Seu Valor Unit.</TableHead>
                 <TableHead>Marca/Modelo</TableHead>
                 <TableHead className="text-right">Total</TableHead>
@@ -474,9 +477,11 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
                   <TableCell className="text-center">
                     {item.item_licitacao?.quantidade} {item.item_licitacao?.unidade_medida}
                   </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {formatCurrency(item.item_licitacao?.valor_unitario_estimado || 0)}
-                  </TableCell>
+                  {proposta?.licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                    <TableCell className="text-right text-muted-foreground">
+                      {formatCurrency(item.item_licitacao?.valor_unitario_estimado || 0)}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right">
                     {editMode ? (
                       <Input

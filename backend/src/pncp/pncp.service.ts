@@ -483,6 +483,9 @@ export class PncpService {
 
     // Mapear dados da licitação para o formato PNCP
     const compraDto = this.mapearLicitacaoParaCompra(licitacao, cnpj);
+    
+    // Log detalhado do payload para debug
+    this.logger.log(`[enviarCompra] Payload completo: ${JSON.stringify(compraDto, null, 2)}`);
 
     // Criar registro de sincronização
     const sync = this.pncpSyncRepository.create({
@@ -736,13 +739,48 @@ export class PncpService {
 
     // Priorizar CNPJ do órgão da licitação
     const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
     const compraDto = this.mapearLicitacaoParaCompra(licitacao, cnpj);
+    
+    this.logger.log(`[atualizarCompra] Atualizando compra ${sync.ano_compra}/${sync.sequencial_compra}`);
+    this.logger.log(`[atualizarCompra] sigilo_orcamento=${licitacao.sigilo_orcamento}`);
 
     try {
+      // 1. Atualizar dados da compra
       const response = await this.axiosInstance.put(
-        `/orgaos/${cnpj}/compras/${sync.ano_compra}/${sync.sequencial_compra}`,
+        `/orgaos/${cnpjLimpo}/compras/${sync.ano_compra}/${sync.sequencial_compra}`,
         compraDto
       );
+
+      // 2. Retificar cada item individualmente para atualizar orcamentoSigiloso
+      // O PUT da compra não atualiza os itens, precisa usar PATCH em cada item
+      if (licitacao.itens && licitacao.itens.length > 0) {
+        this.logger.log(`[atualizarCompra] Retificando ${licitacao.itens.length} itens...`);
+        
+        // Garantir token válido antes de retificar itens
+        await this.getValidToken();
+        
+        for (const item of licitacao.itens) {
+          const numeroItem = item.numero_item || (licitacao.itens.indexOf(item) + 1);
+          const itemDto = this.mapearItemParaPNCP(item, numeroItem, licitacao);
+          
+          this.logger.log(`[atualizarCompra] Retificando item ${numeroItem}: orcamentoSigiloso=${itemDto.orcamentoSigiloso}`);
+          
+          try {
+            this.logger.log(`[atualizarCompra] Enviando PATCH para item ${numeroItem}: ${JSON.stringify(itemDto)}`);
+            const itemResponse = await this.axiosInstance.patch(
+              `/orgaos/${cnpjLimpo}/compras/${sync.ano_compra}/${sync.sequencial_compra}/itens/${numeroItem}`,
+              itemDto
+            );
+            this.logger.log(`[atualizarCompra] Item ${numeroItem} retificado com sucesso. Resposta: ${JSON.stringify(itemResponse.data)}`);
+          } catch (itemError: any) {
+            const errorMsg = this.extrairMensagemErro(itemError);
+            const errorData = itemError.response?.data ? JSON.stringify(itemError.response.data) : 'sem dados';
+            this.logger.error(`[atualizarCompra] Erro ao retificar item ${numeroItem}: ${errorMsg}. Dados: ${errorData}`);
+            // Continua com os outros itens mesmo se um falhar
+          }
+        }
+      }
 
       sync.status = StatusSincronizacao.ATUALIZADO;
       sync.resposta_pncp = response.data;
@@ -752,7 +790,7 @@ export class PncpService {
       return {
         sucesso: true,
         numeroControlePNCP: sync.numero_controle_pncp,
-        mensagem: 'Compra atualizada com sucesso'
+        mensagem: 'Compra e itens atualizados com sucesso'
       };
     } catch (error) {
       sync.erro_mensagem = this.extrairMensagemErro(error);
@@ -1073,23 +1111,40 @@ export class PncpService {
     
     this.logger.log(`[mapearLicitacaoParaCompra] Datas: inicio=${dataInicioPropostas}, fim=${dataFimPropostas}`);
     
+    // Orçamento sigiloso vem da LICITAÇÃO (aba Configuração), não do item
+    // Campo: sigilo_orcamento = 'PUBLICO' | 'SIGILOSO'
+    const orcamentoSigiloso = licitacao.sigilo_orcamento === 'SIGILOSO';
+    this.logger.log(`[mapearLicitacaoParaCompra] sigilo_orcamento=${licitacao.sigilo_orcamento}, orcamentoSigiloso=${orcamentoSigiloso}`);
+    
     // Mapear itens da licitação
-    const itensCompra = (licitacao.itens || []).map((item: any, index: number) => ({
-      numeroItem: item.numero_item || (index + 1),
-      descricao: item.descricao_resumida || item.descricao || 'Item sem descrição',
-      materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
-      tipoBeneficioId: 1,
-      incentivoProdutivoBasico: false,
-      quantidade: parseFloat(item.quantidade) || 1,
-      unidadeMedida: item.unidade_medida || 'Unidade',
-      valorUnitarioEstimado: parseFloat(item.valor_unitario_estimado) || 0,
-      valorTotal: (parseFloat(item.quantidade) || 1) * (parseFloat(item.valor_unitario_estimado) || 0),
-      criterioJulgamentoId: 1,
-      orcamentoSigiloso: false,
-      itemCategoriaId: 3, // 3 = Não se aplica
-      aplicabilidadeMargemPreferenciaNormal: false,
-      aplicabilidadeMargemPreferenciaAdicional: false,
-    }));
+    // IMPORTANTE: Quando orcamentoSigiloso=true, os valores são enviados mas o PNCP deve ocultá-los
+    // Conforme documentação, o campo orcamentoSigiloso indica se o valor deve ser sigiloso
+    const itensCompra = (licitacao.itens || []).map((item: any, index: number) => {
+      const valorUnitario = parseFloat(item.valor_unitario_estimado) || 0;
+      const quantidade = parseFloat(item.quantidade) || 1;
+      const valorTotal = quantidade * valorUnitario;
+      
+      const itemCompra: any = {
+        numeroItem: item.numero_item || (index + 1),
+        descricao: item.descricao_resumida || item.descricao || 'Item sem descrição',
+        materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
+        tipoBeneficioId: 1,
+        incentivoProdutivoBasico: false,
+        quantidade: quantidade,
+        unidadeMedida: item.unidade_medida || 'Unidade',
+        valorUnitarioEstimado: valorUnitario,
+        valorTotal: valorTotal,
+        criterioJulgamentoId: 1,
+        orcamentoSigiloso: orcamentoSigiloso,
+        // itemCategoriaId removido - campo opcional que pode causar conflito com modalidade
+        aplicabilidadeMargemPreferenciaNormal: false,
+        aplicabilidadeMargemPreferenciaAdicional: false,
+      };
+      
+      this.logger.log(`[mapearLicitacaoParaCompra] Item ${itemCompra.numeroItem}: orcamentoSigiloso=${orcamentoSigiloso}, valorUnitario=${valorUnitario}, valorTotal=${valorTotal}`);
+      
+      return itemCompra;
+    });
 
     // Determinar tipo de instrumento convocatório baseado na modalidade
     // 1 = Edital (pregão, concorrência, diálogo competitivo, concurso, leilão, manifestação de interesse, pré-qualificação, credenciamento)
@@ -1211,6 +1266,10 @@ export class PncpService {
       }
     }
     
+    const valorUnitario = parseFloat(item.valor_unitario_estimado) || 0;
+    
+    this.logger.log(`[mapearItemParaPNCP] Item ${numeroItem}: orcamentoSigiloso=${orcamentoSigiloso}, valorUnitario=${valorUnitario}, valorTotal=${valorTotal}`);
+    
     const itemDto: any = {
       numeroItem,
       materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
@@ -1219,7 +1278,7 @@ export class PncpService {
       descricao: descricao,
       quantidade: parseFloat(item.quantidade) || 1,
       unidadeMedida: item.unidade_medida || 'UN',
-      valorUnitarioEstimado: parseFloat(item.valor_unitario_estimado) || 0,
+      valorUnitarioEstimado: valorUnitario,
       valorTotal: valorTotal,
       situacaoCompraItemId: 1,
       criterioJulgamentoId: 1,
@@ -1712,7 +1771,7 @@ export class PncpService {
         valorTotal: parseFloat(item.valor_total) || (parseFloat(item.quantidade) * parseFloat(item.valor_unitario)) || 0,
         criterioJulgamentoId: item.criterio_julgamento_id || 1,
         orcamentoSigiloso: item.orcamento_sigiloso || false,
-        itemCategoriaId: item.item_categoria_id || 3, // 3 = Não se aplica
+        // itemCategoriaId removido - campo opcional que pode causar conflito com modalidade
         // Campos obrigatórios de margem de preferência (por item)
         aplicabilidadeMargemPreferenciaNormal: item.margem_preferencia_normal || false,
         aplicabilidadeMargemPreferenciaAdicional: item.margem_preferencia_adicional || false,
@@ -1826,10 +1885,46 @@ export class PncpService {
     try {
       await this.getValidToken();
       
+      const cnpjLimpo = cnpj.replace(/\D/g, '');
+      
       await this.axiosInstance.patch(
-        `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}`,
+        `/orgaos/${cnpjLimpo}/compras/${anoCompra}/${sequencialCompra}`,
         compraDto
       );
+
+      // Retificar itens individualmente para atualizar orcamentoSigiloso
+      if (compra.licitacaoId) {
+        const licitacao = await this.licitacaoRepository.findOne({
+          where: { id: compra.licitacaoId },
+          relations: ['orgao', 'itens']
+        });
+        
+        if (licitacao?.itens && licitacao.itens.length > 0) {
+          this.logger.log(`[retificarCompra] Retificando ${licitacao.itens.length} itens para atualizar orcamentoSigiloso...`);
+          this.logger.log(`[retificarCompra] sigilo_orcamento da licitação: ${licitacao.sigilo_orcamento}`);
+          
+          for (const item of licitacao.itens) {
+            const numeroItem = item.numero_item || (licitacao.itens.indexOf(item) + 1);
+            const itemDto = this.mapearItemParaPNCP(item, numeroItem, licitacao);
+            
+            this.logger.log(`[retificarCompra] Retificando item ${numeroItem}: orcamentoSigiloso=${itemDto.orcamentoSigiloso}`);
+            
+            try {
+              this.logger.log(`[retificarCompra] Enviando PATCH para item ${numeroItem}: ${JSON.stringify(itemDto)}`);
+              const itemResponse = await this.axiosInstance.patch(
+                `/orgaos/${cnpjLimpo}/compras/${anoCompra}/${sequencialCompra}/itens/${numeroItem}`,
+                itemDto
+              );
+              this.logger.log(`[retificarCompra] Item ${numeroItem} retificado com sucesso. Resposta: ${JSON.stringify(itemResponse.data)}`);
+            } catch (itemError: any) {
+              const errorMsg = this.extrairMensagemErro(itemError);
+              const errorData = itemError.response?.data ? JSON.stringify(itemError.response.data) : 'sem dados';
+              this.logger.error(`[retificarCompra] Erro ao retificar item ${numeroItem}: ${errorMsg}. Dados: ${errorData}`);
+              // Continua com os outros itens mesmo se um falhar
+            }
+          }
+        }
+      }
 
       // Atualizar licitação local se informado
       if (compra.licitacaoId && compra.objetoCompra) {

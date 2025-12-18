@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use } from "react"
+import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { 
@@ -11,8 +11,10 @@ import {
   FileText,
   CheckCircle2,
   AlertCircle,
+  XCircle,
   Gavel,
-  Settings
+  Settings,
+  Loader2
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -35,32 +37,79 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+
+interface DadosSessao {
+  licitacao: {
+    id: string
+    numero: string
+    numeroProcesso: string
+    objeto: string
+    modalidade: string
+    criterioJulgamento: string
+    modoDisputa: string
+    valorEstimado: number
+    dataAbertura: string
+    fase: string
+    pregoeiroNome: string
+    pregoeiroId: string
+    orgao: {
+      id: string
+      nome: string
+      cnpj: string
+    } | null
+  }
+  verificacoes: {
+    faseInternaOk: boolean
+    faseInternaMsg: string
+    editalPublicado: boolean
+    editalPublicadoMsg: string
+    prazoImpugnacao: boolean
+    prazoImpugnacaoMsg: string
+    propostasRecebidas: boolean
+    propostasRecebidasMsg: string
+    quantidadePropostas: number
+    podeIniciar: boolean
+  }
+  propostas: Array<{
+    id: string
+    fornecedorId: string
+    fornecedorAnonimo: string
+    fornecedorNome: string
+    cnpj: string
+    valorTotal: number
+    status: string
+    dataEnvio: string
+  }>
+  itens: Array<{
+    id: string
+    numero: number
+    descricao: string
+    quantidade: number
+    unidade: string
+    valorReferencia: number
+    valorTotal: number
+  }>
+  configuracaoPadrao: {
+    modoDisputa: string
+    tempoInatividade: number
+    tempoAleatorioMin: number
+    tempoAleatorioMax: number
+    intervaloMinLances: number
+    decrementoMinimo: number
+  }
+  sessaoExistente: any | null
+}
+
 export default function IniciarSessaoPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
   const router = useRouter()
+  const licitacaoId = resolvedParams.id
 
-  const [licitacao] = useState({
-    id: resolvedParams.id,
-    numero: 'PE 001/2025',
-    objeto: 'Aquisicao de equipamentos de informatica para as escolas municipais',
-    modalidade: 'PREGAO_ELETRONICO',
-    valorEstimado: 150000,
-    dataAbertura: '2025-11-28',
-  })
-
-  const [propostas] = useState([
-    { id: '1', fornecedor: 'Tech Solutions LTDA', cnpj: '12.345.678/0001-90', valorTotal: 142000, itens: 3, status: 'VALIDA' },
-    { id: '2', fornecedor: 'Info Comercio ME', cnpj: '98.765.432/0001-10', valorTotal: 145500, itens: 3, status: 'VALIDA' },
-    { id: '3', fornecedor: 'Digital Store EPP', cnpj: '11.222.333/0001-44', valorTotal: 148000, itens: 3, status: 'VALIDA' },
-    { id: '4', fornecedor: 'Mega Informatica SA', cnpj: '55.666.777/0001-88', valorTotal: 139500, itens: 3, status: 'VALIDA' },
-    { id: '5', fornecedor: 'CompuTech EIRELI', cnpj: '33.444.555/0001-22', valorTotal: 151000, itens: 3, status: 'DESCLASSIFICADA' },
-  ])
-
-  const [itens] = useState([
-    { id: '1', numero: 1, descricao: 'Notebook Dell Inspiron 15', quantidade: 100, valorRef: 3500 },
-    { id: '2', numero: 2, descricao: 'Mouse USB Logitech', quantidade: 200, valorRef: 45 },
-    { id: '3', numero: 3, descricao: 'Teclado USB ABNT2', quantidade: 200, valorRef: 65 },
-  ])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [dados, setDados] = useState<DadosSessao | null>(null)
+  const [iniciando, setIniciando] = useState(false)
 
   const [configuracao, setConfiguracao] = useState({
     modoDisputa: 'ABERTO',
@@ -71,17 +120,104 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
     decrementoMinimo: 0.5,
   })
 
-  const [pregoeiro, setPregoeiro] = useState({
-    id: '1',
-    nome: 'Maria Silva',
-  })
+  // Carregar dados da sessão
+  useEffect(() => {
+    const carregarDados = async () => {
+      try {
+        setLoading(true)
+        const response = await fetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}/preparar`)
+        
+        if (!response.ok) {
+          throw new Error('Erro ao carregar dados da sessão')
+        }
+        
+        const data: DadosSessao = await response.json()
+        setDados(data)
+        
+        // Atualiza configuração com valores padrão
+        if (data.configuracaoPadrao) {
+          setConfiguracao(data.configuracaoPadrao)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  const propostasValidas = propostas.filter(p => p.status === 'VALIDA')
+    carregarDados()
+  }, [licitacaoId])
 
-  const iniciarSessao = () => {
-    // Em producao, chamaria a API para criar a sessao
-    router.push(`/orgao/licitacoes/${licitacao.id}/sala`)
+  const propostasValidas = dados?.propostas.filter(p => p.status === 'ENVIADA' || p.status === 'VALIDA') || []
+
+  const iniciarSessao = async () => {
+    if (!dados?.licitacao.pregoeiroNome) {
+      alert('Pregoeiro não definido na licitação')
+      return
+    }
+
+    try {
+      setIniciando(true)
+      
+      // Criar sessão no backend
+      const response = await fetch(`${API_URL}/api/sessao/${licitacaoId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pregoeiroId: dados.licitacao.pregoeiroId || 'pregoeiro-1',
+          pregoeiroNome: dados.licitacao.pregoeiroNome,
+          configuracao,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Erro ao criar sessão')
+      }
+
+      const sessao = await response.json()
+      
+      // Iniciar a sessão
+      await fetch(`${API_URL}/api/sessao/${sessao.id}/iniciar`, {
+        method: 'PUT',
+      })
+
+      // Redirecionar para a sala de disputa
+      router.push(`/orgao/licitacoes/${licitacaoId}/sala`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao iniciar sessão')
+    } finally {
+      setIniciando(false)
+    }
   }
+
+  // Se já existe sessão ativa, redirecionar
+  const irParaSala = () => {
+    router.push(`/orgao/licitacoes/${licitacaoId}/sala`)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-2">Carregando dados da sessão...</span>
+      </div>
+    )
+  }
+
+  if (error || !dados) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <XCircle className="h-12 w-12 text-red-500" />
+        <p className="text-red-600">{error || 'Erro ao carregar dados'}</p>
+        <Button variant="outline" onClick={() => router.back()}>
+          Voltar
+        </Button>
+      </div>
+    )
+  }
+
+  const { licitacao, verificacoes, propostas, itens } = dados
 
   return (
     <div className="space-y-6">
@@ -98,42 +234,93 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
+      {/* Sessão existente */}
+      {dados.sessaoExistente && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-6 w-6 text-blue-600" />
+                <div>
+                  <p className="font-medium text-blue-900">Sessão já iniciada</p>
+                  <p className="text-sm text-blue-700">
+                    Status: {dados.sessaoExistente.status} | Etapa: {dados.sessaoExistente.etapa}
+                  </p>
+                </div>
+              </div>
+              <Button onClick={irParaSala}>
+                <Play className="mr-2 h-4 w-4" />
+                Entrar na Sala
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Verificacoes */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-green-600" />
-            Verificacoes Pre-Sessao
+            {verificacoes.podeIniciar ? (
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-yellow-600" />
+            )}
+            Verificações Pré-Sessão
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <div className={`flex items-center gap-3 p-3 rounded-lg ${
+              verificacoes.faseInternaOk ? 'bg-green-50' : 'bg-red-50'
+            }`}>
+              {verificacoes.faseInternaOk ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <XCircle className="h-5 w-5 text-red-600" />
+              )}
               <div>
-                <p className="font-medium">Fase Interna Concluida</p>
-                <p className="text-sm text-muted-foreground">Todos os documentos aprovados</p>
+                <p className="font-medium">Fase Interna</p>
+                <p className="text-sm text-muted-foreground">{verificacoes.faseInternaMsg}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <div className={`flex items-center gap-3 p-3 rounded-lg ${
+              verificacoes.editalPublicado ? 'bg-green-50' : 'bg-red-50'
+            }`}>
+              {verificacoes.editalPublicado ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <XCircle className="h-5 w-5 text-red-600" />
+              )}
               <div>
                 <p className="font-medium">Edital Publicado</p>
-                <p className="text-sm text-muted-foreground">PNCP e Diario Oficial</p>
+                <p className="text-sm text-muted-foreground">{verificacoes.editalPublicadoMsg}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <div className={`flex items-center gap-3 p-3 rounded-lg ${
+              verificacoes.prazoImpugnacao ? 'bg-green-50' : 'bg-yellow-50'
+            }`}>
+              {verificacoes.prazoImpugnacao ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <Clock className="h-5 w-5 text-yellow-600" />
+              )}
               <div>
-                <p className="font-medium">Prazo de Impugnacao</p>
-                <p className="text-sm text-muted-foreground">Encerrado sem impugnacoes</p>
+                <p className="font-medium">Prazo de Impugnação</p>
+                <p className="text-sm text-muted-foreground">{verificacoes.prazoImpugnacaoMsg}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <div className={`flex items-center gap-3 p-3 rounded-lg ${
+              verificacoes.propostasRecebidas ? 'bg-green-50' : 'bg-red-50'
+            }`}>
+              {verificacoes.propostasRecebidas ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <XCircle className="h-5 w-5 text-red-600" />
+              )}
               <div>
                 <p className="font-medium">Propostas Recebidas</p>
-                <p className="text-sm text-muted-foreground">{propostasValidas.length} propostas validas</p>
+                <p className="text-sm text-muted-foreground">{verificacoes.propostasRecebidasMsg}</p>
               </div>
             </div>
           </div>
@@ -164,16 +351,22 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
                   <TableRow key={proposta.id}>
                     <TableCell>
                       <div>
-                        <p className="font-medium">{proposta.fornecedor}</p>
-                        <p className="text-xs text-muted-foreground">{proposta.cnpj}</p>
+                        <p className="font-medium">{proposta.fornecedorAnonimo}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {proposta.cnpj ? `***.***.***/${proposta.cnpj.slice(-7)}` : '-'}
+                        </p>
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       R$ {proposta.valorTotal.toLocaleString('pt-BR')}
                     </TableCell>
                     <TableCell>
-                      <Badge className={proposta.status === 'VALIDA' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                        {proposta.status === 'VALIDA' ? 'Valida' : 'Desclassificada'}
+                      <Badge className={
+                        proposta.status === 'ENVIADA' || proposta.status === 'VALIDA' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }>
+                        {proposta.status === 'ENVIADA' || proposta.status === 'VALIDA' ? 'Válida' : proposta.status}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -210,7 +403,7 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
                     <TableCell>{item.descricao}</TableCell>
                     <TableCell className="text-right">{item.quantidade}</TableCell>
                     <TableCell className="text-right font-mono">
-                      R$ {item.valorRef.toLocaleString('pt-BR')}
+                      R$ {item.valorReferencia.toLocaleString('pt-BR')}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -304,44 +497,81 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Gavel className="h-5 w-5" />
-            Pregoeiro Responsavel
+            Pregoeiro Responsável
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              <span className="text-xl font-bold text-blue-600">
-                {pregoeiro.nome.split(' ').map(n => n[0]).join('')}
-              </span>
-            </div>
-            <div>
-              <p className="font-medium">{pregoeiro.nome}</p>
-              <p className="text-sm text-muted-foreground">Pregoeiro(a) Oficial</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Acoes */}
-      <Card className="bg-blue-50 border-blue-200">
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="h-6 w-6 text-blue-600" />
+          {licitacao.pregoeiroNome ? (
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                <span className="text-xl font-bold text-blue-600">
+                  {licitacao.pregoeiroNome.split(' ').map((n: string) => n[0]).join('')}
+                </span>
+              </div>
               <div>
-                <p className="font-medium text-blue-900">Pronto para iniciar a sessao</p>
-                <p className="text-sm text-blue-700">
-                  Ao iniciar, todos os fornecedores serao notificados e poderao acessar a sala de disputa.
+                <p className="font-medium">{licitacao.pregoeiroNome}</p>
+                <p className="text-sm text-muted-foreground">Pregoeiro(a) Oficial</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-3 bg-yellow-50 rounded-lg">
+              <AlertCircle className="h-5 w-5 text-yellow-600" />
+              <div>
+                <p className="font-medium text-yellow-800">Pregoeiro não definido</p>
+                <p className="text-sm text-yellow-600">
+                  Defina o pregoeiro na aba "Configuração" da licitação antes de iniciar a sessão.
                 </p>
               </div>
             </div>
-            <Button size="lg" onClick={iniciarSessao}>
-              <Play className="mr-2 h-5 w-5" />
-              Iniciar Sessao Publica
-            </Button>
-          </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Ações */}
+      {!dados.sessaoExistente && (
+        <Card className={verificacoes.podeIniciar ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {verificacoes.podeIniciar ? (
+                  <CheckCircle2 className="h-6 w-6 text-blue-600" />
+                ) : (
+                  <AlertCircle className="h-6 w-6 text-gray-400" />
+                )}
+                <div>
+                  <p className={`font-medium ${verificacoes.podeIniciar ? 'text-blue-900' : 'text-gray-600'}`}>
+                    {verificacoes.podeIniciar 
+                      ? 'Pronto para iniciar a sessão' 
+                      : 'Não é possível iniciar a sessão'}
+                  </p>
+                  <p className={`text-sm ${verificacoes.podeIniciar ? 'text-blue-700' : 'text-gray-500'}`}>
+                    {verificacoes.podeIniciar 
+                      ? 'Ao iniciar, todos os fornecedores serão notificados e poderão acessar a sala de disputa.'
+                      : 'Verifique os requisitos acima antes de iniciar.'}
+                  </p>
+                </div>
+              </div>
+              <Button 
+                size="lg" 
+                onClick={iniciarSessao}
+                disabled={!verificacoes.podeIniciar || !licitacao.pregoeiroNome || iniciando}
+              >
+                {iniciando ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Iniciando...
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-5 w-5" />
+                    Iniciar Sessão Pública
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

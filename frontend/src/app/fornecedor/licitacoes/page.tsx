@@ -20,6 +20,7 @@ interface Licitacao {
   fase: string
   valor_total_estimado: number
   data_abertura_sessao: string
+  sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
   orgao?: {
     nome: string
   }
@@ -196,7 +197,12 @@ export default function LicitacoesDisponiveisPage() {
                         </div>
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-4 w-4" />
-                          <span>{formatCurrency(licitacao.valor_total_estimado)}</span>
+                          <span>
+                            {licitacao.sigilo_orcamento === 'SIGILOSO' 
+                              ? <span className="text-amber-600">Sigiloso</span>
+                              : formatCurrency(licitacao.valor_total_estimado)
+                            }
+                          </span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Calendar className="h-4 w-4" />

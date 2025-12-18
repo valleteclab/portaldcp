@@ -128,49 +128,116 @@ export class LicitacoesService {
 
     // Salvar itens se fornecidos
     if (itens && Array.isArray(itens)) {
-      // Remover itens antigos
-      await this.itemRepository.delete({ licitacao_id: id });
+      // Buscar itens existentes
+      const itensExistentes = await this.itemRepository.find({ where: { licitacao_id: id } });
       
-      // Criar novos itens com mapeamento de campos
-      for (let i = 0; i < itens.length; i++) {
-        const item = itens[i];
-        const valorUnitario = item.valor_unitario || item.valor_unitario_estimado || 0;
-        const quantidade = item.quantidade || 1;
+      // Verificar se há propostas vinculadas aos itens (via proposta_itens)
+      // Se houver, não podemos deletar - apenas atualizar
+      let temPropostasVinculadas = false;
+      if (itensExistentes.length > 0) {
+        const idsItens = itensExistentes.map(i => i.id);
+        const countPropostas = await this.itemRepository.manager
+          .createQueryBuilder()
+          .select('COUNT(*)', 'count')
+          .from('proposta_itens', 'pi')
+          .where('pi.item_licitacao_id IN (:...ids)', { ids: idsItens })
+          .getRawOne();
+        temPropostasVinculadas = parseInt(countPropostas?.count || '0') > 0;
+      }
+      
+      if (temPropostasVinculadas) {
+        // Há propostas vinculadas - atualizar itens existentes ao invés de deletar/recriar
+        for (let i = 0; i < itens.length; i++) {
+          const item = itens[i];
+          const valorUnitario = item.valor_unitario || item.valor_unitario_estimado || 0;
+          const quantidade = item.quantidade || 1;
+          const loteId = isValidUUID(item.lote_id) ? item.lote_id : undefined;
+          const numeroItem = item.numero || item.numero_item || (i + 1);
+          
+          // Buscar item existente pelo número ou id
+          let itemExistente = itensExistentes.find(ie => 
+            ie.id === item.id || ie.numero_item === numeroItem
+          );
+          
+          if (itemExistente) {
+            // Atualizar item existente
+            Object.assign(itemExistente, {
+              numero_item: numeroItem,
+              descricao_resumida: item.descricao || item.descricao_resumida || itemExistente.descricao_resumida,
+              descricao_detalhada: item.descricao_detalhada ?? itemExistente.descricao_detalhada,
+              quantidade: quantidade,
+              unidade_medida: item.unidade || item.unidade_medida || itemExistente.unidade_medida,
+              valor_unitario_estimado: valorUnitario,
+              valor_total_estimado: quantidade * valorUnitario,
+              codigo_catalogo: item.codigo_catalogo || item.codigo_catmat || item.codigo_catser,
+              codigo_catmat: item.codigo_catmat,
+              codigo_catser: item.codigo_catser,
+              codigo_pdm: item.codigo_pdm,
+              nome_pdm: item.nome_pdm,
+              classe_catalogo: item.classe_catalogo,
+              codigo_grupo: item.codigo_grupo,
+              nome_grupo: item.nome_grupo,
+              lote_id: loteId,
+              numero_lote: item.lote_numero || item.numero_lote,
+              item_pca_id: isValidUUID(item.item_pca_id) ? item.item_pca_id : undefined,
+              sem_pca: item.sem_pca || false,
+              justificativa_sem_pca: item.justificativa_sem_pca,
+              tipo_participacao: item.tipo_participacao || 'AMPLA',
+              margem_preferencia: item.margem_preferencia || false,
+              percentual_margem: item.percentual_margem,
+              status: item.status || 'ATIVO',
+              observacoes: item.observacoes,
+            });
+            await this.itemRepository.save(itemExistente);
+          }
+          // Nota: não criamos novos itens quando há propostas vinculadas
+          // para evitar inconsistências
+        }
+      } else {
+        // Não há propostas vinculadas - comportamento original (deletar e recriar)
+        await this.itemRepository.delete({ licitacao_id: id });
         
-        // Validar lote_id - só usar se for UUID válido
-        const loteId = isValidUUID(item.lote_id) ? item.lote_id : undefined;
-        
-        const novoItem = this.itemRepository.create({
-          licitacao_id: id,
-          numero_item: item.numero || item.numero_item || (i + 1),
-          descricao_resumida: item.descricao || item.descricao_resumida || 'Item sem descrição',
-          descricao_detalhada: item.descricao_detalhada,
-          quantidade: quantidade,
-          unidade_medida: item.unidade || item.unidade_medida || 'UNIDADE',
-          valor_unitario_estimado: valorUnitario,
-          valor_total_estimado: quantidade * valorUnitario,
-          // Dados do Catálogo de Compras (compras.gov.br)
-          codigo_catalogo: item.codigo_catalogo || item.codigo_catmat || item.codigo_catser,
-          codigo_catmat: item.codigo_catmat,
-          codigo_catser: item.codigo_catser,
-          codigo_pdm: item.codigo_pdm,
-          nome_pdm: item.nome_pdm,
-          classe_catalogo: item.classe_catalogo,
-          codigo_grupo: item.codigo_grupo,
-          nome_grupo: item.nome_grupo,
-          // Vinculação com lote e PCA
-          lote_id: loteId,
-          numero_lote: item.lote_numero || item.numero_lote,
-          item_pca_id: isValidUUID(item.item_pca_id) ? item.item_pca_id : undefined,
-          sem_pca: item.sem_pca || false,
-          justificativa_sem_pca: item.justificativa_sem_pca,
-          tipo_participacao: item.tipo_participacao || 'AMPLA',
-          margem_preferencia: item.margem_preferencia || false,
-          percentual_margem: item.percentual_margem,
-          status: item.status || 'ATIVO',
-          observacoes: item.observacoes,
-        });
-        await this.itemRepository.save(novoItem);
+        // Criar novos itens com mapeamento de campos
+        for (let i = 0; i < itens.length; i++) {
+          const item = itens[i];
+          const valorUnitario = item.valor_unitario || item.valor_unitario_estimado || 0;
+          const quantidade = item.quantidade || 1;
+          
+          // Validar lote_id - só usar se for UUID válido
+          const loteId = isValidUUID(item.lote_id) ? item.lote_id : undefined;
+          
+          const novoItem = this.itemRepository.create({
+            licitacao_id: id,
+            numero_item: item.numero || item.numero_item || (i + 1),
+            descricao_resumida: item.descricao || item.descricao_resumida || 'Item sem descrição',
+            descricao_detalhada: item.descricao_detalhada,
+            quantidade: quantidade,
+            unidade_medida: item.unidade || item.unidade_medida || 'UNIDADE',
+            valor_unitario_estimado: valorUnitario,
+            valor_total_estimado: quantidade * valorUnitario,
+            // Dados do Catálogo de Compras (compras.gov.br)
+            codigo_catalogo: item.codigo_catalogo || item.codigo_catmat || item.codigo_catser,
+            codigo_catmat: item.codigo_catmat,
+            codigo_catser: item.codigo_catser,
+            codigo_pdm: item.codigo_pdm,
+            nome_pdm: item.nome_pdm,
+            classe_catalogo: item.classe_catalogo,
+            codigo_grupo: item.codigo_grupo,
+            nome_grupo: item.nome_grupo,
+            // Vinculação com lote e PCA
+            lote_id: loteId,
+            numero_lote: item.lote_numero || item.numero_lote,
+            item_pca_id: isValidUUID(item.item_pca_id) ? item.item_pca_id : undefined,
+            sem_pca: item.sem_pca || false,
+            justificativa_sem_pca: item.justificativa_sem_pca,
+            tipo_participacao: item.tipo_participacao || 'AMPLA',
+            margem_preferencia: item.margem_preferencia || false,
+            percentual_margem: item.percentual_margem,
+            status: item.status || 'ATIVO',
+            observacoes: item.observacoes,
+          });
+          await this.itemRepository.save(novoItem);
+        }
       }
     }
 

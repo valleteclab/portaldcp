@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use } from "react"
+import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import { 
   ArrowLeft,
@@ -38,16 +38,45 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useSessaoDisputa, formatarTempo } from "@/hooks/useSessaoDisputa"
 
-// ID do fornecedor logado (em producao viria do contexto de autenticacao)
-const FORNECEDOR_ID = 'f1'
+// Função para obter dados do fornecedor logado do localStorage
+function getFornecedorLogado(): { id: string; nome: string } | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const fornecedorStr = localStorage.getItem('fornecedor')
+    if (fornecedorStr) {
+      const fornecedor = JSON.parse(fornecedorStr)
+      return {
+        id: fornecedor.id,
+        nome: fornecedor.razao_social || fornecedor.nome_fantasia || 'Fornecedor'
+      }
+    }
+  } catch (e) {
+    console.error('Erro ao obter fornecedor do localStorage:', e)
+  }
+  return null
+}
 
 export default function SalaDisputaFornecedorPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
   const router = useRouter()
   const [novoLance, setNovoLance] = useState('')
   const [novaMensagem, setNovaMensagem] = useState('')
+  
+  // Obter dados do fornecedor logado
+  const [fornecedor, setFornecedor] = useState<{ id: string; nome: string } | null>(null)
+  
+  useEffect(() => {
+    const f = getFornecedorLogado()
+    if (f) {
+      setFornecedor(f)
+    } else {
+      // Se não está logado, redirecionar para login
+      alert('Você precisa estar logado como fornecedor para acessar a sala de disputa')
+      router.push('/fornecedor/login')
+    }
+  }, [router])
 
-  // Hook compartilhado - FORNECEDOR
+  // Hook compartilhado - FORNECEDOR (usa dados do fornecedor logado)
   const {
     sessao,
     conectado,
@@ -57,10 +86,15 @@ export default function SalaDisputaFornecedorPage({ params }: { params: Promise<
     meuMelhorLance,
     enviarLance,
     enviarMensagem: enviarMsg,
-  } = useSessaoDisputa(resolvedParams.id, 'FORNECEDOR', FORNECEDOR_ID, 'Tech Solutions LTDA')
+  } = useSessaoDisputa(
+    resolvedParams.id, 
+    'FORNECEDOR', 
+    fornecedor?.id || '', 
+    fornecedor?.nome || ''
+  )
 
   // Encontrar meu participante
-  const meuParticipante = sessao.participantes.find(p => p.id === FORNECEDOR_ID)
+  const meuParticipante = sessao.participantes.find(p => p.id === fornecedor?.id)
 
   const handleEnviarLance = () => {
     const valor = parseFloat(novoLance.replace(',', '.'))

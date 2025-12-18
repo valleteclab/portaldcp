@@ -49,6 +49,7 @@ interface Licitacao {
   data_fim_acolhimento?: string
   criterio_julgamento?: string
   modo_disputa?: string
+  sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
   orgao?: {
     nome: string
     cnpj: string
@@ -98,6 +99,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [loading, setLoading] = useState(true)
   const [minhaProposta, setMinhaProposta] = useState<null | { id: string; valorTotal: number; status: string }>(null)
+  const [sessaoAtiva, setSessaoAtiva] = useState<{ id: string; status: string; etapa: string } | null>(null)
 
   useEffect(() => {
     carregarDados()
@@ -134,6 +136,23 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
             })
           }
         }
+      }
+
+      // Verificar se existe sessão ativa
+      try {
+        const resSessao = await fetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
+        if (resSessao.ok) {
+          const sessao = await resSessao.json()
+          if (sessao && (sessao.status === 'EM_ANDAMENTO' || sessao.status === 'MODO_ABERTO' || sessao.status === 'AGUARDANDO_INICIO')) {
+            setSessaoAtiva({
+              id: sessao.id,
+              status: sessao.status,
+              etapa: sessao.etapa,
+            })
+          }
+        }
+      } catch (e) {
+        // Sessão não existe, ok
       }
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
@@ -444,15 +463,24 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   </p>
                 </div>
               )}
-              {/* Em disputa */}
-              {licitacao.fase === 'EM_DISPUTA' && (
+              {/* Em disputa - mostrar se fase é EM_DISPUTA ou se existe sessão ativa */}
+              {(licitacao.fase === 'EM_DISPUTA' || sessaoAtiva) && (
                 <div className="text-center">
+                  <div className="mb-3">
+                    <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">
+                      🔴 Sessão em Andamento
+                    </Badge>
+                  </div>
                   <Link href={`/fornecedor/licitacoes/${licitacao.id}/sala`}>
-                    <Button size="lg" className="w-full" variant="destructive">
-                      <Gavel className="mr-2 h-5 w-5" /> Entrar na Disputa
+                    <Button size="lg" className="w-full bg-red-600 hover:bg-red-700">
+                      <Gavel className="mr-2 h-5 w-5" /> Entrar na Sala de Disputa
                     </Button>
                   </Link>
-                  <p className="text-sm text-muted-foreground mt-2">Sessão em andamento</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {sessaoAtiva?.etapa === 'DISPUTA_LANCES' 
+                      ? 'Etapa de lances em andamento' 
+                      : 'Aguardando início da disputa'}
+                  </p>
                 </div>
               )}
               {/* Homologado */}
@@ -475,7 +503,13 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Valor Estimado</p>
-            <p className="text-xl font-bold">{formatarMoeda(licitacao.valor_total_estimado || 0)}</p>
+            <p className="text-xl font-bold">
+              {licitacao.sigilo_orcamento === 'SIGILOSO' ? (
+                <span className="text-amber-600">Sigiloso</span>
+              ) : (
+                formatarMoeda(licitacao.valor_total_estimado || 0)
+              )}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -586,8 +620,12 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                         <TableHead>Descrição</TableHead>
                         <TableHead className="text-center">Qtd.</TableHead>
                         <TableHead className="text-center">Unid.</TableHead>
-                        <TableHead className="text-right">Valor Unit.</TableHead>
-                        <TableHead className="text-right">Valor Total</TableHead>
+                        {licitacao.sigilo_orcamento !== 'SIGILOSO' && (
+                          <>
+                            <TableHead className="text-right">Valor Unit.</TableHead>
+                            <TableHead className="text-right">Valor Total</TableHead>
+                          </>
+                        )}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -622,12 +660,16 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                             </TableCell>
                             <TableCell className="text-center">{Number(item.quantidade).toLocaleString('pt-BR')}</TableCell>
                             <TableCell className="text-center">{item.unidade_medida}</TableCell>
-                            <TableCell className="text-right font-mono">
-                              {formatarMoeda(item.valor_unitario_estimado)}
-                            </TableCell>
-                            <TableCell className="text-right font-mono font-medium text-green-600">
-                              {formatarMoeda(valorTotal)}
-                            </TableCell>
+                            {licitacao.sigilo_orcamento !== 'SIGILOSO' && (
+                              <>
+                                <TableCell className="text-right font-mono">
+                                  {formatarMoeda(item.valor_unitario_estimado)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono font-medium text-green-600">
+                                  {formatarMoeda(valorTotal)}
+                                </TableCell>
+                              </>
+                            )}
                           </TableRow>
                         )
                       })}
@@ -637,7 +679,11 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   <div className="mt-4 p-4 bg-blue-50 rounded-lg flex justify-between items-center">
                     <span className="font-medium">Valor Total Estimado</span>
                     <span className="text-xl font-bold text-green-600">
-                      {formatarMoeda(licitacao.valor_total_estimado || 0)}
+                      {licitacao.sigilo_orcamento === 'SIGILOSO' ? (
+                        <span className="text-amber-600">Sigiloso</span>
+                      ) : (
+                        formatarMoeda(licitacao.valor_total_estimado || 0)
+                      )}
                     </span>
                   </div>
                 </>

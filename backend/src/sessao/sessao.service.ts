@@ -600,4 +600,178 @@ export class SessaoService {
       order: { created_at: 'DESC' }
     });
   }
+
+  /**
+   * Prepara dados para a página de iniciar sessão
+   * Inclui verificações pré-sessão conforme Lei 14.133/2021
+   */
+  async prepararDadosSessao(licitacaoId: string): Promise<{
+    licitacao: any;
+    verificacoes: {
+      faseInternaOk: boolean;
+      faseInternaMsg: string;
+      editalPublicado: boolean;
+      editalPublicadoMsg: string;
+      prazoImpugnacao: boolean;
+      prazoImpugnacaoMsg: string;
+      propostasRecebidas: boolean;
+      propostasRecebidasMsg: string;
+      quantidadePropostas: number;
+      podeIniciar: boolean;
+    };
+    propostas: any[];
+    itens: any[];
+    configuracaoPadrao: {
+      modoDisputa: string;
+      tempoInatividade: number;
+      tempoAleatorioMin: number;
+      tempoAleatorioMax: number;
+      intervaloMinLances: number;
+      decrementoMinimo: number;
+    };
+    sessaoExistente: SessaoDisputa | null;
+  }> {
+    console.log(`[SessaoService] prepararDadosSessao - Iniciando para licitacaoId: ${licitacaoId}`);
+    
+    // Busca licitação com relações
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao', 'itens']
+    });
+
+    console.log(`[SessaoService] Licitação encontrada:`, licitacao ? 'Sim' : 'Não');
+
+    if (!licitacao) {
+      throw new NotFoundException('Licitação não encontrada');
+    }
+
+    // Busca propostas (sem revelar nomes dos fornecedores)
+    console.log(`[SessaoService] Buscando propostas...`);
+    let propostasRaw: any[] = [];
+    try {
+      propostasRaw = await this.licitacaoRepository.manager.query(`
+        SELECT 
+          p.id,
+          p.fornecedor_id,
+          p.valor_total_proposta,
+          p.status,
+          p.created_at,
+          f.razao_social,
+          f.cnpj
+        FROM propostas p
+        LEFT JOIN fornecedores f ON f.id = p.fornecedor_id
+        WHERE p.licitacao_id = $1
+        ORDER BY p.valor_total_proposta ASC
+      `, [licitacaoId]);
+      console.log(`[SessaoService] Propostas encontradas: ${propostasRaw.length}`);
+    } catch (err: any) {
+      console.error(`[SessaoService] Erro ao buscar propostas:`, err.message);
+      propostasRaw = [];
+    }
+
+    // Anonimiza propostas (Fornecedor A, B, C...)
+    const propostas = propostasRaw.map((p: any, index: number) => ({
+      id: p.id,
+      fornecedorId: p.fornecedor_id,
+      // Nome anonimizado para exibição antes da disputa
+      fornecedorAnonimo: `Fornecedor ${String.fromCharCode(65 + index)}`,
+      // Nome real (só usar após disputa)
+      fornecedorNome: p.razao_social,
+      cnpj: p.cnpj,
+      valorTotal: parseFloat(p.valor_total_proposta) || 0,
+      status: p.status,
+      dataEnvio: p.created_at,
+    }));
+
+    // Busca itens da licitação
+    const itens = (licitacao.itens || []).map((item: any) => ({
+      id: item.id,
+      numero: item.numero_item,
+      descricao: item.descricao_resumida || item.descricao_detalhada,
+      quantidade: item.quantidade,
+      unidade: item.unidade_medida,
+      valorReferencia: parseFloat(item.valor_unitario_estimado) || 0,
+      valorTotal: parseFloat(item.valor_total_estimado) || 0,
+    }));
+
+    // Verificações pré-sessão
+    const agora = new Date();
+    
+    // 1. Fase interna concluída (deve estar em fase externa)
+    const fasesExternas = ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA'];
+    const faseInternaOk = fasesExternas.includes(licitacao.fase);
+    
+    // 2. Edital publicado (verificar se foi enviado ao PNCP ou tem data de publicação)
+    const editalPublicado = !!licitacao.data_publicacao_edital || !!licitacao.enviado_pncp;
+    
+    // 3. Prazo de impugnação encerrado
+    const prazoImpugnacaoEncerrado = licitacao.data_limite_impugnacao 
+      ? new Date(licitacao.data_limite_impugnacao) < agora 
+      : true;
+    
+    // 4. Propostas recebidas
+    const propostasValidas = propostas.filter((p: any) => p.status === 'ENVIADA' || p.status === 'VALIDA');
+    const temPropostas = propostasValidas.length > 0;
+
+    // Verifica se pode iniciar
+    const podeIniciar = faseInternaOk && editalPublicado && prazoImpugnacaoEncerrado && temPropostas;
+
+    // Busca sessão existente
+    const sessaoExistente = await this.sessaoRepository.findOne({
+      where: { licitacao_id: licitacaoId },
+      order: { created_at: 'DESC' }
+    });
+
+    // Configuração padrão conforme IN SEGES/ME
+    const configuracaoPadrao = {
+      modoDisputa: licitacao.modo_disputa || 'ABERTO',
+      tempoInatividade: 180, // 3 minutos em segundos
+      tempoAleatorioMin: 2, // minutos
+      tempoAleatorioMax: 30, // minutos
+      intervaloMinLances: 3, // segundos
+      decrementoMinimo: 0.5, // percentual
+    };
+
+    return {
+      licitacao: {
+        id: licitacao.id,
+        numero: `${licitacao.modalidade?.substring(0, 2) || 'PE'} ${licitacao.numero_edital || ''}/${new Date(licitacao.created_at).getFullYear()}`,
+        numeroProcesso: licitacao.numero_processo,
+        objeto: licitacao.objeto,
+        modalidade: licitacao.modalidade,
+        criterioJulgamento: licitacao.criterio_julgamento,
+        modoDisputa: licitacao.modo_disputa,
+        valorEstimado: parseFloat(licitacao.valor_total_estimado as any) || 0,
+        dataAbertura: licitacao.data_abertura_sessao,
+        fase: licitacao.fase,
+        pregoeiroNome: licitacao.pregoeiro_nome,
+        pregoeiroId: licitacao.pregoeiro_id,
+        orgao: licitacao.orgao ? {
+          id: licitacao.orgao.id,
+          nome: licitacao.orgao.nome,
+          cnpj: licitacao.orgao.cnpj,
+        } : null,
+      },
+      verificacoes: {
+        faseInternaOk,
+        faseInternaMsg: faseInternaOk ? 'Fase interna concluída' : 'Licitação ainda está em fase interna',
+        editalPublicado,
+        editalPublicadoMsg: editalPublicado ? 'Edital publicado' : 'Edital não foi publicado',
+        prazoImpugnacao: prazoImpugnacaoEncerrado,
+        prazoImpugnacaoMsg: prazoImpugnacaoEncerrado 
+          ? 'Prazo de impugnação encerrado' 
+          : `Prazo de impugnação até ${licitacao.data_limite_impugnacao}`,
+        propostasRecebidas: temPropostas,
+        propostasRecebidasMsg: temPropostas 
+          ? `${propostasValidas.length} proposta(s) válida(s)` 
+          : 'Nenhuma proposta recebida',
+        quantidadePropostas: propostasValidas.length,
+        podeIniciar,
+      },
+      propostas,
+      itens,
+      configuracaoPadrao,
+      sessaoExistente,
+    };
+  }
 }

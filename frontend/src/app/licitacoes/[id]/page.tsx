@@ -62,6 +62,7 @@ interface Licitacao {
   modo_disputa: string
   fase: string
   valor_total_estimado: number | string
+  sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
   data_publicacao_edital: string
   data_abertura_sessao: string
   data_limite_impugnacao: string
@@ -387,8 +388,20 @@ export default function DetalheLicitacaoPublicaPage() {
                                   </td>
                                   <td className="py-3 px-3 text-center">{item.unidade_medida}</td>
                                   <td className="py-3 px-3 text-right">{Number(item.quantidade).toLocaleString('pt-BR')}</td>
-                                  <td className="py-3 px-3 text-right">{formatarMoeda(item.valor_unitario_estimado)}</td>
-                                  <td className="py-3 px-3 text-right font-medium text-green-600">{formatarMoeda(valorTotal)}</td>
+                                  <td className="py-3 px-3 text-right">
+                                    {licitacao.sigilo_orcamento === 'SIGILOSO' ? (
+                                      <span className="text-amber-600">Sigiloso</span>
+                                    ) : (
+                                      formatarMoeda(item.valor_unitario_estimado)
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-medium text-green-600">
+                                    {licitacao.sigilo_orcamento === 'SIGILOSO' ? (
+                                      <span className="text-amber-600">Sigiloso</span>
+                                    ) : (
+                                      formatarMoeda(valorTotal)
+                                    )}
+                                  </td>
                                 </tr>
                               )
                             })}
@@ -397,7 +410,11 @@ export default function DetalheLicitacaoPublicaPage() {
                             <tr className="bg-blue-50">
                               <td colSpan={6} className="py-4 px-3 text-right font-semibold text-lg">Total Estimado:</td>
                               <td className="py-4 px-3 text-right font-bold text-xl text-green-600">
-                                {formatarMoeda(licitacao.valor_total_estimado)}
+                                {licitacao.sigilo_orcamento === 'SIGILOSO' ? (
+                                  <span className="text-amber-600">Sigiloso</span>
+                                ) : (
+                                  formatarMoeda(licitacao.valor_total_estimado)
+                                )}
                               </td>
                             </tr>
                           </tfoot>
@@ -476,7 +493,11 @@ export default function DetalheLicitacaoPublicaPage() {
                 <div>
                   <p className="text-sm text-gray-500">Valor Estimado</p>
                   <p className="text-xl font-bold text-green-600">
-                    {formatarMoeda(licitacao.valor_total_estimado)}
+                    {licitacao.sigilo_orcamento === 'SIGILOSO' ? (
+                      <span className="text-amber-600">Sigiloso</span>
+                    ) : (
+                      formatarMoeda(licitacao.valor_total_estimado)
+                    )}
                   </p>
                 </div>
                 

@@ -47,6 +47,7 @@ interface Licitacao {
   modo_disputa: string
   orgao?: { nome: string }
   data_abertura_sessao?: string
+  sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
 }
 
 const steps = [
@@ -430,7 +431,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                   <TableHead className="w-[50px]">Item</TableHead>
                   <TableHead>Descricao</TableHead>
                   <TableHead className="text-center">Qtd</TableHead>
-                  <TableHead className="text-right">Valor Ref.</TableHead>
+                  {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                    <TableHead className="text-right">Valor Ref.</TableHead>
+                  )}
                   <TableHead className="text-right">Seu Valor Unit.</TableHead>
                   <TableHead>Marca/Modelo</TableHead>
                   <TableHead className="text-right">Total</TableHead>
@@ -444,9 +447,11 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                       <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
                     </TableCell>
                     <TableCell className="text-center align-top">{item.quantidade} {item.unidade}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      R$ {item.valorEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </TableCell>
+                    {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                      <TableCell className="text-right text-muted-foreground">
+                        R$ {item.valorEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <Input
                         type="number"
@@ -475,7 +480,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
             <div className="mt-6 flex justify-end">
               <div className="bg-slate-100 p-4 rounded-lg text-right">
-                <p className="text-sm text-muted-foreground">Valor Estimado: R$ {calcularTotalEstimado().toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                  <p className="text-sm text-muted-foreground">Valor Estimado: R$ {calcularTotalEstimado().toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                )}
                 <p className="text-xl font-bold text-blue-600">
                   Total da Proposta: R$ {calcularTotalProposta().toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </p>

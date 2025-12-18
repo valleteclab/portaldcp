@@ -13,14 +13,28 @@ export class SessaoController {
     return this.sessaoService.criarSessao(licitacaoId, body.pregoeiroId, body.pregoeiroNome);
   }
 
-  @Get(':id')
-  async getSessao(@Param('id') id: string) {
-    return this.sessaoService.getSessao(id);
+  // Rota mais específica primeiro para evitar conflito
+  @Get('licitacao/:licitacaoId/preparar')
+  async prepararDadosSessao(@Param('licitacaoId') licitacaoId: string) {
+    try {
+      console.log(`[SessaoController] Preparando dados da sessão para licitação: ${licitacaoId}`);
+      const resultado = await this.sessaoService.prepararDadosSessao(licitacaoId);
+      console.log(`[SessaoController] Dados preparados com sucesso`);
+      return resultado;
+    } catch (error: any) {
+      console.error(`[SessaoController] Erro ao preparar dados da sessão:`, error.message, error.stack);
+      throw error;
+    }
   }
 
   @Get('licitacao/:licitacaoId')
   async getSessaoPorLicitacao(@Param('licitacaoId') licitacaoId: string) {
     return this.sessaoService.getSessaoPorLicitacao(licitacaoId);
+  }
+
+  @Get(':id')
+  async getSessao(@Param('id') id: string) {
+    return this.sessaoService.getSessao(id);
   }
 
   @Get(':id/eventos')
