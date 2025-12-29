@@ -285,15 +285,15 @@ export default function SalaDisputaFornecedorPage({ params }: { params: Promise<
                 <TableBody>
                   {sessao.lances.map((lance, index) => (
                     <TableRow key={lance.id} className={`border-slate-700 ${
-                      lance.fornecedorId === FORNECEDOR_ID ? 'bg-blue-900/30' : index === 0 ? 'bg-green-900/30' : ''
+                      lance.fornecedorId === fornecedor?.id ? 'bg-blue-900/30' : index === 0 ? 'bg-green-900/30' : ''
                     }`}>
                       <TableCell>
-                        <Badge className={index === 0 ? 'bg-yellow-500' : lance.fornecedorId === FORNECEDOR_ID ? 'bg-blue-500' : 'bg-slate-600'}>
+                        <Badge className={index === 0 ? 'bg-yellow-500' : lance.fornecedorId === fornecedor?.id ? 'bg-blue-500' : 'bg-slate-600'}>
                           {lance.posicao}o
                         </Badge>
                       </TableCell>
                       <TableCell className="font-medium">
-                        {lance.fornecedorId === FORNECEDOR_ID ? (
+                        {lance.fornecedorId === fornecedor?.id ? (
                           <span className="text-blue-400 flex items-center gap-1">
                             <CheckCircle2 className="h-4 w-4" /> Voce
                           </span>
