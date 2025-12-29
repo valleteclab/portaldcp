@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { OrgaosModule } from './orgaos/orgaos.module';
 import { FornecedoresModule } from './fornecedores/fornecedores.module';
 import { LicitacoesModule } from './licitacoes/licitacoes.module';
@@ -79,6 +81,11 @@ import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module'
     EsclarecimentosModule,
   ],
   controllers: [HealthController],
-  providers: [],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule {}

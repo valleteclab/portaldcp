@@ -9,9 +9,13 @@ import { SolicitacoesService } from './solicitacoes.service';
 import { SolicitacoesController } from './solicitacoes.controller';
 import { UnidadesService } from './unidades.service';
 import { UnidadesController } from './unidades.controller';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Orgao, UnidadeOrgao, SolicitacaoAcesso])],
+  imports: [
+    TypeOrmModule.forFeature([Orgao, UnidadeOrgao, SolicitacaoAcesso]),
+    AuthModule,
+  ],
   controllers: [OrgaosController, SolicitacoesController, UnidadesController],
   providers: [OrgaosService, SolicitacoesService, UnidadesService],
   exports: [OrgaosService, SolicitacoesService, UnidadesService, TypeOrmModule],

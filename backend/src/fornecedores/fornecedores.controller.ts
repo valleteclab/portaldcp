@@ -3,22 +3,30 @@ import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
 import { Fornecedor, NivelCadastro } from './entities/fornecedor.entity';
 import { FornecedorDocumento } from './entities/fornecedor-documento.entity';
+import { AuthService } from '../auth/auth.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('fornecedores')
 export class FornecedoresController {
-  constructor(private readonly fornecedoresService: FornecedoresService) {}
+  constructor(
+    private readonly fornecedoresService: FornecedoresService,
+    private readonly authService: AuthService,
+  ) {}
 
   // === CONSULTA CNPJ ===
+  @Public()
   @Get('consultar-cnpj/:cnpj')
   async consultarCnpj(@Param('cnpj') cnpj: string) {
     return await this.fornecedoresService.consultarCnpj(cnpj);
   }
 
+  @Public()
   @Get('verificar-cnpj/:cnpj')
   async verificarCnpjExistente(@Param('cnpj') cnpj: string) {
     return await this.fornecedoresService.verificarCnpjExistente(cnpj);
   }
 
+  @Public()
   @Post('cadastrar-cnpj')
   async createFromCnpj(
     @Body() body: {
@@ -133,6 +141,7 @@ export class FornecedoresController {
   }
 
   // === AUTENTICAÇÃO ===
+  @Public()
   @Post('registro')
   async registro(
     @Body() body: { email: string; senha: string }
@@ -151,14 +160,20 @@ export class FornecedoresController {
     return { message: 'Senha definida com sucesso' };
   }
 
+  @Public()
   @Post('login')
   async login(
     @Body() body: { email: string; senha: string }
   ): Promise<{ fornecedor: Fornecedor; token: string }> {
-    return await this.fornecedoresService.loginPorEmail(body.email, body.senha);
+    const result = await this.authService.loginFornecedorPorEmail(body.email, body.senha);
+    return {
+      fornecedor: result.fornecedor as Fornecedor,
+      token: result.token,
+    };
   }
 
   // === CREDENCIAMENTO ===
+  @Public()
   @Post('completar-credenciamento')
   async completarCredenciamento(
     @Body() body: {

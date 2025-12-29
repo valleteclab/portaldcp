@@ -3,6 +3,7 @@ import { LicitacoesService } from './licitacoes.service';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('licitacoes')
 export class LicitacoesController {
@@ -17,6 +18,7 @@ export class LicitacoesController {
     return await this.licitacoesService.create(createDto);
   }
 
+  @Public()
   @Get()
   async findAll(
     @Query('fase') fase?: FaseLicitacao,
@@ -25,6 +27,7 @@ export class LicitacoesController {
     return await this.licitacoesService.findAll({ fase, orgao_id });
   }
 
+  @Public()
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<Licitacao> {
     return await this.licitacoesService.findOne(id);
@@ -129,6 +132,7 @@ export class LicitacoesController {
   }
 
   // === ENDPOINTS PÚBLICOS ===
+  @Public()
   @Get('publicas')
   async findPublicas(
     @Query('modalidade') modalidade?: string,

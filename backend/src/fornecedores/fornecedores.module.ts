@@ -8,6 +8,7 @@ import { FornecedorAtividade } from './entities/fornecedor-atividade.entity';
 import { FornecedoresService } from './fornecedores.service';
 import { FornecedoresController } from './fornecedores.controller';
 import { CnpjService } from './cnpj.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { CnpjService } from './cnpj.service';
       FornecedorAtividade,
     ]),
     ConfigModule,
+    AuthModule,
   ],
   controllers: [FornecedoresController],
   providers: [FornecedoresService, CnpjService],

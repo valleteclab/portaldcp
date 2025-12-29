@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ContratacaoDiretaService } from './contratacao-direta.service';
 import { ContratacaoDireta, ItemContratacaoDireta, TipoContratacaoDireta, StatusContratacaoDireta } from './entities/contratacao-direta.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('contratacao-direta')
 export class ContratacaoDiretaController {
@@ -38,6 +39,7 @@ export class ContratacaoDiretaController {
     });
   }
 
+  @Public()
   @Get('publicos')
   async findPublicos(
     @Query('tipo') tipo?: TipoContratacaoDireta,

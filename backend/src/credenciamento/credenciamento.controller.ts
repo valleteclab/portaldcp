@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CredenciamentoService } from './credenciamento.service';
 import { Credenciamento, StatusCredenciamento, StatusCredenciado, TipoCredenciamento } from './entities/credenciamento.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('credenciamento')
 export class CredenciamentoController {
@@ -31,6 +32,7 @@ export class CredenciamentoController {
     return this.service.findAll({ orgaoId, status, tipo });
   }
 
+  @Public()
   @Get('publicos')
   async findPublicos(
     @Query('tipo') tipo?: TipoCredenciamento,
@@ -39,6 +41,7 @@ export class CredenciamentoController {
     return this.service.findPublicos({ tipo, uf });
   }
 
+  @Public()
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.service.findOne(id);

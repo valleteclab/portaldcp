@@ -1,0 +1,72 @@
+# Scratchpad
+
+## Tarefa Atual: Implementar Sistema de Autenticação JWT
+
+### Objetivo
+Implementar sistema completo de autenticação JWT para proteger todas as APIs do backend. Atualmente TODAS as 228 rotas de escrita (POST/PUT/PATCH/DELETE) estão completamente abertas sem nenhuma proteção.
+
+### Plano de Implementação
+
+[ ] 1. Instalar dependências necessárias (@nestjs/jwt, @nestjs/passport, passport, passport-jwt)
+[ ] 2. Criar estrutura de autenticação:
+    [ ] auth.service.ts - Serviço de autenticação com geração/validação de JWT
+    [ ] jwt.strategy.ts - Estratégia Passport JWT
+    [ ] jwt-auth.guard.ts - Guard para proteger rotas
+    [ ] public.decorator.ts - Decorator para marcar rotas públicas
+    [ ] roles.decorator.ts - Decorator para RBAC
+    [ ] roles.guard.ts - Guard para verificar roles
+[ ] 3. Atualizar módulo auth.module.ts com configurações JWT
+[ ] 4. Atualizar logins existentes para retornar JWT:
+    [ ] orgaos.controller.ts - Login de órgão
+    [ ] fornecedores.controller.ts - Login de fornecedor
+[ ] 5. Criar middleware de validação de órgão (verificar se usuário pertence ao órgão)
+[X] 6. Proteger TODAS as rotas de escrita com guard global (APP_GUARD)
+[X] 7. Manter rotas públicas:
+    - POST /api/orgaos/login ✅
+    - POST /api/fornecedores/login ✅
+    - GET /api/licitacoes (consulta pública) ✅
+    - GET /api/licitacoes/:id ✅
+    - GET /api/licitacoes/publicas ✅
+    - GET /api/documentos/licitacao/:id/publicos ✅
+    - GET /api/documentos/publicos/lista ✅
+    - GET /api/documentos/publicos/:id/download ✅
+    - GET /api/health ✅
+
+### Controllers a proteger (228 endpoints):
+- pncp.controller.ts (41 endpoints)
+- fornecedores.controller.ts (18 endpoints)
+- pca.controller.ts (15 endpoints)
+- licitacoes.controller.ts (14 endpoints)
+- sessao.controller.ts (14 endpoints)
+- demandas.controller.ts (13 endpoints)
+- itens.controller.ts (11 endpoints)
+- E mais 19 controllers
+
+### Stack Tecnológica
+- NestJS 11
+- TypeORM
+- PostgreSQL
+- JWT (a implementar)
+
+### Decisões Técnicas Importantes
+- Arquitetura de Segurança: Frontend NUNCA decide permissão, Backend SEMPRE valida identidade e escopo via JWT
+- Sistema multiusuário/multiorgão: TODAS as consultas de dados devem filtrar por orgao_id do usuário logado
+- NUNCA usar atalhos de desenvolvimento - sempre pensar em segurança
+
+# Lessons
+
+## User Specified Lessons
+
+- You have a python venv in ./venv. Use it.
+- Include info useful for debugging in the program output.
+- Read the file before you try to edit it.
+- Due to Cursor's limit, when you use `git` and `gh` and need to submit a multiline commit message, first write the message in a file, and then use `git commit -F <filename>` or similar command to commit. And then remove the file. Include "[Cursor] " in the commit message and PR title.
+- **SEMPRE consultar o DevContext (mcp_devcontext_get_project_context) ANTES de iniciar qualquer implementação**: Verificar notas da IA, features existentes, decisões técnicas e histórico de problemas identificados. Isso evita retrabalho e garante alinhamento com decisões já tomadas.
+
+## Cursor learned
+
+- For search results, ensure proper handling of different character encodings (UTF-8) for international queries
+- Add debug information to stderr while keeping the main output clean in stdout for better pipeline integration
+- When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
+- Use 'gpt-4o' as the model name for OpenAI's GPT-4 with vision capabilities
+

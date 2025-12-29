@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { AtasService } from './atas.service';
 import { AtaRegistroPreco, ItemAta, StatusAta } from './entities/ata-registro-preco.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('atas')
 export class AtasController {
@@ -111,6 +112,7 @@ export class AtasController {
 
   // ============ ENDPOINTS PÚBLICOS ============
 
+  @Public()
   @Get('publicas/lista')
   async listarPublicas(
     @Query('orgaoId') orgaoId?: string,
@@ -126,6 +128,7 @@ export class AtasController {
     });
   }
 
+  @Public()
   @Get('publicas/:id')
   async findPublicaById(@Param('id') id: string) {
     return this.atasService.findPublicaById(id);

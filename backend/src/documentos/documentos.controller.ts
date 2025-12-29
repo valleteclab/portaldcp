@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { DocumentosService } from './documentos.service';
 import { TipoDocumentoLicitacao } from './entities/documento-licitacao.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('documentos')
 export class DocumentosController {
@@ -45,7 +46,7 @@ export class DocumentosController {
     });
   }
 
-  // Listar documentos de uma licitação
+  // Listar documentos de uma licitação (requer autenticação)
   @Get('licitacao/:licitacaoId')
   async findByLicitacao(
     @Param('licitacaoId') licitacaoId: string,
@@ -55,6 +56,13 @@ export class DocumentosController {
       licitacaoId,
       apenasPublicos === 'true'
     );
+  }
+
+  // Listar documentos públicos de uma licitação (público)
+  @Public()
+  @Get('licitacao/:licitacaoId/publicos')
+  async findByLicitacaoPublicos(@Param('licitacaoId') licitacaoId: string) {
+    return this.documentosService.findByLicitacao(licitacaoId, true);
   }
 
   // Listar documentos por tipo
@@ -145,6 +153,7 @@ export class DocumentosController {
   // ============ ENDPOINTS PÚBLICOS ============
 
   // Listar documentos públicos (para portal)
+  @Public()
   @Get('publicos/lista')
   async listarPublicos(
     @Query('licitacaoId') licitacaoId?: string,
@@ -155,6 +164,7 @@ export class DocumentosController {
   }
 
   // Download público (verifica se documento é público)
+  @Public()
   @Get('publicos/:id/download')
   async downloadPublico(@Param('id') id: string, @Res() res: Response) {
     const documento = await this.documentosService.findOne(id);

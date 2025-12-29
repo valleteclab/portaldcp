@@ -12,6 +12,7 @@ import {
 import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('contratos')
 export class ContratosController {
@@ -124,6 +125,7 @@ export class ContratosController {
 
   // ============ ENDPOINTS PÚBLICOS ============
 
+  @Public()
   @Get('publicos/lista')
   async listarPublicos(
     @Query('orgaoId') orgaoId?: string,
@@ -139,6 +141,7 @@ export class ContratosController {
     });
   }
 
+  @Public()
   @Get('publicos/:id')
   async findPublicoById(@Param('id') id: string) {
     return this.contratosService.findPublicoById(id);

@@ -3,16 +3,22 @@ import { OrgaosService } from './orgaos.service';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { Orgao } from './entities/orgao.entity';
 import { createHash } from 'crypto';
+import { AuthService } from '../auth/auth.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('orgaos')
 export class OrgaosController {
-  constructor(private readonly orgaosService: OrgaosService) {}
+  constructor(
+    private readonly orgaosService: OrgaosService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Post()
   async create(@Body(new ValidationPipe()) createOrgaoDto: CreateOrgaoDto): Promise<Orgao> {
     return await this.orgaosService.create(createOrgaoDto);
   }
 
+  @Public()
   @Post('login')
   async login(@Body() body: { email: string; senha: string }) {
     const { email, senha } = body;
@@ -21,26 +27,16 @@ export class OrgaosController {
       throw new UnauthorizedException('Email e senha são obrigatórios');
     }
 
-    const orgao = await this.orgaosService.findByEmail(email);
-    if (!orgao) {
-      throw new UnauthorizedException('Email ou senha inválidos');
-    }
-
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
-    if (orgao.senha_hash !== senhaHash) {
-      throw new UnauthorizedException('Email ou senha inválidos');
-    }
-
-    // Remove senha do retorno
-    const { senha_hash, ...orgaoSemSenha } = orgao;
+    const result = await this.authService.loginOrgao(email, senha);
     
     return {
       success: true,
-      orgao: orgaoSemSenha,
-      token: `orgao_${orgao.id}_${Date.now()}`, // Token simples para dev
+      orgao: result.orgao,
+      token: result.token,
     };
   }
 
+  @Public()
   @Post('registro')
   async registro(@Body() body: { email: string; senha: string; nome: string; cnpj: string; codigo: string }) {
     const { email, senha, nome, cnpj, codigo } = body;
@@ -78,6 +74,7 @@ export class OrgaosController {
     };
   }
 
+  @Public()
   @Post('reset-credenciais')
   async resetCredenciais(@Body() body: { cnpj: string; email: string; senha: string }) {
     const { cnpj, email, senha } = body;
