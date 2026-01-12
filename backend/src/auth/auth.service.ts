@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 
 export enum UserType {
@@ -21,6 +22,9 @@ export interface JwtPayload {
   cnpj?: string;
 }
 
+// Número de rounds para bcrypt (10-12 é recomendado)
+const BCRYPT_SALT_ROUNDS = 10;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -30,6 +34,41 @@ export class AuthService {
     @InjectRepository(Fornecedor)
     private readonly fornecedorRepository: Repository<Fornecedor>,
   ) {}
+
+  /**
+   * Verifica senha com suporte a migração SHA256 -> bcrypt
+   * Se a senha estiver em SHA256, migra automaticamente para bcrypt
+   */
+  private async verificarSenha(
+    senhaDigitada: string,
+    hashArmazenado: string,
+    atualizarHash?: (novoHash: string) => Promise<void>,
+  ): Promise<boolean> {
+    // Verifica se é hash bcrypt (começa com $2b$ ou $2a$)
+    if (hashArmazenado.startsWith('$2')) {
+      return bcrypt.compare(senhaDigitada, hashArmazenado);
+    }
+
+    // Fallback: verifica SHA256 (legado)
+    const sha256Hash = createHash('sha256').update(senhaDigitada).digest('hex');
+    if (sha256Hash === hashArmazenado) {
+      // Migra para bcrypt automaticamente
+      if (atualizarHash) {
+        const novoHash = await bcrypt.hash(senhaDigitada, BCRYPT_SALT_ROUNDS);
+        await atualizarHash(novoHash);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Gera hash bcrypt para nova senha
+   */
+  async hashSenha(senha: string): Promise<string> {
+    return bcrypt.hash(senha, BCRYPT_SALT_ROUNDS);
+  }
 
   /**
    * Valida credenciais de órgão e retorna token JWT
@@ -47,8 +86,16 @@ export class AuthService {
       throw new UnauthorizedException('Órgão inativo');
     }
 
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
-    if (orgao.senha_hash !== senhaHash) {
+    // Verifica senha com migração automática para bcrypt
+    const senhaValida = await this.verificarSenha(
+      senha,
+      orgao.senha_hash,
+      async (novoHash) => {
+        await this.orgaoRepository.update(orgao.id, { senha_hash: novoHash });
+      },
+    );
+
+    if (!senhaValida) {
       throw new UnauthorizedException('Email ou senha inválidos');
     }
 
@@ -87,8 +134,16 @@ export class AuthService {
       throw new UnauthorizedException('Fornecedor não possui senha cadastrada');
     }
 
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
-    if (fornecedor.senha !== senhaHash) {
+    // Verifica senha com migração automática para bcrypt
+    const senhaValida = await this.verificarSenha(
+      senha,
+      fornecedor.senha,
+      async (novoHash) => {
+        await this.fornecedorRepository.update(fornecedor.id, { senha: novoHash });
+      },
+    );
+
+    if (!senhaValida) {
       throw new UnauthorizedException('CNPJ ou senha inválidos');
     }
 
@@ -126,8 +181,16 @@ export class AuthService {
       throw new UnauthorizedException('Fornecedor não possui senha cadastrada');
     }
 
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
-    if (fornecedor.senha !== senhaHash) {
+    // Verifica senha com migração automática para bcrypt
+    const senhaValida = await this.verificarSenha(
+      senha,
+      fornecedor.senha,
+      async (novoHash) => {
+        await this.fornecedorRepository.update(fornecedor.id, { senha: novoHash });
+      },
+    );
+
+    if (!senhaValida) {
       throw new UnauthorizedException('Email ou senha inválidos');
     }
 

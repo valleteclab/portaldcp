@@ -18,9 +18,13 @@ import { OrgaoGuard } from './orgao.guard';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
+        const secret = configService.get<string>('JWT_SECRET');
+        if (!secret) {
+          throw new Error('JWT_SECRET não configurado. Defina a variável de ambiente JWT_SECRET.');
+        }
         const expiresIn = configService.get<string>('JWT_EXPIRES_IN') || '7d';
         return {
-          secret: configService.get<string>('JWT_SECRET') || 'LicitaFacilJWT2025SecretKey!',
+          secret,
           signOptions: {
             expiresIn: expiresIn as jwt.SignOptions['expiresIn'],
           },

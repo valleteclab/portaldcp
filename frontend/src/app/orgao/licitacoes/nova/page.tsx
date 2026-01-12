@@ -44,7 +44,7 @@ import {
   CRITERIOS_JULGAMENTO
 } from "@/components/cadastro-licitacao"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 const abas = [
   { id: 'dados-basicos', label: 'Dados Básicos', icon: FileText },
@@ -341,9 +341,8 @@ export default function NovaLicitacaoPage() {
         justificativa_sigilo: configuracoes.justificativa_sigilo,
       }
 
-      const res = await fetch(`${API_URL}/api/licitacoes`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
 
@@ -364,9 +363,8 @@ export default function NovaLicitacaoPage() {
             codigo_catalogo: item.codigo_catalogo,
             descricao: item.descricao
           });
-          await fetch(`${API_URL}/api/itens`, {
+          await authFetch(`${API_URL}/api/itens`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               licitacao_id: licitacao.id,
               numero_item: item.numero,
@@ -392,9 +390,8 @@ export default function NovaLicitacaoPage() {
       if (documentos.length > 0) {
         for (const doc of documentos) {
           try {
-            await fetch(`${API_URL}/api/documentos/licitacao/${licitacao.id}/vincular`, {
+            await authFetch(`${API_URL}/api/documentos/licitacao/${licitacao.id}/vincular`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 tipo: doc.tipo,
                 titulo: doc.nome,

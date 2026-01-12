@@ -77,3 +77,59 @@ export function logout(): void {
   localStorage.removeItem('orgao');
   localStorage.removeItem('fornecedor');
 }
+
+/**
+ * Fetch autenticado - substitui fetch() com autenticação automática
+ * Uso: const response = await authFetch(`${API_URL}/api/licitacoes`, { method: 'POST', body: JSON.stringify(data) })
+ */
+export async function authFetch(url: string, options?: RequestInit): Promise<Response> {
+  const headers = new Headers(options?.headers);
+  
+  // Adiciona Content-Type se não existir e não for FormData
+  if (!headers.has('Content-Type') && !(options?.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+  
+  // Adiciona token de autenticação
+  const token = getAuthToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+  
+  // Se receber 401, limpa tokens
+  if (response.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('orgao_token');
+  }
+  
+  return response;
+}
+
+/**
+ * Métodos de conveniência para requisições comuns
+ */
+export const api = {
+  get: <T>(endpoint: string) => apiRequest<T>(endpoint, { method: 'GET' }),
+  
+  post: <T>(endpoint: string, data?: unknown) => apiRequest<T>(endpoint, {
+    method: 'POST',
+    body: data ? JSON.stringify(data) : undefined,
+  }),
+  
+  put: <T>(endpoint: string, data?: unknown) => apiRequest<T>(endpoint, {
+    method: 'PUT',
+    body: data ? JSON.stringify(data) : undefined,
+  }),
+  
+  patch: <T>(endpoint: string, data?: unknown) => apiRequest<T>(endpoint, {
+    method: 'PATCH',
+    body: data ? JSON.stringify(data) : undefined,
+  }),
+  
+  delete: <T>(endpoint: string) => apiRequest<T>(endpoint, { method: 'DELETE' }),
+};
