@@ -110,7 +110,15 @@ export default function LicitacoesOrgaoPage() {
 
   const carregarLicitacoes = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes`)
+      const orgaoData = localStorage.getItem('orgao')
+      const orgao = orgaoData ? JSON.parse(orgaoData) : null
+      
+      if (!orgao?.id) {
+        setLoading(false)
+        return
+      }
+
+      const res = await fetch(`${API_URL}/api/licitacoes?orgao_id=${orgao.id}`)
       if (res.ok) {
         const data = await res.json()
         setLicitacoes(data)

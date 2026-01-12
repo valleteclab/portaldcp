@@ -774,4 +774,570 @@ export class SessaoService {
       sessaoExistente,
     };
   }
+
+  // ========================================
+  // SALA DE DISPUTA - ENDPOINTS PARA FORNECEDOR
+  // ========================================
+
+  /**
+   * Lista todas as licitações com sessão ativa onde o fornecedor tem proposta
+   * Usado na sala de disputa do fornecedor
+   */
+  async getLicitacoesAtivasFornecedor(fornecedorId: string): Promise<{
+    licitacoes: any[];
+  }> {
+    if (!fornecedorId) {
+      throw new BadRequestException('ID do fornecedor é obrigatório');
+    }
+
+    // Busca sessões ativas (EM_ANDAMENTO, AGUARDANDO_INICIO, etc)
+    const sessoesAtivas = await this.sessaoRepository
+      .createQueryBuilder('s')
+      .innerJoin('licitacoes', 'l', 'l.id = s.licitacao_id')
+      .innerJoin('propostas', 'p', 'p.licitacao_id = l.id AND p.fornecedor_id = :fornecedorId', { fornecedorId })
+      .leftJoin('orgaos', 'o', 'o.id = l.orgao_id')
+      .where('s.status IN (:...status)', { 
+        status: [StatusSessao.AGUARDANDO_INICIO, StatusSessao.EM_ANDAMENTO, StatusSessao.MODO_ABERTO, StatusSessao.RANDOM_ENCERRANDO] 
+      })
+      .andWhere('p.status IN (:...propostaStatus)', { propostaStatus: ['ENVIADA', 'RECEBIDA', 'CLASSIFICADA'] })
+      .select([
+        's.id as sessao_id',
+        's.status as sessao_status',
+        's.etapa as sessao_etapa',
+        's.item_atual_id as item_atual_id',
+        'l.id as licitacao_id',
+        'l.numero_edital as numero_edital',
+        'l.numero_processo as numero_processo',
+        'l.objeto as objeto',
+        'l.modalidade as modalidade',
+        'o.nome as orgao_nome',
+        'o.id as orgao_id',
+      ])
+      .getRawMany();
+
+    // Para cada sessão, buscar informações adicionais
+    const licitacoes = await Promise.all(sessoesAtivas.map(async (sessao) => {
+      // Contar itens em disputa
+      const itensCount = await this.itemRepository
+        .createQueryBuilder('i')
+        .where('i.licitacao_id = :licitacaoId', { licitacaoId: sessao.licitacao_id })
+        .getCount();
+
+      // Buscar posição do fornecedor (baseado no melhor lance por item)
+      const minhaPosicao = await this.calcularPosicaoGeralFornecedor(sessao.licitacao_id, fornecedorId);
+
+      return {
+        id: sessao.licitacao_id,
+        sessaoId: sessao.sessao_id,
+        numero: `${sessao.modalidade?.substring(0, 2) || 'PE'} ${sessao.numero_edital || ''}`,
+        orgao: sessao.orgao_nome,
+        orgaoId: sessao.orgao_id,
+        objeto: sessao.objeto,
+        status: sessao.sessao_status,
+        etapa: sessao.sessao_etapa,
+        itensEmDisputa: itensCount,
+        itensTotal: itensCount,
+        minhaPosicaoGeral: minhaPosicao,
+      };
+    }));
+
+    return { licitacoes };
+  }
+
+  /**
+   * Calcula a posição geral do fornecedor na licitação
+   * Baseado na quantidade de itens onde está em 1º lugar
+   */
+  private async calcularPosicaoGeralFornecedor(licitacaoId: string, fornecedorId: string): Promise<number> {
+    // Busca todos os itens da licitação
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: licitacaoId }
+    });
+
+    let itensEm1o = 0;
+    let itensComLance = 0;
+
+    for (const item of itens) {
+      // Busca o melhor lance do item
+      const melhorLance = await this.lanceRepository.findOne({
+        where: { item_id: item.id },
+        order: { valor: 'ASC' }
+      });
+
+      if (melhorLance) {
+        if (melhorLance.fornecedor_id === fornecedorId) {
+          itensEm1o++;
+        }
+        
+        // Verifica se o fornecedor tem lance neste item
+        const meuLance = await this.lanceRepository.findOne({
+          where: { item_id: item.id, fornecedor_id: fornecedorId },
+          order: { valor: 'ASC' }
+        });
+        
+        if (meuLance) {
+          itensComLance++;
+        }
+      }
+    }
+
+    // Retorna posição baseada em quantos itens está em 1º
+    if (itensEm1o === itens.length && itens.length > 0) return 1;
+    if (itensEm1o > 0) return 2;
+    if (itensComLance > 0) return 3;
+    return 0; // Sem lances
+  }
+
+  /**
+   * Obtém os itens em disputa de uma sessão para o fornecedor
+   * Inclui informações de posição e lances do fornecedor
+   */
+  async getItensSessaoFornecedor(sessaoId: string, fornecedorId: string): Promise<{
+    itens: any[];
+    sessao: any;
+  }> {
+    if (!fornecedorId) {
+      throw new BadRequestException('ID do fornecedor é obrigatório');
+    }
+
+    const sessao = await this.sessaoRepository.findOne({
+      where: { id: sessaoId }
+    });
+
+    if (!sessao) {
+      throw new NotFoundException('Sessão não encontrada');
+    }
+
+    // Busca itens da licitação
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      order: { numero_item: 'ASC' }
+    });
+
+    // Para cada item, buscar informações de lances
+    const itensComLances = await Promise.all(itens.map(async (item) => {
+      // Melhor lance do item
+      const melhorLance = await this.lanceRepository.findOne({
+        where: { item_id: item.id },
+        order: { valor: 'ASC' }
+      });
+
+      // Meu melhor lance
+      const meuMelhorLance = await this.lanceRepository.findOne({
+        where: { item_id: item.id, fornecedor_id: fornecedorId },
+        order: { valor: 'ASC' }
+      });
+
+      // Contar participantes (fornecedores distintos com lance)
+      const participantes = await this.lanceRepository
+        .createQueryBuilder('l')
+        .select('COUNT(DISTINCT l.fornecedor_id)', 'count')
+        .where('l.item_id = :itemId', { itemId: item.id })
+        .getRawOne();
+
+      // Calcular minha posição neste item
+      let minhaPosicao: number | null = null;
+      if (meuMelhorLance) {
+        const lancesAcima = await this.lanceRepository
+          .createQueryBuilder('l')
+          .where('l.item_id = :itemId', { itemId: item.id })
+          .andWhere('l.valor < :meuValor', { meuValor: meuMelhorLance.valor })
+          .select('COUNT(DISTINCT l.fornecedor_id)', 'count')
+          .getRawOne();
+        
+        minhaPosicao = parseInt(lancesAcima?.count || '0') + 1;
+      }
+
+      // Determinar status do item
+      let status: 'EM_DISPUTA' | 'AGUARDANDO' | 'ENCERRADO' = 'AGUARDANDO';
+      if (sessao.item_atual_id === item.id) {
+        status = 'EM_DISPUTA';
+      } else if ((item as any).adjudicado) {
+        status = 'ENCERRADO';
+      }
+
+      // Calcular tempo restante (baseado no último lance)
+      let tempoRestante = sessao.tempo_inatividade_minutos * 60; // Em segundos
+      let emTempoAleatorio = false;
+      
+      if (sessao.item_atual_id === item.id) {
+        const ultimoLance = await this.lanceRepository.findOne({
+          where: { item_id: item.id },
+          order: { created_at: 'DESC' }
+        });
+
+        if (ultimoLance) {
+          const tempoDecorrido = Math.floor((Date.now() - new Date(ultimoLance.created_at).getTime()) / 1000);
+          tempoRestante = Math.max(0, (sessao.tempo_inatividade_minutos * 60) - tempoDecorrido);
+        }
+
+        // Verificar se está em tempo aleatório
+        if (sessao.inicio_tempo_aleatorio) {
+          emTempoAleatorio = true;
+          const tempoAleatorioDecorrido = Math.floor((Date.now() - new Date(sessao.inicio_tempo_aleatorio).getTime()) / 1000);
+          const tempoAleatorioTotal = (sessao.tempo_aleatorio_sorteado || sessao.tempo_aleatorio_max_minutos) * 60;
+          tempoRestante = Math.max(0, tempoAleatorioTotal - tempoAleatorioDecorrido);
+        }
+      }
+
+      return {
+        id: item.id,
+        numero: item.numero_item,
+        descricao: item.descricao_resumida || item.descricao_detalhada,
+        quantidade: parseFloat(item.quantidade as any) || 1,
+        unidade: item.unidade_medida,
+        valorReferencia: parseFloat(item.valor_unitario_estimado as any) || 0,
+        melhorLance: melhorLance ? parseFloat(melhorLance.valor as any) : null,
+        meuLance: meuMelhorLance ? parseFloat(meuMelhorLance.valor as any) : null,
+        minhaPosicao,
+        totalParticipantes: parseInt(participantes?.count || '0'),
+        tempoRestante,
+        emTempoAleatorio,
+        status,
+      };
+    }));
+
+    return {
+      itens: itensComLances,
+      sessao: {
+        id: sessao.id,
+        status: sessao.status,
+        etapa: sessao.etapa,
+        itemAtualId: sessao.item_atual_id,
+        tempoInatividade: sessao.tempo_inatividade_minutos,
+        tempoAleatorioMin: sessao.tempo_aleatorio_min_minutos,
+        tempoAleatorioMax: sessao.tempo_aleatorio_max_minutos,
+      }
+    };
+  }
+
+  /**
+   * Obtém os lances de um item específico
+   * Anonimiza nomes dos fornecedores (exceto o próprio)
+   */
+  async getLancesItem(itemId: string, fornecedorId: string): Promise<{
+    lances: any[];
+    melhorLance: any | null;
+    meuMelhorLance: any | null;
+  }> {
+    if (!fornecedorId) {
+      throw new BadRequestException('ID do fornecedor é obrigatório');
+    }
+
+    const item = await this.itemRepository.findOne({
+      where: { id: itemId }
+    });
+
+    if (!item) {
+      throw new NotFoundException('Item não encontrado');
+    }
+
+    // Busca todos os lances do item ordenados por valor
+    const lances = await this.lanceRepository
+      .createQueryBuilder('l')
+      .leftJoin('fornecedores', 'f', 'f.id = l.fornecedor_id')
+      .where('l.item_id = :itemId', { itemId })
+      .orderBy('l.valor', 'ASC')
+      .addOrderBy('l.created_at', 'ASC')
+      .select([
+        'l.id as id',
+        'l.valor as valor',
+        'l.fornecedor_id as fornecedor_id',
+        'l.created_at as created_at',
+        'f.razao_social as razao_social',
+      ])
+      .getRawMany();
+
+    // Mapear fornecedores para letras (anonimização)
+    const fornecedoresMap = new Map<string, string>();
+    let letraIndex = 0;
+    
+    lances.forEach(lance => {
+      if (!fornecedoresMap.has(lance.fornecedor_id)) {
+        fornecedoresMap.set(lance.fornecedor_id, String.fromCharCode(65 + letraIndex));
+        letraIndex++;
+      }
+    });
+
+    // Agrupar por fornecedor para pegar apenas o melhor lance de cada
+    const melhoresLancesPorFornecedor = new Map<string, any>();
+    lances.forEach(lance => {
+      if (!melhoresLancesPorFornecedor.has(lance.fornecedor_id)) {
+        melhoresLancesPorFornecedor.set(lance.fornecedor_id, lance);
+      }
+    });
+
+    // Ordenar por valor e atribuir posição
+    const lancesOrdenados = Array.from(melhoresLancesPorFornecedor.values())
+      .sort((a, b) => parseFloat(a.valor) - parseFloat(b.valor))
+      .map((lance, index) => ({
+        id: lance.id,
+        posicao: index + 1,
+        fornecedor: lance.fornecedor_id === fornecedorId 
+          ? 'Você' 
+          : `Fornecedor ${fornecedoresMap.get(lance.fornecedor_id)}`,
+        fornecedorId: lance.fornecedor_id,
+        valor: parseFloat(lance.valor),
+        valorTotal: parseFloat(lance.valor) * (parseFloat(item.quantidade as any) || 1),
+        horario: new Date(lance.created_at).toLocaleTimeString('pt-BR'),
+        isMeu: lance.fornecedor_id === fornecedorId,
+      }));
+
+    const melhorLance = lancesOrdenados.length > 0 ? lancesOrdenados[0] : null;
+    const meuMelhorLance = lancesOrdenados.find(l => l.isMeu) || null;
+
+    return {
+      lances: lancesOrdenados,
+      melhorLance,
+      meuMelhorLance,
+    };
+  }
+
+  /**
+   * Obtém mensagens da sessão
+   */
+  async getMensagensSessao(sessaoId: string): Promise<{
+    mensagens: any[];
+  }> {
+    const eventos = await this.eventoRepository.find({
+      where: { sessao_id: sessaoId },
+      order: { created_at: 'DESC' },
+      take: 100, // Limitar para performance
+    });
+
+    const mensagens = eventos.map(evento => ({
+      id: evento.id,
+      tipo: evento.tipo === TipoEvento.MENSAGEM_PREGOEIRO ? 'PREGOEIRO' : 'SISTEMA',
+      remetente: evento.usuario_nome || 'Sistema',
+      mensagem: evento.descricao,
+      horario: new Date(evento.created_at).toLocaleTimeString('pt-BR'),
+      destaque: evento.tipo === TipoEvento.TEMPO_ALEATORIO_INICIADO || 
+                evento.tipo === TipoEvento.DISPUTA_ITEM_ENCERRADA ||
+                evento.tipo === TipoEvento.SESSAO_SUSPENSA,
+    }));
+
+    return { mensagens: mensagens.reverse() }; // Ordem cronológica
+  }
+
+  // ========================================
+  // SALA DE DISPUTA - ENDPOINTS PARA PREGOEIRO
+  // ========================================
+
+  /**
+   * Lista sessões ativas do pregoeiro
+   */
+  async getSessoesAtivasPregoeiro(pregoeiroId: string): Promise<{
+    sessoes: any[];
+  }> {
+    if (!pregoeiroId) {
+      throw new BadRequestException('ID do pregoeiro é obrigatório');
+    }
+
+    // Busca sessões ativas onde o usuário é pregoeiro da sessão ou da licitação
+    const sessoesAtivas = await this.sessaoRepository
+      .createQueryBuilder('s')
+      .innerJoin('licitacoes', 'l', 'l.id = s.licitacao_id')
+      .leftJoin('orgaos', 'o', 'o.id = l.orgao_id')
+      .where('s.status IN (:...status)', { 
+        status: [StatusSessao.AGUARDANDO_INICIO, StatusSessao.EM_ANDAMENTO, StatusSessao.MODO_ABERTO, StatusSessao.RANDOM_ENCERRANDO] 
+      })
+      .andWhere('(l.pregoeiro_id = :pregoeiroId OR s.pregoeiro_id = :pregoeiroId)', { pregoeiroId })
+      .select([
+        's.id as sessao_id',
+        's.status as sessao_status',
+        's.etapa as sessao_etapa',
+        's.item_atual_id as item_atual_id',
+        'l.id as licitacao_id',
+        'l.numero_edital as numero_edital',
+        'l.numero_processo as numero_processo',
+        'l.objeto as objeto',
+        'l.modalidade as modalidade',
+        'o.nome as orgao_nome',
+        'o.id as orgao_id',
+      ])
+      .getRawMany();
+
+    const sessoes = await Promise.all(sessoesAtivas.map(async (sessao) => {
+      const itensCount = await this.itemRepository
+        .createQueryBuilder('i')
+        .where('i.licitacao_id = :licitacaoId', { licitacaoId: sessao.licitacao_id })
+        .getCount();
+
+      // Contar itens encerrados (com adjudicação ou sem lances pendentes)
+      const itensEncerrados = 0; // TODO: Implementar lógica real
+
+      return {
+        id: sessao.sessao_id,
+        licitacaoId: sessao.licitacao_id,
+        numero: `${sessao.modalidade?.substring(0, 2) || 'PE'} ${sessao.numero_edital || ''}`,
+        orgao: sessao.orgao_nome,
+        objeto: sessao.objeto,
+        status: sessao.sessao_status,
+        etapa: sessao.sessao_etapa,
+        itemAtualId: sessao.item_atual_id,
+        itensTotal: itensCount,
+        itensEncerrados,
+        fornecedoresOnline: 0, // TODO: Implementar via WebSocket
+      };
+    }));
+
+    return { sessoes };
+  }
+
+  /**
+   * Obtém os itens em disputa de uma sessão para o pregoeiro
+   * Inclui informações completas (não anonimizadas)
+   */
+  async getItensSessaoPregoeiro(sessaoId: string): Promise<{
+    itens: any[];
+    sessao: any;
+  }> {
+    const sessao = await this.sessaoRepository.findOne({
+      where: { id: sessaoId }
+    });
+
+    if (!sessao) {
+      throw new NotFoundException('Sessão não encontrada');
+    }
+
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      order: { numero_item: 'ASC' }
+    });
+
+    const itensComLances = await Promise.all(itens.map(async (item) => {
+      // Melhor lance do item
+      const melhorLance = await this.lanceRepository
+        .createQueryBuilder('l')
+        .leftJoin('fornecedores', 'f', 'f.id = l.fornecedor_id')
+        .where('l.item_id = :itemId', { itemId: item.id })
+        .orderBy('l.valor', 'ASC')
+        .select([
+          'l.id as id',
+          'l.valor as valor',
+          'l.fornecedor_id as fornecedor_id',
+          'l.fornecedor_nome as fornecedor_nome',
+          'f.razao_social as razao_social',
+        ])
+        .getRawOne();
+
+      // Contar participantes
+      const participantes = await this.lanceRepository
+        .createQueryBuilder('l')
+        .select('COUNT(DISTINCT l.fornecedor_id)', 'count')
+        .where('l.item_id = :itemId', { itemId: item.id })
+        .getRawOne();
+
+      // Determinar status do item
+      let status: 'EM_DISPUTA' | 'AGUARDANDO' | 'ENCERRADO' = 'AGUARDANDO';
+      if (sessao.item_atual_id === item.id) {
+        status = 'EM_DISPUTA';
+      } else if ((item as any).adjudicado) {
+        status = 'ENCERRADO';
+      }
+
+      // Calcular tempo restante
+      let tempoRestante = sessao.tempo_inatividade_minutos * 60;
+      let emTempoAleatorio = false;
+      
+      if (sessao.item_atual_id === item.id) {
+        const ultimoLance = await this.lanceRepository.findOne({
+          where: { item_id: item.id },
+          order: { created_at: 'DESC' }
+        });
+
+        if (ultimoLance) {
+          const tempoDecorrido = Math.floor((Date.now() - new Date(ultimoLance.created_at).getTime()) / 1000);
+          tempoRestante = Math.max(0, (sessao.tempo_inatividade_minutos * 60) - tempoDecorrido);
+        }
+
+        if (sessao.inicio_tempo_aleatorio) {
+          emTempoAleatorio = true;
+          const tempoAleatorioDecorrido = Math.floor((Date.now() - new Date(sessao.inicio_tempo_aleatorio).getTime()) / 1000);
+          const tempoAleatorioTotal = (sessao.tempo_aleatorio_sorteado || sessao.tempo_aleatorio_max_minutos) * 60;
+          tempoRestante = Math.max(0, tempoAleatorioTotal - tempoAleatorioDecorrido);
+        }
+      }
+
+      return {
+        id: item.id,
+        numero: item.numero_item,
+        descricao: item.descricao_resumida || item.descricao_detalhada,
+        quantidade: parseFloat(item.quantidade as any) || 1,
+        unidade: item.unidade_medida,
+        valorReferencia: parseFloat(item.valor_unitario_estimado as any) || 0,
+        melhorLance: melhorLance ? parseFloat(melhorLance.valor) : null,
+        melhorFornecedor: melhorLance ? (melhorLance.razao_social || melhorLance.fornecedor_nome || 'Fornecedor') : null,
+        totalParticipantes: parseInt(participantes?.count || '0'),
+        tempoRestante,
+        emTempoAleatorio,
+        status,
+      };
+    }));
+
+    return {
+      itens: itensComLances,
+      sessao: {
+        id: sessao.id,
+        status: sessao.status,
+        etapa: sessao.etapa,
+        itemAtualId: sessao.item_atual_id,
+      }
+    };
+  }
+
+  /**
+   * Obtém os lances de um item para o pregoeiro (não anonimizado)
+   */
+  async getLancesItemPregoeiro(itemId: string): Promise<{
+    lances: any[];
+  }> {
+    const item = await this.itemRepository.findOne({
+      where: { id: itemId }
+    });
+
+    if (!item) {
+      throw new NotFoundException('Item não encontrado');
+    }
+
+    const lances = await this.lanceRepository
+      .createQueryBuilder('l')
+      .leftJoin('fornecedores', 'f', 'f.id = l.fornecedor_id')
+      .where('l.item_id = :itemId', { itemId })
+      .orderBy('l.valor', 'ASC')
+      .addOrderBy('l.created_at', 'ASC')
+      .select([
+        'l.id as id',
+        'l.valor as valor',
+        'l.fornecedor_id as fornecedor_id',
+        'l.fornecedor_nome as fornecedor_nome',
+        'l.created_at as created_at',
+        'f.razao_social as razao_social',
+        'f.cnpj as cnpj',
+      ])
+      .getRawMany();
+
+    // Agrupar por fornecedor para pegar apenas o melhor lance de cada
+    const melhoresLancesPorFornecedor = new Map<string, any>();
+    lances.forEach(lance => {
+      if (!melhoresLancesPorFornecedor.has(lance.fornecedor_id)) {
+        melhoresLancesPorFornecedor.set(lance.fornecedor_id, lance);
+      }
+    });
+
+    const lancesOrdenados = Array.from(melhoresLancesPorFornecedor.values())
+      .sort((a, b) => parseFloat(a.valor) - parseFloat(b.valor))
+      .map((lance, index) => ({
+        id: lance.id,
+        posicao: index + 1,
+        fornecedor: lance.razao_social || lance.fornecedor_nome || 'Fornecedor',
+        fornecedorId: lance.fornecedor_id,
+        cnpj: lance.cnpj,
+        valor: parseFloat(lance.valor),
+        valorTotal: parseFloat(lance.valor) * (parseFloat(item.quantidade as any) || 1),
+        horario: new Date(lance.created_at).toLocaleTimeString('pt-BR'),
+      }));
+
+    return { lances: lancesOrdenados };
+  }
 }

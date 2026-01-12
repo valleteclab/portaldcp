@@ -3,6 +3,7 @@ import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
 import { ItemPCA } from '../../pca/entities/pca.entity';
+import { Usuario } from '../../usuarios/entities/usuario.entity';
 
 /**
  * ============================================================================
@@ -287,8 +288,12 @@ export class Licitacao {
   @Column({ nullable: true })
   pregoeiro_id: string;
 
+  @ManyToOne(() => Usuario, { nullable: true })
+  @JoinColumn({ name: 'pregoeiro_id' })
+  pregoeiro: Usuario;
+
   @Column({ nullable: true })
-  pregoeiro_nome: string;
+  pregoeiro_nome: string; // Mantido para compatibilidade, mas preferir relação
 
   @Column({ nullable: true })
   equipe_apoio: string; // JSON com IDs/nomes

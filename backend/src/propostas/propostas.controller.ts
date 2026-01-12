@@ -3,6 +3,7 @@ import { PropostasService } from './propostas.service';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { Proposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('propostas')
 export class PropostasController {
@@ -13,6 +14,7 @@ export class PropostasController {
     return await this.propostasService.create(createDto);
   }
 
+  @Public()
   @Get('licitacao/:licitacaoId')
   async findByLicitacao(@Param('licitacaoId') licitacaoId: string): Promise<Proposta[]> {
     return await this.propostasService.findByLicitacao(licitacaoId);
@@ -23,16 +25,19 @@ export class PropostasController {
     return await this.propostasService.findByFornecedor(fornecedorId);
   }
 
+  @Public()
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<Proposta> {
     return await this.propostasService.findOne(id);
   }
 
+  @Public()
   @Get(':id/itens')
   async getItens(@Param('id') id: string): Promise<PropostaItem[]> {
     return await this.propostasService.getItens(id);
   }
 
+  @Public()
   @Get('ranking/item/:itemId')
   async getRankingPorItem(@Param('itemId') itemId: string) {
     return await this.propostasService.getRankingPorItem(itemId);

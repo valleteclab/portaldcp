@@ -1,9 +1,67 @@
 import { Controller, Get, Post, Put, Param, Body, Query } from '@nestjs/common';
 import { SessaoService } from './sessao.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('sessao')
 export class SessaoController {
   constructor(private readonly sessaoService: SessaoService) {}
+
+  // ========================================
+  // ENDPOINTS PARA SALA DE DISPUTA DO FORNECEDOR
+  // ========================================
+
+  @Public()
+  @Get('fornecedor/:fornecedorId/licitacoes-ativas')
+  async getLicitacoesAtivasFornecedor(@Param('fornecedorId') fornecedorId: string) {
+    return this.sessaoService.getLicitacoesAtivasFornecedor(fornecedorId);
+  }
+
+  @Public()
+  @Get(':sessaoId/itens/fornecedor/:fornecedorId')
+  async getItensSessaoFornecedor(
+    @Param('sessaoId') sessaoId: string,
+    @Param('fornecedorId') fornecedorId: string
+  ) {
+    return this.sessaoService.getItensSessaoFornecedor(sessaoId, fornecedorId);
+  }
+
+  @Public()
+  @Get('item/:itemId/lances/fornecedor/:fornecedorId')
+  async getLancesItem(
+    @Param('itemId') itemId: string,
+    @Param('fornecedorId') fornecedorId: string
+  ) {
+    return this.sessaoService.getLancesItem(itemId, fornecedorId);
+  }
+
+  @Public()
+  @Get(':sessaoId/mensagens')
+  async getMensagensSessao(@Param('sessaoId') sessaoId: string) {
+    return this.sessaoService.getMensagensSessao(sessaoId);
+  }
+
+  // ========================================
+  // ENDPOINTS PARA SALA DE DISPUTA DO PREGOEIRO
+  // ========================================
+
+  @Get('pregoeiro/:pregoeiroId/sessoes-ativas')
+  async getSessoesAtivasPregoeiro(@Param('pregoeiroId') pregoeiroId: string) {
+    return this.sessaoService.getSessoesAtivasPregoeiro(pregoeiroId);
+  }
+
+  @Get(':sessaoId/itens/pregoeiro')
+  async getItensSessaoPregoeiro(@Param('sessaoId') sessaoId: string) {
+    return this.sessaoService.getItensSessaoPregoeiro(sessaoId);
+  }
+
+  @Get('item/:itemId/lances/pregoeiro')
+  async getLancesItemPregoeiro(@Param('itemId') itemId: string) {
+    return this.sessaoService.getLancesItemPregoeiro(itemId);
+  }
+
+  // ========================================
+  // ENDPOINTS GERAIS
+  // ========================================
 
   @Post(':licitacaoId')
   async criarSessao(
@@ -14,6 +72,7 @@ export class SessaoController {
   }
 
   // Rota mais específica primeiro para evitar conflito
+  @Public()
   @Get('licitacao/:licitacaoId/preparar')
   async prepararDadosSessao(@Param('licitacaoId') licitacaoId: string) {
     try {
@@ -27,16 +86,19 @@ export class SessaoController {
     }
   }
 
+  @Public()
   @Get('licitacao/:licitacaoId')
   async getSessaoPorLicitacao(@Param('licitacaoId') licitacaoId: string) {
     return this.sessaoService.getSessaoPorLicitacao(licitacaoId);
   }
 
+  @Public()
   @Get(':id')
   async getSessao(@Param('id') id: string) {
     return this.sessaoService.getSessao(id);
   }
 
+  @Public()
   @Get(':id/eventos')
   async getEventos(@Param('id') id: string) {
     return this.sessaoService.getEventosSessao(id);

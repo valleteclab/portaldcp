@@ -52,6 +52,8 @@ export default function FornecedoresPage() {
   useEffect(() => {
     const fetchFornecedores = async () => {
       try {
+        // Fornecedores são globais - podem participar de licitações de qualquer órgão
+        // TODO: Futuramente, filtrar por fornecedores que participaram de licitações deste órgão
         const res = await fetch(`${API_URL}/api/fornecedores`)
         if (res.ok) {
           const data = await res.json()

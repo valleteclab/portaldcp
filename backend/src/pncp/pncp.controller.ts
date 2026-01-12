@@ -231,13 +231,13 @@ export class PncpController {
   }
 
   @Get('pendentes')
-  async listarPendentes() {
-    return this.pncpService.listarPendentes();
+  async listarPendentes(@Query('orgaoId') orgaoId?: string) {
+    return this.pncpService.listarPendentes(orgaoId);
   }
 
   @Get('erros')
-  async listarErros() {
-    return this.pncpService.listarErros();
+  async listarErros(@Query('orgaoId') orgaoId?: string) {
+    return this.pncpService.listarErros(orgaoId);
   }
 
   @Post('reenviar/:syncId')

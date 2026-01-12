@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { EsclarecimentosService } from './esclarecimentos.service';
 import { StatusEsclarecimento } from './esclarecimento.entity';
+import { Public } from '../auth/public.decorator';
 
 // Configuração do Multer para upload de PDF
 const uploadConfig = {
@@ -39,22 +40,26 @@ const uploadConfig = {
 export class EsclarecimentosController {
   constructor(private readonly esclarecimentosService: EsclarecimentosService) {}
 
+  @Public()
   @Get('licitacao/:licitacaoId')
   findByLicitacao(@Param('licitacaoId') licitacaoId: string) {
     return this.esclarecimentosService.findByLicitacao(licitacaoId);
   }
 
+  @Public()
   @Get('licitacao/:licitacaoId/pendentes')
   countPendentes(@Param('licitacaoId') licitacaoId: string) {
     return this.esclarecimentosService.countPendentes(licitacaoId);
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.esclarecimentosService.findOne(id);
   }
 
   // Download do documento do esclarecimento
+  @Public()
   @Get(':id/documento')
   async downloadDocumento(@Param('id') id: string, @Res() res: Response) {
     const esclarecimento = await this.esclarecimentosService.findOne(id);

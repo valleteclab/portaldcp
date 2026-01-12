@@ -31,6 +31,7 @@ import { SeedModule } from './seed/seed.module';
 import { SystemConfigModule } from './system-config/system-config.module';
 import { LotesModule } from './lotes/lotes.module';
 import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module';
+import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module'
     SystemConfigModule,
     LotesModule,
     EsclarecimentosModule,
+    UsuariosModule,
   ],
   controllers: [HealthController],
   providers: [

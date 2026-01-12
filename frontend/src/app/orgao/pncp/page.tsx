@@ -222,12 +222,17 @@ export default function PncpPage() {
       const orgao = orgaoData ? JSON.parse(orgaoData) : null
       setOrgaoAtual(orgao)
 
+      if (!orgao?.id) {
+        setLoading(false)
+        return
+      }
+
       const [pendentesRes, errosRes, licitacoesRes, configRes, pcasRes] = await Promise.all([
-        fetch(`${API_URL}/api/pncp/pendentes`),
-        fetch(`${API_URL}/api/pncp/erros`),
-        fetch(`${API_URL}/api/licitacoes`),
+        fetch(`${API_URL}/api/pncp/pendentes?orgaoId=${orgao.id}`),
+        fetch(`${API_URL}/api/pncp/erros?orgaoId=${orgao.id}`),
+        fetch(`${API_URL}/api/licitacoes?orgao_id=${orgao.id}`),
         fetch(`${API_URL}/api/pncp/config/status`),
-        orgao ? fetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`) : Promise.resolve(null)
+        fetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
       ])
 
       if (pendentesRes.ok) setPendentes(await pendentesRes.json())

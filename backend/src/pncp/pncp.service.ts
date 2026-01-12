@@ -1013,16 +1013,24 @@ export class PncpService {
     });
   }
 
-  async listarPendentes(): Promise<PncpSync[]> {
+  async listarPendentes(orgaoId?: string): Promise<PncpSync[]> {
+    const where: any = { status: StatusSincronizacao.PENDENTE };
+    if (orgaoId) {
+      where.orgao_id = orgaoId;
+    }
     return this.pncpSyncRepository.find({
-      where: { status: StatusSincronizacao.PENDENTE },
+      where,
       order: { created_at: 'ASC' }
     });
   }
 
-  async listarErros(): Promise<PncpSync[]> {
+  async listarErros(orgaoId?: string): Promise<PncpSync[]> {
+    const where: any = { status: StatusSincronizacao.ERRO };
+    if (orgaoId) {
+      where.orgao_id = orgaoId;
+    }
     return this.pncpSyncRepository.find({
-      where: { status: StatusSincronizacao.ERRO },
+      where,
       order: { updated_at: 'DESC' }
     });
   }

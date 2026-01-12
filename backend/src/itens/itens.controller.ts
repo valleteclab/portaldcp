@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe 
 import { ItensService } from './itens.service';
 import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemLicitacao } from './entities/item-licitacao.entity';
+import { Public } from '../auth/public.decorator';
 
 @Controller('itens')
 export class ItensController {
@@ -20,16 +21,19 @@ export class ItensController {
     return await this.itensService.createBatch(licitacaoId, itens);
   }
 
+  @Public()
   @Get('licitacao/:licitacaoId')
   async findByLicitacao(@Param('licitacaoId') licitacaoId: string): Promise<ItemLicitacao[]> {
     return await this.itensService.findByLicitacao(licitacaoId);
   }
 
+  @Public()
   @Get('licitacao/:licitacaoId/resumo')
   async getResumo(@Param('licitacaoId') licitacaoId: string) {
     return await this.itensService.getResumoLicitacao(licitacaoId);
   }
 
+  @Public()
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<ItemLicitacao> {
     return await this.itensService.findOne(id);

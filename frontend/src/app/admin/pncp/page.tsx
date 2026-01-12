@@ -38,6 +38,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Building2,
   CheckCircle,
   XCircle,
@@ -56,7 +63,9 @@ import {
   Mail,
   Copy,
   Check,
-  Save
+  Save,
+  Gavel,
+  UserCog
 } from 'lucide-react'
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
@@ -131,10 +140,12 @@ export default function AdminPNCPPage() {
   const [showUsuariosOrgao, setShowUsuariosOrgao] = useState(false)
   const [carregandoUsuarioOrgao, setCarregandoUsuarioOrgao] = useState(false)
   const [dadosUsuarioOrgao, setDadosUsuarioOrgao] = useState<{ id: string; nome: string; cnpj: string; email_login?: string | null } | null>(null)
+  const [usuariosDoOrgao, setUsuariosDoOrgao] = useState<any[]>([])
   const [formUsuario, setFormUsuario] = useState({
     email_login: '',
     senha: '',
-    nome_responsavel: ''
+    nome_responsavel: '',
+    role: 'ADMIN' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO'
   })
   
   // Estado para configuração manual de credenciais PNCP
@@ -453,7 +464,8 @@ export default function AdminPNCPPage() {
     setFormUsuario({
       email_login: '',
       senha: '',
-      nome_responsavel: ''
+      nome_responsavel: '',
+      role: 'ADMIN'
     })
     setErroCriarUsuario(null)
     setPodeResetar(false)
@@ -463,20 +475,24 @@ export default function AdminPNCPPage() {
   const abrirUsuariosOrgao = async (ente: EnteAutorizado) => {
     setOrgaoSelecionado(ente)
     setDadosUsuarioOrgao(null)
+    setUsuariosDoOrgao([])
     setFormUsuario({
       email_login: '',
       senha: '',
-      nome_responsavel: ''
+      nome_responsavel: '',
+      role: 'ADMIN'
     })
     setCarregandoUsuarioOrgao(true)
     setShowUsuariosOrgao(true)
 
     try {
-      // Busca todos os órgãos e filtra pelo CNPJ
-      const res = await fetch(`${API_URL}/api/orgaos`)
-      if (res.ok) {
-        const orgaos = await res.json()
-        const encontrado = orgaos.find((o: any) => o.cnpj.replace(/\D/g, '') === ente.cnpj)
+      // 1. Busca o órgão pelo CNPJ
+      const cnpjBusca = ente.cnpj.replace(/\D/g, '')
+      const resOrgaos = await fetch(`${API_URL}/api/orgaos?all=true`)
+      if (resOrgaos.ok) {
+        const orgaosData = await resOrgaos.json()
+        const orgaosList = Array.isArray(orgaosData) ? orgaosData : orgaosData.value || []
+        const encontrado = orgaosList.find((o: any) => o.cnpj?.replace(/\D/g, '') === cnpjBusca)
         if (encontrado) {
           setDadosUsuarioOrgao({
             id: encontrado.id,
@@ -484,14 +500,19 @@ export default function AdminPNCPPage() {
             cnpj: encontrado.cnpj,
             email_login: encontrado.email_login,
           })
-          setFormUsuario(prev => ({
-            ...prev,
-            email_login: encontrado.email_login || '',
-          }))
+
+          // 2. Busca usuários vinculados a este órgão na tabela usuarios
+          const resUsuarios = await fetch(`${API_URL}/api/usuarios`)
+          if (resUsuarios.ok) {
+            const usuariosData = await resUsuarios.json()
+            const usuariosList = Array.isArray(usuariosData) ? usuariosData : usuariosData.value || []
+            const usuariosDoOrgaoFiltrados = usuariosList.filter((u: any) => u.orgao_id === encontrado.id)
+            setUsuariosDoOrgao(usuariosDoOrgaoFiltrados)
+          }
         }
       }
     } catch (error) {
-      console.error('Erro ao carregar usuário do órgão:', error)
+      console.error('Erro ao carregar usuários do órgão:', error)
     } finally {
       setCarregandoUsuarioOrgao(false)
     }
@@ -504,32 +525,77 @@ export default function AdminPNCPPage() {
     setErroCriarUsuario(null)
     setPodeResetar(false)
     try {
-      // Criar órgão + usuário usando endpoint de registro (centraliza hash de senha)
-      const response = await fetch(`${API_URL}/api/orgaos/registro`, {
+      let orgaoId: string | null = null
+
+      // 1. Primeiro verificar se o órgão já existe pelo CNPJ (incluindo inativos)
+      const cnpjBusca = orgaoSelecionado.cnpj.replace(/\D/g, '')
+      const resOrgaos = await fetch(`${API_URL}/api/orgaos?all=true`)
+      if (resOrgaos.ok) {
+        const orgaosData = await resOrgaos.json()
+        const orgaosList = Array.isArray(orgaosData) ? orgaosData : orgaosData.value || []
+        const orgaoExistente = orgaosList.find((o: any) => o.cnpj?.replace(/\D/g, '') === cnpjBusca)
+        if (orgaoExistente) {
+          orgaoId = orgaoExistente.id
+          // Se órgão está inativo, ativar
+          if (!orgaoExistente.ativo) {
+            await fetch(`${API_URL}/api/orgaos/${orgaoId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ativo: true })
+            })
+          }
+        }
+      }
+
+      // 2. Se órgão não existe, criar
+      if (!orgaoId) {
+        const responseOrgao = await fetch(`${API_URL}/api/orgaos/registro`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formUsuario.email_login,
+            senha: formUsuario.senha,
+            nome: orgaoSelecionado.razaoSocial,
+            cnpj: orgaoSelecionado.cnpj,
+            codigo: orgaoSelecionado.cnpj.substring(0, 10)
+          })
+        })
+
+        if (responseOrgao.ok) {
+          const result = await responseOrgao.json()
+          orgaoId = result.orgao?.id || result.id
+        } else {
+          const errorData = await responseOrgao.json()
+          setErroCriarUsuario(errorData.message || 'Erro ao criar órgão. Verifique se o email já está em uso.')
+          return
+        }
+      }
+
+      if (!orgaoId) {
+        setErroCriarUsuario('Não foi possível criar ou identificar o órgão. Tente novamente.')
+        return
+      }
+
+      // 2. Criar usuário vinculado ao órgão na tabela usuarios
+      const responseUsuario = await fetch(`${API_URL}/api/usuarios`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          nome: formUsuario.nome_responsavel || orgaoSelecionado.razaoSocial,
           email: formUsuario.email_login,
           senha: formUsuario.senha,
-          nome: orgaoSelecionado.razaoSocial,
-          cnpj: orgaoSelecionado.cnpj,
-          codigo: orgaoSelecionado.cnpj.substring(0, 10)
+          role: formUsuario.role,
+          orgao_id: orgaoId
         })
       })
 
-      if (response.ok) {
-        await response.json()
-        alert(`✅ Órgão criado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}`)
+      if (responseUsuario.ok) {
+        const roleLabels = { ADMIN: 'Administrador', PREGOEIRO: 'Pregoeiro', EQUIPE_APOIO: 'Equipe de Apoio' }
+        alert(`✅ Usuário criado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}\nFunção: ${roleLabels[formUsuario.role]}`)
         setShowCriarUsuario(false)
       } else {
-        const error = await response.json()
-        if (response.status === 409) {
-          // Já existe órgão ou email cadastrado
-          setErroCriarUsuario(error.message || 'Órgão ou email já cadastrado. Use a opção "Usuários" para gerenciar ou resetar o acesso.')
-          setPodeResetar(false)
-        } else {
-          alert('Erro: ' + (error.message || 'Erro ao criar órgão'))
-        }
+        const errorUsuario = await responseUsuario.json()
+        setErroCriarUsuario(errorUsuario.message || 'Erro ao criar usuário. Email pode já estar cadastrado.')
       }
     } catch (error: any) {
       console.error('Erro ao criar órgão:', error)
@@ -597,6 +663,10 @@ export default function AdminPNCPPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.location.href = '/admin/usuarios'}>
+            <Users className="w-4 h-4 mr-2" />
+            Usuários
+          </Button>
           <Button variant="outline" onClick={() => setShowInstrucoes(true)}>
             <Info className="w-4 h-4 mr-2" />
             Como Vincular Órgãos
@@ -1129,11 +1199,11 @@ export default function AdminPNCPPage() {
 
       {/* Modal de Usuários do Órgão */}
       <Dialog open={showUsuariosOrgao} onOpenChange={setShowUsuariosOrgao}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="w-5 h-5" />
-              Usuário do Órgão
+              Usuários do Órgão
             </DialogTitle>
             <DialogDescription>
               {orgaoSelecionado?.razaoSocial}
@@ -1143,57 +1213,76 @@ export default function AdminPNCPPage() {
           {carregandoUsuarioOrgao ? (
             <div className="py-6 text-center">
               <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-              <p className="text-sm text-gray-600">Carregando informações do órgão...</p>
+              <p className="text-sm text-gray-600">Carregando usuários do órgão...</p>
             </div>
           ) : (
             <div className="space-y-4">
               {dadosUsuarioOrgao ? (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg">
                     <div>
-                      <Label className="text-gray-500">CNPJ</Label>
-                      <p className="font-mono">{dadosUsuarioOrgao.cnpj}</p>
+                      <Label className="text-gray-500 text-xs">CNPJ</Label>
+                      <p className="font-mono text-sm">{dadosUsuarioOrgao.cnpj}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Nome</Label>
-                      <p className="font-medium">{dadosUsuarioOrgao.nome}</p>
+                      <Label className="text-gray-500 text-xs">Nome do Órgão</Label>
+                      <p className="font-medium text-sm">{dadosUsuarioOrgao.nome}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Email de Login</Label>
-                    <Input
-                      value={formUsuario.email_login}
-                      onChange={(e) => setFormUsuario({ ...formUsuario, email_login: e.target.value })}
-                      placeholder="email@orgao.gov.br"
-                    />
-                  </div>
+                  {usuariosDoOrgao.length > 0 ? (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Usuários Vinculados ({usuariosDoOrgao.length})</Label>
+                      <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                        {usuariosDoOrgao.map((usuario: any) => (
+                          <div key={usuario.id} className="p-3 flex items-center justify-between hover:bg-gray-50">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                                <span className="text-blue-700 font-medium text-sm">
+                                  {usuario.nome?.charAt(0)?.toUpperCase() || '?'}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{usuario.nome}</p>
+                                <p className="text-xs text-gray-500">{usuario.email}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={usuario.role === 'ADMIN' ? 'destructive' : usuario.role === 'PREGOEIRO' ? 'default' : 'secondary'} className="text-xs">
+                                {usuario.role === 'ADMIN' ? 'Administrador' : usuario.role === 'PREGOEIRO' ? 'Pregoeiro' : 'Equipe de Apoio'}
+                              </Badge>
+                              {usuario.ativo ? (
+                                <Badge variant="outline" className="text-xs text-green-600 border-green-300">Ativo</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-red-600 border-red-300">Inativo</Badge>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-4 text-center text-sm text-gray-500 border rounded-lg bg-gray-50">
+                      <Users className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                      Nenhum usuário vinculado a este órgão.
+                      <br />
+                      <span className="text-xs">Use "Criar Usuário" para adicionar.</span>
+                    </div>
+                  )}
 
-                  <div className="space-y-2">
-                    <Label>Nova Senha</Label>
-                    <Input
-                      type="text"
-                      value={formUsuario.senha}
-                      onChange={(e) => setFormUsuario({ ...formUsuario, senha: e.target.value })}
-                      placeholder="Informe a nova senha para o órgão"
-                    />
-                    <p className="text-xs text-gray-500">A senha será redefinida para o órgão com esse email.</p>
-                  </div>
-
-                  <div className="flex justify-end gap-2">
+                  <div className="flex justify-end gap-2 pt-2">
                     <Button variant="outline" onClick={() => setShowUsuariosOrgao(false)}>
                       Fechar
                     </Button>
                     <Button
-                      onClick={resetUsuarioOrgao}
-                      disabled={resetandoUsuario || !formUsuario.email_login || !formUsuario.senha}
+                      variant="default"
+                      onClick={() => {
+                        setShowUsuariosOrgao(false)
+                        if (orgaoSelecionado) abrirCriarUsuario(orgaoSelecionado)
+                      }}
                     >
-                      {resetandoUsuario ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                      )}
-                      Resetar usuário
+                      <Users className="w-4 h-4 mr-2" />
+                      Adicionar Usuário
                     </Button>
                   </div>
                 </>
@@ -1394,6 +1483,41 @@ Atenciosamente,
                 required
               />
               <p className="text-xs text-gray-500">A senha será enviada ao órgão</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Função do Usuário *</Label>
+              <Select
+                value={formUsuario.role}
+                onValueChange={(v: 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO') =>
+                  setFormUsuario({ ...formUsuario, role: v })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ADMIN">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4" />
+                      Administrador do Órgão
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="PREGOEIRO">
+                    <div className="flex items-center gap-2">
+                      <Gavel className="h-4 w-4" />
+                      Pregoeiro
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="EQUIPE_APOIO">
+                    <div className="flex items-center gap-2">
+                      <UserCog className="h-4 w-4" />
+                      Equipe de Apoio
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">O primeiro usuário geralmente é o Administrador</p>
             </div>
 
             <div className="flex justify-between items-center gap-4">

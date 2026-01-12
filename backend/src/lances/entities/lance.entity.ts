@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
+import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
 
 @Entity('lances')
 export class Lance {
@@ -9,10 +10,16 @@ export class Lance {
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   valor: number;
 
-  // Em um cenário real, seria relacionamento com User/Fornecedor.
-  // Por enquanto, usaremos um ID/Nome simulado para permitir testes sem login complexo.
-  @Column()
-  fornecedor_identificador: string; // Ex: "Fornecedor A" ou CNPJ mascarado
+  // Fornecedor que enviou o lance
+  @Column({ nullable: true })
+  fornecedor_id: string;
+
+  @Column({ nullable: true })
+  fornecedor_nome: string;
+
+  // Identificador legado para compatibilidade
+  @Column({ nullable: true })
+  fornecedor_identificador: string;
 
   @Column({ nullable: true })
   ip_origem: string;
@@ -23,10 +30,19 @@ export class Lance {
   @CreateDateColumn()
   created_at: Date;
 
+  // Relacionamento com Licitação
   @ManyToOne(() => Licitacao)
   @JoinColumn({ name: 'licitacao_id' })
   licitacao: Licitacao;
 
   @Column()
   licitacao_id: string;
+
+  // Relacionamento com Item (para lances por item)
+  @ManyToOne(() => ItemLicitacao, { nullable: true })
+  @JoinColumn({ name: 'item_id' })
+  item: ItemLicitacao;
+
+  @Column({ nullable: true })
+  item_id: string;
 }

@@ -41,11 +41,16 @@ export class OrgaosService {
   }
 
   async create(createOrgaoDto: CreateOrgaoDto): Promise<Orgao> {
-    // Verifica duplicidade por CNPJ
-    const existingCnpj = await this.orgaoRepository.findOne({
-      where: { cnpj: createOrgaoDto.cnpj },
-    });
+    // Normaliza CNPJ (remove formatação)
+    const cnpjNormalizado = createOrgaoDto.cnpj?.replace(/\D/g, '') || '';
+    console.log('[OrgaosService] Criando órgão com CNPJ:', cnpjNormalizado);
+    
+    // Verifica duplicidade por CNPJ (comparando sem formatação)
+    const orgaos = await this.orgaoRepository.find();
+    console.log('[OrgaosService] Órgãos existentes:', orgaos.map(o => ({ id: o.id, cnpj: o.cnpj })));
+    const existingCnpj = orgaos.find(o => o.cnpj?.replace(/\D/g, '') === cnpjNormalizado);
     if (existingCnpj) {
+      console.log('[OrgaosService] CNPJ duplicado encontrado:', existingCnpj.id);
       throw new ConflictException('Já existe um órgão cadastrado com este CNPJ');
     }
 
@@ -57,13 +62,17 @@ export class OrgaosService {
       throw new ConflictException('Já existe um órgão cadastrado com este código');
     }
 
+    // Salva CNPJ normalizado (sem formatação)
+    createOrgaoDto.cnpj = cnpjNormalizado;
+    
     const orgao = this.orgaoRepository.create(createOrgaoDto);
     return await this.orgaoRepository.save(orgao);
   }
 
-  async findAll(): Promise<Orgao[]> {
+  async findAll(includeInactive = false): Promise<Orgao[]> {
+    const where = includeInactive ? {} : { ativo: true };
     return await this.orgaoRepository.find({
-      where: { ativo: true },
+      where,
       order: { nome: 'ASC' }
     });
   }

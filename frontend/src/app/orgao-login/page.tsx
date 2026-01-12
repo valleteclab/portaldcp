@@ -32,21 +32,49 @@ export default function OrgaoLoginPage() {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/orgaos/login`, {
+      // Tenta primeiro o novo sistema JWT (usuários)
+      let response = await fetch(`${API_URL}/api/auth/login/usuario`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, senha }),
       })
 
-      const data = await response.json()
+      let data = await response.json()
 
+      // Se falhar, tenta o sistema antigo (órgãos)
       if (!response.ok) {
-        throw new Error(data.message || "Email ou senha inválidos")
+        response = await fetch(`${API_URL}/api/orgaos/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, senha }),
+        })
+        data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.message || "Email ou senha inválidos")
+        }
       }
 
-      // Salva token e dados no localStorage
-      localStorage.setItem("orgao_token", data.token)
-      localStorage.setItem("orgao", JSON.stringify(data.orgao))
+      // Salva token JWT (novo sistema) ou token simples (sistema antigo)
+      if (data.access_token) {
+        localStorage.setItem("access_token", data.access_token)
+      }
+      if (data.token) {
+        localStorage.setItem("orgao_token", data.token)
+      }
+      
+      // Novo sistema JWT: salva usuário e órgão
+      if (data.usuario) {
+        localStorage.setItem("usuario", JSON.stringify(data.usuario))
+        if (data.usuario.orgao) {
+          localStorage.setItem("orgao", JSON.stringify(data.usuario.orgao))
+        }
+      }
+      
+      // Sistema antigo: só tem órgão
+      if (data.orgao) {
+        localStorage.setItem("orgao", JSON.stringify(data.orgao))
+      }
 
       // Vai para o dashboard do órgão
       router.push("/orgao")

@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ImpugnacoesService } from './impugnacoes.service';
 import { StatusImpugnacao } from './impugnacao.entity';
+import { Public } from '../auth/public.decorator';
 
 // Configuração do Multer para upload de PDF
 const uploadConfig = {
@@ -41,17 +42,20 @@ const uploadConfig = {
 export class ImpugnacoesController {
   constructor(private readonly impugnacoesService: ImpugnacoesService) {}
 
+  @Public()
   @Get('licitacao/:licitacaoId')
   findByLicitacao(@Param('licitacaoId') licitacaoId: string) {
     return this.impugnacoesService.findByLicitacao(licitacaoId);
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.impugnacoesService.findOne(id);
   }
 
   // Download do documento da impugnação
+  @Public()
   @Get(':id/documento')
   async downloadDocumento(@Param('id') id: string, @Res() res: Response) {
     const impugnacao = await this.impugnacoesService.findOne(id);
@@ -126,6 +130,7 @@ export class ImpugnacoesController {
     return this.impugnacoesService.marcarEmAnalise(id);
   }
 
+  @Public()
   @Get('licitacao/:licitacaoId/pendentes/count')
   countPendentes(@Param('licitacaoId') licitacaoId: string) {
     return this.impugnacoesService.countPendentes(licitacaoId);
