@@ -47,7 +47,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { BuscaItemCatalogoProprio, BuscaClassificacao } from '@/components/catalogo'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 // Tipos
 interface ItemDemanda {

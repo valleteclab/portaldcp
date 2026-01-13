@@ -128,7 +128,7 @@ interface ItemPcaForm {
   data_desejada: string
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch, getAuthHeaders } from '@/lib/api'
 
 export default function PncpPage() {
   const [pendentes, setPendentes] = useState<SyncRecord[]>([])
@@ -489,7 +489,7 @@ export default function PncpPage() {
     try {
       const token = localStorage.getItem('orgao_token')
       const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/validar`, {
-        headers: { Authorization: `Bearer ${token}` }
+        ...getAuthHeaders()
       })
       return await response.json()
     } catch (error) {
@@ -528,7 +528,7 @@ export default function PncpPage() {
 
       const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        ...getAuthHeaders()
       })
 
       const data = await response.json()
@@ -574,7 +574,7 @@ export default function PncpPage() {
       const token = localStorage.getItem('orgao_token')
       const response = await fetch(`${API_URL}/api/pncp/reenviar/${syncId}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        ...getAuthHeaders()
       })
 
       if (response.ok) {

@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 // Documentos da Fase Interna - Lei 14.133/2021
 // O pregoeiro IMPORTA/ANEXA documentos já elaborados FORA do sistema

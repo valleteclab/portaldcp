@@ -68,7 +68,7 @@ import {
   UserCog
 } from 'lucide-react'
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 interface EnteAutorizado {
   id: number

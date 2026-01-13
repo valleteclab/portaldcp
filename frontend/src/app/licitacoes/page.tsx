@@ -39,7 +39,7 @@ interface Licitacao {
   }
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 const MODALIDADES = [
   { value: 'PREGAO_ELETRONICO', label: 'Pregão Eletrônico' },

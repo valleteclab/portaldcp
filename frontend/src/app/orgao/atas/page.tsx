@@ -52,7 +52,7 @@ interface Ata {
   itens: ItemAta[]
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 const STATUS_ATA = {
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },

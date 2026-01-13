@@ -13,7 +13,7 @@ import {
   FiscalEstadualTab, QualificacaoTecnicaTab, QualificacaoEconomicaTab
 } from "@/components/cadastro-sicaf"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 const ICONS = {
   credenciamento: Building2,

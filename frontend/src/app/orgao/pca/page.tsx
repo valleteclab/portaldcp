@@ -125,7 +125,7 @@ interface PCA {
   nome_unidade?: string
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 const STATUS_PCA = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800' },

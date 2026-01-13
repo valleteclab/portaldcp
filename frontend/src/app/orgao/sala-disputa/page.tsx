@@ -59,7 +59,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001'
 
 // Tipos

@@ -41,7 +41,7 @@ interface Credenciamento {
   }
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, getAuthHeaders } from '@/lib/api'
 
 const STATUS_CREDENCIAMENTO = {
   'PUBLICADO': { label: 'Publicado', cor: 'bg-blue-100 text-blue-800' },
