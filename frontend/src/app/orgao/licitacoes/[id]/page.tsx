@@ -49,8 +49,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 // Fases conforme Lei 14.133/2021 - Art. 17
 const FASES_INTERNAS = [
@@ -381,9 +380,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
   const desclassificarProposta = async (propostaId: string, motivo: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/propostas/${propostaId}/desclassificar`, {
+      const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/desclassificar`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ motivo })
       })
       if (res.ok) {
@@ -401,7 +399,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
   const classificarProposta = async (propostaId: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/propostas/${propostaId}/classificar`, {
+      const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/classificar`, {
         method: 'PUT'
       })
       if (res.ok) {
@@ -445,7 +443,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
       formData.append('descricao', novoDocumento.descricao)
       formData.append('publico', String(novoDocumento.publico))
 
-      const res = await fetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}`, {
+      const res = await authFetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}`, {
         method: 'POST',
         body: formData
       })
@@ -501,9 +499,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           break
       }
 
-      const res = await fetch(`${API_URL}${endpoint}`, {
+      const res = await authFetch(`${API_URL}${endpoint}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: method !== 'DELETE' ? JSON.stringify(body) : undefined
       })
 
@@ -549,7 +546,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   // Sincronizar fase baseado no cronograma (datas)
   const sincronizarFase = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/atualizar-fase`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/atualizar-fase`, {
         method: 'PUT',
       })
       if (res.ok) {
@@ -567,9 +564,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   // Avançar para próxima fase
   const avancarFase = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/avancar-fase`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/avancar-fase`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ observacao: 'Fase avançada pelo pregoeiro' })
       })
       if (res.ok) {
@@ -588,9 +584,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   // Retroceder fase
   const retrocederFase = async (motivo: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/retroceder-fase`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/retroceder-fase`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ motivo })
       })
       if (res.ok) {
@@ -609,7 +604,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   // Iniciar disputa
   const iniciarDisputa = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/iniciar-disputa`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/iniciar-disputa`, {
         method: 'PUT'
       })
       if (res.ok) {
@@ -629,7 +624,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   // Encerrar disputa
   const encerrarDisputa = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/encerrar-disputa`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/encerrar-disputa`, {
         method: 'PUT'
       })
       if (res.ok) {
@@ -652,9 +647,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     if (!valorHomologado) return
     
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/homologar`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/homologar`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ valor_homologado: parseFloat(valorHomologado) })
       })
       if (res.ok) {
@@ -676,9 +670,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     if (!motivo) return
     
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/suspender`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/suspender`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ motivo })
       })
       if (res.ok) {
@@ -705,11 +698,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
+      const response = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
         method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           fase_interna_concluida: true
         })
@@ -740,13 +730,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
     setEnviandoPncp(true)
     try {
-      const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
+      const response = await authFetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
         method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
       })
 
       const data = await response.json()
@@ -1794,7 +1779,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                                 <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={async () => {
                                   if (confirm(`Excluir item ${item.numero_item}?`)) {
                                     try {
-                                      const res = await fetch(`${API_URL}/api/itens/${item.id}`, { method: 'DELETE' })
+                                      const res = await authFetch(`${API_URL}/api/itens/${item.id}`, { method: 'DELETE' })
                                       if (res.ok) {
                                         carregarDados()
                                       } else {
@@ -1975,9 +1960,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                 onClick={async () => {
                   setSavingEdit(true)
                   try {
-                    const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
+                    const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
                       method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify(editingLicitacao)
                     })
                     if (res.ok) {
