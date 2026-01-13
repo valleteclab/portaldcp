@@ -93,3 +93,6 @@ npm run dev
 ## 📄 Licença
 
 Proprietário - Todos os direitos reservados.
+
+---
+*Última atualização: 12/01/2026*
