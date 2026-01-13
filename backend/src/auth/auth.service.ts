@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -27,6 +27,8 @@ const BCRYPT_SALT_ROUNDS = 10;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly jwtService: JwtService,
     @InjectRepository(Orgao)
@@ -96,6 +98,7 @@ export class AuthService {
     );
 
     if (!senhaValida) {
+      this.logger.warn(`Login falhou para órgão: ${email} - senha inválida`);
       throw new UnauthorizedException('Email ou senha inválidos');
     }
 
@@ -107,6 +110,8 @@ export class AuthService {
     };
 
     const token = this.jwtService.sign(payload);
+
+    this.logger.log(`Login bem-sucedido para órgão: ${orgao.nome} (${orgao.cnpj})`);
 
     // Remove senha do retorno
     const { senha_hash, ...orgaoSemSenha } = orgao;
@@ -144,6 +149,7 @@ export class AuthService {
     );
 
     if (!senhaValida) {
+      this.logger.warn(`Login falhou para fornecedor CNPJ: ${cnpjLimpo} - senha inválida`);
       throw new UnauthorizedException('CNPJ ou senha inválidos');
     }
 
@@ -155,6 +161,8 @@ export class AuthService {
     };
 
     const token = this.jwtService.sign(payload);
+
+    this.logger.log(`Login bem-sucedido para fornecedor: ${fornecedor.razao_social} (${fornecedor.cpf_cnpj})`);
 
     // Remove senha do retorno
     const { senha: _, ...fornecedorSemSenha } = fornecedor;
@@ -191,6 +199,7 @@ export class AuthService {
     );
 
     if (!senhaValida) {
+      this.logger.warn(`Login falhou para fornecedor email: ${email} - senha inválida`);
       throw new UnauthorizedException('Email ou senha inválidos');
     }
 
@@ -202,6 +211,8 @@ export class AuthService {
     };
 
     const token = this.jwtService.sign(payload);
+
+    this.logger.log(`Login bem-sucedido para fornecedor: ${fornecedor.razao_social} (${fornecedor.email})`);
 
     // Remove senha do retorno
     const { senha: _, ...fornecedorSemSenha } = fornecedor;
