@@ -69,6 +69,8 @@ interface DadosSessao {
     propostasRecebidas: boolean
     propostasRecebidasMsg: string
     quantidadePropostas: number
+    dataAbertura: boolean
+    dataAberturaMsg: string
     podeIniciar: boolean
   }
   propostas: Array<{

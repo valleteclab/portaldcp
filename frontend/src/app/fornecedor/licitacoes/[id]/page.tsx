@@ -98,7 +98,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [loading, setLoading] = useState(true)
-  const [minhaProposta, setMinhaProposta] = useState<null | { id: string; valorTotal: number; status: string }>(null)
+  const [minhaProposta, setMinhaProposta] = useState<null | { id: string; valorTotal: number; status: string; motivo_desclassificacao?: string }>(null)
   const [sessaoAtiva, setSessaoAtiva] = useState<{ id: string; status: string; etapa: string } | null>(null)
 
   useEffect(() => {
@@ -133,6 +133,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               id: existente.id,
               valorTotal: existente.valor_total_proposta,
               status: existente.status,
+              motivo_desclassificacao: existente.motivo_desclassificacao,
             })
           }
         }
