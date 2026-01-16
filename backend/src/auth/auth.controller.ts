@@ -10,6 +10,13 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Post('login/admin')
+  @HttpCode(HttpStatus.OK)
+  async loginAdmin(@Body() body: { email: string; senha: string }) {
+    return this.authService.loginAdmin(body.email, body.senha);
+  }
+
+  @Public()
   @Post('login/orgao')
   @HttpCode(HttpStatus.OK)
   async loginOrgao(@Body() body: { email: string; senha: string }) {

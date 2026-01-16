@@ -2,15 +2,18 @@ import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
+import { Role } from './roles.decorator';
 
 export enum UserType {
   ORGAO = 'ORGAO',
   FORNECEDOR = 'FORNECEDOR',
-  USUARIO = 'USUARIO', // Para futuro quando entidade Usuario for criada
+  USUARIO = 'USUARIO',
+  ADMIN = 'ADMIN', // Super admin do sistema
 }
 
 export interface JwtPayload {
@@ -31,11 +34,50 @@ export class AuthService {
 
   constructor(
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     @InjectRepository(Orgao)
     private readonly orgaoRepository: Repository<Orgao>,
     @InjectRepository(Fornecedor)
     private readonly fornecedorRepository: Repository<Fornecedor>,
   ) {}
+
+  /**
+   * Login para Super Admin do sistema
+   * Credenciais definidas via variáveis de ambiente
+   */
+  async loginAdmin(email: string, senha: string): Promise<{ token: string; admin: { email: string; role: string } }> {
+    const adminEmail = this.configService.get<string>('ADMIN_EMAIL');
+    const adminSenha = this.configService.get<string>('ADMIN_PASSWORD');
+
+    if (!adminEmail || !adminSenha) {
+      this.logger.error('Credenciais de admin não configuradas (ADMIN_EMAIL, ADMIN_PASSWORD)');
+      throw new UnauthorizedException('Sistema não configurado para acesso administrativo');
+    }
+
+    if (email !== adminEmail || senha !== adminSenha) {
+      this.logger.warn(`Tentativa de login admin falhou: ${email}`);
+      throw new UnauthorizedException('Email ou senha inválidos');
+    }
+
+    const payload: JwtPayload = {
+      sub: 'super-admin',
+      type: UserType.ADMIN,
+      role: Role.SUPER_ADMIN,
+      email: adminEmail,
+    };
+
+    const token = this.jwtService.sign(payload);
+
+    this.logger.log(`Login admin bem-sucedido: ${email}`);
+
+    return {
+      token,
+      admin: {
+        email: adminEmail,
+        role: Role.SUPER_ADMIN,
+      },
+    };
+  }
 
   /**
    * Verifica senha com suporte a migração SHA256 -> bcrypt

@@ -14,6 +14,14 @@ export function getAuthToken(): string | null {
 }
 
 /**
+ * Obtém o token de admin do localStorage
+ */
+export function getAdminToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('admin_token');
+}
+
+/**
  * Obtém os headers de autenticação
  */
 export function getAuthHeaders(): Record<string, string> {
@@ -105,6 +113,39 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
   if (response.status === 401 && typeof window !== 'undefined') {
     localStorage.removeItem('access_token');
     localStorage.removeItem('orgao_token');
+  }
+  
+  return response;
+}
+
+/**
+ * Fetch autenticado para área admin
+ * Usa o token admin_token do localStorage
+ */
+export async function adminFetch(url: string, options?: RequestInit): Promise<Response> {
+  const headers = new Headers(options?.headers);
+  
+  // Adiciona Content-Type se não existir e não for FormData
+  if (!headers.has('Content-Type') && !(options?.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+  
+  // Adiciona token de admin
+  const token = getAdminToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+  
+  // Se receber 401, redireciona para login admin
+  if (response.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_user');
+    window.location.href = '/admin/login';
   }
   
   return response;
