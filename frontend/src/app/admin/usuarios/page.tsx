@@ -56,7 +56,7 @@ import {
   XCircle,
 } from 'lucide-react'
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Orgao {
   id: string
@@ -122,8 +122,8 @@ export default function AdminUsuariosPage() {
     setErro(null)
     try {
       const [resUsuarios, resOrgaos] = await Promise.all([
-        fetch(`${API_URL}/api/usuarios`),
-        fetch(`${API_URL}/api/orgaos`),
+        authFetch(`${API_URL}/api/usuarios`),
+        authFetch(`${API_URL}/api/orgaos`),
       ])
 
       if (resUsuarios.ok) {
@@ -212,9 +212,8 @@ export default function AdminUsuariosPage() {
         body.senha = formUsuario.senha
       }
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
 
@@ -238,7 +237,7 @@ export default function AdminUsuariosPage() {
 
     setSalvando(true)
     try {
-      const res = await fetch(`${API_URL}/api/usuarios/${usuarioSelecionado.id}`, {
+      const res = await authFetch(`${API_URL}/api/usuarios/${usuarioSelecionado.id}`, {
         method: 'DELETE',
       })
 
@@ -258,9 +257,8 @@ export default function AdminUsuariosPage() {
 
   const toggleAtivo = async (usuario: Usuario) => {
     try {
-      const res = await fetch(`${API_URL}/api/usuarios/${usuario.id}`, {
+      const res = await authFetch(`${API_URL}/api/usuarios/${usuario.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ativo: !usuario.ativo }),
       })
 

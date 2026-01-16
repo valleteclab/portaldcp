@@ -3,7 +3,7 @@
  */
 
 // Remove barra final da URL para evitar barras duplicadas
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 /**
  * Obtém o token de autenticação do localStorage

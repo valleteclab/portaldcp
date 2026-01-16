@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 
 const FASES_INTERNAS = [
   { id: 'PLANEJAMENTO', label: 'Planejamento', icon: FileText },

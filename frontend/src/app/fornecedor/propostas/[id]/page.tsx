@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface PropostaItem {
   id: string
@@ -81,13 +81,13 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
   useEffect(() => {
     const fetchProposta = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/propostas/${resolvedParams.id}`)
+        const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}`)
         if (res.ok) {
           const data = await res.json()
           setProposta(data)
           
           // Buscar itens da proposta
-          const resItens = await fetch(`${API_URL}/api/propostas/${resolvedParams.id}/itens`)
+          const resItens = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}/itens`)
           if (resItens.ok) {
             const itensData = await resItens.json()
             setItensEditados(itensData)
@@ -154,7 +154,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
 
       if (!confirm('Deseja realmente excluir esta proposta?')) return
 
-      const res = await fetch(`${API_URL}/api/propostas/${resolvedParams.id}?fornecedorId=${fornecedor.id}`, {
+      const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}?fornecedorId=${fornecedor.id}`, {
         method: 'DELETE'
       })
 
@@ -195,9 +195,8 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
     try {
       // Atualizar cada item da proposta
       for (const item of itensEditados) {
-        await fetch(`${API_URL}/api/propostas/item/${item.id}`, {
+        await authFetch(`${API_URL}/api/propostas/item/${item.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             valor_unitario: item.valor_unitario,
             marca: item.marca,
@@ -207,9 +206,8 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
       }
 
       // Atualizar valor total da proposta
-      await fetch(`${API_URL}/api/propostas/${resolvedParams.id}`, {
+      await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           valor_total_proposta: calcularTotal()
         })
@@ -219,7 +217,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
       setEditMode(false)
       
       // Recarregar dados
-      const res = await fetch(`${API_URL}/api/propostas/${resolvedParams.id}`)
+      const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}`)
       if (res.ok) {
         const data = await res.json()
         setProposta(data)
@@ -534,11 +532,17 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
                 <h3 className="font-semibold text-blue-800">Disputa em andamento!</h3>
                 <p className="text-blue-600">A fase de lances já começou. Acesse a sala de disputa para participar.</p>
               </div>
-              <Link href={`/fornecedor/licitacoes/${proposta.licitacao.id}/sala`}>
-                <Button className="bg-blue-600 hover:bg-blue-700">
-                  Entrar na Sala de Disputa
-                </Button>
-              </Link>
+              <Button 
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  if (proposta.licitacao?.id) {
+                    // Redirecionar para nova sala de disputa v2
+                    window.location.href = `/fornecedor/licitacoes/${proposta.licitacao.id}/sala`
+                  }
+                }}
+              >
+                Entrar na Sala de Disputa
+              </Button>
             </div>
           </CardContent>
         </Card>

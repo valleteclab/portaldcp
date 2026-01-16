@@ -1,17 +1,31 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException } from '@nestjs/common';
 import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
 import { Fornecedor, NivelCadastro } from './entities/fornecedor.entity';
 import { FornecedorDocumento } from './entities/fornecedor-documento.entity';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, JwtPayload, UserType } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
+import { AuditService, AuditAction } from '../audit/audit.service';
 
 @Controller('fornecedores')
 export class FornecedoresController {
   constructor(
     private readonly fornecedoresService: FornecedoresService,
     private readonly authService: AuthService,
+    private readonly auditService: AuditService,
   ) {}
+
+  /**
+   * Valida se o usuário autenticado é o dono do recurso
+   * Fornecedor só pode acessar/modificar seus próprios dados
+   */
+  private validarOwnership(user: JwtPayload, fornecedorId: string, req?: any): void {
+    if (user.type === UserType.FORNECEDOR && user.sub !== fornecedorId) {
+      // Registra tentativa de acesso não autorizado
+      this.auditService.logAccessDenied(user, 'Fornecedor', fornecedorId, req?.ip);
+      throw new ForbiddenException('Você não tem permissão para acessar/modificar dados de outro fornecedor');
+    }
+  }
 
   // === CONSULTA CNPJ ===
   @Public()
@@ -22,11 +36,13 @@ export class FornecedoresController {
 
   @Public()
   @Get('verificar-cnpj/:cnpj')
-  async verificarCnpjExistente(@Param('cnpj') cnpj: string) {
-    return await this.fornecedoresService.verificarCnpjExistente(cnpj);
+  async verificarCnpjExistente(
+    @Param('cnpj') cnpj: string,
+    @Query('email') email?: string
+  ) {
+    return await this.fornecedoresService.verificarCnpjExistente(cnpj, email);
   }
 
-  @Public()
   @Post('cadastrar-cnpj')
   async createFromCnpj(
     @Body() body: {
@@ -63,25 +79,28 @@ export class FornecedoresController {
   }
 
   @Get()
-  async findAll(): Promise<Fornecedor[]> {
+  async findAll() {
     return await this.fornecedoresService.findAll();
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Fornecedor> {
+  async findOne(@Param('id') id: string) {
     return await this.fornecedoresService.findOne(id);
   }
 
   @Get('cpf-cnpj/:cpfCnpj')
-  async findByCpfCnpj(@Param('cpfCnpj') cpfCnpj: string): Promise<Fornecedor> {
+  async findByCpfCnpj(@Param('cpfCnpj') cpfCnpj: string) {
     return await this.fornecedoresService.findByCpfCnpj(cpfCnpj);
   }
 
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body(new ValidationPipe({ skipMissingProperties: true })) updateDto: UpdateFornecedorDto
-  ): Promise<Fornecedor> {
+    @Body(new ValidationPipe({ skipMissingProperties: true })) updateDto: UpdateFornecedorDto,
+    @Req() req: any
+  ) {
+    // Valida ownership: fornecedor só pode atualizar seus próprios dados
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.update(id, updateDto);
   }
 
@@ -122,6 +141,11 @@ export class FornecedoresController {
   }
 
   // === STATUS ===
+  @Put(':id/aprovar')
+  async aprovar(@Param('id') id: string): Promise<Fornecedor> {
+    return await this.fornecedoresService.aprovar(id);
+  }
+
   @Put(':id/suspender')
   async suspender(
     @Param('id') id: string,
@@ -147,8 +171,9 @@ export class FornecedoresController {
     @Body() body: { email: string; senha: string }
   ): Promise<{ fornecedor: Fornecedor; token: string }> {
     const fornecedor = await this.fornecedoresService.registroInicial(body.email, body.senha);
-    const token = Buffer.from(`${fornecedor.id}:${Date.now()}`).toString('base64');
-    return { fornecedor, token };
+    // Gera JWT válido após registro para permitir acesso autenticado
+    const result = await this.authService.loginFornecedorPorEmail(body.email, body.senha);
+    return { fornecedor, token: result.token };
   }
 
   @Put(':id/definir-senha')
@@ -173,7 +198,6 @@ export class FornecedoresController {
   }
 
   // === CREDENCIAMENTO ===
-  @Public()
   @Post('completar-credenciamento')
   async completarCredenciamento(
     @Body() body: {
@@ -200,7 +224,12 @@ export class FornecedoresController {
   }
 
   @Get('por-email/:email')
-  async findByEmail(@Param('email') email: string): Promise<Fornecedor | null> {
+  async findByEmail(@Param('email') email: string, @Req() req: any) {
+    // Valida ownership: fornecedor só pode acessar seus próprios dados
+    const user = req.user as JwtPayload;
+    if (user.type === UserType.FORNECEDOR && user.email !== email) {
+      throw new ForbiddenException('Você não tem permissão para acessar dados de outro fornecedor');
+    }
     return await this.fornecedoresService.findByEmail(email);
   }
 
@@ -213,8 +242,10 @@ export class FornecedoresController {
       documentoRepresentante?: { filename: string; originalname: string; url: string };
       procuracaoArquivo?: { filename: string; originalname: string; url: string };
       documentoProcurador?: { filename: string; originalname: string; url: string };
-    }
+    },
+    @Req() req: any
   ): Promise<Fornecedor> {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.salvarHabilitacaoJuridica(id, body);
   }
 
@@ -225,8 +256,10 @@ export class FornecedoresController {
       receitaFederal: { tipoComprovante: string; codigoControle: string; dataValidade: string };
       fgts: { tipoComprovante: string; codigoControle: string; dataValidade: string };
       tst: { tipoComprovante: string; codigoControle: string; dataValidade: string };
-    }
+    },
+    @Req() req: any
   ): Promise<Fornecedor> {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.salvarFiscalFederal(id, body);
   }
 
@@ -238,24 +271,30 @@ export class FornecedoresController {
       inscricaoMunicipal?: string;
       certidaoEstadual?: { tipoComprovante: string; codigoControle: string; dataValidade: string };
       certidaoMunicipal?: { tipoComprovante: string; codigoControle: string; dataValidade: string };
-    }
+    },
+    @Req() req: any
   ): Promise<Fornecedor> {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.salvarFiscalEstadual(id, body);
   }
 
   @Put(':id/qualificacao-tecnica')
   async salvarQualificacaoTecnica(
     @Param('id') id: string,
-    @Body() body: { atestados: Array<{ emissor: string; data: string; descricao: string }> }
+    @Body() body: { atestados: Array<{ emissor: string; data: string; descricao: string }> },
+    @Req() req: any
   ): Promise<Fornecedor> {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.salvarQualificacaoTecnica(id, body.atestados);
   }
 
   @Put(':id/qualificacao-economica')
   async salvarQualificacaoEconomica(
     @Param('id') id: string,
-    @Body() body: { balancos: Array<{ ano: string; tipo: string; exercicioFinanceiro: string }> }
+    @Body() body: { balancos: Array<{ ano: string; tipo: string; exercicioFinanceiro: string }> },
+    @Req() req: any
   ): Promise<Fornecedor> {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.salvarQualificacaoEconomica(id, body.balancos);
   }
 

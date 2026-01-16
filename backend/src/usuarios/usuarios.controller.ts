@@ -8,13 +8,17 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { UsuariosService } from './usuarios.service';
 import { RoleUsuario } from './entities/usuario.entity';
 import { Public } from '../auth/public.decorator';
 
 @Controller('usuarios')
 export class UsuariosController {
-  constructor(private readonly usuariosService: UsuariosService) {}
+  constructor(
+    private readonly usuariosService: UsuariosService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   @Post()
   async create(
@@ -39,8 +43,20 @@ export class UsuariosController {
   async login(@Body() body: { email: string; senha: string }) {
     const usuario = await this.usuariosService.login(body.email, body.senha);
     const { senha_hash, ...result } = usuario;
+    
+    // Gerar token JWT
+    const payload = {
+      sub: usuario.id,
+      email: usuario.email,
+      type: 'USUARIO',
+      role: usuario.role,
+      orgao_id: usuario.orgao_id,
+    };
+    const access_token = this.jwtService.sign(payload);
+    
     return {
       success: true,
+      access_token,
       usuario: result,
     };
   }

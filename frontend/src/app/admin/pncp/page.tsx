@@ -68,7 +68,7 @@ import {
   UserCog
 } from 'lucide-react'
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, getAuthHeaders, authFetch } from '@/lib/api'
 
 interface EnteAutorizado {
   id: number
@@ -178,7 +178,8 @@ export default function AdminPNCPPage() {
     try {
       // Preparar headers com credenciais do localStorage se disponíveis
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
       }
       
       // Adicionar credenciais PNCP do localStorage nos headers
@@ -221,7 +222,7 @@ export default function AdminPNCPPage() {
   const carregarTodasUnidades = async (entes: EnteAutorizado[]) => {
     for (const ente of entes) {
       try {
-        const response = await fetch(`${API_URL}/api/pncp/orgaos/${ente.cnpj}/unidades`)
+        const response = await authFetch(`${API_URL}/api/pncp/orgaos/${ente.cnpj}/unidades`)
         if (response.ok) {
           const data = await response.json()
           setOrgaosDetalhes(prev => ({
@@ -242,7 +243,7 @@ export default function AdminPNCPPage() {
   const carregarUnidades = async (cnpj: string) => {
     setLoadingUnidades(cnpj)
     try {
-      const response = await fetch(`${API_URL}/api/pncp/orgaos/${cnpj}/unidades`)
+      const response = await authFetch(`${API_URL}/api/pncp/orgaos/${cnpj}/unidades`)
       if (response.ok) {
         const data = await response.json()
         setOrgaosDetalhes(prev => ({
@@ -293,7 +294,7 @@ export default function AdminPNCPPage() {
 
     try {
       // Buscar órgão local pelo CNPJ
-      const orgaosRes = await fetch(`${API_URL}/api/orgaos`)
+      const orgaosRes = await authFetch(`${API_URL}/api/orgaos`)
       if (!orgaosRes.ok) {
         throw new Error('Erro ao carregar órgãos locais')
       }
@@ -306,9 +307,8 @@ export default function AdminPNCPPage() {
       }
 
       // Atualizar vínculo PNCP do órgão local com o código de unidade retornado pelo PNCP
-      const vinculoRes = await fetch(`${API_URL}/api/orgaos/${orgaoLocal.id}/pncp`, {
+      const vinculoRes = await authFetch(`${API_URL}/api/orgaos/${orgaoLocal.id}/pncp`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pncp_vinculado: true,
           pncp_codigo_unidade: unidade.codigoUnidade || '1',
@@ -338,11 +338,8 @@ export default function AdminPNCPPage() {
       }
 
       // Salvar credenciais da plataforma no backend
-      const response = await fetch(`${API_URL}/api/pncp/credentials`, {
+      const response = await authFetch(`${API_URL}/api/pncp/credentials`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           apiUrl: pncpCredentials.apiUrl,
           login: pncpCredentials.login,
@@ -373,7 +370,7 @@ export default function AdminPNCPPage() {
   const carregarCredenciaisPNCP = async () => {
     try {
       // Carregar credenciais da plataforma PNCP
-      const response = await fetch(`${API_URL}/api/pncp/credentials`)
+      const response = await authFetch(`${API_URL}/api/pncp/credentials`)
       if (response.ok) {
         const credentials = await response.json()
         setPncpCredentials({
@@ -392,11 +389,8 @@ export default function AdminPNCPPage() {
   const limparCredenciaisPNCP = async () => {
     if (confirm('Tem certeza que deseja limpar as credenciais PNCP da plataforma?')) {
       try {
-        const response = await fetch(`${API_URL}/api/pncp/credentials`, {
+        const response = await authFetch(`${API_URL}/api/pncp/credentials`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
           body: JSON.stringify({
             apiUrl: '',
             login: '',
@@ -436,7 +430,7 @@ export default function AdminPNCPPage() {
       await salvarCredenciaisPNCP()
 
       // Testar conexão usando o endpoint da plataforma
-      const response = await fetch(`${API_URL}/api/pncp/credentials/test`, {
+      const response = await authFetch(`${API_URL}/api/pncp/credentials/test`, {
         method: 'POST'
       })
 
@@ -488,7 +482,7 @@ export default function AdminPNCPPage() {
     try {
       // 1. Busca o órgão pelo CNPJ
       const cnpjBusca = ente.cnpj.replace(/\D/g, '')
-      const resOrgaos = await fetch(`${API_URL}/api/orgaos?all=true`)
+      const resOrgaos = await authFetch(`${API_URL}/api/orgaos?all=true`)
       if (resOrgaos.ok) {
         const orgaosData = await resOrgaos.json()
         const orgaosList = Array.isArray(orgaosData) ? orgaosData : orgaosData.value || []
@@ -502,7 +496,7 @@ export default function AdminPNCPPage() {
           })
 
           // 2. Busca usuários vinculados a este órgão na tabela usuarios
-          const resUsuarios = await fetch(`${API_URL}/api/usuarios`)
+          const resUsuarios = await authFetch(`${API_URL}/api/usuarios`)
           if (resUsuarios.ok) {
             const usuariosData = await resUsuarios.json()
             const usuariosList = Array.isArray(usuariosData) ? usuariosData : usuariosData.value || []
@@ -529,7 +523,7 @@ export default function AdminPNCPPage() {
 
       // 1. Primeiro verificar se o órgão já existe pelo CNPJ (incluindo inativos)
       const cnpjBusca = orgaoSelecionado.cnpj.replace(/\D/g, '')
-      const resOrgaos = await fetch(`${API_URL}/api/orgaos?all=true`)
+      const resOrgaos = await authFetch(`${API_URL}/api/orgaos?all=true`)
       if (resOrgaos.ok) {
         const orgaosData = await resOrgaos.json()
         const orgaosList = Array.isArray(orgaosData) ? orgaosData : orgaosData.value || []
@@ -538,9 +532,8 @@ export default function AdminPNCPPage() {
           orgaoId = orgaoExistente.id
           // Se órgão está inativo, ativar
           if (!orgaoExistente.ativo) {
-            await fetch(`${API_URL}/api/orgaos/${orgaoId}`, {
+            await authFetch(`${API_URL}/api/orgaos/${orgaoId}`, {
               method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ativo: true })
             })
           }
@@ -549,9 +542,8 @@ export default function AdminPNCPPage() {
 
       // 2. Se órgão não existe, criar
       if (!orgaoId) {
-        const responseOrgao = await fetch(`${API_URL}/api/orgaos/registro`, {
+        const responseOrgao = await authFetch(`${API_URL}/api/orgaos/registro`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: formUsuario.email_login,
             senha: formUsuario.senha,
@@ -577,9 +569,8 @@ export default function AdminPNCPPage() {
       }
 
       // 2. Criar usuário vinculado ao órgão na tabela usuarios
-      const responseUsuario = await fetch(`${API_URL}/api/usuarios`, {
+      const responseUsuario = await authFetch(`${API_URL}/api/usuarios`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nome: formUsuario.nome_responsavel || orgaoSelecionado.razaoSocial,
           email: formUsuario.email_login,
@@ -610,9 +601,8 @@ export default function AdminPNCPPage() {
 
     setResetandoUsuario(true)
     try {
-      const response = await fetch(`${API_URL}/api/orgaos/reset-credenciais`, {
+      const response = await authFetch(`${API_URL}/api/orgaos/reset-credenciais`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cnpj: orgaoSelecionado.cnpj,
           email: formUsuario.email_login,

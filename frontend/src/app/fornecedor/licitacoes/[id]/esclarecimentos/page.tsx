@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Licitacao {
   id: string
@@ -69,8 +69,8 @@ export default function EsclarecimentosPage() {
       const fornecedor = JSON.parse(localStorage.getItem('fornecedor') || '{}')
       
       const [licRes, escRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/esclarecimentos/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/esclarecimentos/licitacao/${licitacaoId}`)
       ])
 
       if (licRes.ok) {
@@ -123,7 +123,7 @@ export default function EsclarecimentosPage() {
       if (itemEdital) formData.append('item_edital_referencia', itemEdital)
       if (arquivo) formData.append('documento', arquivo)
 
-      const res = await fetch(`${API_URL}/api/esclarecimentos`, {
+      const res = await authFetch(`${API_URL}/api/esclarecimentos`, {
         method: 'POST',
         body: formData
       })

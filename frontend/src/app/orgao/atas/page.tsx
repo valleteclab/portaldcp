@@ -52,7 +52,7 @@ interface Ata {
   itens: ItemAta[]
 }
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 const STATUS_ATA = {
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },
@@ -90,9 +90,9 @@ export default function AtasOrgaoPage() {
       const orgao = JSON.parse(orgaoData)
 
       const [atasRes, aVencerRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/atas?orgaoId=${orgao.id}`),
-        fetch(`${API_URL}/api/atas/estatisticas/a-vencer?orgaoId=${orgao.id}&dias=30`),
-        fetch(`${API_URL}/api/atas/estatisticas/status?orgaoId=${orgao.id}`)
+        authFetch(`${API_URL}/api/atas?orgaoId=${orgao.id}`),
+        authFetch(`${API_URL}/api/atas/estatisticas/a-vencer?orgaoId=${orgao.id}&dias=30`),
+        authFetch(`${API_URL}/api/atas/estatisticas/status?orgaoId=${orgao.id}`)
       ])
 
       if (atasRes.ok) {

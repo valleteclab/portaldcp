@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -32,6 +33,8 @@ import { SystemConfigModule } from './system-config/system-config.module';
 import { LotesModule } from './lotes/lotes.module';
 import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { DisputaModule } from './disputa-v2/disputa.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -42,6 +45,11 @@ import { UsuariosModule } from './usuarios/usuarios.module';
       ignoreEnvFile: true, // Já carregamos manualmente no main.ts
     }),
     ScheduleModule.forRoot(),
+    // Rate limiting global: 100 requisições por minuto por IP
+    ThrottlerModule.forRoot([{
+      ttl: 60000, // 1 minuto em ms
+      limit: 100, // 100 requisições por minuto
+    }]),
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
@@ -81,12 +89,18 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     LotesModule,
     EsclarecimentosModule,
     UsuariosModule,
+    DisputaModule,
+    AdminModule,
   ],
   controllers: [HealthController],
   providers: [
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })

@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface UnidadeMedida {
   id: string
@@ -57,7 +57,7 @@ export function UnidadeMedidaSelect({
     const carregarUnidades = async () => {
       setLoading(true)
       try {
-        const res = await fetch(`${API_URL}/api/catalogo/unidades`)
+        const res = await authFetch(`${API_URL}/api/catalogo/unidades`)
         if (res.ok) {
           const data = await res.json()
           if (data.length > 0) {

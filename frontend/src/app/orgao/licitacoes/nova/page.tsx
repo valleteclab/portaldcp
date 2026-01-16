@@ -86,7 +86,7 @@ export default function NovaLicitacaoPage() {
         }
         
         // Se não tiver, busca o primeiro órgão disponível
-        const res = await fetch(`${API_URL}/api/orgaos`)
+        const res = await authFetch(`${API_URL}/api/orgaos`)
         if (res.ok) {
           const orgaos = await res.json()
           if (orgaos.length > 0) {

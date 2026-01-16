@@ -94,6 +94,19 @@ export class Proposta {
   @Column({ type: 'text', nullable: true })
   motivo_desclassificacao: string;
 
+  // Documento de justificativa da desclassificação (opcional)
+  @Column({ nullable: true })
+  documento_desclassificacao_nome: string;
+
+  @Column({ nullable: true })
+  documento_desclassificacao_path: string;
+
+  @Column({ nullable: true })
+  documento_desclassificacao_tipo: string;
+
+  @Column({ type: 'int', nullable: true })
+  documento_desclassificacao_tamanho: number;
+
   // Datas
   @Column({ type: 'timestamp', nullable: true })
   data_envio: Date;

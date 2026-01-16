@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '')
 
 export default function OrgaoLoginPage() {
   const router = useRouter()
@@ -32,8 +32,8 @@ export default function OrgaoLoginPage() {
     setLoading(true)
 
     try {
-      // Tenta primeiro o novo sistema JWT (usuários)
-      let response = await fetch(`${API_URL}/api/auth/login/usuario`, {
+      // Tenta primeiro login de usuário do órgão (pregoeiro, equipe apoio, admin)
+      let response = await fetch(`${API_URL}/api/usuarios/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, senha }),
@@ -41,7 +41,7 @@ export default function OrgaoLoginPage() {
 
       let data = await response.json()
 
-      // Se falhar, tenta o sistema antigo (órgãos)
+      // Se falhar, tenta login direto do órgão (sistema legado)
       if (!response.ok) {
         response = await fetch(`${API_URL}/api/orgaos/login`, {
           method: "POST",

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText, Import, AlertCircle, Building2, Loader2 } from "lucide-react"
 import { DadosBasicos } from "./types"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface UnidadeOrgao {
   codigoUnidade: string
@@ -40,7 +40,7 @@ export function DadosBasicosTab({ dados, onChange, modoImportacao, onToggleModo 
           const orgao = JSON.parse(orgaoSalvo)
           const cnpj = orgao.cnpj?.replace(/\D/g, '')
           if (cnpj) {
-            const res = await fetch(`${API_URL}/api/pncp/orgaos/${cnpj}/unidades`)
+            const res = await authFetch(`${API_URL}/api/pncp/orgaos/${cnpj}/unidades`)
             if (res.ok) {
               const data = await res.json()
               setUnidades(data.unidades || [])

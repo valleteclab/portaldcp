@@ -47,7 +47,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { BuscaItemCatalogoProprio, BuscaClassificacao } from '@/components/catalogo'
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 // Tipos
 interface ItemDemanda {
@@ -150,9 +150,9 @@ export default function DemandasPage() {
     setLoading(true)
     try {
       const [demandasRes, estatisticasRes, unidadesRes] = await Promise.all([
-        fetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
-        fetch(`${API_URL}/api/demandas/estatisticas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
-        fetch(`${API_URL}/api/demandas/unidades?orgaoId=${orgaoId}`)
+        authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
+        authFetch(`${API_URL}/api/demandas/estatisticas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
+        authFetch(`${API_URL}/api/demandas/unidades?orgaoId=${orgaoId}`)
       ])
 
       if (demandasRes.ok) {
@@ -184,7 +184,7 @@ export default function DemandasPage() {
 
     setSalvando(true)
     try {
-      const response = await fetch(`${API_URL}/api/demandas`, {
+      const response = await authFetch(`${API_URL}/api/demandas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -219,7 +219,7 @@ export default function DemandasPage() {
 
   const enviarDemanda = async (demandaId: string) => {
     try {
-      const response = await fetch(`${API_URL}/api/demandas/${demandaId}/enviar`, {
+      const response = await authFetch(`${API_URL}/api/demandas/${demandaId}/enviar`, {
         method: 'PATCH'
       })
 
@@ -242,7 +242,7 @@ export default function DemandasPage() {
     if (!confirm('Tem certeza que deseja excluir esta demanda?')) return
 
     try {
-      const response = await fetch(`${API_URL}/api/demandas/${demandaId}`, {
+      const response = await authFetch(`${API_URL}/api/demandas/${demandaId}`, {
         method: 'DELETE'
       })
 
@@ -672,7 +672,7 @@ function DetalhesDemandaModal({
       const valorUnitario = parseFloat(novoItem.valor_unitario_estimado) || 0
       const quantidade = parseFloat(novoItem.quantidade_estimada) || 1
 
-      const response = await fetch(`${API_URL}/api/demandas/${demanda.id}/itens`, {
+      const response = await authFetch(`${API_URL}/api/demandas/${demanda.id}/itens`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -715,7 +715,7 @@ function DetalhesDemandaModal({
     if (!confirm('Remover este item?')) return
 
     try {
-      await fetch(`${API_URL}/api/demandas/itens/${itemId}`, { method: 'DELETE' })
+      await authFetch(`${API_URL}/api/demandas/itens/${itemId}`, { method: 'DELETE' })
       onUpdate()
     } catch (error) {
       console.error('Erro ao remover item:', error)

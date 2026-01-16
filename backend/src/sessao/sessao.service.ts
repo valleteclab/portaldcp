@@ -5,8 +5,10 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from './entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from './entities/evento-sessao.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
-import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../lances/entities/lance.entity';
+import { Proposta } from '../propostas/entities/proposta.entity';
+import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 
 /**
  * Servico de Controle da Sessao de Disputa
@@ -25,6 +27,10 @@ export class SessaoService {
     private readonly itemRepository: Repository<ItemLicitacao>,
     @InjectRepository(Lance)
     private readonly lanceRepository: Repository<Lance>,
+    @InjectRepository(Proposta)
+    private readonly propostaRepository: Repository<Proposta>,
+    @InjectRepository(PropostaItem)
+    private readonly propostaItemRepository: Repository<PropostaItem>,
   ) {}
 
   // ========================================
@@ -50,6 +56,12 @@ export class SessaoService {
       throw new BadRequestException('Ja existe uma sessao ativa para esta licitacao');
     }
 
+    // Determina tipo de disputa baseado na configuração da licitação
+    // Lei 14.133/2021, Art. 56
+    const disputaPorItem = !licitacao.usa_lotes; // Se não usa lotes, disputa é por item
+    const modoAberto = licitacao.modo_disputa === 'ABERTO' || licitacao.modo_disputa === 'ABERTO_FECHADO';
+    const modoAbertoFechado = licitacao.modo_disputa === 'ABERTO_FECHADO' || licitacao.modo_disputa === 'FECHADO_ABERTO';
+
     const sessao = this.sessaoRepository.create({
       licitacao_id: licitacaoId,
       pregoeiro_id: pregoeiroId,
@@ -57,12 +69,16 @@ export class SessaoService {
       status: StatusSessao.AGUARDANDO_INICIO,
       etapa: EtapaSessao.ABERTURA_SESSAO,
       data_hora_inicio_prevista: licitacao.data_abertura_sessao,
-      // Configuracoes padrao conforme IN SEGES/ME
-      intervalo_minimo_lances_minutos: 3,
-      tempo_inatividade_minutos: 10,
+      // Configurações da licitação
+      disputa_por_item: disputaPorItem,
+      modo_aberto: modoAberto,
+      modo_aberto_fechado: modoAbertoFechado,
+      // Configuracoes de tempo herdadas da licitação (Lei 14.133/2021)
+      intervalo_minimo_lances_minutos: licitacao.intervalo_minimo_lances || 3,
+      tempo_inatividade_minutos: licitacao.tempo_inatividade || 10, // 10 min default
       tempo_aleatorio_min_minutos: 2,
       tempo_aleatorio_max_minutos: 30,
-      tempo_prorrogacao_minutos: 2,
+      tempo_prorrogacao_minutos: licitacao.tempo_prorrogacao || 2, // 2 min default
     });
 
     return await this.sessaoRepository.save(sessao);
@@ -80,6 +96,25 @@ export class SessaoService {
       throw new BadRequestException('Sessao ja foi iniciada ou encerrada');
     }
 
+    // Validar data de abertura da sessão
+    if (sessao.data_hora_inicio_prevista) {
+      const agora = new Date();
+      const dataAbertura = new Date(sessao.data_hora_inicio_prevista);
+      
+      if (agora < dataAbertura) {
+        const dataFormatada = dataAbertura.toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        throw new BadRequestException(
+          `A sessão só pode ser iniciada a partir de ${dataFormatada}. Aguarde a data de abertura programada.`
+        );
+      }
+    }
+
     sessao.status = StatusSessao.EM_ANDAMENTO;
     sessao.etapa = EtapaSessao.ABERTURA_SESSAO;
     sessao.data_hora_inicio_real = new Date();
@@ -94,6 +129,42 @@ export class SessaoService {
     // Registra evento
     await this.registrarEvento(sessao.id, TipoEvento.SESSAO_INICIADA, 
       'Sessao publica iniciada pelo Pregoeiro', undefined, undefined, sessao.pregoeiro_nome, true);
+
+    return sessao;
+  }
+
+  /**
+   * Reabre uma sessão encerrada para continuar a disputa
+   */
+  async reabrirSessao(sessaoId: string): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    if (sessao.status !== StatusSessao.ENCERRADA && sessao.status !== StatusSessao.SUSPENSA) {
+      throw new BadRequestException('Apenas sessoes encerradas ou suspensas podem ser reabertas');
+    }
+
+    // Verifica se a licitação ainda está em fase de disputa
+    const licitacao = await this.licitacaoRepository.findOneBy({ id: sessao.licitacao_id });
+    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+
+    // Permite reabrir se a licitação ainda está em fase de disputa ou análise
+    const fasesPermitidas = [FaseLicitacao.EM_DISPUTA, FaseLicitacao.ANALISE_PROPOSTAS, FaseLicitacao.JULGAMENTO];
+    if (!fasesPermitidas.includes(licitacao.fase)) {
+      throw new BadRequestException(`Licitacao esta na fase ${licitacao.fase}, nao e possivel reabrir a sessao`);
+    }
+
+    sessao.status = StatusSessao.EM_ANDAMENTO;
+    sessao.etapa = EtapaSessao.DISPUTA_LANCES;
+
+    await this.sessaoRepository.save(sessao);
+    
+    // Limpar data de encerramento via query direta
+    await this.sessaoRepository.update(sessao.id, { data_hora_encerramento: null as any });
+
+    // Registra evento
+    await this.registrarEvento(sessao.id, TipoEvento.SESSAO_RETOMADA, 
+      'Sessao reaberta pelo Pregoeiro', undefined, undefined, sessao.pregoeiro_nome, true);
 
     return sessao;
   }
@@ -127,6 +198,10 @@ export class SessaoService {
     return sessao;
   }
 
+  /**
+   * Inicia disputa de um item específico
+   * Agora o controle de tempo é POR ITEM, não por sessão
+   */
   async iniciarDisputaItem(sessaoId: string, itemId: string): Promise<SessaoDisputa> {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
@@ -134,11 +209,19 @@ export class SessaoService {
     const item = await this.itemRepository.findOneBy({ id: itemId });
     if (!item) throw new NotFoundException('Item nao encontrado');
 
-    sessao.item_atual_id = itemId;
-    sessao.ultimo_lance_em = new Date();
-    sessao.inicio_tempo_aleatorio = undefined as any;
-    sessao.tempo_aleatorio_sorteado = undefined as any;
+    // Atualiza o item com status de disputa
+    const agora = new Date();
+    await this.itemRepository.update(itemId, {
+      status_disputa: StatusDisputaItem.EM_DISPUTA,
+      disputa_iniciada_em: agora,
+      ultimo_lance_em: agora,
+      inicio_tempo_aleatorio: undefined,
+      tempo_aleatorio_sorteado: undefined,
+    });
 
+    // Mantém compatibilidade com item_atual_id (para sistemas legados)
+    sessao.item_atual_id = itemId;
+    sessao.ultimo_lance_em = agora;
     await this.sessaoRepository.save(sessao);
 
     await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ITEM_INICIADA,
@@ -146,6 +229,206 @@ export class SessaoService {
       itemId, undefined, sessao.pregoeiro_nome, true);
 
     return sessao;
+  }
+
+  /**
+   * Inicia disputa conforme configuração da licitação
+   * 
+   * Lei 14.133/2021, Art. 56:
+   * - DISPUTA POR ITEM: Cada item tem seu próprio cronômetro
+   * - DISPUTA POR LOTE: Cada lote tem seu próprio cronômetro (itens do lote disputados juntos)
+   */
+  async iniciarDisputaTodosItens(sessaoId: string): Promise<{ 
+    sessao: SessaoDisputa; 
+    itensIniciados: number;
+    lotesIniciados: number;
+    tipoDisputa: 'POR_ITEM' | 'POR_LOTE';
+  }> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    const licitacao = await this.licitacaoRepository.findOneBy({ id: sessao.licitacao_id });
+    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+
+    const agora = new Date();
+    let itensIniciados = 0;
+    let lotesIniciados = 0;
+    const tipoDisputa = sessao.disputa_por_item ? 'POR_ITEM' : 'POR_LOTE';
+
+    if (sessao.disputa_por_item) {
+      // ========================================
+      // DISPUTA POR ITEM - Cada item independente
+      // ========================================
+      const itens = await this.itemRepository.find({
+        where: { licitacao_id: sessao.licitacao_id }
+      });
+
+      for (const item of itens) {
+        if (!item.status_disputa || item.status_disputa === StatusDisputaItem.AGUARDANDO) {
+          // Antes de iniciar, converter propostas em lances
+          await this.converterPropostasEmLances(item.id, sessao.licitacao_id);
+          
+          await this.itemRepository.update(item.id, {
+            status_disputa: StatusDisputaItem.EM_DISPUTA,
+            disputa_iniciada_em: agora,
+            ultimo_lance_em: agora,
+            inicio_tempo_aleatorio: undefined,
+            tempo_aleatorio_sorteado: undefined,
+          });
+          itensIniciados++;
+
+          await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ITEM_INICIADA,
+            `Disputa iniciada para o Item ${item.numero_item}: ${item.descricao_resumida}`,
+            item.id, undefined, sessao.pregoeiro_nome, true);
+        }
+      }
+    } else {
+      // ========================================
+      // DISPUTA POR LOTE - Itens agrupados por lote
+      // Lance é sobre o valor total do lote
+      // ========================================
+      const itens = await this.itemRepository.find({
+        where: { licitacao_id: sessao.licitacao_id }
+      });
+
+      // Agrupa itens por lote
+      const itensPorLote = new Map<string, typeof itens>();
+      for (const item of itens) {
+        const loteId = item.lote_id || 'SEM_LOTE';
+        if (!itensPorLote.has(loteId)) {
+          itensPorLote.set(loteId, []);
+        }
+        itensPorLote.get(loteId)!.push(item);
+      }
+
+      // Inicia disputa para cada lote (todos os itens do lote juntos)
+      for (const [loteId, itensDoLote] of itensPorLote) {
+        // Verifica se algum item do lote já está em disputa
+        const algumEmDisputa = itensDoLote.some(i => 
+          i.status_disputa === StatusDisputaItem.EM_DISPUTA || 
+          i.status_disputa === StatusDisputaItem.TEMPO_ALEATORIO
+        );
+
+        if (!algumEmDisputa) {
+          // Inicia todos os itens do lote
+          for (const item of itensDoLote) {
+            await this.itemRepository.update(item.id, {
+              status_disputa: StatusDisputaItem.EM_DISPUTA,
+              disputa_iniciada_em: agora,
+              ultimo_lance_em: agora,
+              inicio_tempo_aleatorio: undefined,
+              tempo_aleatorio_sorteado: undefined,
+            });
+            itensIniciados++;
+          }
+          lotesIniciados++;
+
+          const descricaoLote = loteId === 'SEM_LOTE' 
+            ? `Itens sem lote (${itensDoLote.length} itens)`
+            : `Lote ${loteId} (${itensDoLote.length} itens)`;
+
+          await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ITEM_INICIADA,
+            `Disputa iniciada para ${descricaoLote}`,
+            undefined, undefined, sessao.pregoeiro_nome, true);
+        }
+      }
+    }
+
+    // Atualiza sessão para modo aberto
+    sessao.status = StatusSessao.MODO_ABERTO;
+    sessao.etapa = EtapaSessao.DISPUTA_LANCES;
+    await this.sessaoRepository.save(sessao);
+
+    return { sessao, itensIniciados, lotesIniciados, tipoDisputa };
+  }
+
+  /**
+   * Inicia disputa apenas para itens selecionados
+   */
+  async iniciarItensSelecionados(sessaoId: string, itensIds: string[]): Promise<{ 
+    itensIniciados: number;
+  }> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    const agora = new Date();
+    let itensIniciados = 0;
+
+    for (const itemId of itensIds) {
+      const item = await this.itemRepository.findOneBy({ id: itemId });
+      if (!item) continue;
+
+      if (!item.status_disputa || item.status_disputa === StatusDisputaItem.AGUARDANDO) {
+        // Converter propostas em lances antes de iniciar
+        await this.converterPropostasEmLances(itemId, sessao.licitacao_id);
+        
+        await this.itemRepository.update(itemId, {
+          status_disputa: StatusDisputaItem.EM_DISPUTA,
+          disputa_iniciada_em: agora,
+          ultimo_lance_em: agora,
+          inicio_tempo_aleatorio: undefined,
+          tempo_aleatorio_sorteado: undefined,
+        });
+        itensIniciados++;
+
+        await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ITEM_INICIADA,
+          `Disputa iniciada para o Item ${item.numero_item}: ${item.descricao_resumida}`,
+          itemId, undefined, sessao.pregoeiro_nome, true);
+      }
+    }
+
+    // Atualizar status da sessão se for o primeiro item
+    if (itensIniciados > 0 && sessao.status !== StatusSessao.MODO_ABERTO) {
+      sessao.status = StatusSessao.MODO_ABERTO;
+      sessao.etapa = EtapaSessao.DISPUTA_LANCES;
+      await this.sessaoRepository.save(sessao);
+    }
+
+    return { itensIniciados };
+  }
+
+  /**
+   * Converte propostas em lances ao iniciar disputa
+   */
+  private async converterPropostasEmLances(itemId: string, licitacaoId: string): Promise<void> {
+    // Buscar itens da proposta (relacionamento com item)
+    const itensProposta = await this.propostaItemRepository.find({
+      where: { item_licitacao_id: itemId },
+      relations: ['proposta', 'proposta.fornecedor']
+    });
+
+    for (const itemProposta of itensProposta) {
+      const proposta = itemProposta.proposta;
+      
+      // Apenas propostas classificadas/recebidas
+      if (proposta.status !== 'CLASSIFICADA' && proposta.status !== 'RECEBIDA') {
+        continue;
+      }
+
+      // Verificar se já existe lance para este fornecedor
+      const lanceExistente = await this.lanceRepository.findOne({
+        where: {
+          item_id: itemId,
+          fornecedor_identificador: proposta.fornecedor_id.toString()
+        }
+      });
+
+      if (!lanceExistente && itemProposta.valor_total) {
+        // Criar lance a partir da proposta
+        const lance = this.lanceRepository.create({
+          licitacao_id: licitacaoId,
+          item_id: itemId,
+          fornecedor_identificador: proposta.fornecedor_id.toString(),
+          fornecedor_nome: proposta.fornecedor?.razao_social || 'Fornecedor',
+          valor: itemProposta.valor_total,
+          ip_origem: 'SISTEMA',
+          cancelado: false,
+          created_at: proposta.created_at || new Date()
+        });
+
+        await this.lanceRepository.save(lance);
+      }
+    }
   }
 
   // ========================================
@@ -163,20 +446,31 @@ export class SessaoService {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
-    // Validacoes de estado
-    if (sessao.status !== StatusSessao.MODO_ABERTO) {
+    const item = await this.itemRepository.findOneBy({ id: itemId });
+    if (!item) throw new NotFoundException('Item nao encontrado');
+
+    // Validacoes de estado da sessão
+    if (sessao.status !== StatusSessao.MODO_ABERTO && sessao.status !== StatusSessao.EM_ANDAMENTO) {
       throw new BadRequestException('Sessao nao esta em modo de disputa aberta');
     }
 
-    if (sessao.item_atual_id !== itemId) {
+    // Validação por ITEM (não mais por sessão)
+    if (item.status_disputa !== StatusDisputaItem.EM_DISPUTA && item.status_disputa !== StatusDisputaItem.TEMPO_ALEATORIO) {
       throw new BadRequestException('Este item nao esta em disputa no momento');
     }
 
-    // Busca melhor lance atual
+    // Busca melhor lance atual DO ITEM
     const melhorLance = await this.lanceRepository.findOne({
-      where: { licitacao_id: sessao.licitacao_id, cancelado: false },
+      where: { item_id: itemId, cancelado: false },
       order: { valor: 'ASC' }
     });
+
+    // Valida se o lance é igual ao melhor (não pode ter valores iguais)
+    if (melhorLance && valor === Number(melhorLance.valor)) {
+      throw new BadRequestException(
+        `Lance não pode ser igual ao melhor lance atual (R$ ${Number(melhorLance.valor).toFixed(2)}). Informe um valor diferente.`
+      );
+    }
 
     // Valida se o lance e menor que o melhor
     if (melhorLance && valor >= Number(melhorLance.valor)) {
@@ -185,10 +479,10 @@ export class SessaoService {
       );
     }
 
-    // Busca ultimo lance do fornecedor
+    // Busca ultimo lance do fornecedor NESTE ITEM
     const meuUltimoLance = await this.lanceRepository.findOne({
       where: { 
-        licitacao_id: sessao.licitacao_id, 
+        item_id: itemId, 
         fornecedor_identificador: fornecedorId, 
         cancelado: false 
       },
@@ -205,6 +499,7 @@ export class SessaoService {
     // Cria o lance
     const lance = this.lanceRepository.create({
       licitacao_id: sessao.licitacao_id,
+      item_id: itemId,
       fornecedor_identificador: fornecedorId,
       valor,
       ip_origem: ip,
@@ -213,17 +508,24 @@ export class SessaoService {
 
     await this.lanceRepository.save(lance);
 
-    // Atualiza timestamp do ultimo lance (para controle de inatividade)
-    sessao.ultimo_lance_em = new Date();
+    const agora = new Date();
 
-    // Se estava em tempo aleatorio, aplica prorrogacao
-    if (sessao.inicio_tempo_aleatorio) {
-      sessao.prorrogacoes_utilizadas++;
+    // Atualiza timestamp do ultimo lance NO ITEM (controle por item)
+    await this.itemRepository.update(itemId, {
+      ultimo_lance_em: agora,
+      melhor_lance_valor: valor,
+      melhor_lance_fornecedor_id: fornecedorId,
+    });
+
+    // Se o item estava em tempo aleatorio, aplica prorrogacao
+    if (item.inicio_tempo_aleatorio) {
       await this.registrarEvento(sessao.id, TipoEvento.PRORROGACAO_AUTOMATICA,
-        `Prorrogacao automatica aplicada (${sessao.tempo_prorrogacao_minutos} min)`,
+        `Prorrogacao automatica aplicada para Item ${item.numero_item}`,
         itemId, fornecedorId, fornecedorNome, true);
     }
 
+    // Mantém compatibilidade com sessão (para sistemas legados)
+    sessao.ultimo_lance_em = agora;
     await this.sessaoRepository.save(sessao);
 
     // Registra evento
@@ -232,6 +534,119 @@ export class SessaoService {
       itemId, fornecedorId, fornecedorNome, false, { valor, lance_id: lance.id });
 
     return lance;
+  }
+
+  /**
+   * Registra lance por LOTE (valor total do lote)
+   * Na disputa por lote, o fornecedor dá lance sobre o valor total
+   * O lance é registrado em TODOS os itens do lote proporcionalmente
+   */
+  async registrarLanceLote(
+    sessaoId: string,
+    loteId: string,
+    fornecedorId: string,
+    fornecedorNome: string,
+    valorTotalLote: number,
+    ip: string
+  ): Promise<{ lances: Lance[]; valorTotal: number }> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Verifica se a sessão é por lote
+    if (sessao.disputa_por_item) {
+      throw new BadRequestException('Esta sessão é por item, não por lote. Use o endpoint de lance por item.');
+    }
+
+    // Busca todos os itens do lote
+    const itensDoLote = await this.itemRepository.find({
+      where: { lote_id: loteId, licitacao_id: sessao.licitacao_id }
+    });
+
+    if (itensDoLote.length === 0) {
+      throw new NotFoundException('Nenhum item encontrado para este lote');
+    }
+
+    // Verifica se algum item do lote está em disputa
+    const itemEmDisputa = itensDoLote.find(i => 
+      i.status_disputa === StatusDisputaItem.EM_DISPUTA || 
+      i.status_disputa === StatusDisputaItem.TEMPO_ALEATORIO
+    );
+
+    if (!itemEmDisputa) {
+      throw new BadRequestException('Este lote não está em disputa no momento');
+    }
+
+    // Calcula valor total de referência do lote
+    const valorReferenciaLote = itensDoLote.reduce((sum, item) => {
+      return sum + (Number(item.valor_total_estimado) || 0);
+    }, 0);
+
+    // Busca melhor lance atual do lote (soma dos melhores lances de cada item)
+    let melhorLanceAtualLote = 0;
+    for (const item of itensDoLote) {
+      const melhorLanceItem = await this.lanceRepository.findOne({
+        where: { item_id: item.id, cancelado: false },
+        order: { valor: 'ASC' }
+      });
+      if (melhorLanceItem) {
+        melhorLanceAtualLote += Number(melhorLanceItem.valor) * item.quantidade;
+      } else {
+        // Se não tem lance, usa valor de referência
+        melhorLanceAtualLote += Number(item.valor_total_estimado) || 0;
+      }
+    }
+
+    // Valida se o lance é menor que o melhor atual
+    if (valorTotalLote >= melhorLanceAtualLote) {
+      throw new BadRequestException(
+        `Lance deve ser menor que o melhor lance atual do lote (R$ ${melhorLanceAtualLote.toFixed(2)})`
+      );
+    }
+
+    // Calcula fator de desconto
+    const fatorDesconto = valorTotalLote / valorReferenciaLote;
+
+    // Registra lance em cada item proporcionalmente
+    const lances: Lance[] = [];
+    const agora = new Date();
+
+    for (const item of itensDoLote) {
+      const valorUnitarioItem = (Number(item.valor_unitario_estimado) || 0) * fatorDesconto;
+      
+      const lance = this.lanceRepository.create({
+        licitacao_id: sessao.licitacao_id,
+        item_id: item.id,
+        fornecedor_identificador: fornecedorId,
+        valor: valorUnitarioItem,
+        ip_origem: ip,
+        cancelado: false,
+      });
+
+      await this.lanceRepository.save(lance);
+      lances.push(lance);
+
+      // Atualiza timestamp do ultimo lance no item
+      await this.itemRepository.update(item.id, {
+        ultimo_lance_em: agora,
+        melhor_lance_valor: valorUnitarioItem,
+        melhor_lance_fornecedor_id: fornecedorId,
+      });
+    }
+
+    // Mantém compatibilidade com sessão
+    sessao.ultimo_lance_em = agora;
+    await this.sessaoRepository.save(sessao);
+
+    // Registra evento
+    await this.registrarEvento(sessao.id, TipoEvento.LANCE_REGISTRADO,
+      `Lance de R$ ${valorTotalLote.toFixed(2)} registrado para Lote (${itensDoLote.length} itens)`,
+      undefined, fornecedorId, fornecedorNome, false, { 
+        valorTotal: valorTotalLote, 
+        loteId,
+        quantidadeItens: itensDoLote.length 
+      });
+
+    return { lances, valorTotal: valorTotalLote };
   }
 
   // ========================================
@@ -300,7 +715,7 @@ export class SessaoService {
   }
 
   /**
-   * Encerra a disputa do item atual
+   * Encerra a disputa do item atual (legado)
    */
   async encerrarDisputaItem(sessaoId: string): Promise<SessaoDisputa> {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
@@ -330,6 +745,174 @@ export class SessaoService {
     await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ITEM_ENCERRADA,
       descricao, itemId, melhorLance?.fornecedor_identificador, 'SISTEMA', true,
       { melhor_lance: melhorLance?.valor });
+
+    return sessao;
+  }
+
+  /**
+   * Encerra a disputa de um item específico por ID
+   * Usado no novo sistema de disputa simultânea
+   */
+  async encerrarDisputaItemPorId(sessaoId: string, itemId?: string): Promise<{ sessao: SessaoDisputa; itemNumero?: number }> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Se não passou itemId, usa o item_atual_id (compatibilidade)
+    const targetItemId = itemId || sessao.item_atual_id;
+    
+    if (!targetItemId) {
+      throw new BadRequestException('Nenhum item especificado para encerrar');
+    }
+
+    const item = await this.itemRepository.findOneBy({ id: targetItemId });
+    if (!item) throw new NotFoundException('Item nao encontrado');
+
+    // Busca melhor lance DO ITEM
+    const melhorLance = await this.lanceRepository.findOne({
+      where: { item_id: targetItemId, cancelado: false },
+      order: { valor: 'ASC' }
+    });
+
+    // Atualiza status do item para ENCERRADO
+    await this.itemRepository.update(targetItemId, {
+      status_disputa: StatusDisputaItem.ENCERRADO,
+      disputa_encerrada_em: new Date(),
+      inicio_tempo_aleatorio: undefined,
+      tempo_aleatorio_sorteado: undefined,
+      melhor_lance_valor: melhorLance?.valor || undefined,
+      melhor_lance_fornecedor_id: melhorLance?.fornecedor_identificador || undefined,
+    });
+
+    // Registra evento
+    const descricao = melhorLance 
+      ? `Item ${item.numero_item} encerrado. Melhor lance: R$ ${Number(melhorLance.valor).toFixed(2)} - ${melhorLance.fornecedor_identificador}`
+      : `Item ${item.numero_item} encerrado sem lances`;
+
+    await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ITEM_ENCERRADA,
+      descricao, targetItemId, melhorLance?.fornecedor_identificador, 'SISTEMA', true,
+      { melhor_lance: melhorLance?.valor, item_numero: item.numero_item });
+
+    // Verifica se todos os itens foram encerrados
+    const itensRestantes = await this.itemRepository.count({
+      where: [
+        { licitacao_id: sessao.licitacao_id, status_disputa: StatusDisputaItem.EM_DISPUTA },
+        { licitacao_id: sessao.licitacao_id, status_disputa: StatusDisputaItem.TEMPO_ALEATORIO },
+        { licitacao_id: sessao.licitacao_id, status_disputa: StatusDisputaItem.AGUARDANDO }
+      ]
+    });
+
+    if (itensRestantes === 0) {
+      // Todos os itens encerrados - avança para negociação
+      sessao.status = StatusSessao.EM_ANDAMENTO;
+      sessao.etapa = EtapaSessao.NEGOCIACAO;
+      sessao.item_atual_id = undefined as any;
+      await this.sessaoRepository.save(sessao);
+
+      await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ENCERRADA,
+        'Fase de disputa encerrada. Todos os itens foram finalizados.',
+        undefined, undefined, 'SISTEMA', true);
+    }
+
+    return { sessao, itemNumero: item.numero_item };
+  }
+
+  // ========================================
+  // CONTROLE DE FASES - PREGOEIRO
+  // ========================================
+
+  /**
+   * Permite ao pregoeiro alterar a fase/etapa da sessão
+   * Útil para corrigir erros ou voltar a fases anteriores
+   */
+  async alterarFaseSessao(
+    sessaoId: string, 
+    novaEtapa: EtapaSessao, 
+    novoStatus?: StatusSessao,
+    motivo?: string
+  ): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    const etapaAnterior = sessao.etapa;
+    const statusAnterior = sessao.status;
+
+    sessao.etapa = novaEtapa;
+    
+    // Define status apropriado baseado na etapa
+    if (novoStatus) {
+      sessao.status = novoStatus;
+    } else {
+      // Status padrão por etapa
+      if (novaEtapa === EtapaSessao.DISPUTA_LANCES || novaEtapa === EtapaSessao.RANDOM_ENCERRAMENTO) {
+        sessao.status = StatusSessao.MODO_ABERTO;
+      } else if (novaEtapa === EtapaSessao.ENCERRAMENTO) {
+        sessao.status = StatusSessao.ENCERRADA;
+      } else {
+        sessao.status = StatusSessao.EM_ANDAMENTO;
+      }
+    }
+
+    await this.sessaoRepository.save(sessao);
+
+    // Registra evento de alteração de fase
+    await this.registrarEvento(
+      sessao.id,
+      TipoEvento.MENSAGEM_SISTEMA,
+      `Pregoeiro alterou fase: ${etapaAnterior} → ${novaEtapa}${motivo ? `. Motivo: ${motivo}` : ''}`,
+      undefined,
+      undefined,
+      sessao.pregoeiro_nome,
+      true,
+      { etapa_anterior: etapaAnterior, etapa_nova: novaEtapa, status_anterior: statusAnterior, status_novo: sessao.status }
+    );
+
+    return sessao;
+  }
+
+  /**
+   * Reinicia a disputa de todos os itens
+   * Reseta status dos itens para AGUARDANDO e volta sessão para DISPUTA_LANCES
+   */
+  async reiniciarDisputa(sessaoId: string, motivo?: string): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Reseta todos os itens para AGUARDANDO
+    await this.itemRepository.update(
+      { licitacao_id: sessao.licitacao_id },
+      {
+        status_disputa: StatusDisputaItem.AGUARDANDO,
+        ultimo_lance_em: undefined,
+        inicio_tempo_aleatorio: undefined,
+        tempo_aleatorio_sorteado: undefined,
+        disputa_iniciada_em: undefined,
+        disputa_encerrada_em: undefined,
+      }
+    );
+
+    // Remove TODOS os lances da licitação
+    await this.lanceRepository.delete({
+      licitacao_id: sessao.licitacao_id
+    });
+
+    // Volta sessão para fase de disputa
+    sessao.etapa = EtapaSessao.DISPUTA_LANCES;
+    sessao.status = StatusSessao.MODO_ABERTO;
+    sessao.item_atual_id = undefined as any;
+    sessao.inicio_tempo_aleatorio = undefined as any;
+    sessao.tempo_aleatorio_sorteado = undefined as any;
+
+    await this.sessaoRepository.save(sessao);
+
+    await this.registrarEvento(
+      sessao.id,
+      TipoEvento.MENSAGEM_SISTEMA,
+      `Disputa reiniciada pelo pregoeiro${motivo ? `. Motivo: ${motivo}` : ''}`,
+      undefined,
+      undefined,
+      sessao.pregoeiro_nome,
+      true
+    );
 
     return sessao;
   }
@@ -527,25 +1110,345 @@ export class SessaoService {
     return sessao;
   }
 
+  /**
+   * Gera a ATA completa da sessão de disputa
+   * Conforme Art. 17, §2º da Lei 14.133/2021
+   */
+  async gerarAtaSessao(sessaoId: string): Promise<{
+    sessao: any;
+    licitacao: any;
+    itens: any[];
+    participantes: any[];
+    lances: any[];
+    mensagens: any[];
+    eventos: any[];
+    resumo: any;
+  }> {
+    // Buscar sessão com licitação
+    const sessao = await this.sessaoRepository.findOne({
+      where: { id: sessaoId },
+      relations: ['licitacao']
+    });
+
+    if (!sessao) {
+      throw new NotFoundException('Sessão não encontrada');
+    }
+
+    // Buscar licitação completa
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: sessao.licitacao_id }
+    });
+
+    // Buscar itens da licitação
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      order: { numero_item: 'ASC' }
+    });
+
+    // Buscar todos os lances da sessão
+    const lances = await this.lanceRepository
+      .createQueryBuilder('l')
+      .leftJoin('fornecedores', 'f', 'f.id::text = l.fornecedor_id')
+      .where('l.item_id IN (:...itemIds)', { itemIds: itens.map(i => i.id.toString()) })
+      .select([
+        'l.id as id',
+        'l.item_id as item_id',
+        'l.valor as valor',
+        'l.fornecedor_id as fornecedor_id',
+        'l.fornecedor_nome as fornecedor_nome',
+        'l.created_at as data_hora',
+        'f.razao_social as razao_social',
+        'f.cnpj as cnpj',
+      ])
+      .orderBy('l.created_at', 'ASC')
+      .getRawMany();
+
+    // Buscar participantes únicos (fornecedores que deram lances)
+    const participantesUnicos = await this.lanceRepository
+      .createQueryBuilder('l')
+      .leftJoin('fornecedores', 'f', 'f.id::text = l.fornecedor_id')
+      .where('l.item_id IN (:...itemIds)', { itemIds: itens.map(i => i.id.toString()) })
+      .select([
+        'DISTINCT l.fornecedor_id as fornecedor_id',
+        'l.fornecedor_nome as fornecedor_nome',
+        'f.razao_social as razao_social',
+        'f.cnpj as cnpj',
+        'f.porte as porte',
+      ])
+      .getRawMany();
+
+    // Buscar todos os eventos (inclui mensagens)
+    const eventos = await this.eventoRepository.find({
+      where: { sessao_id: sessaoId },
+      order: { created_at: 'ASC' }
+    });
+
+    // Filtrar apenas mensagens
+    const mensagens = eventos
+      .filter(e => 
+        e.tipo === TipoEvento.MENSAGEM_PREGOEIRO || 
+        e.tipo === TipoEvento.MENSAGEM_FORNECEDOR ||
+        e.tipo === TipoEvento.MENSAGEM_SISTEMA
+      )
+      .map(e => ({
+        id: e.id,
+        tipo: e.tipo,
+        remetente: e.usuario_nome || 'Sistema',
+        mensagem: e.descricao,
+        data_hora: e.created_at,
+      }));
+
+    // Calcular resumo
+    const totalLances = lances.length;
+    const totalParticipantes = participantesUnicos.length;
+    const valorTotalAdjudicado = itens.reduce((acc, item) => {
+      const melhorLance = lances
+        .filter(l => l.item_id === item.id.toString())
+        .sort((a, b) => parseFloat(a.valor) - parseFloat(b.valor))[0];
+      return acc + (melhorLance ? parseFloat(melhorLance.valor) * parseFloat(item.quantidade as any) : 0);
+    }, 0);
+
+    const valorTotalEstimado = itens.reduce((acc, item) => {
+      return acc + (parseFloat(item.valor_unitario_estimado as any) || 0) * (parseFloat(item.quantidade as any) || 1);
+    }, 0);
+
+    const economiaTotal = valorTotalEstimado - valorTotalAdjudicado;
+    const percentualEconomia = valorTotalEstimado > 0 ? (economiaTotal / valorTotalEstimado) * 100 : 0;
+
+    // Mapear itens com resultado
+    const itensComResultado = itens.map(item => {
+      const lancesItem = lances
+        .filter(l => l.item_id === item.id.toString())
+        .sort((a, b) => parseFloat(a.valor) - parseFloat(b.valor));
+      
+      const melhorLance = lancesItem[0];
+      
+      return {
+        id: item.id,
+        numero: item.numero_item,
+        descricao: item.descricao_resumida || item.descricao_detalhada,
+        quantidade: item.quantidade,
+        unidade: item.unidade_medida,
+        valor_estimado: item.valor_unitario_estimado,
+        total_lances: lancesItem.length,
+        melhor_lance: melhorLance ? {
+          valor: melhorLance.valor,
+          fornecedor: melhorLance.razao_social || melhorLance.fornecedor_nome,
+          cnpj: melhorLance.cnpj,
+          data_hora: melhorLance.data_hora,
+        } : null,
+        economia: melhorLance 
+          ? parseFloat(item.valor_unitario_estimado as any) - parseFloat(melhorLance.valor)
+          : 0,
+      };
+    });
+
+    return {
+      sessao: {
+        id: sessao.id,
+        status: sessao.status,
+        etapa: sessao.etapa,
+        data_inicio: sessao.data_hora_inicio_real,
+        data_encerramento: sessao.data_hora_encerramento,
+        pregoeiro: sessao.pregoeiro_nome,
+        tempo_inatividade_minutos: sessao.tempo_inatividade_minutos,
+        tempo_aleatorio_max_minutos: sessao.tempo_aleatorio_max_minutos,
+      },
+      licitacao: {
+        id: licitacao?.id,
+        numero_edital: licitacao?.numero_edital,
+        numero_processo: licitacao?.numero_processo,
+        objeto: licitacao?.objeto,
+        modalidade: licitacao?.modalidade,
+      },
+      itens: itensComResultado,
+      participantes: participantesUnicos.map(p => ({
+        id: p.fornecedor_id,
+        nome: p.razao_social || p.fornecedor_nome,
+        cnpj: p.cnpj,
+        porte: p.porte,
+      })),
+      lances: lances.map(l => ({
+        id: l.id,
+        item_id: l.item_id,
+        valor: l.valor,
+        fornecedor: l.razao_social || l.fornecedor_nome,
+        cnpj: l.cnpj,
+        data_hora: l.data_hora,
+      })),
+      mensagens,
+      eventos: eventos.map(e => ({
+        id: e.id,
+        tipo: e.tipo,
+        descricao: e.descricao,
+        data_hora: e.created_at,
+        usuario: e.usuario_nome,
+        item_id: e.item_id,
+        fornecedor_id: e.fornecedor_id,
+        valor: e.valor,
+      })),
+      resumo: {
+        total_itens: itens.length,
+        total_lances: totalLances,
+        total_participantes: totalParticipantes,
+        total_mensagens: mensagens.length,
+        valor_estimado: valorTotalEstimado,
+        valor_adjudicado: valorTotalAdjudicado,
+        economia: economiaTotal,
+        percentual_economia: percentualEconomia.toFixed(2),
+      }
+    };
+  }
+
   // ========================================
-  // CRON JOB - VERIFICACAO AUTOMATICA
+  // CRON JOB - VERIFICACAO AUTOMATICA POR ITEM
+  // Lei 14.133/2021 - Tempo de inatividade e tempo aleatório
   // ========================================
 
   @Cron(CronExpression.EVERY_10_SECONDS)
-  async verificarSessoesAtivas(): Promise<void> {
-    const sessoesAtivas = await this.sessaoRepository.find({
+  async verificarItensEmDisputa(): Promise<void> {
+    try {
+      // Busca todos os itens em disputa ou em tempo aleatório
+      const itensEmDisputa = await this.itemRepository.find({
+        where: [
+          { status_disputa: StatusDisputaItem.EM_DISPUTA },
+          { status_disputa: StatusDisputaItem.TEMPO_ALEATORIO }
+        ]
+      });
+
+      const agora = new Date();
+
+      for (const item of itensEmDisputa) {
+        // Busca a sessão do item para obter configurações de tempo
+        const sessao = await this.sessaoRepository.findOne({
+          where: { licitacao_id: item.licitacao_id, status: StatusSessao.MODO_ABERTO }
+        });
+
+        if (!sessao) continue;
+
+        const tempoInatividade = (sessao.tempo_inatividade_minutos || 10) * 60 * 1000; // em ms
+        const ultimoLance = item.ultimo_lance_em ? new Date(item.ultimo_lance_em).getTime() : 0;
+        const tempoDecorrido = agora.getTime() - ultimoLance;
+
+        // ========================================
+        // ITEM EM DISPUTA - Verificar inatividade
+        // ========================================
+        if (item.status_disputa === StatusDisputaItem.EM_DISPUTA) {
+          if (ultimoLance > 0 && tempoDecorrido >= tempoInatividade) {
+            // Tempo de inatividade expirou - iniciar tempo aleatório
+            await this.iniciarTempoAleatorioItem(item.id, sessao);
+          }
+        }
+
+        // ========================================
+        // ITEM EM TEMPO ALEATÓRIO - Verificar encerramento
+        // ========================================
+        if (item.status_disputa === StatusDisputaItem.TEMPO_ALEATORIO) {
+          const inicioAleatorio = item.inicio_tempo_aleatorio ? new Date(item.inicio_tempo_aleatorio).getTime() : 0;
+          const tempoSorteado = (item.tempo_aleatorio_sorteado || 0) * 1000; // em ms
+          const tempoAleatorioDecorrido = agora.getTime() - inicioAleatorio;
+
+          if (inicioAleatorio > 0 && tempoAleatorioDecorrido >= tempoSorteado) {
+            // Tempo aleatório expirou - encerrar item
+            await this.encerrarDisputaItemAutomatico(item.id, sessao);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[CRON] Erro ao verificar itens em disputa:', error);
+    }
+  }
+
+  /**
+   * Inicia o tempo aleatório para um item específico
+   * Lei 14.133/2021 - Tempo aleatório entre 1 e 30 minutos
+   */
+  private async iniciarTempoAleatorioItem(itemId: string, sessao: SessaoDisputa): Promise<void> {
+    const minMinutos = sessao.tempo_aleatorio_min_minutos || 1;
+    const maxMinutos = sessao.tempo_aleatorio_max_minutos || 30;
+    
+    // Sorteia tempo aleatório em segundos
+    const tempoSorteado = Math.floor(Math.random() * (maxMinutos - minMinutos + 1) + minMinutos) * 60;
+    
+    await this.itemRepository.update(itemId, {
+      status_disputa: StatusDisputaItem.TEMPO_ALEATORIO,
+      inicio_tempo_aleatorio: new Date(),
+      tempo_aleatorio_sorteado: tempoSorteado,
+    });
+
+    const item = await this.itemRepository.findOneBy({ id: itemId });
+    
+    await this.registrarEvento(
+      sessao.id,
+      TipoEvento.TEMPO_ALEATORIO_INICIADO,
+      `Tempo aleatório iniciado para Item ${item?.numero_item}. Encerramento em até ${Math.ceil(tempoSorteado / 60)} minutos.`,
+      itemId,
+      undefined,
+      'Sistema',
+      true
+    );
+
+    console.log(`[CRON] Tempo aleatório iniciado para item ${itemId}: ${tempoSorteado}s`);
+  }
+
+  /**
+   * Encerra automaticamente a disputa de um item
+   */
+  private async encerrarDisputaItemAutomatico(itemId: string, sessao: SessaoDisputa): Promise<void> {
+    const item = await this.itemRepository.findOneBy({ id: itemId });
+    if (!item) return;
+
+    // Busca o melhor lance do item
+    const melhorLance = await this.lanceRepository.findOne({
+      where: { item_id: itemId, cancelado: false },
+      order: { valor: 'ASC' }
+    });
+
+    await this.itemRepository.update(itemId, {
+      status_disputa: StatusDisputaItem.ENCERRADO,
+      disputa_encerrada_em: new Date(),
+      melhor_lance_valor: melhorLance?.valor || undefined,
+      melhor_lance_fornecedor_id: melhorLance?.fornecedor_id || undefined,
+    });
+
+    await this.registrarEvento(
+      sessao.id,
+      TipoEvento.DISPUTA_ITEM_ENCERRADA,
+      `Disputa encerrada automaticamente para Item ${item.numero_item}: ${item.descricao_resumida}. ` +
+      (melhorLance ? `Melhor lance: R$ ${Number(melhorLance.valor).toFixed(2)}` : 'Sem lances.'),
+      itemId,
+      melhorLance?.fornecedor_id,
+      'Sistema',
+      true
+    );
+
+    console.log(`[CRON] Item ${itemId} encerrado automaticamente`);
+
+    // Verifica se todos os itens da sessão foram encerrados
+    const itensRestantes = await this.itemRepository.count({
       where: [
-        { status: StatusSessao.MODO_ABERTO },
-        { status: StatusSessao.RANDOM_ENCERRANDO }
+        { licitacao_id: sessao.licitacao_id, status_disputa: StatusDisputaItem.EM_DISPUTA },
+        { licitacao_id: sessao.licitacao_id, status_disputa: StatusDisputaItem.TEMPO_ALEATORIO }
       ]
     });
 
-    for (const sessao of sessoesAtivas) {
-      const resultado = await this.verificarInatividade(sessao.id);
-      
-      if (resultado.deveEncerrar) {
-        await this.encerrarDisputaItem(sessao.id);
-      }
+    if (itensRestantes === 0) {
+      // Todos os itens encerrados - finalizar fase de disputa
+      sessao.status = StatusSessao.EM_ANDAMENTO;
+      sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
+      await this.sessaoRepository.save(sessao);
+
+      await this.registrarEvento(
+        sessao.id,
+        TipoEvento.DISPUTA_ENCERRADA,
+        'Fase de disputa encerrada. Todos os itens foram finalizados. Iniciando fase de habilitação.',
+        undefined,
+        undefined,
+        'Sistema',
+        true
+      );
+
+      console.log(`[CRON] Sessão ${sessao.id} - Fase de disputa encerrada`);
     }
   }
 
@@ -617,6 +1520,8 @@ export class SessaoService {
       propostasRecebidas: boolean;
       propostasRecebidasMsg: string;
       quantidadePropostas: number;
+      dataAbertura: boolean;
+      dataAberturaMsg: string;
       podeIniciar: boolean;
     };
     propostas: any[];
@@ -713,8 +1618,13 @@ export class SessaoService {
     const propostasValidas = propostas.filter((p: any) => p.status === 'ENVIADA' || p.status === 'VALIDA');
     const temPropostas = propostasValidas.length > 0;
 
+    // 5. Data de abertura da sessão
+    const dataAberturaChegou = licitacao.data_abertura_sessao 
+      ? new Date(licitacao.data_abertura_sessao) <= agora 
+      : true;
+
     // Verifica se pode iniciar
-    const podeIniciar = faseInternaOk && editalPublicado && prazoImpugnacaoEncerrado && temPropostas;
+    const podeIniciar = faseInternaOk && editalPublicado && prazoImpugnacaoEncerrado && temPropostas && dataAberturaChegou;
 
     // Busca sessão existente
     const sessaoExistente = await this.sessaoRepository.findOne({
@@ -766,6 +1676,10 @@ export class SessaoService {
           ? `${propostasValidas.length} proposta(s) válida(s)` 
           : 'Nenhuma proposta recebida',
         quantidadePropostas: propostasValidas.length,
+        dataAbertura: dataAberturaChegou,
+        dataAberturaMsg: dataAberturaChegou 
+          ? 'Data de abertura atingida' 
+          : `Aguardando data de abertura: ${licitacao.data_abertura_sessao ? new Date(licitacao.data_abertura_sessao).toLocaleString('pt-BR') : 'não definida'}`,
         podeIniciar,
       },
       propostas,
@@ -948,34 +1862,41 @@ export class SessaoService {
         minhaPosicao = parseInt(lancesAcima?.count || '0') + 1;
       }
 
-      // Determinar status do item
-      let status: 'EM_DISPUTA' | 'AGUARDANDO' | 'ENCERRADO' = 'AGUARDANDO';
-      if (sessao.item_atual_id === item.id) {
-        status = 'EM_DISPUTA';
-      } else if ((item as any).adjudicado) {
-        status = 'ENCERRADO';
-      }
-
-      // Calcular tempo restante (baseado no último lance)
-      let tempoRestante = sessao.tempo_inatividade_minutos * 60; // Em segundos
+      // Determinar status do item (baseado no status_disputa)
+      const statusOriginal = item.status_disputa || 'AGUARDANDO';
+      let status: 'EM_DISPUTA' | 'AGUARDANDO' | 'ENCERRADO';
       let emTempoAleatorio = false;
       
-      if (sessao.item_atual_id === item.id) {
-        const ultimoLance = await this.lanceRepository.findOne({
-          where: { item_id: item.id },
-          order: { created_at: 'DESC' }
-        });
+      // Mapear status para o formato esperado pelo frontend
+      switch (statusOriginal) {
+        case 'EM_DISPUTA':
+        case 'TEMPO_ALEATORIO':
+          status = 'EM_DISPUTA';
+          if (statusOriginal === 'TEMPO_ALEATORIO') {
+            emTempoAleatorio = true;
+          }
+          break;
+        case 'ENCERRADO':
+          status = 'ENCERRADO';
+          break;
+        default:
+          status = 'AGUARDANDO';
+      }
 
-        if (ultimoLance) {
-          const tempoDecorrido = Math.floor((Date.now() - new Date(ultimoLance.created_at).getTime()) / 1000);
+      // Calcular tempo restante (baseado no status do item)
+      let tempoRestante = 0;
+      
+      if (status === 'EM_DISPUTA') {
+        // Se o item está em disputa, calcular tempo baseado no início da disputa
+        if (item.disputa_iniciada_em) {
+          const tempoDecorrido = Math.floor((Date.now() - new Date(item.disputa_iniciada_em).getTime()) / 1000);
           tempoRestante = Math.max(0, (sessao.tempo_inatividade_minutos * 60) - tempoDecorrido);
         }
 
-        // Verificar se está em tempo aleatório
-        if (sessao.inicio_tempo_aleatorio) {
-          emTempoAleatorio = true;
-          const tempoAleatorioDecorrido = Math.floor((Date.now() - new Date(sessao.inicio_tempo_aleatorio).getTime()) / 1000);
-          const tempoAleatorioTotal = (sessao.tempo_aleatorio_sorteado || sessao.tempo_aleatorio_max_minutos) * 60;
+        // Se está em tempo aleatório, calcular tempo restante baseado no tempo aleatório
+        if (emTempoAleatorio && item.inicio_tempo_aleatorio) {
+          const tempoAleatorioDecorrido = Math.floor((Date.now() - new Date(item.inicio_tempo_aleatorio).getTime()) / 1000);
+          const tempoAleatorioTotal = (item.tempo_aleatorio_sorteado || sessao.tempo_aleatorio_max_minutos) * 60;
           tempoRestante = Math.max(0, tempoAleatorioTotal - tempoAleatorioDecorrido);
         }
       }
@@ -1035,7 +1956,7 @@ export class SessaoService {
     // Busca todos os lances do item ordenados por valor
     const lances = await this.lanceRepository
       .createQueryBuilder('l')
-      .leftJoin('fornecedores', 'f', 'f.id = l.fornecedor_id')
+      .leftJoin('fornecedores', 'f', 'f.id::text = l.fornecedor_id')
       .where('l.item_id = :itemId', { itemId })
       .orderBy('l.valor', 'ASC')
       .addOrderBy('l.created_at', 'ASC')
@@ -1099,24 +2020,88 @@ export class SessaoService {
   async getMensagensSessao(sessaoId: string): Promise<{
     mensagens: any[];
   }> {
+    // Buscar sessão para verificar etapa
+    const sessao = await this.sessaoRepository.findOne({ where: { id: sessaoId } });
+    
+    // Etapas onde a identidade do fornecedor é revelada
+    const etapasReveladas = [
+      EtapaSessao.CONVOCACAO_HABILITACAO,
+      EtapaSessao.ANALISE_HABILITACAO,
+      EtapaSessao.INTENCAO_RECURSO,
+      EtapaSessao.PRAZO_RECURSAL,
+      EtapaSessao.ANALISE_RECURSOS,
+      EtapaSessao.ADJUDICACAO,
+      EtapaSessao.ENCERRAMENTO
+    ];
+    const revelarIdentidade = sessao && etapasReveladas.includes(sessao.etapa);
+
     const eventos = await this.eventoRepository.find({
       where: { sessao_id: sessaoId },
       order: { created_at: 'DESC' },
       take: 100, // Limitar para performance
     });
 
-    const mensagens = eventos.map(evento => ({
-      id: evento.id,
-      tipo: evento.tipo === TipoEvento.MENSAGEM_PREGOEIRO ? 'PREGOEIRO' : 'SISTEMA',
-      remetente: evento.usuario_nome || 'Sistema',
-      mensagem: evento.descricao,
-      horario: new Date(evento.created_at).toLocaleTimeString('pt-BR'),
-      destaque: evento.tipo === TipoEvento.TEMPO_ALEATORIO_INICIADO || 
-                evento.tipo === TipoEvento.DISPUTA_ITEM_ENCERRADA ||
-                evento.tipo === TipoEvento.SESSAO_SUSPENSA,
-    }));
+    const mensagens = eventos.map(evento => {
+      let tipo = 'SISTEMA';
+      if (evento.tipo === TipoEvento.MENSAGEM_PREGOEIRO) tipo = 'PREGOEIRO';
+      else if (evento.tipo === TipoEvento.MENSAGEM_FORNECEDOR) tipo = 'FORNECEDOR';
+      
+      // Anonimizar fornecedor se não estiver em etapa revelada
+      let remetente = evento.usuario_nome || 'Sistema';
+      if (tipo === 'FORNECEDOR' && !revelarIdentidade && evento.fornecedor_id) {
+        remetente = `Fornecedor ${evento.fornecedor_id.substring(0, 4).toUpperCase()}`;
+      }
+      
+      return {
+        id: evento.id,
+        tipo,
+        remetente,
+        mensagem: evento.descricao,
+        horario: new Date(evento.created_at).toLocaleTimeString('pt-BR'),
+        destaque: evento.tipo === TipoEvento.TEMPO_ALEATORIO_INICIADO || 
+                  evento.tipo === TipoEvento.DISPUTA_ITEM_ENCERRADA ||
+                  evento.tipo === TipoEvento.SESSAO_SUSPENSA,
+      };
+    });
 
     return { mensagens: mensagens.reverse() }; // Ordem cronológica
+  }
+
+  /**
+   * Salva mensagem do chat no banco de dados
+   */
+  async salvarMensagemChat(
+    sessaoId: string,
+    remetente: string,
+    mensagem: string,
+    isPregoeiro: boolean,
+    fornecedorId?: string
+  ): Promise<void> {
+    const evento = this.eventoRepository.create({
+      sessao_id: sessaoId,
+      tipo: isPregoeiro ? TipoEvento.MENSAGEM_PREGOEIRO : TipoEvento.MENSAGEM_FORNECEDOR,
+      descricao: mensagem,
+      usuario_nome: remetente,
+      fornecedor_id: fornecedorId,
+    });
+    await this.eventoRepository.save(evento);
+  }
+
+  /**
+   * Habilita/desabilita o chat da sessão
+   */
+  async toggleChat(sessaoId: string, habilitado: boolean): Promise<void> {
+    await this.sessaoRepository.update(sessaoId, {
+      chat_desabilitado: !habilitado
+    });
+
+    // Registrar evento
+    await this.registrarEvento(
+      sessaoId,
+      TipoEvento.MENSAGEM_SISTEMA,
+      habilitado ? 'Chat habilitado pelo pregoeiro' : 'Chat desabilitado pelo pregoeiro',
+      undefined, undefined, 'SISTEMA', true
+    );
   }
 
   // ========================================
@@ -1133,55 +2118,66 @@ export class SessaoService {
       throw new BadRequestException('ID do pregoeiro é obrigatório');
     }
 
-    // Busca sessões ativas onde o usuário é pregoeiro da sessão ou da licitação
-    const sessoesAtivas = await this.sessaoRepository
-      .createQueryBuilder('s')
-      .innerJoin('licitacoes', 'l', 'l.id = s.licitacao_id')
-      .leftJoin('orgaos', 'o', 'o.id = l.orgao_id')
-      .where('s.status IN (:...status)', { 
-        status: [StatusSessao.AGUARDANDO_INICIO, StatusSessao.EM_ANDAMENTO, StatusSessao.MODO_ABERTO, StatusSessao.RANDOM_ENCERRANDO] 
-      })
-      .andWhere('(l.pregoeiro_id = :pregoeiroId OR s.pregoeiro_id = :pregoeiroId)', { pregoeiroId })
-      .select([
-        's.id as sessao_id',
-        's.status as sessao_status',
-        's.etapa as sessao_etapa',
-        's.item_atual_id as item_atual_id',
-        'l.id as licitacao_id',
-        'l.numero_edital as numero_edital',
-        'l.numero_processo as numero_processo',
-        'l.objeto as objeto',
-        'l.modalidade as modalidade',
-        'o.nome as orgao_nome',
-        'o.id as orgao_id',
-      ])
-      .getRawMany();
+    try {
+      // Busca sessões ativas onde o usuário é pregoeiro da sessão ou da licitação
+      const sessoesAtivas = await this.sessaoRepository
+        .createQueryBuilder('s')
+        .innerJoin('licitacoes', 'l', 'l.id = s.licitacao_id')
+        .leftJoin('orgaos', 'o', 'o.id = l.orgao_id')
+        .where('s.status IN (:...status)', { 
+          status: [StatusSessao.AGUARDANDO_INICIO, StatusSessao.EM_ANDAMENTO, StatusSessao.MODO_ABERTO, StatusSessao.RANDOM_ENCERRANDO] 
+        })
+        .andWhere('(l.pregoeiro_id::text = :pregoeiroId OR s.pregoeiro_id::text = :pregoeiroId)', { pregoeiroId })
+        .select([
+          's.id as sessao_id',
+          's.status as sessao_status',
+          's.etapa as sessao_etapa',
+          's.item_atual_id as item_atual_id',
+          'l.id as licitacao_id',
+          'l.numero_edital as numero_edital',
+          'l.numero_processo as numero_processo',
+          'l.objeto as objeto',
+          'l.modalidade as modalidade',
+          'o.nome as orgao_nome',
+          'o.id as orgao_id',
+        ])
+        .getRawMany();
 
-    const sessoes = await Promise.all(sessoesAtivas.map(async (sessao) => {
-      const itensCount = await this.itemRepository
-        .createQueryBuilder('i')
-        .where('i.licitacao_id = :licitacaoId', { licitacaoId: sessao.licitacao_id })
-        .getCount();
+      const sessoes = await Promise.all(sessoesAtivas.map(async (sessao) => {
+        try {
+          const itensCount = await this.itemRepository
+            .createQueryBuilder('i')
+            .where('i.licitacao_id = :licitacaoId', { licitacaoId: sessao.licitacao_id })
+            .getCount();
 
-      // Contar itens encerrados (com adjudicação ou sem lances pendentes)
-      const itensEncerrados = 0; // TODO: Implementar lógica real
+          // Contar itens encerrados (com adjudicação ou sem lances pendentes)
+          const itensEncerrados = 0; // TODO: Implementar lógica real
 
-      return {
-        id: sessao.sessao_id,
-        licitacaoId: sessao.licitacao_id,
-        numero: `${sessao.modalidade?.substring(0, 2) || 'PE'} ${sessao.numero_edital || ''}`,
-        orgao: sessao.orgao_nome,
-        objeto: sessao.objeto,
-        status: sessao.sessao_status,
-        etapa: sessao.sessao_etapa,
-        itemAtualId: sessao.item_atual_id,
-        itensTotal: itensCount,
-        itensEncerrados,
-        fornecedoresOnline: 0, // TODO: Implementar via WebSocket
-      };
-    }));
+          return {
+            id: sessao.sessao_id,
+            licitacaoId: sessao.licitacao_id,
+            numero: `${sessao.modalidade?.substring(0, 2) || 'PE'} ${sessao.numero_edital || sessao.numero_processo || ''}`,
+            orgao: sessao.orgao_nome || 'Órgão',
+            objeto: sessao.objeto || 'Sem objeto',
+            status: sessao.sessao_status,
+            etapa: sessao.sessao_etapa,
+            itemAtualId: sessao.item_atual_id,
+            itensTotal: itensCount,
+            itensEncerrados,
+            fornecedoresOnline: 0, // TODO: Implementar via WebSocket
+          };
+        } catch (mapError) {
+          console.error('Erro ao mapear sessão:', sessao.sessao_id, mapError);
+          return null;
+        }
+      }));
 
-    return { sessoes };
+      return { sessoes: sessoes.filter(Boolean) };
+    } catch (error) {
+      console.error('Erro em getSessoesAtivasPregoeiro:', error);
+      // Retorna array vazio em vez de lançar erro para não quebrar o frontend
+      return { sessoes: [] };
+    }
   }
 
   /**
@@ -1190,100 +2186,209 @@ export class SessaoService {
    */
   async getItensSessaoPregoeiro(sessaoId: string): Promise<{
     itens: any[];
+    lotes: any[];
     sessao: any;
   }> {
-    const sessao = await this.sessaoRepository.findOne({
-      where: { id: sessaoId }
-    });
+    try {
+      const sessao = await this.sessaoRepository.findOne({
+        where: { id: sessaoId }
+      });
 
-    if (!sessao) {
-      throw new NotFoundException('Sessão não encontrada');
-    }
-
-    const itens = await this.itemRepository.find({
-      where: { licitacao_id: sessao.licitacao_id },
-      order: { numero_item: 'ASC' }
-    });
-
-    const itensComLances = await Promise.all(itens.map(async (item) => {
-      // Melhor lance do item
-      const melhorLance = await this.lanceRepository
-        .createQueryBuilder('l')
-        .leftJoin('fornecedores', 'f', 'f.id = l.fornecedor_id')
-        .where('l.item_id = :itemId', { itemId: item.id })
-        .orderBy('l.valor', 'ASC')
-        .select([
-          'l.id as id',
-          'l.valor as valor',
-          'l.fornecedor_id as fornecedor_id',
-          'l.fornecedor_nome as fornecedor_nome',
-          'f.razao_social as razao_social',
-        ])
-        .getRawOne();
-
-      // Contar participantes
-      const participantes = await this.lanceRepository
-        .createQueryBuilder('l')
-        .select('COUNT(DISTINCT l.fornecedor_id)', 'count')
-        .where('l.item_id = :itemId', { itemId: item.id })
-        .getRawOne();
-
-      // Determinar status do item
-      let status: 'EM_DISPUTA' | 'AGUARDANDO' | 'ENCERRADO' = 'AGUARDANDO';
-      if (sessao.item_atual_id === item.id) {
-        status = 'EM_DISPUTA';
-      } else if ((item as any).adjudicado) {
-        status = 'ENCERRADO';
+      if (!sessao) {
+        throw new NotFoundException('Sessão não encontrada');
       }
 
-      // Calcular tempo restante
-      let tempoRestante = sessao.tempo_inatividade_minutos * 60;
-      let emTempoAleatorio = false;
+      const itens = await this.itemRepository.find({
+        where: { licitacao_id: sessao.licitacao_id },
+        order: { numero_item: 'ASC' }
+      });
+
+      const itensComLances = await Promise.all(itens.map(async (item) => {
+        try {
+          // Melhor lance do item
+          let melhorLance = null;
+          try {
+            melhorLance = await this.lanceRepository
+              .createQueryBuilder('l')
+              .leftJoin('fornecedores', 'f', 'f.id::text = l.fornecedor_id')
+              .where('l.item_id = :itemId', { itemId: item.id.toString() })
+              .orderBy('l.valor', 'ASC')
+              .select([
+                'l.id as id',
+                'l.valor as valor',
+                'l.fornecedor_id as fornecedor_id',
+                'l.fornecedor_nome as fornecedor_nome',
+                'f.razao_social as razao_social',
+              ])
+              .getRawOne();
+          } catch (e) {
+            console.error('Erro ao buscar melhor lance:', e);
+          }
+
+          // Contar participantes
+          let participantes = { count: '0' };
+          try {
+            participantes = await this.lanceRepository
+              .createQueryBuilder('l')
+              .select('COUNT(DISTINCT l.fornecedor_id)', 'count')
+              .where('l.item_id = :itemId', { itemId: item.id.toString() })
+              .getRawOne() || { count: '0' };
+          } catch (e) {
+            console.error('Erro ao contar participantes:', e);
+          }
+
+          // Determinar status do item - AGORA USA O CAMPO DO ITEM
+          let status: 'EM_DISPUTA' | 'AGUARDANDO' | 'ENCERRADO' | 'TEMPO_ALEATORIO' | 'NEGOCIACAO' = 'AGUARDANDO';
+          
+          // Prioriza o status_disputa do item (novo sistema)
+          if (item.status_disputa) {
+            status = item.status_disputa as any;
+          } else if (sessao.item_atual_id === item.id) {
+            // Fallback para compatibilidade com sistema antigo
+            status = 'EM_DISPUTA';
+          } else if ((item as any).adjudicado || item.status === 'ADJUDICADO') {
+            status = 'ENCERRADO';
+          }
+
+          // Calcular tempo restante - AGORA USA CAMPOS DO ITEM
+          let tempoRestante = (sessao.tempo_inatividade_minutos || 10) * 60;
+          let emTempoAleatorio = false;
+          
+          // Verifica se o item está em disputa (novo sistema ou legado)
+          const itemEmDisputa = item.status_disputa === StatusDisputaItem.EM_DISPUTA || 
+                                item.status_disputa === StatusDisputaItem.TEMPO_ALEATORIO ||
+                                sessao.item_atual_id === item.id;
+          
+          if (itemEmDisputa) {
+            try {
+              // Usa o ultimo_lance_em do item se disponível
+              const ultimoLanceEm = item.ultimo_lance_em || null;
+              
+              if (ultimoLanceEm) {
+                const tempoDecorrido = Math.floor((Date.now() - new Date(ultimoLanceEm).getTime()) / 1000);
+                tempoRestante = Math.max(0, ((sessao.tempo_inatividade_minutos || 10) * 60) - tempoDecorrido);
+              } else {
+                // Fallback: busca último lance do banco
+                const ultimoLance = await this.lanceRepository.findOne({
+                  where: { item_id: item.id.toString() },
+                  order: { created_at: 'DESC' }
+                });
+
+                if (ultimoLance) {
+                  const tempoDecorrido = Math.floor((Date.now() - new Date(ultimoLance.created_at).getTime()) / 1000);
+                  tempoRestante = Math.max(0, ((sessao.tempo_inatividade_minutos || 10) * 60) - tempoDecorrido);
+                }
+              }
+
+              // Verifica tempo aleatório do item
+              if (item.inicio_tempo_aleatorio) {
+                emTempoAleatorio = true;
+                status = 'TEMPO_ALEATORIO';
+              } else if (sessao.inicio_tempo_aleatorio && sessao.item_atual_id === item.id) {
+                emTempoAleatorio = true;
+                const tempoAleatorioDecorrido = Math.floor((Date.now() - new Date(sessao.inicio_tempo_aleatorio).getTime()) / 1000);
+                const tempoAleatorioTotal = (sessao.tempo_aleatorio_sorteado || sessao.tempo_aleatorio_max_minutos || 10) * 60;
+                tempoRestante = Math.max(0, tempoAleatorioTotal - tempoAleatorioDecorrido);
+              }
+            } catch (e) {
+              console.error('Erro ao calcular tempo:', e);
+            }
+          }
+
+          return {
+            id: item.id,
+            numero: item.numero_item,
+            descricao: item.descricao_resumida || item.descricao_detalhada || 'Sem descrição',
+            quantidade: parseFloat(item.quantidade as any) || 1,
+            unidade: item.unidade_medida || 'UN',
+            valorReferencia: parseFloat(item.valor_unitario_estimado as any) || 0,
+            melhorLance: melhorLance ? parseFloat(melhorLance.valor) : null,
+            melhorFornecedor: melhorLance ? (melhorLance.razao_social || melhorLance.fornecedor_nome || 'Fornecedor') : null,
+            totalParticipantes: parseInt(participantes?.count || '0'),
+            tempoRestante,
+            emTempoAleatorio,
+            status,
+            loteId: item.lote_id || null,
+          };
+        } catch (itemError) {
+          console.error('Erro ao processar item:', item.id, itemError);
+          return {
+            id: item.id,
+            numero: item.numero_item,
+            descricao: item.descricao_resumida || 'Erro ao carregar',
+            quantidade: 1,
+            unidade: 'UN',
+            valorReferencia: 0,
+            melhorLance: null,
+            melhorFornecedor: null,
+            totalParticipantes: 0,
+            tempoRestante: 180,
+            emTempoAleatorio: false,
+            status: 'AGUARDANDO' as const,
+            loteId: item.lote_id || null,
+          };
+        }
+      }));
+
+      // Se disputa é por lote, agrupa itens por lote
+      let lotes: any[] = [];
+      const disputaPorItemFinal = sessao.disputa_por_item !== false;
       
-      if (sessao.item_atual_id === item.id) {
-        const ultimoLance = await this.lanceRepository.findOne({
-          where: { item_id: item.id },
-          order: { created_at: 'DESC' }
-        });
-
-        if (ultimoLance) {
-          const tempoDecorrido = Math.floor((Date.now() - new Date(ultimoLance.created_at).getTime()) / 1000);
-          tempoRestante = Math.max(0, (sessao.tempo_inatividade_minutos * 60) - tempoDecorrido);
+      if (!disputaPorItemFinal) {
+        const loteMap = new Map<string, any>();
+        
+        for (const item of itensComLances) {
+          const loteId = item.loteId || 'SEM_LOTE';
+          if (!loteMap.has(loteId)) {
+            loteMap.set(loteId, {
+              id: loteId,
+              numero: loteMap.size + 1,
+              descricao: loteId === 'SEM_LOTE' ? 'Itens sem lote' : `Lote ${loteMap.size + 1}`,
+              valorTotalEstimado: 0,
+              melhorLance: null,
+              melhorFornecedor: null,
+              totalParticipantes: 0,
+              tempoRestante: 600,
+              emTempoAleatorio: false,
+              status: 'AGUARDANDO',
+              itens: []
+            });
+          }
+          
+          const lote = loteMap.get(loteId);
+          lote.itens.push(item);
+          lote.valorTotalEstimado += item.valorReferencia * item.quantidade;
+          
+          // Atualiza status do lote baseado nos itens
+          if (item.status === 'EM_DISPUTA' || item.status === 'TEMPO_ALEATORIO') {
+            lote.status = item.status;
+            lote.tempoRestante = Math.min(lote.tempoRestante, item.tempoRestante);
+            lote.emTempoAleatorio = item.emTempoAleatorio;
+          }
+          
+          // Soma participantes únicos
+          lote.totalParticipantes = Math.max(lote.totalParticipantes, item.totalParticipantes);
         }
-
-        if (sessao.inicio_tempo_aleatorio) {
-          emTempoAleatorio = true;
-          const tempoAleatorioDecorrido = Math.floor((Date.now() - new Date(sessao.inicio_tempo_aleatorio).getTime()) / 1000);
-          const tempoAleatorioTotal = (sessao.tempo_aleatorio_sorteado || sessao.tempo_aleatorio_max_minutos) * 60;
-          tempoRestante = Math.max(0, tempoAleatorioTotal - tempoAleatorioDecorrido);
-        }
+        
+        lotes = Array.from(loteMap.values());
       }
 
       return {
-        id: item.id,
-        numero: item.numero_item,
-        descricao: item.descricao_resumida || item.descricao_detalhada,
-        quantidade: parseFloat(item.quantidade as any) || 1,
-        unidade: item.unidade_medida,
-        valorReferencia: parseFloat(item.valor_unitario_estimado as any) || 0,
-        melhorLance: melhorLance ? parseFloat(melhorLance.valor) : null,
-        melhorFornecedor: melhorLance ? (melhorLance.razao_social || melhorLance.fornecedor_nome || 'Fornecedor') : null,
-        totalParticipantes: parseInt(participantes?.count || '0'),
-        tempoRestante,
-        emTempoAleatorio,
-        status,
+        itens: itensComLances,
+        lotes,
+        sessao: {
+          id: sessao.id,
+          status: sessao.status,
+          etapa: sessao.etapa,
+          itemAtualId: sessao.item_atual_id,
+          disputaPorItem: disputaPorItemFinal,
+          modoAberto: sessao.modo_aberto,
+        }
       };
-    }));
-
-    return {
-      itens: itensComLances,
-      sessao: {
-        id: sessao.id,
-        status: sessao.status,
-        etapa: sessao.etapa,
-        itemAtualId: sessao.item_atual_id,
-      }
-    };
+    } catch (error) {
+      console.error('Erro em getItensSessaoPregoeiro:', error);
+      throw error;
+    }
   }
 
   /**
@@ -1302,7 +2407,7 @@ export class SessaoService {
 
     const lances = await this.lanceRepository
       .createQueryBuilder('l')
-      .leftJoin('fornecedores', 'f', 'f.id = l.fornecedor_id')
+      .leftJoin('fornecedores', 'f', 'f.id::text = l.fornecedor_id')
       .where('l.item_id = :itemId', { itemId })
       .orderBy('l.valor', 'ASC')
       .addOrderBy('l.created_at', 'ASC')
@@ -1334,7 +2439,7 @@ export class SessaoService {
         fornecedorId: lance.fornecedor_id,
         cnpj: lance.cnpj,
         valor: parseFloat(lance.valor),
-        valorTotal: parseFloat(lance.valor) * (parseFloat(item.quantidade as any) || 1),
+        valorTotal: parseFloat(lance.valor) * (parseFloat(item.quantidade.toString()) || 1),
         horario: new Date(lance.created_at).toLocaleTimeString('pt-BR'),
       }));
 

@@ -145,6 +145,15 @@ export class SessaoDisputa {
   @Column({ nullable: true })
   pregoeiro_nome: string;
 
+  // === CHAT ===
+  @Column({ default: false })
+  chat_desabilitado: boolean;
+
+  // === ANONIMIZAÇÃO ===
+  // Por padrão TRUE (Lei 14.133/2021) - identidade dos fornecedores é sigilosa durante disputa
+  @Column({ default: true })
+  anonimizacao_ativa: boolean;
+
   // === OBSERVACOES ===
   @Column({ type: 'text', nullable: true })
   observacoes: string;

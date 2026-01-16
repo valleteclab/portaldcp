@@ -39,7 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { UnidadeMedidaSelect } from './UnidadeMedidaSelect'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 const API_COMPRAS_GOV = 'https://dadosabertos.compras.gov.br'
 
 interface ClassificacaoItem {
@@ -352,9 +352,8 @@ export function ImportarParaPCA({ pcaId, onImportSuccess }: ImportarParaPCAProps
           : quantidade * valorUnitario
 
         // Primeiro, salvar no catálogo
-        await fetch(`${API_URL}/api/catalogo/importar-item`, {
+        await authFetch(`${API_URL}/api/catalogo/importar-item`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             codigo: item.id,
             descricao: item.nome,
@@ -367,9 +366,8 @@ export function ImportarParaPCA({ pcaId, onImportSuccess }: ImportarParaPCAProps
         })
 
         // Depois, adicionar ao PCA
-        const response = await fetch(`${API_URL}/api/pca/${pcaId}/itens`, {
+        const response = await authFetch(`${API_URL}/api/pca/${pcaId}/itens`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             categoria: tipoNormalizado,
             descricao_objeto: item.nome,

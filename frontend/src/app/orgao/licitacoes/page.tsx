@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useRouter } from "next/navigation"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Licitacao {
   id: string
@@ -118,7 +118,7 @@ export default function LicitacoesOrgaoPage() {
         return
       }
 
-      const res = await fetch(`${API_URL}/api/licitacoes?orgao_id=${orgao.id}`)
+      const res = await authFetch(`${API_URL}/api/licitacoes?orgao_id=${orgao.id}`)
       if (res.ok) {
         const data = await res.json()
         setLicitacoes(data)
@@ -134,7 +134,7 @@ export default function LicitacoesOrgaoPage() {
     if (!licitacaoParaDeletar) return
     setDeletando(true)
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoParaDeletar.id}`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoParaDeletar.id}`, {
         method: 'DELETE',
       })
       if (res.ok) {

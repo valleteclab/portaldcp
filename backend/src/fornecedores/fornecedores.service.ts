@@ -9,6 +9,9 @@ import { FornecedorAtividade } from './entities/fornecedor-atividade.entity';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
 import { CnpjService, DadosCnpjFormatados } from './cnpj.service';
 
+// Tipo para fornecedor sem senha (segurança)
+export type FornecedorSemSenha = Omit<Fornecedor, 'senha'>;
+
 @Injectable()
 export class FornecedoresService {
   constructor(
@@ -22,6 +25,18 @@ export class FornecedoresService {
     private readonly atividadeRepository: Repository<FornecedorAtividade>,
     private readonly cnpjService: CnpjService,
   ) {}
+
+  /**
+   * Remove a senha do objeto fornecedor antes de retornar (segurança)
+   */
+  private removerSenha(fornecedor: Fornecedor): FornecedorSemSenha {
+    const { senha: _, ...fornecedorSemSenha } = fornecedor;
+    return fornecedorSemSenha as FornecedorSemSenha;
+  }
+
+  private removerSenhaLista(fornecedores: Fornecedor[]): FornecedorSemSenha[] {
+    return fornecedores.map(f => this.removerSenha(f));
+  }
 
   // === CRUD BÁSICO ===
   async create(createDto: CreateFornecedorDto): Promise<Fornecedor> {
@@ -43,11 +58,12 @@ export class FornecedoresService {
     return await this.fornecedorRepository.save(fornecedor);
   }
 
-  async findAll(): Promise<Fornecedor[]> {
-    return await this.fornecedorRepository.find({
+  async findAll(): Promise<FornecedorSemSenha[]> {
+    const fornecedores = await this.fornecedorRepository.find({
       where: { ativo: true },
       order: { razao_social: 'ASC' }
     });
+    return this.removerSenhaLista(fornecedores);
   }
 
   async findOne(id: string): Promise<Fornecedor> {
@@ -58,18 +74,19 @@ export class FornecedoresService {
     return fornecedor;
   }
 
-  async findByCpfCnpj(cpf_cnpj: string): Promise<Fornecedor> {
+  async findByCpfCnpj(cpf_cnpj: string): Promise<FornecedorSemSenha> {
     const fornecedor = await this.fornecedorRepository.findOneBy({ cpf_cnpj });
     if (!fornecedor) {
       throw new NotFoundException(`Fornecedor com CPF/CNPJ ${cpf_cnpj} não encontrado`);
     }
-    return fornecedor;
+    return this.removerSenha(fornecedor);
   }
 
-  async update(id: string, updateDto: UpdateFornecedorDto): Promise<Fornecedor> {
+  async update(id: string, updateDto: UpdateFornecedorDto): Promise<FornecedorSemSenha> {
     const fornecedor = await this.findOne(id);
     Object.assign(fornecedor, updateDto);
-    return await this.fornecedorRepository.save(fornecedor);
+    const saved = await this.fornecedorRepository.save(fornecedor);
+    return this.removerSenha(saved);
   }
 
   async delete(id: string): Promise<void> {
@@ -114,12 +131,13 @@ export class FornecedoresService {
     return await this.fornecedorRepository.save(fornecedor);
   }
 
-  async findByEmail(email: string): Promise<Fornecedor | null> {
+  async findByEmail(email: string): Promise<FornecedorSemSenha | null> {
     const fornecedor = await this.fornecedorRepository.findOne({ 
       where: { email },
       relations: ['documentos', 'atividades', 'socios']
     });
-    return fornecedor;
+    if (!fornecedor) return null;
+    return this.removerSenha(fornecedor);
   }
 
   // === GESTÃO DE DOCUMENTOS ===
@@ -234,6 +252,12 @@ export class FornecedoresService {
   }
 
   // === STATUS E VALIDAÇÃO ===
+  async aprovar(id: string): Promise<Fornecedor> {
+    const fornecedor = await this.findOne(id);
+    fornecedor.status = StatusCadastro.APROVADO;
+    return await this.fornecedorRepository.save(fornecedor);
+  }
+
   async suspender(id: string, motivo: string): Promise<Fornecedor> {
     const fornecedor = await this.findOne(id);
     fornecedor.status = StatusCadastro.SUSPENSO;
@@ -288,16 +312,24 @@ export class FornecedoresService {
 
   /**
    * Verifica se CNPJ já está cadastrado
+   * Se email for passado, verifica se é o próprio cadastro do usuário
    */
-  async verificarCnpjExistente(cnpj: string): Promise<{ existe: boolean; fornecedor?: Fornecedor }> {
+  async verificarCnpjExistente(cnpj: string, email?: string): Promise<{ existe: boolean; proprioCadastro: boolean; fornecedor?: FornecedorSemSenha }> {
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     const fornecedor = await this.fornecedorRepository.findOne({
       where: { cpf_cnpj: cnpjLimpo },
     });
     
+    // Verifica se é o próprio cadastro do usuário logado
+    let proprioCadastro = false;
+    if (fornecedor && email) {
+      proprioCadastro = fornecedor.email === email;
+    }
+    
     return {
       existe: !!fornecedor,
-      fornecedor: fornecedor || undefined,
+      proprioCadastro,
+      fornecedor: fornecedor ? this.removerSenha(fornecedor) : undefined,
     };
   }
 
@@ -399,7 +431,8 @@ export class FornecedoresService {
       data_consulta_cnpj: new Date(),
       nivel_atual: NivelCadastro.NIVEL_I,
       nivel_i_completo: true,
-      status: StatusCadastro.PENDENTE,
+      // Cadastro via CNPJ com dados completos = APROVADO
+      status: StatusCadastro.APROVADO,
     };
 
     const fornecedor = this.fornecedorRepository.create(fornecedorData);
@@ -649,6 +682,10 @@ export class FornecedoresService {
     fornecedor.data_consulta_cnpj = new Date();
     fornecedor.nivel_atual = NivelCadastro.NIVEL_I;
     fornecedor.nivel_i_completo = true;
+    
+    // Atualizar status para APROVADO após completar credenciamento
+    // Fornecedor pode participar de licitações com Nível I completo
+    fornecedor.status = StatusCadastro.APROVADO;
 
     await this.fornecedorRepository.save(fornecedor);
 

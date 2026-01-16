@@ -50,6 +50,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from '@/lib/api'
+import EditarLicitacaoModal from '@/components/licitacao/EditarLicitacaoModal'
 
 // Fases conforme Lei 14.133/2021 - Art. 17
 const FASES_INTERNAS = [
@@ -189,8 +190,6 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   const [itens, setItens] = useState<ItemLicitacao[]>([])
   const [loadingItens, setLoadingItens] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
-  const [editingLicitacao, setEditingLicitacao] = useState<Partial<Licitacao>>({})
-  const [savingEdit, setSavingEdit] = useState(false)
   const [showItemModal, setShowItemModal] = useState(false)
   const [editingItem, setEditingItem] = useState<Partial<ItemLicitacao> | null>(null)
   const [savingItem, setSavingItem] = useState(false)
@@ -292,7 +291,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     setLoading(true)
     try {
       // Carregar licitação
-      const resLic = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
+      const resLic = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
       if (resLic.ok) {
         const licData = await resLic.json()
         setLicitacao(licData)
@@ -302,14 +301,14 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
       let todosDocumentos: Documento[] = []
       
       // Documentos do módulo de documentos
-      const resDocs = await fetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}`)
+      const resDocs = await authFetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}`)
       if (resDocs.ok) {
         const docsData = await resDocs.json()
         todosDocumentos = [...todosDocumentos, ...docsData]
       }
       
       // Documentos da fase interna
-      const resDocsFase = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
+      const resDocsFase = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
       if (resDocsFase.ok) {
         const docsFaseData = await resDocsFase.json()
         if (Array.isArray(docsFaseData)) {
@@ -320,28 +319,28 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
       setDocumentos(todosDocumentos)
 
       // Carregar resumo da fase interna
-      const resResumo = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/resumo`)
+      const resResumo = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/resumo`)
       if (resResumo.ok) {
         const resumoData = await resResumo.json()
         setResumoFaseInterna(resumoData)
       }
 
       // Carregar propostas
-      const resPropostas = await fetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
+      const resPropostas = await authFetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
       if (resPropostas.ok) {
         const propostasData = await resPropostas.json()
         setPropostas(propostasData)
       }
 
       // Carregar impugnações
-      const resImpugnacoes = await fetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
+      const resImpugnacoes = await authFetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
       if (resImpugnacoes.ok) {
         const impugnacoesData = await resImpugnacoes.json()
         setImpugnacoes(impugnacoesData)
       }
 
       // Carregar itens da licitação
-      const resItens = await fetch(`${API_URL}/api/itens/licitacao/${licitacaoId}`)
+      const resItens = await authFetch(`${API_URL}/api/itens/licitacao/${licitacaoId}`)
       if (resItens.ok) {
         const itensData = await resItens.json()
         setItens(itensData)
@@ -349,11 +348,11 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
       // Carregar histórico/eventos da sessão (se existir)
       try {
-        const resSessao = await fetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
+        const resSessao = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
         if (resSessao.ok) {
           const sessaoData = await resSessao.json()
           if (sessaoData?.id) {
-            const resEventos = await fetch(`${API_URL}/api/sessao/${sessaoData.id}/eventos`)
+            const resEventos = await authFetch(`${API_URL}/api/sessao/${sessaoData.id}/eventos`)
             if (resEventos.ok) {
               const eventosData = await resEventos.json()
               setHistorico(eventosData)
@@ -386,7 +385,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
       })
       if (res.ok) {
         // Recarregar propostas
-        const resPropostas = await fetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
+        const resPropostas = await authFetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
         if (resPropostas.ok) {
           const propostasData = await resPropostas.json()
           setPropostas(propostasData)
@@ -403,7 +402,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
         method: 'PUT'
       })
       if (res.ok) {
-        const resPropostas = await fetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
+        const resPropostas = await authFetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
         if (resPropostas.ok) {
           const propostasData = await resPropostas.json()
           setPropostas(propostasData)
@@ -601,23 +600,84 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     }
   }
 
-  // Iniciar disputa
+  // Abrir sessão de disputa - verifica requisitos e vai direto para sala
   const iniciarDisputa = async () => {
+    setFaseModal(null)
+    
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/iniciar-disputa`, {
-        method: 'PUT'
-      })
-      if (res.ok) {
-        setFaseModal(null)
-        carregarDados()
-        alert('Disputa iniciada! Redirecionando para sala de disputa...')
+      // Verificar se já existe sessão
+      const resSessao = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
+      
+      if (resSessao.ok) {
+        // Sessão já existe, ir direto para sala
         router.push(`/orgao/licitacoes/${licitacaoId}/sala`)
-      } else {
-        const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        return
       }
+      
+      // Verificar requisitos antes de criar sessão
+      const resPreparar = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}/preparar`)
+      if (!resPreparar.ok) {
+        alert('Erro ao verificar requisitos da sessão')
+        return
+      }
+      
+      const dados = await resPreparar.json()
+      
+      // Verificar se pode iniciar
+      if (!dados.verificacoes.podeIniciar) {
+        const mensagens = []
+        if (!dados.verificacoes.faseInternaOk) mensagens.push('- Fase interna não concluída')
+        if (!dados.verificacoes.editalPublicado) mensagens.push('- Edital não publicado')
+        if (!dados.verificacoes.prazoImpugnacao) mensagens.push('- Prazo de impugnação não encerrado')
+        if (!dados.verificacoes.propostasRecebidas) mensagens.push('- Nenhuma proposta recebida')
+        if (!dados.verificacoes.dataAbertura) mensagens.push(`- ${dados.verificacoes.dataAberturaMsg}`)
+        
+        alert(`Não é possível abrir a sessão de disputa:\n\n${mensagens.join('\n')}`)
+        return
+      }
+      
+      // Verificar pregoeiro
+      if (!dados.licitacao.pregoeiroNome) {
+        alert('Pregoeiro não definido na licitação. Defina o pregoeiro antes de abrir a sessão.')
+        return
+      }
+      
+      // Criar sessão
+      const resCriar = await authFetch(`${API_URL}/api/sessao/${licitacaoId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pregoeiroId: dados.licitacao.pregoeiroId || 'pregoeiro-1',
+          pregoeiroNome: dados.licitacao.pregoeiroNome,
+          configuracao: dados.configuracaoPadrao,
+        }),
+      })
+      
+      if (!resCriar.ok) {
+        const error = await resCriar.json()
+        alert(`Erro ao criar sessão: ${error.message}`)
+        return
+      }
+      
+      const sessao = await resCriar.json()
+      
+      // Iniciar sessão
+      const resIniciar = await authFetch(`${API_URL}/api/sessao/${sessao.id}/iniciar`, {
+        method: 'PUT',
+      })
+      
+      if (!resIniciar.ok) {
+        const error = await resIniciar.json()
+        alert(`Erro ao iniciar sessão: ${error.message}`)
+        return
+      }
+      
+      // Ir para sala de disputa
+      router.push(`/orgao/licitacoes/${licitacaoId}/sala`)
+      
     } catch (error) {
-      alert('Erro ao iniciar disputa')
+      console.error('Erro ao abrir sessão:', error)
+      alert('Erro ao conectar com o servidor')
     }
   }
 
@@ -777,34 +837,40 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           break
         case 'ACOLHIMENTO_PROPOSTAS':
           acoes.push({ label: 'Ver Propostas Recebidas', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/propostas`), icon: Eye })
-          acoes.push({ label: 'Avançar para Análise', action: avancarFase, icon: ChevronRight })
+          acoes.push({ label: 'Encerrar Acolhimento', action: avancarFase, icon: ChevronRight })
           break
         case 'ANALISE_PROPOSTAS':
           acoes.push({ label: 'Analisar Propostas', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/propostas`), variant: 'default', icon: FileText })
-          acoes.push({ label: 'Iniciar Sessão de Disputa', action: iniciarDisputa, variant: 'default', icon: Play })
+          acoes.push({ label: 'Concluir Análise e Iniciar Disputa', action: avancarFase, icon: ChevronRight })
           break
         case 'EM_DISPUTA':
           acoes.push({ label: 'Ir para Sala de Disputa', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
+          acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           acoes.push({ label: 'Encerrar Disputa', action: encerrarDisputa, variant: 'destructive', icon: XCircle })
           break
         case 'JULGAMENTO':
           acoes.push({ label: 'Ver Resultado', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/propostas`), icon: Eye })
+          acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           acoes.push({ label: 'Avançar para Habilitação', action: avancarFase, icon: ChevronRight })
           break
         case 'HABILITACAO':
           acoes.push({ label: 'Verificar Documentos', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/habilitacao`), variant: 'default', icon: FileText })
+          acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           acoes.push({ label: 'Avançar para Recursos', action: avancarFase, icon: ChevronRight })
           break
         case 'RECURSO':
           acoes.push({ label: 'Ver Recursos', action: () => alert('Página de recursos em desenvolvimento'), icon: MessageSquare })
+          acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           acoes.push({ label: 'Avançar para Adjudicação', action: avancarFase, icon: ChevronRight })
           break
         case 'ADJUDICACAO':
           acoes.push({ label: 'Gerar Termo de Adjudicação', action: () => alert('Gerando termo...'), icon: FileText })
+          acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           acoes.push({ label: 'Avançar para Homologação', action: avancarFase, icon: ChevronRight })
           break
         case 'HOMOLOGACAO':
           acoes.push({ label: 'Homologar e Concluir', action: homologarLicitacao, variant: 'default', icon: Award })
+          acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           break
       }
     }
@@ -1314,20 +1380,32 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                 </Link>
 
                 {/* Ações específicas por fase */}
-                {['ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS'].includes(licitacao.fase) && (
+                {licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' && (
                   <>
                     <Link href={`/orgao/licitacoes/${licitacaoId}/propostas`} className="contents">
                       <Button variant="outline" className="h-20 flex-col">
                         <Users className="h-6 w-6 mb-2" />
-                        Ver Propostas
+                        Ver Propostas Recebidas
                       </Button>
                     </Link>
-                    <Link href={`/orgao/licitacoes/${licitacaoId}/sessao`} className="contents">
+                    <Button variant="outline" className="h-20 flex-col" onClick={() => suspenderLicitacao()}>
+                      <Pause className="h-6 w-6 mb-2" />
+                      Suspender Processo
+                    </Button>
+                  </>
+                )}
+                {licitacao.fase === 'ANALISE_PROPOSTAS' && (
+                  <>
+                    <Link href={`/orgao/licitacoes/${licitacaoId}/propostas`} className="contents">
                       <Button className="h-20 flex-col">
-                        <Play className="h-6 w-6 mb-2" />
-                        Iniciar Sessão Pública
+                        <Users className="h-6 w-6 mb-2" />
+                        Analisar Propostas
                       </Button>
                     </Link>
+                    <Button variant="default" className="h-20 flex-col bg-green-600 hover:bg-green-700" onClick={avancarFase}>
+                      <ChevronRight className="h-6 w-6 mb-2" />
+                      Concluir Análise e Iniciar Disputa
+                    </Button>
                     <Button variant="outline" className="h-20 flex-col" onClick={() => suspenderLicitacao()}>
                       <Pause className="h-6 w-6 mb-2" />
                       Suspender Processo
@@ -1821,10 +1899,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                   <CardTitle>Dados da Licitação</CardTitle>
                   <CardDescription>Informações gerais do processo licitatório</CardDescription>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => {
-                  setEditingLicitacao({...licitacao})
-                  setShowEditModal(true)
-                }}>
+                <Button size="sm" variant="outline" onClick={() => setShowEditModal(true)}>
                   <Settings className="mr-2 h-4 w-4" /> Editar
                 </Button>
               </div>
@@ -1890,102 +1965,12 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
       </Tabs>
 
       {/* Modal de Edição da Licitação */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowEditModal(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
-              <h2 className="text-lg font-semibold">Editar Licitação</h2>
-              <button onClick={() => setShowEditModal(false)} className="p-1 hover:bg-slate-100 rounded">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Número do Processo</label>
-                <Input 
-                  value={editingLicitacao.numero_processo || ''} 
-                  onChange={(e) => setEditingLicitacao({...editingLicitacao, numero_processo: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Objeto</label>
-                <Textarea 
-                  value={editingLicitacao.objeto || ''} 
-                  onChange={(e) => setEditingLicitacao({...editingLicitacao, objeto: e.target.value})}
-                  rows={3}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Valor Total Estimado</label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    value={editingLicitacao.valor_total_estimado || ''} 
-                    onChange={(e) => setEditingLicitacao({...editingLicitacao, valor_total_estimado: parseFloat(e.target.value)})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Pregoeiro</label>
-                  <Input 
-                    value={editingLicitacao.pregoeiro_nome || ''} 
-                    onChange={(e) => setEditingLicitacao({...editingLicitacao, pregoeiro_nome: e.target.value})}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Data de Publicação</label>
-                  <Input 
-                    type="date"
-                    value={editingLicitacao.data_publicacao_edital?.split('T')[0] || ''} 
-                    onChange={(e) => setEditingLicitacao({...editingLicitacao, data_publicacao_edital: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Data de Abertura</label>
-                  <Input 
-                    type="datetime-local"
-                    value={editingLicitacao.data_abertura_sessao?.slice(0, 16) || ''} 
-                    onChange={(e) => setEditingLicitacao({...editingLicitacao, data_abertura_sessao: e.target.value})}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="p-4 border-t bg-slate-50 flex justify-end gap-2 sticky bottom-0">
-              <Button variant="outline" onClick={() => setShowEditModal(false)}>
-                Cancelar
-              </Button>
-              <Button 
-                onClick={async () => {
-                  setSavingEdit(true)
-                  try {
-                    const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify(editingLicitacao)
-                    })
-                    if (res.ok) {
-                      alert('Licitação atualizada com sucesso!')
-                      setShowEditModal(false)
-                      carregarDados()
-                    } else {
-                      const error = await res.json()
-                      alert(`Erro: ${error.message || 'Falha ao salvar'}`)
-                    }
-                  } catch (error) {
-                    console.error('Erro:', error)
-                    alert('Erro ao salvar alterações')
-                  } finally {
-                    setSavingEdit(false)
-                  }
-                }}
-                disabled={savingEdit}
-              >
-                {savingEdit ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar Alterações'}
-              </Button>
-            </div>
-          </div>
-        </div>
+      {showEditModal && licitacao && (
+        <EditarLicitacaoModal
+          licitacao={licitacao}
+          onClose={() => setShowEditModal(false)}
+          onSave={carregarDados}
+        />
       )}
 
       {/* Modal de Criar/Editar Item */}

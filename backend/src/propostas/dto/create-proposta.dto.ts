@@ -111,4 +111,19 @@ export class DesclassificarPropostaDto {
   @IsString()
   @IsNotEmpty()
   motivo: string;
+
+  @IsOptional()
+  @IsString()
+  documento_nome?: string;
+
+  @IsOptional()
+  @IsString()
+  documento_path?: string;
+
+  @IsOptional()
+  @IsString()
+  documento_tipo?: string;
+
+  @IsOptional()
+  documento_tamanho?: number;
 }

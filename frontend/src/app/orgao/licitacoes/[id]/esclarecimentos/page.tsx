@@ -30,7 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Esclarecimento {
   id: string
@@ -79,8 +79,8 @@ export default function EsclarecimentosPregoeiro({ params }: { params: Promise<{
   const carregarDados = async () => {
     try {
       const [licRes, escRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/esclarecimentos/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/esclarecimentos/licitacao/${licitacaoId}`)
       ])
 
       if (licRes.ok) {
@@ -109,7 +109,7 @@ export default function EsclarecimentosPregoeiro({ params }: { params: Promise<{
     try {
       const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
       
-      const res = await fetch(`${API_URL}/api/esclarecimentos/${esclarecimentoSelecionado.id}/responder`, {
+      const res = await authFetch(`${API_URL}/api/esclarecimentos/${esclarecimentoSelecionado.id}/responder`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -138,7 +138,7 @@ export default function EsclarecimentosPregoeiro({ params }: { params: Promise<{
     if (!confirm('Deseja arquivar este esclarecimento?')) return
 
     try {
-      const res = await fetch(`${API_URL}/api/esclarecimentos/${id}/arquivar`, {
+      const res = await authFetch(`${API_URL}/api/esclarecimentos/${id}/arquivar`, {
         method: 'PUT'
       })
       if (res.ok) {

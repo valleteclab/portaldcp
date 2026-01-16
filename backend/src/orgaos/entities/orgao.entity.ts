@@ -134,6 +134,11 @@ export class Orgao {
   @Column({ nullable: true })
   pncp_status: string; // 'VINCULADO', 'PENDENTE', 'ERRO'
 
+  // ============ CONFIGURAÇÕES DE DISPUTA ============
+  
+  @Column({ default: true })
+  anonimizacao_disputa: boolean; // Se anonimização está ativa por padrão nas disputas
+
   @CreateDateColumn()
   created_at: Date;
 

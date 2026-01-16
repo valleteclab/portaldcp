@@ -57,7 +57,7 @@ interface Ata {
   }
 }
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 const STATUS_CONTRATO = {
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },
@@ -88,8 +88,8 @@ export default function ContratosFornecedorPage() {
       const fornecedor = JSON.parse(fornecedorData)
 
       const [contratosRes, atasRes] = await Promise.all([
-        fetch(`${API_URL}/api/contratos?fornecedorId=${fornecedor.id}`),
-        fetch(`${API_URL}/api/atas?fornecedorId=${fornecedor.id}`)
+        authFetch(`${API_URL}/api/contratos?fornecedorId=${fornecedor.id}`),
+        authFetch(`${API_URL}/api/atas?fornecedorId=${fornecedor.id}`)
       ])
 
       if (contratosRes.ok) {

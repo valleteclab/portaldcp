@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { DadosCnpj, Representante, Procurador, formatarCnpj, formatarCpf, formatarMoeda } from "./types"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface CredenciamentoTabProps {
   dadosCnpj: DadosCnpj | null
@@ -45,18 +45,22 @@ export function CredenciamentoTab({
     setError(null)
 
     try {
-      // Verifica se já existe
-      const verificaRes = await fetch(`${API_URL}/api/fornecedores/verificar-cnpj/${cnpjLimpo}`)
+      // Verifica se já existe (passando email para permitir edição do próprio cadastro)
+      const verificaUrl = emailUsuario 
+        ? `${API_URL}/api/fornecedores/verificar-cnpj/${cnpjLimpo}?email=${encodeURIComponent(emailUsuario)}`
+        : `${API_URL}/api/fornecedores/verificar-cnpj/${cnpjLimpo}`
+      const verificaRes = await authFetch(verificaUrl)
       const verificaData = await verificaRes.json()
       
-      if (verificaData.existe) {
+      // Só bloqueia se existe E não é do próprio usuário
+      if (verificaData.existe && !verificaData.proprioCadastro) {
         setError('Este CNPJ já está cadastrado no sistema')
         setLoading(false)
         return
       }
 
       // Consulta dados
-      const res = await fetch(`${API_URL}/api/fornecedores/consultar-cnpj/${cnpjLimpo}`)
+      const res = await authFetch(`${API_URL}/api/fornecedores/consultar-cnpj/${cnpjLimpo}`)
       
       if (!res.ok) {
         const errorData = await res.json()

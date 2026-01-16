@@ -1,4 +1,10 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UseInterceptors, UploadedFile, Res, NotFoundException, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import type { Response } from 'express';
+import { createReadStream, existsSync } from 'fs';
 import { PropostasService } from './propostas.service';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { Proposta } from './entities/proposta.entity';
@@ -23,6 +29,11 @@ export class PropostasController {
   @Get('fornecedor/:fornecedorId')
   async findByFornecedor(@Param('fornecedorId') fornecedorId: string): Promise<Proposta[]> {
     return await this.propostasService.findByFornecedor(fornecedorId);
+  }
+
+  @Get('orgao/:orgaoId/fornecedores')
+  async findFornecedoresByOrgao(@Param('orgaoId') orgaoId: string): Promise<any[]> {
+    return await this.propostasService.findFornecedoresByOrgao(orgaoId);
   }
 
   @Public()
@@ -54,11 +65,76 @@ export class PropostasController {
   }
 
   @Put(':id/desclassificar')
+  @UseInterceptors(FileInterceptor('documento', {
+    storage: diskStorage({
+      destination: './uploads/desclassificacoes',
+      filename: (req, file, cb) => {
+        const uniqueSuffix = uuidv4();
+        const ext = extname(file.originalname);
+        cb(null, `${uniqueSuffix}${ext}`);
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+      const allowedTypes = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
+      const ext = extname(file.originalname).toLowerCase();
+      if (allowedTypes.includes(ext)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Tipo de arquivo não permitido'), false);
+      }
+    },
+  }))
   async desclassificar(
     @Param('id') id: string,
-    @Body(new ValidationPipe()) dados: DesclassificarPropostaDto
+    @Body('motivo') motivo: string,
+    @UploadedFile() documento?: Express.Multer.File
   ): Promise<Proposta> {
+    console.log('[desclassificar] Motivo recebido:', motivo);
+    console.log('[desclassificar] Documento recebido:', documento ? documento.originalname : 'nenhum');
+    
+    // Validar motivo manualmente (FormData não passa pelo ValidationPipe)
+    if (!motivo || typeof motivo !== 'string' || motivo.trim() === '') {
+      throw new BadRequestException('O motivo da desclassificação é obrigatório');
+    }
+    
+    const dados: DesclassificarPropostaDto = {
+      motivo: motivo.trim(),
+    };
+    
+    if (documento) {
+      dados.documento_nome = documento.originalname;
+      dados.documento_path = documento.path;
+      dados.documento_tipo = documento.mimetype;
+      dados.documento_tamanho = documento.size;
+    }
+    
     return await this.propostasService.desclassificar(id, dados);
+  }
+
+  @Public()
+  @Get(':id/documento-desclassificacao')
+  async downloadDocumentoDesclassificacao(
+    @Param('id') id: string,
+    @Res() res: Response
+  ) {
+    const proposta = await this.propostasService.findOne(id);
+    
+    if (!proposta.documento_desclassificacao_path) {
+      throw new NotFoundException('Documento de desclassificação não encontrado');
+    }
+    
+    const filePath = proposta.documento_desclassificacao_path;
+    
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('Arquivo não encontrado no servidor');
+    }
+    
+    res.setHeader('Content-Type', proposta.documento_desclassificacao_tipo || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${proposta.documento_desclassificacao_nome}"`);
+    
+    const fileStream = createReadStream(filePath);
+    fileStream.pipe(res);
   }
 
   @Put(':id/vencedora')

@@ -18,7 +18,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ItemLicitacao, ItemPCA, UNIDADES, ModoVinculacaoPCA, LoteLicitacao, ModoAplicacaoBeneficioMPE } from "./types"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface ItensTabProps {
   itens: ItemLicitacao[]
@@ -104,7 +104,7 @@ export function ItensTab({
         offset: String((pagina - 1) * ITENS_POR_PAGINA)
       })
       
-      const res = await fetch(`${API_URL}/api/catalogo/buscar?${params.toString()}`)
+      const res = await authFetch(`${API_URL}/api/catalogo/buscar?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         if (pagina === 1) {
@@ -151,7 +151,7 @@ export function ItensTab({
     
     setLoadingPca(true)
     try {
-      const res = await fetch(`${API_URL}/api/pca/itens?orgao_id=${orgaoId}&ano=${anoPca}`)
+      const res = await authFetch(`${API_URL}/api/pca/itens?orgao_id=${orgaoId}&ano=${anoPca}`)
       if (res.ok) {
         const data = await res.json()
         setItensPca(data)

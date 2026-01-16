@@ -249,11 +249,14 @@ export class Licitacao {
   data_homologacao: Date;
 
   // === CONFIGURAÇÕES DA DISPUTA ===
+  @Column({ type: 'int', default: 10 })
+  tempo_inatividade: number; // Tempo inicial da disputa em minutos (Lei 14.133/2021)
+
   @Column({ type: 'int', default: 3 })
   intervalo_minimo_lances: number; // Em minutos
 
   @Column({ type: 'int', default: 2 })
-  tempo_prorrogacao: number; // Em minutos
+  tempo_prorrogacao: number; // Em minutos - prorrogação automática se houver lance
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   diferenca_minima_lances: number; // Valor mínimo entre lances

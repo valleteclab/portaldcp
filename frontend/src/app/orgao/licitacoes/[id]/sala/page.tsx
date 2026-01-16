@@ -2,6 +2,7 @@
 
 import { use, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { API_URL, authFetch } from '@/lib/api'
 
 // Esta página agora redireciona para a nova sala de disputa unificada do pregoeiro
 // A nova sala suporta múltiplas sessões e tem melhor UX
@@ -11,12 +12,32 @@ export default function SalaDisputaPage({ params }: { params: Promise<{ id: stri
   const router = useRouter()
   
   useEffect(() => {
-    // Salvar a sessão que o usuário quer acessar
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sessao_disputa_selecionada', resolvedParams.id)
+    const prepararSessao = async () => {
+      let sessaoId = ''
+      try {
+        // Buscar a sessão correspondente à licitação
+        const res = await authFetch(`${API_URL}/api/sessao/licitacao/${resolvedParams.id}`)
+        if (res.ok) {
+          const sessao = await res.json()
+          sessaoId = sessao.id
+          // Salvar o ID da sessão (não da licitação)
+          if (typeof window !== 'undefined' && sessao.id) {
+            localStorage.setItem('sessao_disputa_selecionada', sessao.id)
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao buscar sessão:', error)
+      }
+      // Redirecionar para a nova sala de disputa v2
+      if (sessaoId) {
+        router.replace(`/orgao/disputa?sessao=${sessaoId}`)
+      } else {
+        // Fallback: usar licitação ID para buscar sessão na nova página
+        router.replace(`/orgao/disputa?licitacao=${resolvedParams.id}`)
+      }
     }
-    // Redirecionar para a nova sala de disputa do pregoeiro
-    router.replace('/orgao/sala-disputa')
+    
+    prepararSessao()
   }, [resolvedParams.id, router])
 
   return (

@@ -21,7 +21,10 @@ import {
   Building2,
   ChevronDown,
   ChevronUp,
-  Download
+  Download,
+  Upload,
+  X,
+  Paperclip
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -29,7 +32,7 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Proposta {
   id: string
@@ -43,6 +46,8 @@ interface Proposta {
   valor_total_proposta: number
   status: 'ENVIADA' | 'CLASSIFICADA' | 'DESCLASSIFICADA' | 'VENCEDORA' | 'SEGUNDA_COLOCADA'
   motivo_desclassificacao?: string
+  documento_desclassificacao_nome?: string
+  documento_desclassificacao_path?: string
   data_envio: string
   itens_proposta?: any[]
 }
@@ -74,6 +79,7 @@ export default function PropostasPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [desclassificando, setDesclassificando] = useState<string | null>(null)
   const [motivoDesclassificacao, setMotivoDesclassificacao] = useState('')
+  const [arquivoJustificativa, setArquivoJustificativa] = useState<File | null>(null)
   const [processando, setProcessando] = useState(false)
 
   useEffect(() => {
@@ -83,8 +89,8 @@ export default function PropostasPage() {
   const carregarDados = async () => {
     try {
       const [licRes, propRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
       ])
 
       if (licRes.ok) {
@@ -105,7 +111,7 @@ export default function PropostasPage() {
   const classificarProposta = async (id: string) => {
     setProcessando(true)
     try {
-      const res = await fetch(`${API_URL}/api/propostas/${id}/classificar`, {
+      const res = await authFetch(`${API_URL}/api/propostas/${id}/classificar`, {
         method: 'PUT'
       })
       if (res.ok) {
@@ -129,14 +135,25 @@ export default function PropostasPage() {
 
     setProcessando(true)
     try {
+      const formData = new FormData()
+      formData.append('motivo', motivoDesclassificacao)
+      
+      if (arquivoJustificativa) {
+        formData.append('documento', arquivoJustificativa)
+      }
+      
+      // Usar fetch diretamente para FormData (não pode usar Content-Type: application/json)
+      const token = localStorage.getItem('access_token') || localStorage.getItem('orgao_token')
       const res = await fetch(`${API_URL}/api/propostas/${id}/desclassificar`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ motivo: motivoDesclassificacao })
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData
       })
+      
       if (res.ok) {
         setDesclassificando(null)
         setMotivoDesclassificacao('')
+        setArquivoJustificativa(null)
         carregarDados()
       } else {
         const error = await res.json()
@@ -149,32 +166,34 @@ export default function PropostasPage() {
     }
   }
 
-  const iniciarDisputa = async () => {
+  const concluirAnaliseEIniciarDisputa = async () => {
     const classificadas = propostas.filter(p => p.status === 'CLASSIFICADA')
     if (classificadas.length < 2) {
       alert('É necessário ter pelo menos 2 propostas classificadas para iniciar a disputa')
       return
     }
-
-    if (!confirm('Deseja iniciar a sessão de disputa? Esta ação não pode ser desfeita.')) {
+    
+    if (!confirm('Confirma a conclusão da análise de propostas e início da fase de disputa?')) {
       return
     }
-
-    setProcessando(true)
+    
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}/avancar-fase`, {
+      setProcessando(true)
+      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/avancar-fase`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ observacao: 'Iniciando fase de disputa' })
+        body: JSON.stringify({ observacao: 'Análise de propostas concluída' })
       })
+      
       if (res.ok) {
-        router.push(`/orgao/licitacoes/${licitacaoId}/sala`)
+        alert('Análise concluída! A licitação avançou para a fase de disputa.')
+        router.push(`/orgao/licitacoes/${licitacaoId}`)
       } else {
         const error = await res.json()
         alert(`Erro: ${error.message}`)
       }
     } catch (error) {
-      alert('Erro ao iniciar disputa')
+      alert('Erro ao avançar fase')
     } finally {
       setProcessando(false)
     }
@@ -252,9 +271,9 @@ export default function PropostasPage() {
         </div>
 
         {classificadas.length >= 2 && licitacao?.fase === 'ANALISE_PROPOSTAS' && (
-          <Button onClick={iniciarDisputa} disabled={processando} className="bg-green-600 hover:bg-green-700">
+          <Button onClick={concluirAnaliseEIniciarDisputa} disabled={processando} className="bg-green-600 hover:bg-green-700">
             <Play className="h-4 w-4 mr-2" />
-            Iniciar Sessão de Disputa
+            Concluir Análise e Iniciar Disputa
           </Button>
         )}
       </div>
@@ -393,10 +412,23 @@ export default function PropostasPage() {
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                         <p className="text-sm font-medium text-red-800">Motivo da Desclassificação:</p>
                         <p className="text-sm text-red-700 mt-1">{proposta.motivo_desclassificacao}</p>
+                        {proposta.documento_desclassificacao_nome && (
+                          <div className="mt-3 pt-3 border-t border-red-200">
+                            <a 
+                              href={`${API_URL}/api/propostas/${proposta.id}/documento-desclassificacao`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 text-sm text-red-700 hover:text-red-900 underline"
+                            >
+                              <Download className="h-4 w-4" />
+                              {proposta.documento_desclassificacao_nome}
+                            </a>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Ações */}
+                    {/* Ações - Proposta ENVIADA (ainda não analisada) */}
                     {proposta.status === 'ENVIADA' && (
                       <div className="flex gap-2">
                         <Button 
@@ -409,13 +441,48 @@ export default function PropostasPage() {
                         </Button>
                         
                         {desclassificando === proposta.id ? (
-                          <div className="flex-1 space-y-2">
+                          <div className="flex-1 space-y-3">
                             <Textarea
                               value={motivoDesclassificacao}
                               onChange={(e) => setMotivoDesclassificacao(e.target.value)}
                               placeholder="Informe o motivo da desclassificação..."
                               rows={2}
                             />
+                            
+                            {/* Upload de documento de justificativa (opcional) */}
+                            <div className="space-y-2">
+                              <Label className="text-sm text-muted-foreground">
+                                Documento de justificativa (opcional)
+                              </Label>
+                              {arquivoJustificativa ? (
+                                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border">
+                                  <Paperclip className="h-4 w-4 text-slate-500" />
+                                  <span className="text-sm flex-1 truncate">{arquivoJustificativa.name}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setArquivoJustificativa(null)}
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <label className="flex items-center gap-2 p-2 border border-dashed rounded cursor-pointer hover:bg-slate-50">
+                                  <Upload className="h-4 w-4 text-slate-500" />
+                                  <span className="text-sm text-slate-500">Anexar documento (PDF, DOC, imagem)</span>
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) setArquivoJustificativa(file)
+                                    }}
+                                  />
+                                </label>
+                              )}
+                            </div>
+                            
                             <div className="flex gap-2">
                               <Button 
                                 variant="destructive"
@@ -429,6 +496,7 @@ export default function PropostasPage() {
                                 onClick={() => {
                                   setDesclassificando(null)
                                   setMotivoDesclassificacao('')
+                                  setArquivoJustificativa(null)
                                 }}
                               >
                                 Cancelar
@@ -445,6 +513,104 @@ export default function PropostasPage() {
                             Desclassificar
                           </Button>
                         )}
+                      </div>
+                    )}
+
+                    {/* Ações - Proposta CLASSIFICADA (pode desclassificar) */}
+                    {proposta.status === 'CLASSIFICADA' && (
+                      <div className="flex gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 text-green-600">
+                          <CheckCircle className="h-5 w-5" />
+                          <span className="font-medium">Proposta Classificada</span>
+                        </div>
+                        {desclassificando === proposta.id ? (
+                          <div className="flex-1 space-y-3 min-w-full">
+                            <Textarea
+                              value={motivoDesclassificacao}
+                              onChange={(e) => setMotivoDesclassificacao(e.target.value)}
+                              placeholder="Informe o motivo da desclassificação..."
+                              rows={2}
+                            />
+                            
+                            {/* Upload de documento de justificativa (opcional) */}
+                            <div className="space-y-2">
+                              <Label className="text-sm text-muted-foreground">
+                                Documento de justificativa (opcional)
+                              </Label>
+                              {arquivoJustificativa ? (
+                                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border">
+                                  <Paperclip className="h-4 w-4 text-slate-500" />
+                                  <span className="text-sm flex-1 truncate">{arquivoJustificativa.name}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setArquivoJustificativa(null)}
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <label className="flex items-center gap-2 p-2 border border-dashed rounded cursor-pointer hover:bg-slate-50">
+                                  <Upload className="h-4 w-4 text-slate-500" />
+                                  <span className="text-sm text-slate-500">Anexar documento (PDF, DOC, imagem)</span>
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) setArquivoJustificativa(file)
+                                    }}
+                                  />
+                                </label>
+                              )}
+                            </div>
+                            
+                            <div className="flex gap-2">
+                              <Button 
+                                variant="destructive"
+                                onClick={() => desclassificarProposta(proposta.id)}
+                                disabled={processando}
+                              >
+                                Confirmar Desclassificação
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={() => {
+                                  setDesclassificando(null)
+                                  setMotivoDesclassificacao('')
+                                  setArquivoJustificativa(null)
+                                }}
+                              >
+                                Cancelar
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button 
+                            variant="outline"
+                            className="text-red-600 border-red-300"
+                            onClick={() => setDesclassificando(proposta.id)}
+                          >
+                            <ThumbsDown className="h-4 w-4 mr-2" />
+                            Desclassificar
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Ações - Proposta DESCLASSIFICADA (pode reclassificar) */}
+                    {proposta.status === 'DESCLASSIFICADA' && (
+                      <div className="flex gap-2">
+                        <Button 
+                          onClick={() => classificarProposta(proposta.id)}
+                          disabled={processando}
+                          variant="outline"
+                          className="text-green-600 border-green-300"
+                        >
+                          <ThumbsUp className="h-4 w-4 mr-2" />
+                          Reclassificar Proposta
+                        </Button>
                       </div>
                     )}
 

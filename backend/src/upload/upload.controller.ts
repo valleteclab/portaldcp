@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import { UploadService } from './upload.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('uploads')
 export class UploadController {

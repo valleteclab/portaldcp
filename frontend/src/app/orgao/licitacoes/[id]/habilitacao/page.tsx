@@ -27,7 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Fornecedor {
   id: string
@@ -89,8 +89,8 @@ export default function HabilitacaoPage() {
   const carregarDados = async () => {
     try {
       const [licRes, propRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
       ])
 
       if (licRes.ok) {

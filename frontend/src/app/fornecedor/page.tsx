@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface StatusCadastro {
   nivel_i_completo: boolean
@@ -47,7 +47,7 @@ export default function FornecedorDashboard() {
 
         const fornecedorLocal = JSON.parse(fornecedorStr)
         if (fornecedorLocal.email) {
-          const res = await fetch(`${API_URL}/api/fornecedores/por-email/${encodeURIComponent(fornecedorLocal.email)}`)
+          const res = await authFetch(`${API_URL}/api/fornecedores/por-email/${encodeURIComponent(fornecedorLocal.email)}`)
           if (res.ok) {
             const data = await res.json()
             setStatusCadastro(data)

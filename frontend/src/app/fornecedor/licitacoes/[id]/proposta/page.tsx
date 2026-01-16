@@ -28,7 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface ItemLicitacao {
   id: string
@@ -114,7 +114,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         const fornecedorStr = localStorage.getItem('fornecedor')
         if (fornecedorStr) {
           const fornecedor = JSON.parse(fornecedorStr)
-          const resPropostas = await fetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+          const resPropostas = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
           if (resPropostas.ok) {
             const propostas = await resPropostas.json()
             const existente = propostas.find((p: any) => p.licitacao_id === resolvedParams.id)
@@ -126,14 +126,14 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         }
 
         // Buscar licitação
-        const resLicitacao = await fetch(`${API_URL}/api/licitacoes/${resolvedParams.id}`)
+        const resLicitacao = await authFetch(`${API_URL}/api/licitacoes/${resolvedParams.id}`)
         if (resLicitacao.ok) {
           const dataLicitacao = await resLicitacao.json()
           setLicitacao(dataLicitacao)
         }
 
         // Buscar itens da licitação
-        const resItens = await fetch(`${API_URL}/api/itens/licitacao/${resolvedParams.id}`)
+        const resItens = await authFetch(`${API_URL}/api/itens/licitacao/${resolvedParams.id}`)
         if (resItens.ok) {
           const dataItens = await resItens.json()
           setItensPropostos(dataItens.map((item: ItemLicitacao) => ({
@@ -224,9 +224,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         }))
       }
 
-      const res = await fetch(`${API_URL}/api/propostas`, {
+      const res = await authFetch(`${API_URL}/api/propostas`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(propostaData)
       })
 
@@ -242,7 +241,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       const proposta = await res.json()
 
       // Enviar proposta (mudar status de RASCUNHO para ENVIADA)
-      await fetch(`${API_URL}/api/propostas/${proposta.id}/enviar`, {
+      await authFetch(`${API_URL}/api/propostas/${proposta.id}/enviar`, {
         method: 'PUT'
       })
 

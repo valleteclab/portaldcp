@@ -37,7 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface DadosSessao {
   licitacao: {
@@ -125,7 +125,7 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
     const carregarDados = async () => {
       try {
         setLoading(true)
-        const response = await fetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}/preparar`)
+        const response = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}/preparar`)
         
         if (!response.ok) {
           throw new Error('Erro ao carregar dados da sessão')
@@ -160,7 +160,7 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
       setIniciando(true)
       
       // Criar sessão no backend
-      const response = await fetch(`${API_URL}/api/sessao/${licitacaoId}`, {
+      const response = await authFetch(`${API_URL}/api/sessao/${licitacaoId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,7 +178,7 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
       const sessao = await response.json()
       
       // Iniciar a sessão
-      await fetch(`${API_URL}/api/sessao/${sessao.id}/iniciar`, {
+      await authFetch(`${API_URL}/api/sessao/${sessao.id}/iniciar`, {
         method: 'PUT',
       })
 
@@ -321,6 +321,19 @@ export default function IniciarSessaoPage({ params }: { params: Promise<{ id: st
               <div>
                 <p className="font-medium">Propostas Recebidas</p>
                 <p className="text-sm text-muted-foreground">{verificacoes.propostasRecebidasMsg}</p>
+              </div>
+            </div>
+            <div className={`flex items-center gap-3 p-3 rounded-lg ${
+              verificacoes.dataAbertura ? 'bg-green-50' : 'bg-yellow-50'
+            }`}>
+              {verificacoes.dataAbertura ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <Clock className="h-5 w-5 text-yellow-600" />
+              )}
+              <div>
+                <p className="font-medium">Data de Abertura</p>
+                <p className="text-sm text-muted-foreground">{verificacoes.dataAberturaMsg}</p>
               </div>
             </div>
           </div>

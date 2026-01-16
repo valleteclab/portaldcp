@@ -228,11 +228,11 @@ export default function PncpPage() {
       }
 
       const [pendentesRes, errosRes, licitacoesRes, configRes, pcasRes] = await Promise.all([
-        fetch(`${API_URL}/api/pncp/pendentes?orgaoId=${orgao.id}`),
-        fetch(`${API_URL}/api/pncp/erros?orgaoId=${orgao.id}`),
-        fetch(`${API_URL}/api/licitacoes?orgao_id=${orgao.id}`),
-        fetch(`${API_URL}/api/pncp/config/status`),
-        fetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
+        authFetch(`${API_URL}/api/pncp/pendentes?orgaoId=${orgao.id}`),
+        authFetch(`${API_URL}/api/pncp/erros?orgaoId=${orgao.id}`),
+        authFetch(`${API_URL}/api/licitacoes?orgao_id=${orgao.id}`),
+        authFetch(`${API_URL}/api/pncp/config/status`),
+        authFetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
       ])
 
       if (pendentesRes.ok) setPendentes(await pendentesRes.json())
@@ -257,7 +257,7 @@ export default function PncpPage() {
     setTestandoConexao(true)
     setStatusConexao(null)
     try {
-      const response = await fetch(`${API_URL}/api/pncp/config/testar-conexao`, {
+      const response = await authFetch(`${API_URL}/api/pncp/config/testar-conexao`, {
         method: 'POST'
       })
       const data = await response.json()
@@ -276,7 +276,7 @@ export default function PncpPage() {
     setCarregandoUnidades(true)
     try {
       const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/orgao/${cnpjLimpo}/unidades`)
+      const response = await authFetch(`${API_URL}/api/pncp/orgao/${cnpjLimpo}/unidades`)
       const data = await response.json()
       
       if (response.ok && data.unidades) {
@@ -309,7 +309,7 @@ export default function PncpPage() {
     setCarregandoPcasPncp(true)
     try {
       const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/importar/pcas/${cnpjLimpo}`)
+      const response = await authFetch(`${API_URL}/api/pncp/importar/pcas/${cnpjLimpo}`)
       const data = await response.json()
       
       if (response.ok) {
@@ -342,14 +342,13 @@ export default function PncpPage() {
     setImportandoPca(`${ano}-${sequencial}`)
     try {
       const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/importar/pca`, {
+      const response = await authFetch(`${API_URL}/api/pncp/importar/pca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgaoId: orgaoAtual.id,
           cnpj: cnpjLimpo,
-          ano,
-          sequencial
+          ano: ano,
+          sequencial: sequencial
         })
       })
 
@@ -381,11 +380,10 @@ export default function PncpPage() {
     
     try {
       const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/importar/pca`, {
+      const response = await authFetch(`${API_URL}/api/pncp/importar/pca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgaoId: orgaoAtual.id,
           cnpj: cnpjLimpo,
           ano: pcaPncp.anoPca,
           sequencial: pcaPncp.sequencialPca
@@ -425,12 +423,12 @@ export default function PncpPage() {
     setCarregandoPcasPncp(true)
     try {
       const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/importar/pcas/todos`, {
+      const response = await authFetch(`${API_URL}/api/pncp/importar/pcas/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgaoId: orgaoAtual.id,
-          cnpj: cnpjLimpo
+          cnpj: cnpjLimpo,
+          orgaoId: orgaoAtual.id
         })
       })
 
@@ -456,14 +454,14 @@ export default function PncpPage() {
     setEnviando(pca.id)
     try {
       // Buscar dados completos do PCA
-      const pcaResponse = await fetch(`${API_URL}/api/pca/${pca.id}`)
+      const pcaResponse = await authFetch(`${API_URL}/api/pca/${pca.id}`)
       if (!pcaResponse.ok) {
         throw new Error('Erro ao buscar dados do PCA')
       }
       const pcaCompleto = await pcaResponse.json()
 
       // Enviar para o PNCP
-      const response = await fetch(`${API_URL}/api/pncp/pca/${pca.id}`, {
+      const response = await authFetch(`${API_URL}/api/pncp/pca/${pca.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pcaCompleto)
@@ -488,9 +486,7 @@ export default function PncpPage() {
   const validarParaPNCP = async (licitacaoId: string) => {
     try {
       const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/validar`, {
-        ...getAuthHeaders()
-      })
+      const response = await authFetch(`${API_URL}/api/pncp/compras/${licitacaoId}/validar`)
       return await response.json()
     } catch (error) {
       console.error('Erro ao validar:', error)
@@ -526,9 +522,8 @@ export default function PncpPage() {
         return
       }
 
-      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
-        method: 'POST',
-        ...getAuthHeaders()
+      const response = await authFetch(`${API_URL}/api/pncp/compras/${licitacaoId}/completo`, {
+        method: 'POST'
       })
 
       const data = await response.json()
@@ -571,10 +566,8 @@ export default function PncpPage() {
 
   const reenviar = async (syncId: string) => {
     try {
-      const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/reenviar/${syncId}`, {
-        method: 'POST',
-        ...getAuthHeaders()
+      const response = await authFetch(`${API_URL}/api/pncp/reenviar/${syncId}`, {
+        method: 'POST'
       })
 
       if (response.ok) {
@@ -601,13 +594,9 @@ export default function PncpPage() {
     }
 
     try {
-      const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`, {
+      const response = await authFetch(`${API_URL}/api/pncp/compras/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`, {
         method: 'PUT',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           licitacaoId: licitacao.id,
           objetoCompra: novoObjeto || licitacao.objeto,
@@ -640,13 +629,9 @@ export default function PncpPage() {
     }
 
     try {
-      const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/compras/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`, {
+      const response = await authFetch(`${API_URL}/api/pncp/compras/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`, {
         method: 'DELETE',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           licitacaoId: licitacao.id,
           justificativa
@@ -783,7 +768,7 @@ export default function PncpPage() {
     
     // Buscar itens do PCA
     try {
-      const response = await fetch(`${API_URL}/api/pca/${pca.id}`)
+      const response = await authFetch(`${API_URL}/api/pca/${pca.id}`)
       if (response.ok) {
         const pcaCompleto = await response.json()
         setPcaSelecionado({ ...pca, itens: pcaCompleto.itens } as any)
@@ -808,7 +793,7 @@ export default function PncpPage() {
     
     setEnviando(item.id)
     try {
-      const response = await fetch(`${API_URL}/api/pncp/pca/${pcaSelecionado.ano_exercicio}/${pcaSelecionado.sequencial_pncp}/itens/${item.numero_item}`, {
+      const response = await authFetch(`${API_URL}/api/pncp/pca/${pcaSelecionado.ano_exercicio}/${pcaSelecionado.sequencial_pncp}/itens/${item.numero_item}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -846,7 +831,7 @@ export default function PncpPage() {
     
     setEnviando(item.id)
     try {
-      const response = await fetch(`${API_URL}/api/pncp/pca/${pcaSelecionado.ano_exercicio}/${pcaSelecionado.sequencial_pncp}/itens/${item.numero_item}`, {
+      const response = await authFetch(`${API_URL}/api/pncp/pca/${pcaSelecionado.ano_exercicio}/${pcaSelecionado.sequencial_pncp}/itens/${item.numero_item}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ justificativa })
@@ -890,7 +875,7 @@ export default function PncpPage() {
       
       if (response.sucesso) {
         // Desmarcar PCA como enviado no nosso sistema
-        await fetch(`${API_URL}/api/pca/${pca.id}/desmarcar-enviado-pncp`, {
+        await authFetch(`${API_URL}/api/pca/${pca.id}/desmarcar-enviado-pncp`, {
           method: 'PATCH'
         })
         alert('✅ PCA excluído do PNCP com sucesso!')

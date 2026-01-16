@@ -34,7 +34,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Classificacao {
   id: string
@@ -80,7 +80,7 @@ export function BuscaClassificacao({
       if (tipo) params.append('tipo', tipo)
       params.append('limite', '15')
 
-      const response = await fetch(`${API_URL}/api/catalogo-proprio/classificacoes?${params}`)
+      const response = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes?${params}`)
       if (response.ok) {
         const data = await response.json()
         setClassificacoes(data)
@@ -221,7 +221,7 @@ export function BuscaItemCatalogoProprio({
       params.append('limite', '15')
 
       // Buscar nos itens do PCA existentes
-      const response = await fetch(`${API_URL}/api/catalogo-proprio/buscar-itens-pca?${params}`)
+      const response = await authFetch(`${API_URL}/api/catalogo-proprio/buscar-itens-pca?${params}`)
       if (response.ok) {
         const data = await response.json()
         setItens(data)
@@ -235,7 +235,7 @@ export function BuscaItemCatalogoProprio({
 
   const carregarClassificacoes = async (tipoItem: 'MATERIAL' | 'SERVICO') => {
     try {
-      const response = await fetch(`${API_URL}/api/catalogo-proprio/classificacoes?tipo=${tipoItem}&limite=50`)
+      const response = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes?tipo=${tipoItem}&limite=50`)
       if (response.ok) {
         const data = await response.json()
         setClassificacoes(data)
@@ -285,9 +285,8 @@ export function BuscaItemCatalogoProprio({
 
     setSalvando(true)
     try {
-      const response = await fetch(`${API_URL}/api/catalogo-proprio/itens`, {
+      const response = await authFetch(`${API_URL}/api/catalogo-proprio/itens`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(novoItem)
       })
 

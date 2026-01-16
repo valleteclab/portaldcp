@@ -44,8 +44,8 @@ export default function LoginPage() {
         throw new Error(data.message || "Email ou senha inválidos")
       }
 
-      // Salva token e dados no localStorage
-      localStorage.setItem("token", data.token)
+      // Salva token e dados no localStorage (usando access_token para compatibilidade com authFetch)
+      localStorage.setItem("access_token", data.token)
       localStorage.setItem("fornecedor", JSON.stringify(data.fornecedor))
 
       // Verifica se o cadastro está completo

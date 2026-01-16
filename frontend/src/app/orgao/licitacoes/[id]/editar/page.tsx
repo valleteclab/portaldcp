@@ -19,7 +19,7 @@ import {
   ItemLicitacao, LoteLicitacao, ItemPCA 
 } from "@/components/cadastro-licitacao/types"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 export default function EditarLicitacaoPage() {
   const params = useParams()
@@ -144,7 +144,7 @@ export default function EditarLicitacaoPage() {
 
   const carregarLicitacao = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/licitacoes/${id}`)
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}`)
       if (res.ok) {
         const data = await res.json()
         
@@ -278,7 +278,7 @@ export default function EditarLicitacaoPage() {
         valor_total_estimado: itens.reduce((sum, item) => sum + (item.quantidade * item.valor_unitario), 0)
       }
 
-      const res = await fetch(`${API_URL}/api/licitacoes/${id}`, {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

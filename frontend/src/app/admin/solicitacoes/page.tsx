@@ -52,7 +52,7 @@ import {
   FileText
 } from 'lucide-react'
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Solicitacao {
   id: string
@@ -107,7 +107,7 @@ export default function AdminSolicitacoesPage() {
     setLoading(true)
     try {
       // Carregar estatísticas
-      const statsRes = await fetch(`${API_URL}/api/solicitacoes-acesso/admin/estatisticas`)
+      const statsRes = await authFetch(`${API_URL}/api/solicitacoes-acesso/admin/estatisticas`)
       if (statsRes.ok) {
         const stats = await statsRes.json()
         setEstatisticas(stats)
@@ -118,7 +118,7 @@ export default function AdminSolicitacoesPage() {
         ? `${API_URL}/api/solicitacoes-acesso`
         : `${API_URL}/api/solicitacoes-acesso?status=${filtroStatus}`
       
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (res.ok) {
         const data = await res.json()
         setSolicitacoes(data)
@@ -155,9 +155,8 @@ export default function AdminSolicitacoesPage() {
     
     setProcessando(true)
     try {
-      const response = await fetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/aprovar`, {
+      const response = await authFetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/aprovar`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           aprovado_por: 'admin',
           criar_usuario: true,
@@ -188,9 +187,8 @@ export default function AdminSolicitacoesPage() {
     
     setProcessando(true)
     try {
-      const response = await fetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/rejeitar`, {
+      const response = await authFetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/rejeitar`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           motivo_rejeicao: motivoRejeicao,
           aprovado_por: 'admin'

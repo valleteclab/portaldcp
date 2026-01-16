@@ -30,7 +30,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Checkbox } from '@/components/ui/checkbox'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface ItemCatalogoImportado {
   sequencial?: string
@@ -155,9 +155,8 @@ export function ImportarCatalogo({ onImportSuccess }: ImportarCatalogoProps) {
           unidadeSigla = match ? match[1].toUpperCase() : 'UN'
         }
 
-        const res = await fetch(`${API_URL}/api/catalogo/importar-item`, {
+        const res = await authFetch(`${API_URL}/api/catalogo/importar-item`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             codigo: item.id,
             descricao: item.nome,

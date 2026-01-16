@@ -5,7 +5,7 @@ import { Upload, CheckCircle, Trash2, Download, Loader2, FileText, AlertCircle }
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
 
 interface UploadedFileInfo {
@@ -81,7 +81,7 @@ export function FileUpload({
         formData.append('fornecedor_id', fornecedorId)
       }
 
-      const res = await fetch(`${API_URL}/api/uploads`, {
+      const res = await authFetch(`${API_URL}/api/uploads`, {
         method: 'POST',
         body: formData,
       })

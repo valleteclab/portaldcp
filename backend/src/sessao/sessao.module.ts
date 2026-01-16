@@ -9,6 +9,8 @@ import { SessaoGateway } from './sessao.gateway';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../lances/entities/lance.entity';
+import { Proposta } from '../propostas/entities/proposta.entity';
+import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { Lance } from '../lances/entities/lance.entity';
       Licitacao,
       ItemLicitacao,
       Lance,
+      Proposta,
+      PropostaItem,
     ]),
     ScheduleModule.forRoot(),
   ],

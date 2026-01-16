@@ -49,6 +49,18 @@ export enum StatusItem {
   HOMOLOGADO = 'HOMOLOGADO',
 }
 
+/**
+ * Status da disputa do item - Lei 14.133/2021, Art. 56
+ * Cada item tem seu próprio status de disputa e cronômetro
+ */
+export enum StatusDisputaItem {
+  AGUARDANDO = 'AGUARDANDO',       // Ainda não iniciou disputa
+  EM_DISPUTA = 'EM_DISPUTA',       // Recebendo lances
+  TEMPO_ALEATORIO = 'TEMPO_ALEATORIO', // Tempo aleatório ativo
+  ENCERRADO = 'ENCERRADO',         // Disputa finalizada
+  NEGOCIACAO = 'NEGOCIACAO',       // Em negociação com vencedor
+}
+
 export enum TipoParticipacao {
   AMPLA = 'AMPLA', // Todos podem participar
   EXCLUSIVO_MPE = 'EXCLUSIVO_MPE', // Exclusivo ME/EPP
@@ -238,6 +250,40 @@ export class ItemLicitacao {
     default: StatusItem.ATIVO
   })
   status: StatusItem;
+
+  // ============================================================================
+  // CONTROLE DE DISPUTA - Lei 14.133/2021, Art. 56
+  // Cada item tem seu próprio cronômetro e tempo aleatório
+  // ============================================================================
+
+  @Column({
+    type: 'enum',
+    enum: StatusDisputaItem,
+    default: StatusDisputaItem.AGUARDANDO,
+    nullable: true
+  })
+  status_disputa: StatusDisputaItem;
+
+  @Column({ type: 'timestamp', nullable: true })
+  disputa_iniciada_em: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  ultimo_lance_em: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  inicio_tempo_aleatorio: Date;
+
+  @Column({ type: 'int', nullable: true })
+  tempo_aleatorio_sorteado: number; // Em segundos
+
+  @Column({ type: 'timestamp', nullable: true })
+  disputa_encerrada_em: Date;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  melhor_lance_valor: number;
+
+  @Column({ type: 'uuid', nullable: true })
+  melhor_lance_fornecedor_id: string;
 
   // Vencedor (preenchido após adjudicação)
   @Column({ nullable: true })

@@ -13,7 +13,7 @@ import {
   FiscalEstadualTab, QualificacaoTecnicaTab, QualificacaoEconomicaTab
 } from "@/components/cadastro-sicaf"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 const ICONS = {
   credenciamento: Building2,
@@ -31,6 +31,7 @@ export default function CadastroSicafPage() {
   const [activeTab, setActiveTab] = useState<NivelSicaf>('credenciamento')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [carregandoDados, setCarregandoDados] = useState(true)
   const [emailUsuario, setEmailUsuario] = useState<string>('')
   const [fornecedorId, setFornecedorId] = useState<string | null>(null)
   
@@ -38,7 +39,10 @@ export default function CadastroSicafPage() {
   useEffect(() => {
     const carregarDados = async () => {
       const fornecedorStr = localStorage.getItem('fornecedor')
-      if (!fornecedorStr) return
+      if (!fornecedorStr) {
+        setCarregandoDados(false)
+        return
+      }
 
       try {
         const fornecedorLocal = JSON.parse(fornecedorStr)
@@ -46,12 +50,19 @@ export default function CadastroSicafPage() {
           setEmailUsuario(fornecedorLocal.email)
           
           // Busca dados atualizados do banco
-          const res = await fetch(`${API_URL}/api/fornecedores/por-email/${encodeURIComponent(fornecedorLocal.email)}`)
+          const res = await authFetch(`${API_URL}/api/fornecedores/por-email/${encodeURIComponent(fornecedorLocal.email)}`)
           if (res.ok) {
             const fornecedorDb = await res.json()
             
-            // Se já tem CNPJ cadastrado (não é temporário), carrega os dados
-            if (fornecedorDb && fornecedorDb.cpf_cnpj && !fornecedorDb.cpf_cnpj.startsWith('TEMP_')) {
+            // Carrega dados do fornecedor (mesmo se CNPJ for temporário, para não perder documentos já salvos)
+            if (fornecedorDb) {
+              // Salva o ID do fornecedor
+              setFornecedorId(fornecedorDb.id)
+              
+              // Se já tem CNPJ válido (não temporário), carrega dados do CNPJ
+              const temCnpjValido = fornecedorDb.cpf_cnpj && !fornecedorDb.cpf_cnpj.startsWith('TEMP_')
+              
+              if (temCnpjValido) {
               // Monta objeto de dados do CNPJ a partir dos dados do banco
               const dadosCnpjFromDb: DadosCnpj = {
                 cnpj: fornecedorDb.cpf_cnpj,
@@ -108,11 +119,9 @@ export default function CadastroSicafPage() {
                 inscricaoEstadual: fornecedorDb.inscricao_estadual || '',
                 inscricaoMunicipal: fornecedorDb.inscricao_municipal || '',
               }))
+              } // Fim do if (temCnpjValido)
               
-              // Salva o ID do fornecedor
-              setFornecedorId(fornecedorDb.id)
-              
-              // Carrega documentos salvos
+              // Carrega documentos salvos (mesmo com CNPJ temporário)
               console.log('Documentos do fornecedor:', fornecedorDb.documentos)
               if (fornecedorDb.documentos && fornecedorDb.documentos.length > 0) {
                 const docs = fornecedorDb.documentos
@@ -231,8 +240,7 @@ export default function CadastroSicafPage() {
               // Marca abas como completas baseado nos documentos reais
               const docs = fornecedorDb.documentos || []
               
-              // Verifica cada nível baseado nos documentos
-              const temCnpjValido = fornecedorDb.cpf_cnpj && !fornecedorDb.cpf_cnpj.startsWith('TEMP_')
+              // Verifica cada nível baseado nos documentos (usa temCnpjValido já declarado acima)
               const temContratoSocial = docs.some((d: any) => d.tipo === 'CONTRATO_SOCIAL' && d.caminho_arquivo)
               const temDocRepresentante = docs.some((d: any) => d.tipo === 'DOCUMENTO_IDENTIDADE_REPRESENTANTE' && d.caminho_arquivo)
               const temReceitaFederal = docs.some((d: any) => d.tipo === 'CND_RECEITA_FEDERAL_PGFN' && (d.codigo_controle || d.caminho_arquivo))
@@ -272,6 +280,8 @@ export default function CadastroSicafPage() {
         }
       } catch (e) {
         console.error('Erro ao carregar dados do fornecedor:', e)
+      } finally {
+        setCarregandoDados(false)
       }
     }
     
@@ -374,6 +384,21 @@ export default function CadastroSicafPage() {
     return balancos.every(b => b.arquivo !== null)
   }
 
+  // Helper para obter ID do fornecedor
+  const obterFornecedorId = (): string | null => {
+    if (fornecedorId) return fornecedorId
+    const fornecedorStr = localStorage.getItem('fornecedor')
+    if (fornecedorStr) {
+      try {
+        const fornecedorLocal = JSON.parse(fornecedorStr)
+        return fornecedorLocal.id || null
+      } catch {
+        return null
+      }
+    }
+    return null
+  }
+
   // Finalizar Credenciamento - Salva no banco de dados
   const handleCredenciamentoComplete = async () => {
     if (!dadosCnpj || !emailUsuario) {
@@ -385,37 +410,70 @@ export default function CadastroSicafPage() {
     setError(null)
 
     try {
-      // Salva no banco de dados
-      const res = await fetch(`${API_URL}/api/fornecedores/completar-credenciamento`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: emailUsuario,
-          dadosCnpj,
-          representante_nome: representante.nome,
-          representante_cpf: representante.cpf.replace(/\D/g, ''),
-          representante_cargo: representante.cargo,
-          representante_email: representante.email,
-          representante_telefone: representante.telefone,
-          inscricao_estadual: fiscalEstadual.inscricaoEstadual,
-          inscricao_municipal: fiscalEstadual.inscricaoMunicipal,
-        }),
-      })
+      // Verifica se já tem fornecedorId e se o CNPJ no banco já é válido (não temporário)
+      const idExistente = obterFornecedorId()
+      
+      // Busca o CNPJ atual do banco para verificar se já foi completado
+      const fornecedorStr = localStorage.getItem('fornecedor')
+      const fornecedorLocal = fornecedorStr ? JSON.parse(fornecedorStr) : null
+      const cnpjNoBanco = fornecedorLocal?.cpf_cnpj || ''
+      const jaTemCnpjValidoNoBanco = cnpjNoBanco && !cnpjNoBanco.startsWith('TEMP_')
+      
+      let fornecedorAtualizado: any
+      
+      if (idExistente && jaTemCnpjValidoNoBanco) {
+        // Fornecedor já existe com CNPJ válido - usa endpoint de atualização
+        const res = await authFetch(`${API_URL}/api/fornecedores/${idExistente}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            razao_social: dadosCnpj.razao_social,
+            nome_fantasia: dadosCnpj.nome_fantasia,
+            representante_nome: representante.nome,
+            representante_cpf: representante.cpf.replace(/\D/g, ''),
+            representante_cargo: representante.cargo,
+            representante_email: representante.email,
+            representante_telefone: representante.telefone,
+            inscricao_estadual: fiscalEstadual.inscricaoEstadual,
+            inscricao_municipal: fiscalEstadual.inscricaoMunicipal,
+          }),
+        })
 
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.message || 'Erro ao salvar credenciamento')
+        if (!res.ok) {
+          const errorData = await res.json()
+          throw new Error(errorData.message || 'Erro ao atualizar credenciamento')
+        }
+
+        fornecedorAtualizado = await res.json()
+      } else {
+        // Primeiro credenciamento - usa endpoint de completar
+        const res = await authFetch(`${API_URL}/api/fornecedores/completar-credenciamento`, {
+          method: 'POST',
+          body: JSON.stringify({
+            email: emailUsuario,
+            dadosCnpj,
+            representante_nome: representante.nome,
+            representante_cpf: representante.cpf.replace(/\D/g, ''),
+            representante_cargo: representante.cargo,
+            representante_email: representante.email,
+            representante_telefone: representante.telefone,
+            inscricao_estadual: fiscalEstadual.inscricaoEstadual,
+            inscricao_municipal: fiscalEstadual.inscricaoMunicipal,
+          }),
+        })
+
+        if (!res.ok) {
+          const errorData = await res.json()
+          throw new Error(errorData.message || 'Erro ao salvar credenciamento')
+        }
+
+        fornecedorAtualizado = await res.json()
       }
-
-      const fornecedorAtualizado = await res.json()
 
       // Salva o ID do fornecedor
       setFornecedorId(fornecedorAtualizado.id)
 
-      // Atualiza localStorage com dados do banco
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (fornecedorStr) {
-        const fornecedorLocal = JSON.parse(fornecedorStr)
+      // Atualiza localStorage com dados do banco (reutiliza fornecedorLocal já declarado acima)
+      if (fornecedorLocal) {
         fornecedorLocal.id = fornecedorAtualizado.id
         fornecedorLocal.razao_social = fornecedorAtualizado.razao_social
         fornecedorLocal.cpf_cnpj = fornecedorAtualizado.cpf_cnpj
@@ -438,21 +496,6 @@ export default function CadastroSicafPage() {
     }
   }
 
-  // Helper para obter ID do fornecedor
-  const obterFornecedorId = (): string | null => {
-    if (fornecedorId) return fornecedorId
-    const fornecedorStr = localStorage.getItem('fornecedor')
-    if (fornecedorStr) {
-      try {
-        const fornecedorLocal = JSON.parse(fornecedorStr)
-        return fornecedorLocal.id || null
-      } catch {
-        return null
-      }
-    }
-    return null
-  }
-
   // Salvar Habilitação Jurídica (Nível II)
   const salvarHabilitacaoJuridica = async () => {
     const id = obterFornecedorId()
@@ -471,9 +514,8 @@ export default function CadastroSicafPage() {
         documentoProcurador: habilitacao.documentoProcuradorInfo,
       })
       
-      const res = await fetch(`${API_URL}/api/fornecedores/${id}/habilitacao-juridica`, {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${id}/habilitacao-juridica`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contratoSocial: habilitacao.contratoSocialInfo,
           documentoRepresentante: habilitacao.documentoRepresentanteInfo,
@@ -504,9 +546,8 @@ export default function CadastroSicafPage() {
       return false
     }
     try {
-      const res = await fetch(`${API_URL}/api/fornecedores/${id}/fiscal-federal`, {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${id}/fiscal-federal`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fiscalFederal),
       })
       if (!res.ok) throw new Error('Erro ao salvar regularidade fiscal federal')
@@ -525,9 +566,8 @@ export default function CadastroSicafPage() {
       return false
     }
     try {
-      const res = await fetch(`${API_URL}/api/fornecedores/${id}/fiscal-estadual`, {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${id}/fiscal-estadual`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inscricaoEstadual: fiscalEstadual.inscricaoEstadual,
           inscricaoMunicipal: fiscalEstadual.inscricaoMunicipal,
@@ -566,9 +606,8 @@ export default function CadastroSicafPage() {
         descricao: a.descricao,
         arquivoInfo: a.arquivoInfo,
       }))
-      const res = await fetch(`${API_URL}/api/fornecedores/${id}/qualificacao-tecnica`, {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${id}/qualificacao-tecnica`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ atestados: atestadosParaSalvar }),
       })
       if (!res.ok) throw new Error('Erro ao salvar qualificação técnica')
@@ -594,9 +633,8 @@ export default function CadastroSicafPage() {
         demonstracaoContabil: b.demonstracaoContabil,
         arquivoInfo: b.arquivoInfo,
       }))
-      const res = await fetch(`${API_URL}/api/fornecedores/${id}/qualificacao-economica`, {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${id}/qualificacao-economica`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ balancos: balancosParaSalvar }),
       })
       if (!res.ok) throw new Error('Erro ao salvar qualificação econômica')
@@ -623,6 +661,16 @@ export default function CadastroSicafPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Mostra loading enquanto carrega dados do banco
+  if (carregandoDados) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-muted-foreground">Carregando dados do cadastro...</span>
+      </div>
+    )
   }
 
   return (

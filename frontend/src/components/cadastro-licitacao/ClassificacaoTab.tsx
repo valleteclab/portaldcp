@@ -12,7 +12,7 @@ import { Scale, FileText, Package, AlertCircle, Loader2, CheckCircle2, Search } 
 import { Textarea } from "@/components/ui/textarea"
 import { Classificacao, ItemPCA, MODALIDADES, TIPOS_CONTRATACAO, CRITERIOS_JULGAMENTO, MODOS_DISPUTA, MODOS_VINCULACAO_PCA, MODOS_APLICACAO_BENEFICIO_MPE } from "./types"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 // Textarea com debounce para evitar re-renders a cada tecla
 const DebouncedTextarea = memo(function DebouncedTextarea({
@@ -96,7 +96,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
     if (!orgaoId) return
     setLoadingPca(true)
     try {
-      const res = await fetch(`${API_URL}/api/itens/pca/disponiveis/${orgaoId}`)
+      const res = await authFetch(`${API_URL}/api/itens/pca/disponiveis/${orgaoId}`)
       if (res.ok) {
         const data = await res.json()
         setItensPca(data)

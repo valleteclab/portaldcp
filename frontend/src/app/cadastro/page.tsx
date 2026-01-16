@@ -67,8 +67,8 @@ export default function CadastroPage() {
         throw new Error(data.message || "Erro ao criar cadastro")
       }
 
-      // Salva token e dados no localStorage
-      localStorage.setItem("token", data.token)
+      // Salva token e dados no localStorage (usando access_token para compatibilidade com authFetch)
+      localStorage.setItem("access_token", data.token)
       localStorage.setItem("fornecedor", JSON.stringify(data.fornecedor))
 
       setSuccess(true)

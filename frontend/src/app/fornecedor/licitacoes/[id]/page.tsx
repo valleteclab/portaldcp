@@ -32,7 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Licitacao {
   id: string
@@ -108,8 +108,8 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   const carregarDados = async () => {
     try {
       const [licRes, docRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}?publicos=true`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/documentos/licitacao/${licitacaoId}?publicos=true`)
       ])
 
       if (licRes.ok) {
@@ -124,7 +124,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
       const fornecedorStr = localStorage.getItem('fornecedor')
       if (fornecedorStr) {
         const fornecedor = JSON.parse(fornecedorStr)
-        const resPropostas = await fetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+        const resPropostas = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
         if (resPropostas.ok) {
           const propostas = await resPropostas.json()
           const existente = propostas.find((p: any) => p.licitacao_id === licitacaoId)
@@ -140,7 +140,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
 
       // Verificar se existe sessão ativa
       try {
-        const resSessao = await fetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
+        const resSessao = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
         if (resSessao.ok) {
           const sessao = await resSessao.json()
           if (sessao && (sessao.status === 'EM_ANDAMENTO' || sessao.status === 'MODO_ABERTO' || sessao.status === 'AGUARDANDO_INICIO')) {
@@ -366,54 +366,161 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
         </div>
       </div>
 
-      {/* Cronograma e Status da Proposta */}
-      <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-white">
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between gap-6">
-            {/* Timeline do Cronograma */}
-            <div className="flex-1">
-              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
-                <Clock className="h-5 w-5 text-blue-600" /> Cronograma da Licitação
-              </h3>
-              <div className="flex items-center gap-2">
-                {/* Publicação */}
-                <div className={`flex-1 p-3 rounded-lg text-center ${
-                  licitacao.fase === 'PUBLICADO' ? 'bg-blue-600 text-white' : 
-                  ['IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'EM_DISPUTA', 'HOMOLOGADO'].includes(licitacao.fase) ? 'bg-green-100 text-green-800' : 
-                  'bg-gray-100 text-gray-600'
+      {/* Cronograma Visual em Etapas */}
+      <Card className="border-2 border-slate-200">
+        <CardContent className="pt-6 pb-4">
+          <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-blue-600" /> Acompanhe o Processo
+          </h3>
+          
+          {/* Timeline de Fases */}
+          <div className="relative">
+            {/* Linha de conexão */}
+            <div className="absolute top-6 left-0 right-0 h-1 bg-gray-200 z-0" />
+            
+            {/* Fases */}
+            <div className="relative z-10 flex justify-between">
+              {/* 1. Publicação */}
+              <div className="flex flex-col items-center w-1/6">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
+                  licitacao.fase === 'PUBLICADO' 
+                    ? 'bg-blue-600 border-blue-600 text-white' 
+                    : ['IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'bg-white border-gray-300 text-gray-400'
                 }`}>
-                  <p className="text-xs font-medium">Publicação</p>
-                  <p className="text-sm font-bold">{formatarData(licitacao.data_publicacao_edital)}</p>
+                  <FileText className="h-5 w-5" />
                 </div>
-                <div className="w-4 h-0.5 bg-gray-300" />
-                
-                {/* Acolhimento */}
-                <div className={`flex-1 p-3 rounded-lg text-center ${
-                  (licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || estaNoPeriodoAcolhimento()) ? 'bg-green-600 text-white ring-2 ring-green-400 ring-offset-2' : 
-                  ['EM_DISPUTA', 'HOMOLOGADO'].includes(licitacao.fase) ? 'bg-green-100 text-green-800' : 
-                  'bg-gray-100 text-gray-600'
+                <p className={`text-xs font-medium mt-2 text-center ${licitacao.fase === 'PUBLICADO' ? 'text-blue-600' : ''}`}>
+                  Publicação
+                </p>
+                <p className="text-[10px] text-muted-foreground">{formatarData(licitacao.data_publicacao_edital)}</p>
+              </div>
+
+              {/* 2. Impugnação */}
+              <div className="flex flex-col items-center w-1/6">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
+                  licitacao.fase === 'IMPUGNACAO' 
+                    ? 'bg-yellow-500 border-yellow-500 text-white' 
+                    : ['ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'bg-white border-gray-300 text-gray-400'
                 }`}>
-                  <p className="text-xs font-medium">Envio de Propostas</p>
-                  <p className="text-sm font-bold">
-                    {formatarData(licitacao.data_inicio_acolhimento)} - {formatarDataHora(licitacao.data_abertura_sessao)}
-                  </p>
+                  <AlertCircle className="h-5 w-5" />
                 </div>
-                <div className="w-4 h-0.5 bg-gray-300" />
-                
-                {/* Abertura */}
-                <div className={`flex-1 p-3 rounded-lg text-center ${
-                  licitacao.fase === 'EM_DISPUTA' ? 'bg-red-600 text-white' : 
-                  licitacao.fase === 'HOMOLOGADO' ? 'bg-green-100 text-green-800' : 
-                  'bg-gray-100 text-gray-600'
+                <p className={`text-xs font-medium mt-2 text-center ${licitacao.fase === 'IMPUGNACAO' ? 'text-yellow-600' : ''}`}>
+                  Impugnação
+                </p>
+                <p className="text-[10px] text-muted-foreground">Até {formatarData(licitacao.data_fim_acolhimento)}</p>
+              </div>
+
+              {/* 3. Propostas */}
+              <div className="flex flex-col items-center w-1/6">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
+                  (licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || estaNoPeriodoAcolhimento())
+                    ? 'bg-green-600 border-green-600 text-white ring-4 ring-green-200' 
+                    : ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'bg-white border-gray-300 text-gray-400'
                 }`}>
-                  <p className="text-xs font-medium">Abertura/Disputa</p>
-                  <p className="text-sm font-bold">{formatarDataHora(licitacao.data_abertura_sessao)}</p>
+                  <Send className="h-5 w-5" />
                 </div>
+                <p className={`text-xs font-medium mt-2 text-center ${(licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || estaNoPeriodoAcolhimento()) ? 'text-green-600 font-bold' : ''}`}>
+                  Propostas
+                </p>
+                <p className="text-[10px] text-muted-foreground">{formatarData(licitacao.data_inicio_acolhimento)}</p>
+              </div>
+
+              {/* 4. Disputa */}
+              <div className="flex flex-col items-center w-1/6">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
+                  licitacao.fase === 'EM_DISPUTA' 
+                    ? 'bg-red-600 border-red-600 text-white animate-pulse' 
+                    : ['JULGAMENTO', 'HABILITACAO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'bg-white border-gray-300 text-gray-400'
+                }`}>
+                  <Gavel className="h-5 w-5" />
+                </div>
+                <p className={`text-xs font-medium mt-2 text-center ${licitacao.fase === 'EM_DISPUTA' ? 'text-red-600 font-bold' : ''}`}>
+                  Disputa
+                </p>
+                <p className="text-[10px] text-muted-foreground">{formatarDataHora(licitacao.data_abertura_sessao)}</p>
+              </div>
+
+              {/* 5. Habilitação */}
+              <div className="flex flex-col items-center w-1/6">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
+                  ['JULGAMENTO', 'HABILITACAO'].includes(licitacao.fase)
+                    ? 'bg-purple-600 border-purple-600 text-white' 
+                    : ['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'bg-white border-gray-300 text-gray-400'
+                }`}>
+                  <FileText className="h-5 w-5" />
+                </div>
+                <p className={`text-xs font-medium mt-2 text-center ${['JULGAMENTO', 'HABILITACAO'].includes(licitacao.fase) ? 'text-purple-600' : ''}`}>
+                  Habilitação
+                </p>
+                <p className="text-[10px] text-muted-foreground">Após disputa</p>
+              </div>
+
+              {/* 6. Resultado */}
+              <div className="flex flex-col items-center w-1/6">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
+                  ['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
+                    ? 'bg-emerald-600 border-emerald-600 text-white' 
+                    : 'bg-white border-gray-300 text-gray-400'
+                }`}>
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <p className={`text-xs font-medium mt-2 text-center ${['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase) ? 'text-emerald-600' : ''}`}>
+                  Resultado
+                </p>
+                <p className="text-[10px] text-muted-foreground">Final</p>
               </div>
             </div>
+          </div>
 
+          {/* Indicador de fase atual */}
+          <div className="mt-6 p-3 rounded-lg bg-slate-50 border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-3 h-3 rounded-full ${
+                  licitacao.fase === 'EM_DISPUTA' ? 'bg-red-500 animate-pulse' :
+                  (licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || estaNoPeriodoAcolhimento()) ? 'bg-green-500' :
+                  'bg-blue-500'
+                }`} />
+                <div>
+                  <p className="text-sm font-medium">
+                    Fase Atual: <span className="text-blue-600">{getFaseBadge(licitacao.fase)}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {licitacao.fase === 'EM_DISPUTA' && 'Sessão de disputa em andamento'}
+                    {(licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || estaNoPeriodoAcolhimento()) && 'Período aberto para envio de propostas'}
+                    {licitacao.fase === 'PUBLICADO' && 'Edital publicado, aguardando período de propostas'}
+                    {licitacao.fase === 'IMPUGNACAO' && 'Período para impugnações e esclarecimentos'}
+                    {['JULGAMENTO', 'HABILITACAO'].includes(licitacao.fase) && 'Análise de documentos e habilitação'}
+                    {['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase) && 'Processo em fase de conclusão'}
+                  </p>
+                </div>
+              </div>
+              {diasRestantes() > 0 && diasRestantes() <= 7 && (
+                <Badge className="bg-orange-100 text-orange-800">
+                  ⏰ {diasRestantes()} dias para abertura
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Status da Proposta e Ações */}
+      <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-white">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-center">
             {/* Status e Ação */}
-            <div className="w-72 border-l pl-6">
+            <div className="w-full max-w-md">
               {/* Pode enviar proposta - baseado em fase OU datas */}
               {podeEnviarProposta() && (
                 <div className="text-center">
@@ -463,24 +570,71 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   </p>
                 </div>
               )}
-              {/* Em disputa - mostrar se fase é EM_DISPUTA ou se existe sessão ativa */}
-              {(licitacao.fase === 'EM_DISPUTA' || sessaoAtiva) && (
+              {/* Proposta Desclassificada - não pode participar da disputa */}
+              {minhaProposta && minhaProposta.status === 'DESCLASSIFICADA' && ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO'].includes(licitacao.fase) && (
                 <div className="text-center">
-                  <div className="mb-3">
-                    <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">
-                      🔴 Sessão em Andamento
-                    </Badge>
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <AlertCircle className="h-8 w-8 text-red-600" />
                   </div>
-                  <Link href={`/fornecedor/licitacoes/${licitacao.id}/sala`}>
-                    <Button size="lg" className="w-full bg-red-600 hover:bg-red-700">
-                      <Gavel className="mr-2 h-5 w-5" /> Entrar na Sala de Disputa
-                    </Button>
-                  </Link>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {sessaoAtiva?.etapa === 'DISPUTA_LANCES' 
-                      ? 'Etapa de lances em andamento' 
-                      : 'Aguardando início da disputa'}
+                  <p className="font-semibold text-red-700">Proposta Desclassificada</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Você não pode participar da disputa
                   </p>
+                  {minhaProposta.motivo_desclassificacao && (
+                    <div className="mt-3 p-3 bg-red-50 rounded-lg text-left">
+                      <p className="text-xs font-medium text-red-800">Motivo:</p>
+                      <p className="text-sm text-red-700">{minhaProposta.motivo_desclassificacao}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Sala de Disputa - mostrar quando proposta enviada, classificada e fase permite */}
+              {minhaProposta && minhaProposta.status !== 'DESCLASSIFICADA' && ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO'].includes(licitacao.fase) && (
+                <div className="text-center">
+                  {licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? (
+                    <>
+                      <div className="mb-3">
+                        <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">
+                          🔴 Sessão em Andamento
+                        </Badge>
+                      </div>
+                      <Button 
+                        size="lg" 
+                        className="w-full bg-red-600 hover:bg-red-700"
+                        onClick={() => {
+                          window.location.href = `/fornecedor/licitacoes/${licitacao.id}/sala`
+                        }}
+                      >
+                        <Gavel className="mr-2 h-5 w-5" /> Entrar na Sala de Disputa
+                      </Button>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        {sessaoAtiva?.etapa === 'DISPUTA_LANCES' 
+                          ? 'Etapa de lances em andamento' 
+                          : 'Aguardando início dos lances'}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-3">
+                        <Badge variant="outline" className="text-sm px-3 py-1">
+                          ⏳ Aguardando Abertura
+                        </Badge>
+                      </div>
+                      <Button 
+                        size="lg" 
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          window.location.href = `/fornecedor/licitacoes/${licitacao.id}/sala`
+                        }}
+                      >
+                        <Gavel className="mr-2 h-5 w-5" /> Acessar Sala de Disputa
+                      </Button>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Abertura prevista: {formatarDataHora(licitacao.data_abertura_sessao)}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
               {/* Homologado */}

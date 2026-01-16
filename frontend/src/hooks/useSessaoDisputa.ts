@@ -57,7 +57,7 @@ export interface SessaoState {
 }
 
 // URL do backend WebSocket
-const WEBSOCKET_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001'
+const WEBSOCKET_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3000'
 
 // Estado inicial vazio
 const estadoInicial: SessaoState = {

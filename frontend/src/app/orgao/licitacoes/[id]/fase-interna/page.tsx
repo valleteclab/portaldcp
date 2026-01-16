@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 // Documentos da Fase Interna - Lei 14.133/2021
 // O pregoeiro IMPORTA/ANEXA documentos já elaborados FORA do sistema
@@ -53,9 +53,9 @@ export default function FaseInternaPage({ params }: { params: Promise<{ id: stri
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const resLic = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
+      const resLic = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
       if (resLic.ok) setLicitacao(await resLic.json())
-      const resDocs = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
+      const resDocs = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
       if (resDocs.ok) setDocumentos(await resDocs.json())
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
@@ -65,7 +65,7 @@ export default function FaseInternaPage({ params }: { params: Promise<{ id: stri
     if (!tipoSelecionado || !tituloDoc) return
     setSalvando(true)
     try {
-      const res = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/documento`, {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documento`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tipo: tipoSelecionado, titulo: tituloDoc, descricao: descricaoDoc }),
@@ -77,7 +77,7 @@ export default function FaseInternaPage({ params }: { params: Promise<{ id: stri
 
   const concluirFaseInterna = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/avancar`, { method: 'PUT' })
+      const res = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/avancar`, { method: 'PUT' })
       if (res.ok) router.push(`/orgao/licitacoes/${licitacaoId}`)
     } catch (e) { console.error(e) }
   }

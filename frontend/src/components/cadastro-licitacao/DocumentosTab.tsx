@@ -14,7 +14,7 @@ import {
 } from "lucide-react"
 import { DocumentoLicitacao } from "./types"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface DocumentosTabProps {
   documentos: DocumentoLicitacao[]
@@ -82,7 +82,7 @@ export function DocumentosTab({ documentos, onChange }: DocumentosTabProps) {
       formData.append('file', file)
       formData.append('tipo', 'licitacao')
 
-      const res = await fetch(`${API_URL}/api/uploads`, {
+      const res = await authFetch(`${API_URL}/api/uploads`, {
         method: 'POST',
         body: formData,
       })

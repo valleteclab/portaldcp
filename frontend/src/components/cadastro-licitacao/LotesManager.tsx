@@ -29,7 +29,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { LoteLicitacao, ItemLicitacao, ItemPCA, UNIDADES } from './types'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 // Formatador de valor (fora do componente para evitar recriação)
 const formatador = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -108,7 +108,7 @@ const ModalAdicionarItem = memo(function ModalAdicionarItem({
         offset: String((pagina - 1) * 50)
       })
       
-      const res = await fetch(`${API_URL}/api/catalogo/buscar?${params.toString()}`)
+      const res = await authFetch(`${API_URL}/api/catalogo/buscar?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         if (pagina === 1) {
@@ -525,7 +525,7 @@ export function LotesManager({
     if (!orgaoId) return
     setLoadingPca(true)
     try {
-      const res = await fetch(`${API_URL}/api/itens/pca/disponiveis/${orgaoId}`)
+      const res = await authFetch(`${API_URL}/api/itens/pca/disponiveis/${orgaoId}`)
       if (res.ok) {
         const data = await res.json()
         setItensPcaLocal(data)

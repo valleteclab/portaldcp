@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 // Etapas da Fase Interna conforme Lei 14.133/2021
 const ETAPAS = [
@@ -104,7 +104,7 @@ export default function NovaLicitacaoFaseInternaPage() {
   const gerarComIA = async (tipo: string, contexto: string) => {
     setIaLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/ia/gerar`, {
+      const res = await authFetch(`${API_URL}/api/ia/gerar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -139,7 +139,7 @@ export default function NovaLicitacaoFaseInternaPage() {
     setIaLoading(true)
 
     try {
-      const res = await fetch(`${API_URL}/api/ia/chat`, {
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,7 +163,7 @@ export default function NovaLicitacaoFaseInternaPage() {
     if (!conteudoDoc.trim()) return
     setIaLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/ia/sugerir-melhorias`, {
+      const res = await authFetch(`${API_URL}/api/ia/sugerir-melhorias`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -49,7 +49,7 @@ import {
   Link2
 } from 'lucide-react'
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '')
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Orgao {
   id: string
@@ -136,7 +136,7 @@ export default function AdminOrgaosPage() {
   const carregarOrgaos = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/api/orgaos`)
+      const response = await authFetch(`${API_URL}/api/orgaos`)
       if (response.ok) {
         const data = await response.json()
         setOrgaos(data)
@@ -150,9 +150,8 @@ export default function AdminOrgaosPage() {
 
   const salvarOrgao = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/orgaos`, {
+      const response = await authFetch(`${API_URL}/api/orgaos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formOrgao)
       })
 
@@ -175,9 +174,8 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
 
     try {
-      const response = await fetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
+      const response = await authFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formOrgao)
       })
 
@@ -200,7 +198,7 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
 
     try {
-      const response = await fetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
+      const response = await authFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
         method: 'DELETE'
       })
 
@@ -223,9 +221,8 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
 
     try {
-      const response = await fetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/pncp`, {
+      const response = await authFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/pncp`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formPNCP)
       })
 

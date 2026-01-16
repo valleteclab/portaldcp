@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 export default function ConfiguracoesPage() {
   const [orgao, setOrgao] = useState({
@@ -89,7 +89,7 @@ export default function ConfiguracoesPage() {
   const carregarStatusPNCP = async () => {
     try {
       const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/config/status`, {
+      const response = await authFetch(`${API_URL}/api/pncp/config/status`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -108,7 +108,7 @@ export default function ConfiguracoesPage() {
     setTestingConnection(true)
     try {
       const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/config/testar-conexao`, {
+      const response = await authFetch(`${API_URL}/api/pncp/config/testar-conexao`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`
@@ -133,7 +133,7 @@ export default function ConfiguracoesPage() {
     setLoadingPncp(true)
     try {
       const token = localStorage.getItem('orgao_token')
-      const response = await fetch(`${API_URL}/api/pncp/config/atualizar`, {
+      const response = await authFetch(`${API_URL}/api/pncp/config/atualizar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

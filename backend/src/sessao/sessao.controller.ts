@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Body, Query, Req } from '@nestjs/common';
 import { SessaoService } from './sessao.service';
 import { Public } from '../auth/public.decorator';
 
@@ -8,6 +8,7 @@ export class SessaoController {
 
   // ========================================
   // ENDPOINTS PARA SALA DE DISPUTA DO FORNECEDOR
+  // Públicos para transparência - qualquer pessoa pode acompanhar
   // ========================================
 
   @Public()
@@ -92,21 +93,14 @@ export class SessaoController {
     return this.sessaoService.getSessaoPorLicitacao(licitacaoId);
   }
 
-  @Public()
-  @Get(':id')
-  async getSessao(@Param('id') id: string) {
-    return this.sessaoService.getSessao(id);
-  }
-
-  @Public()
-  @Get(':id/eventos')
-  async getEventos(@Param('id') id: string) {
-    return this.sessaoService.getEventosSessao(id);
-  }
-
   @Put(':id/iniciar')
   async iniciarSessao(@Param('id') id: string) {
     return this.sessaoService.iniciarSessao(id);
+  }
+
+  @Put(':id/reabrir')
+  async reabrirSessao(@Param('id') id: string) {
+    return this.sessaoService.reabrirSessao(id);
   }
 
   @Put(':id/avancar-disputa')
@@ -120,6 +114,41 @@ export class SessaoController {
     @Param('itemId') itemId: string
   ) {
     return this.sessaoService.iniciarDisputaItem(id, itemId);
+  }
+
+  /**
+   * Inicia disputa de TODOS os itens simultaneamente
+   * Cada item terá seu próprio cronômetro
+   */
+  @Put(':id/iniciar-todos-itens')
+  async iniciarDisputaTodosItens(@Param('id') id: string) {
+    return this.sessaoService.iniciarDisputaTodosItens(id);
+  }
+
+  /**
+   * Registra lance por LOTE (valor total)
+   * Na disputa por lote, o fornecedor dá lance sobre o valor total do lote
+   */
+  @Post(':id/lance-lote')
+  async registrarLanceLote(
+    @Param('id') id: string,
+    @Body() body: { 
+      loteId: string; 
+      fornecedorId: string; 
+      fornecedorNome: string; 
+      valorTotal: number 
+    },
+    @Req() req: any
+  ) {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    return this.sessaoService.registrarLanceLote(
+      id, 
+      body.loteId, 
+      body.fornecedorId, 
+      body.fornecedorNome, 
+      body.valorTotal, 
+      ip
+    );
   }
 
   @Put(':id/encerrar-item')
@@ -193,5 +222,28 @@ export class SessaoController {
     @Body() body: { motivo: string }
   ) {
     return this.sessaoService.suspenderSessao(id, body.motivo);
+  }
+
+  /**
+   * Gera a ATA completa da sessão de disputa
+   * Conforme Art. 17, §2º da Lei 14.133/2021
+   */
+  @Public()
+  @Get(':id/ata')
+  async gerarAtaSessao(@Param('id') id: string) {
+    return this.sessaoService.gerarAtaSessao(id);
+  }
+
+  // ROTAS GENÉRICAS - DEVEM FICAR POR ÚLTIMO para não conflitar com rotas específicas
+  @Public()
+  @Get(':id/eventos')
+  async getEventos(@Param('id') id: string) {
+    return this.sessaoService.getEventosSessao(id);
+  }
+
+  @Public()
+  @Get(':id')
+  async getSessao(@Param('id') id: string) {
+    return this.sessaoService.getSessao(id);
   }
 }

@@ -277,6 +277,55 @@ export class LicitacoesService {
       throw new BadRequestException('Não há próxima fase disponível');
     }
 
+    // Validação especial: ANALISE_PROPOSTAS -> EM_DISPUTA
+    // Deve validar data de abertura e verificar se há propostas
+    if (licitacao.fase === FaseLicitacao.ANALISE_PROPOSTAS && proximaFase === FaseLicitacao.EM_DISPUTA) {
+      console.log(`[avancarFase] Validando transição ANALISE_PROPOSTAS -> EM_DISPUTA para licitação ${id}`);
+      
+      // Validar data de abertura da sessão
+      if (licitacao.data_abertura_sessao) {
+        const agora = new Date();
+        const dataAbertura = new Date(licitacao.data_abertura_sessao);
+        console.log(`[avancarFase] Data abertura: ${dataAbertura}, Agora: ${agora}`);
+        
+        if (agora < dataAbertura) {
+          const dataFormatada = dataAbertura.toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          throw new BadRequestException(
+            `A sessão de disputa só pode ser iniciada a partir de ${dataFormatada}. Aguarde a data de abertura programada.`
+          );
+        }
+      }
+
+      // Verificar se há propostas válidas
+      try {
+        const propostas = await this.licitacaoRepository.manager.query(`
+          SELECT COUNT(*) as total FROM propostas 
+          WHERE licitacao_id = $1 AND status IN ('ENVIADA', 'VALIDA', 'CLASSIFICADA')
+        `, [id]);
+        
+        console.log(`[avancarFase] Propostas encontradas:`, propostas);
+        
+        if (parseInt(propostas[0]?.total || '0') === 0) {
+          throw new BadRequestException(
+            'Não é possível iniciar a disputa sem propostas válidas. Verifique se há propostas classificadas.'
+          );
+        }
+      } catch (err) {
+        if (err instanceof BadRequestException) throw err;
+        console.error(`[avancarFase] Erro ao buscar propostas:`, err);
+        // Se der erro na query, continua sem validar propostas
+      }
+
+      // Registra data de início da disputa
+      licitacao.data_inicio_disputa = new Date();
+    }
+
     licitacao.fase = proximaFase;
     licitacao.observacoes = observacao || licitacao.observacoes;
 
@@ -326,6 +375,25 @@ export class LicitacoesService {
 
     if (licitacao.fase !== FaseLicitacao.ANALISE_PROPOSTAS) {
       throw new BadRequestException('Licitação precisa estar na fase de análise de propostas');
+    }
+
+    // Validar data de abertura da sessão
+    if (licitacao.data_abertura_sessao) {
+      const agora = new Date();
+      const dataAbertura = new Date(licitacao.data_abertura_sessao);
+      
+      if (agora < dataAbertura) {
+        const dataFormatada = dataAbertura.toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        throw new BadRequestException(
+          `A sessão só pode ser iniciada a partir de ${dataFormatada}. Aguarde a data de abertura programada.`
+        );
+      }
     }
 
     licitacao.fase = FaseLicitacao.EM_DISPUTA;
@@ -459,6 +527,17 @@ export class LicitacoesService {
       FaseLicitacao.PESQUISA_PRECOS,
       FaseLicitacao.ANALISE_JURIDICA,
       FaseLicitacao.APROVACAO_INTERNA,
+      FaseLicitacao.PUBLICADO,
+      FaseLicitacao.IMPUGNACAO,
+      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
+      FaseLicitacao.ANALISE_PROPOSTAS,
+      FaseLicitacao.EM_DISPUTA,
+      FaseLicitacao.JULGAMENTO,
+      FaseLicitacao.HABILITACAO,
+      FaseLicitacao.RECURSO,
+      FaseLicitacao.ADJUDICACAO,
+      FaseLicitacao.HOMOLOGACAO,
+      FaseLicitacao.CONCLUIDO,
     ];
 
     const indexAtual = fluxo.indexOf(faseAtual);

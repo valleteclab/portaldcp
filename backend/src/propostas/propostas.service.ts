@@ -162,7 +162,7 @@ export class PropostasService {
   async findByFornecedor(fornecedorId: string): Promise<Proposta[]> {
     const propostas = await this.propostaRepository.find({
       where: { fornecedor_id: fornecedorId },
-      relations: ['licitacao'],
+      relations: ['licitacao', 'licitacao.orgao'],
       order: { created_at: 'DESC' }
     });
 
@@ -241,6 +241,14 @@ export class PropostasService {
     const proposta = await this.findOne(id);
     proposta.status = StatusProposta.CLASSIFICADA;
     proposta.data_analise = new Date();
+    
+    // Limpar dados de desclassificação anterior (se houver)
+    proposta.motivo_desclassificacao = null as any;
+    proposta.documento_desclassificacao_nome = null as any;
+    proposta.documento_desclassificacao_path = null as any;
+    proposta.documento_desclassificacao_tipo = null as any;
+    proposta.documento_desclassificacao_tamanho = null as any;
+    
     return await this.propostaRepository.save(proposta);
   }
 
@@ -249,6 +257,15 @@ export class PropostasService {
     proposta.status = StatusProposta.DESCLASSIFICADA;
     proposta.motivo_desclassificacao = dados.motivo;
     proposta.data_analise = new Date();
+    
+    // Salvar documento de justificativa se fornecido
+    if (dados.documento_nome) {
+      proposta.documento_desclassificacao_nome = dados.documento_nome;
+      proposta.documento_desclassificacao_path = dados.documento_path!;
+      proposta.documento_desclassificacao_tipo = dados.documento_tipo!;
+      proposta.documento_desclassificacao_tamanho = dados.documento_tamanho!;
+    }
+    
     return await this.propostaRepository.save(proposta);
   }
 
@@ -372,5 +389,43 @@ export class PropostasService {
     }
 
     return await this.propostaItemRepository.save(item);
+  }
+
+  async findFornecedoresByOrgao(orgaoId: string): Promise<any[]> {
+    // Busca fornecedores únicos que enviaram propostas para licitações deste órgão
+    const result = await this.propostaRepository
+      .createQueryBuilder('proposta')
+      .innerJoin('proposta.licitacao', 'licitacao')
+      .innerJoin('proposta.fornecedor', 'fornecedor')
+      .where('licitacao.orgao_id = :orgaoId', { orgaoId })
+      .select([
+        'fornecedor.id as id',
+        'fornecedor.razao_social as razao_social',
+        'fornecedor.nome_fantasia as nome_fantasia',
+        'fornecedor.cnpj as cnpj',
+        'fornecedor.email as email',
+        'fornecedor.telefone as telefone',
+        'fornecedor.municipio as municipio',
+        'fornecedor.uf as uf',
+        'fornecedor.status as status',
+        'fornecedor.porte as porte',
+        'COUNT(DISTINCT proposta.id) as total_propostas',
+        'COUNT(DISTINCT licitacao.id) as total_licitacoes',
+        'MAX(proposta.created_at) as ultima_proposta',
+      ])
+      .groupBy('fornecedor.id')
+      .addGroupBy('fornecedor.razao_social')
+      .addGroupBy('fornecedor.nome_fantasia')
+      .addGroupBy('fornecedor.cnpj')
+      .addGroupBy('fornecedor.email')
+      .addGroupBy('fornecedor.telefone')
+      .addGroupBy('fornecedor.municipio')
+      .addGroupBy('fornecedor.uf')
+      .addGroupBy('fornecedor.status')
+      .addGroupBy('fornecedor.porte')
+      .orderBy('MAX(proposta.created_at)', 'DESC')
+      .getRawMany();
+
+    return result;
   }
 }

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Licitacao {
   id: string
@@ -38,12 +38,12 @@ export default function LicitacoesDisponiveisPage() {
     const fetchLicitacoes = async () => {
       try {
         const [resLic, resProps] = await Promise.all([
-          fetch(`${API_URL}/api/licitacoes`),
+          authFetch(`${API_URL}/api/licitacoes`),
           (async () => {
             const fornecedorStr = localStorage.getItem('fornecedor')
             if (!fornecedorStr) return null
             const fornecedor = JSON.parse(fornecedorStr)
-            const r = await fetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+            const r = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
             return r.ok ? r : null
           })()
         ])

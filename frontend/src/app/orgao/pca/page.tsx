@@ -125,7 +125,7 @@ interface PCA {
   nome_unidade?: string
 }
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 const STATUS_PCA = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800' },
@@ -241,7 +241,7 @@ export default function PcaPage() {
       if (!orgaoData) return
 
       const orgao = JSON.parse(orgaoData)
-      const response = await fetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
+      const response = await authFetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
       
       if (response.ok) {
         const data = await response.json()
@@ -266,7 +266,7 @@ export default function PcaPage() {
       if (!orgaoData) return
 
       const orgao = JSON.parse(orgaoData)
-      const response = await fetch(`${API_URL}/api/pca`, {
+      const response = await authFetch(`${API_URL}/api/pca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -310,7 +310,7 @@ export default function PcaPage() {
     setCarregandoUnidades(true)
     try {
       const cnpjLimpo = orgao.cnpj.replace(/\D/g, '')
-      const response = await fetch(`${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`)
+      const response = await authFetch(`${API_URL}/api/pncp/orgaos/${cnpjLimpo}/unidades`)
       const data = await response.json()
       
       if (response.ok && data.unidades && data.unidades.length > 0) {
@@ -342,7 +342,7 @@ export default function PcaPage() {
       if (!orgaoData) return
 
       const orgao = JSON.parse(orgaoData)
-      const response = await fetch(`${API_URL}/api/pca`, {
+      const response = await authFetch(`${API_URL}/api/pca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -374,7 +374,7 @@ export default function PcaPage() {
     if (!pcaParaExcluir) return
 
     try {
-      const response = await fetch(`${API_URL}/api/pca/${pcaParaExcluir.id}`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaParaExcluir.id}`, {
         method: 'DELETE'
       })
 
@@ -430,7 +430,7 @@ export default function PcaPage() {
     const valorTotal = valorUnitario * quantidade
 
     try {
-      const response = await fetch(`${API_URL}/api/pca/${pcaAtual.id}/itens`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/itens`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -523,7 +523,7 @@ export default function PcaPage() {
     const valorTotal = valorUnitario * quantidade
 
     try {
-      const response = await fetch(`${API_URL}/api/pca/itens/${itemSelecionado.id}`, {
+      const response = await authFetch(`${API_URL}/api/pca/itens/${itemSelecionado.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -554,7 +554,7 @@ export default function PcaPage() {
     if (!pcaAtual || !itemSelecionado) return
 
     try {
-      const response = await fetch(`${API_URL}/api/pca/itens/${itemSelecionado.id}`, {
+      const response = await authFetch(`${API_URL}/api/pca/itens/${itemSelecionado.id}`, {
         method: 'DELETE'
       })
 
@@ -582,7 +582,7 @@ export default function PcaPage() {
       if (!orgaoData) return
       const orgao = JSON.parse(orgaoData)
 
-      const response = await fetch(`${API_URL}/api/demandas/para-consolidar?orgaoId=${orgao.id}&ano=${pcaAtual.ano_exercicio}`)
+      const response = await authFetch(`${API_URL}/api/demandas/para-consolidar?orgaoId=${orgao.id}&ano=${pcaAtual.ano_exercicio}`)
       if (response.ok) {
         const demandas = await response.json()
         setDemandasDisponiveis(demandas)
@@ -599,7 +599,7 @@ export default function PcaPage() {
 
     setConsolidando(true)
     try {
-      const response = await fetch(`${API_URL}/api/pca/${pcaAtual.id}/consolidar-demandas`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/consolidar-demandas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ demandaIds: demandasSelecionadas })
@@ -646,7 +646,7 @@ export default function PcaPage() {
       if (!orgaoData) return
       const orgao = JSON.parse(orgaoData)
 
-      const response = await fetch(`${API_URL}/api/pca/${pcaAtual.id}/aprovar`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/aprovar`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -669,7 +669,7 @@ export default function PcaPage() {
     if (!pcaAtual) return
 
     try {
-      const response = await fetch(`${API_URL}/api/pca/${pcaAtual.id}/publicar`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/publicar`, {
         method: 'PATCH'
       })
 
@@ -694,7 +694,7 @@ export default function PcaPage() {
     setEnviandoPNCP(true)
     try {
       // Enviar para o PNCP via API
-      const response = await fetch(`${API_URL}/api/pncp/pca/${pcaAtual.id}`, {
+      const response = await authFetch(`${API_URL}/api/pncp/pca/${pcaAtual.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pcaAtual)
@@ -720,7 +720,7 @@ export default function PcaPage() {
     if (!pcaAtual) return
 
     try {
-      const response = await fetch(`${API_URL}/api/pca/${pcaAtual.id}/duplicar`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/duplicar`, {
         method: 'POST'
       })
 

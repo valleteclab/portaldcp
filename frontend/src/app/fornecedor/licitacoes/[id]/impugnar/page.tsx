@@ -22,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Licitacao {
   id: string
@@ -68,8 +68,8 @@ export default function ImpugnarPage() {
       const fornecedor = JSON.parse(localStorage.getItem('fornecedor') || '{}')
       
       const [licRes, impRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
       ])
 
       if (licRes.ok) {
@@ -142,7 +142,7 @@ export default function ImpugnarPage() {
       if (fundamentacao) formData.append('fundamentacao_legal', fundamentacao)
       formData.append('documento', arquivo)
 
-      const res = await fetch(`${API_URL}/api/impugnacoes`, {
+      const res = await authFetch(`${API_URL}/api/impugnacoes`, {
         method: 'POST',
         body: formData
       })

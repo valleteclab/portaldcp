@@ -39,7 +39,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface ItemCSV {
   numero_item: number
@@ -357,9 +357,8 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
 
     try {
       // Usar o novo endpoint de importação em lote com verificação de duplicidade
-      const response = await fetch(`${API_URL}/api/pca/${pcaId}/importar-itens`, {
+      const response = await authFetch(`${API_URL}/api/pca/${pcaId}/importar-itens`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itens: itensParaImportar })
       })
 

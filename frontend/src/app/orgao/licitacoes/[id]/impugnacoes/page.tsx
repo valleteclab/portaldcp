@@ -26,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface Impugnacao {
   id: string
@@ -93,8 +93,8 @@ export default function ImpugnacoesPage() {
   const carregarDados = async () => {
     try {
       const [licRes, impRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        fetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
+        authFetch(`${API_URL}/api/impugnacoes/licitacao/${licitacaoId}`)
       ])
 
       if (licRes.ok) {
@@ -112,7 +112,7 @@ export default function ImpugnacoesPage() {
 
   const marcarEmAnalise = async (id: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/impugnacoes/${id}/em-analise`, {
+      const res = await authFetch(`${API_URL}/api/impugnacoes/${id}/em-analise`, {
         method: 'PUT'
       })
       if (res.ok) {
@@ -133,7 +133,7 @@ export default function ImpugnacoesPage() {
     try {
       const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
       
-      const res = await fetch(`${API_URL}/api/impugnacoes/${id}/responder`, {
+      const res = await authFetch(`${API_URL}/api/impugnacoes/${id}/responder`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

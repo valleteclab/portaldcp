@@ -47,8 +47,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-import { API_URL, getAuthHeaders } from '@/lib/api'
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3000'
 
 // Tipos
 interface Licitacao {
@@ -159,7 +159,10 @@ export default function SalaDisputaFornecedorPage() {
   const [wsConectado, setWsConectado] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Carregar fornecedor logado e licitação selecionada
+  // Referência para licitação pré-selecionada (para usar após carregar licitações)
+  const licitacaoPreSelecionadaRef = useRef<string | null>(null)
+
+  // Carregar fornecedor logado e guardar licitação pré-selecionada
   useEffect(() => {
     const f = getFornecedorLogado()
     if (f) {
@@ -170,10 +173,10 @@ export default function SalaDisputaFornecedorPage() {
       return
     }
     
-    // Verificar se há uma licitação pré-selecionada (vindo de outra página)
+    // Guardar licitação pré-selecionada para aplicar após carregar licitações
     const licitacaoPreSelecionada = localStorage.getItem('licitacao_disputa_selecionada')
     if (licitacaoPreSelecionada) {
-      setLicitacaoSelecionada(licitacaoPreSelecionada)
+      licitacaoPreSelecionadaRef.current = licitacaoPreSelecionada
       localStorage.removeItem('licitacao_disputa_selecionada') // Limpar após usar
     }
   }, [router])
@@ -184,12 +187,30 @@ export default function SalaDisputaFornecedorPage() {
     
     const carregarLicitacoes = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/sessao/fornecedor/${fornecedor.id}/licitacoes-ativas`)
+        const res = await authFetch(`${API_URL}/api/sessao/fornecedor/${fornecedor.id}/licitacoes-ativas`)
         if (!res.ok) {
           throw new Error('Erro ao buscar licitações')
         }
         const data = await res.json()
-        setLicitacoes(data.licitacoes || [])
+        const licitacoesCarregadas = data.licitacoes || []
+        setLicitacoes(licitacoesCarregadas)
+        
+        // Aplicar licitação pré-selecionada (se houver e existir na lista)
+        if (licitacaoPreSelecionadaRef.current && !licitacaoSelecionada) {
+          const licitacaoExiste = licitacoesCarregadas.find(
+            (l: Licitacao) => l.id === licitacaoPreSelecionadaRef.current
+          )
+          if (licitacaoExiste) {
+            setLicitacaoSelecionada(licitacaoPreSelecionadaRef.current)
+            licitacaoPreSelecionadaRef.current = null // Limpar após usar
+          }
+        }
+        
+        // Se não há licitação selecionada e há licitações disponíveis, selecionar a primeira
+        if (!licitacaoSelecionada && !licitacaoPreSelecionadaRef.current && licitacoesCarregadas.length > 0) {
+          setLicitacaoSelecionada(licitacoesCarregadas[0].id)
+        }
+        
         setLoading(false)
       } catch (error) {
         console.error('Erro ao carregar licitações:', error)
@@ -203,7 +224,7 @@ export default function SalaDisputaFornecedorPage() {
     // Atualizar a cada 5 segundos para manter dados frescos
     const interval = setInterval(carregarLicitacoes, 5000)
     return () => clearInterval(interval)
-  }, [fornecedor])
+  }, [fornecedor, licitacaoSelecionada])
 
   // Carregar itens quando selecionar licitação
   useEffect(() => {
@@ -215,7 +236,7 @@ export default function SalaDisputaFornecedorPage() {
     
     const carregarItens = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/sessao/${licitacao.sessaoId}/itens/fornecedor/${fornecedor.id}`)
+        const res = await authFetch(`${API_URL}/api/sessao/${licitacao.sessaoId}/itens/fornecedor/${fornecedor.id}`)
         if (!res.ok) {
           throw new Error('Erro ao buscar itens')
         }
@@ -229,7 +250,7 @@ export default function SalaDisputaFornecedorPage() {
     
     const carregarMensagens = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/sessao/${licitacao.sessaoId}/mensagens`)
+        const res = await authFetch(`${API_URL}/api/sessao/${licitacao.sessaoId}/mensagens`)
         if (!res.ok) {
           throw new Error('Erro ao buscar mensagens')
         }
@@ -260,7 +281,7 @@ export default function SalaDisputaFornecedorPage() {
     
     const carregarLances = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/sessao/item/${itemExpandido}/lances/fornecedor/${fornecedor.id}`)
+        const res = await authFetch(`${API_URL}/api/sessao/item/${itemExpandido}/lances/fornecedor/${fornecedor.id}`)
         if (!res.ok) {
           throw new Error('Erro ao buscar lances')
         }
@@ -286,12 +307,17 @@ export default function SalaDisputaFornecedorPage() {
     }
   }, [licitacoes, licitacaoSelecionada])
 
+  // Obter sessaoId da licitação selecionada
+  const sessaoIdAtual = licitacoes.find(l => l.id === licitacaoSelecionada)?.sessaoId
+
   // Conectar WebSocket quando tiver sessão selecionada
   useEffect(() => {
-    if (!fornecedor) return
+    if (!fornecedor || !sessaoIdAtual) return
     
-    const licitacao = licitacoes.find(l => l.id === licitacaoSelecionada)
-    if (!licitacao?.sessaoId) return
+    // Evitar reconexão se já está conectado à mesma sessão
+    if (socketRef.current?.connected) {
+      return
+    }
 
     console.log(`[WS] Conectando ao WebSocket: ${WS_URL}/sessao`)
     
@@ -311,7 +337,7 @@ export default function SalaDisputaFornecedorPage() {
 
       // Entrar na sala da sessão
       socket.emit('entrar_sessao', {
-        sessaoId: licitacao.sessaoId,
+        sessaoId: sessaoIdAtual,
         participante: fornecedor.id,
         tipo: 'FORNECEDOR'
       })
@@ -339,11 +365,30 @@ export default function SalaDisputaFornecedorPage() {
       console.log('[WS] Nova mensagem:', msg)
       setMensagens(prev => [...prev, {
         id: Date.now().toString(),
-        tipo: msg.isPregoeiro ? 'PREGOEIRO' : 'SISTEMA',
+        tipo: msg.isPregoeiro ? 'PREGOEIRO' : 'FORNECEDOR',
         remetente: msg.remetente,
         mensagem: msg.mensagem,
         horario: new Date(msg.horario).toLocaleTimeString('pt-BR'),
         destaque: msg.isPregoeiro
+      }])
+    })
+
+    // Chat bloqueado pelo pregoeiro
+    socket.on('chat_bloqueado', (data) => {
+      console.log('[WS] Chat bloqueado:', data)
+      alert(data.mensagem)
+    })
+
+    // Status do chat alterado
+    socket.on('chat_status', (data) => {
+      console.log('[WS] Chat status:', data)
+      setMensagens(prev => [...prev, {
+        id: Date.now().toString(),
+        tipo: 'SISTEMA',
+        remetente: 'Sistema',
+        mensagem: data.mensagem,
+        horario: new Date().toLocaleTimeString('pt-BR'),
+        destaque: true
       }])
     })
 
@@ -384,7 +429,7 @@ export default function SalaDisputaFornecedorPage() {
       socket.disconnect()
       socketRef.current = null
     }
-  }, [fornecedor, licitacaoSelecionada, licitacoes])
+  }, [fornecedor, sessaoIdAtual])
 
   const handleEnviarLance = useCallback((itemId: string) => {
     const valor = parseFloat(novoLance.replace(',', '.'))
@@ -431,7 +476,8 @@ export default function SalaDisputaFornecedorPage() {
       sessaoId: licitacao.sessaoId,
       remetente: fornecedor.nome,
       mensagem: novaMensagem,
-      isPregoeiro: false
+      isPregoeiro: false,
+      fornecedorId: fornecedor.id
     })
     
     setNovaMensagem('')

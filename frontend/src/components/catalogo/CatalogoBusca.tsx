@@ -22,7 +22,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+import { API_URL, authFetch } from '@/lib/api'
 
 interface ItemCatalogo {
   id: string
@@ -74,7 +74,7 @@ export function CatalogoBusca({
       setLoadingClasses(true)
       try {
         const tipoParam = tipoFiltro !== 'all' ? `?tipo=${tipoFiltro}` : ''
-        const res = await fetch(`${API_URL}/api/catalogo/classes${tipoParam}`)
+        const res = await authFetch(`${API_URL}/api/catalogo/classes${tipoParam}`)
         if (res.ok) {
           setClasses(await res.json())
         }
@@ -105,7 +105,7 @@ export function CatalogoBusca({
       if (classeFiltro !== 'all') params.append('codigo_classe', classeFiltro)
       params.append('limite', '50')
 
-      const res = await fetch(`${API_URL}/api/catalogo/itens?${params}`)
+      const res = await authFetch(`${API_URL}/api/catalogo/itens?${params}`)
       if (res.ok) {
         const data = await res.json()
         setItens(data.dados || [])
