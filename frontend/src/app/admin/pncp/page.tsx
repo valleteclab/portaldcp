@@ -249,7 +249,7 @@ export default function AdminPNCPPage() {
 
       const dadosOrgao = {
         nome: ente.razaoSocial,
-        cnpj: ente.cnpj,
+        cnpj: cnpjLimpo, // Enviar apenas números
         codigo: cnpjLimpo.substring(0, 10),
         tipo: 'PREFEITURA',
         esfera: 'MUNICIPAL',

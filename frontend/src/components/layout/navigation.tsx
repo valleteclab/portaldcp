@@ -124,7 +124,7 @@ export function Sidebar({ userType }: SidebarProps) {
 
 export function Header() {
   const pathname = usePathname()
-  const [usuario, setUsuario] = useState<{ email: string; nome?: string; tipo?: string } | null>(null)
+  const [usuario, setUsuario] = useState<{ email: string; nome?: string; tipo?: string; orgaoNome?: string } | null>(null)
 
   useEffect(() => {
     // Verifica se é área do órgão ou fornecedor
@@ -133,13 +133,26 @@ export function Header() {
     if (isOrgao) {
       // Prioriza dados do usuário logado (novo sistema)
       const usuarioStr = localStorage.getItem('usuario')
+      const orgaoStr = localStorage.getItem('orgao')
+      
       if (usuarioStr) {
         try {
           const user = JSON.parse(usuarioStr)
+          let orgaoNome = ''
+          
+          // Buscar nome do órgão
+          if (orgaoStr) {
+            try {
+              const orgao = JSON.parse(orgaoStr)
+              orgaoNome = orgao.nome || ''
+            } catch (e) {}
+          }
+          
           setUsuario({
             email: user.email,
             nome: user.nome,
-            tipo: 'usuario'
+            tipo: 'usuario',
+            orgaoNome
           })
           return
         } catch (e) {
@@ -148,14 +161,14 @@ export function Header() {
       }
       
       // Fallback: dados do órgão (sistema legado)
-      const orgaoStr = localStorage.getItem('orgao')
       if (orgaoStr) {
         try {
           const orgao = JSON.parse(orgaoStr)
           setUsuario({
             email: orgao.email_login || orgao.email,
             nome: orgao.nome,
-            tipo: 'orgao'
+            tipo: 'orgao',
+            orgaoNome: orgao.nome
           })
         } catch (e) {
           console.error('Erro ao parsear orgao')
@@ -205,10 +218,10 @@ export function Header() {
         <div className="flex items-center gap-3">
           <div className="text-right">
             <p className="text-sm font-medium">
-              {usuario?.nome || usuario?.email || 'Usuário'}
+              {usuario?.orgaoNome || usuario?.nome || 'Usuário'}
             </p>
             <p className="text-xs text-muted-foreground">
-              {usuario ? usuario.email : 'Não logado'}
+              {usuario?.email || 'Não logado'}
             </p>
           </div>
           <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold ${usuario ? 'bg-blue-600' : 'bg-slate-400'}`}>
