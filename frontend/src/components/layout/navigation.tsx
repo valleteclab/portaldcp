@@ -131,6 +131,23 @@ export function Header() {
     const isOrgao = pathname.startsWith('/orgao')
     
     if (isOrgao) {
+      // Prioriza dados do usuário logado (novo sistema)
+      const usuarioStr = localStorage.getItem('usuario')
+      if (usuarioStr) {
+        try {
+          const user = JSON.parse(usuarioStr)
+          setUsuario({
+            email: user.email,
+            nome: user.nome,
+            tipo: 'usuario'
+          })
+          return
+        } catch (e) {
+          console.error('Erro ao parsear usuario')
+        }
+      }
+      
+      // Fallback: dados do órgão (sistema legado)
       const orgaoStr = localStorage.getItem('orgao')
       if (orgaoStr) {
         try {
