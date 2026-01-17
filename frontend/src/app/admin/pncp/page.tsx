@@ -148,6 +148,10 @@ export default function AdminPNCPPage() {
     role: 'ADMIN' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO'
   })
   
+  // Estado para rastrear órgãos já cadastrados no sistema
+  const [orgaosCadastrados, setOrgaosCadastrados] = useState<Record<string, string>>({}) // cnpj -> id
+  const [cadastrandoOrgao, setCadastrandoOrgao] = useState<string | null>(null)
+  
   // Estado para configuração manual de credenciais PNCP
   const [pncpCredentials, setPncpCredentials] = useState({
     orgaoId: '',
@@ -183,6 +187,9 @@ export default function AdminPNCPPage() {
         setConfigStatus(config)
       }
 
+      // Carregar órgãos já cadastrados no sistema
+      await carregarOrgaosCadastrados()
+
       // Carregar usuário e entes autorizados com credenciais
       const usuarioRes = await adminFetch(`${API_URL}/api/pncp/usuario`)
       if (usuarioRes.ok) {
@@ -202,6 +209,83 @@ export default function AdminPNCPPage() {
       setErro('Erro de conexão com o servidor')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const carregarOrgaosCadastrados = async () => {
+    try {
+      const response = await adminFetch(`${API_URL}/api/orgaos?all=true`)
+      if (response.ok) {
+        const orgaos = await response.json()
+        const orgaosList = Array.isArray(orgaos) ? orgaos : orgaos.value || []
+        const mapa: Record<string, string> = {}
+        orgaosList.forEach((o: any) => {
+          const cnpjLimpo = o.cnpj?.replace(/\D/g, '')
+          if (cnpjLimpo) {
+            mapa[cnpjLimpo] = o.id
+          }
+        })
+        setOrgaosCadastrados(mapa)
+      }
+    } catch (error) {
+      console.error('Erro ao carregar órgãos cadastrados:', error)
+    }
+  }
+
+  const cadastrarOrgaoDoENTE = async (ente: EnteAutorizado) => {
+    const cnpjLimpo = ente.cnpj.replace(/\D/g, '')
+    
+    // Verificar se já existe
+    if (orgaosCadastrados[cnpjLimpo]) {
+      alert('Este órgão já está cadastrado no sistema!')
+      return
+    }
+
+    setCadastrandoOrgao(cnpjLimpo)
+    try {
+      // Buscar detalhes da unidade para pegar município/UF
+      const detalhes = orgaosDetalhes[ente.cnpj]
+      const unidade = detalhes?.unidades?.[0]
+
+      const dadosOrgao = {
+        nome: ente.razaoSocial,
+        cnpj: ente.cnpj,
+        codigo: cnpjLimpo.substring(0, 10),
+        tipo: 'PREFEITURA',
+        esfera: 'MUNICIPAL',
+        logradouro: 'A definir',
+        bairro: 'Centro',
+        cidade: unidade?.municipio?.nome || 'A definir',
+        uf: unidade?.municipio?.uf?.siglaUF || 'SP',
+        cep: '00000-000',
+        responsavel_nome: 'A definir',
+        responsavel_cpf: '000.000.000-00',
+        ativo: true,
+        pncp_vinculado: true,
+        pncp_codigo_unidade: unidade?.codigoUnidade || '1',
+      }
+
+      const response = await adminFetch(`${API_URL}/api/orgaos`, {
+        method: 'POST',
+        body: JSON.stringify(dadosOrgao),
+      })
+
+      if (response.ok) {
+        const novoOrgao = await response.json()
+        setOrgaosCadastrados(prev => ({
+          ...prev,
+          [cnpjLimpo]: novoOrgao.id
+        }))
+        alert(`✅ Órgão "${ente.razaoSocial}" cadastrado com sucesso!\n\nAgora você pode criar usuários para este órgão.`)
+      } else {
+        const error = await response.json()
+        alert(`❌ Erro ao cadastrar órgão: ${error.message || 'Erro desconhecido'}`)
+      }
+    } catch (error: any) {
+      console.error('Erro ao cadastrar órgão:', error)
+      alert(`❌ Erro ao cadastrar órgão: ${error.message}`)
+    } finally {
+      setCadastrandoOrgao(null)
     }
   }
 
@@ -996,7 +1080,8 @@ export default function AdminPNCPPage() {
                   <TableHead>CNPJ</TableHead>
                   <TableHead>Razão Social</TableHead>
                   <TableHead>Unidades</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Status PNCP</TableHead>
+                  <TableHead>Cadastro</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1004,6 +1089,8 @@ export default function AdminPNCPPage() {
                 {entesFiltrados.map((ente) => {
                   const detalhes = orgaosDetalhes[ente.cnpj]
                   const temUnidades = detalhes?.unidades && detalhes.unidades.length > 0
+                  const cnpjLimpo = ente.cnpj.replace(/\D/g, '')
+                  const jaCadastrado = !!orgaosCadastrados[cnpjLimpo]
                   
                   return (
                     <TableRow key={ente.id}>
@@ -1045,6 +1132,31 @@ export default function AdminPNCPPage() {
                           <Badge variant="outline">
                             Não verificado
                           </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {jaCadastrado ? (
+                          <Badge className="bg-blue-100 text-blue-800">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Cadastrado
+                          </Badge>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => cadastrarOrgaoDoENTE(ente)}
+                            disabled={cadastrandoOrgao === cnpjLimpo || !temUnidades}
+                            title={!temUnidades ? 'Órgão precisa ter unidade no PNCP' : 'Cadastrar órgão no sistema'}
+                          >
+                            {cadastrandoOrgao === cnpjLimpo ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Building2 className="w-4 h-4 mr-1" />
+                                Cadastrar
+                              </>
+                            )}
+                          </Button>
                         )}
                       </TableCell>
                       <TableCell className="text-right">
