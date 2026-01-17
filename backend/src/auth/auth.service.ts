@@ -177,6 +177,18 @@ export class AuthService {
       throw new UnauthorizedException('CNPJ ou senha inválidos');
     }
 
+    // Verificar se fornecedor está suspenso
+    if (fornecedor.status === 'SUSPENSO') {
+      this.logger.warn(`Login bloqueado - fornecedor suspenso: ${cnpjLimpo}`);
+      throw new UnauthorizedException('Seu cadastro está suspenso. Entre em contato com o suporte para regularizar sua situação.');
+    }
+
+    // Verificar se fornecedor está inativo
+    if (!fornecedor.ativo) {
+      this.logger.warn(`Login bloqueado - fornecedor inativo: ${cnpjLimpo}`);
+      throw new UnauthorizedException('Seu cadastro está inativo. Entre em contato com o suporte.');
+    }
+
     if (!fornecedor.senha) {
       throw new UnauthorizedException('Fornecedor não possui senha cadastrada');
     }
@@ -225,6 +237,18 @@ export class AuthService {
 
     if (!fornecedor) {
       throw new UnauthorizedException('Email ou senha inválidos');
+    }
+
+    // Verificar se fornecedor está suspenso
+    if (fornecedor.status === 'SUSPENSO') {
+      this.logger.warn(`Login bloqueado - fornecedor suspenso: ${email}`);
+      throw new UnauthorizedException('Seu cadastro está suspenso. Entre em contato com o suporte para regularizar sua situação.');
+    }
+
+    // Verificar se fornecedor está inativo
+    if (!fornecedor.ativo) {
+      this.logger.warn(`Login bloqueado - fornecedor inativo: ${email}`);
+      throw new UnauthorizedException('Seu cadastro está inativo. Entre em contato com o suporte.');
     }
 
     if (!fornecedor.senha) {
