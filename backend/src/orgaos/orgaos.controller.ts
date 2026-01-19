@@ -212,12 +212,21 @@ export class OrgaosController {
   ) {
     const { ModuloSistema } = require('./enums/modulos.enum');
     const modulos = body.modulos.map(m => m as typeof ModuloSistema[keyof typeof ModuloSistema]);
+    
+    // Debug: log dos módulos recebidos
+    console.log(`[OrgaosController] Atualizando módulos para órgão ${id}:`, modulos);
+    
     const orgao = await this.orgaosService.atualizarModulos(id, modulos);
+    
+    // Debug: log dos módulos salvos
+    console.log(`[OrgaosController] Módulos salvos no banco:`, orgao.modulos_habilitados);
+    
     return {
       success: true,
       orgao: {
         ...orgao,
-        modulos_ativos: orgao.modulos_habilitados, // Compatibilidade com frontend
+        modulos_ativos: orgao.modulos_habilitados || [], // Compatibilidade com frontend
+        modulos_habilitados: orgao.modulos_habilitados || [], // Garantir que sempre retorna array
       },
     };
   }

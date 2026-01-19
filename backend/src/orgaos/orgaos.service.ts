@@ -210,14 +210,13 @@ export class OrgaosService {
   async getModulosOrgao(id: string): Promise<ModuloSistema[]> {
     const orgao = await this.findOne(id);
     
-    // Retorna os módulos do banco de dados (já inclui LICITACOES se foi salvo)
-    // Se não tiver módulos definidos, retorna array vazio (o guard permite acesso por compatibilidade)
+    // Retorna os módulos do banco de dados exatamente como estão salvos
+    // Se não tiver módulos definidos (null ou array vazio), retorna array vazio
     if (!orgao.modulos_habilitados || orgao.modulos_habilitados.length === 0) {
       return [];
     }
     
     // Retorna os módulos exatamente como estão no banco
-    // O backend sempre garante que LICITACOES está presente ao salvar (em atualizarModulos)
     return [...orgao.modulos_habilitados];
   }
 
@@ -231,8 +230,17 @@ export class OrgaosService {
     // Remove duplicatas e salva exatamente como enviado pelo frontend
     const modulosAtualizados = [...new Set(modulos)];
     
+    // Debug: log antes de salvar
+    console.log(`[OrgaosService] Salvando módulos para órgão ${id}:`, modulosAtualizados);
+    
     // Se não houver módulos, salva array vazio ao invés de null
     orgao.modulos_habilitados = modulosAtualizados.length > 0 ? modulosAtualizados : [];
-    return await this.orgaoRepository.save(orgao);
+    
+    const orgaoSalvo = await this.orgaoRepository.save(orgao);
+    
+    // Debug: log após salvar
+    console.log(`[OrgaosService] Módulos salvos no banco:`, orgaoSalvo.modulos_habilitados);
+    
+    return orgaoSalvo;
   }
 }
