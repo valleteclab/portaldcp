@@ -1014,25 +1014,61 @@ export class PncpService {
   }
 
   async listarPendentes(orgaoId?: string): Promise<PncpSync[]> {
-    const where: any = { status: StatusSincronizacao.PENDENTE };
-    if (orgaoId) {
-      where.orgao_id = orgaoId;
+    try {
+      // Tenta buscar com orgao_id se fornecido
+      if (orgaoId) {
+        // Busca através da relação com licitação para garantir filtro correto
+        const results = await this.pncpSyncRepository
+          .createQueryBuilder('sync')
+          .leftJoinAndSelect('sync.licitacao', 'licitacao')
+          .where('sync.status = :status', { status: StatusSincronizacao.PENDENTE })
+          .andWhere('(sync.orgao_id = :orgaoId OR licitacao.orgao_id = :orgaoId)', { orgaoId })
+          .orderBy('sync.created_at', 'ASC')
+          .getMany();
+        return results;
+      }
+      
+      return this.pncpSyncRepository.find({
+        where: { status: StatusSincronizacao.PENDENTE },
+        order: { created_at: 'ASC' }
+      });
+    } catch (error) {
+      console.error('[PncpService] Erro ao listar pendentes:', error.message);
+      // Fallback: busca sem filtro de orgao
+      return this.pncpSyncRepository.find({
+        where: { status: StatusSincronizacao.PENDENTE },
+        order: { created_at: 'ASC' }
+      });
     }
-    return this.pncpSyncRepository.find({
-      where,
-      order: { created_at: 'ASC' }
-    });
   }
 
   async listarErros(orgaoId?: string): Promise<PncpSync[]> {
-    const where: any = { status: StatusSincronizacao.ERRO };
-    if (orgaoId) {
-      where.orgao_id = orgaoId;
+    try {
+      // Tenta buscar com orgao_id se fornecido
+      if (orgaoId) {
+        // Busca através da relação com licitação para garantir filtro correto
+        const results = await this.pncpSyncRepository
+          .createQueryBuilder('sync')
+          .leftJoinAndSelect('sync.licitacao', 'licitacao')
+          .where('sync.status = :status', { status: StatusSincronizacao.ERRO })
+          .andWhere('(sync.orgao_id = :orgaoId OR licitacao.orgao_id = :orgaoId)', { orgaoId })
+          .orderBy('sync.updated_at', 'DESC')
+          .getMany();
+        return results;
+      }
+      
+      return this.pncpSyncRepository.find({
+        where: { status: StatusSincronizacao.ERRO },
+        order: { updated_at: 'DESC' }
+      });
+    } catch (error) {
+      console.error('[PncpService] Erro ao listar erros:', error.message);
+      // Fallback: busca sem filtro de orgao
+      return this.pncpSyncRepository.find({
+        where: { status: StatusSincronizacao.ERRO },
+        order: { updated_at: 'DESC' }
+      });
     }
-    return this.pncpSyncRepository.find({
-      where,
-      order: { updated_at: 'DESC' }
-    });
   }
 
   async reenviar(syncId: string): Promise<PncpResponseDto> {

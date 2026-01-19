@@ -43,6 +43,9 @@ export class PncpSync {
   licitacao: Licitacao;
 
   @Column({ nullable: true })
+  orgao_id: string;
+
+  @Column({ nullable: true })
   numero_controle_pncp: string;
 
   @Column({ nullable: true })
