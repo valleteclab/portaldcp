@@ -52,24 +52,22 @@ export class ModuloGuard implements CanActivate {
       orgaoModulos = orgao?.modulos_habilitados || [];
     }
     
-    // Se não tiver módulos definidos, BLOQUEIA acesso (segurança)
-    // Se um módulo é requerido via @RequireModule, o órgão DEVE ter o módulo habilitado
-    if (!orgaoModulos || orgaoModulos.length === 0) {
-      throw new ForbiddenException(
-        `Seu órgão não tem acesso ao módulo: ${requiredModules.join(', ')}. Configure os módulos no painel administrativo.`
+    // Se não tiver módulos definidos no banco, permite acesso (compatibilidade)
+    // Isso permite que órgãos sem módulos configurados ainda funcionem
+    // Mas se houver módulos definidos, verifica se o módulo requerido está habilitado
+    if (orgaoModulos && orgaoModulos.length > 0) {
+      // Se há módulos definidos, verifica se o módulo requerido está habilitado
+      const hasAccess = requiredModules.some(modulo => 
+        orgaoModulos.includes(modulo)
       );
-    }
-    
-    // Verifica se o órgão tem acesso aos módulos requeridos
-    const hasAccess = requiredModules.some(modulo => 
-      orgaoModulos.includes(modulo)
-    );
 
-    if (!hasAccess) {
-      throw new ForbiddenException(
-        `Seu órgão não tem acesso ao módulo: ${requiredModules.join(', ')}`
-      );
+      if (!hasAccess) {
+        throw new ForbiddenException(
+          `Seu órgão não tem acesso ao módulo: ${requiredModules.join(', ')}. Configure os módulos no painel administrativo.`
+        );
+      }
     }
+    // Se não há módulos definidos, permite acesso (compatibilidade com sistema antigo)
 
     return true;
   }
