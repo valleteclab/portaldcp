@@ -1,4 +1,4 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -6,6 +6,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pncp-sync.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
+import { SystemConfigService } from '../system-config/system-config.service';
 import {
   CompraDto,
   ItemCompraDto,
@@ -20,13 +21,13 @@ import {
 } from './dto/pncp.dto';
 
 @Injectable()
-export class PncpService {
+export class PncpService implements OnModuleInit {
   private readonly logger = new Logger(PncpService.name);
   private axiosInstance: AxiosInstance;
   private token: string = '';
   private tokenExpiration: Date | null = null;
 
-  // Credenciais da plataforma armazenadas em memória
+  // Credenciais da plataforma armazenadas em memória (cache)
   private static platformCredentials = {
     apiUrl: '',
     login: '',
@@ -42,12 +43,53 @@ export class PncpService {
     @InjectRepository(PlanoContratacaoAnual)
     private pcaRepository: Repository<PlanoContratacaoAnual>,
     private configService: ConfigService,
+    private systemConfigService: SystemConfigService,
   ) {
     // Debug: verificar se as variáveis estão sendo lidas
     this.logger.log(`[INIT] ConfigService PNCP_LOGIN: ${this.configService.get('PNCP_LOGIN') ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
     this.logger.log(`[INIT] process.env PNCP_LOGIN: ${process.env.PNCP_LOGIN ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
     this.logger.log(`[INIT] process.env PNCP_API_URL: ${process.env.PNCP_API_URL || 'NÃO DEFINIDO'}`);
     this.initializeAxios();
+  }
+
+  /**
+   * Carrega as credenciais do banco de dados quando o módulo inicializa
+   * Isso garante que as credenciais configuradas no admin sejam carregadas após restart
+   */
+  async onModuleInit() {
+    await this.loadCredentialsFromDatabase();
+  }
+
+  /**
+   * Carrega as credenciais do banco de dados para a memória
+   */
+  private async loadCredentialsFromDatabase(): Promise<void> {
+    try {
+      const dbCredentials = await this.systemConfigService.getPncpCredentials();
+      
+      if (dbCredentials.apiUrl) {
+        PncpService.platformCredentials.apiUrl = dbCredentials.apiUrl;
+      }
+      if (dbCredentials.login) {
+        PncpService.platformCredentials.login = dbCredentials.login;
+      }
+      if (dbCredentials.senha) {
+        PncpService.platformCredentials.senha = dbCredentials.senha;
+      }
+      if (dbCredentials.cnpjOrgao) {
+        PncpService.platformCredentials.cnpjOrgao = dbCredentials.cnpjOrgao;
+      }
+
+      const hasCredentials = !!(dbCredentials.apiUrl && dbCredentials.login && dbCredentials.senha);
+      this.logger.log(`[INIT] Credenciais PNCP carregadas do banco: ${hasCredentials ? 'SIM' : 'NÃO'}`);
+      
+      // Reinicializar axios com a URL do banco se disponível
+      if (dbCredentials.apiUrl) {
+        this.initializeAxiosWithUrl(dbCredentials.apiUrl);
+      }
+    } catch (error) {
+      this.logger.error(`[INIT] Erro ao carregar credenciais PNCP do banco: ${error.message}`);
+    }
   }
 
   // Helper para obter variáveis de ambiente
@@ -58,12 +100,13 @@ export class PncpService {
 
   // ============ CREDENCIAIS DA PLATAFORMA ============
 
-  setPlatformCredentials(credentials: {
+  async setPlatformCredentials(credentials: {
     apiUrl?: string;
     login?: string;
     senha?: string;
     cnpjOrgao?: string;
-  }): void {
+  }): Promise<void> {
+    // Atualizar memória (cache)
     if (credentials.apiUrl !== undefined) {
       PncpService.platformCredentials.apiUrl = credentials.apiUrl;
     }
@@ -85,6 +128,14 @@ export class PncpService {
     // Limpar token para forçar novo login
     this.token = '';
     this.tokenExpiration = null;
+    
+    // PERSISTIR NO BANCO DE DADOS para sobreviver a restarts
+    try {
+      await this.systemConfigService.setPncpCredentials(credentials);
+      this.logger.log('[PLATFORM] Credenciais da plataforma salvas no banco de dados');
+    } catch (error) {
+      this.logger.error(`[PLATFORM] Erro ao salvar credenciais no banco: ${error.message}`);
+    }
     
     this.logger.log('[PLATFORM] Credenciais da plataforma atualizadas');
   }

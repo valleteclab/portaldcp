@@ -35,14 +35,14 @@ export class PncpController {
   }
 
   @Put('credentials')
-  setPlatformCredentials(@Body() body: {
+  async setPlatformCredentials(@Body() body: {
     apiUrl?: string;
     login?: string;
     senha?: string;
     cnpjOrgao?: string;
   }) {
-    this.pncpService.setPlatformCredentials(body);
-    return { success: true, message: 'Credenciais PNCP da plataforma atualizadas!' };
+    await this.pncpService.setPlatformCredentials(body);
+    return { success: true, message: 'Credenciais PNCP da plataforma atualizadas e salvas no banco!' };
   }
 
   @Post('credentials/test')
