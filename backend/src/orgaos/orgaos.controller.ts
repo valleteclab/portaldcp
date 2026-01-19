@@ -93,8 +93,16 @@ export class OrgaosController {
   }
 
   @Get()
-  async findAll(): Promise<Orgao[]> {
-    return await this.orgaosService.findAll();
+  async findAll(): Promise<any[]> {
+    const orgaos = await this.orgaosService.findAll();
+    // Mapeia modulos_habilitados para modulos_ativos para compatibilidade com frontend
+    return orgaos.map(orgao => {
+      const { senha_hash, ...orgaoSemSenha } = orgao;
+      return {
+        ...orgaoSemSenha,
+        modulos_ativos: orgao.modulos_habilitados || [],
+      };
+    });
   }
 
   /**
