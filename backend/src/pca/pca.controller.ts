@@ -11,8 +11,11 @@ import {
 } from '@nestjs/common';
 import { PcaService } from './pca.service';
 import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItemPCA } from './entities/pca.entity';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Controller('pca')
+@RequireModule(ModuloSistema.PCA)
 export class PcaController {
   constructor(private readonly pcaService: PcaService) {}
 

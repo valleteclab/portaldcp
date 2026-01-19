@@ -4,8 +4,11 @@ import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
 import { Public } from '../auth/public.decorator';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Controller('licitacoes')
+@RequireModule(ModuloSistema.LICITACOES)
 export class LicitacoesController {
   constructor(
     private readonly licitacoesService: LicitacoesService,

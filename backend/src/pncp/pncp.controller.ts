@@ -17,8 +17,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { PncpService } from './pncp.service';
 import { ResultadoItemDto, ContratoDto, TIPO_DOCUMENTO } from './dto/pncp.dto';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Controller('pncp')
+@RequireModule(ModuloSistema.PNCP)
 export class PncpController {
   constructor(private readonly pncpService: PncpService) {
     console.log('[PncpController] Controller initialized');

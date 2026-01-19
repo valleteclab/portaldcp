@@ -1,8 +1,11 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, Patch } from '@nestjs/common';
 import { DemandasService } from './demandas.service';
 import { StatusDemanda, ItemDemanda } from './entities/demanda.entity';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Controller('demandas')
+@RequireModule(ModuloSistema.DEMANDAS)
 export class DemandasController {
   constructor(private readonly demandasService: DemandasService) {}
 
