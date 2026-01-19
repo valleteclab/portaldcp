@@ -88,11 +88,21 @@ export default function AdminModulosPage() {
 
   const handleOpenConfig = (orgao: Orgao) => {
     setSelectedOrgao(orgao)
-    setModulosTemp(orgao.modulos_ativos || [])
+    // Garante que LICITACOES sempre está presente ao abrir o modal
+    const modulosIniciais = orgao.modulos_ativos || []
+    const modulosComLicitacoes = modulosIniciais.includes('LICITACOES') 
+      ? modulosIniciais 
+      : [...modulosIniciais, 'LICITACOES']
+    setModulosTemp(modulosComLicitacoes)
     setModalOpen(true)
   }
 
   const handleToggleModulo = (codigo: string) => {
+    // LICITACOES é obrigatório e não pode ser desmarcado
+    if (codigo === 'LICITACOES') {
+      return
+    }
+    
     setModulosTemp(prev => 
       prev.includes(codigo) 
         ? prev.filter(m => m !== codigo)
@@ -104,9 +114,14 @@ export default function AdminModulosPage() {
     if (!selectedOrgao) return
     setSaving(true)
     try {
+      // Garante que LICITACOES está presente antes de enviar
+      const modulosParaEnviar = modulosTemp.includes('LICITACOES') 
+        ? modulosTemp 
+        : [...modulosTemp, 'LICITACOES']
+      
       const res = await adminFetch(`${API_URL}/api/orgaos/${selectedOrgao.id}/modulos`, {
         method: 'PUT',
-        body: JSON.stringify({ modulos: modulosTemp }),
+        body: JSON.stringify({ modulos: modulosParaEnviar }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -241,13 +256,20 @@ export default function AdminModulosPage() {
             {MODULOS.map(modulo => {
               const Icon = modulo.icon
               const ativo = modulosTemp.includes(modulo.codigo)
+              const isLicitacoes = modulo.codigo === 'LICITACOES'
+              const isDisabled = isLicitacoes // LICITACOES não pode ser desmarcado
+              
               return (
                 <div 
                   key={modulo.codigo}
-                  className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                    ativo ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'
+                  className={`p-4 border rounded-lg transition-colors ${
+                    isDisabled 
+                      ? 'border-blue-300 bg-blue-50 cursor-not-allowed opacity-75'
+                      : ativo 
+                        ? 'border-green-500 bg-green-50 cursor-pointer' 
+                        : 'border-gray-200 hover:border-gray-300 cursor-pointer'
                   }`}
-                  onClick={() => handleToggleModulo(modulo.codigo)}
+                  onClick={() => !isDisabled && handleToggleModulo(modulo.codigo)}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -257,12 +279,15 @@ export default function AdminModulosPage() {
                         <Icon className={`w-5 h-5 ${ativo ? 'text-green-600' : 'text-gray-500'}`} />
                       </div>
                       <div>
-                        <h4 className="font-medium">{modulo.nome}</h4>
+                        <h4 className="font-medium">
+                          {modulo.nome}
+                          {isLicitacoes && <span className="ml-2 text-xs text-blue-600">(Obrigatório)</span>}
+                        </h4>
                         <p className="text-xs text-gray-500">{modulo.descricao}</p>
                       </div>
                     </div>
                     {ativo ? (
-                      <CheckCircle className="w-5 h-5 text-green-500" />
+                      <CheckCircle className={`w-5 h-5 ${isLicitacoes ? 'text-blue-500' : 'text-green-500'}`} />
                     ) : (
                       <XCircle className="w-5 h-5 text-gray-300" />
                     )}
