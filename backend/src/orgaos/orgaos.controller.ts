@@ -127,17 +127,25 @@ export class OrgaosController {
     if (user.type === UserType.ORGAO) {
       orgaoId = user.sub;
     } 
-    // Se for usuário vinculado a um órgão
-    else if (user.orgaoId) {
-      orgaoId = user.orgaoId;
+    // Se for usuário vinculado a um órgão (verifica ambos formatos: camelCase e snake_case)
+    else if (user.orgaoId || (user as any).orgao_id) {
+      orgaoId = user.orgaoId || (user as any).orgao_id;
     } 
     else {
+      this.logger.warn(`[GET /me] Órgão não identificado para usuário: ${JSON.stringify({
+        type: user.type,
+        sub: user.sub,
+        orgaoId: user.orgaoId,
+        orgao_id: (user as any).orgao_id,
+      })}`);
       throw new UnauthorizedException('Órgão não identificado');
     }
 
     // Busca módulos diretamente do banco de dados
     const modulos = await this.orgaosService.getModulosOrgao(orgaoId);
     const orgao = await this.orgaosService.findOne(orgaoId);
+    
+    this.logger.log(`[GET /me] Retornando módulos para órgão ${orgaoId}: ${JSON.stringify(modulos)}`);
     
     // Remove senha do retorno
     const { senha_hash, ...orgaoSemSenha } = orgao;

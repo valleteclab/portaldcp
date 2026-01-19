@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { API_URL, authFetch, getAuthToken } from '@/lib/api';
 
 export type ModuloSistema = 
@@ -43,8 +44,9 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
 export function useModulosOrgao() {
   const [modulos, setModulos] = useState<ModuloSistema[]>([]);
   const [loading, setLoading] = useState(true);
+  const pathname = usePathname();
 
-  const carregarModulosDaAPI = async () => {
+  const carregarModulosDaAPI = useCallback(async () => {
     // Verifica se há token de autenticação antes de fazer requisição
     const token = getAuthToken();
     if (!token) {
@@ -66,6 +68,7 @@ export function useModulosOrgao() {
     setLoading(true);
     try {
       // SEMPRE busca módulos atualizados do backend (fonte da verdade)
+      console.log('[useModulosOrgao] Buscando módulos da API...');
       const response = await authFetch(`${API_URL}/api/orgaos/me`);
       
       if (response.ok) {
@@ -75,11 +78,6 @@ export function useModulosOrgao() {
         
         // Debug: log dos módulos recebidos
         console.log('[useModulosOrgao] Módulos recebidos do backend:', modulosAtivos);
-        console.log('[useModulosOrgao] Orgao completo:', { 
-          id: orgao.id, 
-          modulos_ativos: orgao.modulos_ativos, 
-          modulos_habilitados: orgao.modulos_habilitados 
-        });
         
         setModulos(modulosAtivos);
       } else {
@@ -94,13 +92,14 @@ export function useModulosOrgao() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // useCallback sem dependências para função estável
 
   useEffect(() => {
-    // Carrega módulos da API (fonte da verdade)
+    // Carrega módulos da API sempre que a página mudar (fonte da verdade)
+    // Isso garante que módulos atualizados pelo admin sejam refletidos
     carregarModulosDaAPI();
 
-    // Escuta evento customizado para atualização (quando admin atualiza módulos)
+    // Escuta evento customizado para atualização (quando admin atualiza módulos na mesma sessão)
     const handleModulosAtualizados = () => {
       carregarModulosDaAPI();
     };
@@ -110,7 +109,7 @@ export function useModulosOrgao() {
     return () => {
       window.removeEventListener('modulosAtualizados', handleModulosAtualizados);
     };
-  }, []);
+  }, [pathname, carregarModulosDaAPI]); // Recarrega a cada navegação
 
   const temAcesso = (modulo: ModuloSistema): boolean => {
     return modulos.includes(modulo);
