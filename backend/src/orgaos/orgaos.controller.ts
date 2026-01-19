@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe, UnauthorizedException, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe, UnauthorizedException, Req, Logger } from '@nestjs/common';
 import { OrgaosService } from './orgaos.service';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { Orgao } from './entities/orgao.entity';
@@ -9,6 +9,8 @@ import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('orgaos')
 export class OrgaosController {
+  private readonly logger = new Logger(OrgaosController.name);
+
   constructor(
     private readonly orgaosService: OrgaosService,
     private readonly authService: AuthService,
