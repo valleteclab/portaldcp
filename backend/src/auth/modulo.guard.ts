@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { REQUIRED_MODULE_KEY } from './require-module.decorator';
+import { IS_PUBLIC_KEY } from './public.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { JwtPayload, UserType } from './auth.service';
@@ -16,6 +17,16 @@ export class ModuloGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Se a rota é pública, não precisa verificar módulos
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true;
+    }
+
     const requiredModules = this.reflector.getAllAndOverride<ModuloSistema[]>(
       REQUIRED_MODULE_KEY,
       [context.getHandler(), context.getClass()],
