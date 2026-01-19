@@ -47,7 +47,11 @@ import {
   MapPin,
   Calendar,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Pencil,
+  Key,
+  Copy,
+  Save
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -88,8 +92,16 @@ export default function AdminFornecedoresPage() {
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState<Fornecedor | null>(null)
   const [modalDetalhes, setModalDetalhes] = useState(false)
   const [modalSuspender, setModalSuspender] = useState(false)
+  const [modalEditar, setModalEditar] = useState(false)
+  const [modalResetSenha, setModalResetSenha] = useState(false)
   const [motivoSuspensao, setMotivoSuspensao] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+  const [senhaTemporaria, setSenhaTemporaria] = useState<string | null>(null)
+  
+  // Estado para edição
+  const [dadosEdicao, setDadosEdicao] = useState<Partial<Fornecedor>>({})
+  
+  const UFS = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO']
 
   const fetchFornecedores = async () => {
     setLoading(true)
@@ -188,6 +200,91 @@ export default function AdminFornecedoresPage() {
       alert('Erro ao reativar fornecedor')
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handleAbrirEditar = (fornecedor: Fornecedor) => {
+    setFornecedorSelecionado(fornecedor)
+    setDadosEdicao({
+      razao_social: fornecedor.razao_social || '',
+      nome_fantasia: fornecedor.nome_fantasia || '',
+      logradouro: fornecedor.logradouro || '',
+      numero: fornecedor.numero || '',
+      bairro: fornecedor.bairro || '',
+      cidade: fornecedor.cidade || fornecedor.municipio || '',
+      uf: fornecedor.uf || '',
+      cep: fornecedor.cep || '',
+      telefone: fornecedor.telefone || '',
+      email: fornecedor.email || '',
+      representante_nome: fornecedor.representante_nome || '',
+      representante_cpf: fornecedor.representante_cpf || '',
+      representante_cargo: fornecedor.representante_cargo || '',
+      observacoes: fornecedor.observacoes || '',
+    })
+    setModalEditar(true)
+  }
+
+  const handleSalvarEdicao = async () => {
+    if (!fornecedorSelecionado) return
+    
+    setActionLoading(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedorSelecionado.id}/admin/dados`, {
+        method: 'PUT',
+        body: JSON.stringify(dadosEdicao)
+      })
+      
+      if (res.ok) {
+        await fetchFornecedores()
+        setModalEditar(false)
+        setFornecedorSelecionado(null)
+        alert('Dados atualizados com sucesso!')
+      } else {
+        const data = await res.json()
+        alert(`Erro: ${data.message || 'Erro ao salvar dados'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao salvar:', error)
+      alert('Erro ao salvar dados')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleAbrirResetSenha = (fornecedor: Fornecedor) => {
+    setFornecedorSelecionado(fornecedor)
+    setSenhaTemporaria(null)
+    setModalResetSenha(true)
+  }
+
+  const handleResetSenha = async () => {
+    if (!fornecedorSelecionado) return
+    
+    setActionLoading(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedorSelecionado.id}/admin/reset-senha`, {
+        method: 'PUT'
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        setSenhaTemporaria(data.senhaTemporaria)
+      } else {
+        const data = await res.json()
+        alert(`Erro: ${data.message || 'Erro ao resetar senha'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao resetar senha:', error)
+      alert('Erro ao resetar senha')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const copiarSenha = () => {
+    if (senhaTemporaria) {
+      navigator.clipboard.writeText(senhaTemporaria)
+      alert('Senha copiada para a área de transferência!')
     }
   }
 
@@ -419,6 +516,24 @@ export default function AdminFornecedoresPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="Editar dados"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          onClick={() => handleAbrirEditar(fornecedor)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="Resetar senha"
+                          className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                          onClick={() => handleAbrirResetSenha(fornecedor)}
+                        >
+                          <Key className="h-4 w-4" />
+                        </Button>
                         {(fornecedor.status === 'PENDENTE' || fornecedor.status === 'EM_ANALISE') && (
                           <Button 
                             variant="ghost" 
@@ -612,6 +727,257 @@ export default function AdminFornecedoresPage() {
                 'Confirmar Suspensão'
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Edição */}
+      <Dialog open={modalEditar} onOpenChange={setModalEditar}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Editar Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              Altere os dados cadastrais do fornecedor
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Dados da Empresa */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-sm text-slate-700 border-b pb-2">Dados da Empresa</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <Label>Razão Social</Label>
+                  <Input 
+                    value={dadosEdicao.razao_social || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, razao_social: e.target.value})}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>Nome Fantasia</Label>
+                  <Input 
+                    value={dadosEdicao.nome_fantasia || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, nome_fantasia: e.target.value})}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Endereço */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-sm text-slate-700 border-b pb-2">Endereço</h4>
+              <div className="grid grid-cols-6 gap-4">
+                <div className="col-span-4">
+                  <Label>Logradouro</Label>
+                  <Input 
+                    value={dadosEdicao.logradouro || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, logradouro: e.target.value})}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>Número</Label>
+                  <Input 
+                    value={dadosEdicao.numero || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, numero: e.target.value})}
+                  />
+                </div>
+                <div className="col-span-3">
+                  <Label>Bairro</Label>
+                  <Input 
+                    value={dadosEdicao.bairro || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, bairro: e.target.value})}
+                  />
+                </div>
+                <div className="col-span-3">
+                  <Label>Cidade</Label>
+                  <Input 
+                    value={dadosEdicao.cidade || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, cidade: e.target.value})}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>UF</Label>
+                  <Select 
+                    value={dadosEdicao.uf || ''} 
+                    onValueChange={(v) => setDadosEdicao({...dadosEdicao, uf: v})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="UF" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UFS.map(uf => (
+                        <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2">
+                  <Label>CEP</Label>
+                  <Input 
+                    value={dadosEdicao.cep || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, cep: e.target.value})}
+                    maxLength={9}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Contato */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-sm text-slate-700 border-b pb-2">Contato</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Telefone</Label>
+                  <Input 
+                    value={dadosEdicao.telefone || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, telefone: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label>E-mail</Label>
+                  <Input 
+                    type="email"
+                    value={dadosEdicao.email || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, email: e.target.value})}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Representante */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-sm text-slate-700 border-b pb-2">Representante Legal</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <Label>Nome</Label>
+                  <Input 
+                    value={dadosEdicao.representante_nome || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, representante_nome: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label>CPF</Label>
+                  <Input 
+                    value={dadosEdicao.representante_cpf || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, representante_cpf: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label>Cargo</Label>
+                  <Input 
+                    value={dadosEdicao.representante_cargo || ''} 
+                    onChange={(e) => setDadosEdicao({...dadosEdicao, representante_cargo: e.target.value})}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Observações */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-sm text-slate-700 border-b pb-2">Observações Internas</h4>
+              <Textarea 
+                value={dadosEdicao.observacoes || ''} 
+                onChange={(e) => setDadosEdicao({...dadosEdicao, observacoes: e.target.value})}
+                placeholder="Observações internas (visível apenas para administradores)..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalEditar(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSalvarEdicao} disabled={actionLoading}>
+              {actionLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Salvar Alterações
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Reset de Senha */}
+      <Dialog open={modalResetSenha} onOpenChange={(open) => {
+        setModalResetSenha(open)
+        if (!open) setSenhaTemporaria(null)
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <Key className="h-5 w-5" />
+              Resetar Senha do Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              Uma senha temporária será gerada. O fornecedor deverá alterá-la no primeiro acesso.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-slate-50 p-3 rounded">
+              <p className="font-medium">{fornecedorSelecionado?.razao_social}</p>
+              <p className="text-sm text-muted-foreground">
+                {fornecedorSelecionado?.email}
+              </p>
+            </div>
+            
+            {senhaTemporaria ? (
+              <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+                <p className="text-sm text-green-800 mb-2 font-medium">
+                  ✅ Senha resetada com sucesso!
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="bg-white px-3 py-2 rounded border text-lg font-mono flex-1 text-center">
+                    {senhaTemporaria}
+                  </code>
+                  <Button variant="outline" size="sm" onClick={copiarSenha}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-green-700 mt-2">
+                  Copie e envie esta senha para o fornecedor. Ela não será exibida novamente.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  ⚠️ Ao confirmar, a senha atual do fornecedor será substituída por uma senha temporária.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setModalResetSenha(false)
+              setSenhaTemporaria(null)
+            }}>
+              {senhaTemporaria ? 'Fechar' : 'Cancelar'}
+            </Button>
+            {!senhaTemporaria && (
+              <Button 
+                variant="default"
+                className="bg-orange-600 hover:bg-orange-700"
+                onClick={handleResetSenha}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Gerando...
+                  </>
+                ) : (
+                  'Gerar Nova Senha'
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

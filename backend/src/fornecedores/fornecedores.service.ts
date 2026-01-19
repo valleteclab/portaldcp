@@ -545,6 +545,83 @@ export class FornecedoresService {
     await this.fornecedorRepository.save(fornecedor);
   }
 
+  /**
+   * Reset de senha pelo admin - gera uma senha temporária
+   */
+  async resetSenhaAdmin(id: string): Promise<{ senhaTemporaria: string }> {
+    const fornecedor = await this.findOne(id);
+    
+    // Gera senha temporária de 8 caracteres
+    const senhaTemporaria = crypto.randomBytes(4).toString('hex');
+    fornecedor.senha = this.hashSenha(senhaTemporaria);
+    await this.fornecedorRepository.save(fornecedor);
+    
+    return { senhaTemporaria };
+  }
+
+  /**
+   * Atualização de dados pelo admin (endereço, contato, etc)
+   */
+  async updateAdmin(id: string, dados: {
+    razao_social?: string;
+    nome_fantasia?: string;
+    logradouro?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    cidade?: string;
+    uf?: string;
+    cep?: string;
+    telefone?: string;
+    email?: string;
+    site?: string;
+    representante_nome?: string;
+    representante_cpf?: string;
+    representante_cargo?: string;
+    representante_email?: string;
+    representante_telefone?: string;
+    observacoes?: string;
+    inscricao_estadual?: string;
+    inscricao_municipal?: string;
+  }): Promise<FornecedorSemSenha> {
+    const fornecedor = await this.findOne(id);
+    
+    // Atualiza apenas campos permitidos
+    if (dados.razao_social !== undefined) fornecedor.razao_social = dados.razao_social;
+    if (dados.nome_fantasia !== undefined) fornecedor.nome_fantasia = dados.nome_fantasia;
+    if (dados.logradouro !== undefined) fornecedor.logradouro = dados.logradouro;
+    if (dados.numero !== undefined) fornecedor.numero = dados.numero;
+    if (dados.complemento !== undefined) fornecedor.complemento = dados.complemento;
+    if (dados.bairro !== undefined) fornecedor.bairro = dados.bairro;
+    if (dados.cidade !== undefined) fornecedor.cidade = dados.cidade;
+    if (dados.uf !== undefined) fornecedor.uf = dados.uf;
+    if (dados.cep !== undefined) fornecedor.cep = dados.cep;
+    if (dados.telefone !== undefined) fornecedor.telefone = dados.telefone;
+    if (dados.email !== undefined) fornecedor.email = dados.email;
+    if (dados.site !== undefined) fornecedor.site = dados.site;
+    if (dados.representante_nome !== undefined) fornecedor.representante_nome = dados.representante_nome;
+    if (dados.representante_cpf !== undefined) fornecedor.representante_cpf = dados.representante_cpf;
+    if (dados.representante_cargo !== undefined) fornecedor.representante_cargo = dados.representante_cargo;
+    if (dados.representante_email !== undefined) fornecedor.representante_email = dados.representante_email;
+    if (dados.representante_telefone !== undefined) fornecedor.representante_telefone = dados.representante_telefone;
+    if (dados.observacoes !== undefined) fornecedor.observacoes = dados.observacoes;
+    if (dados.inscricao_estadual !== undefined) fornecedor.inscricao_estadual = dados.inscricao_estadual;
+    if (dados.inscricao_municipal !== undefined) fornecedor.inscricao_municipal = dados.inscricao_municipal;
+    
+    const saved = await this.fornecedorRepository.save(fornecedor);
+    return this.removerSenha(saved);
+  }
+
+  /**
+   * Alterar nível do fornecedor pelo admin
+   */
+  async alterarNivel(id: string, nivel: NivelCadastro): Promise<FornecedorSemSenha> {
+    const fornecedor = await this.findOne(id);
+    fornecedor.nivel_atual = nivel;
+    const saved = await this.fornecedorRepository.save(fornecedor);
+    return this.removerSenha(saved);
+  }
+
   async login(cnpj: string, senha: string): Promise<{ fornecedor: Fornecedor; token: string }> {
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     const fornecedor = await this.fornecedorRepository.findOne({

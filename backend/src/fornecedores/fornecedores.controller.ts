@@ -302,4 +302,76 @@ export class FornecedoresController {
   async findOneComDocumentos(@Param('id') id: string) {
     return await this.fornecedoresService.findOneComDocumentos(id);
   }
+
+  // === ADMIN: GERENCIAMENTO DE FORNECEDORES ===
+  
+  /**
+   * Reset de senha - Gera uma senha temporária para o fornecedor
+   * Apenas admin pode executar esta ação
+   */
+  @Put(':id/admin/reset-senha')
+  async resetSenhaAdmin(@Param('id') id: string, @Req() req: any) {
+    const user = req.user as JwtPayload;
+    // Verifica se é admin
+    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
+      throw new ForbiddenException('Apenas administradores podem resetar senhas');
+    }
+    return await this.fornecedoresService.resetSenhaAdmin(id);
+  }
+
+  /**
+   * Atualização de dados pelo admin (endereço, contato, etc)
+   * Apenas admin pode executar esta ação
+   */
+  @Put(':id/admin/dados')
+  async updateAdmin(
+    @Param('id') id: string,
+    @Body() body: {
+      razao_social?: string;
+      nome_fantasia?: string;
+      logradouro?: string;
+      numero?: string;
+      complemento?: string;
+      bairro?: string;
+      cidade?: string;
+      uf?: string;
+      cep?: string;
+      telefone?: string;
+      email?: string;
+      site?: string;
+      representante_nome?: string;
+      representante_cpf?: string;
+      representante_cargo?: string;
+      representante_email?: string;
+      representante_telefone?: string;
+      observacoes?: string;
+      inscricao_estadual?: string;
+      inscricao_municipal?: string;
+    },
+    @Req() req: any
+  ) {
+    const user = req.user as JwtPayload;
+    // Verifica se é admin
+    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
+      throw new ForbiddenException('Apenas administradores podem alterar dados de fornecedores');
+    }
+    return await this.fornecedoresService.updateAdmin(id, body);
+  }
+
+  /**
+   * Alterar nível do fornecedor pelo admin
+   */
+  @Put(':id/admin/nivel')
+  async alterarNivel(
+    @Param('id') id: string,
+    @Body() body: { nivel: string },
+    @Req() req: any
+  ) {
+    const user = req.user as JwtPayload;
+    // Verifica se é admin
+    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
+      throw new ForbiddenException('Apenas administradores podem alterar níveis');
+    }
+    return await this.fornecedoresService.alterarNivel(id, body.nivel as any);
+  }
 }
