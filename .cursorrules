@@ -1,6 +1,40 @@
 # Scratchpad
 
-## Tarefa Atual: Implementar Sistema de Autenticação JWT
+## ✅ Tarefa Concluída: Sistema de Módulos Opcionais por Órgão - Implementação Completa
+
+### Resumo da Implementação
+Sistema completo de ativação/desativação de módulos por órgão implementado com sucesso.
+
+**Backend:**
+- ✅ Enum ModuloSistema com 10 módulos (LICITACOES obrigatório)
+- ✅ Campo modulos_habilitados na entidade Orgao (tipo simple-array)
+- ✅ Endpoints: GET /api/orgaos/modulos/disponiveis, GET /api/orgaos/:id/modulos, PUT /api/orgaos/:id/modulos
+- ✅ Decorator @RequireModule e guard ModuloGuard
+- ✅ Guard aplicado em ContratosController e ContratacaoDiretaController
+- ✅ Guard registrado como global no app.module.ts
+- ✅ ModuloGuard carrega orgao do banco quando necessário
+- ✅ Compatibilidade com frontend (modulos_ativos)
+
+**Frontend:**
+- ✅ Hook useModulosOrgao para verificar módulos habilitados
+- ✅ Página /admin/modulos para gerenciar módulos dos órgãos
+
+### Arquivos Modificados
+- backend/src/orgaos/entities/orgao.entity.ts - Campo modulos_habilitados
+- backend/src/orgaos/orgaos.service.ts - Métodos getModulosDisponiveis, getModulosOrgao, atualizarModulos
+- backend/src/orgaos/orgaos.controller.ts - Endpoints de módulos
+- backend/src/auth/modulo.guard.ts - Guard atualizado para carregar orgao do banco
+- backend/src/auth/auth.service.ts - Login retorna modulos_ativos para compatibilidade
+- backend/src/app.module.ts - ModuloGuard registrado como global
+- backend/src/contratos/contratos.controller.ts - @RequireModule(ModuloSistema.CONTRATOS)
+- backend/src/contratacao-direta/contratacao-direta.controller.ts - @RequireModule(ModuloSistema.CREDENCIAMENTO)
+
+### Próximas Tarefas Sugeridas
+1. Testar sistema de módulos em ambiente de desenvolvimento
+2. Aplicar @RequireModule em outros controllers conforme necessário
+3. Verificar se há branches para merge na main
+
+## Tarefa Anterior: Implementar Sistema de Autenticação JWT
 
 ### Objetivo
 Implementar sistema completo de autenticação JWT para proteger todas as APIs do backend. Atualmente TODAS as 228 rotas de escrita (POST/PUT/PATCH/DELETE) estão completamente abertas sem nenhuma proteção.

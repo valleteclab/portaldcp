@@ -7,6 +7,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { ModuloGuard } from './auth/modulo.guard';
 import { OrgaosModule } from './orgaos/orgaos.module';
 import { FornecedoresModule } from './fornecedores/fornecedores.module';
 import { LicitacoesModule } from './licitacoes/licitacoes.module';
@@ -101,6 +102,10 @@ import { AdminModule } from './admin/admin.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ModuloGuard,
     },
   ],
 })

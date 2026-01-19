@@ -12,8 +12,11 @@ import {
 import { ContratacaoDiretaService } from './contratacao-direta.service';
 import { ContratacaoDireta, ItemContratacaoDireta, TipoContratacaoDireta, StatusContratacaoDireta } from './entities/contratacao-direta.entity';
 import { Public } from '../auth/public.decorator';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Controller('contratacao-direta')
+@RequireModule(ModuloSistema.CREDENCIAMENTO)
 export class ContratacaoDiretaController {
   constructor(private readonly service: ContratacaoDiretaService) {}
 

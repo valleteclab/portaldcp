@@ -13,6 +13,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { OrgaoGuard } from './orgao.guard';
 import { OwnershipGuard } from './ownership.guard';
+import { ModuloGuard } from './modulo.guard';
 
 @Module({
   controllers: [AuthController],
@@ -44,6 +45,7 @@ import { OwnershipGuard } from './ownership.guard';
     RolesGuard,
     OrgaoGuard,
     OwnershipGuard,
+    ModuloGuard,
   ],
   exports: [
     AuthService,
@@ -51,6 +53,7 @@ import { OwnershipGuard } from './ownership.guard';
     RolesGuard,
     OrgaoGuard,
     OwnershipGuard,
+    ModuloGuard,
     JwtModule,
   ],
 })

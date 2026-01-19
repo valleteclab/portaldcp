@@ -30,7 +30,7 @@ import {
   Send,
   Shield
 } from 'lucide-react'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, adminFetch } from '@/lib/api'
 
 interface Orgao {
   id: string
@@ -71,10 +71,13 @@ export default function AdminModulosPage() {
   const carregarOrgaos = async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/orgaos`)
+      const res = await adminFetch(`${API_URL}/api/orgaos`)
       if (res.ok) {
         const data = await res.json()
         setOrgaos(data)
+      } else if (res.status === 401) {
+        // Token inválido ou expirado - adminFetch já redireciona
+        return
       }
     } catch (error) {
       console.error('Erro ao carregar órgãos:', error)
@@ -101,17 +104,21 @@ export default function AdminModulosPage() {
     if (!selectedOrgao) return
     setSaving(true)
     try {
-      const res = await authFetch(`${API_URL}/api/orgaos/${selectedOrgao.id}/modulos`, {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${selectedOrgao.id}/modulos`, {
         method: 'PUT',
         body: JSON.stringify({ modulos: modulosTemp }),
       })
       if (res.ok) {
+        const data = await res.json()
         setOrgaos(prev => prev.map(o => 
           o.id === selectedOrgao.id 
-            ? { ...o, modulos_ativos: modulosTemp }
+            ? { ...o, modulos_ativos: data.orgao?.modulos_habilitados || modulosTemp }
             : o
         ))
         setModalOpen(false)
+      } else if (res.status === 401) {
+        // Token inválido ou expirado - adminFetch já redireciona
+        return
       } else {
         const error = await res.json()
         alert(error.message || 'Erro ao salvar módulos')

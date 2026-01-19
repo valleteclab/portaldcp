@@ -13,8 +13,11 @@ import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { Public } from '../auth/public.decorator';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Controller('contratos')
+@RequireModule(ModuloSistema.CONTRATOS)
 export class ContratosController {
   constructor(private readonly contratosService: ContratosService) {}
 

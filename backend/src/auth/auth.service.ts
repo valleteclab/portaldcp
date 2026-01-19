@@ -158,9 +158,15 @@ export class AuthService {
     // Remove senha do retorno
     const { senha_hash, ...orgaoSemSenha } = orgao;
 
+    // Adiciona compatibilidade com frontend (modulos_ativos)
+    const orgaoComModulos = {
+      ...orgaoSemSenha,
+      modulos_ativos: orgao.modulos_habilitados || [],
+    };
+
     return {
       token,
-      orgao: orgaoSemSenha,
+      orgao: orgaoComModulos,
     };
   }
 
@@ -295,6 +301,11 @@ export class AuthService {
   async validateToken(payload: JwtPayload): Promise<JwtPayload> {
     // Validações adicionais podem ser feitas aqui
     // Por exemplo, verificar se o usuário ainda existe e está ativo
+    
+    // Admin não precisa validação adicional
+    if (payload.type === UserType.ADMIN) {
+      return payload;
+    }
     
     if (payload.type === UserType.ORGAO) {
       const orgao = await this.orgaoRepository.findOne({

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Orgao } from './entities/orgao.entity';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
+import { ModuloSistema } from './enums/modulos.enum';
 import axios from 'axios';
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
@@ -185,6 +186,50 @@ export class OrgaosService {
   async reactivate(id: string): Promise<Orgao> {
     const orgao = await this.findOne(id);
     orgao.ativo = true;
+    return await this.orgaoRepository.save(orgao);
+  }
+
+  // ============ GESTÃO DE MÓDULOS ============
+
+  /**
+   * Retorna todos os módulos disponíveis no sistema
+   */
+  getModulosDisponiveis(): Array<{ codigo: ModuloSistema; nome: string; descricao: string }> {
+    const { ModuloSistema: ModuloEnum, MODULOS_DESCRICAO } = require('./enums/modulos.enum');
+    return Object.values(ModuloEnum).map(codigo => ({
+      codigo: codigo as ModuloSistema,
+      nome: MODULOS_DESCRICAO[codigo as ModuloSistema],
+      descricao: MODULOS_DESCRICAO[codigo as ModuloSistema],
+    }));
+  }
+
+  /**
+   * Retorna os módulos habilitados de um órgão
+   */
+  async getModulosOrgao(id: string): Promise<ModuloSistema[]> {
+    const orgao = await this.findOne(id);
+    // Se não tiver módulos definidos, retorna todos (compatibilidade)
+    if (!orgao.modulos_habilitados || orgao.modulos_habilitados.length === 0) {
+      return Object.values(ModuloSistema);
+    }
+    // Sempre inclui LICITACOES (obrigatório)
+    const modulos = [...orgao.modulos_habilitados];
+    if (!modulos.includes(ModuloSistema.LICITACOES)) {
+      modulos.push(ModuloSistema.LICITACOES);
+    }
+    return modulos;
+  }
+
+  /**
+   * Atualiza os módulos habilitados de um órgão
+   */
+  async atualizarModulos(id: string, modulos: ModuloSistema[]): Promise<Orgao> {
+    const orgao = await this.findOne(id);
+    
+    // Garante que LICITACOES sempre está presente (obrigatório)
+    const modulosAtualizados = [...new Set([...modulos, ModuloSistema.LICITACOES])];
+    
+    orgao.modulos_habilitados = modulosAtualizados;
     return await this.orgaoRepository.save(orgao);
   }
 }

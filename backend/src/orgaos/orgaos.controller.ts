@@ -138,4 +138,34 @@ export class OrgaosController {
   async statusPNCP(@Param('id') id: string) {
     return await this.orgaosService.statusPNCP(id);
   }
+
+  // ============ GESTÃO DE MÓDULOS ============
+
+  @Get('modulos/disponiveis')
+  async getModulosDisponiveis() {
+    return await this.orgaosService.getModulosDisponiveis();
+  }
+
+  @Get(':id/modulos')
+  async getModulosOrgao(@Param('id') id: string) {
+    const modulos = await this.orgaosService.getModulosOrgao(id);
+    return { modulos };
+  }
+
+  @Put(':id/modulos')
+  async atualizarModulos(
+    @Param('id') id: string,
+    @Body() body: { modulos: string[] }
+  ) {
+    const { ModuloSistema } = require('./enums/modulos.enum');
+    const modulos = body.modulos.map(m => m as typeof ModuloSistema[keyof typeof ModuloSistema]);
+    const orgao = await this.orgaosService.atualizarModulos(id, modulos);
+    return {
+      success: true,
+      orgao: {
+        ...orgao,
+        modulos_ativos: orgao.modulos_habilitados, // Compatibilidade com frontend
+      },
+    };
+  }
 }

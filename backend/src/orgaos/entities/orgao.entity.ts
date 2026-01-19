@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { ModuloSistema } from '../enums/modulos.enum';
 
 export enum TipoOrgao {
   PREFEITURA = 'PREFEITURA',
@@ -138,6 +139,15 @@ export class Orgao {
   
   @Column({ default: true })
   anonimizacao_disputa: boolean; // Se anonimização está ativa por padrão nas disputas
+
+  // ============ MÓDULOS DO SISTEMA ============
+  
+  @Column({
+    type: 'simple-array',
+    nullable: true,
+    default: null,
+  })
+  modulos_habilitados: ModuloSistema[]; // Módulos habilitados para este órgão (LICITACOES é sempre obrigatório)
 
   @CreateDateColumn()
   created_at: Date;
