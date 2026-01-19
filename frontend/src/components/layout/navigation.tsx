@@ -72,24 +72,27 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]
 
+  // Debug: log dos módulos carregados
+  useEffect(() => {
+    console.log('[Sidebar] Estado dos módulos:', { modulos, modulosLoading, userType });
+  }, [modulos, modulosLoading, userType]);
+
   // Filtra links baseado nos módulos habilitados
   const getFilteredLinks = (links: MenuLink[]): MenuLink[] => {
     if (userType === 'fornecedor') {
       return links // Fornecedor vê todos os links
     }
     
-    // Se ainda está carregando módulos, mostra todos os links (evita flash de conteúdo)
+    // SEGURANÇA: Durante loading, mostra apenas links sem módulo (Dashboard, Configurações)
+    // Isso evita mostrar links que o usuário pode não ter acesso
     if (modulosLoading) {
-      return links
+      console.log('[Sidebar] Carregando módulos, mostrando apenas links básicos');
+      return links.filter(link => !link.modulo)
     }
     
-    // Se não há módulos definidos (array vazio), mostra todos os links (compatibilidade)
-    // Isso permite que órgãos sem módulos configurados vejam tudo
-    if (modulos.length === 0) {
-      return links
-    }
-    
-    // Para órgão com módulos definidos, filtra baseado nos módulos habilitados
+    // SEMPRE filtra baseado nos módulos habilitados
+    // Se não há módulos configurados, mostra apenas Dashboard e Configurações
+    // Isso é mais seguro que mostrar tudo
     return links.filter(link => {
       // Se não tem módulo definido, sempre mostra (Dashboard, Configurações)
       if (!link.modulo) {
@@ -97,7 +100,9 @@ export function Sidebar({ userType }: SidebarProps) {
       }
       
       // Verifica se o órgão tem acesso ao módulo
-      return temAcesso(link.modulo)
+      const hasAccess = temAcesso(link.modulo)
+      console.log(`[Sidebar] Módulo ${link.modulo}: ${hasAccess ? 'permitido' : 'bloqueado'}`);
+      return hasAccess
     })
   }
 

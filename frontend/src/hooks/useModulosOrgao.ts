@@ -49,8 +49,11 @@ export function useModulosOrgao() {
   const carregarModulosDaAPI = useCallback(async () => {
     // Verifica se há token de autenticação antes de fazer requisição
     const token = getAuthToken();
+    console.log('[useModulosOrgao] Token disponível:', !!token);
+    
     if (!token) {
       // Se não há token, não é usuário de órgão autenticado
+      console.log('[useModulosOrgao] Sem token, retornando vazio');
       setModulos([]);
       setLoading(false);
       return;
@@ -60,6 +63,7 @@ export function useModulosOrgao() {
     const adminToken = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
     if (adminToken) {
       // Admin não precisa de módulos
+      console.log('[useModulosOrgao] Token admin detectado, ignorando módulos');
       setModulos([]);
       setLoading(false);
       return;
@@ -68,21 +72,26 @@ export function useModulosOrgao() {
     setLoading(true);
     try {
       // SEMPRE busca módulos atualizados do backend (fonte da verdade)
-      console.log('[useModulosOrgao] Buscando módulos da API...');
+      console.log('[useModulosOrgao] Buscando módulos de:', `${API_URL}/api/orgaos/me`);
       const response = await authFetch(`${API_URL}/api/orgaos/me`);
+      
+      console.log('[useModulosOrgao] Response status:', response.status);
       
       if (response.ok) {
         const orgao = await response.json();
+        console.log('[useModulosOrgao] Resposta completa do backend:', orgao);
+        
         // Módulos vêm do banco de dados, sempre atualizados
         const modulosAtivos = orgao.modulos_ativos || orgao.modulos_habilitados || [];
         
         // Debug: log dos módulos recebidos
-        console.log('[useModulosOrgao] Módulos recebidos do backend:', modulosAtivos);
+        console.log('[useModulosOrgao] Módulos extraídos:', modulosAtivos);
         
         setModulos(modulosAtivos);
       } else {
         // Se não autenticado ou erro, não mostra módulos
-        console.warn('[useModulosOrgao] Erro na resposta:', response.status, response.statusText);
+        const errorText = await response.text().catch(() => 'Erro desconhecido');
+        console.error('[useModulosOrgao] Erro na resposta:', response.status, response.statusText, errorText);
         setModulos([]);
       }
     } catch (error) {
