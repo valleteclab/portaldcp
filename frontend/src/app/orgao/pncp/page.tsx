@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { 
   RefreshCw, 
   Send, 
@@ -130,7 +132,7 @@ interface ItemPcaForm {
 
 import { API_URL, authFetch, getAuthHeaders } from '@/lib/api'
 
-export default function PncpPage() {
+function PncpPageContent() {
   const [pendentes, setPendentes] = useState<SyncRecord[]>([])
   const [erros, setErros] = useState<SyncRecord[]>([])
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
@@ -2440,5 +2442,13 @@ export default function PncpPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function PncpPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.PNCP}>
+      <PncpPageContent />
+    </ModuleGuard>
   )
 }

@@ -46,6 +46,8 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { BuscaItemCatalogoProprio, BuscaClassificacao } from '@/components/catalogo'
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -113,7 +115,7 @@ const PRIORIDADE_CONFIG: Record<number, { label: string; cor: string }> = {
   5: { label: 'Muito Baixa', cor: 'bg-gray-100 text-gray-800' }
 }
 
-export default function DemandasPage() {
+function DemandasPageContent() {
   const [demandas, setDemandas] = useState<Demanda[]>([])
   const [estatisticas, setEstatisticas] = useState<Estatisticas | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1005,5 +1007,13 @@ function DetalhesDemandaModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+export default function DemandasPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.DEMANDAS}>
+      <DemandasPageContent />
+    </ModuleGuard>
   )
 }

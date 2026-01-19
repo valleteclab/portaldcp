@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { 
   Plus, 
   FileText, 
@@ -54,7 +56,7 @@ const STATUS_CONTRATO = {
   'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800', icon: AlertTriangle }
 }
 
-export default function ContratosOrgaoPage() {
+function ContratosOrgaoPageContent() {
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
@@ -380,5 +382,13 @@ export default function ContratosOrgaoPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function ContratosOrgaoPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.CONTRATOS}>
+      <ContratosOrgaoPageContent />
+    </ModuleGuard>
   )
 }

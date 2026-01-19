@@ -13,6 +13,8 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useRouter } from "next/navigation"
+import { ModuleGuard } from "@/components/ModuleGuard"
+import { ModuloSistema } from "@/hooks/useModulosOrgao"
 
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -94,7 +96,7 @@ const formatarMoeda = (valor: number | string) => {
   return (numero || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-export default function LicitacoesOrgaoPage() {
+function LicitacoesOrgaoPageContent() {
   const router = useRouter()
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
   const [loading, setLoading] = useState(true)
@@ -410,5 +412,13 @@ export default function LicitacoesOrgaoPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+export default function LicitacoesOrgaoPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.LICITACOES}>
+      <LicitacoesOrgaoPageContent />
+    </ModuleGuard>
   )
 }

@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { 
   Plus, 
   FileText, 
@@ -153,7 +155,7 @@ const PRIORIDADES = {
   5: { label: 'Muito Baixa', cor: 'bg-gray-100 text-gray-800' }
 }
 
-export default function PcaPage() {
+function PcaPageContent() {
   const [pcas, setPcas] = useState<PCA[]>([])
   const [pcaAtual, setPcaAtual] = useState<PCA | null>(null)
   const [loading, setLoading] = useState(true)
@@ -2079,5 +2081,13 @@ export default function PcaPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function PcaPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.PCA}>
+      <PcaPageContent />
+    </ModuleGuard>
   )
 }

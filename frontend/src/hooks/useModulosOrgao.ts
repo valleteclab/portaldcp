@@ -47,23 +47,21 @@ export function useModulosOrgao() {
   const pathname = usePathname();
 
   const carregarModulosDaAPI = useCallback(async () => {
-    // Verifica se há token de autenticação antes de fazer requisição
-    const token = getAuthToken();
-    console.log('[useModulosOrgao] Token disponível:', !!token);
-    
-    if (!token) {
-      // Se não há token, não é usuário de órgão autenticado
-      console.log('[useModulosOrgao] Sem token, retornando vazio');
+    // Verifica se estamos na área de admin (não precisa de módulos)
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+      console.log('[useModulosOrgao] Área admin, ignorando módulos');
       setModulos([]);
       setLoading(false);
       return;
     }
 
-    // Verifica se é admin (admin não precisa de módulos)
-    const adminToken = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
-    if (adminToken) {
-      // Admin não precisa de módulos
-      console.log('[useModulosOrgao] Token admin detectado, ignorando módulos');
+    // Verifica se há token de autenticação de órgão antes de fazer requisição
+    const token = getAuthToken();
+    console.log('[useModulosOrgao] Token de órgão disponível:', !!token);
+    
+    if (!token) {
+      // Se não há token de órgão, não busca módulos
+      console.log('[useModulosOrgao] Sem token de órgão, retornando vazio');
       setModulos([]);
       setLoading(false);
       return;
