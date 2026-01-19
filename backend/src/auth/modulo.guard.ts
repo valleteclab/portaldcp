@@ -40,18 +40,16 @@ export class ModuloGuard implements CanActivate {
     const user: JwtPayload = request.user;
 
     if (!user) {
-      // Debug: log quando não há usuário
-      console.log('[ModuloGuard] Usuário não autenticado na requisição:', request.url);
       throw new ForbiddenException('Usuário não autenticado');
     }
 
-    // Debug: log do usuário e módulos requeridos
-    console.log('[ModuloGuard] Verificando módulos para usuário:', {
-      type: user.type,
-      sub: user.sub,
-      orgaoId: user.orgaoId,
-      requiredModules,
-    });
+    // Debug: log do usuário e módulos requeridos (reduzido para evitar rate limit)
+    // console.log('[ModuloGuard] Verificando módulos para usuário:', {
+    //   type: user.type,
+    //   sub: user.sub,
+    //   orgaoId: user.orgaoId,
+    //   requiredModules,
+    // });
 
     // Admin tem acesso a tudo
     if (user.type === UserType.ADMIN || user.role === 'admin') {
@@ -65,20 +63,22 @@ export class ModuloGuard implements CanActivate {
         where: { id: user.sub },
       });
       orgaoModulos = orgao?.modulos_habilitados || [];
-      console.log('[ModuloGuard] Módulos do órgão no banco:', {
-        orgaoId: user.sub,
-        modulos: orgaoModulos,
-      });
+    } else if (user.type === UserType.USUARIO) {
+      // Para usuários vinculados a um órgão, busca orgaoId do payload
+      // Compatibilidade: verifica tanto orgaoId quanto orgao_id (legado)
+      const orgaoId = user.orgaoId || (user as any).orgao_id;
+      if (orgaoId) {
+        const orgao = await this.orgaoRepository.findOne({
+          where: { id: orgaoId },
+        });
+        orgaoModulos = orgao?.modulos_habilitados || [];
+      }
     } else if (user.orgaoId) {
-      // Para usuários vinculados a um órgão
+      // Fallback para outros tipos de usuário
       const orgao = await this.orgaoRepository.findOne({
         where: { id: user.orgaoId },
       });
       orgaoModulos = orgao?.modulos_habilitados || [];
-      console.log('[ModuloGuard] Módulos do órgão vinculado no banco:', {
-        orgaoId: user.orgaoId,
-        modulos: orgaoModulos,
-      });
     }
     
     // Se não tiver módulos definidos no banco, permite acesso (compatibilidade)
@@ -90,20 +90,11 @@ export class ModuloGuard implements CanActivate {
         orgaoModulos.includes(modulo)
       );
 
-      console.log('[ModuloGuard] Verificação de acesso:', {
-        requiredModules,
-        orgaoModulos,
-        hasAccess,
-      });
-
       if (!hasAccess) {
-        console.log('[ModuloGuard] ACESSO NEGADO - Módulo requerido não está habilitado');
         throw new ForbiddenException(
           `Seu órgão não tem acesso ao módulo: ${requiredModules.join(', ')}. Configure os módulos no painel administrativo.`
         );
       }
-    } else {
-      console.log('[ModuloGuard] Permite acesso - nenhum módulo definido no banco (compatibilidade)');
     }
     // Se não há módulos definidos, permite acesso (compatibilidade com sistema antigo)
 

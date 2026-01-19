@@ -50,7 +50,7 @@ export class UsuariosController {
       email: usuario.email,
       type: 'USUARIO',
       role: usuario.role,
-      orgao_id: usuario.orgao_id,
+      orgaoId: usuario.orgao_id, // Usar camelCase para compatibilidade com JwtPayload
     };
     const access_token = this.jwtService.sign(payload);
     
