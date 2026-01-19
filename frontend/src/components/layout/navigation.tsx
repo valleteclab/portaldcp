@@ -85,11 +85,6 @@ export function Sidebar({ userType }: SidebarProps) {
         return true
       }
       
-      // LICITACOES é sempre habilitado (obrigatório)
-      if (link.modulo === ModuloSistema.LICITACOES) {
-        return true
-      }
-      
       // Verifica se o órgão tem acesso ao módulo
       return temAcesso(link.modulo)
     })

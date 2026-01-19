@@ -223,14 +223,15 @@ export class OrgaosService {
 
   /**
    * Atualiza os módulos habilitados de um órgão
+   * Permite que qualquer módulo seja habilitado/desabilitado, incluindo LICITACOES
    */
   async atualizarModulos(id: string, modulos: ModuloSistema[]): Promise<Orgao> {
     const orgao = await this.findOne(id);
     
-    // Garante que LICITACOES sempre está presente (obrigatório)
-    const modulosAtualizados = [...new Set([...modulos, ModuloSistema.LICITACOES])];
+    // Remove duplicatas e salva exatamente como enviado pelo frontend
+    const modulosAtualizados = [...new Set(modulos)];
     
-    orgao.modulos_habilitados = modulosAtualizados;
+    orgao.modulos_habilitados = modulosAtualizados.length > 0 ? modulosAtualizados : null;
     return await this.orgaoRepository.save(orgao);
   }
 }

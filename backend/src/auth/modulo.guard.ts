@@ -57,11 +57,7 @@ export class ModuloGuard implements CanActivate {
       return true;
     }
     
-    // Sempre permite acesso ao módulo LICITACOES (obrigatório)
-    if (requiredModules.includes(ModuloSistema.LICITACOES)) {
-      return true;
-    }
-    
+    // Verifica se o órgão tem acesso aos módulos requeridos
     const hasAccess = requiredModules.some(modulo => 
       orgaoModulos.includes(modulo)
     );

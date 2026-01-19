@@ -147,7 +147,7 @@ export class Orgao {
     nullable: true,
     default: null,
   })
-  modulos_habilitados: ModuloSistema[]; // Módulos habilitados para este órgão (LICITACOES é sempre obrigatório)
+  modulos_habilitados: ModuloSistema[]; // Módulos habilitados para este órgão
 
   @CreateDateColumn()
   created_at: Date;
