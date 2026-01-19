@@ -2119,9 +2119,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                       ? `${API_URL}/api/itens/${editingItem.id}`
                       : `${API_URL}/api/itens`
                     
-                    const res = await fetch(url, {
+                    const res = await authFetch(url, {
                       method: editingItem.id ? 'PUT' : 'POST',
-                      headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify(itemData)
                     })
                     

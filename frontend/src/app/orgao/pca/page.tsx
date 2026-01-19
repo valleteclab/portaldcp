@@ -1260,12 +1260,14 @@ function PcaPageContent() {
                   Exportar PNCP (Excel)
                 </Button>
 
+                {/* TODO: Implementar página de relatório 
                 <Button variant="outline" asChild>
                   <Link href={`/orgao/pca/${pcaAtual.id}/relatorio`}>
                     <BarChart3 className="w-4 h-4 mr-2" />
                     Relatório
                   </Link>
                 </Button>
+                */}
               </div>
             </CardContent>
           </Card>

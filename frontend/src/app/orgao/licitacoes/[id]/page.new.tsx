@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+import { authFetch, API_URL } from "@/lib/api"
 
 const FASES_INTERNAS = [
   { id: 'PLANEJAMENTO', label: 'Planejamento', icon: FileText },
@@ -66,13 +65,13 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const resLic = await fetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
+      const resLic = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
       if (resLic.ok) setLicitacao(await resLic.json())
 
-      const resDocs = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
+      const resDocs = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos`)
       if (resDocs.ok) setDocumentos(await resDocs.json())
 
-      const resResumo = await fetch(`${API_URL}/api/fase-interna/${licitacaoId}/resumo`)
+      const resResumo = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/resumo`)
       if (resResumo.ok) setResumoFaseInterna(await resResumo.json())
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
