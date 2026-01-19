@@ -98,9 +98,12 @@ export class OrgaosController {
     // Mapeia modulos_habilitados para modulos_ativos para compatibilidade com frontend
     return orgaos.map(orgao => {
       const { senha_hash, ...orgaoSemSenha } = orgao;
+      // Busca módulos atualizados do banco para garantir consistência
+      const modulos = orgao.modulos_habilitados || [];
       return {
         ...orgaoSemSenha,
-        modulos_ativos: orgao.modulos_habilitados || [],
+        modulos_ativos: modulos,
+        modulos_habilitados: modulos, // Compatibilidade
       };
     });
   }

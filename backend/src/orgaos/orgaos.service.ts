@@ -210,18 +210,15 @@ export class OrgaosService {
   async getModulosOrgao(id: string): Promise<ModuloSistema[]> {
     const orgao = await this.findOne(id);
     
-    // Se não tiver módulos definidos no banco, retorna apenas LICITACOES (obrigatório)
+    // Retorna os módulos do banco de dados (já inclui LICITACOES se foi salvo)
+    // Se não tiver módulos definidos, retorna array vazio (o guard permite acesso por compatibilidade)
     if (!orgao.modulos_habilitados || orgao.modulos_habilitados.length === 0) {
-      return [ModuloSistema.LICITACOES];
+      return [];
     }
     
-    // Sempre garante que LICITACOES está incluído (obrigatório)
-    const modulos = [...orgao.modulos_habilitados];
-    if (!modulos.includes(ModuloSistema.LICITACOES)) {
-      modulos.push(ModuloSistema.LICITACOES);
-    }
-    
-    return modulos;
+    // Retorna os módulos exatamente como estão no banco
+    // O backend sempre garante que LICITACOES está presente ao salvar (em atualizarModulos)
+    return [...orgao.modulos_habilitados];
   }
 
   /**
