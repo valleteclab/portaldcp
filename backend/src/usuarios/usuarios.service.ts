@@ -1,14 +1,20 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { Usuario, RoleUsuario } from './entities/usuario.entity';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 
 @Injectable()
 export class UsuariosService {
+  private readonly logger = new Logger(UsuariosService.name);
+
   constructor(
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(Orgao)
+    private readonly orgaoRepository: Repository<Orgao>,
   ) {}
 
   async create(data: {
@@ -156,6 +162,84 @@ export class UsuariosService {
   async desativar(id: string): Promise<Usuario> {
     const usuario = await this.findById(id);
     usuario.ativo = false;
+    return await this.usuarioRepository.save(usuario);
+  }
+
+  // ============ MÓDULOS DO USUÁRIO ============
+
+  /**
+   * Retorna os módulos habilitados para o usuário.
+   * Se o usuário não tem módulos configurados, retorna os módulos do órgão.
+   */
+  async getModulosUsuario(id: string): Promise<{
+    modulos_usuario: ModuloSistema[];
+    modulos_orgao: ModuloSistema[];
+    modulos_efetivos: ModuloSistema[];
+    herdaDoOrgao: boolean;
+  }> {
+    const usuario = await this.findById(id);
+    
+    // Buscar módulos do órgão
+    let modulosOrgao: ModuloSistema[] = [];
+    if (usuario.orgao_id) {
+      const orgao = await this.orgaoRepository.findOne({
+        where: { id: usuario.orgao_id },
+      });
+      modulosOrgao = orgao?.modulos_habilitados || [];
+    }
+
+    const modulosUsuario = usuario.modulos_habilitados || [];
+    const herdaDoOrgao = modulosUsuario.length === 0;
+
+    // Módulos efetivos: interseção se usuário tem módulos, senão herda do órgão
+    let modulosEfetivos: ModuloSistema[];
+    if (herdaDoOrgao) {
+      modulosEfetivos = modulosOrgao;
+    } else {
+      // Interseção: usuário só pode ter acesso aos módulos que o órgão tem
+      modulosEfetivos = modulosUsuario.filter(m => modulosOrgao.includes(m));
+    }
+
+    return {
+      modulos_usuario: modulosUsuario,
+      modulos_orgao: modulosOrgao,
+      modulos_efetivos: modulosEfetivos,
+      herdaDoOrgao,
+    };
+  }
+
+  /**
+   * Atualiza os módulos habilitados para o usuário.
+   * Os módulos devem ser um subconjunto dos módulos do órgão.
+   */
+  async atualizarModulos(id: string, modulos: ModuloSistema[]): Promise<Usuario> {
+    const usuario = await this.findById(id);
+
+    // Se o usuário está vinculado a um órgão, validar que os módulos
+    // são um subconjunto dos módulos do órgão
+    if (usuario.orgao_id && modulos.length > 0) {
+      const orgao = await this.orgaoRepository.findOne({
+        where: { id: usuario.orgao_id },
+      });
+      const modulosOrgao = orgao?.modulos_habilitados || [];
+
+      // Verificar se todos os módulos solicitados estão disponíveis no órgão
+      const modulosInvalidos = modulos.filter(m => !modulosOrgao.includes(m));
+      if (modulosInvalidos.length > 0) {
+        throw new BadRequestException(
+          `Os seguintes módulos não estão habilitados para o órgão: ${modulosInvalidos.join(', ')}`
+        );
+      }
+    }
+
+    // Remove duplicatas
+    const modulosUnicos = [...new Set(modulos)];
+    
+    // Se passar array vazio, salva null (herda do órgão)
+    usuario.modulos_habilitados = modulosUnicos.length > 0 ? modulosUnicos : (null as any);
+    
+    this.logger.log(`[UsuariosService] Módulos atualizados para usuário ${id}: ${modulosUnicos}`);
+    
     return await this.usuarioRepository.save(usuario);
   }
 }

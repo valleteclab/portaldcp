@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
@@ -36,7 +37,7 @@ import { ModuloGuard } from './modulo.guard';
       },
       inject: [ConfigService],
     }),
-    TypeOrmModule.forFeature([Orgao, Fornecedor]),
+    TypeOrmModule.forFeature([Orgao, Fornecedor, Usuario]),
   ],
   providers: [
     AuthService,

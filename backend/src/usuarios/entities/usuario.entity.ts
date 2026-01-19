@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 export enum RoleUsuario {
   ADMIN = 'ADMIN',
@@ -57,6 +58,18 @@ export class Usuario {
 
   @Column({ nullable: true })
   ultimo_acesso: Date;
+
+  /**
+   * Módulos habilitados para este usuário.
+   * Se null/vazio: herda todos os módulos do órgão
+   * Se preenchido: deve ser um subconjunto dos módulos do órgão
+   */
+  @Column({
+    type: 'simple-array',
+    nullable: true,
+    default: null,
+  })
+  modulos_habilitados: ModuloSistema[];
 
   @CreateDateColumn()
   created_at: Date;

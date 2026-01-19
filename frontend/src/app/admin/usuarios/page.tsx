@@ -54,7 +54,9 @@ import {
   Edit,
   CheckCircle,
   XCircle,
+  Package,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -77,7 +79,22 @@ interface Usuario {
   orgao?: Orgao
   ativo: boolean
   created_at: string
+  modulos_habilitados?: string[]
 }
+
+// Lista de módulos disponíveis
+const MODULOS_DISPONIVEIS = [
+  { codigo: 'LICITACOES', nome: 'Licitações', descricao: 'Gerenciamento de processos licitatórios' },
+  { codigo: 'PCA', nome: 'PCA', descricao: 'Plano de Contratações Anual' },
+  { codigo: 'PNCP', nome: 'PNCP', descricao: 'Integração com Portal Nacional de Contratações Públicas' },
+  { codigo: 'CONTRATOS', nome: 'Contratos', descricao: 'Gestão de contratos' },
+  { codigo: 'DEMANDAS', nome: 'Demandas', descricao: 'Gestão de demandas de contratação' },
+  { codigo: 'ATAS', nome: 'Atas', descricao: 'Atas de Registro de Preços' },
+  { codigo: 'DISPUTA', nome: 'Disputa', descricao: 'Sala de disputa de licitações' },
+  { codigo: 'CREDENCIAMENTO', nome: 'Credenciamento', descricao: 'Credenciamento de fornecedores' },
+  { codigo: 'USUARIOS', nome: 'Usuários', descricao: 'Gestão de usuários do órgão' },
+  { codigo: 'FORNECEDORES', nome: 'Fornecedores', descricao: 'Gestão de fornecedores' },
+]
 
 const roleLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   ADMIN: { label: 'Administrador', color: 'bg-red-500', icon: <Shield className="h-3 w-3" /> },
@@ -99,8 +116,15 @@ export default function AdminUsuariosPage() {
   const [showNovoUsuario, setShowNovoUsuario] = useState(false)
   const [showEditarUsuario, setShowEditarUsuario] = useState(false)
   const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
+  const [showModulosUsuario, setShowModulosUsuario] = useState(false)
   const [usuarioSelecionado, setUsuarioSelecionado] = useState<Usuario | null>(null)
   const [salvando, setSalvando] = useState(false)
+
+  // Módulos do usuário
+  const [modulosUsuario, setModulosUsuario] = useState<string[]>([])
+  const [modulosOrgao, setModulosOrgao] = useState<string[]>([])
+  const [herdaDoOrgao, setHerdaDoOrgao] = useState(true)
+  const [carregandoModulos, setCarregandoModulos] = useState(false)
 
   const [formUsuario, setFormUsuario] = useState({
     nome: '',
@@ -270,6 +294,77 @@ export default function AdminUsuariosPage() {
     }
   }
 
+  // ============ FUNÇÕES DE MÓDULOS ============
+
+  const abrirModalModulos = async (usuario: Usuario) => {
+    setUsuarioSelecionado(usuario)
+    setCarregandoModulos(true)
+    setShowModulosUsuario(true)
+
+    try {
+      const res = await adminFetch(`${API_URL}/api/usuarios/${usuario.id}/modulos`)
+      if (res.ok) {
+        const data = await res.json()
+        setModulosUsuario(data.modulos_usuario || [])
+        setModulosOrgao(data.modulos_orgao || [])
+        setHerdaDoOrgao(data.herdaDoOrgao)
+      }
+    } catch (error) {
+      console.error('Erro ao carregar módulos:', error)
+    } finally {
+      setCarregandoModulos(false)
+    }
+  }
+
+  const handleToggleModulo = (codigo: string) => {
+    if (herdaDoOrgao) {
+      // Se estava herdando, agora vai personalizar
+      setHerdaDoOrgao(false)
+      // Começa com o módulo clicado ativado
+      setModulosUsuario([codigo])
+    } else {
+      setModulosUsuario(prev =>
+        prev.includes(codigo)
+          ? prev.filter(m => m !== codigo)
+          : [...prev, codigo]
+      )
+    }
+  }
+
+  const handleHerdarDoOrgao = () => {
+    setHerdaDoOrgao(true)
+    setModulosUsuario([])
+  }
+
+  const salvarModulosUsuario = async () => {
+    if (!usuarioSelecionado) return
+
+    setSalvando(true)
+    try {
+      // Se herda do órgão, envia array vazio
+      const modulosParaSalvar = herdaDoOrgao ? [] : modulosUsuario
+
+      const res = await adminFetch(`${API_URL}/api/usuarios/${usuarioSelecionado.id}/modulos`, {
+        method: 'PUT',
+        body: JSON.stringify({ modulos: modulosParaSalvar }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.message || 'Erro ao salvar módulos')
+      }
+
+      setShowModulosUsuario(false)
+      carregarDados()
+      alert('Módulos do usuário atualizados com sucesso!')
+    } catch (error: any) {
+      setErro(error.message)
+      alert(`Erro: ${error.message}`)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   const usuariosFiltrados = usuarios.filter((u) => {
     const matchBusca =
       u.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -415,6 +510,14 @@ export default function AdminUsuariosPage() {
                         </Button>
                       </TableCell>
                       <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Configurar módulos"
+                          onClick={() => abrirModalModulos(usuario)}
+                        >
+                          <Package className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -618,6 +721,122 @@ export default function AdminUsuariosPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Modal Módulos do Usuário */}
+        <Dialog open={showModulosUsuario} onOpenChange={setShowModulosUsuario}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Módulos do Usuário
+              </DialogTitle>
+              <DialogDescription>
+                Configure quais módulos {usuarioSelecionado?.nome} pode acessar.
+                <br />
+                <span className="text-amber-600">
+                  Nota: O usuário só pode acessar módulos que o órgão também tem.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+
+            {carregandoModulos ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Opção herdar do órgão */}
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="herdar-orgao"
+                      checked={herdaDoOrgao}
+                      onCheckedChange={() => handleHerdarDoOrgao()}
+                    />
+                    <label htmlFor="herdar-orgao" className="text-sm font-medium cursor-pointer">
+                      Herdar todos os módulos do órgão
+                    </label>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1 ml-6">
+                    O usuário terá acesso a todos os módulos habilitados para o órgão
+                  </p>
+                </div>
+
+                {/* Lista de módulos */}
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {MODULOS_DISPONIVEIS.map((modulo) => {
+                    const disponivelNoOrgao = modulosOrgao.includes(modulo.codigo)
+                    const ativoParaUsuario = herdaDoOrgao 
+                      ? disponivelNoOrgao 
+                      : modulosUsuario.includes(modulo.codigo)
+                    
+                    return (
+                      <div 
+                        key={modulo.codigo}
+                        className={`p-3 rounded-lg border ${
+                          !disponivelNoOrgao 
+                            ? 'bg-gray-100 border-gray-200 opacity-50' 
+                            : ativoParaUsuario
+                              ? 'bg-green-50 border-green-200'
+                              : 'bg-white border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`modulo-${modulo.codigo}`}
+                              checked={ativoParaUsuario}
+                              disabled={!disponivelNoOrgao || herdaDoOrgao}
+                              onCheckedChange={() => handleToggleModulo(modulo.codigo)}
+                            />
+                            <label 
+                              htmlFor={`modulo-${modulo.codigo}`}
+                              className={`text-sm font-medium ${!disponivelNoOrgao ? 'text-gray-400' : 'cursor-pointer'}`}
+                            >
+                              {modulo.nome}
+                            </label>
+                          </div>
+                          {!disponivelNoOrgao && (
+                            <Badge variant="outline" className="text-xs text-gray-400">
+                              Não disponível no órgão
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 ml-6 mt-1">
+                          {modulo.descricao}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Resumo */}
+                <div className="p-3 bg-gray-50 rounded-lg text-sm">
+                  <strong>Resumo:</strong>{' '}
+                  {herdaDoOrgao ? (
+                    <span className="text-blue-600">
+                      Herdando {modulosOrgao.length} módulo(s) do órgão
+                    </span>
+                  ) : (
+                    <span className="text-green-600">
+                      {modulosUsuario.length} módulo(s) selecionado(s) manualmente
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowModulosUsuario(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={salvarModulosUsuario} disabled={salvando || carregandoModulos}>
+                {salvando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

@@ -1,7 +1,11 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe, UnauthorizedException, Req, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { OrgaosService } from './orgaos.service';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { Orgao } from './entities/orgao.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
+import { ModuloSistema } from './enums/modulos.enum';
 import { createHash } from 'crypto';
 import { AuthService } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
@@ -14,6 +18,8 @@ export class OrgaosController {
   constructor(
     private readonly orgaosService: OrgaosService,
     private readonly authService: AuthService,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
   @Post()
@@ -114,6 +120,7 @@ export class OrgaosController {
    * Retorna o órgão logado atual com módulos atualizados do banco de dados
    * Usa o JWT para identificar o órgão
    * SEMPRE busca módulos do banco (fonte da verdade)
+   * Para usuários: calcula módulos efetivos (interseção órgão + usuário)
    */
   @Get('me')
   async getMe(@Req() request: { user: JwtPayload }) {
@@ -124,12 +131,18 @@ export class OrgaosController {
     }
 
     let orgaoId: string;
+    let usuarioId: string | null = null;
     
     // Se for login direto do órgão
     if (user.type === UserType.ORGAO) {
       orgaoId = user.sub;
     } 
-    // Se for usuário vinculado a um órgão (verifica ambos formatos: camelCase e snake_case)
+    // Se for usuário vinculado a um órgão
+    else if (user.type === UserType.USUARIO) {
+      orgaoId = user.orgaoId || (user as any).orgao_id;
+      usuarioId = user.sub;
+    }
+    // Fallback para outros tipos
     else if (user.orgaoId || (user as any).orgao_id) {
       orgaoId = user.orgaoId || (user as any).orgao_id;
     } 
@@ -143,19 +156,41 @@ export class OrgaosController {
       throw new UnauthorizedException('Órgão não identificado');
     }
 
-    // Busca módulos diretamente do banco de dados
-    const modulos = await this.orgaosService.getModulosOrgao(orgaoId);
+    // Busca módulos do órgão
+    const modulosOrgao = await this.orgaosService.getModulosOrgao(orgaoId);
     const orgao = await this.orgaosService.findOne(orgaoId);
     
-    this.logger.log(`[GET /me] Retornando módulos para órgão ${orgaoId}: ${JSON.stringify(modulos)}`);
+    // Calcula módulos efetivos
+    let modulosEfetivos: ModuloSistema[] = modulosOrgao;
+    let herdaDoOrgao = true;
+
+    // Se for um usuário, verifica se tem módulos específicos configurados
+    if (usuarioId) {
+      const usuario = await this.usuarioRepository.findOne({
+        where: { id: usuarioId },
+      });
+      
+      if (usuario?.modulos_habilitados && usuario.modulos_habilitados.length > 0) {
+        // Usuário tem módulos específicos: faz interseção com módulos do órgão
+        modulosEfetivos = usuario.modulos_habilitados.filter(m => 
+          modulosOrgao.includes(m)
+        );
+        herdaDoOrgao = false;
+        this.logger.log(`[GET /me] Usuário ${usuarioId} com módulos personalizados: ${JSON.stringify(modulosEfetivos)}`);
+      }
+    }
+    
+    this.logger.log(`[GET /me] Módulos efetivos para ${user.type} ${user.sub}: ${JSON.stringify(modulosEfetivos)}`);
     
     // Remove senha do retorno
     const { senha_hash, ...orgaoSemSenha } = orgao;
     
     return {
       ...orgaoSemSenha,
-      modulos_ativos: modulos, // Módulos sempre vêm do banco de dados
-      modulos_habilitados: modulos, // Compatibilidade
+      modulos_ativos: modulosEfetivos, // Módulos efetivos para o usuário
+      modulos_habilitados: modulosEfetivos, // Compatibilidade
+      modulos_orgao: modulosOrgao, // Todos os módulos do órgão (para referência)
+      herda_modulos_orgao: herdaDoOrgao, // Indica se está herdando ou tem personalização
     };
   }
 

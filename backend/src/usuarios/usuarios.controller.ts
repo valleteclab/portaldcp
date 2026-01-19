@@ -7,10 +7,12 @@ import {
   Body,
   Param,
   Query,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsuariosService } from './usuarios.service';
 import { RoleUsuario } from './entities/usuario.entity';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { Public } from '../auth/public.decorator';
 
 @Controller('usuarios')
@@ -119,5 +121,26 @@ export class UsuariosController {
   async delete(@Param('id') id: string) {
     await this.usuariosService.delete(id);
     return { success: true, message: 'Usuário removido' };
+  }
+
+  // ============ MÓDULOS DO USUÁRIO ============
+
+  @Get(':id/modulos')
+  async getModulos(@Param('id') id: string) {
+    return this.usuariosService.getModulosUsuario(id);
+  }
+
+  @Put(':id/modulos')
+  async updateModulos(
+    @Param('id') id: string,
+    @Body() body: { modulos: ModuloSistema[] },
+  ) {
+    const usuario = await this.usuariosService.atualizarModulos(id, body.modulos);
+    const { senha_hash, ...result } = usuario;
+    return {
+      success: true,
+      message: 'Módulos do usuário atualizados',
+      usuario: result,
+    };
   }
 }

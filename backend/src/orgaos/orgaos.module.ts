@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Orgao } from './entities/orgao.entity';
 import { UnidadeOrgao } from './entities/unidade-orgao.entity';
 import { SolicitacaoAcesso } from './entities/solicitacao-acesso.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { OrgaosService } from './orgaos.service';
 import { OrgaosController } from './orgaos.controller';
 import { SolicitacoesService } from './solicitacoes.service';
@@ -13,7 +14,7 @@ import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Orgao, UnidadeOrgao, SolicitacaoAcesso]),
+    TypeOrmModule.forFeature([Orgao, UnidadeOrgao, SolicitacaoAcesso, Usuario]),
     AuthModule,
   ],
   controllers: [OrgaosController, SolicitacoesController, UnidadesController],
