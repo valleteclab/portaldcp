@@ -45,6 +45,7 @@ export function useModulosOrgao() {
   const [loading, setLoading] = useState(true);
 
   const carregarModulosDaAPI = async () => {
+    setLoading(true);
     try {
       // SEMPRE busca módulos atualizados do backend (fonte da verdade)
       const response = await authFetch(`${API_URL}/api/orgaos/me`);
@@ -53,13 +54,23 @@ export function useModulosOrgao() {
         const orgao = await response.json();
         // Módulos vêm do banco de dados, sempre atualizados
         const modulosAtivos = orgao.modulos_ativos || orgao.modulos_habilitados || [];
+        
+        // Debug: log dos módulos recebidos
+        console.log('[useModulosOrgao] Módulos recebidos do backend:', modulosAtivos);
+        console.log('[useModulosOrgao] Orgao completo:', { 
+          id: orgao.id, 
+          modulos_ativos: orgao.modulos_ativos, 
+          modulos_habilitados: orgao.modulos_habilitados 
+        });
+        
         setModulos(modulosAtivos);
       } else {
         // Se não autenticado ou erro, não mostra módulos
+        console.warn('[useModulosOrgao] Erro na resposta:', response.status, response.statusText);
         setModulos([]);
       }
     } catch (error) {
-      console.error('Erro ao buscar módulos da API:', error);
+      console.error('[useModulosOrgao] Erro ao buscar módulos da API:', error);
       // Em caso de erro, não assume módulos (segurança)
       setModulos([]);
     } finally {
