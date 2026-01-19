@@ -1095,11 +1095,12 @@ export class PncpService implements OnModuleInit {
       // Tenta buscar com orgao_id se fornecido
       if (orgaoId) {
         // Busca através da relação com licitação para garantir filtro correto
+        // Usa CAST para evitar erro "operator does not exist: uuid = text"
         const results = await this.pncpSyncRepository
           .createQueryBuilder('sync')
           .leftJoinAndSelect('sync.licitacao', 'licitacao')
           .where('sync.status = :status', { status: StatusSincronizacao.PENDENTE })
-          .andWhere('(sync.orgao_id = :orgaoId OR licitacao.orgao_id = :orgaoId)', { orgaoId })
+          .andWhere('(sync.orgao_id = :orgaoId OR CAST(licitacao.orgao_id AS TEXT) = :orgaoId)', { orgaoId })
           .orderBy('sync.created_at', 'ASC')
           .getMany();
         return results;
@@ -1124,11 +1125,12 @@ export class PncpService implements OnModuleInit {
       // Tenta buscar com orgao_id se fornecido
       if (orgaoId) {
         // Busca através da relação com licitação para garantir filtro correto
+        // Usa CAST para evitar erro "operator does not exist: uuid = text"
         const results = await this.pncpSyncRepository
           .createQueryBuilder('sync')
           .leftJoinAndSelect('sync.licitacao', 'licitacao')
           .where('sync.status = :status', { status: StatusSincronizacao.ERRO })
-          .andWhere('(sync.orgao_id = :orgaoId OR licitacao.orgao_id = :orgaoId)', { orgaoId })
+          .andWhere('(sync.orgao_id = :orgaoId OR CAST(licitacao.orgao_id AS TEXT) = :orgaoId)', { orgaoId })
           .orderBy('sync.updated_at', 'DESC')
           .getMany();
         return results;
@@ -1736,23 +1738,49 @@ export class PncpService implements OnModuleInit {
   async excluirPCA(anoPca: string, sequencialPca: string, justificativa?: string): Promise<PncpResponseDto> {
     const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
 
+    // Garantir que temos um token válido antes de fazer a requisição
+    this.logger.log(`[EXCLUIR_PCA] Iniciando exclusão - Ano: ${anoPca}, Seq: ${sequencialPca}, CNPJ: ${cnpj}`);
+    
     try {
+      // Forçar renovação do token antes da exclusão
+      await this.getValidToken();
+      this.logger.log(`[EXCLUIR_PCA] Token obtido/validado com sucesso`);
+      
       // PNCP requer justificativa para exclusão
       await this.axiosInstance.delete(
         `/orgaos/${cnpj}/pca/${anoPca}/${sequencialPca}`,
-        { data: { justificativa: justificativa || 'Exclusão para teste de integração' } }
+        { data: { justificativa: justificativa || 'Exclusão solicitada pelo usuário' } }
       );
 
-      this.logger.log(`PCA excluído do PNCP: ${anoPca}/${sequencialPca}`);
+      this.logger.log(`[EXCLUIR_PCA] PCA excluído do PNCP: ${anoPca}/${sequencialPca}`);
 
       return {
         sucesso: true,
         mensagem: 'PCA excluído com sucesso'
       };
-    } catch (error) {
+    } catch (error: any) {
+      const status = error.response?.status;
+      const errorData = error.response?.data;
+      
+      this.logger.error(`[EXCLUIR_PCA] Erro ao excluir PCA ${anoPca}/${sequencialPca}:`, {
+        status,
+        data: errorData,
+        message: error.message
+      });
+
+      // Se for erro 401, pode ser token inválido - tentar renovar e informar
+      if (status === 401) {
+        this.token = '';
+        this.tokenExpiration = null;
+        throw new HttpException(
+          `Erro de autenticação com o PNCP. Token inválido ou expirado. Tente novamente.`,
+          HttpStatus.UNAUTHORIZED
+        );
+      }
+
       throw new HttpException(
         `Erro ao excluir PCA: ${this.extrairMensagemErro(error)}`,
-        HttpStatus.BAD_REQUEST
+        error.response?.status || HttpStatus.BAD_REQUEST
       );
     }
   }
