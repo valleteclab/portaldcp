@@ -471,10 +471,11 @@ export class ContratosService {
         return null;
       }
 
-      // Calcula prazo de execução (maior prazo entre os itens)
-      const maiorPrazoEntrega = Math.max(
-        ...itensDoFornecedor.map(item => item.prazo_entrega_dias || 0)
-      );
+      // Calcula prazo de execução
+      // Nota: prazo_entrega_dias está nas propostas (PropostaItem), não nos itens da licitação
+      // Por enquanto, usa um valor padrão razoável de 30 dias
+      // TODO: Buscar prazo_entrega_dias das propostas vencedoras quando disponível
+      const maiorPrazoEntrega = 30; // Valor padrão em dias
 
       // Calcula vigência (data de assinatura + prazo de execução)
       const dataAssinatura = new Date();
@@ -487,10 +488,10 @@ export class ContratosService {
         licitacao_id: licitacaoId,
         orgao_id: licitacao.orgao_id,
         fornecedor_id: fornecedorVencedorId,
-        fornecedor_cnpj: fornecedor.cpf_cnpj || fornecedor.cnpj || '',
+        fornecedor_cnpj: fornecedor.cpf_cnpj || '',
         fornecedor_razao_social: fornecedor.razao_social || fornecedor.nome_fantasia || '',
         objeto: licitacao.objeto,
-        objeto_detalhado: licitacao.objeto_detalhado || null,
+        objeto_detalhado: licitacao.objeto_detalhado || undefined,
         numero_processo: licitacao.numero_processo,
         categoria: this.mapearCategoria(licitacao.tipo_contratacao),
         valor_inicial: valorTotalHomologado || licitacao.valor_homologado || licitacao.valor_total_estimado,
@@ -498,7 +499,7 @@ export class ContratosService {
         data_assinatura: dataAssinatura,
         data_vigencia_inicio: dataVigenciaInicio,
         data_vigencia_fim: dataVigenciaFim,
-        prazo_execucao_dias: maiorPrazoEntrega || null,
+        prazo_execucao_dias: maiorPrazoEntrega || undefined,
         status: StatusContrato.VIGENTE,
         tipo: TipoContrato.CONTRATO,
         observacoes: `Contrato gerado automaticamente após homologação da licitação ${licitacao.numero_processo}`
