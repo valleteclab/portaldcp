@@ -231,7 +231,8 @@ export class OrgaosService {
     // Remove duplicatas e salva exatamente como enviado pelo frontend
     const modulosAtualizados = [...new Set(modulos)];
     
-    orgao.modulos_habilitados = modulosAtualizados.length > 0 ? modulosAtualizados : null;
+    // Se não houver módulos, salva array vazio ao invés de null
+    orgao.modulos_habilitados = modulosAtualizados.length > 0 ? modulosAtualizados : [];
     return await this.orgaoRepository.save(orgao);
   }
 }
