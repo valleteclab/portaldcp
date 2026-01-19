@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { API_URL, authFetch } from '@/lib/api';
+import { API_URL, authFetch, getAuthToken } from '@/lib/api';
 
 export type ModuloSistema = 
   | 'LICITACOES'
@@ -45,6 +45,24 @@ export function useModulosOrgao() {
   const [loading, setLoading] = useState(true);
 
   const carregarModulosDaAPI = async () => {
+    // Verifica se há token de autenticação antes de fazer requisição
+    const token = getAuthToken();
+    if (!token) {
+      // Se não há token, não é usuário de órgão autenticado
+      setModulos([]);
+      setLoading(false);
+      return;
+    }
+
+    // Verifica se é admin (admin não precisa de módulos)
+    const adminToken = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+    if (adminToken) {
+      // Admin não precisa de módulos
+      setModulos([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       // SEMPRE busca módulos atualizados do backend (fonte da verdade)
