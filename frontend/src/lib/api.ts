@@ -109,11 +109,10 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
     headers,
   });
   
-  // Se receber 401, limpa tokens
-  if (response.status === 401 && typeof window !== 'undefined') {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('orgao_token');
-  }
+  // NOTA: Não limpamos tokens automaticamente em 401 porque:
+  // - Fornecedores podem receber 401 em rotas de órgão
+  // - O token pode ser válido, apenas o endpoint específico não é autorizado
+  // A lógica de logout deve ser tratada pelo componente que faz a requisição
   
   return response;
 }

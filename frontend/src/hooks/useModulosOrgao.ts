@@ -55,11 +55,20 @@ export function useModulosOrgao() {
       return;
     }
 
-    // Verifica se há token de autenticação de órgão antes de fazer requisição
-    const token = getAuthToken();
-    console.log('[useModulosOrgao] Token de órgão disponível:', !!token);
+    // Verifica se estamos na área de fornecedor (fornecedor não usa módulos de órgão)
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/fornecedor')) {
+      console.log('[useModulosOrgao] Área fornecedor, ignorando módulos de órgão');
+      setModulos([]);
+      setLoading(false);
+      return;
+    }
+
+    // Verifica se há token específico de órgão (orgao_token)
+    // access_token pode ser de fornecedor, então precisamos verificar o orgao_token
+    const orgaoToken = typeof window !== 'undefined' ? localStorage.getItem('orgao_token') : null;
+    console.log('[useModulosOrgao] Token de órgão disponível:', !!orgaoToken);
     
-    if (!token) {
+    if (!orgaoToken) {
       // Se não há token de órgão, não busca módulos
       console.log('[useModulosOrgao] Sem token de órgão, retornando vazio');
       setModulos([]);
