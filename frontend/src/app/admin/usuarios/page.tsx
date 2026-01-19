@@ -331,9 +331,16 @@ export default function AdminUsuariosPage() {
     }
   }
 
-  const handleHerdarDoOrgao = () => {
-    setHerdaDoOrgao(true)
-    setModulosUsuario([])
+  const handleHerdarDoOrgao = (checked: boolean) => {
+    if (checked) {
+      // Marca herdar: limpa módulos personalizados
+      setHerdaDoOrgao(true)
+      setModulosUsuario([])
+    } else {
+      // Desmarca herdar: começa com todos os módulos do órgão selecionados
+      setHerdaDoOrgao(false)
+      setModulosUsuario([...modulosOrgao])
+    }
   }
 
   const salvarModulosUsuario = async () => {
@@ -751,14 +758,16 @@ export default function AdminUsuariosPage() {
                     <Checkbox
                       id="herdar-orgao"
                       checked={herdaDoOrgao}
-                      onCheckedChange={() => handleHerdarDoOrgao()}
+                      onCheckedChange={(checked) => handleHerdarDoOrgao(checked === true)}
                     />
                     <label htmlFor="herdar-orgao" className="text-sm font-medium cursor-pointer">
                       Herdar todos os módulos do órgão
                     </label>
                   </div>
                   <p className="text-xs text-blue-600 mt-1 ml-6">
-                    O usuário terá acesso a todos os módulos habilitados para o órgão
+                    {herdaDoOrgao 
+                      ? 'O usuário terá acesso a todos os módulos habilitados para o órgão'
+                      : 'Desmarque para personalizar os módulos deste usuário'}
                   </p>
                 </div>
 
