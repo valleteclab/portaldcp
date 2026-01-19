@@ -13,6 +13,20 @@ export type ModuloSistema =
   | 'DISPUTA'
   | 'CREDENCIAMENTO';
 
+// Constantes para uso como valores (não apenas tipos)
+export const ModuloSistema = {
+  LICITACOES: 'LICITACOES' as ModuloSistema,
+  CONTRATOS: 'CONTRATOS' as ModuloSistema,
+  ATAS: 'ATAS' as ModuloSistema,
+  PCA: 'PCA' as ModuloSistema,
+  DEMANDAS: 'DEMANDAS' as ModuloSistema,
+  FORNECEDORES: 'FORNECEDORES' as ModuloSistema,
+  PNCP: 'PNCP' as ModuloSistema,
+  USUARIOS: 'USUARIOS' as ModuloSistema,
+  DISPUTA: 'DISPUTA' as ModuloSistema,
+  CREDENCIAMENTO: 'CREDENCIAMENTO' as ModuloSistema,
+} as const;
+
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
   LICITACOES: { nome: 'Licitações', descricao: 'Gestão de Licitações' },
   CONTRATOS: { nome: 'Contratos', descricao: 'Gestão de Contratos' },
