@@ -12,13 +12,15 @@ import {
   Monitor,
   LogOut,
   Menu,
-  X
+  X,
+  Package
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const menuItems = [
   { href: "/admin/pncp", label: "Integração PNCP", icon: Globe },
   { href: "/admin/orgaos", label: "Órgãos", icon: Building2 },
+  { href: "/admin/modulos", label: "Módulos", icon: Package },
   { href: "/admin/usuarios", label: "Usuários", icon: Users },
   { href: "/admin/fornecedores", label: "Fornecedores", icon: FileText },
   { href: "/admin/solicitacoes", label: "Solicitações", icon: FileText },
