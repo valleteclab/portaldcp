@@ -1,0 +1,24 @@
+* [33mb19ebe5[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m [Cursor] fix: Adicionar conteudo aos arquivos de modulos que estavam vazios
+*   [33ma8989fa[m ﻿[Cursor] fix: Adicionar conteúdo aos arquivos de contratos que estavam vazios
+[32m|[m[33m\[m  
+[32m|[m * [33md3b9a05[m[33m ([m[1;31morigin/add-nextjs-DHPrc[m[33m, [m[1;32madd-nextjs-DHPrc[m[33m)[m [Cursor] Implementar Sistema de Módulos Opcionais por Órgão
+* [33m|[m   [33m3245a2e[m [Cursor] Merge: feat(contratos) - CRUD completo de contratos
+[33m|[m[35m\[m [33m\[m  
+[33m|[m [35m|[m[33m/[m  
+[33m|[m[33m/[m[35m|[m   
+[33m|[m * [33mbf0eaab[m[33m ([m[1;31morigin/add-nextjs-LHftw[m[33m, [m[1;32madd-nextjs-LHftw[m[33m)[m [Cursor] feat(contratos): Implementar CRUD completo de contratos no frontend
+* [35m|[m [33m5dd4673[m fix: corrigir formato CNPJ ao cadastrar orgao e mostrar nome do orgao no header
+* [35m|[m [33mfd429a0[m fix(auth): bloquear login de fornecedor suspenso ou inativo
+* [35m|[m [33m51e3a1f[m feat(admin): adicionar botao Cadastrar Orgao na lista de Entes Autorizados PNCP
+* [35m|[m [33m83367f3[m fix: Header prioriza dados do usuario logado em vez do orgao
+* [35m|[m [33mc713fe2[m feat(admin): implementar sistema de login para super admin
+* [35m|[m [33m1c0fa59[m fix: corrigir caminho do main.js no package.json start:prod
+* [35m|[m [33m423efb9[m fix: corrigir caminho do main.js no Dockerfile do backend
+* [35m|[m [33m25021dd[m fix: corrigir erros de tipo no build do frontend
+* [35m|[m [33m18f4ed4[m feat(disputa): adicionar validação para rejeitar lances com mesmo valor
+* [35m|[m [33med92a7e[m feat(auth): adicionar logs de auditoria para tentativas de login
+* [35m|[m [33m037617b[m docs: atualizar data de ultima modificacao no README
+* [35m|[m [33m6b8364a[m fix: registrar AuthController no AuthModule
+* [35m|[m [33m4033b1b[m refactor: centralizar API_URL em todas as páginas do frontend
+* [35m|[m [33m7e78662[m feat: migrar página de detalhes da licitação para usar authFetch
+* [35m|[m [33m245b92c[m fix(security): corrigir vulnerabilidades de segurança JWT e senhas

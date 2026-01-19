@@ -110,11 +110,29 @@ export default function AdminModulosPage() {
       })
       if (res.ok) {
         const data = await res.json()
+        const modulosAtualizados = data.orgao?.modulos_habilitados || modulosTemp
+        
         setOrgaos(prev => prev.map(o => 
           o.id === selectedOrgao.id 
-            ? { ...o, modulos_ativos: data.orgao?.modulos_habilitados || modulosTemp }
+            ? { ...o, modulos_ativos: modulosAtualizados }
             : o
         ))
+        
+        // Se o órgão atualizado estiver logado, dispara evento para atualizar componentes
+        // Os componentes buscarão módulos atualizados diretamente do backend
+        const orgaoLogadoStr = localStorage.getItem('orgao')
+        if (orgaoLogadoStr) {
+          try {
+            const orgaoLogado = JSON.parse(orgaoLogadoStr)
+            if (orgaoLogado.id === selectedOrgao.id) {
+              // Dispara evento para que componentes busquem módulos atualizados do backend
+              window.dispatchEvent(new Event('modulosAtualizados'))
+            }
+          } catch (e) {
+            console.error('Erro ao verificar órgão logado:', e)
+          }
+        }
+        
         setModalOpen(false)
       } else if (res.status === 401) {
         // Token inválido ou expirado - adminFetch já redireciona

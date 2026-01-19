@@ -9,30 +9,54 @@ Sistema completo de ativação/desativação de módulos por órgão implementad
 - ✅ Enum ModuloSistema com 10 módulos (LICITACOES obrigatório)
 - ✅ Campo modulos_habilitados na entidade Orgao (tipo simple-array)
 - ✅ Endpoints: GET /api/orgaos/modulos/disponiveis, GET /api/orgaos/:id/modulos, PUT /api/orgaos/:id/modulos
+- ✅ Endpoint GET /api/orgaos/me - Retorna órgão logado com módulos atualizados do banco
 - ✅ Decorator @RequireModule e guard ModuloGuard
 - ✅ Guard aplicado em ContratosController e ContratacaoDiretaController
 - ✅ Guard registrado como global no app.module.ts
 - ✅ ModuloGuard carrega orgao do banco quando necessário
-- ✅ Compatibilidade com frontend (modulos_ativos)
+- ✅ getModulosOrgao retorna apenas LICITACOES se nenhum módulo definido
 
 **Frontend:**
-- ✅ Hook useModulosOrgao para verificar módulos habilitados
+- ✅ Hook useModulosOrgao SEMPRE busca módulos da API (fonte da verdade)
+- ✅ Removido uso de localStorage para módulos (apenas tokens e sessão)
+- ✅ Menu Sidebar filtra links baseado nos módulos habilitados
 - ✅ Página /admin/modulos para gerenciar módulos dos órgãos
+- ✅ Links "Contratos" adicionados no menu (órgão e fornecedor)
+
+**Geração Automática de Contratos:**
+- ✅ Método gerarContratoAutomatico() no ContratosService
+- ✅ Integrado ao método homologar() do LicitacoesService
+- ✅ Gera contrato automaticamente após homologação da licitação
+- ✅ Busca itens adjudicados e identifica fornecedor vencedor
+- ✅ Calcula valores, prazos e vigência automaticamente
 
 ### Arquivos Modificados
 - backend/src/orgaos/entities/orgao.entity.ts - Campo modulos_habilitados
 - backend/src/orgaos/orgaos.service.ts - Métodos getModulosDisponiveis, getModulosOrgao, atualizarModulos
-- backend/src/orgaos/orgaos.controller.ts - Endpoints de módulos
+- backend/src/orgaos/orgaos.controller.ts - Endpoints de módulos + GET /api/orgaos/me
 - backend/src/auth/modulo.guard.ts - Guard atualizado para carregar orgao do banco
 - backend/src/auth/auth.service.ts - Login retorna modulos_ativos para compatibilidade
 - backend/src/app.module.ts - ModuloGuard registrado como global
 - backend/src/contratos/contratos.controller.ts - @RequireModule(ModuloSistema.CONTRATOS)
-- backend/src/contratacao-direta/contratacao-direta.controller.ts - @RequireModule(ModuloSistema.CREDENCIAMENTO)
+- backend/src/contratos/contratos.service.ts - Método gerarContratoAutomatico()
+- backend/src/contratos/contratos.module.ts - Adicionado ItemLicitacao e Fornecedor
+- backend/src/licitacoes/licitacoes.service.ts - homologar() gera contrato automaticamente
+- backend/src/licitacoes/licitacoes.module.ts - Importa ContratosModule
+- frontend/src/hooks/useModulosOrgao.ts - Busca sempre da API, sem fallback localStorage
+- frontend/src/components/layout/navigation.tsx - Filtra links por módulos habilitados
+- frontend/src/app/admin/modulos/page.tsx - Dispara evento ao salvar módulos
+
+### Decisões Técnicas Importantes
+- **localStorage**: Usado APENAS para tokens e dados temporários de sessão
+- **Módulos**: SEMPRE vêm do banco de dados (fonte da verdade)
+- **Hook**: Busca da API em tempo real, sem cache local
+- **Guard**: Valida módulos no banco antes de permitir acesso
+- **Contratos**: Gerados automaticamente após homologação, sem necessidade de digitação
 
 ### Próximas Tarefas Sugeridas
 1. Testar sistema de módulos em ambiente de desenvolvimento
 2. Aplicar @RequireModule em outros controllers conforme necessário
-3. Verificar se há branches para merge na main
+3. Testar geração automática de contratos após homologação
 
 ## Tarefa Anterior: Implementar Sistema de Autenticação JWT
 

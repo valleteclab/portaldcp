@@ -16,19 +16,29 @@ import {
   Search,
   Calendar,
   ClipboardList,
-  Send
+  Send,
+  FileCheck
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
 }
 
+interface MenuLink {
+  href: string
+  label: string
+  icon: any
+  modulo?: ModuloSistema // Módulo necessário para exibir este link
+}
+
 export function Sidebar({ userType }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { temAcesso } = useModulosOrgao()
 
   const handleLogout = () => {
     if (userType === 'orgao') {
@@ -42,25 +52,50 @@ export function Sidebar({ userType }: SidebarProps) {
     }
   }
 
-  const fornecedorLinks = [
+  const fornecedorLinks: MenuLink[] = [
     { href: "/fornecedor", label: "Dashboard", icon: LayoutDashboard },
     { href: "/fornecedor/licitacoes", label: "Licitações Disponíveis", icon: Search },
     { href: "/fornecedor/participacoes", label: "Minhas Participações", icon: FileText },
     { href: "/fornecedor/propostas", label: "Minhas Propostas", icon: Gavel },
+    { href: "/fornecedor/contratos", label: "Meus Contratos", icon: FileCheck },
     { href: "/fornecedor/cadastro-sicaf", label: "Meu Cadastro", icon: User },
   ]
 
-  const orgaoLinks = [
-    { href: "/orgao", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/orgao/demandas", label: "Demandas", icon: ClipboardList },
-    { href: "/orgao/pca", label: "PCA", icon: Calendar },
-    { href: "/orgao/licitacoes", label: "Licitações", icon: FileText },
-    { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel },
-    { href: "/orgao/pncp", label: "Integração PNCP", icon: Send },
-    { href: "/orgao/configuracoes", label: "Configurações", icon: Settings },
+  const orgaoLinks: MenuLink[] = [
+    { href: "/orgao", label: "Dashboard", icon: LayoutDashboard }, // Sempre visível
+    { href: "/orgao/demandas", label: "Demandas", icon: ClipboardList, modulo: ModuloSistema.DEMANDAS },
+    { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
+    { href: "/orgao/licitacoes", label: "Licitações", icon: FileText, modulo: ModuloSistema.LICITACOES },
+    { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
+    { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
+    { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
+    { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]
 
-  const links = userType === 'fornecedor' ? fornecedorLinks : orgaoLinks
+  // Filtra links baseado nos módulos habilitados
+  const getFilteredLinks = (links: MenuLink[]): MenuLink[] => {
+    if (userType === 'fornecedor') {
+      return links // Fornecedor vê todos os links
+    }
+    
+    // Para órgão, filtra baseado nos módulos habilitados
+    return links.filter(link => {
+      // Se não tem módulo definido, sempre mostra (Dashboard, Configurações)
+      if (!link.modulo) {
+        return true
+      }
+      
+      // LICITACOES é sempre habilitado (obrigatório)
+      if (link.modulo === ModuloSistema.LICITACOES) {
+        return true
+      }
+      
+      // Verifica se o órgão tem acesso ao módulo
+      return temAcesso(link.modulo)
+    })
+  }
+
+  const links = getFilteredLinks(userType === 'fornecedor' ? fornecedorLinks : orgaoLinks)
 
   return (
     <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col">

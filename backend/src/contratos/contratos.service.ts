@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { Contrato, StatusContrato, TipoContrato, CategoriaContrato } from './entities/contrato.entity';
 import { TermoAditivo, TipoTermoAditivo, StatusTermoAditivo } from './entities/termo-aditivo.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.entity';
+import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 
 @Injectable()
 export class ContratosService {
+  private readonly logger = new Logger(ContratosService.name);
+
   constructor(
     @InjectRepository(Contrato)
     private contratoRepository: Repository<Contrato>,
@@ -14,6 +18,10 @@ export class ContratosService {
     private termoAditivoRepository: Repository<TermoAditivo>,
     @InjectRepository(Licitacao)
     private licitacaoRepository: Repository<Licitacao>,
+    @InjectRepository(ItemLicitacao)
+    private itemRepository: Repository<ItemLicitacao>,
+    @InjectRepository(Fornecedor)
+    private fornecedorRepository: Repository<Fornecedor>,
   ) {}
 
   // ============ CONTRATOS ============
@@ -373,5 +381,135 @@ export class ContratosService {
     };
 
     return mapa[tipoContratacao] || CategoriaContrato.COMPRAS;
+  }
+
+  /**
+   * Gera contrato automaticamente após homologação da licitação
+   * Busca os itens adjudicados e cria contrato com dados da licitação
+   */
+  async gerarContratoAutomatico(licitacaoId: string): Promise<Contrato | null> {
+    try {
+      // Verifica se já existe contrato para esta licitação
+      const contratoExistente = await this.contratoRepository.findOne({
+        where: { licitacao_id: licitacaoId }
+      });
+
+      if (contratoExistente) {
+        this.logger.log(`Contrato já existe para licitação ${licitacaoId}`);
+        return contratoExistente;
+      }
+
+      // Busca licitação com relacionamentos
+      const licitacao = await this.licitacaoRepository.findOne({
+        where: { id: licitacaoId },
+        relations: ['orgao']
+      });
+
+      if (!licitacao) {
+        throw new NotFoundException('Licitação não encontrada');
+      }
+
+      // Verifica se está homologada
+      if (licitacao.fase !== 'HOMOLOGACAO') {
+        this.logger.warn(`Licitação ${licitacaoId} não está homologada. Fase atual: ${licitacao.fase}`);
+        return null;
+      }
+
+      // Busca itens adjudicados da licitação
+      const itensAdjudicados = await this.itemRepository.find({
+        where: {
+          licitacao_id: licitacaoId,
+          status: StatusItem.ADJUDICADO
+        }
+      });
+
+      if (itensAdjudicados.length === 0) {
+        this.logger.warn(`Nenhum item adjudicado encontrado para licitação ${licitacaoId}`);
+        return null;
+      }
+
+      // Agrupa itens por fornecedor vencedor
+      const itensPorFornecedor = new Map<string, ItemLicitacao[]>();
+      let valorTotalHomologado = 0;
+
+      for (const item of itensAdjudicados) {
+        if (!item.fornecedor_vencedor_id) {
+          continue;
+        }
+
+        if (!itensPorFornecedor.has(item.fornecedor_vencedor_id)) {
+          itensPorFornecedor.set(item.fornecedor_vencedor_id, []);
+        }
+
+        itensPorFornecedor.get(item.fornecedor_vencedor_id)!.push(item);
+        // Usa valor_total_homologado se disponível, senão calcula a partir do unitário homologado
+        const valorItem = item.valor_total_homologado 
+          ? Number(item.valor_total_homologado)
+          : (item.valor_unitario_homologado && item.quantidade 
+            ? Number(item.valor_unitario_homologado) * Number(item.quantidade)
+            : Number(item.valor_total_estimado || 0));
+        valorTotalHomologado += valorItem;
+      }
+
+      // Se houver múltiplos fornecedores, cria contrato para o primeiro (maior valor)
+      // Em produção, pode ser necessário criar múltiplos contratos
+      const fornecedorVencedorId = Array.from(itensPorFornecedor.keys())[0];
+      const itensDoFornecedor = itensPorFornecedor.get(fornecedorVencedorId)!;
+
+      if (!fornecedorVencedorId) {
+        this.logger.warn(`Nenhum fornecedor vencedor identificado para licitação ${licitacaoId}`);
+        return null;
+      }
+
+      // Busca dados do fornecedor
+      const fornecedor = await this.fornecedorRepository.findOne({
+        where: { id: fornecedorVencedorId }
+      });
+
+      if (!fornecedor) {
+        this.logger.warn(`Fornecedor ${fornecedorVencedorId} não encontrado`);
+        return null;
+      }
+
+      // Calcula prazo de execução (maior prazo entre os itens)
+      const maiorPrazoEntrega = Math.max(
+        ...itensDoFornecedor.map(item => item.prazo_entrega_dias || 0)
+      );
+
+      // Calcula vigência (data de assinatura + prazo de execução)
+      const dataAssinatura = new Date();
+      const dataVigenciaInicio = new Date(dataAssinatura);
+      const dataVigenciaFim = new Date(dataAssinatura);
+      dataVigenciaFim.setDate(dataVigenciaFim.getDate() + maiorPrazoEntrega);
+
+      // Cria contrato automaticamente
+      const contrato = await this.criar({
+        licitacao_id: licitacaoId,
+        orgao_id: licitacao.orgao_id,
+        fornecedor_id: fornecedorVencedorId,
+        fornecedor_cnpj: fornecedor.cpf_cnpj || fornecedor.cnpj || '',
+        fornecedor_razao_social: fornecedor.razao_social || fornecedor.nome_fantasia || '',
+        objeto: licitacao.objeto,
+        objeto_detalhado: licitacao.objeto_detalhado || null,
+        numero_processo: licitacao.numero_processo,
+        categoria: this.mapearCategoria(licitacao.tipo_contratacao),
+        valor_inicial: valorTotalHomologado || licitacao.valor_homologado || licitacao.valor_total_estimado,
+        valor_global: valorTotalHomologado || licitacao.valor_homologado || licitacao.valor_total_estimado,
+        data_assinatura: dataAssinatura,
+        data_vigencia_inicio: dataVigenciaInicio,
+        data_vigencia_fim: dataVigenciaFim,
+        prazo_execucao_dias: maiorPrazoEntrega || null,
+        status: StatusContrato.VIGENTE,
+        tipo: TipoContrato.CONTRATO,
+        observacoes: `Contrato gerado automaticamente após homologação da licitação ${licitacao.numero_processo}`
+      });
+
+      this.logger.log(`Contrato ${contrato.numero_contrato} gerado automaticamente para licitação ${licitacaoId}`);
+
+      return contrato;
+    } catch (error) {
+      this.logger.error(`Erro ao gerar contrato automaticamente para licitação ${licitacaoId}:`, error);
+      throw error;
+    }
   }
 }

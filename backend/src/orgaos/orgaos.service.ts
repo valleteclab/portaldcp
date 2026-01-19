@@ -205,18 +205,22 @@ export class OrgaosService {
 
   /**
    * Retorna os módulos habilitados de um órgão
+   * Sempre retorna do banco de dados (fonte da verdade)
    */
   async getModulosOrgao(id: string): Promise<ModuloSistema[]> {
     const orgao = await this.findOne(id);
-    // Se não tiver módulos definidos, retorna todos (compatibilidade)
+    
+    // Se não tiver módulos definidos no banco, retorna apenas LICITACOES (obrigatório)
     if (!orgao.modulos_habilitados || orgao.modulos_habilitados.length === 0) {
-      return Object.values(ModuloSistema);
+      return [ModuloSistema.LICITACOES];
     }
-    // Sempre inclui LICITACOES (obrigatório)
+    
+    // Sempre garante que LICITACOES está incluído (obrigatório)
     const modulos = [...orgao.modulos_habilitados];
     if (!modulos.includes(ModuloSistema.LICITACOES)) {
       modulos.push(ModuloSistema.LICITACOES);
     }
+    
     return modulos;
   }
 

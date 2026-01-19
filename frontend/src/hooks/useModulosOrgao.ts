@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_URL, authFetch } from '@/lib/api';
 
 export type ModuloSistema = 
   | 'LICITACOES'
@@ -29,20 +30,43 @@ export function useModulosOrgao() {
   const [modulos, setModulos] = useState<ModuloSistema[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const orgaoStr = localStorage.getItem('orgao');
-    if (orgaoStr) {
-      try {
-        const orgao = JSON.parse(orgaoStr);
-        setModulos(orgao.modulos_ativos || Object.keys(MODULOS_INFO) as ModuloSistema[]);
-      } catch (e) {
-        console.error('Erro ao parsear orgao:', e);
-        setModulos(Object.keys(MODULOS_INFO) as ModuloSistema[]);
+  const carregarModulosDaAPI = async () => {
+    try {
+      // SEMPRE busca módulos atualizados do backend (fonte da verdade)
+      const response = await authFetch(`${API_URL}/api/orgaos/me`);
+      
+      if (response.ok) {
+        const orgao = await response.json();
+        // Módulos vêm do banco de dados, sempre atualizados
+        const modulosAtivos = orgao.modulos_ativos || orgao.modulos_habilitados || [];
+        setModulos(modulosAtivos);
+      } else {
+        // Se não autenticado ou erro, não mostra módulos
+        setModulos([]);
       }
-    } else {
-      setModulos(Object.keys(MODULOS_INFO) as ModuloSistema[]);
+    } catch (error) {
+      console.error('Erro ao buscar módulos da API:', error);
+      // Em caso de erro, não assume módulos (segurança)
+      setModulos([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  useEffect(() => {
+    // Carrega módulos da API (fonte da verdade)
+    carregarModulosDaAPI();
+
+    // Escuta evento customizado para atualização (quando admin atualiza módulos)
+    const handleModulosAtualizados = () => {
+      carregarModulosDaAPI();
+    };
+
+    window.addEventListener('modulosAtualizados', handleModulosAtualizados);
+
+    return () => {
+      window.removeEventListener('modulosAtualizados', handleModulosAtualizados);
+    };
   }, []);
 
   const temAcesso = (modulo: ModuloSistema): boolean => {

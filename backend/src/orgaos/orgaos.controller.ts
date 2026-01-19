@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe, UnauthorizedException, Req } from '@nestjs/common';
 import { OrgaosService } from './orgaos.service';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { Orgao } from './entities/orgao.entity';
 import { createHash } from 'crypto';
 import { AuthService } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('orgaos')
 export class OrgaosController {
@@ -94,6 +95,47 @@ export class OrgaosController {
   @Get()
   async findAll(): Promise<Orgao[]> {
     return await this.orgaosService.findAll();
+  }
+
+  /**
+   * Retorna o órgão logado atual com módulos atualizados do banco de dados
+   * Usa o JWT para identificar o órgão
+   * SEMPRE busca módulos do banco (fonte da verdade)
+   */
+  @Get('me')
+  async getMe(@Req() request: { user: JwtPayload }) {
+    const user = request.user;
+    
+    if (!user) {
+      throw new UnauthorizedException('Usuário não autenticado');
+    }
+
+    let orgaoId: string;
+    
+    // Se for login direto do órgão
+    if (user.type === UserType.ORGAO) {
+      orgaoId = user.sub;
+    } 
+    // Se for usuário vinculado a um órgão
+    else if (user.orgaoId) {
+      orgaoId = user.orgaoId;
+    } 
+    else {
+      throw new UnauthorizedException('Órgão não identificado');
+    }
+
+    // Busca módulos diretamente do banco de dados
+    const modulos = await this.orgaosService.getModulosOrgao(orgaoId);
+    const orgao = await this.orgaosService.findOne(orgaoId);
+    
+    // Remove senha do retorno
+    const { senha_hash, ...orgaoSemSenha } = orgao;
+    
+    return {
+      ...orgaoSemSenha,
+      modulos_ativos: modulos, // Módulos sempre vêm do banco de dados
+      modulos_habilitados: modulos, // Compatibilidade
+    };
   }
 
   @Get(':id')

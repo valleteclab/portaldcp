@@ -1,10 +1,11 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
+import { ContratosService } from '../contratos/contratos.service';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -22,6 +23,8 @@ function formatarDataLocal(date: Date | null | undefined): string | null {
 
 @Injectable()
 export class LicitacoesService {
+  private readonly logger = new Logger(LicitacoesService.name);
+
   constructor(
     @InjectRepository(Licitacao)
     private readonly licitacaoRepository: Repository<Licitacao>,
@@ -29,6 +32,8 @@ export class LicitacoesService {
     private readonly itemRepository: Repository<ItemLicitacao>,
     @InjectRepository(LoteLicitacao)
     private readonly loteRepository: Repository<LoteLicitacao>,
+    @Inject(forwardRef(() => ContratosService))
+    private readonly contratosService: ContratosService,
   ) {}
 
   // === CRUD ===
@@ -422,7 +427,20 @@ export class LicitacoesService {
     licitacao.valor_homologado = valorHomologado;
     licitacao.data_homologacao = new Date();
 
-    return await this.licitacaoRepository.save(licitacao);
+    const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
+
+    // Gera contrato automaticamente após homologação
+    try {
+      const contrato = await this.contratosService.gerarContratoAutomatico(id);
+      if (contrato) {
+        this.logger.log(`Contrato ${contrato.numero_contrato} gerado automaticamente para licitação ${id}`);
+      }
+    } catch (error) {
+      // Não falha a homologação se houver erro na geração do contrato
+      this.logger.error(`Erro ao gerar contrato automaticamente para licitação ${id}:`, error);
+    }
+
+    return licitacaoSalva;
   }
 
   async suspender(id: string, motivo: string): Promise<Licitacao> {
