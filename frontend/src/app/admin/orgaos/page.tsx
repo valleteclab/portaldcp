@@ -49,7 +49,7 @@ import {
   Link2
 } from 'lucide-react'
 
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, adminFetch } from '@/lib/api'
 
 interface Orgao {
   id: string
@@ -136,7 +136,7 @@ export default function AdminOrgaosPage() {
   const carregarOrgaos = async () => {
     setLoading(true)
     try {
-      const response = await authFetch(`${API_URL}/api/orgaos`)
+      const response = await adminFetch(`${API_URL}/api/orgaos`)
       if (response.ok) {
         const data = await response.json()
         setOrgaos(data)
@@ -150,7 +150,7 @@ export default function AdminOrgaosPage() {
 
   const salvarOrgao = async () => {
     try {
-      const response = await authFetch(`${API_URL}/api/orgaos`, {
+      const response = await adminFetch(`${API_URL}/api/orgaos`, {
         method: 'POST',
         body: JSON.stringify(formOrgao)
       })
@@ -174,7 +174,7 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
 
     try {
-      const response = await authFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
+      const response = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
         method: 'PUT',
         body: JSON.stringify(formOrgao)
       })
@@ -198,7 +198,7 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
 
     try {
-      const response = await authFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
+      const response = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}`, {
         method: 'DELETE'
       })
 
@@ -221,7 +221,7 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
 
     try {
-      const response = await authFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/pncp`, {
+      const response = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/pncp`, {
         method: 'PUT',
         body: JSON.stringify(formPNCP)
       })

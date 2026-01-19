@@ -19,7 +19,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, adminFetch } from '@/lib/api'
 import Link from 'next/link'
 
 interface SessaoAtiva {
@@ -82,7 +82,7 @@ export default function MonitoramentoPage() {
   // Buscar sessões ativas
   const buscarSessoesAtivas = useCallback(async () => {
     try {
-      const res = await authFetch(`${API_URL}/api/admin/monitoramento/sessoes-ativas`)
+      const res = await adminFetch(`${API_URL}/api/admin/monitoramento/sessoes-ativas`)
       if (res.ok) {
         const data = await res.json()
         // Tratar resposta que pode vir como array ou objeto com value
@@ -99,7 +99,7 @@ export default function MonitoramentoPage() {
   // Buscar itens em disputa de uma sessão
   const buscarItensDisputa = useCallback(async (sessaoId: string) => {
     try {
-      const res = await authFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoId}/itens`)
+      const res = await adminFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoId}/itens`)
       if (res.ok) {
         const data = await res.json()
         setItensDisputa(data)
@@ -112,7 +112,7 @@ export default function MonitoramentoPage() {
   // Buscar configurações da sessão
   const buscarConfigSessao = useCallback(async (sessaoId: string) => {
     try {
-      const res = await authFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoId}/config`)
+      const res = await adminFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoId}/config`)
       if (res.ok) {
         const data = await res.json()
         setConfigSessao(data.configuracoes)
@@ -131,7 +131,7 @@ export default function MonitoramentoPage() {
 
     setSalvandoConfig(true)
     try {
-      const res = await authFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoSelecionada.id}/anonimizacao`, {
+      const res = await adminFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoSelecionada.id}/anonimizacao`, {
         method: 'PUT',
         body: JSON.stringify({
           ativa,
@@ -162,7 +162,7 @@ export default function MonitoramentoPage() {
 
     setSalvandoConfig(true)
     try {
-      const res = await authFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoSelecionada.id}/chat`, {
+      const res = await adminFetch(`${API_URL}/api/admin/monitoramento/sessao/${sessaoSelecionada.id}/chat`, {
         method: 'PUT',
         body: JSON.stringify({ desabilitado }),
       })
@@ -203,7 +203,7 @@ export default function MonitoramentoPage() {
 
     setEncerrando(true)
     try {
-      const res = await authFetch(`${API_URL}/api/admin/monitoramento/encerrar-item-forcado`, {
+      const res = await adminFetch(`${API_URL}/api/admin/monitoramento/encerrar-item-forcado`, {
         method: 'POST',
         body: JSON.stringify({
           sessaoId: sessaoSelecionada.id,

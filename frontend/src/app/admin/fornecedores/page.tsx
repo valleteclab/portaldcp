@@ -49,7 +49,7 @@ import {
   FileText,
   RefreshCw
 } from 'lucide-react'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, adminFetch } from '@/lib/api'
 
 interface Fornecedor {
   id: string
@@ -94,7 +94,7 @@ export default function AdminFornecedoresPage() {
   const fetchFornecedores = async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores`)
+      const res = await adminFetch(`${API_URL}/api/fornecedores`)
       if (res.ok) {
         const data = await res.json()
         setFornecedores(data)
@@ -126,7 +126,7 @@ export default function AdminFornecedoresPage() {
     
     setActionLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/${fornecedor.id}/aprovar`, {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedor.id}/aprovar`, {
         method: 'PUT'
       })
       
@@ -148,7 +148,7 @@ export default function AdminFornecedoresPage() {
     
     setActionLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/${fornecedorSelecionado.id}/suspender`, {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedorSelecionado.id}/suspender`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ motivo: motivoSuspensao })
@@ -174,7 +174,7 @@ export default function AdminFornecedoresPage() {
     
     setActionLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/${fornecedor.id}/reativar`, {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedor.id}/reativar`, {
         method: 'PUT'
       })
       

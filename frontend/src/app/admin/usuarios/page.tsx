@@ -56,7 +56,7 @@ import {
   XCircle,
 } from 'lucide-react'
 
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, adminFetch } from '@/lib/api'
 
 interface Orgao {
   id: string
@@ -122,8 +122,8 @@ export default function AdminUsuariosPage() {
     setErro(null)
     try {
       const [resUsuarios, resOrgaos] = await Promise.all([
-        authFetch(`${API_URL}/api/usuarios`),
-        authFetch(`${API_URL}/api/orgaos`),
+        adminFetch(`${API_URL}/api/usuarios`),
+        adminFetch(`${API_URL}/api/orgaos`),
       ])
 
       if (resUsuarios.ok) {
@@ -212,7 +212,7 @@ export default function AdminUsuariosPage() {
         body.senha = formUsuario.senha
       }
 
-      const res = await authFetch(url, {
+      const res = await adminFetch(url, {
         method,
         body: JSON.stringify(body),
       })
@@ -237,7 +237,7 @@ export default function AdminUsuariosPage() {
 
     setSalvando(true)
     try {
-      const res = await authFetch(`${API_URL}/api/usuarios/${usuarioSelecionado.id}`, {
+      const res = await adminFetch(`${API_URL}/api/usuarios/${usuarioSelecionado.id}`, {
         method: 'DELETE',
       })
 
@@ -257,7 +257,7 @@ export default function AdminUsuariosPage() {
 
   const toggleAtivo = async (usuario: Usuario) => {
     try {
-      const res = await authFetch(`${API_URL}/api/usuarios/${usuario.id}`, {
+      const res = await adminFetch(`${API_URL}/api/usuarios/${usuario.id}`, {
         method: 'PUT',
         body: JSON.stringify({ ativo: !usuario.ativo }),
       })

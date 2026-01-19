@@ -52,7 +52,7 @@ import {
   FileText
 } from 'lucide-react'
 
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, adminFetch } from '@/lib/api'
 
 interface Solicitacao {
   id: string
@@ -107,7 +107,7 @@ export default function AdminSolicitacoesPage() {
     setLoading(true)
     try {
       // Carregar estatísticas
-      const statsRes = await authFetch(`${API_URL}/api/solicitacoes-acesso/admin/estatisticas`)
+      const statsRes = await adminFetch(`${API_URL}/api/solicitacoes-acesso/admin/estatisticas`)
       if (statsRes.ok) {
         const stats = await statsRes.json()
         setEstatisticas(stats)
@@ -118,7 +118,7 @@ export default function AdminSolicitacoesPage() {
         ? `${API_URL}/api/solicitacoes-acesso`
         : `${API_URL}/api/solicitacoes-acesso?status=${filtroStatus}`
       
-      const res = await authFetch(url)
+      const res = await adminFetch(url)
       if (res.ok) {
         const data = await res.json()
         setSolicitacoes(data)
@@ -155,7 +155,7 @@ export default function AdminSolicitacoesPage() {
     
     setProcessando(true)
     try {
-      const response = await authFetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/aprovar`, {
+      const response = await adminFetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/aprovar`, {
         method: 'PUT',
         body: JSON.stringify({
           aprovado_por: 'admin',
@@ -187,7 +187,7 @@ export default function AdminSolicitacoesPage() {
     
     setProcessando(true)
     try {
-      const response = await authFetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/rejeitar`, {
+      const response = await adminFetch(`${API_URL}/api/solicitacoes-acesso/${solicitacaoSelecionada.id}/rejeitar`, {
         method: 'PUT',
         body: JSON.stringify({
           motivo_rejeicao: motivoRejeicao,
