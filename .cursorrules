@@ -1,62 +1,56 @@
 # Scratchpad
 
-## ✅ Tarefa Concluída: Sistema de Módulos Opcionais por Órgão - Implementação Completa
+## ✅ Tarefa Concluída: Sistema de Módulos Opcionais por Órgão - COMPLETO E TESTADO
 
-### Resumo da Implementação
-Sistema completo de ativação/desativação de módulos por órgão implementado com sucesso.
+### Resumo da Implementação (Atualizado 2026-01-19)
+Sistema completo de ativação/desativação de módulos por órgão implementado e testado em produção.
 
 **Backend:**
-- ✅ Enum ModuloSistema com 10 módulos (LICITACOES obrigatório)
+- ✅ Enum ModuloSistema com 10 módulos (todos opcionais, nenhum obrigatório)
 - ✅ Campo modulos_habilitados na entidade Orgao (tipo simple-array)
 - ✅ Endpoints: GET /api/orgaos/modulos/disponiveis, GET /api/orgaos/:id/modulos, PUT /api/orgaos/:id/modulos
 - ✅ Endpoint GET /api/orgaos/me - Retorna órgão logado com módulos atualizados do banco
-- ✅ Decorator @RequireModule e guard ModuloGuard
-- ✅ Guard aplicado em ContratosController e ContratacaoDiretaController
-- ✅ Guard registrado como global no app.module.ts
-- ✅ ModuloGuard carrega orgao do banco quando necessário
-- ✅ getModulosOrgao retorna apenas LICITACOES se nenhum módulo definido
+- ✅ Decorator @RequireModule e guard ModuloGuard registrado como global
+- ✅ Guard aplicado em: ContratosController, ContratacaoDiretaController, LicitacoesController, DemandasController, PcaController, PncpController, AtasController
+- ✅ ModuloGuard carrega orgao do banco e valida permissão antes de permitir acesso
 
 **Frontend:**
 - ✅ Hook useModulosOrgao SEMPRE busca módulos da API (fonte da verdade)
-- ✅ Removido uso de localStorage para módulos (apenas tokens e sessão)
+- ✅ Componente ModuleGuard protege páginas de módulos no frontend
 - ✅ Menu Sidebar filtra links baseado nos módulos habilitados
 - ✅ Página /admin/modulos para gerenciar módulos dos órgãos
-- ✅ Links "Contratos" adicionados no menu (órgão e fornecedor)
+- ✅ Acesso direto via URL é bloqueado e redireciona para Dashboard
 
 **Geração Automática de Contratos:**
 - ✅ Método gerarContratoAutomatico() no ContratosService
 - ✅ Integrado ao método homologar() do LicitacoesService
 - ✅ Gera contrato automaticamente após homologação da licitação
-- ✅ Busca itens adjudicados e identifica fornecedor vencedor
-- ✅ Calcula valores, prazos e vigência automaticamente
 
-### Arquivos Modificados
+**Correções Importantes (2026-01-19):**
+- ✅ Corrigido hook useModulosOrgao que detectava admin_token erroneamente
+- ✅ Criado componente ModuleGuard para proteção de rotas no frontend
+- ✅ Adicionado campo orgao_id na entidade PncpSync
+- ✅ Corrigido listarPendentes/listarErros no PncpService (QueryBuilder com left join)
+
+### Arquivos Principais do Sistema de Módulos
+- backend/src/orgaos/enums/modulos.enum.ts - Enum e descrições dos módulos
 - backend/src/orgaos/entities/orgao.entity.ts - Campo modulos_habilitados
-- backend/src/orgaos/orgaos.service.ts - Métodos getModulosDisponiveis, getModulosOrgao, atualizarModulos
-- backend/src/orgaos/orgaos.controller.ts - Endpoints de módulos + GET /api/orgaos/me
-- backend/src/auth/modulo.guard.ts - Guard atualizado para carregar orgao do banco
-- backend/src/auth/auth.service.ts - Login retorna modulos_ativos para compatibilidade
-- backend/src/app.module.ts - ModuloGuard registrado como global
-- backend/src/contratos/contratos.controller.ts - @RequireModule(ModuloSistema.CONTRATOS)
-- backend/src/contratos/contratos.service.ts - Método gerarContratoAutomatico()
-- backend/src/contratos/contratos.module.ts - Adicionado ItemLicitacao e Fornecedor
-- backend/src/licitacoes/licitacoes.service.ts - homologar() gera contrato automaticamente
-- backend/src/licitacoes/licitacoes.module.ts - Importa ContratosModule
-- frontend/src/hooks/useModulosOrgao.ts - Busca sempre da API, sem fallback localStorage
-- frontend/src/components/layout/navigation.tsx - Filtra links por módulos habilitados
-- frontend/src/app/admin/modulos/page.tsx - Dispara evento ao salvar módulos
+- backend/src/auth/modulo.guard.ts - Guard de verificação de módulos
+- backend/src/auth/require-module.decorator.ts - Decorator @RequireModule
+- frontend/src/hooks/useModulosOrgao.ts - Hook de busca de módulos
+- frontend/src/components/ModuleGuard.tsx - Componente de proteção de páginas
+- frontend/src/components/layout/navigation.tsx - Menu com filtro de módulos
 
 ### Decisões Técnicas Importantes
-- **localStorage**: Usado APENAS para tokens e dados temporários de sessão
-- **Módulos**: SEMPRE vêm do banco de dados (fonte da verdade)
-- **Hook**: Busca da API em tempo real, sem cache local
-- **Guard**: Valida módulos no banco antes de permitir acesso
-- **Contratos**: Gerados automaticamente após homologação, sem necessidade de digitação
+- **localStorage**: Usado APENAS para tokens (access_token, orgao_token, admin_token)
+- **Módulos**: SEMPRE vêm do banco de dados (fonte da verdade via /api/orgaos/me)
+- **Proteção dupla**: Backend (ModuloGuard) + Frontend (ModuleGuard componente)
+- **authFetch vs adminFetch**: Páginas /admin usam adminFetch(), páginas /orgao usam authFetch()
 
 ### Próximas Tarefas Sugeridas
-1. Testar sistema de módulos em ambiente de desenvolvimento
-2. Aplicar @RequireModule em outros controllers conforme necessário
-3. Testar geração automática de contratos após homologação
+1. Aplicar @RequireModule em mais controllers conforme necessário
+2. Testar geração automática de contratos após homologação
+3. Implementar página de logs de sincronização PNCP por órgão
 
 ## Tarefa Anterior: Implementar Sistema de Autenticação JWT
 
