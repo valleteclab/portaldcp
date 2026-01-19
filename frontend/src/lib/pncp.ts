@@ -207,7 +207,10 @@ async function handleResponse(response: Response): Promise<PncpResponse> {
 }
 
 function getHeaders(): HeadersInit {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('orgao_token') : null;
+  // Busca token de autenticação: access_token (novo) ou orgao_token (legado)
+  const token = typeof window !== 'undefined' 
+    ? (localStorage.getItem('access_token') || localStorage.getItem('orgao_token'))
+    : null;
   return {
     'Content-Type': 'application/json',
     ...(token && { Authorization: `Bearer ${token}` }),
