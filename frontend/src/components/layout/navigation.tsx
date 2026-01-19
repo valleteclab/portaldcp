@@ -38,7 +38,7 @@ interface MenuLink {
 export function Sidebar({ userType }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const { temAcesso } = useModulosOrgao()
+  const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
 
   const handleLogout = () => {
     if (userType === 'orgao') {
@@ -78,7 +78,18 @@ export function Sidebar({ userType }: SidebarProps) {
       return links // Fornecedor vê todos os links
     }
     
-    // Para órgão, filtra baseado nos módulos habilitados
+    // Se ainda está carregando módulos, mostra todos os links (evita flash de conteúdo)
+    if (modulosLoading) {
+      return links
+    }
+    
+    // Se não há módulos definidos (array vazio), mostra todos os links (compatibilidade)
+    // Isso permite que órgãos sem módulos configurados vejam tudo
+    if (modulos.length === 0) {
+      return links
+    }
+    
+    // Para órgão com módulos definidos, filtra baseado nos módulos habilitados
     return links.filter(link => {
       // Se não tem módulo definido, sempre mostra (Dashboard, Configurações)
       if (!link.modulo) {
