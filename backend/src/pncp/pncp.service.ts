@@ -62,33 +62,59 @@ export class PncpService implements OnModuleInit {
 
   /**
    * Carrega as credenciais do banco de dados para a memória
+   * Prioridade: 1) Banco de dados, 2) Variáveis de ambiente
    */
   private async loadCredentialsFromDatabase(): Promise<void> {
     try {
       const dbCredentials = await this.systemConfigService.getPncpCredentials();
       
-      if (dbCredentials.apiUrl) {
-        PncpService.platformCredentials.apiUrl = dbCredentials.apiUrl;
+      // Prioridade: Banco > Variáveis de ambiente
+      const apiUrl = dbCredentials.apiUrl || this.getEnvVar('PNCP_API_URL') || '';
+      const login = dbCredentials.login || this.getEnvVar('PNCP_LOGIN') || '';
+      const senha = dbCredentials.senha || this.getEnvVar('PNCP_SENHA') || '';
+      const cnpjOrgao = dbCredentials.cnpjOrgao || this.getEnvVar('PNCP_CNPJ_ORGAO') || '';
+
+      if (apiUrl) {
+        PncpService.platformCredentials.apiUrl = apiUrl;
       }
-      if (dbCredentials.login) {
-        PncpService.platformCredentials.login = dbCredentials.login;
+      if (login) {
+        PncpService.platformCredentials.login = login;
       }
-      if (dbCredentials.senha) {
-        PncpService.platformCredentials.senha = dbCredentials.senha;
+      if (senha) {
+        PncpService.platformCredentials.senha = senha;
       }
-      if (dbCredentials.cnpjOrgao) {
-        PncpService.platformCredentials.cnpjOrgao = dbCredentials.cnpjOrgao;
+      if (cnpjOrgao) {
+        PncpService.platformCredentials.cnpjOrgao = cnpjOrgao;
       }
 
-      const hasCredentials = !!(dbCredentials.apiUrl && dbCredentials.login && dbCredentials.senha);
-      this.logger.log(`[INIT] Credenciais PNCP carregadas do banco: ${hasCredentials ? 'SIM' : 'NÃO'}`);
+      const hasCredentials = !!(apiUrl && login && senha);
+      const source = dbCredentials.apiUrl ? 'banco de dados' : 'variáveis de ambiente';
+      this.logger.log(`[INIT] Credenciais PNCP carregadas de: ${source} (configurado: ${hasCredentials ? 'SIM' : 'NÃO'})`);
       
-      // Reinicializar axios com a URL do banco se disponível
-      if (dbCredentials.apiUrl) {
-        this.initializeAxiosWithUrl(dbCredentials.apiUrl);
+      // Reinicializar axios com a URL se disponível
+      if (apiUrl) {
+        this.initializeAxiosWithUrl(apiUrl);
       }
     } catch (error) {
-      this.logger.error(`[INIT] Erro ao carregar credenciais PNCP do banco: ${error.message}`);
+      this.logger.error(`[INIT] Erro ao carregar credenciais PNCP: ${error.message}`);
+      
+      // Fallback: usar variáveis de ambiente
+      const apiUrl = this.getEnvVar('PNCP_API_URL') || '';
+      const login = this.getEnvVar('PNCP_LOGIN') || '';
+      const senha = this.getEnvVar('PNCP_SENHA') || '';
+      const cnpjOrgao = this.getEnvVar('PNCP_CNPJ_ORGAO') || '';
+
+      if (apiUrl) PncpService.platformCredentials.apiUrl = apiUrl;
+      if (login) PncpService.platformCredentials.login = login;
+      if (senha) PncpService.platformCredentials.senha = senha;
+      if (cnpjOrgao) PncpService.platformCredentials.cnpjOrgao = cnpjOrgao;
+
+      const hasEnvCredentials = !!(apiUrl && login && senha);
+      this.logger.log(`[INIT] Fallback para variáveis de ambiente: ${hasEnvCredentials ? 'SIM' : 'NÃO'}`);
+      
+      if (apiUrl) {
+        this.initializeAxiosWithUrl(apiUrl);
+      }
     }
   }
 

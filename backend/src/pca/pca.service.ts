@@ -456,7 +456,7 @@ export class PcaService {
 
   // ============ IMPORTAÇÃO/EXPORTAÇÃO ============
 
-  async duplicarParaProximoAno(pcaId: string): Promise<PlanoContratacaoAnual> {
+  async duplicarParaProximoAno(pcaId: string, copiarTodosItens: boolean = true): Promise<PlanoContratacaoAnual> {
     const pcaOriginal = await this.findOne(pcaId);
     const proximoAno = pcaOriginal.ano_exercicio + 1;
 
@@ -466,7 +466,7 @@ export class PcaService {
     });
 
     if (existente) {
-      throw new BadRequestException(`Já existe um PCA para o ano ${proximoAno}`);
+      throw new BadRequestException(`Já existe um PCA para o ano ${proximoAno}. Exclua-o primeiro ou edite diretamente.`);
     }
 
     // Criar novo PCA
@@ -475,10 +475,13 @@ export class PcaService {
       ano_exercicio: proximoAno
     });
 
-    // Copiar itens que são renovação ou não foram contratados
-    const itensParaCopiar = pcaOriginal.itens.filter(
-      item => item.renovacao_contrato || item.status === StatusItemPCA.ADIADO
-    );
+    // Copiar itens - por padrão copia TODOS os itens
+    // Se copiarTodosItens=false, copia apenas renovações e adiados
+    const itensParaCopiar = copiarTodosItens 
+      ? pcaOriginal.itens 
+      : pcaOriginal.itens.filter(
+          item => item.renovacao_contrato || item.status === StatusItemPCA.ADIADO
+        );
 
     for (const item of itensParaCopiar) {
       // Ajustar data_desejada_contratacao para o novo ano (mantendo dia e mês)

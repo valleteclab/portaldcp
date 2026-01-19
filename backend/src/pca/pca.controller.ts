@@ -108,8 +108,12 @@ export class PcaController {
   }
 
   @Post(':id/duplicar')
-  async duplicarParaProximoAno(@Param('id') id: string) {
-    return this.pcaService.duplicarParaProximoAno(id);
+  async duplicarParaProximoAno(
+    @Param('id') id: string,
+    @Body() body?: { copiarTodosItens?: boolean }
+  ) {
+    const copiarTodosItens = body?.copiarTodosItens !== false; // Default: true
+    return this.pcaService.duplicarParaProximoAno(id, copiarTodosItens);
   }
 
   @Post(':id/consolidar-demandas')

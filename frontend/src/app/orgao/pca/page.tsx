@@ -718,20 +718,37 @@ function PcaPageContent() {
     }
   }
 
+  const [duplicando, setDuplicando] = useState(false)
+
   const duplicarPCA = async () => {
     if (!pcaAtual) return
+    
+    const proximoAno = pcaAtual.ano_exercicio + 1
+    const confirmar = confirm(`Deseja duplicar o PCA ${pcaAtual.ano_exercicio} para ${proximoAno}?\n\nTodos os itens serão copiados para o novo PCA.`)
+    if (!confirmar) return
 
+    setDuplicando(true)
     try {
       const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/duplicar`, {
-        method: 'POST'
+        method: 'POST',
+        body: JSON.stringify({ copiarTodosItens: true })
       })
 
       if (response.ok) {
-        alert(`PCA duplicado para ${pcaAtual.ano_exercicio + 1}!`)
+        const novoPca = await response.json()
+        alert(`✅ PCA duplicado com sucesso!\n\nNovo PCA criado para ${proximoAno} com ${novoPca.itens?.length || 0} itens.`)
         await carregarPCAs()
+        // Mudar para o novo ano
+        setAnoSelecionado(proximoAno)
+      } else {
+        const erro = await response.json().catch(() => ({ message: 'Erro desconhecido' }))
+        alert(`❌ Erro ao duplicar PCA:\n\n${erro.message || 'Erro desconhecido'}`)
       }
     } catch (error) {
       console.error('Erro ao duplicar PCA:', error)
+      alert('❌ Erro de conexão ao duplicar PCA. Tente novamente.')
+    } finally {
+      setDuplicando(false)
     }
   }
 
@@ -1224,9 +1241,18 @@ function PcaPageContent() {
                   </Badge>
                 )}
 
-                <Button variant="outline" onClick={duplicarPCA}>
-                  <Copy className="w-4 h-4 mr-2" />
-                  Duplicar para {anoSelecionado + 1}
+                <Button variant="outline" onClick={duplicarPCA} disabled={duplicando}>
+                  {duplicando ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Duplicando...
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 mr-2" />
+                      Duplicar para {anoSelecionado + 1}
+                    </>
+                  )}
                 </Button>
 
                 <Button variant="outline" onClick={exportarParaPNCP} className="border-green-300 text-green-700 hover:bg-green-50">
