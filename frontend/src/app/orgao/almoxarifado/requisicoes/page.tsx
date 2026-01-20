@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { 
   Plus, 
   Search, 
@@ -12,7 +13,8 @@ import {
   Clock,
   FileText,
   Loader2,
-  ArrowLeft
+  ArrowLeft,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,9 +113,14 @@ const PRIORIDADE_COLORS: Record<string, string> = {
 };
 
 function RequisicoesList() {
+  const searchParams = useSearchParams();
+  const contratoIdUrl = searchParams.get('contrato');
+  
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
+  const [filtroContrato, setFiltroContrato] = useState<string | null>(contratoIdUrl);
+  const [contratoInfo, setContratoInfo] = useState<{ numero_contrato: string; fornecedor_razao_social?: string } | null>(null);
   const [busca, setBusca] = useState('');
   
   // Modal de detalhes/autorização
@@ -124,15 +131,41 @@ function RequisicoesList() {
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [processando, setProcessando] = useState(false);
 
+  // Carregar info do contrato se filtrado
+  useEffect(() => {
+    if (filtroContrato) {
+      carregarInfoContrato();
+    } else {
+      setContratoInfo(null);
+    }
+  }, [filtroContrato]);
+
+  const carregarInfoContrato = async () => {
+    if (!filtroContrato) return;
+    try {
+      const response = await authFetch(`${API_URL}/api/contratos/${filtroContrato}`);
+      if (response.ok) {
+        const data = await response.json();
+        setContratoInfo({
+          numero_contrato: data.numero_contrato,
+          fornecedor_razao_social: data.fornecedor_razao_social
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao carregar contrato:', error);
+    }
+  };
+
   useEffect(() => {
     carregarRequisicoes();
-  }, [filtroStatus]);
+  }, [filtroStatus, filtroContrato]);
 
   const carregarRequisicoes = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (filtroStatus && filtroStatus !== '__all__') params.append('status', filtroStatus);
+      if (filtroContrato) params.append('contratoId', filtroContrato);
       
       const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes?${params}`);
       
@@ -257,29 +290,73 @@ function RequisicoesList() {
     );
   }
 
+  const limparFiltroContrato = () => {
+    setFiltroContrato(null);
+    // Atualiza a URL sem o parâmetro
+    window.history.replaceState({}, '', '/orgao/almoxarifado/requisicoes');
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/orgao/almoxarifado">
+            <Link href={filtroContrato ? "/orgao/contratos" : "/orgao/almoxarifado"}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Voltar
             </Link>
           </Button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Requisições</h1>
-            <p className="text-gray-500">Gerencie as requisições de materiais e serviços</p>
+            <p className="text-gray-500">
+              {filtroContrato && contratoInfo
+                ? `Requisições do contrato ${contratoInfo.numero_contrato}`
+                : 'Gerencie as requisições de materiais e serviços'}
+            </p>
           </div>
         </div>
         <Button asChild>
-          <Link href="/orgao/almoxarifado/requisicoes/nova">
+          <Link href={filtroContrato 
+            ? `/orgao/almoxarifado/requisicoes/nova?contrato=${filtroContrato}` 
+            : "/orgao/almoxarifado/requisicoes/nova"}>
             <Plus className="h-4 w-4 mr-2" />
             Nova Requisição
           </Link>
         </Button>
       </div>
+
+      {/* Banner de filtro por contrato */}
+      {filtroContrato && contratoInfo && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-blue-600" />
+                <div>
+                  <p className="font-medium text-blue-900">
+                    Filtrando por: Contrato {contratoInfo.numero_contrato}
+                  </p>
+                  {contratoInfo.fornecedor_razao_social && (
+                    <p className="text-sm text-blue-700">
+                      Fornecedor: {contratoInfo.fornecedor_razao_social}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={limparFiltroContrato}
+                className="text-blue-600 hover:text-blue-800 hover:bg-blue-100"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Limpar filtro
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filtros */}
       <Card>

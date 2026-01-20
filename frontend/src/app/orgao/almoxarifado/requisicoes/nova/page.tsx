@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
   ArrowLeft, 
@@ -78,8 +78,12 @@ interface ItemRequisicao {
 
 function NovaRequisicaoForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const contratoIdUrl = searchParams.get('contrato');
+  
   const [loading, setLoading] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [contratoPreSelecionado, setContratoPreSelecionado] = useState(false);
   
   // Dados do formulário
   const [tipo, setTipo] = useState('MATERIAL');
@@ -106,6 +110,17 @@ function NovaRequisicaoForm() {
   useEffect(() => {
     carregarContratos();
   }, []);
+
+  // Pré-seleciona o contrato se vier da URL
+  useEffect(() => {
+    if (contratoIdUrl && contratos.length > 0 && !contratoPreSelecionado) {
+      const contratoExiste = contratos.find(c => c.id === contratoIdUrl);
+      if (contratoExiste) {
+        setContratoId(contratoIdUrl);
+        setContratoPreSelecionado(true);
+      }
+    }
+  }, [contratoIdUrl, contratos, contratoPreSelecionado]);
 
   useEffect(() => {
     if (contratoId) {

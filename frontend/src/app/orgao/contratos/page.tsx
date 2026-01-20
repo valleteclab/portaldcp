@@ -23,8 +23,11 @@ import {
   Building,
   Eye,
   Edit,
-  Send
+  Send,
+  ClipboardList,
+  Warehouse
 } from 'lucide-react'
+import { useModulosOrgao } from '@/hooks/useModulosOrgao'
 
 interface Contrato {
   id: string
@@ -65,6 +68,8 @@ function ContratosOrgaoPageContent() {
     status: '',
     ano: ''
   })
+  const { temAcesso } = useModulosOrgao()
+  const temAlmoxarifado = temAcesso(ModuloSistema.ALMOXARIFADO)
   const [estatisticas, setEstatisticas] = useState({
     vigentes: 0,
     encerrados: 0,
@@ -355,18 +360,25 @@ function ContratosOrgaoPageContent() {
                         </td>
                         <td className="py-3 px-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <Button variant="ghost" size="sm" asChild>
+                            <Button variant="ghost" size="sm" asChild title="Ver detalhes">
                               <Link href={`/orgao/contratos/${contrato.id}`}>
                                 <Eye className="w-4 h-4" />
                               </Link>
                             </Button>
-                            <Button variant="ghost" size="sm" asChild>
+                            <Button variant="ghost" size="sm" asChild title="Editar">
                               <Link href={`/orgao/contratos/${contrato.id}/editar`}>
                                 <Edit className="w-4 h-4" />
                               </Link>
                             </Button>
+                            {temAlmoxarifado && contrato.status === 'VIGENTE' && (
+                              <Button variant="ghost" size="sm" asChild title="Requisições deste contrato" className="text-green-600 hover:text-green-700 hover:bg-green-50">
+                                <Link href={`/orgao/almoxarifado/requisicoes?contrato=${contrato.id}`}>
+                                  <ClipboardList className="w-4 h-4" />
+                                </Link>
+                              </Button>
+                            )}
                             {!contrato.enviado_pncp && (
-                              <Button variant="ghost" size="sm">
+                              <Button variant="ghost" size="sm" title="Enviar ao PNCP">
                                 <Send className="w-4 h-4" />
                               </Button>
                             )}
