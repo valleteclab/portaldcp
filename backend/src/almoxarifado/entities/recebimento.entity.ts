@@ -97,16 +97,16 @@ export class Recebimento {
   // DADOS DA NOTA FISCAL
   // ============================================================================
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   numero_nota_fiscal: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   serie_nota_fiscal: string | null;
 
   @Column({ type: 'date', nullable: true })
   data_nota_fiscal: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   chave_nfe: string | null; // Chave de acesso da NF-e
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
@@ -166,10 +166,10 @@ export class Recebimento {
   @Column()
   usuario_recebedor_nome: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_conferente_id: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_conferente_nome: string | null;
 
   // ============================================================================

@@ -80,7 +80,7 @@ export class Requisicao {
   @JoinColumn({ name: 'contrato_id' })
   contrato: Contrato;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   contrato_id: string | null;
 
   /**
@@ -116,10 +116,10 @@ export class Requisicao {
   @Column()
   setor_solicitante: string; // Nome do setor
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   codigo_setor: string | null; // Código do centro de custo
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   local_entrega: string | null; // Onde entregar os materiais
 
   // ============================================================================
@@ -149,7 +149,7 @@ export class Requisicao {
   @Column()
   usuario_solicitante_nome: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_solicitante_email: string | null;
 
   @Column({ type: 'timestamp' })
@@ -166,10 +166,10 @@ export class Requisicao {
   })
   status: StatusRequisicao;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_autorizador_id: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_autorizador_nome: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -197,7 +197,7 @@ export class Requisicao {
   @Column({ default: false })
   saldo_reservado: boolean;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   ordem_fornecimento_id: string | null; // FK para OrdemFornecimento quando gerada
 
   // ============================================================================

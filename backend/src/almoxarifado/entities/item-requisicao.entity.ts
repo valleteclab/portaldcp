@@ -58,7 +58,7 @@ export class ItemRequisicao {
   @JoinColumn({ name: 'item_contrato_id' })
   item_contrato: ItemContrato;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   item_contrato_id: string;
 
   // ============================================================================
@@ -68,13 +68,13 @@ export class ItemRequisicao {
   @Column({ type: 'int' })
   numero_item: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   codigo_catalogo: string;
 
   @Column()
   descricao: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   unidade_medida: string;
 
   // ============================================================================

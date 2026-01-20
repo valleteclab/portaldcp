@@ -72,7 +72,7 @@ export class ItemContrato {
   @Column({ type: 'int' })
   numero_item: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   codigo_catalogo: string; // CATMAT/CATSER
 
   @Column()
@@ -136,7 +136,7 @@ export class ItemContrato {
   // REFERÊNCIA À LICITAÇÃO
   // ============================================================================
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   item_licitacao_id: string; // FK para ItemLicitacao (origem do item)
 
   // ============================================================================

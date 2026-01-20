@@ -83,7 +83,7 @@ export class OrdemFornecimento {
   @JoinColumn({ name: 'requisicao_id' })
   requisicao: Requisicao;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   requisicao_id: string | null;
 
   // ============================================================================
@@ -168,7 +168,7 @@ export class OrdemFornecimento {
   @Column({ type: 'timestamp', nullable: true })
   data_envio: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   email_fornecedor: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -184,10 +184,10 @@ export class OrdemFornecimento {
   @Column()
   usuario_emitente_nome: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_fiscal_id: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usuario_fiscal_nome: string | null;
 
   // ============================================================================
