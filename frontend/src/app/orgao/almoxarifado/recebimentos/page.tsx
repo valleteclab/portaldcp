@@ -93,7 +93,7 @@ const STATUS_LABELS: Record<string, string> = {
 function RecebimentosList() {
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filtroStatus, setFiltroStatus] = useState<string>('');
+  const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
   const [busca, setBusca] = useState('');
   
   // Modal
@@ -112,7 +112,7 @@ function RecebimentosList() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (filtroStatus) params.append('status', filtroStatus);
+      if (filtroStatus && filtroStatus !== '__all__') params.append('status', filtroStatus);
       
       const response = await authFetch(`${API_URL}/api/almoxarifado/recebimentos?${params}`);
       
@@ -298,7 +298,7 @@ function RecebimentosList() {
                 <SelectValue placeholder="Filtrar por status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos os status</SelectItem>
+                <SelectItem value="__all__">Todos os status</SelectItem>
                 <SelectItem value="PENDENTE">Pendente Conferência</SelectItem>
                 <SelectItem value="CONFERIDO">Conferido</SelectItem>
                 <SelectItem value="ACEITO">Aceito</SelectItem>

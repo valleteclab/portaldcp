@@ -102,7 +102,7 @@ const STATUS_LABELS: Record<string, string> = {
 function OrdensList() {
   const [ordens, setOrdens] = useState<OrdemFornecimento[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filtroStatus, setFiltroStatus] = useState<string>('');
+  const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
   const [busca, setBusca] = useState('');
   
   // Modal de detalhes
@@ -121,7 +121,7 @@ function OrdensList() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (filtroStatus) params.append('status', filtroStatus);
+      if (filtroStatus && filtroStatus !== '__all__') params.append('status', filtroStatus);
       
       const response = await authFetch(`${API_URL}/api/almoxarifado/ordens?${params}`);
       
@@ -256,7 +256,7 @@ function OrdensList() {
                 <SelectValue placeholder="Filtrar por status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos os status</SelectItem>
+                <SelectItem value="__all__">Todos os status</SelectItem>
                 <SelectItem value="EMITIDA">Emitida</SelectItem>
                 <SelectItem value="ENVIADA">Enviada</SelectItem>
                 <SelectItem value="EM_ATENDIMENTO">Em Atendimento</SelectItem>

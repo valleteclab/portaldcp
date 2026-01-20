@@ -113,7 +113,7 @@ const PRIORIDADE_COLORS: Record<string, string> = {
 function RequisicoesList() {
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filtroStatus, setFiltroStatus] = useState<string>('');
+  const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
   const [busca, setBusca] = useState('');
   
   // Modal de detalhes/autorização
@@ -132,7 +132,7 @@ function RequisicoesList() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (filtroStatus) params.append('status', filtroStatus);
+      if (filtroStatus && filtroStatus !== '__all__') params.append('status', filtroStatus);
       
       const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes?${params}`);
       
@@ -301,7 +301,7 @@ function RequisicoesList() {
                 <SelectValue placeholder="Filtrar por status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos os status</SelectItem>
+                <SelectItem value="__all__">Todos os status</SelectItem>
                 <SelectItem value="RASCUNHO">Rascunho</SelectItem>
                 <SelectItem value="AGUARDANDO_AUTORIZACAO">Aguardando Autorização</SelectItem>
                 <SelectItem value="AUTORIZADA">Autorizada</SelectItem>
