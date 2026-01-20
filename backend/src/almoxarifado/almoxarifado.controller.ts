@@ -12,6 +12,8 @@ import {
   ParseUUIDPipe,
   Logger,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
@@ -34,6 +36,7 @@ import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item
 import { StatusRequisicao } from './entities/requisicao.entity';
 import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { StatusRecebimento } from './entities/recebimento.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 
 @Controller('almoxarifado')
 @RequireModule(ModuloSistema.ALMOXARIFADO)
@@ -47,6 +50,8 @@ export class AlmoxarifadoController {
     private readonly recebimentoService: RecebimentoService,
     private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
     private readonly notificacoesService: NotificacoesService,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
   // ============================================================================
@@ -166,8 +171,30 @@ export class AlmoxarifadoController {
   }
 
   @Post('requisicoes/:id/enviar')
-  async enviarParaAutorizacao(@Param('id', ParseUUIDPipe) id: string) {
-    return this.requisicaoService.enviarParaAutorizacao(id);
+  async enviarParaAutorizacao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    
+    // Busca usuários do órgão com permissão de aprovação
+    const usuariosAprovadores = await this.usuarioRepository.find({
+      where: {
+        orgao_id: orgaoId,
+        pode_aprovar_requisicoes: true,
+        ativo: true,
+      },
+      select: ['id', 'email', 'role'],
+    });
+
+    // Converte para o formato esperado pelo service
+    const usuariosOrgao = usuariosAprovadores.map(u => ({
+      id: u.id,
+      perfil: u.role || 'USUARIO',
+      email: u.email || undefined,
+    }));
+
+    return this.requisicaoService.enviarParaAutorizacao(id, usuariosOrgao);
   }
 
   @Post('requisicoes/:id/autorizar')

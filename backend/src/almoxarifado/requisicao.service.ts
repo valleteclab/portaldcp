@@ -172,6 +172,8 @@ export class RequisicaoService {
     const saved = await this.requisicaoRepository.save(requisicao);
 
     // Notifica aprovadores
+    this.logger.log(`Enviando requisição ${requisicao.numero} para aprovação. Usuários do órgão: ${usuariosOrgao?.length || 0}`);
+    
     if (usuariosOrgao && usuariosOrgao.length > 0) {
       try {
         const aprovadores = await this.configAprovacaoService.listarAprovadores(
@@ -181,7 +183,10 @@ export class RequisicaoService {
           requisicao.usuario_solicitante_id,
         );
 
+        this.logger.log(`Aprovadores elegíveis encontrados: ${aprovadores.length}`);
+
         if (aprovadores.length > 0) {
+          this.logger.log(`Criando notificações para ${aprovadores.length} aprovadores`);
           await this.notificacoesService.notificarNovaRequisicao(
             requisicao.orgao_id,
             requisicao.numero,
@@ -190,11 +195,16 @@ export class RequisicaoService {
             Number(requisicao.valor_total_estimado),
             aprovadores,
           );
+          this.logger.log(`Notificações criadas com sucesso para requisição ${requisicao.numero}`);
+        } else {
+          this.logger.warn(`Nenhum aprovador elegível encontrado para requisição ${requisicao.numero}`);
         }
       } catch (notifError) {
-        // Não falha a operação se a notificação falhar
-        this.logger.warn(`Erro ao enviar notificação para aprovadores: ${notifError.message}`);
+        // Não falha a operação se a notificação falhar, mas loga o erro completo
+        this.logger.error(`Erro ao enviar notificação para aprovadores: ${notifError.message}`, notifError.stack);
       }
+    } else {
+      this.logger.warn(`Nenhum usuário do órgão fornecido para notificação da requisição ${requisicao.numero}`);
     }
 
     return saved;

@@ -15,6 +15,7 @@ import { ConfiguracaoAprovacao } from './entities/configuracao-aprovacao.entity'
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 
 @Module({
@@ -29,6 +30,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
       Contrato,
       Orgao,
       Fornecedor,
+      Usuario,
     ]),
     NotificacoesModule,
   ],

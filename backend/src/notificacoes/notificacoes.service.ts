@@ -64,17 +64,25 @@ export class NotificacoesService {
     usuarios: { id: string; email?: string }[],
     dados: Omit<CriarNotificacaoDto, 'usuario_id' | 'usuario_email'>,
   ): Promise<Notificacao[]> {
+    this.logger.log(`Criando notificações para ${usuarios.length} usuários`);
     const notificacoes: Notificacao[] = [];
 
     for (const usuario of usuarios) {
-      const notificacao = await this.criar({
-        ...dados,
-        usuario_id: usuario.id,
-        usuario_email: usuario.email,
-      });
-      notificacoes.push(notificacao);
+      try {
+        const notificacao = await this.criar({
+          ...dados,
+          usuario_id: usuario.id,
+          usuario_email: usuario.email,
+        });
+        notificacoes.push(notificacao);
+        this.logger.debug(`Notificação criada para usuário ${usuario.id}`);
+      } catch (error) {
+        this.logger.error(`Erro ao criar notificação para usuário ${usuario.id}: ${error.message}`, error.stack);
+        // Continua criando notificações para os outros usuários
+      }
     }
 
+    this.logger.log(`Total de notificações criadas: ${notificacoes.length} de ${usuarios.length}`);
     return notificacoes;
   }
 
@@ -197,27 +205,36 @@ export class NotificacoesService {
     valorTotal: number,
     aprovadores: { id: string; email?: string }[],
   ): Promise<void> {
+    this.logger.log(`Notificando ${aprovadores.length} aprovadores sobre requisição ${requisicaoNumero}`);
+    
     const valorFormatado = new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL',
     }).format(valorTotal);
 
-    await this.criarParaMultiplos(aprovadores, {
-      orgao_id: orgaoId,
-      tipo: TipoNotificacao.REQUISICAO_AGUARDANDO_APROVACAO,
-      titulo: `Nova requisição aguardando aprovação`,
-      mensagem: `A requisição ${requisicaoNumero} de ${solicitanteNome} no valor de ${valorFormatado} aguarda sua aprovação.`,
-      prioridade: PrioridadeNotificacao.ALTA,
-      entidade_tipo: 'requisicao',
-      entidade_id: requisicaoId,
-      link: `/orgao/almoxarifado/aprovacoes`,
-      enviar_email: true,
-      metadata: {
-        requisicao_numero: requisicaoNumero,
-        solicitante: solicitanteNome,
-        valor: valorTotal,
-      },
-    });
+    try {
+      const notificacoes = await this.criarParaMultiplos(aprovadores, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.REQUISICAO_AGUARDANDO_APROVACAO,
+        titulo: `Nova requisição aguardando aprovação`,
+        mensagem: `A requisição ${requisicaoNumero} de ${solicitanteNome} no valor de ${valorFormatado} aguarda sua aprovação.`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'requisicao',
+        entidade_id: requisicaoId,
+        link: `/orgao/almoxarifado/aprovacoes`,
+        enviar_email: true,
+        metadata: {
+          requisicao_numero: requisicaoNumero,
+          solicitante: solicitanteNome,
+          valor: valorTotal,
+        },
+      });
+      
+      this.logger.log(`Notificações criadas com sucesso: ${notificacoes.length} notificações para requisição ${requisicaoNumero}`);
+    } catch (error) {
+      this.logger.error(`Erro ao criar notificações para requisição ${requisicaoNumero}: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   /**
