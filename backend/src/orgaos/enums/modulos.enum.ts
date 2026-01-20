@@ -9,6 +9,7 @@ export enum ModuloSistema {
   USUARIOS = 'USUARIOS',
   DISPUTA = 'DISPUTA',
   CREDENCIAMENTO = 'CREDENCIAMENTO',
+  ALMOXARIFADO = 'ALMOXARIFADO',
 }
 
 export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
@@ -22,5 +23,6 @@ export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
   [ModuloSistema.USUARIOS]: 'Gestão de Usuários',
   [ModuloSistema.DISPUTA]: 'Sala de Disputa',
   [ModuloSistema.CREDENCIAMENTO]: 'Credenciamento',
+  [ModuloSistema.ALMOXARIFADO]: 'Almoxarifado e Ordens de Fornecimento',
 };
 

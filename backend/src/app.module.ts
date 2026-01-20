@@ -36,6 +36,7 @@ import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module'
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { DisputaModule } from './disputa-v2/disputa.module';
 import { AdminModule } from './admin/admin.module';
+import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { AdminModule } from './admin/admin.module';
     UsuariosModule,
     DisputaModule,
     AdminModule,
+    AlmoxarifadoModule,
   ],
   controllers: [HealthController],
   providers: [

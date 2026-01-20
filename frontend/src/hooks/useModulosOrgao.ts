@@ -12,7 +12,8 @@ export type ModuloSistema =
   | 'PNCP'
   | 'USUARIOS'
   | 'DISPUTA'
-  | 'CREDENCIAMENTO';
+  | 'CREDENCIAMENTO'
+  | 'ALMOXARIFADO';
 
 // Constantes para uso como valores (não apenas tipos)
 export const ModuloSistema = {
@@ -26,6 +27,7 @@ export const ModuloSistema = {
   USUARIOS: 'USUARIOS' as ModuloSistema,
   DISPUTA: 'DISPUTA' as ModuloSistema,
   CREDENCIAMENTO: 'CREDENCIAMENTO' as ModuloSistema,
+  ALMOXARIFADO: 'ALMOXARIFADO' as ModuloSistema,
 } as const;
 
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
@@ -39,6 +41,7 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
   USUARIOS: { nome: 'Usuários', descricao: 'Gestão de Usuários' },
   DISPUTA: { nome: 'Disputa', descricao: 'Sala de Disputa' },
   CREDENCIAMENTO: { nome: 'Credenciamento', descricao: 'Credenciamento' },
+  ALMOXARIFADO: { nome: 'Almoxarifado', descricao: 'Almoxarifado e Ordens de Fornecimento' },
 };
 
 export function useModulosOrgao() {

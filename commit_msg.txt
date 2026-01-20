@@ -1,0 +1,34 @@
+[Cursor] feat: Implementa módulo completo de Almoxarifado
+
+## Backend
+- Adiciona ALMOXARIFADO ao enum ModuloSistema
+- Cria entidade ItemContrato com controle de saldos (contratada, empenhada, entregue, disponível)
+- Cria entidades Requisicao e ItemRequisicao com workflow de autorização
+- Cria entidade OrdemFornecimento para ordens enviadas aos fornecedores
+- Cria entidade Recebimento para conferência e aceite de materiais
+
+## Services com Lógica de Saldo
+- ItemContratoService: reservarSaldo(), liberarSaldo(), confirmarEntrega()
+- RequisicaoService: criar, autorizar (reserva saldo), negar, cancelar (libera saldo)
+- OrdemFornecimentoService: gerar ordem a partir de requisição, enviar, cancelar
+- RecebimentoService: criar, conferir, aceitar (baixa no contrato), rejeitar
+
+## Controller (30+ endpoints)
+- /api/almoxarifado/contratos/:id/itens - Itens do contrato e saldos
+- /api/almoxarifado/requisicoes - CRUD + autorização/negativa
+- /api/almoxarifado/ordens - Geração, envio, cancelamento
+- /api/almoxarifado/recebimentos - Conferência e aceite
+
+## Frontend
+- Dashboard do Almoxarifado com estatísticas
+- Página de Requisições (listagem + criação)
+- Página de Ordens de Fornecimento
+- Página de Recebimentos
+- Menu Sidebar com link para Almoxarifado
+
+## Fluxo de Saldo Implementado
+1. Requisição AUTORIZADA → quantidade_empenhada++
+2. Requisição NEGADA/CANCELADA → quantidade_empenhada--
+3. Recebimento ACEITO → quantidade_empenhada--, quantidade_entregue++
+
+Usa transações com lock pessimista para garantir consistência.
