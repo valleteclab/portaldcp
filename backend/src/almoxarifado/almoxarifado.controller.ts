@@ -41,7 +41,7 @@ import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { StatusRecebimento } from './entities/recebimento.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
-import { MigracaoContratosService } from './migracao-contratos.service';
+import { MigracaoContratosService, ResultadoImportacao } from './migracao-contratos.service';
 import { DadosContratoMigracaoDto } from './dto/migracao-contrato.dto';
 import { UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -557,7 +557,7 @@ export class AlmoxarifadoController {
     @UploadedFile() arquivo: Express.Multer.File,
     @Body(new ValidationPipe()) dadosContrato: DadosContratoMigracaoDto,
     @Req() request: { user: JwtPayload },
-  ) {
+  ): Promise<ResultadoImportacao> {
     if (!arquivo) {
       throw new Error('Arquivo CSV é obrigatório');
     }

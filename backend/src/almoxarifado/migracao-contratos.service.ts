@@ -9,6 +9,7 @@ import { ItemContrato } from './entities/item-contrato.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { ItemContratoService } from './item-contrato.service';
 import { UnidadeMedidaContrato } from './entities/item-contrato.entity';
+import { TipoPessoa } from '../fornecedores/entities/enums';
 
 interface ItemCSV {
   numero_item: number;
@@ -33,7 +34,7 @@ interface DadosContrato {
   data_vigencia_fim?: Date;
 }
 
-interface ResultadoImportacao {
+export interface ResultadoImportacao {
   sucesso: boolean;
   mensagem: string;
   contrato_id?: string;
@@ -114,25 +115,24 @@ export class MigracaoContratosService {
       );
 
       // Criar contrato
-      const contrato = await queryRunner.manager.save(
-        this.contratoRepository.create({
-          numero_contrato: dadosContrato.numero_contrato,
-          ano: dadosContrato.ano,
-          orgao_id: orgaoId,
-          fornecedor_id: fornecedor.id,
-          fornecedor_cnpj: fornecedor.cpf_cnpj,
-          fornecedor_razao_social: fornecedor.razao_social,
-          objeto: dadosContrato.objeto || 'Contrato importado via migração',
-          valor_inicial: dadosContrato.valor_inicial,
-          valor_global: dadosContrato.valor_inicial,
-          data_assinatura: dadosContrato.data_assinatura || new Date(),
-          data_vigencia_inicio: dadosContrato.data_vigencia_inicio || new Date(),
-          data_vigencia_fim: dadosContrato.data_vigencia_fim || new Date(),
-          status: 'VIGENTE',
-          tipo: 'CONTRATO',
-          categoria: 'COMPRAS',
-        }),
-      );
+      const contrato = await queryRunner.manager.save(Contrato, {
+        numero_contrato: dadosContrato.numero_contrato,
+        ano: dadosContrato.ano,
+        sequencial: parseInt(dadosContrato.numero_contrato.split('/')[0]) || 1,
+        orgao_id: orgaoId,
+        fornecedor_id: fornecedor.id,
+        fornecedor_cnpj: fornecedor.cpf_cnpj,
+        fornecedor_razao_social: fornecedor.razao_social,
+        objeto: dadosContrato.objeto || 'Contrato importado via migração',
+        valor_inicial: dadosContrato.valor_inicial,
+        valor_global: dadosContrato.valor_inicial,
+        data_assinatura: dadosContrato.data_assinatura || new Date(),
+        data_vigencia_inicio: dadosContrato.data_vigencia_inicio || new Date(),
+        data_vigencia_fim: dadosContrato.data_vigencia_fim || new Date(),
+        status: 'VIGENTE' as any,
+        tipo: 'CONTRATO' as any,
+        categoria: 'COMPRAS' as any,
+      });
 
       this.logger.log(`Contrato ${contrato.numero_contrato} criado com ID: ${contrato.id}`);
 
@@ -218,7 +218,7 @@ export class MigracaoContratosService {
       if (itens.length > 0) {
         const itensParaCriar = itens.map(item => {
           const valorTotal = item.valor_total || item.valor_unitario * item.quantidade_contratada;
-          return this.itemContratoRepository.create({
+          return {
             contrato_id: contrato.id,
             numero_item: item.numero_item,
             descricao: item.descricao,
@@ -230,10 +230,17 @@ export class MigracaoContratosService {
             quantidade_empenhada: 0,
             quantidade_entregue: 0,
             observacoes: item.marca ? `Marca: ${item.marca}` : null,
-          });
+          };
         });
 
-        await queryRunner.manager.save(itensParaCriar);
+        const itensEntities = itensParaCriar.map(item => {
+          const entity = this.itemContratoRepository.create({
+            ...item,
+            observacoes: item.observacoes || undefined,
+          });
+          return entity;
+        });
+        await queryRunner.manager.save(ItemContrato, itensEntities);
         estatisticas.itens_importados = itensParaCriar.length;
 
         this.logger.log(`${itensParaCriar.length} itens importados para o contrato ${contrato.numero_contrato}`);
@@ -339,14 +346,12 @@ export class MigracaoContratosService {
     if (!fornecedor) {
       this.logger.log(`Fornecedor não encontrado, criando novo: ${razaoSocial} (${cnpjLimpo})`);
       
-      fornecedor = this.fornecedorRepository.create({
+      fornecedor = await this.fornecedorRepository.save({
         cpf_cnpj: cnpjLimpo,
         razao_social: razaoSocial,
-        tipo_pessoa: 'JURIDICA',
-        status_cadastro: 'APROVADO', // Aprovar automaticamente para migração
+        tipo_pessoa: TipoPessoa.JURIDICA,
+        status_cadastro: 'APROVADO' as any, // Aprovar automaticamente para migração
       });
-
-      fornecedor = await this.fornecedorRepository.save(fornecedor);
     }
 
     return fornecedor;

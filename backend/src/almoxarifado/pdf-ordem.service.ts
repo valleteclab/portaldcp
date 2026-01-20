@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import PDFDocument from 'pdfkit';
+type PDFDoc = InstanceType<typeof PDFDocument>;
 import * as fs from 'fs';
 import * as path from 'path';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
@@ -82,7 +83,7 @@ export class PdfOrdemService {
   /**
    * Adiciona cabeçalho do documento
    */
-  private adicionarCabecalho(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
+  private adicionarCabecalho(doc: PDFDoc, ordem: OrdemFornecimento): void {
     const orgao = ordem.orgao as Orgao;
 
     // Cabeçalho do órgão
@@ -121,7 +122,7 @@ export class PdfOrdemService {
   /**
    * Adiciona informações da ordem
    */
-  private adicionarInformacoesOrdem(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
+  private adicionarInformacoesOrdem(doc: PDFDoc, ordem: OrdemFornecimento): void {
     const orgao = ordem.orgao as Orgao;
     const fornecedor = ordem.fornecedor as Fornecedor;
     const contrato = ordem.contrato as Contrato;
@@ -192,9 +193,9 @@ export class PdfOrdemService {
       doc.text('Requerente', col1, currentY);
       doc.text(requisicao.usuario_solicitante_nome, col2, currentY);
     }
-    if (contrato.licitacao?.numero) {
+    if (contrato.licitacao?.numero_processo) {
       doc.text('Licitação', col2 + 80, currentY);
-      doc.text(contrato.licitacao.numero, col3, currentY);
+      doc.text(contrato.licitacao.numero_processo, col3, currentY);
     }
     currentY += lineHeight;
 
@@ -222,7 +223,7 @@ export class PdfOrdemService {
   /**
    * Adiciona tabela de itens
    */
-  private adicionarTabelaItens(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
+  private adicionarTabelaItens(doc: PDFDoc, ordem: OrdemFornecimento): void {
     doc.fontSize(9).font('Helvetica-Bold');
     doc.text('Informações', { underline: true });
     doc.moveDown(0.5);
@@ -288,7 +289,7 @@ export class PdfOrdemService {
   /**
    * Adiciona rodapé com assinaturas
    */
-  private adicionarRodape(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
+  private adicionarRodape(doc: PDFDoc, ordem: OrdemFornecimento): void {
     doc.fontSize(9).font('Helvetica');
     doc.text(
       'A NOTA FISCAL SÓ TERÁ VALIDADE NO LANÇAMENTO DO EMPENHO, SE ACOMPANHADA DESTA ORDEM DEVIDAMENTE ASSINADA PELO RESPONSÁVEL',
