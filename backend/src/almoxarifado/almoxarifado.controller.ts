@@ -19,7 +19,8 @@ import { RequisicaoService } from './requisicao.service';
 import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
-import { ConfiguracaoAprovacaoService, CriarConfiguracaoDto } from './configuracao-aprovacao.service';
+import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
+import { CriarConfiguracaoAprovacaoDto, AtualizarConfiguracaoAprovacaoDto } from './dto/configuracao-aprovacao.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
 import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto } from './dto/ordem-fornecimento.dto';
@@ -379,7 +380,7 @@ export class AlmoxarifadoController {
   @Post('configuracoes/aprovacao')
   async criarConfiguracaoAprovacao(
     @Req() request: { user: JwtPayload },
-    @Body(new ValidationPipe()) dto: CriarConfiguracaoDto,
+    @Body(new ValidationPipe()) dto: CriarConfiguracaoAprovacaoDto,
   ) {
     const orgaoId = this.getOrgaoId(request.user);
     return this.configAprovacaoService.criar(orgaoId, dto);
@@ -389,7 +390,7 @@ export class AlmoxarifadoController {
   async atualizarConfiguracaoAprovacao(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() request: { user: JwtPayload },
-    @Body(new ValidationPipe()) dto: Partial<CriarConfiguracaoDto>,
+    @Body(new ValidationPipe()) dto: AtualizarConfiguracaoAprovacaoDto,
   ) {
     const orgaoId = this.getOrgaoId(request.user);
     return this.configAprovacaoService.atualizar(id, orgaoId, dto);
@@ -432,7 +433,7 @@ export class AlmoxarifadoController {
     const user = request.user;
     const orgaoId = this.getOrgaoId(user);
     
-    const requisicao = await this.requisicaoService.findOne(id, orgaoId);
+    const requisicao = await this.requisicaoService.findOne(id);
     
     return this.configAprovacaoService.verificarPermissaoAprovacao(
       orgaoId,
