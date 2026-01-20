@@ -5,6 +5,7 @@ import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from './entitie
 import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisicao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
+import { PdfOrdemService } from './pdf-ordem.service';
 
 @Injectable()
 export class OrdemFornecimentoService {
@@ -18,6 +19,7 @@ export class OrdemFornecimentoService {
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
     private readonly dataSource: DataSource,
+    private readonly pdfOrdemService: PdfOrdemService,
   ) {}
 
   // ============================================================================
@@ -130,6 +132,20 @@ export class OrdemFornecimentoService {
         `Ordem ${numero} gerada a partir da requisição ${requisicao.numero}. ` +
         `Valor: R$ ${valorTotal.toFixed(2)}`
       );
+
+      // Gera PDF automaticamente
+      try {
+        const caminhoPdf = await this.pdfOrdemService.gerarPdf(ordemSalva.id);
+        
+        // Atualiza ordem com caminho do PDF
+        ordemSalva.caminho_pdf = caminhoPdf;
+        await this.ordemRepository.save(ordemSalva);
+        
+        this.logger.log(`PDF da ordem ${numero} gerado: ${caminhoPdf}`);
+      } catch (pdfError) {
+        // Não falha se PDF não puder ser gerado
+        this.logger.warn(`Erro ao gerar PDF da ordem: ${pdfError.message}`);
+      }
 
       return this.findOne(ordemSalva.id);
     } catch (error) {

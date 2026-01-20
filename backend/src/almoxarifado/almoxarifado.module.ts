@@ -6,6 +6,7 @@ import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
+import { PdfOrdemService } from './pdf-ordem.service';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { Requisicao } from './entities/requisicao.entity';
 import { ItemRequisicao } from './entities/item-requisicao.entity';
@@ -41,6 +42,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
     OrdemFornecimentoService,
     RecebimentoService,
     ConfiguracaoAprovacaoService,
+    PdfOrdemService,
   ],
   exports: [
     RequisicaoService, 

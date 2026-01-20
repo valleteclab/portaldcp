@@ -7,6 +7,8 @@ import { ItemContrato } from './entities/item-contrato.entity';
 import { ItemContratoService } from './item-contrato.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { OrdemFornecimentoService } from './ordem-fornecimento.service';
+import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { 
   CriarRequisicaoDto, 
   AtualizarRequisicaoDto, 
@@ -31,6 +33,8 @@ export class RequisicaoService {
     private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
     @Inject(forwardRef(() => NotificacoesService))
     private readonly notificacoesService: NotificacoesService,
+    @Inject(forwardRef(() => OrdemFornecimentoService))
+    private readonly ordemFornecimentoService: OrdemFornecimentoService,
   ) {}
 
   // ============================================================================

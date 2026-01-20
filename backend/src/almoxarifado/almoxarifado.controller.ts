@@ -8,10 +8,12 @@ import {
   Param, 
   Query,
   Req,
+  Res,
   ValidationPipe,
   ParseUUIDPipe,
   Logger,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -22,6 +24,7 @@ import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
+import { PdfOrdemService } from './pdf-ordem.service';
 import { CriarConfiguracaoAprovacaoDto, AtualizarConfiguracaoAprovacaoDto } from './dto/configuracao-aprovacao.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
@@ -49,9 +52,12 @@ export class AlmoxarifadoController {
     private readonly ordemService: OrdemFornecimentoService,
     private readonly recebimentoService: RecebimentoService,
     private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
+    private readonly pdfOrdemService: PdfOrdemService,
     private readonly notificacoesService: NotificacoesService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(OrdemFornecimento)
+    private readonly ordemRepository: Repository<OrdemFornecimento>,
   ) {}
 
   // ============================================================================
@@ -306,6 +312,33 @@ export class AlmoxarifadoController {
     @Body('motivo') motivo: string,
   ) {
     return this.ordemService.cancelarOrdem(id, motivo || 'Cancelada pelo usuário');
+  }
+
+  @Get('ordens/:id/pdf')
+  async gerarPdfOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const ordem = await this.ordemService.findOne(id);
+      const fs = require('fs');
+      
+      // Se já tem PDF gerado, retorna ele
+      if (ordem.caminho_pdf && fs.existsSync(ordem.caminho_pdf)) {
+        return res.sendFile(ordem.caminho_pdf);
+      }
+      
+      // Gera novo PDF
+      const caminhoPdf = await this.pdfOrdemService.gerarPdf(id);
+      
+      // Atualiza ordem com caminho do PDF
+      await this.ordemRepository.update(id, { caminho_pdf: caminhoPdf });
+      
+      return res.sendFile(caminhoPdf);
+    } catch (error) {
+      this.logger.error(`Erro ao gerar PDF da ordem: ${error.message}`);
+      throw error;
+    }
   }
 
   // ============================================================================

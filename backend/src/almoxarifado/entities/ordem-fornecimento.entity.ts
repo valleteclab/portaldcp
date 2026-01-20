@@ -174,6 +174,9 @@ export class OrdemFornecimento {
   @Column({ type: 'text', nullable: true })
   observacoes_envio: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  caminho_pdf: string | null; // Caminho do PDF gerado
+
   // ============================================================================
   // RESPONSÁVEIS
   // ============================================================================
