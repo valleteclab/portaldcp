@@ -36,12 +36,29 @@ interface MenuLink {
   label: string
   icon: any
   modulo?: ModuloSistema // Módulo necessário para exibir este link
+  requerAprovador?: boolean // Requer permissão de aprovar requisições
 }
 
 export function Sidebar({ userType }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
+  const [podeAprovar, setPodeAprovar] = useState(false)
+
+  // Verifica se o usuário pode aprovar requisições
+  useEffect(() => {
+    if (userType === 'orgao') {
+      try {
+        const usuarioStr = localStorage.getItem('usuario')
+        if (usuarioStr) {
+          const usuario = JSON.parse(usuarioStr)
+          setPodeAprovar(usuario.pode_aprovar_requisicoes === true)
+        }
+      } catch (e) {
+        console.error('Erro ao verificar permissão de aprovação:', e)
+      }
+    }
+  }, [userType])
 
   const handleLogout = () => {
     if (userType === 'orgao') {
@@ -75,7 +92,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
-    { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO },
+    { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO, requerAprovador: true },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]
@@ -110,7 +127,18 @@ export function Sidebar({ userType }: SidebarProps) {
       // Verifica se o órgão tem acesso ao módulo
       const hasAccess = temAcesso(link.modulo)
       console.log(`[Sidebar] Módulo ${link.modulo}: ${hasAccess ? 'permitido' : 'bloqueado'}`);
-      return hasAccess
+      
+      if (!hasAccess) {
+        return false
+      }
+      
+      // Verifica se requer permissão de aprovador
+      if (link.requerAprovador && !podeAprovar) {
+        console.log(`[Sidebar] Link ${link.label}: requer aprovador, usuário não tem permissão`);
+        return false
+      }
+      
+      return true
     })
   }
 

@@ -94,6 +94,7 @@ export class UsuariosController {
       role: RoleUsuario;
       orgao_id: string;
       ativo: boolean;
+      pode_aprovar_requisicoes: boolean;
     }>,
   ) {
     const usuario = await this.usuariosService.update(id, body);

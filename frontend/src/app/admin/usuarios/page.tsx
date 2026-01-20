@@ -80,6 +80,7 @@ interface Usuario {
   ativo: boolean
   created_at: string
   modulos_habilitados?: string[]
+  pode_aprovar_requisicoes?: boolean
 }
 
 // Lista de módulos disponíveis
@@ -136,6 +137,7 @@ export default function AdminUsuariosPage() {
     cargo: '',
     role: 'PREGOEIRO' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO',
     orgao_id: '',
+    pode_aprovar_requisicoes: false,
   })
 
   useEffect(() => {
@@ -178,6 +180,7 @@ export default function AdminUsuariosPage() {
       cargo: '',
       role: 'PREGOEIRO',
       orgao_id: '',
+      pode_aprovar_requisicoes: false,
     })
     setShowNovoUsuario(true)
   }
@@ -193,6 +196,7 @@ export default function AdminUsuariosPage() {
       cargo: usuario.cargo || '',
       role: usuario.role,
       orgao_id: usuario.orgao_id || '',
+      pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
     })
     setShowEditarUsuario(true)
   }
@@ -231,6 +235,7 @@ export default function AdminUsuariosPage() {
         cargo: formUsuario.cargo || undefined,
         role: formUsuario.role,
         orgao_id: formUsuario.orgao_id,
+        pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
       }
 
       if (formUsuario.senha) {
@@ -479,6 +484,7 @@ export default function AdminUsuariosPage() {
                     <TableHead>Email</TableHead>
                     <TableHead>Função</TableHead>
                     <TableHead>Órgão</TableHead>
+                    <TableHead className="text-center">Aprovador</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -496,6 +502,16 @@ export default function AdminUsuariosPage() {
                       </TableCell>
                       <TableCell>
                         {usuario.orgao?.nome?.substring(0, 25) || '-'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {usuario.pode_aprovar_requisicoes ? (
+                          <Badge className="bg-amber-100 text-amber-800">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Sim
+                          </Badge>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Button
@@ -686,6 +702,24 @@ export default function AdminUsuariosPage() {
                   onChange={(e) => setFormUsuario({ ...formUsuario, cargo: e.target.value })}
                   placeholder="Ex: Pregoeiro Oficial"
                 />
+              </div>
+
+              {/* Permissão de Aprovação */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-amber-800 font-medium">Pode aprovar requisições</Label>
+                    <p className="text-xs text-amber-600 mt-1">
+                      Habilita o acesso à página de aprovações do almoxarifado
+                    </p>
+                  </div>
+                  <Checkbox
+                    checked={formUsuario.pode_aprovar_requisicoes}
+                    onCheckedChange={(checked) => 
+                      setFormUsuario({ ...formUsuario, pode_aprovar_requisicoes: checked === true })
+                    }
+                  />
+                </div>
               </div>
             </div>
 

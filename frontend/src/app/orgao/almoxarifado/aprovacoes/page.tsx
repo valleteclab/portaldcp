@@ -107,10 +107,38 @@ function AprovacoesContent() {
   const [observacao, setObservacao] = useState('');
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [temPermissaoAprovador, setTemPermissaoAprovador] = useState<boolean | null>(null);
+
+  // Verifica permissão de aprovador
+  useEffect(() => {
+    try {
+      const usuarioStr = localStorage.getItem('usuario');
+      if (usuarioStr) {
+        const usuario = JSON.parse(usuarioStr);
+        const podeAprovar = usuario.pode_aprovar_requisicoes === true;
+        setTemPermissaoAprovador(podeAprovar);
+        
+        if (!podeAprovar) {
+          alert('Você não tem permissão para acessar a página de aprovações.');
+          router.push('/orgao/almoxarifado');
+          return;
+        }
+      } else {
+        setTemPermissaoAprovador(false);
+        router.push('/orgao-login');
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao verificar permissão:', e);
+      setTemPermissaoAprovador(false);
+    }
+  }, [router]);
 
   useEffect(() => {
-    carregarRequisicoes();
-  }, []);
+    if (temPermissaoAprovador === true) {
+      carregarRequisicoes();
+    }
+  }, [temPermissaoAprovador]);
 
   const carregarRequisicoes = async () => {
     try {
@@ -263,6 +291,15 @@ function AprovacoesContent() {
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
   };
+
+  // Aguarda verificação de permissão ou se não tem permissão
+  if (temPermissaoAprovador === null || temPermissaoAprovador === false) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -71,6 +71,13 @@ export class Usuario {
   })
   modulos_habilitados: ModuloSistema[];
 
+  /**
+   * Indica se o usuário pode aprovar requisições no almoxarifado.
+   * Apenas usuários com essa permissão veem a página de aprovações.
+   */
+  @Column({ default: false })
+  pode_aprovar_requisicoes: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 
