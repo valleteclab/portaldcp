@@ -179,7 +179,8 @@ function MigracaoContratosContent() {
             valor_total: valorInicial || preco * qtdade,
           })
         } catch (error) {
-          erros.push(`Linha ${i + 1}: Erro ao processar - ${error.message}`)
+          const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido'
+          erros.push(`Linha ${i + 1}: Erro ao processar - ${errorMessage}`)
         }
       }
 
@@ -384,7 +385,8 @@ function MigracaoContratosContent() {
       }
     } catch (error) {
       console.error('Erro ao importar:', error)
-      setErrosValidacao([error.message || 'Erro ao importar contrato'])
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao importar contrato'
+      setErrosValidacao([errorMessage])
       setEtapa('preview')
     } finally {
       setLoading(false)
