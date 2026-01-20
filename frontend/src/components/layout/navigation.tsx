@@ -18,12 +18,14 @@ import {
   ClipboardList,
   Send,
   FileCheck,
-  Warehouse
+  Warehouse,
+  CheckCircle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
+import { NotificacoesBadge } from "@/components/NotificacoesBadge"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
@@ -73,6 +75,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
+    { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]
@@ -262,9 +265,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-        </Button>
+        <NotificacoesBadge />
 
         <div className="flex items-center gap-3">
           <div className="text-right">

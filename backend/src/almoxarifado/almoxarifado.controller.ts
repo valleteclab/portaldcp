@@ -19,6 +19,9 @@ import { RequisicaoService } from './requisicao.service';
 import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
+import { ConfiguracaoAprovacaoService, CriarConfiguracaoDto } from './configuracao-aprovacao.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
 import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto } from './dto/ordem-fornecimento.dto';
 import { 
   CriarRequisicaoDto, 
@@ -41,6 +44,8 @@ export class AlmoxarifadoController {
     private readonly itemContratoService: ItemContratoService,
     private readonly ordemService: OrdemFornecimentoService,
     private readonly recebimentoService: RecebimentoService,
+    private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
+    private readonly notificacoesService: NotificacoesService,
   ) {}
 
   // ============================================================================
@@ -359,6 +364,83 @@ export class AlmoxarifadoController {
     @Body('motivo') motivo: string,
   ) {
     return this.recebimentoService.rejeitar(id, motivo);
+  }
+
+  // ============================================================================
+  // CONFIGURAÇÃO DE APROVAÇÃO
+  // ============================================================================
+
+  @Get('configuracoes/aprovacao')
+  async listarConfiguracoesAprovacao(@Req() request: { user: JwtPayload }) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.configAprovacaoService.listar(orgaoId);
+  }
+
+  @Post('configuracoes/aprovacao')
+  async criarConfiguracaoAprovacao(
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe()) dto: CriarConfiguracaoDto,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.configAprovacaoService.criar(orgaoId, dto);
+  }
+
+  @Put('configuracoes/aprovacao/:id')
+  async atualizarConfiguracaoAprovacao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe()) dto: Partial<CriarConfiguracaoDto>,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.configAprovacaoService.atualizar(id, orgaoId, dto);
+  }
+
+  @Delete('configuracoes/aprovacao/:id')
+  async desativarConfiguracaoAprovacao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.configAprovacaoService.desativar(id, orgaoId);
+    return { success: true };
+  }
+
+  @Post('configuracoes/aprovacao/padrao')
+  async criarConfiguracaoPadrao(@Req() request: { user: JwtPayload }) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.configAprovacaoService.criarConfiguracaoPadrao(orgaoId);
+  }
+
+  @Get('configuracoes/aprovacao/tipos-aprovador')
+  async listarTiposAprovador() {
+    return {
+      tipos: Object.values(TipoAprovador),
+      descricoes: {
+        [TipoAprovador.QUALQUER_USUARIO]: 'Qualquer usuário com acesso ao módulo',
+        [TipoAprovador.PERFIL_ESPECIFICO]: 'Usuários com perfil específico',
+        [TipoAprovador.USUARIO_ESPECIFICO]: 'Usuários específicos',
+        [TipoAprovador.GESTOR_SETOR]: 'Gestor do setor solicitante',
+      },
+    };
+  }
+
+  @Post('requisicoes/:id/verificar-permissao-aprovacao')
+  async verificarPermissaoAprovacao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = request.user;
+    const orgaoId = this.getOrgaoId(user);
+    
+    const requisicao = await this.requisicaoService.findOne(id, orgaoId);
+    
+    return this.configAprovacaoService.verificarPermissaoAprovacao(
+      orgaoId,
+      user.sub,
+      (user as any).perfil || 'USUARIO',
+      requisicao.usuario_solicitante_id,
+      Number(requisicao.valor_total_estimado),
+    );
   }
 
   // ============================================================================

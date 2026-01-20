@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { ItemContratoService } from './item-contrato.service';
+import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { 
   CriarRequisicaoDto, 
   AtualizarRequisicaoDto, 
@@ -25,6 +27,10 @@ export class RequisicaoService {
     private readonly itemContratoRepository: Repository<ItemContrato>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
+    private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
+    @Inject(forwardRef(() => NotificacoesService))
+    private readonly notificacoesService: NotificacoesService,
   ) {}
 
   // ============================================================================
@@ -149,7 +155,7 @@ export class RequisicaoService {
   // ENVIAR PARA AUTORIZAÇÃO
   // ============================================================================
 
-  async enviarParaAutorizacao(id: string): Promise<Requisicao> {
+  async enviarParaAutorizacao(id: string, usuariosOrgao?: { id: string; perfil: string; email?: string }[]): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
     if (requisicao.status !== StatusRequisicao.RASCUNHO) {
@@ -163,7 +169,35 @@ export class RequisicaoService {
     }
 
     requisicao.status = StatusRequisicao.AGUARDANDO_AUTORIZACAO;
-    return this.requisicaoRepository.save(requisicao);
+    const saved = await this.requisicaoRepository.save(requisicao);
+
+    // Notifica aprovadores
+    if (usuariosOrgao && usuariosOrgao.length > 0) {
+      try {
+        const aprovadores = await this.configAprovacaoService.listarAprovadores(
+          requisicao.orgao_id,
+          Number(requisicao.valor_total_estimado),
+          usuariosOrgao,
+          requisicao.usuario_solicitante_id,
+        );
+
+        if (aprovadores.length > 0) {
+          await this.notificacoesService.notificarNovaRequisicao(
+            requisicao.orgao_id,
+            requisicao.numero,
+            requisicao.id,
+            requisicao.usuario_solicitante_nome,
+            Number(requisicao.valor_total_estimado),
+            aprovadores,
+          );
+        }
+      } catch (notifError) {
+        // Não falha a operação se a notificação falhar
+        this.logger.warn(`Erro ao enviar notificação para aprovadores: ${notifError.message}`);
+      }
+    }
+
+    return saved;
   }
 
   // ============================================================================
@@ -181,6 +215,7 @@ export class RequisicaoService {
     dto: AutorizarRequisicaoDto,
     autorizadorId: string,
     autorizadorNome: string,
+    autorizadorPerfil?: string,
   ): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
@@ -188,6 +223,24 @@ export class RequisicaoService {
       throw new BadRequestException(
         `Requisição não pode ser autorizada. Status atual: ${requisicao.status}`
       );
+    }
+
+    // Verifica permissão de aprovação
+    const permissao = await this.configAprovacaoService.verificarPermissaoAprovacao(
+      requisicao.orgao_id,
+      autorizadorId,
+      autorizadorPerfil || 'USUARIO',
+      requisicao.usuario_solicitante_id,
+      Number(requisicao.valor_total_estimado),
+    );
+
+    if (!permissao.pode_aprovar) {
+      throw new ForbiddenException(permissao.motivo || 'Você não tem permissão para aprovar esta requisição');
+    }
+
+    // Verifica se exige justificativa
+    if (permissao.configuracao?.exigir_justificativa_aprovacao && !dto.observacao?.trim()) {
+      throw new BadRequestException('É obrigatório informar uma justificativa para aprovar esta requisição');
     }
 
     // Inicia transação para garantir consistência
@@ -273,6 +326,25 @@ export class RequisicaoService {
 
       this.logger.log(`Requisição ${requisicao.numero} autorizada por ${autorizadorNome}`);
 
+      // Notifica o solicitante sobre a aprovação
+      try {
+        await this.notificacoesService.notificarResultadoRequisicao(
+          requisicao.orgao_id,
+          requisicao.numero,
+          requisicao.id,
+          { 
+            id: requisicao.usuario_solicitante_id, 
+            email: requisicao.usuario_solicitante_email || undefined 
+          },
+          true, // aprovada
+          autorizadorNome,
+          dto.observacao,
+        );
+      } catch (notifError) {
+        // Não falha a operação se a notificação falhar
+        this.logger.warn(`Erro ao enviar notificação de aprovação: ${notifError.message}`);
+      }
+
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -296,6 +368,7 @@ export class RequisicaoService {
     dto: NegarRequisicaoDto,
     autorizadorId: string,
     autorizadorNome: string,
+    autorizadorPerfil?: string,
   ): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
@@ -303,6 +376,24 @@ export class RequisicaoService {
       throw new BadRequestException(
         `Requisição não pode ser negada. Status atual: ${requisicao.status}`
       );
+    }
+
+    // Verifica permissão de aprovação/negação
+    const permissao = await this.configAprovacaoService.verificarPermissaoAprovacao(
+      requisicao.orgao_id,
+      autorizadorId,
+      autorizadorPerfil || 'USUARIO',
+      requisicao.usuario_solicitante_id,
+      Number(requisicao.valor_total_estimado),
+    );
+
+    if (!permissao.pode_aprovar) {
+      throw new ForbiddenException(permissao.motivo || 'Você não tem permissão para negar esta requisição');
+    }
+
+    // Verifica se exige justificativa
+    if (!dto.motivo?.trim()) {
+      throw new BadRequestException('É obrigatório informar o motivo da negativa');
     }
 
     requisicao.status = StatusRequisicao.NEGADA;
@@ -313,7 +404,28 @@ export class RequisicaoService {
 
     this.logger.log(`Requisição ${requisicao.numero} negada por ${autorizadorNome}: ${dto.motivo}`);
 
-    return this.requisicaoRepository.save(requisicao);
+    const saved = await this.requisicaoRepository.save(requisicao);
+
+    // Notifica o solicitante sobre a negativa
+    try {
+      await this.notificacoesService.notificarResultadoRequisicao(
+        requisicao.orgao_id,
+        requisicao.numero,
+        requisicao.id,
+        { 
+          id: requisicao.usuario_solicitante_id, 
+          email: requisicao.usuario_solicitante_email || undefined 
+        },
+        false, // negada
+        autorizadorNome,
+        dto.motivo,
+      );
+    } catch (notifError) {
+      // Não falha a operação se a notificação falhar
+      this.logger.warn(`Erro ao enviar notificação de negativa: ${notifError.message}`);
+    }
+
+    return saved;
   }
 
   // ============================================================================

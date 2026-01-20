@@ -37,6 +37,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { DisputaModule } from './disputa-v2/disputa.module';
 import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
+import { NotificacoesModule } from './notificacoes/notificacoes.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
     DisputaModule,
     AdminModule,
     AlmoxarifadoModule,
+    NotificacoesModule,
   ],
   controllers: [HealthController],
   providers: [
