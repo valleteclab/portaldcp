@@ -372,8 +372,12 @@ export class AlmoxarifadoController {
   // ============================================================================
 
   @Get('configuracoes/aprovacao')
-  async listarConfiguracoesAprovacao(@Req() request: { user: JwtPayload }) {
-    const orgaoId = this.getOrgaoId(request.user);
+  async listarConfiguracoesAprovacao(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    // Admin pode passar orgaoId como parâmetro, usuário comum usa seu próprio órgão
+    const orgaoId = orgaoIdParam || this.getOrgaoId(request.user);
     return this.configAprovacaoService.listar(orgaoId);
   }
 
@@ -381,8 +385,9 @@ export class AlmoxarifadoController {
   async criarConfiguracaoAprovacao(
     @Req() request: { user: JwtPayload },
     @Body(new ValidationPipe()) dto: CriarConfiguracaoAprovacaoDto,
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
-    const orgaoId = this.getOrgaoId(request.user);
+    const orgaoId = orgaoIdParam || this.getOrgaoId(request.user);
     return this.configAprovacaoService.criar(orgaoId, dto);
   }
 
@@ -391,8 +396,9 @@ export class AlmoxarifadoController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() request: { user: JwtPayload },
     @Body(new ValidationPipe()) dto: AtualizarConfiguracaoAprovacaoDto,
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
-    const orgaoId = this.getOrgaoId(request.user);
+    const orgaoId = orgaoIdParam || this.getOrgaoId(request.user);
     return this.configAprovacaoService.atualizar(id, orgaoId, dto);
   }
 
@@ -400,15 +406,19 @@ export class AlmoxarifadoController {
   async desativarConfiguracaoAprovacao(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
-    const orgaoId = this.getOrgaoId(request.user);
+    const orgaoId = orgaoIdParam || this.getOrgaoId(request.user);
     await this.configAprovacaoService.desativar(id, orgaoId);
     return { success: true };
   }
 
   @Post('configuracoes/aprovacao/padrao')
-  async criarConfiguracaoPadrao(@Req() request: { user: JwtPayload }) {
-    const orgaoId = this.getOrgaoId(request.user);
+  async criarConfiguracaoPadrao(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = orgaoIdParam || this.getOrgaoId(request.user);
     return this.configAprovacaoService.criarConfiguracaoPadrao(orgaoId);
   }
 

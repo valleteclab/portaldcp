@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { Loader2, Plus, Save, Trash2, Settings, AlertTriangle, CheckCircle, Users, DollarSign } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { Loader2, Plus, Save, Trash2, Settings, AlertTriangle, CheckCircle, Users, DollarSign, Building2, ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,9 +33,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { ModuleGuard } from '@/components/ModuleGuard';
-import { ModuloSistema } from '@/hooks/useModulosOrgao';
-import { API_URL, authFetch } from '@/lib/api';
+import { API_URL, adminFetch } from '@/lib/api';
+
+interface Orgao {
+  id: string;
+  nome: string;
+  cnpj: string;
+}
 
 interface ConfiguracaoAprovacao {
   id: string;
@@ -68,9 +73,11 @@ const PERFIS_DISPONIVEIS = [
   { codigo: 'FISCAL', nome: 'Fiscal' },
 ];
 
-function ConfiguracoesAprovacaoContent() {
+export default function AdminConfiguracoesAprovacaoPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [orgaos, setOrgaos] = useState<Orgao[]>([]);
+  const [orgaoSelecionado, setOrgaoSelecionado] = useState<string>('');
   const [configuracoes, setConfiguracoes] = useState<ConfiguracaoAprovacao[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<ConfiguracaoAprovacao | null>(null);
@@ -92,29 +99,61 @@ function ConfiguracoesAprovacaoContent() {
   });
 
   useEffect(() => {
-    carregarConfiguracoes();
+    carregarOrgaos();
   }, []);
 
-  const carregarConfiguracoes = async () => {
+  useEffect(() => {
+    if (orgaoSelecionado) {
+      carregarConfiguracoes();
+    }
+  }, [orgaoSelecionado]);
+
+  const carregarOrgaos = async () => {
     try {
       setLoading(true);
-      const response = await authFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao`);
+      const response = await adminFetch(`${API_URL}/api/orgaos`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setOrgaos(Array.isArray(data) ? data : data.value || []);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar órgãos:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const carregarConfiguracoes = async () => {
+    if (!orgaoSelecionado) return;
+    
+    try {
+      setLoading(true);
+      const response = await adminFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao?orgaoId=${orgaoSelecionado}`);
       
       if (response.ok) {
         const data = await response.json();
         setConfiguracoes(data);
+      } else {
+        setConfiguracoes([]);
       }
     } catch (error) {
       console.error('Erro ao carregar configurações:', error);
+      setConfiguracoes([]);
     } finally {
       setLoading(false);
     }
   };
 
   const criarConfiguracaoPadrao = async () => {
+    if (!orgaoSelecionado) {
+      alert('Selecione um órgão primeiro');
+      return;
+    }
+    
     try {
       setSaving(true);
-      const response = await authFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao/padrao`, {
+      const response = await adminFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao/padrao?orgaoId=${orgaoSelecionado}`, {
         method: 'POST',
       });
       
@@ -134,6 +173,11 @@ function ConfiguracoesAprovacaoContent() {
   };
 
   const abrirModalNovo = () => {
+    if (!orgaoSelecionado) {
+      alert('Selecione um órgão primeiro');
+      return;
+    }
+    
     setEditando(null);
     setForm({
       nivel: configuracoes.length + 1,
@@ -188,12 +232,12 @@ function ConfiguracoesAprovacaoContent() {
 
       let response;
       if (editando) {
-        response = await authFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao/${editando.id}`, {
+        response = await adminFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao/${editando.id}?orgaoId=${orgaoSelecionado}`, {
           method: 'PUT',
           body: JSON.stringify(payload),
         });
       } else {
-        response = await authFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao`, {
+        response = await adminFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao?orgaoId=${orgaoSelecionado}`, {
           method: 'POST',
           body: JSON.stringify(payload),
         });
@@ -220,7 +264,7 @@ function ConfiguracoesAprovacaoContent() {
     }
 
     try {
-      const response = await authFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao/${id}`, {
+      const response = await adminFetch(`${API_URL}/api/almoxarifado/configuracoes/aprovacao/${id}?orgaoId=${orgaoSelecionado}`, {
         method: 'DELETE',
       });
 
@@ -253,189 +297,217 @@ function ConfiguracoesAprovacaoContent() {
     }));
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+  const orgaoAtual = orgaos.find(o => o.id === orgaoSelecionado);
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" asChild>
+          <Link href="/admin">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+        </Button>
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Settings className="h-7 w-7 text-blue-600" />
             Configuração de Aprovações
           </h1>
           <p className="text-gray-500 mt-1">
-            Defina os níveis de aprovação e quem pode autorizar requisições
+            Defina os níveis de aprovação para cada órgão
           </p>
-        </div>
-        <div className="flex gap-2">
-          {configuracoes.length === 0 && (
-            <Button variant="outline" onClick={criarConfiguracaoPadrao} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-              Criar Configuração Padrão
-            </Button>
-          )}
-          <Button onClick={abrirModalNovo}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Nível
-          </Button>
         </div>
       </div>
 
-      {/* Explicação */}
-      <Card className="bg-blue-50 border-blue-200">
-        <CardContent className="pt-4">
-          <div className="flex gap-3">
-            <AlertTriangle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">Como funciona:</p>
-              <ul className="list-disc list-inside space-y-1">
-                <li>Cada nível define uma faixa de valor e quem pode aprovar</li>
-                <li>O sistema verifica automaticamente qual nível se aplica ao valor da requisição</li>
-                <li>Se não houver configuração, qualquer usuário com acesso ao módulo pode aprovar</li>
-                <li>A opção "Bloquear auto-aprovação" impede que o solicitante aprove sua própria requisição</li>
-              </ul>
-            </div>
-          </div>
+      {/* Seletor de Órgão */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Building2 className="h-5 w-5" />
+            Selecione o Órgão
+          </CardTitle>
+          <CardDescription>
+            Escolha o órgão para configurar os níveis de aprovação
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={orgaoSelecionado} onValueChange={setOrgaoSelecionado}>
+            <SelectTrigger className="w-full md:w-96">
+              <SelectValue placeholder="Selecione um órgão..." />
+            </SelectTrigger>
+            <SelectContent>
+              {orgaos.map((orgao) => (
+                <SelectItem key={orgao.id} value={orgao.id}>
+                  {orgao.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
-      {/* Lista de Configurações */}
-      {configuracoes.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Settings className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Nenhuma configuração cadastrada
-            </h3>
-            <p className="text-gray-500 mb-4">
-              Crie níveis de aprovação ou use a configuração padrão
-            </p>
-            <div className="flex justify-center gap-2">
+      {orgaoSelecionado && (
+        <>
+          {/* Explicação */}
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="pt-4">
+              <div className="flex gap-3">
+                <AlertTriangle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-blue-800">
+                  <p className="font-medium mb-1">
+                    Configurando aprovações para: <strong>{orgaoAtual?.nome}</strong>
+                  </p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>Cada nível define uma faixa de valor e quem pode aprovar</li>
+                    <li>O sistema verifica automaticamente qual nível se aplica ao valor da requisição</li>
+                    <li>Se não houver configuração, qualquer usuário com permissão de aprovador pode aprovar</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Ações */}
+          <div className="flex justify-end gap-2">
+            {configuracoes.length === 0 && (
               <Button variant="outline" onClick={criarConfiguracaoPadrao} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
                 Criar Configuração Padrão
               </Button>
-              <Button onClick={abrirModalNovo}>
-                Criar Manualmente
-              </Button>
+            )}
+            <Button onClick={abrirModalNovo}>
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Nível
+            </Button>
+          </div>
+
+          {/* Lista de Configurações */}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Níveis de Aprovação</CardTitle>
-            <CardDescription>
-              Requisições serão encaminhadas conforme o valor e as regras definidas
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">Nível</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Faixa de Valor</TableHead>
-                  <TableHead>Tipo de Aprovador</TableHead>
-                  <TableHead className="text-center">Regras</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {configuracoes.map((config) => (
-                  <TableRow key={config.id} className={!config.ativo ? 'opacity-50' : ''}>
-                    <TableCell>
-                      <Badge variant="outline" className="font-mono">
-                        {config.nivel}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{config.nome}</p>
-                        {config.descricao && (
-                          <p className="text-xs text-gray-500">{config.descricao}</p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="h-4 w-4 text-gray-400" />
-                        <span>{formatarMoeda(Number(config.valor_minimo))}</span>
-                        <span className="text-gray-400">até</span>
-                        <span>{formatarMoeda(config.valor_maximo)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Users className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">
-                          {TIPOS_APROVADOR[config.tipo_aprovador as keyof typeof TIPOS_APROVADOR]}
-                        </span>
-                      </div>
-                      {config.perfis_permitidos && config.perfis_permitidos.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {config.perfis_permitidos.map(perfil => (
-                            <Badge key={perfil} variant="secondary" className="text-xs">
-                              {perfil}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1 text-xs">
-                        {config.bloquear_auto_aprovacao && (
-                          <Badge variant="outline" className="text-xs">Bloqueia auto-aprovação</Badge>
-                        )}
-                        {config.notificar_email_aprovador && (
-                          <Badge variant="outline" className="text-xs bg-green-50">Email aprovador</Badge>
-                        )}
-                        {config.notificar_email_solicitante && (
-                          <Badge variant="outline" className="text-xs bg-blue-50">Email solicitante</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {config.ativo ? (
-                        <Badge className="bg-green-100 text-green-800">Ativo</Badge>
-                      ) : (
-                        <Badge variant="secondary">Inativo</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => abrirModalEditar(config)}
-                        >
-                          <Settings className="h-4 w-4" />
-                        </Button>
-                        {config.ativo && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => desativarConfiguracao(config.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+          ) : configuracoes.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Settings className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  Nenhuma configuração para este órgão
+                </h3>
+                <p className="text-gray-500 mb-4">
+                  Crie níveis de aprovação ou use a configuração padrão
+                </p>
+                <div className="flex justify-center gap-2">
+                  <Button variant="outline" onClick={criarConfiguracaoPadrao} disabled={saving}>
+                    Criar Configuração Padrão
+                  </Button>
+                  <Button onClick={abrirModalNovo}>
+                    Criar Manualmente
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Níveis de Aprovação</CardTitle>
+                <CardDescription>
+                  Requisições serão encaminhadas conforme o valor e as regras definidas
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-16">Nível</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Faixa de Valor</TableHead>
+                      <TableHead>Tipo de Aprovador</TableHead>
+                      <TableHead className="text-center">Regras</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {configuracoes.map((config) => (
+                      <TableRow key={config.id} className={!config.ativo ? 'opacity-50' : ''}>
+                        <TableCell>
+                          <Badge variant="outline" className="font-mono">
+                            {config.nivel}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{config.nome}</p>
+                            {config.descricao && (
+                              <p className="text-xs text-gray-500">{config.descricao}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <DollarSign className="h-4 w-4 text-gray-400" />
+                            <span>{formatarMoeda(Number(config.valor_minimo))}</span>
+                            <span className="text-gray-400">até</span>
+                            <span>{formatarMoeda(config.valor_maximo)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Users className="h-4 w-4 text-gray-400" />
+                            <span className="text-sm">
+                              {TIPOS_APROVADOR[config.tipo_aprovador as keyof typeof TIPOS_APROVADOR]}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1 text-xs">
+                            {config.bloquear_auto_aprovacao && (
+                              <Badge variant="outline" className="text-xs">Bloqueia auto-aprovação</Badge>
+                            )}
+                            {config.notificar_email_aprovador && (
+                              <Badge variant="outline" className="text-xs bg-green-50">Email aprovador</Badge>
+                            )}
+                            {config.notificar_email_solicitante && (
+                              <Badge variant="outline" className="text-xs bg-blue-50">Email solicitante</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {config.ativo ? (
+                            <Badge className="bg-green-100 text-green-800">Ativo</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inativo</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => abrirModalEditar(config)}
+                            >
+                              <Settings className="h-4 w-4" />
+                            </Button>
+                            {config.ativo && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => desativarConfiguracao(config.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {/* Modal de Edição/Criação */}
@@ -446,7 +518,7 @@ function ConfiguracoesAprovacaoContent() {
               {editando ? 'Editar Nível de Aprovação' : 'Novo Nível de Aprovação'}
             </DialogTitle>
             <DialogDescription>
-              Configure as regras para este nível de aprovação
+              Configure as regras para este nível de aprovação - {orgaoAtual?.nome}
             </DialogDescription>
           </DialogHeader>
 
@@ -649,19 +721,5 @@ function ConfiguracoesAprovacaoContent() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-export default function ConfiguracoesAprovacaoPage() {
-  return (
-    <ModuleGuard modulo={ModuloSistema.ALMOXARIFADO}>
-      <Suspense fallback={
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
-      }>
-        <ConfiguracoesAprovacaoContent />
-      </Suspense>
-    </ModuleGuard>
   );
 }

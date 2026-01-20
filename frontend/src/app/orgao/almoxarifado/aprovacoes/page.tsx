@@ -322,18 +322,10 @@ function AprovacoesContent() {
             Requisições aguardando sua autorização
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={carregarRequisicoes}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Atualizar
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/orgao/configuracoes/aprovacoes">
-              <Filter className="h-4 w-4 mr-2" />
-              Configurar Níveis
-            </Link>
-          </Button>
-        </div>
+        <Button variant="outline" onClick={carregarRequisicoes}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Atualizar
+        </Button>
       </div>
 
       {/* Contador */}
