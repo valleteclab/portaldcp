@@ -56,8 +56,10 @@ export default function OrgaoLoginPage() {
       }
 
       // Salva token JWT (novo sistema) ou token simples (sistema antigo)
+      // IMPORTANTE: orgao_token é usado pelo hook useModulosOrgao para identificar login de órgão
       if (data.access_token) {
         localStorage.setItem("access_token", data.access_token)
+        localStorage.setItem("orgao_token", data.access_token) // Também salva como orgao_token para identificar login de órgão
       }
       if (data.token) {
         localStorage.setItem("orgao_token", data.token)

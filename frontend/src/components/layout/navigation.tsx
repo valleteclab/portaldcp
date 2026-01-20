@@ -44,11 +44,14 @@ export function Sidebar({ userType }: SidebarProps) {
   const handleLogout = () => {
     if (userType === 'orgao') {
       localStorage.removeItem('orgao')
+      localStorage.removeItem('usuario')
       localStorage.removeItem('orgao_token')
+      localStorage.removeItem('access_token')
       router.push('/orgao-login')
     } else {
       localStorage.removeItem('fornecedor')
       localStorage.removeItem('token')
+      localStorage.removeItem('access_token')
       router.push('/login')
     }
   }
