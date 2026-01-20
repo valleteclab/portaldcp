@@ -11,7 +11,8 @@ import {
   AlertTriangle,
   Plus,
   ArrowRight,
-  Loader2
+  Loader2,
+  Upload
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -159,7 +160,7 @@ function AlmoxarifadoDashboardContent() {
       </div>
 
       {/* Ações Rápidas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link href="/orgao/almoxarifado/requisicoes">
             <CardHeader>
@@ -206,6 +207,23 @@ function AlmoxarifadoDashboardContent() {
               <CardTitle className="mt-4">Estoque</CardTitle>
               <CardDescription>
                 Controle de estoque e movimentações
+              </CardDescription>
+            </CardHeader>
+          </Link>
+        </Card>
+
+        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+          <Link href="/orgao/almoxarifado/migracao/contratos">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <FileText className="h-6 w-6 text-orange-600" />
+                </div>
+                <ArrowRight className="h-5 w-5 text-gray-400" />
+              </div>
+              <CardTitle className="mt-4">Migração de Contratos</CardTitle>
+              <CardDescription>
+                Importar contratos e itens via CSV
               </CardDescription>
             </CardHeader>
           </Link>
