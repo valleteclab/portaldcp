@@ -32,6 +32,7 @@ import {
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from 'sonner'
 
 interface ItemCSV {
   numero_item: number
@@ -75,6 +76,18 @@ function parseValorMonetario(valor: string): number {
   return parseFloat(limpo) || 0
 }
 
+function formatarCnpj(valor: string): string {
+  const numeros = valor.replace(/\D/g, '')
+  if (numeros.length <= 14) {
+    return numeros
+      .replace(/(\d{2})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1/$2')
+      .replace(/(\d{4})(\d)/, '$1-$2')
+  }
+  return valor
+}
+
 function MigracaoContratosContent() {
   const router = useRouter()
   const [etapa, setEtapa] = useState<'upload' | 'preview' | 'importando' | 'concluido'>('upload')
@@ -102,6 +115,7 @@ function MigracaoContratosContent() {
   const [errosValidacao, setErrosValidacao] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [itemEditando, setItemEditando] = useState<number | null>(null)
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   const [itemEditado, setItemEditado] = useState<Partial<ItemCSV>>({})
 
   const processarCSV = async (file: File) => {
@@ -411,6 +425,58 @@ function MigracaoContratosContent() {
     setErrosValidacao([])
   }
 
+  // Busca automática de CNPJ
+  const buscarCnpj = async (cnpj: string) => {
+    const cnpjLimpo = cnpj.replace(/\D/g, '')
+    if (cnpjLimpo.length !== 14) {
+      return // Não busca se não tiver 14 dígitos
+    }
+
+    setConsultandoCnpj(true)
+    try {
+      // Primeiro verifica se já existe no sistema
+      const verificaRes = await authFetch(`${API_URL}/api/fornecedores/verificar-cnpj/${cnpjLimpo}`)
+      const verificaData = await verificaRes.json()
+
+      if (verificaData.existe && verificaData.fornecedor) {
+        // Fornecedor já existe, preenche com os dados do sistema
+        setDadosContrato(prev => ({
+          ...prev,
+          fornecedor_cnpj: formatarCnpj(verificaData.fornecedor.cpf_cnpj),
+          fornecedor_razao_social: verificaData.fornecedor.razao_social || '',
+        }))
+        toast.success('Fornecedor encontrado no sistema')
+        setConsultandoCnpj(false)
+        return
+      }
+
+      // Se não existe, consulta a API externa
+      const res = await authFetch(`${API_URL}/api/fornecedores/consultar-cnpj/${cnpjLimpo}`)
+      
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.message || 'Erro ao consultar CNPJ')
+      }
+
+      const dados = await res.json()
+      
+      // Preenche automaticamente a razão social
+      setDadosContrato(prev => ({
+        ...prev,
+        fornecedor_cnpj: formatarCnpj(cnpjLimpo),
+        fornecedor_razao_social: dados.razao_social || '',
+      }))
+      
+      toast.success('Dados do CNPJ consultados com sucesso')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao consultar CNPJ'
+      toast.error(errorMessage)
+      console.error('Erro ao buscar CNPJ:', error)
+    } finally {
+      setConsultandoCnpj(false)
+    }
+  }
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
@@ -526,12 +592,33 @@ function MigracaoContratosContent() {
                 </div>
                 <div>
                   <Label htmlFor="fornecedor_cnpj">CNPJ do Fornecedor *</Label>
-                  <Input
-                    id="fornecedor_cnpj"
-                    value={dadosContrato.fornecedor_cnpj}
-                    onChange={(e) => setDadosContrato(prev => ({ ...prev, fornecedor_cnpj: e.target.value }))}
-                    placeholder="00.000.000/0000-00"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="fornecedor_cnpj"
+                      value={dadosContrato.fornecedor_cnpj}
+                      onChange={(e) => {
+                        const valorFormatado = formatarCnpj(e.target.value)
+                        setDadosContrato(prev => ({ ...prev, fornecedor_cnpj: valorFormatado }))
+                      }}
+                      onBlur={(e) => {
+                        const cnpjLimpo = e.target.value.replace(/\D/g, '')
+                        if (cnpjLimpo.length === 14) {
+                          buscarCnpj(e.target.value)
+                        }
+                      }}
+                      placeholder="00.000.000/0000-00"
+                      maxLength={18}
+                      disabled={consultandoCnpj}
+                    />
+                    {consultandoCnpj && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Digite o CNPJ e aguarde para buscar automaticamente
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="fornecedor_razao_social">Razão Social do Fornecedor *</Label>
