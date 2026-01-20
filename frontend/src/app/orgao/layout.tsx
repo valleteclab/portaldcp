@@ -2,6 +2,7 @@
 
 import { Sidebar, Header } from "@/components/layout/navigation"
 import { AuthGuard } from "@/components/auth/auth-guard"
+import { Toaster } from "sonner"
 
 export default function OrgaoLayout({
   children,
@@ -19,6 +20,7 @@ export default function OrgaoLayout({
           </main>
         </div>
       </div>
+      <Toaster />
     </AuthGuard>
   )
 }
