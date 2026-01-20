@@ -28,7 +28,8 @@ import {
   ShoppingCart,
   Gavel,
   Send,
-  Shield
+  Shield,
+  Warehouse
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -53,6 +54,7 @@ const MODULOS = [
   { codigo: 'USUARIOS', nome: 'Usuários', descricao: 'Gestão de usuários do órgão', icon: Users },
   { codigo: 'DISPUTA', nome: 'Disputa', descricao: 'Sala de disputa online', icon: Gavel },
   { codigo: 'CREDENCIAMENTO', nome: 'Credenciamento', descricao: 'Sistema de credenciamento', icon: Shield },
+  { codigo: 'ALMOXARIFADO', nome: 'Almoxarifado', descricao: 'Gestão de almoxarifado e ordens de fornecimento', icon: Warehouse },
 ]
 
 export default function AdminModulosPage() {
