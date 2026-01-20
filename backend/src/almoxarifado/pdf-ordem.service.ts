@@ -35,6 +35,7 @@ export class PdfOrdemService {
         'orgao',
         'fornecedor',
         'contrato',
+        'contrato.licitacao',
         'requisicao',
       ],
     });
@@ -81,16 +82,24 @@ export class PdfOrdemService {
   /**
    * Adiciona cabeçalho do documento
    */
-  private adicionarCabecalho(doc: PDFDocument, ordem: OrdemFornecimento): void {
+  private adicionarCabecalho(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
     const orgao = ordem.orgao as Orgao;
 
     // Cabeçalho do órgão
     doc.fontSize(12).font('Helvetica-Bold');
     doc.text(orgao.nome || 'ÓRGÃO NÃO INFORMADO', { align: 'center' });
 
-    if (orgao.endereco) {
+    // Monta endereço completo
+    const enderecoCompleto = [
+      orgao.logradouro,
+      orgao.numero ? `nº ${orgao.numero}` : '',
+      orgao.complemento || '',
+      orgao.bairro,
+    ].filter(Boolean).join(', ');
+    
+    if (enderecoCompleto) {
       doc.fontSize(10).font('Helvetica');
-      doc.text(orgao.endereco, { align: 'center' });
+      doc.text(enderecoCompleto, { align: 'center' });
     }
 
     if (orgao.cidade && orgao.uf) {
@@ -112,7 +121,7 @@ export class PdfOrdemService {
   /**
    * Adiciona informações da ordem
    */
-  private adicionarInformacoesOrdem(doc: PDFDocument, ordem: OrdemFornecimento): void {
+  private adicionarInformacoesOrdem(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
     const orgao = ordem.orgao as Orgao;
     const fornecedor = ordem.fornecedor as Fornecedor;
     const contrato = ordem.contrato as Contrato;
@@ -172,9 +181,9 @@ export class PdfOrdemService {
       doc.text('Cidade/UF', col1, currentY);
       doc.text(`${fornecedor.cidade} - ${fornecedor.uf}`, col2, currentY);
     }
-    if (contrato.numero) {
+    if (contrato.numero_contrato) {
       doc.text('CONTRATO', col2 + 80, currentY);
-      doc.text(contrato.numero, col3, currentY);
+      doc.text(contrato.numero_contrato, col3, currentY);
     }
     currentY += lineHeight;
 
@@ -183,9 +192,9 @@ export class PdfOrdemService {
       doc.text('Requerente', col1, currentY);
       doc.text(requisicao.usuario_solicitante_nome, col2, currentY);
     }
-    if (contrato.licitacao_numero) {
+    if (contrato.licitacao?.numero) {
       doc.text('Licitação', col2 + 80, currentY);
-      doc.text(contrato.licitacao_numero, col3, currentY);
+      doc.text(contrato.licitacao.numero, col3, currentY);
     }
     currentY += lineHeight;
 
@@ -213,7 +222,7 @@ export class PdfOrdemService {
   /**
    * Adiciona tabela de itens
    */
-  private adicionarTabelaItens(doc: PDFDocument, ordem: OrdemFornecimento): void {
+  private adicionarTabelaItens(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
     doc.fontSize(9).font('Helvetica-Bold');
     doc.text('Informações', { underline: true });
     doc.moveDown(0.5);
@@ -279,7 +288,7 @@ export class PdfOrdemService {
   /**
    * Adiciona rodapé com assinaturas
    */
-  private adicionarRodape(doc: PDFDocument, ordem: OrdemFornecimento): void {
+  private adicionarRodape(doc: ReturnType<typeof PDFDocument>, ordem: OrdemFornecimento): void {
     doc.fontSize(9).font('Helvetica');
     doc.text(
       'A NOTA FISCAL SÓ TERÁ VALIDADE NO LANÇAMENTO DO EMPENHO, SE ACOMPANHADA DESTA ORDEM DEVIDAMENTE ASSINADA PELO RESPONSÁVEL',

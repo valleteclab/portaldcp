@@ -7,6 +7,7 @@ import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { PdfOrdemService } from './pdf-ordem.service';
+import { MigracaoContratosService } from './migracao-contratos.service';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { Requisicao } from './entities/requisicao.entity';
 import { ItemRequisicao } from './entities/item-requisicao.entity';
@@ -18,6 +19,7 @@ import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
+import { ContratosModule } from '../contratos/contratos.module';
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
       Usuario,
     ]),
     NotificacoesModule,
+    forwardRef(() => ContratosModule),
   ],
   controllers: [AlmoxarifadoController],
   providers: [
@@ -43,6 +46,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
     RecebimentoService,
     ConfiguracaoAprovacaoService,
     PdfOrdemService,
+    MigracaoContratosService,
   ],
   exports: [
     RequisicaoService, 

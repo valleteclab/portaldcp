@@ -13,7 +13,7 @@ import {
   ParseUUIDPipe,
   Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -40,6 +40,14 @@ import { StatusRequisicao } from './entities/requisicao.entity';
 import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { StatusRecebimento } from './entities/recebimento.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
+import { MigracaoContratosService } from './migracao-contratos.service';
+import { DadosContratoMigracaoDto } from './dto/migracao-contrato.dto';
+import { UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import * as multer from 'multer';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Controller('almoxarifado')
 @RequireModule(ModuloSistema.ALMOXARIFADO)
@@ -54,6 +62,7 @@ export class AlmoxarifadoController {
     private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
     private readonly pdfOrdemService: PdfOrdemService,
     private readonly notificacoesService: NotificacoesService,
+    private readonly migracaoContratosService: MigracaoContratosService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(OrdemFornecimento)
@@ -512,6 +521,69 @@ export class AlmoxarifadoController {
       requisicao.usuario_solicitante_id,
       Number(requisicao.valor_total_estimado),
     );
+  }
+
+  // ============================================================================
+  // MIGRAÇÃO DE CONTRATOS
+  // ============================================================================
+
+  @Post('migracao/contratos/importar-csv')
+  @UseInterceptors(
+    FileInterceptor('arquivo', {
+      storage: multer.diskStorage({
+        destination: (req, file, cb) => {
+          const uploadPath = path.join(process.cwd(), 'uploads', 'migracao');
+          if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+          }
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, `contrato-${uniqueSuffix}${path.extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+          cb(null, true);
+        } else {
+          cb(new Error('Apenas arquivos CSV são permitidos'), false);
+        }
+      },
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    }),
+  )
+  async importarContratoCSV(
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Body(new ValidationPipe()) dadosContrato: DadosContratoMigracaoDto,
+    @Req() request: { user: JwtPayload },
+  ) {
+    if (!arquivo) {
+      throw new Error('Arquivo CSV é obrigatório');
+    }
+
+    const user = request.user;
+    const orgaoId = this.getOrgaoId(user);
+
+    const resultado = await this.migracaoContratosService.importarContratoCSV(
+      arquivo.path,
+      {
+        ...dadosContrato,
+        data_assinatura: dadosContrato.data_assinatura ? new Date(dadosContrato.data_assinatura) : undefined,
+        data_vigencia_inicio: dadosContrato.data_vigencia_inicio ? new Date(dadosContrato.data_vigencia_inicio) : undefined,
+        data_vigencia_fim: dadosContrato.data_vigencia_fim ? new Date(dadosContrato.data_vigencia_fim) : undefined,
+      },
+      orgaoId,
+    );
+
+    // Remove arquivo após importação
+    try {
+      fs.unlinkSync(arquivo.path);
+    } catch (error) {
+      this.logger.warn(`Erro ao remover arquivo temporário: ${error.message}`);
+    }
+
+    return resultado;
   }
 
   // ============================================================================
