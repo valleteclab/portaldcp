@@ -12,6 +12,7 @@ import {
   ValidationPipe,
   ParseUUIDPipe,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -245,9 +246,41 @@ export class AlmoxarifadoController {
   @Post('requisicoes/:id/cancelar')
   async cancelarRequisicao(
     @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
     @Body('motivo') motivo: string,
   ) {
-    return this.requisicaoService.cancelar(id, motivo || 'Cancelado pelo usuário');
+    // Verifica se usuário tem permissão para cancelar
+    const user = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Usuário não encontrado');
+    }
+
+    // Busca requisição para verificar status
+    const requisicao = await this.requisicaoService.findOne(id);
+    
+    // Verifica se requer permissão especial (AUTORIZADA ou ORDEM_GERADA)
+    const statusRequerPermissao = [
+      StatusRequisicao.AUTORIZADA,
+      StatusRequisicao.ORDEM_GERADA,
+    ];
+
+    const requerPermissaoEspecial = statusRequerPermissao.includes(requisicao.status);
+
+    if (requerPermissaoEspecial && !user.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para cancelar requisições aprovadas. ' +
+        'Apenas usuários autorizados podem realizar esta ação.'
+      );
+    }
+
+    return this.requisicaoService.cancelar(
+      id, 
+      motivo || 'Cancelado pelo usuário',
+      requerPermissaoEspecial
+    );
   }
 
   // ============================================================================
@@ -437,6 +470,36 @@ export class AlmoxarifadoController {
     @Body('motivo') motivo: string,
   ) {
     return this.recebimentoService.rejeitar(id, motivo);
+  }
+
+  @Post('recebimentos/:id/estornar')
+  async estornarRecebimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body('motivo') motivo: string,
+  ) {
+    // Verifica se usuário tem permissão para estornar
+    const user = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Usuário não encontrado');
+    }
+
+    if (!user.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para estornar recebimentos. ' +
+        'Apenas usuários autorizados podem realizar esta ação.'
+      );
+    }
+
+    return this.recebimentoService.estornar(
+      id,
+      motivo || 'Estornado pelo usuário',
+      user.id,
+      user.nome,
+    );
   }
 
   // ============================================================================

@@ -78,6 +78,13 @@ export class Usuario {
   @Column({ default: false })
   pode_aprovar_requisicoes: boolean;
 
+  /**
+   * Indica se o usuário pode cancelar requisições e estornar recebimentos.
+   * Apenas usuários com essa permissão podem realizar essas ações críticas.
+   */
+  @Column({ default: false })
+  pode_cancelar_estornar: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

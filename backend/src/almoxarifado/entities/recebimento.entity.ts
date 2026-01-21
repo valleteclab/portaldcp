@@ -41,6 +41,7 @@ export enum StatusRecebimento {
   ACEITO = 'ACEITO',           // Aceito definitivamente
   REJEITADO = 'REJEITADO',     // Rejeitado (problemas na entrega)
   ACEITO_PARCIAL = 'ACEITO_PARCIAL', // Aceito parcialmente
+  ESTORNADO = 'ESTORNADO',     // Estornado (baixa revertida)
 }
 
 @Entity('recebimentos')

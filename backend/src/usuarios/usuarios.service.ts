@@ -99,6 +99,8 @@ export class UsuariosService {
     role: RoleUsuario;
     orgao_id: string;
     ativo: boolean;
+    pode_aprovar_requisicoes: boolean;
+    pode_cancelar_estornar: boolean;
   }>): Promise<Usuario> {
     const usuario = await this.findById(id);
 

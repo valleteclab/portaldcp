@@ -340,6 +340,124 @@ export class RecebimentoService {
   }
 
   // ============================================================================
+  // ESTORNAR RECEBIMENTO (REVERTER BAIXA)
+  // ============================================================================
+
+  /**
+   * Estorna um recebimento já aceito, revertendo a baixa no contrato.
+   * 
+   * IMPORTANTE: Esta operação reverte a conversão de EMPENHADO para ENTREGUE,
+   * devolvendo o saldo para DISPONÍVEL no contrato.
+   * 
+   * Requer permissão especial (pode_cancelar_estornar = true).
+   */
+  async estornar(
+    id: string,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Recebimento> {
+    const recebimento = await this.findOne(id);
+
+    if (!recebimento.baixa_realizada) {
+      throw new BadRequestException(
+        'Recebimento não teve baixa realizada ainda. Não é necessário estornar.'
+      );
+    }
+
+    if (recebimento.status !== StatusRecebimento.ACEITO) {
+      throw new BadRequestException(
+        `Recebimento não pode ser estornado. Status atual: ${recebimento.status}`
+      );
+    }
+
+    // Busca ordem de fornecimento
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: recebimento.ordem_fornecimento_id },
+    });
+
+    if (!ordem) {
+      throw new BadRequestException('Ordem de fornecimento não encontrada');
+    }
+
+    // Inicia transação
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Reverte baixa de cada item
+      for (const itemRec of recebimento.itens) {
+        if (itemRec.item_contrato_id && itemRec.quantidade_aceita > 0) {
+          const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+            where: { id: itemRec.item_contrato_id },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (itemContrato) {
+            // Reverte: move de entregue de volta para disponível
+            const quantidadeAEstornar = Math.min(
+              itemRec.quantidade_aceita,
+              Number(itemContrato.quantidade_entregue)
+            );
+
+            itemContrato.quantidade_entregue = 
+              Math.max(0, Number(itemContrato.quantidade_entregue) - quantidadeAEstornar);
+            itemContrato.saldo_disponivel = 
+              Number(itemContrato.quantidade_contratada) - 
+              Number(itemContrato.quantidade_empenhada) - 
+              Number(itemContrato.quantidade_entregue);
+
+            await queryRunner.manager.save(itemContrato);
+
+            this.logger.log(
+              `Estorno no contrato: Item ${itemContrato.descricao}, ` +
+              `Quantidade estornada: ${quantidadeAEstornar}, ` +
+              `Novo saldo disponível: ${itemContrato.saldo_disponivel}`
+            );
+          }
+        }
+
+        // Reverte quantidade aceita no item do recebimento
+        itemRec.quantidade_aceita = 0;
+        await queryRunner.manager.save(itemRec);
+      }
+
+      // Atualiza recebimento
+      recebimento.status = StatusRecebimento.ESTORNADO;
+      recebimento.baixa_realizada = false;
+      recebimento.data_baixa = null;
+      recebimento.motivo_rejeicao = motivo;
+      recebimento.ocorrencias = recebimento.ocorrencias || [];
+      recebimento.ocorrencias.push({
+        data: new Date(),
+        tipo: 'ESTORNO',
+        descricao: `Estornado por ${usuarioNome}: ${motivo}`,
+        usuario: usuarioNome,
+      });
+
+      await queryRunner.manager.save(recebimento);
+
+      // Atualiza ordem de fornecimento (reverte quantidade entregue)
+      await this.ordemService.reverterAtendimento(ordem.id, recebimento.itens);
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Recebimento ${recebimento.numero} estornado por ${usuarioNome}. ` +
+        `Motivo: ${motivo}`
+      );
+
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================================================
   // CONSULTAS
   // ============================================================================
 

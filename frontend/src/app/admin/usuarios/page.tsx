@@ -81,6 +81,7 @@ interface Usuario {
   created_at: string
   modulos_habilitados?: string[]
   pode_aprovar_requisicoes?: boolean
+  pode_cancelar_estornar?: boolean
 }
 
 // Lista de módulos disponíveis
@@ -138,6 +139,7 @@ export default function AdminUsuariosPage() {
     role: 'PREGOEIRO' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO',
     orgao_id: '',
     pode_aprovar_requisicoes: false,
+    pode_cancelar_estornar: false,
   })
 
   useEffect(() => {
@@ -181,6 +183,7 @@ export default function AdminUsuariosPage() {
       role: 'PREGOEIRO',
       orgao_id: '',
       pode_aprovar_requisicoes: false,
+      pode_cancelar_estornar: false,
     })
     setShowNovoUsuario(true)
   }
@@ -197,6 +200,7 @@ export default function AdminUsuariosPage() {
       role: usuario.role,
       orgao_id: usuario.orgao_id || '',
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
+      pode_cancelar_estornar: usuario.pode_cancelar_estornar || false,
     })
     setShowEditarUsuario(true)
   }
@@ -236,6 +240,7 @@ export default function AdminUsuariosPage() {
         role: formUsuario.role,
         orgao_id: formUsuario.orgao_id,
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
+        pode_cancelar_estornar: formUsuario.pode_cancelar_estornar,
       }
 
       if (formUsuario.senha) {
@@ -485,6 +490,7 @@ export default function AdminUsuariosPage() {
                     <TableHead>Função</TableHead>
                     <TableHead>Órgão</TableHead>
                     <TableHead className="text-center">Aprovador</TableHead>
+                    <TableHead className="text-center">Cancelar/Estornar</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -506,6 +512,16 @@ export default function AdminUsuariosPage() {
                       <TableCell className="text-center">
                         {usuario.pode_aprovar_requisicoes ? (
                           <Badge className="bg-amber-100 text-amber-800">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Sim
+                          </Badge>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {usuario.pode_cancelar_estornar ? (
+                          <Badge className="bg-red-100 text-red-800">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             Sim
                           </Badge>
@@ -717,6 +733,20 @@ export default function AdminUsuariosPage() {
                     checked={formUsuario.pode_aprovar_requisicoes}
                     onCheckedChange={(checked) => 
                       setFormUsuario({ ...formUsuario, pode_aprovar_requisicoes: checked === true })
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
+                  <div>
+                    <Label className="text-red-800 font-medium">Pode cancelar/estornar</Label>
+                    <p className="text-xs text-red-600 mt-1">
+                      Permite cancelar requisições aprovadas e estornar recebimentos
+                    </p>
+                  </div>
+                  <Checkbox
+                    checked={formUsuario.pode_cancelar_estornar}
+                    onCheckedChange={(checked) => 
+                      setFormUsuario({ ...formUsuario, pode_cancelar_estornar: checked === true })
                     }
                   />
                 </div>

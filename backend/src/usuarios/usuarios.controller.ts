@@ -95,6 +95,7 @@ export class UsuariosController {
       orgao_id: string;
       ativo: boolean;
       pode_aprovar_requisicoes: boolean;
+      pode_cancelar_estornar: boolean;
     }>,
   ) {
     const usuario = await this.usuariosService.update(id, body);

@@ -477,20 +477,44 @@ export class RequisicaoService {
    * 
    * IMPORTANTE: Se a requisição estava AUTORIZADA (saldo reservado),
    * o saldo é devolvido ao contrato.
+   * 
+   * Permite cancelar:
+   * - RASCUNHO
+   * - AGUARDANDO_AUTORIZACAO
+   * - AUTORIZADA (requer permissão especial)
+   * - NEGADA
+   * 
+   * NÃO permite cancelar:
+   * - ORDEM_GERADA (deve cancelar a ordem primeiro)
+   * - ATENDIDA_PARCIAL / ATENDIDA (deve estornar recebimento primeiro)
    */
-  async cancelar(id: string, motivo: string): Promise<Requisicao> {
+  async cancelar(id: string, motivo: string, requerPermissaoEspecial: boolean = false): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
-    // Só pode cancelar se não tiver ordem gerada ou já atendida
+    // Status que NUNCA podem ser cancelados (já entregues)
     const statusNaoCancelavel = [
-      StatusRequisicao.ORDEM_GERADA,
       StatusRequisicao.ATENDIDA_PARCIAL,
       StatusRequisicao.ATENDIDA,
     ];
 
     if (statusNaoCancelavel.includes(requisicao.status)) {
       throw new BadRequestException(
-        `Requisição não pode ser cancelada. Status atual: ${requisicao.status}`
+        `Requisição não pode ser cancelada pois já foi atendida. ` +
+        `Status atual: ${requisicao.status}. ` +
+        `Para reverter, é necessário estornar o recebimento primeiro.`
+      );
+    }
+
+    // Status que requerem permissão especial para cancelar
+    const statusRequerPermissao = [
+      StatusRequisicao.AUTORIZADA,
+      StatusRequisicao.ORDEM_GERADA,
+    ];
+
+    if (statusRequerPermissao.includes(requisicao.status) && !requerPermissaoEspecial) {
+      throw new BadRequestException(
+        `Requisição ${requisicao.status} requer permissão especial para cancelar. ` +
+        `Apenas usuários autorizados podem cancelar requisições aprovadas.`
       );
     }
 

@@ -254,6 +254,56 @@ export class OrdemFornecimentoService {
     return this.ordemRepository.save(ordem);
   }
 
+  /**
+   * Reverte o atendimento de uma ordem (usado em estorno de recebimento)
+   * Reduz as quantidades entregues dos itens
+   */
+  async reverterAtendimento(
+    ordemId: string,
+    itensRecebimento: Array<{ item_contrato_id: string; quantidade_aceita: number; valor_unitario: number }>,
+  ): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(ordemId);
+
+    // Reverte cada item
+    for (const itemRec of itensRecebimento) {
+      if (itemRec.quantidade_aceita > 0) {
+        const itemIndex = ordem.itens.findIndex(i => i.item_contrato_id === itemRec.item_contrato_id);
+        if (itemIndex !== -1) {
+          const quantidadeAReverter = Math.min(
+            itemRec.quantidade_aceita,
+            ordem.itens[itemIndex].quantidade_entregue
+          );
+          const valorAReverter = quantidadeAReverter * itemRec.valor_unitario;
+
+          ordem.itens[itemIndex].quantidade_entregue = Math.max(
+            0,
+            ordem.itens[itemIndex].quantidade_entregue - quantidadeAReverter
+          );
+          ordem.valor_entregue = Math.max(0, Number(ordem.valor_entregue) - valorAReverter);
+        }
+      }
+    }
+
+    // Atualiza status da ordem
+    const nenhumItemEntregue = ordem.itens.every(item => item.quantidade_entregue === 0);
+    const parcialmenteAtendida = ordem.itens.some(
+      item => item.quantidade_entregue > 0 && item.quantidade_entregue < item.quantidade
+    );
+
+    if (nenhumItemEntregue) {
+      ordem.status = StatusOrdemFornecimento.ENVIADA;
+      ordem.data_entrega_realizada = null;
+    } else if (parcialmenteAtendida) {
+      ordem.status = StatusOrdemFornecimento.ATENDIDA_PARCIAL;
+    } else {
+      ordem.status = StatusOrdemFornecimento.ATENDIDA;
+    }
+
+    this.logger.log(`Atendimento revertido para ordem ${ordem.numero}`);
+
+    return this.ordemRepository.save(ordem);
+  }
+
   // ============================================================================
   // CONSULTAS
   // ============================================================================
