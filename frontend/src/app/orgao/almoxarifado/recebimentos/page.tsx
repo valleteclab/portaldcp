@@ -113,23 +113,47 @@ function RecebimentosList() {
   const [processando, setProcessando] = useState(false);
 
   useEffect(() => {
-    // Carrega permissões do usuário
-    const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
-    console.log('[Recebimentos] Usuario do localStorage:', usuarioStr);
-    if (usuarioStr) {
-      try {
-        const usuario = JSON.parse(usuarioStr);
-        console.log('[Recebimentos] Usuario parseado:', usuario);
-        console.log('[Recebimentos] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
-        const temPermissao = usuario.pode_cancelar_estornar === true;
-        console.log('[Recebimentos] Tem permissão?', temPermissao);
-        setPodeCancelarEstornar(temPermissao);
-      } catch (e) {
-        console.error('Erro ao parsear usuario:', e);
+    // Carrega permissões do usuário do localStorage ou da API
+    const carregarPermissoes = async () => {
+      // Tenta primeiro do localStorage
+      const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
+      console.log('[Recebimentos] Usuario do localStorage:', usuarioStr);
+      
+      if (usuarioStr) {
+        try {
+          const usuario = JSON.parse(usuarioStr);
+          console.log('[Recebimentos] Usuario parseado:', usuario);
+          console.log('[Recebimentos] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
+          
+          // Se não tem o campo no localStorage, busca da API
+          if (usuario.pode_cancelar_estornar === undefined) {
+            console.log('[Recebimentos] Campo não encontrado no localStorage, buscando da API...');
+            try {
+              const response = await authFetch(`${API_URL}/api/usuarios/${usuario.id}`);
+              if (response.ok) {
+                const usuarioAtualizado = await response.json();
+                console.log('[Recebimentos] Usuario da API:', usuarioAtualizado);
+                setPodeCancelarEstornar(usuarioAtualizado.pode_cancelar_estornar === true);
+                // Atualiza localStorage
+                localStorage.setItem('usuario', JSON.stringify(usuarioAtualizado));
+              }
+            } catch (apiError) {
+              console.error('[Recebimentos] Erro ao buscar da API:', apiError);
+            }
+          } else {
+            const temPermissao = usuario.pode_cancelar_estornar === true;
+            console.log('[Recebimentos] Tem permissão?', temPermissao);
+            setPodeCancelarEstornar(temPermissao);
+          }
+        } catch (e) {
+          console.error('Erro ao parsear usuario:', e);
+        }
+      } else {
+        console.warn('[Recebimentos] Nenhum usuário encontrado no localStorage');
       }
-    } else {
-      console.warn('[Recebimentos] Nenhum usuário encontrado no localStorage');
-    }
+    };
+    
+    carregarPermissoes();
   }, []);
 
   useEffect(() => {

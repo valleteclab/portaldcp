@@ -182,23 +182,47 @@ function RequisicoesList() {
   };
 
   useEffect(() => {
-    // Carrega permissões do usuário
-    const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
-    console.log('[Requisicoes] Usuario do localStorage:', usuarioStr);
-    if (usuarioStr) {
-      try {
-        const usuario = JSON.parse(usuarioStr);
-        console.log('[Requisicoes] Usuario parseado:', usuario);
-        console.log('[Requisicoes] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
-        const temPermissao = usuario.pode_cancelar_estornar === true;
-        console.log('[Requisicoes] Tem permissão?', temPermissao);
-        setPodeCancelarEstornar(temPermissao);
-      } catch (e) {
-        console.error('Erro ao parsear usuario:', e);
+    // Carrega permissões do usuário do localStorage ou da API
+    const carregarPermissoes = async () => {
+      // Tenta primeiro do localStorage
+      const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
+      console.log('[Requisicoes] Usuario do localStorage:', usuarioStr);
+      
+      if (usuarioStr) {
+        try {
+          const usuario = JSON.parse(usuarioStr);
+          console.log('[Requisicoes] Usuario parseado:', usuario);
+          console.log('[Requisicoes] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
+          
+          // Se não tem o campo no localStorage, busca da API
+          if (usuario.pode_cancelar_estornar === undefined) {
+            console.log('[Requisicoes] Campo não encontrado no localStorage, buscando da API...');
+            try {
+              const response = await authFetch(`${API_URL}/api/usuarios/${usuario.id}`);
+              if (response.ok) {
+                const usuarioAtualizado = await response.json();
+                console.log('[Requisicoes] Usuario da API:', usuarioAtualizado);
+                setPodeCancelarEstornar(usuarioAtualizado.pode_cancelar_estornar === true);
+                // Atualiza localStorage
+                localStorage.setItem('usuario', JSON.stringify(usuarioAtualizado));
+              }
+            } catch (apiError) {
+              console.error('[Requisicoes] Erro ao buscar da API:', apiError);
+            }
+          } else {
+            const temPermissao = usuario.pode_cancelar_estornar === true;
+            console.log('[Requisicoes] Tem permissão?', temPermissao);
+            setPodeCancelarEstornar(temPermissao);
+          }
+        } catch (e) {
+          console.error('Erro ao parsear usuario:', e);
+        }
+      } else {
+        console.warn('[Requisicoes] Nenhum usuário encontrado no localStorage');
       }
-    } else {
-      console.warn('[Requisicoes] Nenhum usuário encontrado no localStorage');
-    }
+    };
+    
+    carregarPermissoes();
   }, []);
 
   useEffect(() => {
