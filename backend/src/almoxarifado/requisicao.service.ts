@@ -592,7 +592,11 @@ export class RequisicaoService {
         .where('ordem.id IN (:...ids)', { ids: ordemIds })
         .getRawMany();
       
-      const ordensMap = new Map(ordens.map(o => [o.ordem_id, { id: o.ordem_id, numero: o.ordem_numero }]));
+      // getRawMany retorna campos com prefixo da tabela (ordem_id, ordem_numero)
+      const ordensMap = new Map(ordens.map(o => [
+        o.ordem_id || o.id, 
+        { id: o.ordem_id || o.id, numero: o.ordem_numero || o.numero }
+      ]));
       
       for (const req of requisicoes) {
         if (req.ordem_fornecimento_id && ordensMap.has(req.ordem_fornecimento_id)) {
