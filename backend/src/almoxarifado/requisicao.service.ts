@@ -556,8 +556,7 @@ export class RequisicaoService {
     const query = this.requisicaoRepository.createQueryBuilder('req')
       .leftJoinAndSelect('req.itens', 'itens')
       .leftJoinAndSelect('req.contrato', 'contrato')
-      .leftJoinAndSelect('req.contrato.fornecedor', 'fornecedor')
-      .leftJoinAndSelect('req.ordem_fornecimento', 'ordem_fornecimento')
+      .leftJoinAndSelect('contrato.fornecedor', 'fornecedor')
       .where('req.orgao_id = :orgaoId', { orgaoId: filtros.orgaoId });
 
     if (filtros.status) {
@@ -580,38 +579,7 @@ export class RequisicaoService {
       query.andWhere('req.data_solicitacao <= :dataFim', { dataFim: filtros.dataFim });
     }
 
-    const requisicoes = await query.orderBy('req.created_at', 'DESC').getMany();
-    
-    // Carrega ordens de fornecimento relacionadas (opcional - não quebra se falhar)
-    // Comentado temporariamente para evitar erro 500 - será reativado após debug
-    /*
-    try {
-      const ordemIds = requisicoes
-        .filter(req => req.ordem_fornecimento_id)
-        .map(req => req.ordem_fornecimento_id)
-        .filter((id): id is string => id !== null && id !== undefined);
-      
-      if (ordemIds.length > 0 && this.ordemFornecimentoRepository) {
-        const ordens = await this.ordemFornecimentoRepository.find({
-          where: { id: In(ordemIds) },
-          select: ['id', 'numero'],
-        });
-        
-        const ordensMap = new Map(ordens.map(o => [o.id, { id: o.id, numero: o.numero }]));
-        
-        for (const req of requisicoes) {
-          if (req.ordem_fornecimento_id && ordensMap.has(req.ordem_fornecimento_id)) {
-            (req as any).ordem_fornecimento = ordensMap.get(req.ordem_fornecimento_id);
-          }
-        }
-      }
-    } catch (error) {
-      this.logger.warn(`Erro ao carregar ordens de fornecimento (não crítico): ${error.message}`);
-      // Continua sem as ordens se houver erro - não quebra a listagem
-    }
-    */
-    
-    return requisicoes;
+      return requisicoes;
   }
 
   async findOne(id: string): Promise<Requisicao> {
