@@ -44,10 +44,11 @@ export class OrdemFornecimentoService {
       throw new NotFoundException('Requisição não encontrada');
     }
 
-    if (requisicao.status !== StatusRequisicao.AUTORIZADA) {
+    // Permite gerar ordem para requisições AUTORIZADAS ou ORDEM_GERADA (para permitir regerar manualmente)
+    if (requisicao.status !== StatusRequisicao.AUTORIZADA && requisicao.status !== StatusRequisicao.ORDEM_GERADA) {
       throw new BadRequestException(
         `Requisição não pode gerar ordem. Status atual: ${requisicao.status}. ` +
-        'Apenas requisições AUTORIZADAS podem gerar ordens.'
+        'Apenas requisições AUTORIZADAS ou com ORDEM_GERADA podem gerar ordens.'
       );
     }
 
