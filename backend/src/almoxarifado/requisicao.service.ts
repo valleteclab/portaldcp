@@ -351,10 +351,10 @@ export class RequisicaoService {
           const ordemGerada = await this.ordemFornecimentoService.gerarOrdem(
             {
               requisicao_id: requisicao.id,
-              local_entrega: requisicao.local_entrega || null,
-              data_entrega_prevista: null,
-              prazo_entrega_dias: null,
-              observacoes: null,
+              local_entrega: requisicao.local_entrega || undefined,
+              data_entrega_prevista: undefined,
+              prazo_entrega_dias: undefined,
+              observacoes: undefined,
             },
             autorizadorId,
             autorizadorNome,
