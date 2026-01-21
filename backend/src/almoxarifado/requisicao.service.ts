@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
+import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { ItemContratoService } from './item-contrato.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -27,6 +28,8 @@ export class RequisicaoService {
     private readonly itemRequisicaoRepository: Repository<ItemRequisicao>,
     @InjectRepository(ItemContrato)
     private readonly itemContratoRepository: Repository<ItemContrato>,
+    @InjectRepository(OrdemFornecimento)
+    private readonly ordemFornecimentoRepository: Repository<OrdemFornecimento>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -579,29 +582,29 @@ export class RequisicaoService {
 
     const requisicoes = await query.orderBy('req.created_at', 'DESC').getMany();
     
-    // Carrega ordens de fornecimento relacionadas usando query builder
+    // Carrega ordens de fornecimento relacionadas
     const ordemIds = requisicoes
       .filter(req => req.ordem_fornecimento_id)
-      .map(req => req.ordem_fornecimento_id);
+      .map(req => req.ordem_fornecimento_id)
+      .filter((id): id is string => id !== null);
     
     if (ordemIds.length > 0) {
-      const ordens = await this.dataSource
-        .createQueryBuilder()
-        .select(['ordem.id', 'ordem.numero'])
-        .from('ordens_fornecimento', 'ordem')
-        .where('ordem.id IN (:...ids)', { ids: ordemIds })
-        .getRawMany();
-      
-      // getRawMany retorna campos com prefixo da tabela (ordem_id, ordem_numero)
-      const ordensMap = new Map(ordens.map(o => [
-        o.ordem_id || o.id, 
-        { id: o.ordem_id || o.id, numero: o.ordem_numero || o.numero }
-      ]));
-      
-      for (const req of requisicoes) {
-        if (req.ordem_fornecimento_id && ordensMap.has(req.ordem_fornecimento_id)) {
-          (req as any).ordem_fornecimento = ordensMap.get(req.ordem_fornecimento_id);
+      try {
+        const ordens = await this.ordemFornecimentoRepository.find({
+          where: ordemIds.map(id => ({ id })),
+          select: ['id', 'numero'],
+        });
+        
+        const ordensMap = new Map(ordens.map(o => [o.id, { id: o.id, numero: o.numero }]));
+        
+        for (const req of requisicoes) {
+          if (req.ordem_fornecimento_id && ordensMap.has(req.ordem_fornecimento_id)) {
+            (req as any).ordem_fornecimento = ordensMap.get(req.ordem_fornecimento_id);
+          }
         }
+      } catch (error) {
+        this.logger.error(`Erro ao carregar ordens de fornecimento: ${error.message}`, error.stack);
+        // Continua sem as ordens se houver erro
       }
     }
     
