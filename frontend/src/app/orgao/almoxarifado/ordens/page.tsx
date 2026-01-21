@@ -504,8 +504,9 @@ function OrdensList() {
                             <Send className="h-4 w-4" />
                           </Button>
                         )}
-                        {/* Botão de registrar recebimento - disponível para ordens enviadas ou em atendimento */}
-                        {(ordem.status === 'ENVIADA' || ordem.status === 'EM_ATENDIMENTO' || ordem.status === 'ATENDIDA_PARCIAL') && (
+                        {/* Botão de registrar recebimento - disponível apenas se houver quantidade pendente */}
+                        {(ordem.status === 'ENVIADA' || ordem.status === 'EM_ATENDIMENTO' || ordem.status === 'ATENDIDA_PARCIAL') && 
+                         ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0) && (
                           <Button
                             variant="ghost"
                             size="sm"

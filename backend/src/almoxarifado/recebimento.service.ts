@@ -62,6 +62,17 @@ export class RecebimentoService {
       );
     }
 
+    // Verifica se há quantidade pendente para receber
+    const temQuantidadePendente = ordem.itens.some(
+      item => item.quantidade - item.quantidade_entregue > 0
+    );
+
+    if (!temQuantidadePendente) {
+      throw new BadRequestException(
+        'Não é possível criar recebimento. A ordem já está totalmente atendida.'
+      );
+    }
+
     // Gera número do recebimento
     const ano = new Date().getFullYear();
     const ultimoRecebimento = await this.recebimentoRepository.findOne({
