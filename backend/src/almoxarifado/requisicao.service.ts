@@ -345,6 +345,27 @@ export class RequisicaoService {
 
       this.logger.log(`Requisição ${requisicao.numero} autorizada por ${autorizadorNome}`);
 
+      // Gera ordem de fornecimento automaticamente após aprovação
+      try {
+        if (requisicao.contrato_id) {
+          const ordemGerada = await this.ordemFornecimentoService.gerarOrdem(
+            {
+              requisicao_id: requisicao.id,
+              local_entrega: requisicao.local_entrega || null,
+              data_entrega_prevista: null,
+              prazo_entrega_dias: null,
+              observacoes: null,
+            },
+            autorizadorId,
+            autorizadorNome,
+          );
+          this.logger.log(`Ordem de fornecimento ${ordemGerada.numero} gerada automaticamente para requisição ${requisicao.numero}`);
+        }
+      } catch (ordemError) {
+        // Não falha a operação se a ordem não puder ser gerada
+        this.logger.error(`Erro ao gerar ordem de fornecimento automaticamente: ${ordemError.message}`, ordemError.stack);
+      }
+
       // Notifica o solicitante sobre a aprovação
       try {
         await this.notificacoesService.notificarResultadoRequisicao(
@@ -580,6 +601,33 @@ export class RequisicaoService {
     }
 
     const requisicoes = await query.orderBy('req.created_at', 'DESC').getMany();
+    
+    // Carrega ordens de fornecimento relacionadas (opcional - não quebra se falhar)
+    try {
+      const ordemIds = requisicoes
+        .filter(req => req.ordem_fornecimento_id)
+        .map(req => req.ordem_fornecimento_id)
+        .filter((id): id is string => id !== null && id !== undefined);
+      
+      if (ordemIds.length > 0) {
+        const ordens = await this.ordemFornecimentoRepository.find({
+          where: { id: In(ordemIds) },
+          select: ['id', 'numero'],
+        });
+        
+        const ordensMap = new Map(ordens.map(o => [o.id, { id: o.id, numero: o.numero }]));
+        
+        for (const req of requisicoes) {
+          if (req.ordem_fornecimento_id && ordensMap.has(req.ordem_fornecimento_id)) {
+            (req as any).ordem_fornecimento = ordensMap.get(req.ordem_fornecimento_id);
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao carregar ordens de fornecimento (não crítico): ${error.message}`);
+      // Continua sem as ordens se houver erro - não quebra a listagem
+    }
+    
     return requisicoes;
   }
 
