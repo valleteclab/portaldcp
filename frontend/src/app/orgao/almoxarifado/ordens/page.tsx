@@ -113,6 +113,7 @@ function OrdensList() {
   const [emailFornecedor, setEmailFornecedor] = useState('');
   const [observacoesEnvio, setObservacoesEnvio] = useState('');
   const [processando, setProcessando] = useState(false);
+  const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
 
   useEffect(() => {
     carregarOrdens();
@@ -198,7 +199,7 @@ function OrdensList() {
 
   const handleDownloadPDF = async (ordemId: string, ordemNumero: string) => {
     try {
-      setProcessando(true);
+      setGerandoPDF(ordemId);
       const response = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/pdf`);
       
       if (!response.ok) {
@@ -221,7 +222,7 @@ function OrdensList() {
       console.error('Erro ao baixar PDF:', error);
       alert('Erro ao baixar PDF da ordem');
     } finally {
-      setProcessando(false);
+      setGerandoPDF(null);
     }
   };
 
@@ -362,10 +363,10 @@ function OrdensList() {
                           size="sm"
                           className="text-green-600 hover:text-green-700"
                           onClick={() => handleDownloadPDF(ordem.id, ordem.numero)}
-                          disabled={processando}
+                          disabled={gerandoPDF === ordem.id}
                           title="Baixar PDF"
                         >
-                          {processando ? (
+                          {gerandoPDF === ordem.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <Download className="h-4 w-4" />
@@ -409,9 +410,9 @@ function OrdensList() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleDownloadPDF(ordemSelecionada.id, ordemSelecionada.numero)}
-                  disabled={processando}
+                  disabled={gerandoPDF === ordemSelecionada.id}
                 >
-                  {processando ? (
+                  {gerandoPDF === ordemSelecionada.id ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       Gerando PDF...
