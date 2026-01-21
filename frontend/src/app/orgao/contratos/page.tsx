@@ -29,6 +29,19 @@ import {
 } from 'lucide-react'
 import { useModulosOrgao } from '@/hooks/useModulosOrgao'
 
+interface ItemContrato {
+  id: string
+  numero_item: number
+  descricao: string
+  quantidade_contratada: number
+  quantidade_empenhada: number
+  quantidade_entregue: number
+  saldo_disponivel: number
+  valor_unitario: number
+  valor_total: number
+  unidade_medida: string
+}
+
 interface Contrato {
   id: string
   numero_contrato: string
@@ -48,6 +61,9 @@ interface Contrato {
   enviado_pncp: boolean
   fiscal_nome: string
   gestor_nome: string
+  saldo_total_em_valor?: number
+  itens?: ItemContrato[]
+  total_itens?: number
 }
 
 import { API_URL, authFetch } from '@/lib/api'
@@ -336,7 +352,14 @@ function ContratosOrgaoPageContent() {
                           <p className="text-xs text-gray-500">{contrato.fornecedor_cnpj}</p>
                         </td>
                         <td className="py-3 px-2 max-w-xs truncate">{contrato.objeto}</td>
-                        <td className="py-3 px-2 text-right font-medium">{formatarMoeda(contrato.valor_global)}</td>
+                        <td className="py-3 px-2 text-right">
+                          <div className="font-medium">{formatarMoeda(contrato.valor_global)}</div>
+                          {contrato.saldo_total_em_valor !== undefined && (
+                            <div className="text-xs text-gray-500">
+                              Saldo: {formatarMoeda(contrato.saldo_total_em_valor)}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 px-2 text-center">
                           <p className="text-sm">{formatarData(contrato.data_vigencia_fim)}</p>
                           {contrato.status === 'VIGENTE' && diasRestantes <= 30 && (

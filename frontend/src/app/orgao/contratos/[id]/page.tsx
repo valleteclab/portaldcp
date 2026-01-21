@@ -56,6 +56,19 @@ interface TermoAditivo {
   created_at: string
 }
 
+interface ItemContrato {
+  id: string
+  numero_item: number
+  descricao: string
+  quantidade_contratada: number
+  quantidade_empenhada: number
+  quantidade_entregue: number
+  saldo_disponivel: number
+  valor_unitario: number
+  valor_total: number
+  unidade_medida: string
+}
+
 interface Contrato {
   id: string
   numero_contrato: string
@@ -98,6 +111,9 @@ interface Contrato {
   observacoes: string
   orgao: { id: string; nome: string; cnpj: string; cidade: string; uf: string }
   licitacao?: { id: string; numero_processo: string; modalidade: string }
+  saldo_total_em_valor?: number
+  itens?: ItemContrato[]
+  total_itens?: number
 }
 
 const STATUS_CONTRATO = {
@@ -378,9 +394,69 @@ export default function DetalheContratoOrgaoPage() {
                       <p className="text-sm text-blue-600">Valor Global</p>
                       <p className="text-xl font-bold text-blue-600">{formatarMoeda(contrato.valor_global)}</p>
                     </div>
+                    {contrato.saldo_total_em_valor !== undefined && (
+                      <div className="p-4 bg-purple-50 rounded-lg">
+                        <p className="text-sm text-purple-600">Saldo Disponível</p>
+                        <p className="text-xl font-bold text-purple-600">{formatarMoeda(contrato.saldo_total_em_valor)}</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
+
+              {contrato.itens && contrato.itens.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Itens do Contrato ({contrato.itens.length})</CardTitle>
+                    <CardDescription>Saldo disponível por item</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 px-3">#</th>
+                            <th className="text-left py-2 px-3">Descrição</th>
+                            <th className="text-right py-2 px-3">Contratado</th>
+                            <th className="text-right py-2 px-3">Empenhado</th>
+                            <th className="text-right py-2 px-3">Entregue</th>
+                            <th className="text-right py-2 px-3">Saldo</th>
+                            <th className="text-right py-2 px-3">Valor Unit.</th>
+                            <th className="text-right py-2 px-3">Saldo em Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {contrato.itens.map((item) => {
+                            const saldoEmValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+                            return (
+                              <tr key={item.id} className="border-b hover:bg-gray-50">
+                                <td className="py-2 px-3 font-medium">{item.numero_item}</td>
+                                <td className="py-2 px-3">{item.descricao}</td>
+                                <td className="py-2 px-3 text-right">
+                                  {item.quantidade_contratada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} {item.unidade_medida}
+                                </td>
+                                <td className="py-2 px-3 text-right text-yellow-600">
+                                  {item.quantidade_empenhada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} {item.unidade_medida}
+                                </td>
+                                <td className="py-2 px-3 text-right text-green-600">
+                                  {item.quantidade_entregue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} {item.unidade_medida}
+                                </td>
+                                <td className="py-2 px-3 text-right font-medium">
+                                  {item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} {item.unidade_medida}
+                                </td>
+                                <td className="py-2 px-3 text-right">{formatarMoeda(item.valor_unitario)}</td>
+                                <td className="py-2 px-3 text-right font-semibold text-purple-600">
+                                  {formatarMoeda(saldoEmValor)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {(contrato.dotacao_orcamentaria || contrato.fonte_recurso) && (
                 <Card>

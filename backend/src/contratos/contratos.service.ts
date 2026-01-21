@@ -6,6 +6,7 @@ import { TermoAditivo, TipoTermoAditivo, StatusTermoAditivo } from './entities/t
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 
 @Injectable()
 export class ContratosService {
@@ -22,6 +23,8 @@ export class ContratosService {
     private itemRepository: Repository<ItemLicitacao>,
     @InjectRepository(Fornecedor)
     private fornecedorRepository: Repository<Fornecedor>,
+    @InjectRepository(ItemContrato)
+    private itemContratoRepository: Repository<ItemContrato>,
   ) {}
 
   // ============ CONTRATOS ============
@@ -107,7 +110,27 @@ export class ContratosService {
         .andWhere('contrato.data_vigencia_fim >= :hoje', { hoje });
     }
 
-    return query.orderBy('contrato.created_at', 'DESC').getMany();
+    const contratos = await query.orderBy('contrato.created_at', 'DESC').getMany();
+
+    // Carrega itens e calcula saldo total em valor para cada contrato
+    for (const contrato of contratos) {
+      const itens = await this.itemContratoRepository.find({
+        where: { contrato_id: contrato.id },
+      });
+
+      // Calcula saldo total em valor (soma de saldo_disponivel * valor_unitario)
+      const saldoTotalEmValor = itens.reduce((total, item) => {
+        const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+        return total + saldoValor;
+      }, 0);
+
+      // Adiciona campos calculados ao contrato
+      (contrato as any).itens = itens;
+      (contrato as any).saldo_total_em_valor = saldoTotalEmValor;
+      (contrato as any).total_itens = itens.length;
+    }
+
+    return contratos;
   }
 
   async findOne(id: string): Promise<Contrato> {
@@ -119,6 +142,23 @@ export class ContratosService {
     if (!contrato) {
       throw new NotFoundException('Contrato não encontrado');
     }
+
+    // Carrega itens do contrato
+    const itens = await this.itemContratoRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_item: 'ASC' },
+    });
+
+    // Calcula saldo total em valor
+    const saldoTotalEmValor = itens.reduce((total, item) => {
+      const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+      return total + saldoValor;
+    }, 0);
+
+    // Adiciona campos calculados ao contrato
+    (contrato as any).itens = itens;
+    (contrato as any).saldo_total_em_valor = saldoTotalEmValor;
+    (contrato as any).total_itens = itens.length;
 
     return contrato;
   }
