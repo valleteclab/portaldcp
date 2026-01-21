@@ -15,7 +15,8 @@ import {
   Loader2,
   ArrowLeft,
   X,
-  Download
+  Download,
+  FilePlus
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -80,6 +81,7 @@ interface Requisicao {
     id: string;
     numero: string;
   };
+  local_entrega?: string | null;
   contrato?: {
     numero_contrato: string;
     fornecedor?: {
@@ -134,9 +136,19 @@ function RequisicoesList() {
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showAutorizar, setShowAutorizar] = useState(false);
   const [showNegar, setShowNegar] = useState(false);
+  const [showGerarOrdem, setShowGerarOrdem] = useState(false);
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [processando, setProcessando] = useState(false);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
+  const [gerandoOrdem, setGerandoOrdem] = useState(false);
+  
+  // Formulário de gerar ordem
+  const [formGerarOrdem, setFormGerarOrdem] = useState({
+    local_entrega: '',
+    data_entrega_prevista: '',
+    prazo_entrega_dias: '',
+    observacoes: '',
+  });
 
   // Carregar info do contrato se filtrado
   useEffect(() => {
@@ -216,6 +228,64 @@ function RequisicoesList() {
     setRequisicaoSelecionada(req);
     setMotivoNegativa('');
     setShowNegar(true);
+  };
+
+  const handleAbrirGerarOrdem = (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    setFormGerarOrdem({
+      local_entrega: req.local_entrega || '',
+      data_entrega_prevista: '',
+      prazo_entrega_dias: '',
+      observacoes: '',
+    });
+    setShowGerarOrdem(true);
+  };
+
+  const handleGerarOrdem = async () => {
+    if (!requisicaoSelecionada) return;
+    
+    setGerandoOrdem(true);
+    try {
+      const payload: any = {
+        requisicao_id: requisicaoSelecionada.id,
+      };
+
+      if (formGerarOrdem.local_entrega.trim()) {
+        payload.local_entrega = formGerarOrdem.local_entrega.trim();
+      }
+      if (formGerarOrdem.data_entrega_prevista) {
+        payload.data_entrega_prevista = formGerarOrdem.data_entrega_prevista;
+      }
+      if (formGerarOrdem.prazo_entrega_dias) {
+        payload.prazo_entrega_dias = Number(formGerarOrdem.prazo_entrega_dias);
+      }
+      if (formGerarOrdem.observacoes.trim()) {
+        payload.observacoes = formGerarOrdem.observacoes.trim();
+      }
+
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/gerar`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (response.ok) {
+        const ordemGerada = await response.json();
+        alert(`Ordem de fornecimento ${ordemGerada.numero} gerada com sucesso!`);
+        setShowGerarOrdem(false);
+        carregarRequisicoes();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao gerar ordem: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao gerar ordem:', error);
+      alert('Erro ao gerar ordem de fornecimento');
+    } finally {
+      setGerandoOrdem(false);
+    }
   };
 
   const handleAutorizar = async () => {
@@ -478,6 +548,24 @@ function RequisicoesList() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {/* Botão para gerar ordem manualmente (requisições aprovadas sem ordem) */}
+                        {(req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && !req.ordem_fornecimento_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-blue-600 hover:text-blue-700"
+                            onClick={() => handleAbrirGerarOrdem(req)}
+                            disabled={gerandoOrdem}
+                            title="Gerar Ordem de Fornecimento"
+                          >
+                            {gerandoOrdem ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <FilePlus className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {/* Botão para baixar PDF (requisições com ordem gerada) */}
                         {(req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA' || req.status === 'ATENDIDA_PARCIAL' || req.status === 'ATENDIDA') && req.ordem_fornecimento_id && (
                           <Button
                             variant="ghost"
@@ -715,6 +803,102 @@ function RequisicoesList() {
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Negativa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Gerar Ordem */}
+      <Dialog open={showGerarOrdem} onOpenChange={setShowGerarOrdem}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-blue-600">Gerar Ordem de Fornecimento</DialogTitle>
+            <DialogDescription>
+              Preencha os dados para gerar a ordem de fornecimento/serviço.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {requisicaoSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p className="font-medium">{requisicaoSelecionada.numero}</p>
+                <p className="text-sm text-gray-600">
+                  Valor: {formatarMoeda(requisicaoSelecionada.valor_total_estimado)}
+                </p>
+                {requisicaoSelecionada.contrato && (
+                  <p className="text-sm text-gray-600">
+                    Contrato: {requisicaoSelecionada.contrato.numero_contrato}
+                    {requisicaoSelecionada.contrato.fornecedor && 
+                      ` - ${requisicaoSelecionada.contrato.fornecedor.razao_social}`
+                    }
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">
+                    Local de Entrega
+                  </label>
+                  <Input
+                    placeholder="Ex: Almoxarifado Central, Setor de Compras..."
+                    value={formGerarOrdem.local_entrega}
+                    onChange={(e) => setFormGerarOrdem({ ...formGerarOrdem, local_entrega: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">
+                      Data de Entrega Prevista
+                    </label>
+                    <Input
+                      type="date"
+                      value={formGerarOrdem.data_entrega_prevista}
+                      onChange={(e) => setFormGerarOrdem({ ...formGerarOrdem, data_entrega_prevista: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">
+                      Prazo de Entrega (dias)
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="Ex: 30"
+                      value={formGerarOrdem.prazo_entrega_dias}
+                      onChange={(e) => setFormGerarOrdem({ ...formGerarOrdem, prazo_entrega_dias: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">
+                    Observações (opcional)
+                  </label>
+                  <Textarea
+                    placeholder="Informações adicionais sobre a ordem..."
+                    value={formGerarOrdem.observacoes}
+                    onChange={(e) => setFormGerarOrdem({ ...formGerarOrdem, observacoes: e.target.value })}
+                    rows={3}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGerarOrdem(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleGerarOrdem}
+              disabled={gerandoOrdem}
+            >
+              {gerandoOrdem && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <FilePlus className="h-4 w-4 mr-2" />
+              Gerar Ordem
             </Button>
           </DialogFooter>
         </DialogContent>
