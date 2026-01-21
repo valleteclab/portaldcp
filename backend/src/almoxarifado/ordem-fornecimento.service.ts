@@ -122,8 +122,11 @@ export class OrdemFornecimentoService {
     try {
       const ordemSalva = await queryRunner.manager.save(ordem);
 
-      // Atualiza status da requisição
-      requisicao.status = StatusRequisicao.ORDEM_GERADA;
+      // Atualiza status da requisição (só atualiza se ainda não tinha ordem)
+      if (requisicao.status === StatusRequisicao.AUTORIZADA) {
+        requisicao.status = StatusRequisicao.ORDEM_GERADA;
+      }
+      // Permite atualizar ordem_fornecimento_id mesmo se já existe (para regerar)
       requisicao.ordem_fornecimento_id = ordemSalva.id;
       await queryRunner.manager.save(requisicao);
 
