@@ -372,13 +372,14 @@ function OrdensList() {
                             <Download className="h-4 w-4" />
                           )}
                         </Button>
-                        {ordem.status === 'EMITIDA' && (
+                        {/* Botão de enviar/reenviar - disponível para ordens não canceladas e não totalmente atendidas */}
+                        {ordem.status !== 'CANCELADA' && ordem.status !== 'ATENDIDA' && (
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-blue-600 hover:text-blue-700"
                             onClick={() => handleAbrirEnviar(ordem)}
-                            title="Enviar ao fornecedor"
+                            title={ordem.status === 'ENVIADA' || ordem.status === 'EM_ATENDIMENTO' || ordem.status === 'ATENDIDA_PARCIAL' ? 'Reenviar ao fornecedor' : 'Enviar ao fornecedor'}
                           >
                             <Send className="h-4 w-4" />
                           </Button>
