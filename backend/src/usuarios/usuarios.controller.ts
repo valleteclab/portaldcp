@@ -8,12 +8,14 @@ import {
   Param,
   Query,
   Logger,
+  Req,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsuariosService } from './usuarios.service';
 import { RoleUsuario } from './entities/usuario.entity';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { Public } from '../auth/public.decorator';
+import type { JwtPayload } from '../auth/auth.service';
 
 @Controller('usuarios')
 export class UsuariosController {
@@ -73,6 +75,21 @@ export class UsuariosController {
   async findPregoeiros(@Param('orgaoId') orgaoId: string) {
     const pregoeiros = await this.usuariosService.findPregoeiros(orgaoId);
     return pregoeiros.map(({ senha_hash, ...u }) => u);
+  }
+
+  /**
+   * Retorna os dados completos do usuário logado atual
+   * SEMPRE busca do banco de dados (fonte da verdade)
+   */
+  @Get('me')
+  async getMe(@Req() request: { user: JwtPayload }) {
+    const user = request.user;
+    if (!user || !user.sub) {
+      throw new Error('Usuário não autenticado');
+    }
+    const usuario = await this.usuariosService.findById(user.sub);
+    const { senha_hash, ...result } = usuario;
+    return result;
   }
 
   @Get(':id')
