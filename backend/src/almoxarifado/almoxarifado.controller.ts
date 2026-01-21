@@ -283,6 +283,12 @@ export class AlmoxarifadoController {
     );
   }
 
+  @Delete('requisicoes/:id')
+  async excluirRequisicao(@Param('id', ParseUUIDPipe) id: string) {
+    await this.requisicaoService.excluir(id);
+    return { message: 'Requisição excluída com sucesso' };
+  }
+
   // ============================================================================
   // ORDENS DE FORNECIMENTO
   // ============================================================================
@@ -354,6 +360,12 @@ export class AlmoxarifadoController {
     @Body('motivo') motivo: string,
   ) {
     return this.ordemService.cancelarOrdem(id, motivo || 'Cancelada pelo usuário');
+  }
+
+  @Delete('ordens/:id')
+  async excluirOrdem(@Param('id', ParseUUIDPipe) id: string) {
+    await this.ordemService.excluir(id);
+    return { message: 'Ordem excluída com sucesso' };
   }
 
   @Get('ordens/:id/pdf')
@@ -500,6 +512,12 @@ export class AlmoxarifadoController {
       user.id,
       user.nome,
     );
+  }
+
+  @Delete('recebimentos/:id')
+  async excluirRecebimento(@Param('id', ParseUUIDPipe) id: string) {
+    await this.recebimentoService.excluir(id);
+    return { message: 'Recebimento excluído com sucesso' };
   }
 
   // ============================================================================

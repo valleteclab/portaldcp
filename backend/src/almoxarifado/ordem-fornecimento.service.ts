@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from './entities/ordem-fornecimento.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisicao.entity';
+import { Recebimento } from './entities/recebimento.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { PdfOrdemService } from './pdf-ordem.service';
@@ -383,6 +384,77 @@ export class OrdemFornecimentoService {
       })
       .orderBy('ordem.data_entrega_prevista', 'ASC')
       .getMany();
+  }
+
+  // ============================================================================
+  // EXCLUIR ORDEM
+  // ============================================================================
+
+  /**
+   * Exclui uma ordem de fornecimento permanentemente
+   * 
+   * IMPORTANTE: Só permite excluir ordens que:
+   * - Estejam em RASCUNHO ou EMITIDA (não enviadas)
+   * - Não tenham recebimentos vinculados
+   */
+  async excluir(id: string): Promise<void> {
+    const ordem = await this.findOne(id);
+
+    // Só permite excluir RASCUNHO ou EMITIDA (não enviada)
+    const statusPermitidos = [
+      StatusOrdemFornecimento.RASCUNHO,
+      StatusOrdemFornecimento.EMITIDA,
+    ];
+
+    if (!statusPermitidos.includes(ordem.status)) {
+      throw new BadRequestException(
+        `Ordem não pode ser excluída. Status atual: ${ordem.status}. ` +
+        `Apenas ordens em RASCUNHO ou EMITIDA podem ser excluídas.`
+      );
+    }
+
+    // Verifica se há recebimentos vinculados
+    const recebimentos = await this.dataSource
+      .getRepository(Recebimento)
+      .find({ where: { ordem_fornecimento_id: id } });
+
+    if (recebimentos && recebimentos.length > 0) {
+      throw new BadRequestException(
+        `Ordem não pode ser excluída pois possui ${recebimentos.length} recebimento(s) vinculado(s). ` +
+        'Exclua os recebimentos primeiro.'
+      );
+    }
+
+    // Remove referência da requisição (se houver)
+    if (ordem.requisicao_id) {
+      const requisicao = await this.requisicaoRepository.findOne({
+        where: { id: ordem.requisicao_id },
+      });
+      if (requisicao) {
+        requisicao.ordem_fornecimento_id = null;
+        requisicao.status = StatusRequisicao.AUTORIZADA; // Volta para autorizada
+        await this.requisicaoRepository.save(requisicao);
+      }
+    }
+
+    // Remove PDF se existir
+    if (ordem.caminho_pdf) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const pdfPath = path.join(process.cwd(), ordem.caminho_pdf);
+        if (fs.existsSync(pdfPath)) {
+          fs.unlinkSync(pdfPath);
+        }
+      } catch (error) {
+        this.logger.warn(`Erro ao remover PDF da ordem: ${error.message}`);
+      }
+    }
+
+    // Exclui a ordem
+    await this.ordemRepository.remove(ordem);
+
+    this.logger.log(`Ordem ${ordem.numero} excluída permanentemente`);
   }
 
   // ============================================================================

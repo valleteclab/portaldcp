@@ -537,4 +537,73 @@ export class RecebimentoService {
       order: { created_at: 'ASC' },
     });
   }
+
+  // ============================================================================
+  // EXCLUIR RECEBIMENTO
+  // ============================================================================
+
+  /**
+   * Exclui um recebimento permanentemente
+   * 
+   * IMPORTANTE: Só permite excluir recebimentos que:
+   * - Estejam em PENDENTE ou REJEITADO (não aceitos)
+   * - Não tenham baixa realizada no contrato
+   */
+  async excluir(id: string): Promise<void> {
+    const recebimento = await this.findOne(id);
+
+    // Só permite excluir PENDENTE ou REJEITADO
+    const statusPermitidos = [
+      StatusRecebimento.PENDENTE,
+      StatusRecebimento.REJEITADO,
+    ];
+
+    if (!statusPermitidos.includes(recebimento.status)) {
+      throw new BadRequestException(
+        `Recebimento não pode ser excluído. Status atual: ${recebimento.status}. ` +
+        `Apenas recebimentos em PENDENTE ou REJEITADO podem ser excluídos. ` +
+        `Recebimentos aceitos devem ser estornados, não excluídos.`
+      );
+    }
+
+    // Não permite excluir se tiver baixa realizada
+    if (recebimento.baixa_realizada) {
+      throw new BadRequestException(
+        'Recebimento não pode ser excluído pois já teve baixa realizada no contrato. ' +
+        'Use a função de estorno para reverter.'
+      );
+    }
+
+    // Atualiza status da ordem se necessário
+    if (recebimento.ordem_fornecimento_id) {
+      const ordem = await this.ordemRepository.findOne({
+        where: { id: recebimento.ordem_fornecimento_id },
+      });
+
+      if (ordem) {
+        // Se era EM_ATENDIMENTO ou ATENDIDA_PARCIAL e não há mais recebimentos, volta para ENVIADA
+        const outrosRecebimentos = await this.recebimentoRepository.find({
+          where: { ordem_fornecimento_id: ordem.id },
+        });
+
+        const recebimentosAtivos = outrosRecebimentos.filter(
+          r => r.id !== id && 
+          r.status !== StatusRecebimento.REJEITADO &&
+          r.status !== StatusRecebimento.ESTORNADO
+        );
+
+        if (recebimentosAtivos.length === 0 && 
+            (ordem.status === StatusOrdemFornecimento.EM_ATENDIMENTO || 
+             ordem.status === StatusOrdemFornecimento.ATENDIDA_PARCIAL)) {
+          ordem.status = StatusOrdemFornecimento.ENVIADA;
+          await this.ordemRepository.save(ordem);
+        }
+      }
+    }
+
+    // Exclui o recebimento
+    await this.recebimentoRepository.remove(recebimento);
+
+    this.logger.log(`Recebimento ${recebimento.numero} excluído permanentemente`);
+  }
 }

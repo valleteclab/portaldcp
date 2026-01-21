@@ -694,6 +694,51 @@ export class RequisicaoService {
   }
 
   // ============================================================================
+  // EXCLUIR REQUISIÇÃO
+  // ============================================================================
+
+  /**
+   * Exclui uma requisição permanentemente
+   * 
+   * IMPORTANTE: Só permite excluir requisições em RASCUNHO ou CANCELADA
+   * e que não tenham ordem de fornecimento gerada.
+   */
+  async excluir(id: string): Promise<void> {
+    const requisicao = await this.findOne(id);
+
+    // Só permite excluir RASCUNHO ou CANCELADA
+    const statusPermitidos = [
+      StatusRequisicao.RASCUNHO,
+      StatusRequisicao.CANCELADA,
+    ];
+
+    if (!statusPermitidos.includes(requisicao.status)) {
+      throw new BadRequestException(
+        `Requisição não pode ser excluída. Status atual: ${requisicao.status}. ` +
+        `Apenas requisições em RASCUNHO ou CANCELADA podem ser excluídas.`
+      );
+    }
+
+    // Não permite excluir se tiver ordem gerada
+    if (requisicao.ordem_fornecimento_id) {
+      throw new BadRequestException(
+        'Requisição não pode ser excluída pois possui ordem de fornecimento gerada. ' +
+        'Exclua a ordem primeiro ou cancele a requisição.'
+      );
+    }
+
+    // Exclui itens primeiro (cascade)
+    if (requisicao.itens && requisicao.itens.length > 0) {
+      await this.itemRequisicaoRepository.remove(requisicao.itens);
+    }
+
+    // Exclui a requisição
+    await this.requisicaoRepository.remove(requisicao);
+
+    this.logger.log(`Requisição ${requisicao.numero} excluída permanentemente`);
+  }
+
+  // ============================================================================
   // ESTATÍSTICAS
   // ============================================================================
 
