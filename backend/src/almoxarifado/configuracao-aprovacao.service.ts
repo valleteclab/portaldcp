@@ -242,37 +242,61 @@ export class ConfiguracaoAprovacaoService {
     usuariosOrgao: { id: string; perfil: string; email?: string }[],
     solicitanteId: string,
   ): Promise<{ id: string; email?: string }[]> {
+    this.logger.log(`Listando aprovadores para órgão ${orgaoId}, valor: ${valorRequisicao}, usuários recebidos: ${usuariosOrgao.length}`);
+    
     const config = await this.encontrarConfiguracao(orgaoId, valorRequisicao);
 
     if (!config) {
       // Sem configuração = todos podem aprovar, exceto solicitante
-      return usuariosOrgao
+      const aprovadores = usuariosOrgao
         .filter(u => u.id !== solicitanteId)
         .map(u => ({ id: u.id, email: u.email }));
+      this.logger.log(`Sem configuração específica. Aprovadores encontrados: ${aprovadores.length}`);
+      return aprovadores;
     }
+
+    this.logger.log(`Configuração encontrada: tipo=${config.tipo_aprovador}, bloquear_auto_aprovacao=${config.bloquear_auto_aprovacao}`);
 
     let aprovadores = usuariosOrgao;
 
     // Filtra por tipo de aprovador
     switch (config.tipo_aprovador) {
+      case TipoAprovador.QUALQUER_USUARIO:
+        // QUALQUER_USUARIO significa que todos os usuários passados já podem aprovar
+        // (o filtro por pode_aprovar_requisicoes já foi feito no controller)
+        this.logger.log(`Tipo QUALQUER_USUARIO: mantendo todos os ${aprovadores.length} usuários`);
+        break;
+
       case TipoAprovador.PERFIL_ESPECIFICO:
         aprovadores = aprovadores.filter(u => 
           config.perfis_permitidos?.includes(u.perfil)
         );
+        this.logger.log(`Filtrado por perfil. Aprovadores: ${aprovadores.length}`);
         break;
 
       case TipoAprovador.USUARIO_ESPECIFICO:
         aprovadores = aprovadores.filter(u => 
           config.usuarios_aprovadores_ids?.includes(u.id)
         );
+        this.logger.log(`Filtrado por usuários específicos. Aprovadores: ${aprovadores.length}`);
+        break;
+
+      case TipoAprovador.GESTOR_SETOR:
+        // TODO: Implementar lógica de gestor de setor
+        this.logger.warn(`Tipo GESTOR_SETOR não totalmente implementado`);
+        aprovadores = [];
         break;
     }
 
     // Remove solicitante se bloquear auto-aprovação
+    const antesFiltro = aprovadores.length;
     if (config.bloquear_auto_aprovacao) {
       aprovadores = aprovadores.filter(u => u.id !== solicitanteId);
+      this.logger.log(`Após bloquear auto-aprovação: ${antesFiltro} -> ${aprovadores.length} aprovadores`);
     }
 
-    return aprovadores.map(u => ({ id: u.id, email: u.email }));
+    const resultado = aprovadores.map(u => ({ id: u.id, email: u.email }));
+    this.logger.log(`Total de aprovadores finais: ${resultado.length}`);
+    return resultado;
   }
 }

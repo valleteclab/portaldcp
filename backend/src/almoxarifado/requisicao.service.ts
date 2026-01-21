@@ -176,7 +176,8 @@ export class RequisicaoService {
     const saved = await this.requisicaoRepository.save(requisicao);
 
     // Notifica aprovadores
-    this.logger.log(`Enviando requisição ${requisicao.numero} para aprovação. Usuários do órgão: ${usuariosOrgao?.length || 0}`);
+    this.logger.log(`[NOTIFICAÇÃO] Enviando requisição ${requisicao.numero} para aprovação. Usuários do órgão recebidos: ${usuariosOrgao?.length || 0}`);
+    this.logger.log(`[NOTIFICAÇÃO] IDs dos usuários recebidos: ${usuariosOrgao?.map(u => u.id).join(', ') || 'nenhum'}`);
     
     if (usuariosOrgao && usuariosOrgao.length > 0) {
       try {
@@ -187,11 +188,12 @@ export class RequisicaoService {
           requisicao.usuario_solicitante_id,
         );
 
-        this.logger.log(`Aprovadores elegíveis encontrados: ${aprovadores.length}`);
+        this.logger.log(`[NOTIFICAÇÃO] Aprovadores elegíveis encontrados: ${aprovadores.length}`);
+        this.logger.log(`[NOTIFICAÇÃO] IDs dos aprovadores: ${aprovadores.map(a => a.id).join(', ')}`);
 
         if (aprovadores.length > 0) {
-          this.logger.log(`Criando notificações para ${aprovadores.length} aprovadores`);
-          await this.notificacoesService.notificarNovaRequisicao(
+          this.logger.log(`[NOTIFICAÇÃO] Criando notificações para ${aprovadores.length} aprovadores`);
+          const notificacoes = await this.notificacoesService.notificarNovaRequisicao(
             requisicao.orgao_id,
             requisicao.numero,
             requisicao.id,
@@ -199,16 +201,16 @@ export class RequisicaoService {
             Number(requisicao.valor_total_estimado),
             aprovadores,
           );
-          this.logger.log(`Notificações criadas com sucesso para requisição ${requisicao.numero}`);
+          this.logger.log(`[NOTIFICAÇÃO] Notificações criadas com sucesso: ${notificacoes?.length || 0} notificações para requisição ${requisicao.numero}`);
         } else {
-          this.logger.warn(`Nenhum aprovador elegível encontrado para requisição ${requisicao.numero}`);
+          this.logger.warn(`[NOTIFICAÇÃO] ⚠️ Nenhum aprovador elegível encontrado para requisição ${requisicao.numero}. Verifique configuração de aprovação.`);
         }
       } catch (notifError) {
         // Não falha a operação se a notificação falhar, mas loga o erro completo
-        this.logger.error(`Erro ao enviar notificação para aprovadores: ${notifError.message}`, notifError.stack);
+        this.logger.error(`[NOTIFICAÇÃO] ❌ Erro ao enviar notificação para aprovadores: ${notifError.message}`, notifError.stack);
       }
     } else {
-      this.logger.warn(`Nenhum usuário do órgão fornecido para notificação da requisição ${requisicao.numero}`);
+      this.logger.warn(`[NOTIFICAÇÃO] ⚠️ Nenhum usuário do órgão fornecido para notificação da requisição ${requisicao.numero}. Verifique se há usuários com pode_aprovar_requisicoes=true.`);
     }
 
     return saved;
