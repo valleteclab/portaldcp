@@ -553,6 +553,8 @@ export class RequisicaoService {
     const query = this.requisicaoRepository.createQueryBuilder('req')
       .leftJoinAndSelect('req.itens', 'itens')
       .leftJoinAndSelect('req.contrato', 'contrato')
+      .leftJoinAndSelect('req.contrato.fornecedor', 'fornecedor')
+      .leftJoinAndSelect('req.ordem_fornecimento', 'ordem_fornecimento')
       .where('req.orgao_id = :orgaoId', { orgaoId: filtros.orgaoId });
 
     if (filtros.status) {

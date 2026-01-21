@@ -14,7 +14,8 @@ import {
   FileText,
   Loader2,
   ArrowLeft,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,6 +75,11 @@ interface Requisicao {
   usuario_autorizador_nome?: string;
   observacao_autorizador?: string;
   valor_total_estimado: number;
+  ordem_fornecimento_id?: string | null;
+  ordem_fornecimento?: {
+    id: string;
+    numero: string;
+  };
   contrato?: {
     numero_contrato: string;
     fornecedor?: {
@@ -130,6 +136,7 @@ function RequisicoesList() {
   const [showNegar, setShowNegar] = useState(false);
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [processando, setProcessando] = useState(false);
+  const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
 
   // Carregar info do contrato se filtrado
   useEffect(() => {
@@ -269,6 +276,35 @@ function RequisicoesList() {
       alert('Erro ao negar requisição');
     } finally {
       setProcessando(false);
+    }
+  };
+
+  const handleDownloadPDF = async (ordemId: string, ordemNumero: string) => {
+    try {
+      setGerandoPDF(ordemId);
+      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/pdf`);
+      
+      if (!response.ok) {
+        throw new Error('Erro ao gerar PDF');
+      }
+
+      // Cria um blob do PDF
+      const blob = await response.blob();
+      
+      // Cria um link temporário e faz o download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ordem_${ordemNumero.replace(/\//g, '_')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro ao baixar PDF:', error);
+      alert('Erro ao baixar PDF da ordem');
+    } finally {
+      setGerandoPDF(null);
     }
   };
 
@@ -438,9 +474,26 @@ function RequisicoesList() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleVerDetalhes(req)}
+                          title="Ver detalhes"
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {(req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA' || req.status === 'ATENDIDA_PARCIAL' || req.status === 'ATENDIDA') && req.ordem_fornecimento_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-green-600 hover:text-green-700"
+                            onClick={() => handleDownloadPDF(req.ordem_fornecimento_id!, req.ordem_fornecimento?.numero || '')}
+                            disabled={gerandoPDF === req.ordem_fornecimento_id}
+                            title="Baixar PDF da Ordem de Fornecimento"
+                          >
+                            {gerandoPDF === req.ordem_fornecimento_id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
                         {req.status === 'AGUARDANDO_AUTORIZACAO' && (
                           <>
                             <Button
@@ -448,6 +501,7 @@ function RequisicoesList() {
                               size="sm"
                               className="text-green-600 hover:text-green-700"
                               onClick={() => handleAbrirAutorizar(req)}
+                              title="Autorizar requisição"
                             >
                               <CheckCircle className="h-4 w-4" />
                             </Button>
@@ -456,6 +510,7 @@ function RequisicoesList() {
                               size="sm"
                               className="text-red-600 hover:text-red-700"
                               onClick={() => handleAbrirNegar(req)}
+                              title="Negar requisição"
                             >
                               <XCircle className="h-4 w-4" />
                             </Button>
