@@ -16,7 +16,8 @@ import {
   ArrowLeft,
   X,
   Download,
-  FilePlus
+  FilePlus,
+  Ban
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -131,13 +132,18 @@ function RequisicoesList() {
   const [contratoInfo, setContratoInfo] = useState<{ numero_contrato: string; fornecedor_razao_social?: string } | null>(null);
   const [busca, setBusca] = useState('');
   
+  // Permissões do usuário
+  const [podeCancelarEstornar, setPodeCancelarEstornar] = useState(false);
+
   // Modal de detalhes/autorização
   const [requisicaoSelecionada, setRequisicaoSelecionada] = useState<Requisicao | null>(null);
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showAutorizar, setShowAutorizar] = useState(false);
   const [showNegar, setShowNegar] = useState(false);
+  const [showCancelar, setShowCancelar] = useState(false);
   const [showGerarOrdem, setShowGerarOrdem] = useState(false);
   const [motivoNegativa, setMotivoNegativa] = useState('');
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const [processando, setProcessando] = useState(false);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
   const [gerandoOrdem, setGerandoOrdem] = useState(false);
@@ -174,6 +180,19 @@ function RequisicoesList() {
       console.error('Erro ao carregar contrato:', error);
     }
   };
+
+  useEffect(() => {
+    // Carrega permissões do usuário
+    const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
+    if (usuarioStr) {
+      try {
+        const usuario = JSON.parse(usuarioStr);
+        setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+      } catch (e) {
+        console.error('Erro ao parsear usuario:', e);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     carregarRequisicoes();
@@ -239,6 +258,45 @@ function RequisicoesList() {
       observacoes: '',
     });
     setShowGerarOrdem(true);
+  };
+
+  const handleAbrirCancelar = (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    setMotivoCancelamento('');
+    setShowCancelar(true);
+  };
+
+  const handleCancelar = async () => {
+    if (!requisicaoSelecionada || !motivoCancelamento.trim()) {
+      alert('Por favor, informe o motivo do cancelamento.');
+      return;
+    }
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/cancelar`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ motivo: motivoCancelamento.trim() }),
+        }
+      );
+
+      if (response.ok) {
+        alert(`Requisição ${requisicaoSelecionada.numero} cancelada com sucesso!`);
+        setShowCancelar(false);
+        setMotivoCancelamento('');
+        carregarRequisicoes();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao cancelar requisição: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao cancelar requisição:', error);
+      alert('Erro ao cancelar requisição.');
+    } finally {
+      setProcessando(false);
+    }
   };
 
   const handleGerarOrdem = async () => {
@@ -604,6 +662,36 @@ function RequisicoesList() {
                             </Button>
                           </>
                         )}
+                        {/* Botão de cancelar (apenas para usuários autorizados e status permitidos) */}
+                        {req.status !== 'CANCELADA' && 
+                         req.status !== 'ATENDIDA_PARCIAL' && 
+                         req.status !== 'ATENDIDA' && (
+                          // Qualquer usuário pode cancelar RASCUNHO, AGUARDANDO_AUTORIZACAO, NEGADA
+                          (req.status === 'RASCUNHO' || req.status === 'AGUARDANDO_AUTORIZACAO' || req.status === 'NEGADA') ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-gray-600 hover:text-gray-700"
+                              onClick={() => handleAbrirCancelar(req)}
+                              title="Cancelar requisição"
+                            >
+                              <Ban className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            // AUTORIZADA e ORDEM_GERADA requerem permissão especial
+                            podeCancelarEstornar && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => handleAbrirCancelar(req)}
+                                title="Cancelar requisição (requer permissão)"
+                              >
+                                <Ban className="h-4 w-4" />
+                              </Button>
+                            )
+                          )
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -803,6 +891,55 @@ function RequisicoesList() {
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Negativa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Cancelar Requisição */}
+      <Dialog open={showCancelar} onOpenChange={setShowCancelar}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Cancelar Requisição</DialogTitle>
+            <DialogDescription>
+              Informe o motivo do cancelamento da requisição {requisicaoSelecionada?.numero}.
+            </DialogDescription>
+          </DialogHeader>
+          {requisicaoSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                <p className="font-medium text-red-900">Atenção!</p>
+                <p className="text-sm text-red-700 mt-1">
+                  {requisicaoSelecionada.status === 'AUTORIZADA' || requisicaoSelecionada.status === 'ORDEM_GERADA' 
+                    ? 'Esta requisição está aprovada. O cancelamento liberará o saldo reservado no contrato.'
+                    : 'O cancelamento desta requisição não pode ser desfeito.'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Motivo do Cancelamento <span className="text-red-500">*</span>
+                </label>
+                <Textarea
+                  placeholder="Descreva o motivo do cancelamento..."
+                  value={motivoCancelamento}
+                  onChange={(e) => setMotivoCancelamento(e.target.value)}
+                  rows={4}
+                  className="resize-none"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelar(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleCancelar} 
+              disabled={processando || !motivoCancelamento.trim()}
+              variant="destructive"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirmar Cancelamento
             </Button>
           </DialogFooter>
         </DialogContent>

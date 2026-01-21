@@ -12,7 +12,8 @@ import {
   ArrowLeft,
   FileText,
   ClipboardCheck,
-  AlertTriangle
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -80,6 +81,7 @@ const STATUS_COLORS: Record<string, string> = {
   ACEITO: 'bg-green-100 text-green-800',
   REJEITADO: 'bg-red-100 text-red-800',
   ACEITO_PARCIAL: 'bg-orange-100 text-orange-800',
+  ESTORNADO: 'bg-gray-100 text-gray-800',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -88,6 +90,7 @@ const STATUS_LABELS: Record<string, string> = {
   ACEITO: 'Aceito',
   REJEITADO: 'Rejeitado',
   ACEITO_PARCIAL: 'Aceito Parcialmente',
+  ESTORNADO: 'Estornado',
 };
 
 function RecebimentosList() {
@@ -96,13 +99,31 @@ function RecebimentosList() {
   const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
   const [busca, setBusca] = useState('');
   
+  // Permissões do usuário
+  const [podeCancelarEstornar, setPodeCancelarEstornar] = useState(false);
+  
   // Modal
   const [recebimentoSelecionado, setRecebimentoSelecionado] = useState<Recebimento | null>(null);
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showAceitar, setShowAceitar] = useState(false);
   const [showRejeitar, setShowRejeitar] = useState(false);
+  const [showEstornar, setShowEstornar] = useState(false);
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
+  const [motivoEstorno, setMotivoEstorno] = useState('');
   const [processando, setProcessando] = useState(false);
+
+  useEffect(() => {
+    // Carrega permissões do usuário
+    const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
+    if (usuarioStr) {
+      try {
+        const usuario = JSON.parse(usuarioStr);
+        setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+      } catch (e) {
+        console.error('Erro ao parsear usuario:', e);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     carregarRecebimentos();
@@ -242,6 +263,45 @@ function RecebimentosList() {
     }
   };
 
+  const handleAbrirEstornar = (rec: Recebimento) => {
+    setRecebimentoSelecionado(rec);
+    setMotivoEstorno('');
+    setShowEstornar(true);
+  };
+
+  const handleEstornar = async () => {
+    if (!recebimentoSelecionado || !motivoEstorno.trim()) {
+      alert('Por favor, informe o motivo do estorno.');
+      return;
+    }
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/recebimentos/${recebimentoSelecionado.id}/estornar`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ motivo: motivoEstorno.trim() }),
+        }
+      );
+
+      if (response.ok) {
+        alert(`Recebimento ${recebimentoSelecionado.numero} estornado com sucesso! O saldo foi revertido no contrato.`);
+        setShowEstornar(false);
+        setMotivoEstorno('');
+        carregarRecebimentos();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao estornar recebimento: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao estornar recebimento:', error);
+      alert('Erro ao estornar recebimento.');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   const recebimentosFiltrados = recebimentos.filter(rec => {
     if (!busca) return true;
     const termo = busca.toLowerCase();
@@ -304,6 +364,7 @@ function RecebimentosList() {
                 <SelectItem value="ACEITO">Aceito</SelectItem>
                 <SelectItem value="ACEITO_PARCIAL">Aceito Parcialmente</SelectItem>
                 <SelectItem value="REJEITADO">Rejeitado</SelectItem>
+                <SelectItem value="ESTORNADO">Estornado</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -386,6 +447,18 @@ function RecebimentosList() {
                               <XCircle className="h-4 w-4" />
                             </Button>
                           </>
+                        )}
+                        {/* Botão de estornar (apenas para recebimentos ACEITO e usuários autorizados) */}
+                        {rec.status === 'ACEITO' && podeCancelarEstornar && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-orange-600 hover:text-orange-700"
+                            onClick={() => handleAbrirEstornar(rec)}
+                            title="Estornar recebimento (reverte baixa no contrato)"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
                         )}
                       </div>
                     </TableCell>
@@ -577,6 +650,68 @@ function RecebimentosList() {
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Rejeição
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Estornar Recebimento */}
+      <Dialog open={showEstornar} onOpenChange={setShowEstornar}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-orange-600">Estornar Recebimento</DialogTitle>
+            <DialogDescription>
+              Informe o motivo do estorno do recebimento {recebimentoSelecionado?.numero}.
+            </DialogDescription>
+          </DialogHeader>
+          {recebimentoSelecionado && (
+            <div className="space-y-4">
+              <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                <p className="font-medium text-orange-900">⚠️ Atenção!</p>
+                <p className="text-sm text-orange-700 mt-1">
+                  O estorno deste recebimento irá reverter a baixa realizada no contrato.
+                  O saldo que estava como "entregue" voltará para "disponível".
+                  Esta ação requer permissão especial e não pode ser desfeita facilmente.
+                </p>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm font-medium text-gray-700">Recebimento:</p>
+                <p className="text-sm text-gray-600">{recebimentoSelecionado.numero}</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Valor: {formatarMoeda(recebimentoSelecionado.valor_aceito)}
+                </p>
+                {recebimentoSelecionado.ordem_fornecimento && (
+                  <p className="text-sm text-gray-600">
+                    Ordem: {recebimentoSelecionado.ordem_fornecimento.numero}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Motivo do Estorno <span className="text-red-500">*</span>
+                </label>
+                <Textarea
+                  placeholder="Descreva o motivo do estorno..."
+                  value={motivoEstorno}
+                  onChange={(e) => setMotivoEstorno(e.target.value)}
+                  rows={4}
+                  className="resize-none"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEstornar(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleEstornar} 
+              disabled={processando || !motivoEstorno.trim()}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Confirmar Estorno
             </Button>
           </DialogFooter>
         </DialogContent>
