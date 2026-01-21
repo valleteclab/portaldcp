@@ -61,6 +61,7 @@ interface OrdemFornecimento {
   valor_total: number;
   valor_entregue: number;
   usuario_emitente_nome: string;
+  local_entrega?: string | null;
   contrato?: {
     numero_contrato: string;
   };
