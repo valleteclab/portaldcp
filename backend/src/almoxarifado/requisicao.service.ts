@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
@@ -591,7 +591,7 @@ export class RequisicaoService {
     if (ordemIds.length > 0) {
       try {
         const ordens = await this.ordemFornecimentoRepository.find({
-          where: ordemIds.map(id => ({ id })),
+          where: { id: In(ordemIds) },
           select: ['id', 'numero'],
         });
         
