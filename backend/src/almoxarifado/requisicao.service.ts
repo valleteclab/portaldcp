@@ -579,7 +579,8 @@ export class RequisicaoService {
       query.andWhere('req.data_solicitacao <= :dataFim', { dataFim: filtros.dataFim });
     }
 
-      return requisicoes;
+    const requisicoes = await query.orderBy('req.created_at', 'DESC').getMany();
+    return requisicoes;
   }
 
   async findOne(id: string): Promise<Requisicao> {
