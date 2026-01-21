@@ -17,7 +17,8 @@ import {
   X,
   Download,
   FilePlus,
-  Ban
+  Ban,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -277,6 +278,39 @@ function RequisicoesList() {
     setRequisicaoSelecionada(req);
     setMotivoCancelamento('');
     setShowCancelar(true);
+  };
+
+  const handleAbrirExcluir = (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    setShowExcluir(true);
+  };
+
+  const handleExcluir = async () => {
+    if (!requisicaoSelecionada) return;
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      if (response.ok) {
+        alert(`Requisição ${requisicaoSelecionada.numero} excluída com sucesso!`);
+        setShowExcluir(false);
+        carregarRequisicoes();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir:', error);
+      alert('Erro ao excluir requisição');
+    } finally {
+      setProcessando(false);
+    }
   };
 
   const handleCancelar = async () => {
@@ -718,6 +752,18 @@ function RequisicoesList() {
                             <Ban className="h-4 w-4" />
                           </Button>
                         )}
+                        {/* Botão de excluir - apenas para RASCUNHO ou CANCELADA sem ordem */}
+                        {(req.status === 'RASCUNHO' || req.status === 'CANCELADA') && !req.ordem_fornecimento_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleAbrirExcluir(req)}
+                            title="Excluir requisição permanentemente"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -966,6 +1012,42 @@ function RequisicoesList() {
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Cancelamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Excluir Requisição */}
+      <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Excluir Requisição</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir permanentemente esta requisição? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          {requisicaoSelecionada && (
+            <div className="bg-red-50 p-4 rounded-lg">
+              <p className="font-medium">{requisicaoSelecionada.numero}</p>
+              <p className="text-sm text-gray-600">
+                Setor: {requisicaoSelecionada.setor_solicitante}
+              </p>
+              <p className="text-sm text-red-700 font-semibold mt-2">
+                ⚠️ Atenção: Esta ação é irreversível!
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExcluir(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleExcluir} 
+              disabled={processando} 
+              variant="destructive"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Excluir Permanentemente
             </Button>
           </DialogFooter>
         </DialogContent>
