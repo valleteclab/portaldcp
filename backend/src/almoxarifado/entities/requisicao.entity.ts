@@ -201,7 +201,7 @@ export class Requisicao {
    * Ordem de fornecimento gerada a partir desta requisição
    * Usa referência de função para evitar dependência circular
    */
-  @ManyToOne(() => require('./ordem-fornecimento.entity').OrdemFornecimento, { nullable: true })
+  @ManyToOne('OrdemFornecimento', 'requisicao', { nullable: true })
   @JoinColumn({ name: 'ordem_fornecimento_id' })
   ordem_fornecimento: any | null;
 
