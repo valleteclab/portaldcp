@@ -750,6 +750,42 @@ function RecebimentosList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal Excluir Recebimento */}
+      <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Excluir Recebimento</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir permanentemente este recebimento? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          {recebimentoSelecionado && (
+            <div className="bg-red-50 p-4 rounded-lg">
+              <p className="font-medium">{recebimentoSelecionado.numero}</p>
+              <p className="text-sm text-gray-600">
+                Ordem: {recebimentoSelecionado.ordem_fornecimento?.numero || '-'}
+              </p>
+              <p className="text-sm text-red-700 font-semibold mt-2">
+                ⚠️ Atenção: Esta ação é irreversível!
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExcluir(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleExcluir} 
+              disabled={processando} 
+              variant="destructive"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Excluir Permanentemente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
