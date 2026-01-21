@@ -62,7 +62,11 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
       password: process.env.DATABASE_URL ? undefined : (process.env.DB_PASSWORD || 'admin_password'),
       database: process.env.DATABASE_URL ? undefined : (process.env.DB_DATABASE || 'licitafacil'),
       autoLoadEntities: true,
-      synchronize: true,
+      // ⚠️ IMPORTANTE: synchronize apenas em desenvolvimento
+      // Em produção, usar migrations para evitar perda de dados
+      synchronize: process.env.NODE_ENV !== 'production' && process.env.SYNCHRONIZE !== 'false',
+      migrations: process.env.NODE_ENV === 'production' ? ['dist/migrations/*.js'] : [],
+      migrationsRun: process.env.NODE_ENV === 'production',
       ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
     }),
     AuthModule,
