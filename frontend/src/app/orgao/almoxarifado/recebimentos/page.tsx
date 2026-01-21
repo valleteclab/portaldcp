@@ -115,13 +115,20 @@ function RecebimentosList() {
   useEffect(() => {
     // Carrega permissões do usuário
     const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
+    console.log('[Recebimentos] Usuario do localStorage:', usuarioStr);
     if (usuarioStr) {
       try {
         const usuario = JSON.parse(usuarioStr);
-        setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+        console.log('[Recebimentos] Usuario parseado:', usuario);
+        console.log('[Recebimentos] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
+        const temPermissao = usuario.pode_cancelar_estornar === true;
+        console.log('[Recebimentos] Tem permissão?', temPermissao);
+        setPodeCancelarEstornar(temPermissao);
       } catch (e) {
         console.error('Erro ao parsear usuario:', e);
       }
+    } else {
+      console.warn('[Recebimentos] Nenhum usuário encontrado no localStorage');
     }
   }, []);
 
@@ -322,6 +329,13 @@ function RecebimentosList() {
 
   return (
     <div className="space-y-6">
+      {/* Debug: Mostrar permissão (remover depois) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-50 border border-yellow-200 p-2 rounded text-xs">
+          Debug: podeCancelarEstornar = {podeCancelarEstornar ? 'SIM' : 'NÃO'}
+        </div>
+      )}
+      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">

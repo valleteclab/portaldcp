@@ -184,13 +184,20 @@ function RequisicoesList() {
   useEffect(() => {
     // Carrega permissões do usuário
     const usuarioStr = typeof window !== 'undefined' ? localStorage.getItem('usuario') : null;
+    console.log('[Requisicoes] Usuario do localStorage:', usuarioStr);
     if (usuarioStr) {
       try {
         const usuario = JSON.parse(usuarioStr);
-        setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+        console.log('[Requisicoes] Usuario parseado:', usuario);
+        console.log('[Requisicoes] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
+        const temPermissao = usuario.pode_cancelar_estornar === true;
+        console.log('[Requisicoes] Tem permissão?', temPermissao);
+        setPodeCancelarEstornar(temPermissao);
       } catch (e) {
         console.error('Erro ao parsear usuario:', e);
       }
+    } else {
+      console.warn('[Requisicoes] Nenhum usuário encontrado no localStorage');
     }
   }, []);
 
@@ -462,6 +469,13 @@ function RequisicoesList() {
 
   return (
     <div className="space-y-6">
+      {/* Debug: Mostrar permissão (remover depois) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-50 border border-yellow-200 p-2 rounded text-xs">
+          Debug: podeCancelarEstornar = {podeCancelarEstornar ? 'SIM' : 'NÃO'}
+        </div>
+      )}
+      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
