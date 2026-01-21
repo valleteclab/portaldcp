@@ -31,7 +31,6 @@ import {
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { Contrato } from '../../contratos/entities/contrato.entity';
 import { ItemRequisicao } from './item-requisicao.entity';
-import { OrdemFornecimento } from './ordem-fornecimento.entity';
 
 export enum StatusRequisicao {
   RASCUNHO = 'RASCUNHO',                           // Ainda não enviada para aprovação
@@ -200,10 +199,11 @@ export class Requisicao {
 
   /**
    * Ordem de fornecimento gerada a partir desta requisição
+   * Usa referência de função para evitar dependência circular
    */
-  @ManyToOne(() => OrdemFornecimento, { nullable: true })
+  @ManyToOne(() => require('./ordem-fornecimento.entity').OrdemFornecimento, { nullable: true })
   @JoinColumn({ name: 'ordem_fornecimento_id' })
-  ordem_fornecimento: OrdemFornecimento | null;
+  ordem_fornecimento: any | null;
 
   @Column({ type: 'varchar', nullable: true })
   ordem_fornecimento_id: string | null; // FK para OrdemFornecimento quando gerada
