@@ -555,7 +555,7 @@ export class AlmoxarifadoController {
   )
   async importarContratoCSV(
     @UploadedFile() arquivo: Express.Multer.File,
-    @Body(new ValidationPipe()) dadosContrato: DadosContratoMigracaoDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true })) dadosContrato: DadosContratoMigracaoDto,
     @Req() request: { user: JwtPayload },
   ): Promise<ResultadoImportacao> {
     if (!arquivo) {

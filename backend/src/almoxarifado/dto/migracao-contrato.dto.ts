@@ -1,9 +1,11 @@
 import { IsString, IsNumber, IsOptional, IsDateString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class DadosContratoMigracaoDto {
   @IsString()
   numero_contrato: string;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(2000)
   ano: number;
@@ -22,6 +24,7 @@ export class DadosContratoMigracaoDto {
   @IsOptional()
   objeto?: string;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   valor_inicial: number;

@@ -8,7 +8,7 @@ interface JwtPayload {
   orgao_id?: string;
 }
 
-@Controller('api/notificacoes')
+@Controller('notificacoes')
 export class NotificacoesController {
   constructor(private readonly notificacoesService: NotificacoesService) {}
 
