@@ -582,14 +582,16 @@ export class RequisicaoService {
 
     const requisicoes = await query.orderBy('req.created_at', 'DESC').getMany();
     
-    // Carrega ordens de fornecimento relacionadas
-    const ordemIds = requisicoes
-      .filter(req => req.ordem_fornecimento_id)
-      .map(req => req.ordem_fornecimento_id)
-      .filter((id): id is string => id !== null);
-    
-    if (ordemIds.length > 0) {
-      try {
+    // Carrega ordens de fornecimento relacionadas (opcional - não quebra se falhar)
+    // Comentado temporariamente para evitar erro 500 - será reativado após debug
+    /*
+    try {
+      const ordemIds = requisicoes
+        .filter(req => req.ordem_fornecimento_id)
+        .map(req => req.ordem_fornecimento_id)
+        .filter((id): id is string => id !== null && id !== undefined);
+      
+      if (ordemIds.length > 0 && this.ordemFornecimentoRepository) {
         const ordens = await this.ordemFornecimentoRepository.find({
           where: { id: In(ordemIds) },
           select: ['id', 'numero'],
@@ -602,11 +604,12 @@ export class RequisicaoService {
             (req as any).ordem_fornecimento = ordensMap.get(req.ordem_fornecimento_id);
           }
         }
-      } catch (error) {
-        this.logger.error(`Erro ao carregar ordens de fornecimento: ${error.message}`, error.stack);
-        // Continua sem as ordens se houver erro
       }
+    } catch (error) {
+      this.logger.warn(`Erro ao carregar ordens de fornecimento (não crítico): ${error.message}`);
+      // Continua sem as ordens se houver erro - não quebra a listagem
     }
+    */
     
     return requisicoes;
   }
