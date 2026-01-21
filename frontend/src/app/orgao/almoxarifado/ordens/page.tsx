@@ -14,7 +14,8 @@ import {
   Calendar,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
+  Download
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -195,6 +196,35 @@ function OrdensList() {
     }
   };
 
+  const handleDownloadPDF = async (ordemId: string, ordemNumero: string) => {
+    try {
+      setProcessando(true);
+      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/pdf`);
+      
+      if (!response.ok) {
+        throw new Error('Erro ao gerar PDF');
+      }
+
+      // Cria um blob do PDF
+      const blob = await response.blob();
+      
+      // Cria um link temporário e faz o download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ordem_${ordemNumero.replace(/\//g, '_')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro ao baixar PDF:', error);
+      alert('Erro ao baixar PDF da ordem');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   const getPercentualAtendimento = (ordem: OrdemFornecimento) => {
     if (Number(ordem.valor_total) === 0) return 0;
     return (Number(ordem.valor_entregue) / Number(ordem.valor_total)) * 100;
@@ -323,8 +353,23 @@ function OrdensList() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleVerDetalhes(ordem)}
+                          title="Ver detalhes"
                         >
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-green-600 hover:text-green-700"
+                          onClick={() => handleDownloadPDF(ordem.id, ordem.numero)}
+                          disabled={processando}
+                          title="Baixar PDF"
+                        >
+                          {processando ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
                         </Button>
                         {ordem.status === 'EMITIDA' && (
                           <Button
@@ -332,6 +377,7 @@ function OrdensList() {
                             size="sm"
                             className="text-blue-600 hover:text-blue-700"
                             onClick={() => handleAbrirEnviar(ordem)}
+                            title="Enviar ao fornecedor"
                           >
                             <Send className="h-4 w-4" />
                           </Button>
@@ -358,6 +404,27 @@ function OrdensList() {
           
           {ordemSelecionada && (
             <div className="space-y-4">
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadPDF(ordemSelecionada.id, ordemSelecionada.numero)}
+                  disabled={processando}
+                >
+                  {processando ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Gerando PDF...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4 mr-2" />
+                      Baixar PDF
+                    </>
+                  )}
+                </Button>
+              </div>
+              
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-500">Status</label>

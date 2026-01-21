@@ -330,11 +330,12 @@ export class AlmoxarifadoController {
   ) {
     try {
       const ordem = await this.ordemService.findOne(id);
-      const fs = require('fs');
       
       // Se já tem PDF gerado, retorna ele
       if (ordem.caminho_pdf && fs.existsSync(ordem.caminho_pdf)) {
-        return res.sendFile(ordem.caminho_pdf);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="ordem_${ordem.numero.replace(/\//g, '_')}.pdf"`);
+        return res.sendFile(path.resolve(ordem.caminho_pdf));
       }
       
       // Gera novo PDF
@@ -343,7 +344,9 @@ export class AlmoxarifadoController {
       // Atualiza ordem com caminho do PDF
       await this.ordemRepository.update(id, { caminho_pdf: caminhoPdf });
       
-      return res.sendFile(caminhoPdf);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="ordem_${ordem.numero.replace(/\//g, '_')}.pdf"`);
+      return res.sendFile(path.resolve(caminhoPdf));
     } catch (error) {
       this.logger.error(`Erro ao gerar PDF da ordem: ${error.message}`);
       throw error;
