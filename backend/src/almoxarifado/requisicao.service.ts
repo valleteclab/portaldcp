@@ -193,7 +193,7 @@ export class RequisicaoService {
 
         if (aprovadores.length > 0) {
           this.logger.log(`[NOTIFICAÇÃO] Criando notificações para ${aprovadores.length} aprovadores`);
-          const notificacoes = await this.notificacoesService.notificarNovaRequisicao(
+          await this.notificacoesService.notificarNovaRequisicao(
             requisicao.orgao_id,
             requisicao.numero,
             requisicao.id,
@@ -201,7 +201,7 @@ export class RequisicaoService {
             Number(requisicao.valor_total_estimado),
             aprovadores,
           );
-          this.logger.log(`[NOTIFICAÇÃO] Notificações criadas com sucesso: ${notificacoes?.length || 0} notificações para requisição ${requisicao.numero}`);
+          this.logger.log(`[NOTIFICAÇÃO] Notificações criadas com sucesso para ${aprovadores.length} aprovadores da requisição ${requisicao.numero}`);
         } else {
           this.logger.warn(`[NOTIFICAÇÃO] ⚠️ Nenhum aprovador elegível encontrado para requisição ${requisicao.numero}. Verifique configuração de aprovação.`);
         }
