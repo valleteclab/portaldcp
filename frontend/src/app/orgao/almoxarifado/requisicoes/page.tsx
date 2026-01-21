@@ -676,35 +676,41 @@ function RequisicoesList() {
                             </Button>
                           </>
                         )}
-                        {/* Botão de cancelar (apenas para usuários autorizados e status permitidos) */}
-                        {req.status !== 'CANCELADA' && 
-                         req.status !== 'ATENDIDA_PARCIAL' && 
-                         req.status !== 'ATENDIDA' && (
-                          // Qualquer usuário pode cancelar RASCUNHO, AGUARDANDO_AUTORIZACAO, NEGADA
-                          (req.status === 'RASCUNHO' || req.status === 'AGUARDANDO_AUTORIZACAO' || req.status === 'NEGADA') ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-gray-600 hover:text-gray-700"
-                              onClick={() => handleAbrirCancelar(req)}
-                              title="Cancelar requisição"
-                            >
-                              <Ban className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            // AUTORIZADA e ORDEM_GERADA requerem permissão especial
-                            podeCancelarEstornar && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:text-red-700"
-                                onClick={() => handleAbrirCancelar(req)}
-                                title="Cancelar requisição (requer permissão)"
-                              >
-                                <Ban className="h-4 w-4" />
-                              </Button>
-                            )
-                          )
+                        {/* Botão de cancelar */}
+                        {/* Qualquer usuário pode cancelar: RASCUNHO, AGUARDANDO_AUTORIZACAO, NEGADA */}
+                        {req.status === 'RASCUNHO' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-gray-600 hover:text-gray-700"
+                            onClick={() => handleAbrirCancelar(req)}
+                            title="Cancelar requisição"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {req.status === 'NEGADA' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-gray-600 hover:text-gray-700"
+                            onClick={() => handleAbrirCancelar(req)}
+                            title="Cancelar requisição"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* AUTORIZADA e ORDEM_GERADA requerem permissão especial */}
+                        {(req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && podeCancelarEstornar && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleAbrirCancelar(req)}
+                            title="Cancelar requisição (requer permissão)"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </Button>
                         )}
                       </div>
                     </TableCell>
