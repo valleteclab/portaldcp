@@ -16,7 +16,8 @@ import {
   XCircle,
   Clock,
   Download,
-  ClipboardCheck
+  ClipboardCheck,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -518,6 +519,19 @@ function OrdensList() {
                             <Package className="h-4 w-4" />
                           </Button>
                         )}
+                        {/* Botão de excluir - apenas para RASCUNHO ou EMITIDA */}
+                        {(ordem.status === 'RASCUNHO' || ordem.status === 'EMITIDA') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleAbrirExcluir(ordem)}
+                            disabled={processando}
+                            title="Excluir ordem permanentemente"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -934,6 +948,42 @@ function OrdensList() {
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <Package className="h-4 w-4 mr-2" />
               Registrar Recebimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Excluir Ordem */}
+      <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Excluir Ordem</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir permanentemente esta ordem? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          {ordemSelecionada && (
+            <div className="bg-red-50 p-4 rounded-lg">
+              <p className="font-medium">{ordemSelecionada.numero}</p>
+              <p className="text-sm text-gray-600">
+                Fornecedor: {ordemSelecionada.fornecedor?.razao_social || '-'}
+              </p>
+              <p className="text-sm text-red-700 font-semibold mt-2">
+                ⚠️ Atenção: Esta ação é irreversível!
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExcluir(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleExcluir} 
+              disabled={processando} 
+              variant="destructive"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Excluir Permanentemente
             </Button>
           </DialogFooter>
         </DialogContent>

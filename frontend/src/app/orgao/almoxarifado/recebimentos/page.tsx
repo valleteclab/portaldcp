@@ -13,7 +13,8 @@ import {
   FileText,
   ClipboardCheck,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -108,6 +109,7 @@ function RecebimentosList() {
   const [showAceitar, setShowAceitar] = useState(false);
   const [showRejeitar, setShowRejeitar] = useState(false);
   const [showEstornar, setShowEstornar] = useState(false);
+  const [showExcluir, setShowExcluir] = useState(false);
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
   const [motivoEstorno, setMotivoEstorno] = useState('');
   const [processando, setProcessando] = useState(false);
@@ -478,6 +480,18 @@ function RecebimentosList() {
                             title="Estornar recebimento (reverte baixa no contrato)"
                           >
                             <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* Botão de excluir - apenas para PENDENTE ou REJEITADO */}
+                        {(rec.status === 'PENDENTE' || rec.status === 'REJEITADO') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleAbrirExcluir(rec)}
+                            title="Excluir recebimento permanentemente"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
