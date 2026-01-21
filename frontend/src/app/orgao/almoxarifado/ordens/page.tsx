@@ -318,6 +318,39 @@ function OrdensList() {
     }
   };
 
+  const handleAbrirExcluir = (ordem: OrdemFornecimento) => {
+    setOrdemSelecionada(ordem);
+    setShowExcluir(true);
+  };
+
+  const handleExcluir = async () => {
+    if (!ordemSelecionada) return;
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      if (response.ok) {
+        alert(`Ordem ${ordemSelecionada.numero} excluída com sucesso!`);
+        setShowExcluir(false);
+        carregarOrdens();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir:', error);
+      alert('Erro ao excluir ordem');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   const handleDownloadPDF = async (ordemId: string, ordemNumero: string) => {
     try {
       setGerandoPDF(ordemId);
