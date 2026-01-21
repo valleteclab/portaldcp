@@ -273,14 +273,20 @@ function NovaRequisicaoForm() {
         prioridade,
         data_necessidade: dataNecessidade || undefined,
         observacoes: observacoes || undefined,
-        itens: itensRequisicao.map(item => ({
-          item_contrato_id: item.item_contrato_id,
-          numero_item: item.numero_item,
-          descricao: item.descricao,
-          unidade_medida: item.unidade_medida,
-          quantidade_solicitada: item.quantidade_solicitada,
-          valor_unitario: item.valor_unitario,
-        })),
+        itens: itensRequisicao.map(item => {
+          const itemData: any = {
+            item_contrato_id: item.item_contrato_id,
+            numero_item: Number(item.numero_item),
+            descricao: item.descricao,
+            unidade_medida: item.unidade_medida,
+            quantidade_solicitada: Number(item.quantidade_solicitada),
+          };
+          // Só adiciona valor_unitario se for um número válido
+          if (item.valor_unitario !== undefined && item.valor_unitario !== null && !isNaN(Number(item.valor_unitario))) {
+            itemData.valor_unitario = Number(item.valor_unitario);
+          }
+          return itemData;
+        }),
       };
 
       const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes`, {

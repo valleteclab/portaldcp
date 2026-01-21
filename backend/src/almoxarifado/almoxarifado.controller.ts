@@ -163,7 +163,7 @@ export class AlmoxarifadoController {
   @Post('requisicoes')
   async criarRequisicao(
     @Req() request: { user: JwtPayload },
-    @Body(new ValidationPipe()) dto: CriarRequisicaoDto,
+    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: CriarRequisicaoDto,
   ) {
     const user = request.user;
     const orgaoId = this.getOrgaoId(user);

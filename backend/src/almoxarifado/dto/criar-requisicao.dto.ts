@@ -7,6 +7,7 @@ export class ItemRequisicaoDto {
   @IsUUID()
   item_contrato_id?: string;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   numero_item: number;
@@ -22,11 +23,13 @@ export class ItemRequisicaoDto {
   @IsString()
   unidade_medida?: string;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(0.0001)
   quantidade_solicitada: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   valor_unitario?: number;
