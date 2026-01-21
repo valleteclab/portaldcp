@@ -577,7 +577,31 @@ export class RequisicaoService {
       query.andWhere('req.data_solicitacao <= :dataFim', { dataFim: filtros.dataFim });
     }
 
-    return query.orderBy('req.created_at', 'DESC').getMany();
+    const requisicoes = await query.orderBy('req.created_at', 'DESC').getMany();
+    
+    // Carrega ordens de fornecimento relacionadas usando query builder
+    const ordemIds = requisicoes
+      .filter(req => req.ordem_fornecimento_id)
+      .map(req => req.ordem_fornecimento_id);
+    
+    if (ordemIds.length > 0) {
+      const ordens = await this.dataSource
+        .createQueryBuilder()
+        .select(['ordem.id', 'ordem.numero'])
+        .from('ordens_fornecimento', 'ordem')
+        .where('ordem.id IN (:...ids)', { ids: ordemIds })
+        .getRawMany();
+      
+      const ordensMap = new Map(ordens.map(o => [o.ordem_id, { id: o.ordem_id, numero: o.ordem_numero }]));
+      
+      for (const req of requisicoes) {
+        if (req.ordem_fornecimento_id && ordensMap.has(req.ordem_fornecimento_id)) {
+          (req as any).ordem_fornecimento = ordensMap.get(req.ordem_fornecimento_id);
+        }
+      }
+    }
+    
+    return requisicoes;
   }
 
   async findOne(id: string): Promise<Requisicao> {
