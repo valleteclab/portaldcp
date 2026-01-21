@@ -197,14 +197,6 @@ export class Requisicao {
   @Column({ default: false })
   saldo_reservado: boolean;
 
-  /**
-   * Ordem de fornecimento gerada a partir desta requisição
-   * Usa referência de função para evitar dependência circular
-   */
-  @ManyToOne('OrdemFornecimento', 'requisicao', { nullable: true })
-  @JoinColumn({ name: 'ordem_fornecimento_id' })
-  ordem_fornecimento: any | null;
-
   @Column({ type: 'varchar', nullable: true })
   ordem_fornecimento_id: string | null; // FK para OrdemFornecimento quando gerada
 
