@@ -1141,6 +1141,63 @@ function RequisicoesList() {
         </DialogContent>
       </Dialog>
 
+      {/* Modal Reativar Requisição */}
+      <Dialog open={showReativar} onOpenChange={setShowReativar}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-green-600">Reativar Requisição</DialogTitle>
+            <DialogDescription>
+              Informe o motivo da reativação da requisição {requisicaoSelecionada?.numero}.
+            </DialogDescription>
+          </DialogHeader>
+          {requisicaoSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                <p className="font-medium text-green-900">Atenção!</p>
+                <p className="text-sm text-green-700 mt-1">
+                  {requisicaoSelecionada.status_anterior_cancelamento === 'AUTORIZADA' || 
+                   requisicaoSelecionada.status_anterior_cancelamento === 'ORDEM_GERADA'
+                    ? 'Esta requisição estava aprovada. Ao reativar, o saldo será re-reservado no contrato (se houver disponibilidade).'
+                    : requisicaoSelecionada.status_anterior_cancelamento === 'NEGADA'
+                    ? 'Esta requisição estava negada. Ao reativar, voltará para aguardando aprovação.'
+                    : 'Ao reativar, a requisição voltará para o status anterior.'}
+                </p>
+                {requisicaoSelecionada.status_anterior_cancelamento && (
+                  <p className="text-xs text-gray-600 mt-2">
+                    Status anterior: <span className="font-semibold">{requisicaoSelecionada.status_anterior_cancelamento}</span>
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Motivo da Reativação <span className="text-red-500">*</span>
+                </label>
+                <Textarea
+                  placeholder="Descreva o motivo da reativação..."
+                  value={motivoReativacao}
+                  onChange={(e) => setMotivoReativacao(e.target.value)}
+                  rows={4}
+                  className="resize-none"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReativar(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleReativar} 
+              disabled={processando || !motivoReativacao.trim()}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirmar Reativação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal Excluir Requisição */}
       <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
         <DialogContent>
