@@ -1172,10 +1172,22 @@ function NovaRequisicaoForm() {
               <p className="text-sm">
                 <strong>Salvo em:</strong> {formatarDataHora(rascunhoSalvo.savedAt)}
               </p>
-              {rascunhoSalvo.itensRequisicao.length > 0 && (
+              {rascunhoSalvo.contratoId && (
                 <p className="text-sm">
-                  <strong>Itens:</strong> {rascunhoSalvo.itensRequisicao.length}
+                  <strong>Contrato:</strong>{' '}
+                  {contratos.find(c => c.id === rascunhoSalvo.contratoId)?.numero_contrato || 'Carregando...'}
                 </p>
+              )}
+              {rascunhoSalvo.itensRequisicao.length > 0 && (
+                <>
+                  <p className="text-sm">
+                    <strong>Itens:</strong> {rascunhoSalvo.itensRequisicao.length}
+                  </p>
+                  <p className="text-sm font-medium text-blue-700">
+                    <strong>Valor Total:</strong>{' '}
+                    {formatarMoeda(rascunhoSalvo.itensRequisicao.reduce((total, item) => total + (item.valor_total || 0), 0))}
+                  </p>
+                </>
               )}
               {rascunhoSalvo.setorSolicitante && (
                 <p className="text-sm">
