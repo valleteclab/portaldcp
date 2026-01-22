@@ -246,6 +246,15 @@ function NovaRequisicaoForm() {
   // =========================================================================
 
   const salvarRascunhoLocal = useCallback(() => {
+    // Só salva se tiver itens selecionados OU dados preenchidos
+    // Não salva apenas por selecionar contrato (é muito rápido refazer)
+    const temItens = itensRequisicao.length > 0;
+    const temDados = setorSolicitante.trim() || justificativa.trim();
+    
+    if (!temItens && !temDados) {
+      return; // Não salva se só selecionou contrato
+    }
+
     const rascunho: RascunhoRequisicao = {
       etapa,
       contratoId: contratoSelecionado?.id || null,
@@ -261,11 +270,8 @@ function NovaRequisicaoForm() {
       savedAt: new Date().toISOString(),
     };
 
-    // Só salva se tiver algo preenchido
-    if (contratoSelecionado || itensRequisicao.length > 0 || setorSolicitante || justificativa) {
-      localStorage.setItem(RASCUNHO_KEY, JSON.stringify(rascunho));
-      setUltimoSalvamento(new Date());
-    }
+    localStorage.setItem(RASCUNHO_KEY, JSON.stringify(rascunho));
+    setUltimoSalvamento(new Date());
   }, [etapa, contratoSelecionado, itensRequisicao, tipo, setorSolicitante, codigoSetor, localEntrega, justificativa, prioridade, dataNecessidade, observacoes]);
 
   const limparRascunhoLocal = () => {
