@@ -9,7 +9,10 @@ import { ItemContratoService } from './item-contrato.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
+import { RecebimentoService } from './recebimento.service';
 import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
+import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
+import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { 
   CriarRequisicaoDto, 
   AtualizarRequisicaoDto, 
@@ -30,6 +33,8 @@ export class RequisicaoService {
     private readonly itemContratoRepository: Repository<ItemContrato>,
     @InjectRepository(OrdemFornecimento)
     private readonly ordemFornecimentoRepository: Repository<OrdemFornecimento>,
+    @InjectRepository(Recebimento)
+    private readonly recebimentoRepository: Repository<Recebimento>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -38,6 +43,8 @@ export class RequisicaoService {
     private readonly notificacoesService: NotificacoesService,
     @Inject(forwardRef(() => OrdemFornecimentoService))
     private readonly ordemFornecimentoService: OrdemFornecimentoService,
+    @Inject(forwardRef(() => RecebimentoService))
+    private readonly recebimentoService: RecebimentoService,
   ) {}
 
   // ============================================================================
@@ -473,20 +480,67 @@ export class RequisicaoService {
   // ============================================================================
 
   /**
+   * Retorna informações sobre o que será excluído ao cancelar/excluir uma requisição
+   */
+  async obterInfoExclusao(id: string): Promise<{
+    temOrdem: boolean;
+    ordemNumero?: string;
+    recebimentos: Array<{ id: string; numero: string; status: string; baixaRealizada: boolean }>;
+    saldoReservado: boolean;
+  }> {
+    const requisicao = await this.findOne(id);
+
+    const info = {
+      temOrdem: false,
+      ordemNumero: undefined as string | undefined,
+      recebimentos: [] as Array<{ id: string; numero: string; status: string; baixaRealizada: boolean }>,
+      saldoReservado: requisicao.saldo_reservado || false,
+    };
+
+    if (requisicao.ordem_fornecimento_id) {
+      const ordem = await this.ordemFornecimentoRepository.findOne({
+        where: { id: requisicao.ordem_fornecimento_id },
+      });
+
+      if (ordem) {
+        info.temOrdem = true;
+        info.ordemNumero = ordem.numero;
+
+        // Busca recebimentos relacionados
+        const recebimentos = await this.recebimentoRepository.find({
+          where: { ordem_fornecimento_id: ordem.id },
+        });
+
+        info.recebimentos = recebimentos.map(rec => ({
+          id: rec.id,
+          numero: rec.numero,
+          status: rec.status,
+          baixaRealizada: rec.baixa_realizada || false,
+        }));
+      }
+    }
+
+    return info;
+  }
+
+  /**
    * Cancela uma requisição e libera saldo reservado
    * 
-   * IMPORTANTE: Se a requisição estava AUTORIZADA (saldo reservado),
-   * o saldo é devolvido ao contrato.
+   * IMPORTANTE: Se a requisição tinha ordem de fornecimento gerada:
+   * - Estorna recebimentos ACEITOS (libera saldo entregue)
+   * - Exclui recebimentos PENDENTES/REJEITADOS
+   * - Exclui a ordem de fornecimento
+   * - Libera saldo reservado da requisição
    * 
    * Permite cancelar:
    * - RASCUNHO
    * - AGUARDANDO_AUTORIZACAO
    * - AUTORIZADA (requer permissão especial)
+   * - ORDEM_GERADA (requer permissão especial, exclui ordem e recebimentos)
    * - NEGADA
    * 
    * NÃO permite cancelar:
-   * - ORDEM_GERADA (deve cancelar a ordem primeiro)
-   * - ATENDIDA_PARCIAL / ATENDIDA (deve estornar recebimento primeiro)
+   * - ATENDIDA_PARCIAL / ATENDIDA (deve estornar recebimento primeiro manualmente)
    */
   async cancelar(id: string, motivo: string, requerPermissaoEspecial: boolean = false): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
@@ -518,13 +572,75 @@ export class RequisicaoService {
       );
     }
 
-    // Se tinha saldo reservado, libera
-    if (requisicao.saldo_reservado) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      await queryRunner.startTransaction();
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-      try {
+    try {
+      // Se tem ordem de fornecimento, exclui ordem e recebimentos em cascata
+      if (requisicao.ordem_fornecimento_id) {
+        const ordem = await queryRunner.manager.findOne(OrdemFornecimento, {
+          where: { id: requisicao.ordem_fornecimento_id },
+        });
+
+        if (ordem) {
+          // Busca recebimentos relacionados
+          const recebimentos = await queryRunner.manager.find(Recebimento, {
+            where: { ordem_fornecimento_id: ordem.id },
+          });
+
+          // Estorna recebimentos ACEITOS primeiro (libera saldo entregue)
+          for (const recebimento of recebimentos) {
+            if (recebimento.status === StatusRecebimento.ACEITO || 
+                recebimento.status === StatusRecebimento.ACEITO_PARCIAL) {
+              // Estorna recebimento (libera saldo entregue no contrato)
+              await this.recebimentoService.estornarRecebimento(
+                recebimento.id,
+                `Estorno automático devido ao cancelamento da requisição ${requisicao.numero}: ${motivo}`
+              );
+              this.logger.log(
+                `Recebimento ${recebimento.numero} estornado automaticamente devido ao cancelamento da requisição ${requisicao.numero}`
+              );
+            } else if (
+              recebimento.status === StatusRecebimento.PENDENTE ||
+              recebimento.status === StatusRecebimento.REJEITADO
+            ) {
+              // Exclui recebimentos pendentes/rejeitados
+              await queryRunner.manager.remove(recebimento);
+              this.logger.log(
+                `Recebimento ${recebimento.numero} excluído automaticamente devido ao cancelamento da requisição ${requisicao.numero}`
+              );
+            }
+          }
+
+          // Remove PDF da ordem se existir
+          if (ordem.caminho_pdf) {
+            try {
+              const fs = require('fs');
+              const path = require('path');
+              const pdfPath = path.join(process.cwd(), ordem.caminho_pdf);
+              if (fs.existsSync(pdfPath)) {
+                fs.unlinkSync(pdfPath);
+                this.logger.log(`PDF da ordem ${ordem.numero} removido`);
+              }
+            } catch (error) {
+              this.logger.warn(`Erro ao remover PDF da ordem: ${error.message}`);
+            }
+          }
+
+          // Exclui a ordem
+          await queryRunner.manager.remove(ordem);
+          this.logger.log(
+            `Ordem de fornecimento ${ordem.numero} excluída automaticamente devido ao cancelamento da requisição ${requisicao.numero}`
+          );
+
+          // Remove referência da requisição
+          requisicao.ordem_fornecimento_id = null;
+        }
+      }
+
+      // Se tinha saldo reservado, libera
+      if (requisicao.saldo_reservado) {
         for (const item of requisicao.itens) {
           if (item.item_contrato_id && item.status === StatusItemRequisicao.RESERVADO) {
             const quantidadeALiberar = item.quantidade_autorizada ?? item.quantidade_solicitada;
@@ -559,31 +675,29 @@ export class RequisicaoService {
             await queryRunner.manager.save(item);
           }
         }
-
-        // Atualiza requisição
-        requisicao.status = StatusRequisicao.CANCELADA;
-        requisicao.saldo_reservado = false;
-        requisicao.observacoes = `${requisicao.observacoes || ''}\n[Cancelada] ${motivo}`.trim();
-
-        await queryRunner.manager.save(requisicao);
-        await queryRunner.commitTransaction();
-
-        this.logger.log(`Requisição ${requisicao.numero} cancelada. Saldo liberado.`);
-
-        return this.findOne(id);
-      } catch (error) {
-        await queryRunner.rollbackTransaction();
-        throw error;
-      } finally {
-        await queryRunner.release();
       }
+
+      // Atualiza requisição
+      requisicao.status = StatusRequisicao.CANCELADA;
+      requisicao.saldo_reservado = false;
+      requisicao.observacoes = `${requisicao.observacoes || ''}\n[Cancelada] ${motivo}`.trim();
+
+      await queryRunner.manager.save(requisicao);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Requisição ${requisicao.numero} cancelada. ` +
+        `Ordem e recebimentos relacionados foram excluídos. Saldo liberado.`
+      );
+
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Erro ao cancelar requisição ${requisicao.numero}: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Se não tinha saldo reservado, apenas atualiza status
-    requisicao.status = StatusRequisicao.CANCELADA;
-    requisicao.observacoes = `${requisicao.observacoes || ''}\n[Cancelada] ${motivo}`.trim();
-
-    return this.requisicaoRepository.save(requisicao);
   }
 
   // ============================================================================
@@ -700,8 +814,13 @@ export class RequisicaoService {
   /**
    * Exclui uma requisição permanentemente
    * 
-   * IMPORTANTE: Só permite excluir requisições em RASCUNHO ou CANCELADA
-   * e que não tenham ordem de fornecimento gerada.
+   * IMPORTANTE: Só permite excluir requisições em RASCUNHO ou CANCELADA.
+   * 
+   * Se a requisição CANCELADA tinha ordem de fornecimento:
+   * - Exclui recebimentos relacionados (se ainda existirem)
+   * - Exclui ordem de fornecimento relacionada
+   * 
+   * O saldo já foi liberado durante o cancelamento, então não precisa liberar novamente.
    */
   async excluir(id: string): Promise<void> {
     const requisicao = await this.findOne(id);
@@ -719,23 +838,77 @@ export class RequisicaoService {
       );
     }
 
-    // Não permite excluir se tiver ordem gerada
-    if (requisicao.ordem_fornecimento_id) {
-      throw new BadRequestException(
-        'Requisição não pode ser excluída pois possui ordem de fornecimento gerada. ' +
-        'Exclua a ordem primeiro ou cancele a requisição.'
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Se tem ordem de fornecimento (mesmo que cancelada), exclui ordem e recebimentos
+      if (requisicao.ordem_fornecimento_id) {
+        const ordem = await queryRunner.manager.findOne(OrdemFornecimento, {
+          where: { id: requisicao.ordem_fornecimento_id },
+        });
+
+        if (ordem) {
+          // Busca e exclui recebimentos relacionados (se ainda existirem)
+          const recebimentos = await queryRunner.manager.find(Recebimento, {
+            where: { ordem_fornecimento_id: ordem.id },
+          });
+
+          for (const recebimento of recebimentos) {
+            // Só exclui se não tiver baixa realizada (se tiver, já foi estornado no cancelamento)
+            if (!recebimento.baixa_realizada) {
+              await queryRunner.manager.remove(recebimento);
+              this.logger.log(
+                `Recebimento ${recebimento.numero} excluído durante exclusão da requisição ${requisicao.numero}`
+              );
+            }
+          }
+
+          // Remove PDF da ordem se existir
+          if (ordem.caminho_pdf) {
+            try {
+              const fs = require('fs');
+              const path = require('path');
+              const pdfPath = path.join(process.cwd(), ordem.caminho_pdf);
+              if (fs.existsSync(pdfPath)) {
+                fs.unlinkSync(pdfPath);
+                this.logger.log(`PDF da ordem ${ordem.numero} removido`);
+              }
+            } catch (error) {
+              this.logger.warn(`Erro ao remover PDF da ordem: ${error.message}`);
+            }
+          }
+
+          // Exclui a ordem
+          await queryRunner.manager.remove(ordem);
+          this.logger.log(
+            `Ordem de fornecimento ${ordem.numero} excluída durante exclusão da requisição ${requisicao.numero}`
+          );
+        }
+      }
+
+      // Exclui itens primeiro (cascade)
+      if (requisicao.itens && requisicao.itens.length > 0) {
+        await queryRunner.manager.remove(requisicao.itens);
+      }
+
+      // Exclui a requisição
+      await queryRunner.manager.remove(requisicao);
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Requisição ${requisicao.numero} excluída permanentemente. ` +
+        `Ordem e recebimentos relacionados foram excluídos.`
       );
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Erro ao excluir requisição ${requisicao.numero}: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Exclui itens primeiro (cascade)
-    if (requisicao.itens && requisicao.itens.length > 0) {
-      await this.itemRequisicaoRepository.remove(requisicao.itens);
-    }
-
-    // Exclui a requisição
-    await this.requisicaoRepository.remove(requisicao);
-
-    this.logger.log(`Requisição ${requisicao.numero} excluída permanentemente`);
   }
 
   // ============================================================================

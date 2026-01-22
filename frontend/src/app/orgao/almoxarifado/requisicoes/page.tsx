@@ -147,6 +147,12 @@ function RequisicoesList() {
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const [processando, setProcessando] = useState(false);
+  const [infoExclusao, setInfoExclusao] = useState<{
+    temOrdem: boolean;
+    ordemNumero?: string;
+    recebimentos: Array<{ id: string; numero: string; status: string; baixaRealizada: boolean }>;
+    saldoReservado: boolean;
+  } | null>(null);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
   const [gerandoOrdem, setGerandoOrdem] = useState(false);
   
@@ -275,14 +281,42 @@ function RequisicoesList() {
     setShowGerarOrdem(true);
   };
 
-  const handleAbrirCancelar = (req: Requisicao) => {
+  const handleAbrirCancelar = async (req: Requisicao) => {
     setRequisicaoSelecionada(req);
     setMotivoCancelamento('');
+    
+    // Busca informações sobre o que será excluído
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${req.id}/info-exclusao`
+      );
+      if (response.ok) {
+        const info = await response.json();
+        setInfoExclusao(info);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar informações de exclusão:', error);
+    }
+    
     setShowCancelar(true);
   };
 
-  const handleAbrirExcluir = (req: Requisicao) => {
+  const handleAbrirExcluir = async (req: Requisicao) => {
     setRequisicaoSelecionada(req);
+    
+    // Busca informações sobre o que será excluído
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${req.id}/info-exclusao`
+      );
+      if (response.ok) {
+        const info = await response.json();
+        setInfoExclusao(info);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar informações de exclusão:', error);
+    }
+    
     setShowExcluir(true);
   };
 
@@ -299,8 +333,10 @@ function RequisicoesList() {
       );
 
       if (response.ok) {
-        alert(`Requisição ${requisicaoSelecionada.numero} excluída com sucesso!`);
+        const data = await response.json();
+        alert(data.message || `Requisição ${requisicaoSelecionada.numero} excluída com sucesso!`);
         setShowExcluir(false);
+        setInfoExclusao(null);
         carregarRequisicoes();
       } else {
         const error = await response.json();
@@ -987,6 +1023,37 @@ function RequisicoesList() {
                     ? 'Esta requisição está aprovada. O cancelamento liberará o saldo reservado no contrato.'
                     : 'O cancelamento desta requisição não pode ser desfeito.'}
                 </p>
+                
+                {infoExclusao && (
+                  <div className="mt-3 space-y-2">
+                    {infoExclusao.temOrdem && (
+                      <div className="bg-red-100 p-3 rounded border border-red-300">
+                        <p className="text-sm font-semibold text-red-900">
+                          ⚠️ Serão excluídos automaticamente:
+                        </p>
+                        <ul className="text-sm text-red-800 mt-1 ml-4 list-disc">
+                          <li>Ordem de fornecimento {infoExclusao.ordemNumero}</li>
+                          {infoExclusao.recebimentos.length > 0 && (
+                            <li>
+                              {infoExclusao.recebimentos.length} recebimento(s) relacionado(s)
+                              {infoExclusao.recebimentos.some(r => r.baixaRealizada) && (
+                                <span className="text-red-900 font-semibold">
+                                  {' '}(incluindo recebimentos aceitos que serão estornados)
+                                </span>
+                              )}
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {infoExclusao.saldoReservado && (
+                      <p className="text-sm text-yellow-700 font-semibold">
+                        💰 Saldo reservado será liberado no contrato.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">
@@ -1028,14 +1095,37 @@ function RequisicoesList() {
             </DialogDescription>
           </DialogHeader>
           {requisicaoSelecionada && (
-            <div className="bg-red-50 p-4 rounded-lg">
+            <div className="bg-red-50 p-4 rounded-lg space-y-2">
               <p className="font-medium">{requisicaoSelecionada.numero}</p>
               <p className="text-sm text-gray-600">
                 Setor: {requisicaoSelecionada.setor_solicitante}
               </p>
-              <p className="text-sm text-red-700 font-semibold mt-2">
-                ⚠️ Atenção: Esta ação é irreversível!
-              </p>
+              
+              {infoExclusao && (
+                <div className="mt-3 space-y-2">
+                  {infoExclusao.temOrdem && (
+                    <div className="bg-red-100 p-3 rounded border border-red-300">
+                      <p className="text-sm font-semibold text-red-900">
+                        ⚠️ Serão excluídos permanentemente:
+                      </p>
+                      <ul className="text-sm text-red-800 mt-1 ml-4 list-disc">
+                        <li>Ordem de fornecimento {infoExclusao.ordemNumero}</li>
+                        {infoExclusao.recebimentos.length > 0 && (
+                          <li>{infoExclusao.recebimentos.length} recebimento(s) relacionado(s)</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  <p className="text-sm text-red-700 font-semibold">
+                    ⚠️ Atenção: A exclusão desta requisição é irreversível.
+                  </p>
+                  
+                  <p className="text-xs text-gray-600">
+                    O saldo já foi liberado durante o cancelamento.
+                  </p>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>

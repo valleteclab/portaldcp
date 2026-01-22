@@ -39,7 +39,7 @@ import {
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
 import { StatusRequisicao } from './entities/requisicao.entity';
 import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
-import { StatusRecebimento } from './entities/recebimento.entity';
+import { StatusRecebimento, Recebimento } from './entities/recebimento.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { MigracaoContratosService, ResultadoImportacao } from './migracao-contratos.service';
@@ -243,6 +243,11 @@ export class AlmoxarifadoController {
     );
   }
 
+  @Get('requisicoes/:id/info-exclusao')
+  async obterInfoExclusaoRequisicao(@Param('id', ParseUUIDPipe) id: string) {
+    return this.requisicaoService.obterInfoExclusao(id);
+  }
+
   @Post('requisicoes/:id/cancelar')
   async cancelarRequisicao(
     @Param('id', ParseUUIDPipe) id: string,
@@ -258,8 +263,9 @@ export class AlmoxarifadoController {
       throw new BadRequestException('Usuário não encontrado');
     }
 
-    // Busca requisição para verificar status
+    // Busca requisição para verificar status e obter informações
     const requisicao = await this.requisicaoService.findOne(id);
+    const infoExclusao = await this.requisicaoService.obterInfoExclusao(id);
     
     // Verifica se requer permissão especial (AUTORIZADA ou ORDEM_GERADA)
     const statusRequerPermissao = [
@@ -276,17 +282,49 @@ export class AlmoxarifadoController {
       );
     }
 
-    return this.requisicaoService.cancelar(
+    // Obtém informações ANTES de cancelar (para incluir na mensagem)
+    const infoExclusao = await this.requisicaoService.obterInfoExclusao(id);
+    
+    const requisicaoCancelada = await this.requisicaoService.cancelar(
       id, 
       motivo || 'Cancelado pelo usuário',
       requerPermissaoEspecial
     );
+    
+    // Monta mensagem informativa sobre o que foi excluído
+    let mensagem = 'Requisição cancelada com sucesso. ';
+    
+    if (infoExclusao.temOrdem) {
+      mensagem += `Ordem de fornecimento ${infoExclusao.ordemNumero} e ${infoExclusao.recebimentos.length} recebimento(s) relacionado(s) foram excluídos. `;
+    }
+    
+    if (infoExclusao.saldoReservado) {
+      mensagem += 'Saldo reservado foi liberado no contrato.';
+    }
+    
+    return {
+      ...requisicaoCancelada,
+      mensagem,
+    };
   }
 
   @Delete('requisicoes/:id')
   async excluirRequisicao(@Param('id', ParseUUIDPipe) id: string) {
+    // Obtém informações antes de excluir
+    const infoExclusao = await this.requisicaoService.obterInfoExclusao(id);
+    
     await this.requisicaoService.excluir(id);
-    return { message: 'Requisição excluída com sucesso' };
+    
+    // Monta mensagem informativa
+    let mensagem = 'Requisição excluída com sucesso. ';
+    
+    if (infoExclusao.temOrdem) {
+      mensagem += `Ordem de fornecimento ${infoExclusao.ordemNumero} e ${infoExclusao.recebimentos.length} recebimento(s) relacionado(s) foram excluídos. `;
+    }
+    
+    mensagem += 'Saldo já havia sido liberado durante o cancelamento.';
+    
+    return { message: mensagem };
   }
 
   // ============================================================================
