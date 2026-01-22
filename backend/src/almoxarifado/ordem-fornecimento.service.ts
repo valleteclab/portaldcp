@@ -1,12 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from './entities/ordem-fornecimento.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisicao.entity';
-import { Recebimento } from './entities/recebimento.entity';
+import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
+import { HistoricoOrdemFornecimento, TipoAcaoOrdem } from './entities/historico-ordem.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
-import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
+import { ItemContrato } from '../contratos/entities/item-contrato.entity';
+import { GerarOrdemDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { PdfOrdemService } from './pdf-ordem.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 
 @Injectable()
 export class OrdemFornecimentoService {
@@ -19,9 +22,48 @@ export class OrdemFornecimentoService {
     private readonly requisicaoRepository: Repository<Requisicao>,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
+    @InjectRepository(HistoricoOrdemFornecimento)
+    private readonly historicoRepository: Repository<HistoricoOrdemFornecimento>,
     private readonly dataSource: DataSource,
     private readonly pdfOrdemService: PdfOrdemService,
+    private readonly notificacoesService: NotificacoesService,
   ) {}
+
+  // ============================================================================
+  // HISTÓRICO - REGISTRAR AÇÃO
+  // ============================================================================
+
+  private async registrarHistorico(params: {
+    ordemId: string;
+    tipoAcao: TipoAcaoOrdem;
+    descricao: string;
+    detalhes?: any;
+    statusAnterior?: string;
+    statusNovo?: string;
+    usuarioId?: string;
+    usuarioNome?: string;
+    usuarioTipo?: 'orgao' | 'fornecedor' | 'sistema';
+  }): Promise<HistoricoOrdemFornecimento> {
+    const historico = new HistoricoOrdemFornecimento();
+    historico.ordem_fornecimento_id = params.ordemId;
+    historico.tipo_acao = params.tipoAcao;
+    historico.descricao = params.descricao;
+    historico.detalhes = params.detalhes ? JSON.stringify(params.detalhes) : null;
+    historico.status_anterior = params.statusAnterior || null;
+    historico.status_novo = params.statusNovo || null;
+    historico.usuario_id = params.usuarioId || null;
+    historico.usuario_nome = params.usuarioNome || null;
+    historico.usuario_tipo = params.usuarioTipo || 'orgao';
+
+    return this.historicoRepository.save(historico);
+  }
+
+  async getHistorico(ordemId: string): Promise<HistoricoOrdemFornecimento[]> {
+    return this.historicoRepository.find({
+      where: { ordem_fornecimento_id: ordemId },
+      order: { created_at: 'DESC' },
+    });
+  }
 
   // ============================================================================
   // GERAR ORDEM A PARTIR DE REQUISIÇÃO
@@ -138,6 +180,18 @@ export class OrdemFornecimentoService {
         `Valor: R$ ${valorTotal.toFixed(2)}`
       );
 
+      // Registra no histórico
+      await this.registrarHistorico({
+        ordemId: ordemSalva.id,
+        tipoAcao: TipoAcaoOrdem.CRIADA,
+        descricao: `Ordem ${numero} criada a partir da requisição ${requisicao.numero}`,
+        detalhes: { requisicao_numero: requisicao.numero, valor_total: valorTotal },
+        statusNovo: StatusOrdemFornecimento.EMITIDA,
+        usuarioId: usuarioId,
+        usuarioNome: usuarioNome,
+        usuarioTipo: 'orgao',
+      });
+
       // Gera PDF automaticamente
       try {
         const caminhoPdf = await this.pdfOrdemService.gerarPdf(ordemSalva.id);
@@ -169,6 +223,8 @@ export class OrdemFornecimentoService {
     id: string, 
     emailFornecedor?: string,
     observacoes?: string,
+    usuarioId?: string,
+    usuarioNome?: string,
   ): Promise<OrdemFornecimento> {
     const ordem = await this.findOne(id);
 
@@ -178,41 +234,420 @@ export class OrdemFornecimentoService {
       );
     }
 
+    const statusAnterior = ordem.status;
     ordem.status = StatusOrdemFornecimento.ENVIADA;
     ordem.data_envio = new Date();
     ordem.email_fornecedor = emailFornecedor || ordem.fornecedor?.email || null;
     ordem.observacoes_envio = observacoes || null;
 
+    const ordemSalva = await this.ordemRepository.save(ordem);
+
+    // Registra no histórico
+    await this.registrarHistorico({
+      ordemId: id,
+      tipoAcao: TipoAcaoOrdem.ENVIADA,
+      descricao: `Ordem enviada ao fornecedor ${ordem.fornecedor?.razao_social || ''}`,
+      detalhes: { email: ordem.email_fornecedor, observacoes },
+      statusAnterior,
+      statusNovo: StatusOrdemFornecimento.ENVIADA,
+      usuarioId,
+      usuarioNome,
+      usuarioTipo: 'orgao',
+    });
+
     // TODO: Implementar envio real de email
 
     this.logger.log(`Ordem ${ordem.numero} enviada ao fornecedor`);
 
-    return this.ordemRepository.save(ordem);
+    return ordemSalva;
   }
 
-  // ============================================================================
-  // CANCELAR ORDEM
-  // ============================================================================
-
-  async cancelarOrdem(id: string, motivo: string): Promise<OrdemFornecimento> {
+  /**
+   * Reenvia ordem ao fornecedor (quando já foi enviada antes)
+   */
+  async reenviarOrdem(
+    id: string,
+    emailFornecedor?: string,
+    observacoes?: string,
+    usuarioId?: string,
+    usuarioNome?: string,
+  ): Promise<OrdemFornecimento> {
     const ordem = await this.findOne(id);
 
-    // Só pode cancelar se não tiver nenhum recebimento
-    if (ordem.status === StatusOrdemFornecimento.ATENDIDA || 
-        ordem.status === StatusOrdemFornecimento.ATENDIDA_PARCIAL) {
+    // Permite reenviar ordens ENVIADAS, EM_ATENDIMENTO ou ATENDIDA_PARCIAL
+    const statusPermitidos = [
+      StatusOrdemFornecimento.ENVIADA,
+      StatusOrdemFornecimento.EM_ATENDIMENTO,
+      StatusOrdemFornecimento.ATENDIDA_PARCIAL,
+    ];
+
+    if (!statusPermitidos.includes(ordem.status)) {
       throw new BadRequestException(
-        'Ordem com recebimentos não pode ser cancelada'
+        `Ordem não pode ser reenviada. Status atual: ${ordem.status}`
       );
     }
 
-    ordem.status = StatusOrdemFornecimento.CANCELADA;
-    ordem.observacoes = `${ordem.observacoes || ''}\n[CANCELADA] ${motivo}`.trim();
+    ordem.data_envio = new Date();
+    ordem.email_fornecedor = emailFornecedor || ordem.email_fornecedor || ordem.fornecedor?.email || null;
+    if (observacoes) {
+      ordem.observacoes_envio = `${ordem.observacoes_envio || ''}\n[Reenvio ${new Date().toLocaleDateString('pt-BR')}] ${observacoes}`.trim();
+    }
 
-    // TODO: Se precisar, liberar saldo do contrato aqui
+    const ordemSalva = await this.ordemRepository.save(ordem);
 
-    this.logger.log(`Ordem ${ordem.numero} cancelada: ${motivo}`);
+    // Registra no histórico
+    await this.registrarHistorico({
+      ordemId: id,
+      tipoAcao: TipoAcaoOrdem.REENVIADA,
+      descricao: `Ordem reenviada ao fornecedor`,
+      detalhes: { email: ordem.email_fornecedor, observacoes },
+      usuarioId,
+      usuarioNome,
+      usuarioTipo: 'orgao',
+    });
 
-    return this.ordemRepository.save(ordem);
+    // TODO: Implementar envio real de email
+
+    this.logger.log(`Ordem ${ordem.numero} reenviada ao fornecedor`);
+
+    return ordemSalva;
+  }
+
+  // ============================================================================
+  // CANCELAR ORDEM (MESMO APÓS ENVIO)
+  // ============================================================================
+
+  /**
+   * Cancela uma ordem de fornecimento
+   * 
+   * - Ordens ATENDIDAS não podem ser canceladas diretamente (precisam estornar recebimentos primeiro)
+   * - Ordens enviadas: notifica o fornecedor sobre o cancelamento
+   * - Ordens aceitas pelo fornecedor: exige justificativa obrigatória
+   */
+  async cancelarOrdem(
+    id: string, 
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<OrdemFornecimento> {
+    if (!motivo || motivo.trim().length < 10) {
+      throw new BadRequestException(
+        'Motivo do cancelamento é obrigatório e deve ter no mínimo 10 caracteres'
+      );
+    }
+
+    const ordem = await this.findOne(id);
+    const statusAnterior = ordem.status;
+
+    // Não pode cancelar se já foi totalmente atendida
+    if (ordem.status === StatusOrdemFornecimento.ATENDIDA) {
+      throw new BadRequestException(
+        'Ordem totalmente atendida não pode ser cancelada. Use a função de estorno se necessário.'
+      );
+    }
+
+    // Já está cancelada?
+    if (ordem.status === StatusOrdemFornecimento.CANCELADA) {
+      throw new BadRequestException('Ordem já está cancelada');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Se tem entregas parciais, precisa estornar primeiro
+      if (ordem.status === StatusOrdemFornecimento.ATENDIDA_PARCIAL) {
+        // Busca recebimentos aceitos
+        const recebimentos = await queryRunner.manager.find(Recebimento, {
+          where: { 
+            ordem_fornecimento_id: id,
+            status: StatusRecebimento.ACEITO,
+          },
+        });
+
+        if (recebimentos.length > 0) {
+          // Estorna cada recebimento
+          for (const rec of recebimentos) {
+            // Retorna saldo ao contrato
+            for (const itemRec of rec.itens) {
+              if (itemRec.quantidade_aceita > 0 && itemRec.item_contrato_id) {
+                const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+                  where: { id: itemRec.item_contrato_id },
+                  lock: { mode: 'pessimistic_write' },
+                });
+                
+                if (itemContrato) {
+                  itemContrato.quantidade_entregue = 
+                    Number(itemContrato.quantidade_entregue) - itemRec.quantidade_aceita;
+                  itemContrato.saldo_disponivel = 
+                    Number(itemContrato.quantidade_contratada) - 
+                    Number(itemContrato.quantidade_empenhada) - 
+                    Number(itemContrato.quantidade_entregue);
+                  await queryRunner.manager.save(itemContrato);
+                }
+              }
+            }
+            
+            // Marca recebimento como estornado
+            rec.status = StatusRecebimento.ESTORNADO;
+            rec.data_estorno = new Date();
+            rec.usuario_estorno_id = usuarioId;
+            rec.usuario_estorno_nome = usuarioNome;
+            rec.motivo_estorno = `Cancelamento da ordem: ${motivo}`;
+            await queryRunner.manager.save(rec);
+          }
+
+          this.logger.log(
+            `${recebimentos.length} recebimento(s) estornados automaticamente devido ao cancelamento da ordem ${ordem.numero}`
+          );
+        }
+      }
+
+      // Atualiza a ordem
+      ordem.status = StatusOrdemFornecimento.CANCELADA;
+      ordem.data_cancelamento = new Date();
+      ordem.motivo_cancelamento = motivo;
+      ordem.usuario_cancelamento_id = usuarioId;
+      ordem.usuario_cancelamento_nome = usuarioNome;
+
+      // Zera entregas
+      for (const item of ordem.itens) {
+        item.quantidade_entregue = 0;
+      }
+      ordem.valor_entregue = 0;
+
+      await queryRunner.manager.save(ordem);
+
+      // Se a ordem já foi enviada, precisa notificar o fornecedor
+      const foiEnviada = [
+        StatusOrdemFornecimento.ENVIADA,
+        StatusOrdemFornecimento.EM_ATENDIMENTO,
+        StatusOrdemFornecimento.ATENDIDA_PARCIAL,
+      ].includes(statusAnterior);
+
+      if (foiEnviada && ordem.fornecedor_id) {
+        try {
+          // Cria notificação para o fornecedor
+          await this.notificacoesService.criar({
+            orgao_id: ordem.orgao_id,
+            tipo: 'ORDEM_CANCELADA',
+            titulo: `Ordem de Fornecimento Cancelada - ${ordem.numero}`,
+            mensagem: `A Ordem de Fornecimento ${ordem.numero} foi CANCELADA.\n\nMotivo: ${motivo}\n\nPor favor, desconsidere a ordem anterior.`,
+            destinatario_id: ordem.fornecedor_id,
+            destinatario_tipo: 'fornecedor',
+            referencia_tipo: 'ordem_fornecimento',
+            referencia_id: id,
+          });
+          
+          ordem.fornecedor_notificado_cancelamento = true;
+          await queryRunner.manager.save(ordem);
+          
+          this.logger.log(`Fornecedor notificado sobre cancelamento da ordem ${ordem.numero}`);
+        } catch (notifError) {
+          this.logger.warn(`Erro ao notificar fornecedor sobre cancelamento: ${notifError.message}`);
+        }
+      }
+
+      // Retorna saldo empenhado ao contrato (itens que não foram entregues)
+      if (ordem.requisicao_id) {
+        const requisicao = await queryRunner.manager.findOne(Requisicao, {
+          where: { id: ordem.requisicao_id },
+          relations: ['itens'],
+        });
+
+        if (requisicao && requisicao.saldo_reservado) {
+          // Libera saldo empenhado
+          for (const itemReq of requisicao.itens) {
+            if (itemReq.item_contrato_id) {
+              const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+                where: { id: itemReq.item_contrato_id },
+                lock: { mode: 'pessimistic_write' },
+              });
+
+              if (itemContrato) {
+                const quantidadeALiberar = Number(itemReq.quantidade_autorizada || itemReq.quantidade_solicitada);
+                itemContrato.quantidade_empenhada = Math.max(
+                  0,
+                  Number(itemContrato.quantidade_empenhada) - quantidadeALiberar
+                );
+                itemContrato.saldo_disponivel =
+                  Number(itemContrato.quantidade_contratada) -
+                  Number(itemContrato.quantidade_empenhada) -
+                  Number(itemContrato.quantidade_entregue);
+                await queryRunner.manager.save(itemContrato);
+              }
+            }
+          }
+
+          requisicao.saldo_reservado = false;
+          requisicao.status = StatusRequisicao.CANCELADA;
+          requisicao.observacoes = `${requisicao.observacoes || ''}\n[Cancelada junto com OF] ${motivo}`.trim();
+          await queryRunner.manager.save(requisicao);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+
+      // Registra no histórico
+      await this.registrarHistorico({
+        ordemId: id,
+        tipoAcao: TipoAcaoOrdem.CANCELADA,
+        descricao: `Ordem cancelada: ${motivo}`,
+        detalhes: { 
+          motivo, 
+          status_anterior: statusAnterior,
+          fornecedor_notificado: ordem.fornecedor_notificado_cancelamento,
+        },
+        statusAnterior,
+        statusNovo: StatusOrdemFornecimento.CANCELADA,
+        usuarioId,
+        usuarioNome,
+        usuarioTipo: 'orgao',
+      });
+
+      this.logger.log(`Ordem ${ordem.numero} cancelada: ${motivo}`);
+
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Erro ao cancelar ordem ${ordem.numero}: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================================================
+  // EDITAR ORDEM
+  // ============================================================================
+
+  /**
+   * Edita uma ordem de fornecimento
+   * 
+   * Regras:
+   * - EMITIDA: qualquer usuário pode editar
+   * - ENVIADA/EM_ATENDIMENTO: só usuários com permissão de aprovação
+   * - ATENDIDA_PARCIAL: só usuários com permissão de aprovação
+   * - ATENDIDA/CANCELADA: não pode editar
+   */
+  async editarOrdem(
+    id: string,
+    dto: EditarOrdemDto,
+    usuarioId: string,
+    usuarioNome: string,
+    temPermissaoAprovacao: boolean,
+  ): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(id);
+    const statusAnterior = ordem.status;
+
+    // Verifica se pode editar
+    const statusQueExigemPermissao = [
+      StatusOrdemFornecimento.ENVIADA,
+      StatusOrdemFornecimento.EM_ATENDIMENTO,
+      StatusOrdemFornecimento.ATENDIDA_PARCIAL,
+    ];
+
+    const statusQueNaoPodeEditar = [
+      StatusOrdemFornecimento.ATENDIDA,
+      StatusOrdemFornecimento.CANCELADA,
+    ];
+
+    if (statusQueNaoPodeEditar.includes(ordem.status)) {
+      throw new BadRequestException(
+        `Ordem com status ${ordem.status} não pode ser editada`
+      );
+    }
+
+    if (statusQueExigemPermissao.includes(ordem.status) && !temPermissaoAprovacao) {
+      throw new ForbiddenException(
+        'Você não tem permissão para editar ordens já enviadas ao fornecedor. ' +
+        'Apenas usuários com permissão de aprovação podem fazer isso.'
+      );
+    }
+
+    // Registra alterações para o histórico
+    const alteracoes: string[] = [];
+
+    // Atualiza campos permitidos
+    if (dto.local_entrega !== undefined && dto.local_entrega !== ordem.local_entrega) {
+      alteracoes.push(`Local de entrega: "${ordem.local_entrega}" → "${dto.local_entrega}"`);
+      ordem.local_entrega = dto.local_entrega;
+    }
+
+    if (dto.data_entrega_prevista !== undefined) {
+      const novaData = dto.data_entrega_prevista ? new Date(dto.data_entrega_prevista) : null;
+      if (novaData?.toISOString() !== ordem.data_entrega_prevista?.toISOString()) {
+        alteracoes.push(`Data prevista: ${ordem.data_entrega_prevista?.toLocaleDateString('pt-BR') || 'não definida'} → ${novaData?.toLocaleDateString('pt-BR') || 'não definida'}`);
+        ordem.data_entrega_prevista = novaData;
+      }
+    }
+
+    if (dto.prazo_entrega_dias !== undefined && dto.prazo_entrega_dias !== ordem.prazo_entrega_dias) {
+      alteracoes.push(`Prazo: ${ordem.prazo_entrega_dias || 0} dias → ${dto.prazo_entrega_dias} dias`);
+      ordem.prazo_entrega_dias = dto.prazo_entrega_dias;
+    }
+
+    if (dto.observacoes !== undefined && dto.observacoes !== ordem.observacoes) {
+      alteracoes.push('Observações atualizadas');
+      ordem.observacoes = dto.observacoes;
+    }
+
+    // Edição de itens (apenas se ordem ainda não foi enviada ou se tem permissão)
+    if (dto.itens && dto.itens.length > 0) {
+      if (ordem.status !== StatusOrdemFornecimento.EMITIDA && !temPermissaoAprovacao) {
+        throw new ForbiddenException(
+          'Edição de itens em ordens enviadas requer permissão de aprovação'
+        );
+      }
+
+      // Atualiza itens
+      for (const itemDto of dto.itens) {
+        const itemIndex = ordem.itens.findIndex(i => i.item_contrato_id === itemDto.item_contrato_id);
+        if (itemIndex !== -1) {
+          const itemAtual = ordem.itens[itemIndex];
+          
+          if (itemDto.quantidade !== undefined && itemDto.quantidade !== itemAtual.quantidade) {
+            // Valida se não é menor que já entregue
+            if (itemDto.quantidade < itemAtual.quantidade_entregue) {
+              throw new BadRequestException(
+                `Quantidade do item "${itemAtual.descricao}" não pode ser menor que a quantidade já entregue (${itemAtual.quantidade_entregue})`
+              );
+            }
+
+            alteracoes.push(`Item ${itemAtual.numero_item}: quantidade ${itemAtual.quantidade} → ${itemDto.quantidade}`);
+            itemAtual.quantidade = itemDto.quantidade;
+            itemAtual.valor_total = itemDto.quantidade * itemAtual.valor_unitario;
+          }
+        }
+      }
+
+      // Recalcula valor total da ordem
+      ordem.valor_total = ordem.itens.reduce((sum, item) => sum + item.valor_total, 0);
+    }
+
+    if (alteracoes.length === 0) {
+      throw new BadRequestException('Nenhuma alteração foi detectada');
+    }
+
+    const ordemSalva = await this.ordemRepository.save(ordem);
+
+    // Registra no histórico
+    await this.registrarHistorico({
+      ordemId: id,
+      tipoAcao: TipoAcaoOrdem.EDITADA,
+      descricao: `Ordem editada: ${alteracoes.join('; ')}`,
+      detalhes: { alteracoes, dto },
+      statusAnterior,
+      statusNovo: ordem.status,
+      usuarioId,
+      usuarioNome,
+      usuarioTipo: 'orgao',
+    });
+
+    this.logger.log(`Ordem ${ordem.numero} editada por ${usuarioNome}: ${alteracoes.join('; ')}`);
+
+    return ordemSalva;
   }
 
   // ============================================================================

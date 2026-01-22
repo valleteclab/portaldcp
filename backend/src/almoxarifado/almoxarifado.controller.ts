@@ -29,7 +29,7 @@ import { PdfOrdemService } from './pdf-ordem.service';
 import { CriarConfiguracaoAprovacaoDto, AtualizarConfiguracaoAprovacaoDto } from './dto/configuracao-aprovacao.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
-import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto } from './dto/ordem-fornecimento.dto';
+import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { 
   CriarRequisicaoDto, 
   AtualizarRequisicaoDto,
@@ -392,25 +392,80 @@ export class AlmoxarifadoController {
 
   @Post('ordens/:id/enviar')
   async enviarOrdem(
+    @Req() request: { user: JwtPayload },
     @Param('id', ParseUUIDPipe) id: string,
     @Body('email_fornecedor') emailFornecedor?: string,
     @Body('observacoes') observacoes?: string,
   ) {
-    return this.ordemService.enviarOrdem(id, emailFornecedor, observacoes);
+    const user = request.user;
+    return this.ordemService.enviarOrdem(
+      id, 
+      emailFornecedor, 
+      observacoes,
+      user.sub,
+      user.email || 'Usuário',
+    );
+  }
+
+  @Post('ordens/:id/reenviar')
+  async reenviarOrdem(
+    @Req() request: { user: JwtPayload },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('email_fornecedor') emailFornecedor?: string,
+    @Body('observacoes') observacoes?: string,
+  ) {
+    const user = request.user;
+    return this.ordemService.reenviarOrdem(
+      id, 
+      emailFornecedor, 
+      observacoes,
+      user.sub,
+      user.email || 'Usuário',
+    );
+  }
+
+  @Put('ordens/:id')
+  async editarOrdem(
+    @Req() request: { user: JwtPayload },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ValidationPipe({ transform: true })) dto: EditarOrdemDto,
+  ) {
+    const user = request.user;
+    // Verifica permissão de aprovação do usuário
+    const temPermissaoAprovacao = user.pode_aprovar_requisicoes || false;
+    return this.ordemService.editarOrdem(
+      id,
+      dto,
+      user.sub,
+      user.email || 'Usuário',
+      temPermissaoAprovacao,
+    );
   }
 
   @Post('ordens/:id/cancelar')
   async cancelarOrdem(
+    @Req() request: { user: JwtPayload },
     @Param('id', ParseUUIDPipe) id: string,
     @Body('motivo') motivo: string,
   ) {
-    return this.ordemService.cancelarOrdem(id, motivo || 'Cancelada pelo usuário');
+    const user = request.user;
+    return this.ordemService.cancelarOrdem(
+      id, 
+      motivo || 'Cancelada pelo usuário',
+      user.sub,
+      user.email || 'Usuário',
+    );
   }
 
   @Delete('ordens/:id')
   async excluirOrdem(@Param('id', ParseUUIDPipe) id: string) {
     await this.ordemService.excluir(id);
     return { message: 'Ordem excluída com sucesso' };
+  }
+
+  @Get('ordens/:id/historico')
+  async getHistoricoOrdem(@Param('id', ParseUUIDPipe) id: string) {
+    return this.ordemService.getHistorico(id);
   }
 
   @Get('ordens/:id/pdf')

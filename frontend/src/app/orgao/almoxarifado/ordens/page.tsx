@@ -17,12 +17,17 @@ import {
   Clock,
   Download,
   ClipboardCheck,
-  Trash2
+  Trash2,
+  Edit,
+  History,
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -59,10 +64,14 @@ interface OrdemFornecimento {
   data_emissao: string;
   data_entrega_prevista?: string;
   data_envio?: string;
+  data_cancelamento?: string;
+  motivo_cancelamento?: string;
   valor_total: number;
   valor_entregue: number;
   usuario_emitente_nome: string;
   local_entrega?: string | null;
+  prazo_entrega_dias?: number;
+  observacoes?: string;
   contrato?: {
     numero_contrato: string;
   };
@@ -85,6 +94,17 @@ interface OrdemFornecimento {
   }[];
 }
 
+interface HistoricoOrdem {
+  id: string;
+  tipo_acao: string;
+  descricao: string;
+  status_anterior?: string;
+  status_novo?: string;
+  usuario_nome?: string;
+  usuario_tipo?: string;
+  created_at: string;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   RASCUNHO: 'bg-gray-100 text-gray-800',
   EMITIDA: 'bg-yellow-100 text-yellow-800',
@@ -105,22 +125,67 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELADA: 'Cancelada',
 };
 
+const ACAO_ICONS: Record<string, string> = {
+  CRIADA: '📝',
+  EDITADA: '✏️',
+  EMITIDA: '📄',
+  ENVIADA: '📤',
+  REENVIADA: '🔄',
+  CANCELADA: '❌',
+  REATIVADA: '♻️',
+  VISUALIZADA_FORNECEDOR: '👁️',
+  ACEITA_FORNECEDOR: '✅',
+  RECUSADA_FORNECEDOR: '🚫',
+  ENTREGA_REGISTRADA: '📦',
+  ENTREGA_PARCIAL: '📦',
+  ENTREGA_COMPLETA: '🎉',
+  ENTREGA_ESTORNADA: '↩️',
+  PDF_GERADO: '📋',
+  PDF_BAIXADO: '⬇️',
+  NOTIFICACAO_ENVIADA: '🔔',
+  EMAIL_ENVIADO: '📧',
+  OBSERVACAO_ADICIONADA: '💬',
+  ITEM_ALTERADO: '🔧',
+};
+
 function OrdensList() {
   const [ordens, setOrdens] = useState<OrdemFornecimento[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
   const [busca, setBusca] = useState('');
   
-  // Modal de detalhes
+  // Modais
   const [ordemSelecionada, setOrdemSelecionada] = useState<OrdemFornecimento | null>(null);
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showEnviar, setShowEnviar] = useState(false);
   const [showRecebimento, setShowRecebimento] = useState(false);
   const [showExcluir, setShowExcluir] = useState(false);
+  const [showCancelar, setShowCancelar] = useState(false);
+  const [showEditar, setShowEditar] = useState(false);
+  const [showHistorico, setShowHistorico] = useState(false);
+  
+  // Envio
   const [emailFornecedor, setEmailFornecedor] = useState('');
   const [observacoesEnvio, setObservacoesEnvio] = useState('');
+  const [isReenvio, setIsReenvio] = useState(false);
+  
+  // Cancelamento
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  
+  // Edição
+  const [formEditar, setFormEditar] = useState({
+    local_entrega: '',
+    data_entrega_prevista: '',
+    prazo_entrega_dias: '',
+    observacoes: '',
+  });
+  
+  // Histórico
+  const [historico, setHistorico] = useState<HistoricoOrdem[]>([]);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+  
   const [processando, setProcessando] = useState(false);
-  const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
+  const [gerandoPDF, setGerandoPDF] = useState<string | null>(null);
   
   // Formulário de recebimento
   const [formRecebimento, setFormRecebimento] = useState({
@@ -162,6 +227,21 @@ function OrdensList() {
     }
   };
 
+  const carregarHistorico = async (ordemId: string) => {
+    setCarregandoHistorico(true);
+    try {
+      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/historico`);
+      if (response.ok) {
+        const data = await response.json();
+        setHistorico(data);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar histórico:', error);
+    } finally {
+      setCarregandoHistorico(false);
+    }
+  };
+
   const formatarMoeda = (valor: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -177,24 +257,58 @@ function OrdensList() {
     });
   };
 
+  const formatarDataHora = (data: string) => {
+    return new Date(data).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  // Handlers
   const handleVerDetalhes = (ordem: OrdemFornecimento) => {
     setOrdemSelecionada(ordem);
     setShowDetalhes(true);
   };
 
-  const handleAbrirEnviar = (ordem: OrdemFornecimento) => {
+  const handleAbrirEnviar = (ordem: OrdemFornecimento, reenvio: boolean = false) => {
     setOrdemSelecionada(ordem);
     setEmailFornecedor(ordem.fornecedor?.email || '');
     setObservacoesEnvio('');
+    setIsReenvio(reenvio);
     setShowEnviar(true);
+  };
+
+  const handleAbrirCancelar = (ordem: OrdemFornecimento) => {
+    setOrdemSelecionada(ordem);
+    setMotivoCancelamento('');
+    setShowCancelar(true);
+  };
+
+  const handleAbrirEditar = (ordem: OrdemFornecimento) => {
+    setOrdemSelecionada(ordem);
+    setFormEditar({
+      local_entrega: ordem.local_entrega || '',
+      data_entrega_prevista: ordem.data_entrega_prevista ? ordem.data_entrega_prevista.split('T')[0] : '',
+      prazo_entrega_dias: ordem.prazo_entrega_dias?.toString() || '',
+      observacoes: ordem.observacoes || '',
+    });
+    setShowEditar(true);
+  };
+
+  const handleAbrirHistorico = async (ordem: OrdemFornecimento) => {
+    setOrdemSelecionada(ordem);
+    setShowHistorico(true);
+    await carregarHistorico(ordem.id);
   };
 
   const handleAbrirRecebimento = (ordem: OrdemFornecimento) => {
     setOrdemSelecionada(ordem);
-    // Pré-preenche os itens com as quantidades da ordem
     const itensPreenchidos = ordem.itens.map(item => ({
       item_contrato_id: item.item_contrato_id,
-      quantidade_recebida: item.quantidade - item.quantidade_entregue, // Quantidade pendente
+      quantidade_recebida: item.quantidade - item.quantidade_entregue,
       observacao: '',
     }));
     
@@ -212,16 +326,156 @@ function OrdensList() {
     setShowRecebimento(true);
   };
 
-  const handleCriarRecebimento = async () => {
+  const handleAbrirExcluir = (ordem: OrdemFornecimento) => {
+    setOrdemSelecionada(ordem);
+    setShowExcluir(true);
+  };
+
+  // Ações
+  const handleEnviar = async () => {
     if (!ordemSelecionada) return;
     
-    // Valida se há itens
-    if (formRecebimento.itens.length === 0) {
-      alert('É necessário informar pelo menos um item recebido');
+    setProcessando(true);
+    try {
+      const endpoint = isReenvio 
+        ? `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/reenviar`
+        : `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/enviar`;
+      
+      const response = await authFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          email_fornecedor: emailFornecedor,
+          observacoes: observacoesEnvio,
+        }),
+      });
+
+      if (response.ok) {
+        alert(`Ordem ${isReenvio ? 'reenviada' : 'enviada'} com sucesso!`);
+        setShowEnviar(false);
+        carregarOrdens();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao ${isReenvio ? 'reenviar' : 'enviar'}: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao enviar:', error);
+      alert('Erro ao enviar ordem');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleCancelar = async () => {
+    if (!ordemSelecionada) return;
+    
+    if (!motivoCancelamento.trim() || motivoCancelamento.trim().length < 10) {
+      alert('Por favor, informe o motivo do cancelamento (mínimo 10 caracteres)');
       return;
     }
 
-    // Valida quantidades recebidas
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/cancelar`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ motivo: motivoCancelamento.trim() }),
+        }
+      );
+
+      if (response.ok) {
+        const foiEnviada = ['ENVIADA', 'EM_ATENDIMENTO', 'ATENDIDA_PARCIAL'].includes(ordemSelecionada.status);
+        alert(
+          `Ordem ${ordemSelecionada.numero} cancelada com sucesso!` + 
+          (foiEnviada ? '\n\nO fornecedor foi notificado sobre o cancelamento.' : '')
+        );
+        setShowCancelar(false);
+        carregarOrdens();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao cancelar: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao cancelar:', error);
+      alert('Erro ao cancelar ordem');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleEditar = async () => {
+    if (!ordemSelecionada) return;
+
+    setProcessando(true);
+    try {
+      const payload: any = {};
+      
+      if (formEditar.local_entrega !== ordemSelecionada.local_entrega) {
+        payload.local_entrega = formEditar.local_entrega;
+      }
+      if (formEditar.observacoes !== ordemSelecionada.observacoes) {
+        payload.observacoes = formEditar.observacoes;
+      }
+      if (formEditar.data_entrega_prevista) {
+        payload.data_entrega_prevista = formEditar.data_entrega_prevista;
+      }
+      if (formEditar.prazo_entrega_dias) {
+        payload.prazo_entrega_dias = Number(formEditar.prazo_entrega_dias);
+      }
+
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (response.ok) {
+        alert('Ordem atualizada com sucesso!');
+        setShowEditar(false);
+        carregarOrdens();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao editar: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao editar:', error);
+      alert('Erro ao editar ordem');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleExcluir = async () => {
+    if (!ordemSelecionada) return;
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}`,
+        { method: 'DELETE' }
+      );
+
+      if (response.ok) {
+        alert(`Ordem ${ordemSelecionada.numero} excluída com sucesso!`);
+        setShowExcluir(false);
+        carregarOrdens();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir:', error);
+      alert('Erro ao excluir ordem');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleCriarRecebimento = async () => {
+    if (!ordemSelecionada) return;
+    
     const itensComQuantidade = formRecebimento.itens.filter(item => item.quantidade_recebida > 0);
     if (itensComQuantidade.length === 0) {
       alert('É necessário informar quantidades recebidas para pelo menos um item');
@@ -262,13 +516,10 @@ function OrdensList() {
         payload.observacoes = formRecebimento.observacoes.trim();
       }
 
-      const response = await authFetch(
-        `${API_URL}/api/almoxarifado/recebimentos`,
-        {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        }
-      );
+      const response = await authFetch(`${API_URL}/api/almoxarifado/recebimentos`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
       if (response.ok) {
         const recebimentoCriado = await response.json();
@@ -287,71 +538,6 @@ function OrdensList() {
     }
   };
 
-  const handleEnviar = async () => {
-    if (!ordemSelecionada) return;
-    
-    setProcessando(true);
-    try {
-      const response = await authFetch(
-        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/enviar`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            email_fornecedor: emailFornecedor,
-            observacoes: observacoesEnvio,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        alert('Ordem enviada com sucesso!');
-        setShowEnviar(false);
-        carregarOrdens();
-      } else {
-        const error = await response.json();
-        alert(`Erro ao enviar: ${error.message || 'Erro desconhecido'}`);
-      }
-    } catch (error) {
-      console.error('Erro ao enviar:', error);
-      alert('Erro ao enviar ordem');
-    } finally {
-      setProcessando(false);
-    }
-  };
-
-  const handleAbrirExcluir = (ordem: OrdemFornecimento) => {
-    setOrdemSelecionada(ordem);
-    setShowExcluir(true);
-  };
-
-  const handleExcluir = async () => {
-    if (!ordemSelecionada) return;
-
-    setProcessando(true);
-    try {
-      const response = await authFetch(
-        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}`,
-        {
-          method: 'DELETE',
-        }
-      );
-
-      if (response.ok) {
-        alert(`Ordem ${ordemSelecionada.numero} excluída com sucesso!`);
-        setShowExcluir(false);
-        carregarOrdens();
-      } else {
-        const error = await response.json();
-        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
-      }
-    } catch (error) {
-      console.error('Erro ao excluir:', error);
-      alert('Erro ao excluir ordem');
-    } finally {
-      setProcessando(false);
-    }
-  };
-
   const handleDownloadPDF = async (ordemId: string, ordemNumero: string) => {
     try {
       setGerandoPDF(ordemId);
@@ -361,10 +547,7 @@ function OrdensList() {
         throw new Error('Erro ao gerar PDF');
       }
 
-      // Cria um blob do PDF
       const blob = await response.blob();
-      
-      // Cria um link temporário e faz o download
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -384,6 +567,51 @@ function OrdensList() {
   const getPercentualAtendimento = (ordem: OrdemFornecimento) => {
     if (Number(ordem.valor_total) === 0) return 0;
     return (Number(ordem.valor_entregue) / Number(ordem.valor_total)) * 100;
+  };
+
+  // Determina quais ações estão disponíveis para cada status
+  const getAcoesDisponiveis = (ordem: OrdemFornecimento) => {
+    const acoes = {
+      verDetalhes: true,
+      baixarPDF: true,
+      verHistorico: true,
+      enviar: false,
+      reenviar: false,
+      editar: false,
+      registrarRecebimento: false,
+      excluir: false,
+      cancelar: false,
+    };
+
+    switch (ordem.status) {
+      case 'RASCUNHO':
+      case 'EMITIDA':
+        acoes.enviar = true;
+        acoes.editar = true;
+        acoes.excluir = true;
+        break;
+      case 'ENVIADA':
+      case 'EM_ATENDIMENTO':
+        acoes.reenviar = true;
+        acoes.editar = true;
+        acoes.cancelar = true;
+        acoes.registrarRecebimento = ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
+        break;
+      case 'ATENDIDA_PARCIAL':
+        acoes.reenviar = true;
+        acoes.editar = true;
+        acoes.cancelar = true;
+        acoes.registrarRecebimento = ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
+        break;
+      case 'ATENDIDA':
+        // Só pode ver detalhes, PDF e histórico
+        break;
+      case 'CANCELADA':
+        // Só pode ver detalhes, PDF e histórico
+        break;
+    }
+
+    return acoes;
   };
 
   const ordensFiltradas = ordens.filter(ordem => {
@@ -448,6 +676,7 @@ function OrdensList() {
                 <SelectItem value="EM_ATENDIMENTO">Em Atendimento</SelectItem>
                 <SelectItem value="ATENDIDA_PARCIAL">Parcialmente Atendida</SelectItem>
                 <SelectItem value="ATENDIDA">Atendida</SelectItem>
+                <SelectItem value="CANCELADA">Cancelada</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -478,98 +707,153 @@ function OrdensList() {
                   </TableCell>
                 </TableRow>
               ) : (
-                ordensFiltradas.map((ordem) => (
-                  <TableRow key={ordem.id}>
-                    <TableCell className="font-medium">{ordem.numero}</TableCell>
-                    <TableCell>{ordem.fornecedor?.razao_social || '-'}</TableCell>
-                    <TableCell>{ordem.contrato?.numero_contrato || '-'}</TableCell>
-                    <TableCell>{formatarData(ordem.data_emissao)}</TableCell>
-                    <TableCell>{formatarMoeda(ordem.valor_total)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="bg-green-500 h-2 rounded-full" 
-                            style={{ width: `${getPercentualAtendimento(ordem)}%` }}
-                          />
+                ordensFiltradas.map((ordem) => {
+                  const acoes = getAcoesDisponiveis(ordem);
+                  return (
+                    <TableRow key={ordem.id}>
+                      <TableCell className="font-medium">{ordem.numero}</TableCell>
+                      <TableCell>{ordem.fornecedor?.razao_social || '-'}</TableCell>
+                      <TableCell>{ordem.contrato?.numero_contrato || '-'}</TableCell>
+                      <TableCell>{formatarData(ordem.data_emissao)}</TableCell>
+                      <TableCell>{formatarMoeda(ordem.valor_total)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full ${ordem.status === 'CANCELADA' ? 'bg-red-500' : 'bg-green-500'}`}
+                              style={{ width: `${getPercentualAtendimento(ordem)}%` }}
+                            />
+                          </div>
+                          <span className="text-sm text-gray-600">
+                            {getPercentualAtendimento(ordem).toFixed(0)}%
+                          </span>
                         </div>
-                        <span className="text-sm text-gray-600">
-                          {getPercentualAtendimento(ordem).toFixed(0)}%
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_COLORS[ordem.status]}>
-                        {STATUS_LABELS[ordem.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleVerDetalhes(ordem)}
-                          title="Ver detalhes"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-green-600 hover:text-green-700"
-                          onClick={() => handleDownloadPDF(ordem.id, ordem.numero)}
-                          disabled={gerandoPDF === ordem.id}
-                          title="Baixar PDF"
-                        >
-                          {gerandoPDF === ordem.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Download className="h-4 w-4" />
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={STATUS_COLORS[ordem.status]}>
+                          {STATUS_LABELS[ordem.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {/* Ver Detalhes */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleVerDetalhes(ordem)}
+                            title="Ver detalhes"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          
+                          {/* Histórico */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleAbrirHistorico(ordem)}
+                            title="Ver histórico"
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
+                          
+                          {/* Baixar PDF */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-green-600 hover:text-green-700"
+                            onClick={() => handleDownloadPDF(ordem.id, ordem.numero)}
+                            disabled={gerandoPDF === ordem.id}
+                            title="Baixar PDF"
+                          >
+                            {gerandoPDF === ordem.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </Button>
+                          
+                          {/* Enviar */}
+                          {acoes.enviar && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-blue-600 hover:text-blue-700"
+                              onClick={() => handleAbrirEnviar(ordem, false)}
+                              title="Enviar ao fornecedor"
+                            >
+                              <Send className="h-4 w-4" />
+                            </Button>
                           )}
-                        </Button>
-                        {/* Botão de enviar/reenviar - disponível para ordens não canceladas e não totalmente atendidas */}
-                        {ordem.status !== 'CANCELADA' && ordem.status !== 'ATENDIDA' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-blue-600 hover:text-blue-700"
-                            onClick={() => handleAbrirEnviar(ordem)}
-                            title={ordem.status === 'ENVIADA' || ordem.status === 'EM_ATENDIMENTO' || ordem.status === 'ATENDIDA_PARCIAL' ? 'Reenviar ao fornecedor' : 'Enviar ao fornecedor'}
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {/* Botão de registrar recebimento - disponível apenas se houver quantidade pendente */}
-                        {(ordem.status === 'ENVIADA' || ordem.status === 'EM_ATENDIMENTO' || ordem.status === 'ATENDIDA_PARCIAL') && 
-                         ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-purple-600 hover:text-purple-700"
-                            onClick={() => handleAbrirRecebimento(ordem)}
-                            disabled={processando}
-                            title="Registrar Recebimento"
-                          >
-                            <Package className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {/* Botão de excluir - apenas para RASCUNHO ou EMITIDA */}
-                        {(ordem.status === 'RASCUNHO' || ordem.status === 'EMITIDA') && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => handleAbrirExcluir(ordem)}
-                            disabled={processando}
-                            title="Excluir ordem permanentemente"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                          
+                          {/* Reenviar */}
+                          {acoes.reenviar && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-blue-600 hover:text-blue-700"
+                              onClick={() => handleAbrirEnviar(ordem, true)}
+                              title="Reenviar ao fornecedor"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          )}
+                          
+                          {/* Editar */}
+                          {acoes.editar && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-amber-600 hover:text-amber-700"
+                              onClick={() => handleAbrirEditar(ordem)}
+                              title="Editar ordem"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          
+                          {/* Registrar Recebimento */}
+                          {acoes.registrarRecebimento && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-purple-600 hover:text-purple-700"
+                              onClick={() => handleAbrirRecebimento(ordem)}
+                              title="Registrar Recebimento"
+                            >
+                              <Package className="h-4 w-4" />
+                            </Button>
+                          )}
+                          
+                          {/* Cancelar */}
+                          {acoes.cancelar && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-orange-600 hover:text-orange-700"
+                              onClick={() => handleAbrirCancelar(ordem)}
+                              title="Cancelar ordem"
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          )}
+                          
+                          {/* Excluir */}
+                          {acoes.excluir && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleAbrirExcluir(ordem)}
+                              title="Excluir ordem"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -607,7 +891,36 @@ function OrdensList() {
                     </>
                   )}
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowDetalhes(false);
+                    handleAbrirHistorico(ordemSelecionada);
+                  }}
+                >
+                  <History className="h-4 w-4 mr-2" />
+                  Ver Histórico
+                </Button>
               </div>
+
+              {/* Alerta de Cancelamento */}
+              {ordemSelecionada.status === 'CANCELADA' && (
+                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                  <div className="flex items-start gap-3">
+                    <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-red-800">Ordem Cancelada</p>
+                      <p className="text-sm text-red-700">{ordemSelecionada.motivo_cancelamento}</p>
+                      {ordemSelecionada.data_cancelamento && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Em {formatarDataHora(ordemSelecionada.data_cancelamento)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -691,11 +1004,70 @@ function OrdensList() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Enviar */}
+      {/* Modal Histórico */}
+      <Dialog open={showHistorico} onOpenChange={setShowHistorico}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Histórico da Ordem {ordemSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Timeline de todas as ações realizadas nesta ordem
+            </DialogDescription>
+          </DialogHeader>
+          
+          {carregandoHistorico ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : historico.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Nenhum histórico encontrado</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {historico.map((item, index) => (
+                <div 
+                  key={item.id} 
+                  className={`flex gap-4 ${index !== historico.length - 1 ? 'pb-4 border-b' : ''}`}
+                >
+                  <div className="text-2xl">
+                    {ACAO_ICONS[item.tipo_acao] || '📋'}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium">{item.descricao}</p>
+                    <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                      <span>{formatarDataHora(item.created_at)}</span>
+                      {item.usuario_nome && (
+                        <>
+                          <span>•</span>
+                          <span>{item.usuario_nome}</span>
+                        </>
+                      )}
+                      {item.status_novo && (
+                        <>
+                          <span>•</span>
+                          <Badge className={STATUS_COLORS[item.status_novo]} variant="outline">
+                            {STATUS_LABELS[item.status_novo]}
+                          </Badge>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Enviar/Reenviar */}
       <Dialog open={showEnviar} onOpenChange={setShowEnviar}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Enviar Ordem ao Fornecedor</DialogTitle>
+            <DialogTitle>{isReenvio ? 'Reenviar' : 'Enviar'} Ordem ao Fornecedor</DialogTitle>
             <DialogDescription>
               A ordem será enviada por email ao fornecedor
             </DialogDescription>
@@ -714,7 +1086,7 @@ function OrdensList() {
               </div>
 
               <div>
-                <label className="text-sm font-medium">Email do Fornecedor</label>
+                <Label>Email do Fornecedor</Label>
                 <Input
                   type="email"
                   value={emailFornecedor}
@@ -724,7 +1096,7 @@ function OrdensList() {
               </div>
 
               <div>
-                <label className="text-sm font-medium">Observações</label>
+                <Label>Observações</Label>
                 <Textarea
                   value={observacoesEnvio}
                   onChange={(e) => setObservacoesEnvio(e.target.value)}
@@ -741,8 +1113,141 @@ function OrdensList() {
             </Button>
             <Button onClick={handleEnviar} disabled={processando}>
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <Send className="h-4 w-4 mr-2" />
-              Enviar Ordem
+              {isReenvio ? <RefreshCw className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+              {isReenvio ? 'Reenviar' : 'Enviar'} Ordem
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Cancelar */}
+      <Dialog open={showCancelar} onOpenChange={setShowCancelar}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-orange-600 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Cancelar Ordem
+            </DialogTitle>
+            <DialogDescription>
+              {ordemSelecionada && ['ENVIADA', 'EM_ATENDIMENTO', 'ATENDIDA_PARCIAL'].includes(ordemSelecionada.status) 
+                ? 'O fornecedor será notificado sobre o cancelamento.'
+                : 'Esta ação irá cancelar a ordem de fornecimento.'
+              }
+            </DialogDescription>
+          </DialogHeader>
+          
+          {ordemSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                <p className="font-medium">{ordemSelecionada.numero}</p>
+                <p className="text-sm text-gray-600">
+                  Fornecedor: {ordemSelecionada.fornecedor?.razao_social}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Valor: {formatarMoeda(ordemSelecionada.valor_total)}
+                </p>
+                {ordemSelecionada.status === 'ATENDIDA_PARCIAL' && (
+                  <p className="text-sm text-orange-700 font-medium mt-2">
+                    ⚠️ Esta ordem já possui entregas parciais. Os recebimentos serão estornados.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label>Motivo do Cancelamento *</Label>
+                <Textarea
+                  value={motivoCancelamento}
+                  onChange={(e) => setMotivoCancelamento(e.target.value)}
+                  placeholder="Descreva o motivo do cancelamento (mínimo 10 caracteres)..."
+                  rows={3}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {motivoCancelamento.length}/10 caracteres mínimos
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelar(false)}>
+              Voltar
+            </Button>
+            <Button 
+              onClick={handleCancelar} 
+              disabled={processando || motivoCancelamento.trim().length < 10}
+              variant="destructive"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <XCircle className="h-4 w-4 mr-2" />
+              Confirmar Cancelamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Editar */}
+      <Dialog open={showEditar} onOpenChange={setShowEditar}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5 text-amber-600" />
+              Editar Ordem {ordemSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Altere os dados da ordem de fornecimento
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label>Local de Entrega</Label>
+              <Input
+                value={formEditar.local_entrega}
+                onChange={(e) => setFormEditar({ ...formEditar, local_entrega: e.target.value })}
+                placeholder="Ex: Almoxarifado Central..."
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Data de Entrega Prevista</Label>
+                <Input
+                  type="date"
+                  value={formEditar.data_entrega_prevista}
+                  onChange={(e) => setFormEditar({ ...formEditar, data_entrega_prevista: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Prazo (dias úteis)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={formEditar.prazo_entrega_dias}
+                  onChange={(e) => setFormEditar({ ...formEditar, prazo_entrega_dias: e.target.value })}
+                  placeholder="Ex: 15"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Observações</Label>
+              <Textarea
+                value={formEditar.observacoes}
+                onChange={(e) => setFormEditar({ ...formEditar, observacoes: e.target.value })}
+                placeholder="Observações adicionais..."
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditar(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditar} disabled={processando}>
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Edit className="h-4 w-4 mr-2" />
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -772,9 +1277,7 @@ function OrdensList() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">
-                    Tipo de Recebimento *
-                  </label>
+                  <Label>Tipo de Recebimento *</Label>
                   <Select
                     value={formRecebimento.tipo}
                     onValueChange={(value) => setFormRecebimento({ ...formRecebimento, tipo: value })}
@@ -790,9 +1293,7 @@ function OrdensList() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 block">
-                    Local de Recebimento
-                  </label>
+                  <Label>Local de Recebimento</Label>
                   <Input
                     placeholder="Ex: Almoxarifado Central..."
                     value={formRecebimento.local_recebimento}
@@ -805,9 +1306,7 @@ function OrdensList() {
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Dados da Nota Fiscal</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">
-                      Número da NF
-                    </label>
+                    <Label>Número da NF</Label>
                     <Input
                       placeholder="000000000"
                       value={formRecebimento.numero_nota_fiscal}
@@ -815,9 +1314,7 @@ function OrdensList() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">
-                      Série
-                    </label>
+                    <Label>Série</Label>
                     <Input
                       placeholder="001"
                       value={formRecebimento.serie_nota_fiscal}
@@ -825,9 +1322,7 @@ function OrdensList() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">
-                      Data da NF
-                    </label>
+                    <Label>Data da NF</Label>
                     <Input
                       type="date"
                       value={formRecebimento.data_nota_fiscal}
@@ -835,19 +1330,7 @@ function OrdensList() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">
-                      Chave NFE
-                    </label>
-                    <Input
-                      placeholder="Chave de acesso da NFe"
-                      value={formRecebimento.chave_nfe}
-                      onChange={(e) => setFormRecebimento({ ...formRecebimento, chave_nfe: e.target.value })}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">
-                      Valor da NF
-                    </label>
+                    <Label>Valor da NF</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -867,10 +1350,9 @@ function OrdensList() {
                       <TableRow>
                         <TableHead>#</TableHead>
                         <TableHead>Descrição</TableHead>
-                        <TableHead>Quantidade da Ordem</TableHead>
+                        <TableHead>Qtd Ordem</TableHead>
                         <TableHead>Já Entregue</TableHead>
-                        <TableHead>Quantidade Recebida *</TableHead>
-                        <TableHead>Observação</TableHead>
+                        <TableHead>Qtd Recebida *</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -884,12 +1366,8 @@ function OrdensList() {
                           <TableRow key={itemOrdem.item_contrato_id || index}>
                             <TableCell>{itemOrdem.numero_item}</TableCell>
                             <TableCell>{itemOrdem.descricao}</TableCell>
-                            <TableCell>
-                              {itemOrdem.quantidade} {itemOrdem.unidade_medida || ''}
-                            </TableCell>
-                            <TableCell>
-                              {itemOrdem.quantidade_entregue} {itemOrdem.unidade_medida || ''}
-                            </TableCell>
+                            <TableCell>{itemOrdem.quantidade}</TableCell>
+                            <TableCell>{itemOrdem.quantidade_entregue}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <Input
@@ -916,37 +1394,9 @@ function OrdensList() {
                                   className="w-24"
                                 />
                                 <span className="text-xs text-gray-500">
-                                  (pendente: {quantidadePendente})
+                                  (pend: {quantidadePendente})
                                 </span>
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                placeholder="Observação..."
-                                value={itemRecebimento.observacao || ''}
-                                onChange={(e) => {
-                                  const novosItens = formRecebimento.itens.filter(
-                                    i => i.item_contrato_id !== itemOrdem.item_contrato_id
-                                  );
-                                  const itemExistente = formRecebimento.itens.find(
-                                    i => i.item_contrato_id === itemOrdem.item_contrato_id
-                                  );
-                                  if (itemExistente) {
-                                    novosItens.push({
-                                      ...itemExistente,
-                                      observacao: e.target.value,
-                                    });
-                                  } else {
-                                    novosItens.push({
-                                      item_contrato_id: itemOrdem.item_contrato_id,
-                                      quantidade_recebida: 0,
-                                      observacao: e.target.value,
-                                    });
-                                  }
-                                  setFormRecebimento({ ...formRecebimento, itens: novosItens });
-                                }}
-                                className="w-48"
-                              />
                             </TableCell>
                           </TableRow>
                         );
@@ -957,9 +1407,7 @@ function OrdensList() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">
-                  Observações Gerais
-                </label>
+                <Label>Observações Gerais</Label>
                 <Textarea
                   placeholder="Observações sobre o recebimento..."
                   value={formRecebimento.observacoes}
@@ -987,7 +1435,7 @@ function OrdensList() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Excluir Ordem */}
+      {/* Modal Excluir */}
       <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
         <DialogContent>
           <DialogHeader>

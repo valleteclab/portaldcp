@@ -99,3 +99,63 @@ export class AceitarRecebimentoDto {
   @IsString()
   observacoes?: string;
 }
+
+// ============================================================================
+// EDIÇÃO DE ORDEM
+// ============================================================================
+
+export class ItemOrdemEditDto {
+  @IsUUID()
+  item_contrato_id: string;
+
+  @IsOptional()
+  @IsNumber()
+  quantidade?: number;
+}
+
+export class EditarOrdemDto {
+  @IsOptional()
+  @IsString()
+  local_entrega?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data_entrega_prevista?: string;
+
+  @IsOptional()
+  @IsNumber()
+  prazo_entrega_dias?: number;
+
+  @IsOptional()
+  @IsString()
+  observacoes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ItemOrdemEditDto)
+  itens?: ItemOrdemEditDto[];
+}
+
+// ============================================================================
+// CANCELAMENTO DE ORDEM
+// ============================================================================
+
+export class CancelarOrdemDto {
+  @IsString()
+  motivo: string;
+}
+
+// ============================================================================
+// ENVIO DE ORDEM
+// ============================================================================
+
+export class EnviarOrdemDto {
+  @IsOptional()
+  @IsString()
+  email_fornecedor?: string;
+
+  @IsOptional()
+  @IsString()
+  observacoes?: string;
+}

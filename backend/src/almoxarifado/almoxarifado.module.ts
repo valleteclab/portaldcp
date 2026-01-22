@@ -14,6 +14,7 @@ import { ItemRequisicao } from './entities/item-requisicao.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { Recebimento } from './entities/recebimento.entity';
 import { ConfiguracaoAprovacao } from './entities/configuracao-aprovacao.entity';
+import { HistoricoOrdemFornecimento } from './entities/historico-ordem.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
@@ -30,6 +31,7 @@ import { ContratosModule } from '../contratos/contratos.module';
       OrdemFornecimento,
       Recebimento,
       ConfiguracaoAprovacao,
+      HistoricoOrdemFornecimento,
       Contrato,
       Orgao,
       Fornecedor,

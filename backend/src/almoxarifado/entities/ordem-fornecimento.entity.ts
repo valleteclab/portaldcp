@@ -194,6 +194,38 @@ export class OrdemFornecimento {
   usuario_fiscal_nome: string | null;
 
   // ============================================================================
+  // CANCELAMENTO
+  // ============================================================================
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_cancelamento: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  motivo_cancelamento: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  usuario_cancelamento_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  usuario_cancelamento_nome: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  fornecedor_notificado_cancelamento: boolean;
+
+  // ============================================================================
+  // ACEITE DO FORNECEDOR
+  // ============================================================================
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_visualizacao_fornecedor: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_aceite_fornecedor: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  observacao_fornecedor: string | null;
+
+  // ============================================================================
   // OBSERVAÇÕES
   // ============================================================================
 
