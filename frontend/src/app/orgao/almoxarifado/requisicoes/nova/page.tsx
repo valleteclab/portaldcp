@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
   ArrowLeft, 
   ArrowRight,
   Check,
-  Plus, 
   Trash2, 
   Search,
   Loader2,
@@ -17,7 +16,10 @@ import {
   FileText,
   Building2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  LayoutGrid,
+  List,
+  RotateCcw
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,9 +42,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+
+// Chave para localStorage
+const RASCUNHO_KEY = 'requisicao_rascunho';
 
 interface Contrato {
   id: string;
@@ -80,6 +93,21 @@ interface ItemRequisicao {
   saldo_disponivel: number;
 }
 
+interface RascunhoRequisicao {
+  etapa: number;
+  contratoId: string | null;
+  itensRequisicao: ItemRequisicao[];
+  tipo: string;
+  setorSolicitante: string;
+  codigoSetor: string;
+  localEntrega: string;
+  justificativa: string;
+  prioridade: string;
+  dataNecessidade: string;
+  observacoes: string;
+  savedAt: string;
+}
+
 // Componente de Progresso das Etapas
 function StepProgress({ currentStep, steps }: { currentStep: number; steps: string[] }) {
   return (
@@ -115,6 +143,60 @@ function StepProgress({ currentStep, steps }: { currentStep: number; steps: stri
   );
 }
 
+// Componente de Input de Quantidade melhorado
+function QuantidadeInput({ 
+  value, 
+  max, 
+  onChange,
+  disabled = false,
+}: { 
+  value: number; 
+  max: number; 
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const [inputValue, setInputValue] = useState(String(value));
+  
+  useEffect(() => {
+    setInputValue(String(value));
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    // Permite campo vazio ou números
+    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+      setInputValue(val);
+    }
+  };
+
+  const handleBlur = () => {
+    let numValue = parseFloat(inputValue) || 0;
+    // Garante mínimo 1 e máximo = saldo
+    numValue = Math.max(1, Math.min(numValue, max));
+    setInputValue(String(numValue));
+    onChange(numValue);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleBlur();
+    }
+  };
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={inputValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      disabled={disabled}
+      className="w-24 text-center"
+    />
+  );
+}
+
 function NovaRequisicaoForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -124,6 +206,13 @@ function NovaRequisicaoForm() {
   const [etapa, setEtapa] = useState(0);
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  
+  // Modal de recuperação de rascunho
+  const [showRecuperarRascunho, setShowRecuperarRascunho] = useState(false);
+  const [rascunhoSalvo, setRascunhoSalvo] = useState<RascunhoRequisicao | null>(null);
+  
+  // Visualização de contratos (cards ou lista)
+  const [visualizacaoContratos, setVisualizacaoContratos] = useState<'cards' | 'lista'>('cards');
   
   // Etapa 1: Contrato
   const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -146,7 +235,99 @@ function NovaRequisicaoForm() {
   const [dataNecessidade, setDataNecessidade] = useState('');
   const [observacoes, setObservacoes] = useState('');
 
+  // Ref para controlar auto-save
+  const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [ultimoSalvamento, setUltimoSalvamento] = useState<Date | null>(null);
+
   const STEPS = ['Contrato', 'Itens', 'Dados', 'Resumo'];
+
+  // =========================================================================
+  // AUTO-SAVE LOCAL
+  // =========================================================================
+
+  const salvarRascunhoLocal = useCallback(() => {
+    const rascunho: RascunhoRequisicao = {
+      etapa,
+      contratoId: contratoSelecionado?.id || null,
+      itensRequisicao,
+      tipo,
+      setorSolicitante,
+      codigoSetor,
+      localEntrega,
+      justificativa,
+      prioridade,
+      dataNecessidade,
+      observacoes,
+      savedAt: new Date().toISOString(),
+    };
+
+    // Só salva se tiver algo preenchido
+    if (contratoSelecionado || itensRequisicao.length > 0 || setorSolicitante || justificativa) {
+      localStorage.setItem(RASCUNHO_KEY, JSON.stringify(rascunho));
+      setUltimoSalvamento(new Date());
+    }
+  }, [etapa, contratoSelecionado, itensRequisicao, tipo, setorSolicitante, codigoSetor, localEntrega, justificativa, prioridade, dataNecessidade, observacoes]);
+
+  const limparRascunhoLocal = () => {
+    localStorage.removeItem(RASCUNHO_KEY);
+    setUltimoSalvamento(null);
+  };
+
+  const carregarRascunhoLocal = (): RascunhoRequisicao | null => {
+    const saved = localStorage.getItem(RASCUNHO_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const aplicarRascunho = (rascunho: RascunhoRequisicao) => {
+    setEtapa(rascunho.etapa);
+    setItensRequisicao(rascunho.itensRequisicao);
+    setTipo(rascunho.tipo);
+    setSetorSolicitante(rascunho.setorSolicitante);
+    setCodigoSetor(rascunho.codigoSetor);
+    setLocalEntrega(rascunho.localEntrega);
+    setJustificativa(rascunho.justificativa);
+    setPrioridade(rascunho.prioridade);
+    setDataNecessidade(rascunho.dataNecessidade);
+    setObservacoes(rascunho.observacoes);
+    setShowRecuperarRascunho(false);
+  };
+
+  // Auto-save com debounce
+  useEffect(() => {
+    if (autoSaveTimeout.current) {
+      clearTimeout(autoSaveTimeout.current);
+    }
+
+    autoSaveTimeout.current = setTimeout(() => {
+      salvarRascunhoLocal();
+    }, 2000); // Salva após 2 segundos de inatividade
+
+    return () => {
+      if (autoSaveTimeout.current) {
+        clearTimeout(autoSaveTimeout.current);
+      }
+    };
+  }, [salvarRascunhoLocal]);
+
+  // Verificar rascunho ao carregar
+  useEffect(() => {
+    const rascunho = carregarRascunhoLocal();
+    if (rascunho && !contratoIdUrl) {
+      setRascunhoSalvo(rascunho);
+      setShowRecuperarRascunho(true);
+    }
+  }, [contratoIdUrl]);
+
+  // =========================================================================
+  // CARREGAR DADOS
+  // =========================================================================
 
   useEffect(() => {
     carregarContratos();
@@ -159,6 +340,7 @@ function NovaRequisicaoForm() {
       if (contrato) {
         setContratoSelecionado(contrato);
         setEtapa(1);
+        limparRascunhoLocal(); // Limpa rascunho se veio da URL
       }
     }
   }, [contratoIdUrl, contratos]);
@@ -169,6 +351,16 @@ function NovaRequisicaoForm() {
       carregarItensContrato();
     }
   }, [contratoSelecionado]);
+
+  // Aplicar contrato do rascunho após carregar contratos
+  useEffect(() => {
+    if (rascunhoSalvo?.contratoId && contratos.length > 0 && !showRecuperarRascunho) {
+      const contrato = contratos.find(c => c.id === rascunhoSalvo.contratoId);
+      if (contrato) {
+        setContratoSelecionado(contrato);
+      }
+    }
+  }, [rascunhoSalvo, contratos, showRecuperarRascunho]);
 
   const carregarContratos = async () => {
     try {
@@ -208,6 +400,10 @@ function NovaRequisicaoForm() {
     }
   };
 
+  // =========================================================================
+  // HELPERS
+  // =========================================================================
+
   const formatarMoeda = (valor: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -218,6 +414,11 @@ function NovaRequisicaoForm() {
   const formatarData = (data: string) => {
     if (!data) return '-';
     return new Date(data).toLocaleDateString('pt-BR');
+  };
+
+  const formatarDataHora = (data: string) => {
+    if (!data) return '-';
+    return new Date(data).toLocaleString('pt-BR');
   };
 
   // Filtrar contratos
@@ -232,6 +433,10 @@ function NovaRequisicaoForm() {
     i.descricao.toLowerCase().includes(buscaItem.toLowerCase()) ||
     String(i.numero_item).includes(buscaItem)
   );
+
+  // =========================================================================
+  // HANDLERS
+  // =========================================================================
 
   const handleSelecionarContrato = (contrato: Contrato) => {
     setContratoSelecionado(contrato);
@@ -350,6 +555,9 @@ function NovaRequisicaoForm() {
 
       const requisicao = await response.json();
 
+      // Limpa rascunho local após salvar com sucesso
+      limparRascunhoLocal();
+
       if (enviarParaAutorizacao) {
         const responseEnviar = await authFetch(
           `${API_URL}/api/almoxarifado/requisicoes/${requisicao.id}/enviar`,
@@ -382,13 +590,36 @@ function NovaRequisicaoForm() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-blue-600" />
-            Selecione o Contrato
-          </CardTitle>
-          <CardDescription>
-            Escolha o contrato de onde serão solicitados os itens
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-600" />
+                Selecione o Contrato
+              </CardTitle>
+              <CardDescription>
+                Escolha o contrato de onde serão solicitados os itens
+              </CardDescription>
+            </div>
+            {/* Toggle visualização */}
+            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+              <Button
+                variant={visualizacaoContratos === 'cards' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setVisualizacaoContratos('cards')}
+                title="Visualização em cards"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={visualizacaoContratos === 'lista' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setVisualizacaoContratos('lista')}
+                title="Visualização em lista"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="relative mb-6">
@@ -410,7 +641,8 @@ function NovaRequisicaoForm() {
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>Nenhum contrato ativo encontrado</p>
             </div>
-          ) : (
+          ) : visualizacaoContratos === 'cards' ? (
+            // VISUALIZAÇÃO EM CARDS
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto">
               {contratosFiltrados.map((contrato) => (
                 <Card
@@ -458,7 +690,73 @@ function NovaRequisicaoForm() {
                 </Card>
               ))}
             </div>
+          ) : (
+            // VISUALIZAÇÃO EM LISTA (TABELA)
+            <div className="max-h-[500px] overflow-y-auto border rounded-lg">
+              <Table>
+                <TableHeader className="sticky top-0 bg-white">
+                  <TableRow>
+                    <TableHead className="w-12"></TableHead>
+                    <TableHead>Número</TableHead>
+                    <TableHead>Objeto</TableHead>
+                    <TableHead>Fornecedor</TableHead>
+                    <TableHead>Vigência</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {contratosFiltrados.map((contrato) => (
+                    <TableRow 
+                      key={contrato.id}
+                      className={`
+                        cursor-pointer
+                        ${contratoSelecionado?.id === contrato.id 
+                          ? 'bg-blue-50' 
+                          : 'hover:bg-gray-50'
+                        }
+                      `}
+                      onClick={() => handleSelecionarContrato(contrato)}
+                    >
+                      <TableCell>
+                        <input
+                          type="radio"
+                          checked={contratoSelecionado?.id === contrato.id}
+                          onChange={() => handleSelecionarContrato(contrato)}
+                          className="h-4 w-4"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono">
+                          {contrato.numero_contrato}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[250px]">
+                        <span className="line-clamp-2 text-sm">
+                          {contrato.objeto || '-'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-[150px]">
+                        <span className="truncate text-sm">
+                          {contrato.fornecedor?.razao_social || '-'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-gray-500 whitespace-nowrap">
+                        {formatarData(contrato.data_inicio)} - {formatarData(contrato.data_fim)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-blue-600">
+                        {formatarMoeda(contrato.valor_inicial)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
+
+          {/* Info de quantidade */}
+          <div className="mt-4 text-sm text-gray-500 text-center">
+            {contratosFiltrados.length} contrato(s) encontrado(s)
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -575,13 +873,10 @@ function NovaRequisicaoForm() {
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           {selecionado ? (
-                            <Input
-                              type="number"
-                              min={1}
-                              max={item.saldo_disponivel}
+                            <QuantidadeInput
                               value={itemReq?.quantidade_solicitada || 1}
-                              onChange={(e) => handleAlterarQuantidade(item.id, Number(e.target.value))}
-                              className="w-24"
+                              max={Number(item.saldo_disponivel)}
+                              onChange={(val) => handleAlterarQuantidade(item.id, val)}
                             />
                           ) : (
                             <span className="text-gray-400">-</span>
@@ -859,18 +1154,80 @@ function NovaRequisicaoForm() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Modal de Recuperação de Rascunho */}
+      <Dialog open={showRecuperarRascunho} onOpenChange={setShowRecuperarRascunho}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-blue-600" />
+              Rascunho Encontrado
+            </DialogTitle>
+            <DialogDescription>
+              Encontramos um rascunho de requisição não finalizado.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {rascunhoSalvo && (
+            <div className="bg-blue-50 p-4 rounded-lg space-y-2">
+              <p className="text-sm">
+                <strong>Salvo em:</strong> {formatarDataHora(rascunhoSalvo.savedAt)}
+              </p>
+              {rascunhoSalvo.itensRequisicao.length > 0 && (
+                <p className="text-sm">
+                  <strong>Itens:</strong> {rascunhoSalvo.itensRequisicao.length}
+                </p>
+              )}
+              {rascunhoSalvo.setorSolicitante && (
+                <p className="text-sm">
+                  <strong>Setor:</strong> {rascunhoSalvo.setorSolicitante}
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                limparRascunhoLocal();
+                setShowRecuperarRascunho(false);
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Descartar
+            </Button>
+            <Button
+              onClick={() => rascunhoSalvo && aplicarRascunho(rascunhoSalvo)}
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Continuar Rascunho
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/orgao/almoxarifado/requisicoes">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Voltar
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Nova Requisição</h1>
-          <p className="text-gray-500">Solicite materiais ou serviços</p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/orgao/almoxarifado/requisicoes">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Voltar
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Nova Requisição</h1>
+            <p className="text-gray-500">Solicite materiais ou serviços</p>
+          </div>
         </div>
+        
+        {/* Indicador de auto-save */}
+        {ultimoSalvamento && (
+          <div className="text-xs text-gray-400 flex items-center gap-1">
+            <Save className="h-3 w-3" />
+            Salvo localmente às {ultimoSalvamento.toLocaleTimeString('pt-BR')}
+          </div>
+        )}
       </div>
 
       {/* Progress Steps */}
