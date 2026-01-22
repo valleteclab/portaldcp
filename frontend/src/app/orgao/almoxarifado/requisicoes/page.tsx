@@ -18,7 +18,8 @@ import {
   Download,
   FilePlus,
   Ban,
-  Trash2
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -91,6 +92,7 @@ interface Requisicao {
     };
   };
   itens: ItemRequisicao[];
+  status_anterior_cancelamento?: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -143,9 +145,11 @@ function RequisicoesList() {
   const [showNegar, setShowNegar] = useState(false);
   const [showCancelar, setShowCancelar] = useState(false);
   const [showExcluir, setShowExcluir] = useState(false);
+  const [showReativar, setShowReativar] = useState(false);
   const [showGerarOrdem, setShowGerarOrdem] = useState(false);
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  const [motivoReativacao, setMotivoReativacao] = useState('');
   const [processando, setProcessando] = useState(false);
   const [infoExclusao, setInfoExclusao] = useState<{
     temOrdem: boolean;
@@ -345,6 +349,46 @@ function RequisicoesList() {
     } catch (error) {
       console.error('Erro ao excluir:', error);
       alert('Erro ao excluir requisição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleAbrirReativar = (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    setMotivoReativacao('');
+    setShowReativar(true);
+  };
+
+  const handleReativar = async () => {
+    if (!requisicaoSelecionada || !motivoReativacao.trim()) {
+      alert('Por favor, informe o motivo da reativação.');
+      return;
+    }
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/reativar`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ motivo: motivoReativacao.trim() }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        alert(data.mensagem || `Requisição ${requisicaoSelecionada.numero} reativada com sucesso!`);
+        setShowReativar(false);
+        setMotivoReativacao('');
+        carregarRequisicoes();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao reativar: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao reativar:', error);
+      alert('Erro ao reativar requisição.');
     } finally {
       setProcessando(false);
     }
@@ -787,6 +831,18 @@ function RequisicoesList() {
                             title="Cancelar requisição (requer permissão)"
                           >
                             <Ban className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* Botão de reativar - apenas para CANCELADA */}
+                        {req.status === 'CANCELADA' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-green-600 hover:text-green-700"
+                            onClick={() => handleAbrirReativar(req)}
+                            title="Reativar requisição cancelada"
+                          >
+                            <RotateCcw className="h-4 w-4" />
                           </Button>
                         )}
                         {/* Botão de excluir - apenas para RASCUNHO ou CANCELADA sem ordem */}

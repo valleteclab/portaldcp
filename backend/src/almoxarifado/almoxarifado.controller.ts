@@ -305,6 +305,23 @@ export class AlmoxarifadoController {
     };
   }
 
+  @Post('requisicoes/:id/reativar')
+  async reativarRequisicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('motivo') motivo: string,
+  ) {
+    const requisicaoReativada = await this.requisicaoService.reativar(
+      id,
+      motivo || 'Reativada pelo usuário'
+    );
+    
+    return {
+      ...requisicaoReativada,
+      mensagem: `Requisição reativada com sucesso. Status: ${requisicaoReativada.status}. ` +
+        (requisicaoReativada.saldo_reservado ? 'Saldo re-reservado no contrato.' : ''),
+    };
+  }
+
   @Delete('requisicoes/:id')
   async excluirRequisicao(@Param('id', ParseUUIDPipe) id: string) {
     // Obtém informações antes de excluir

@@ -178,6 +178,13 @@ export class Requisicao {
   @Column({ type: 'text', nullable: true })
   observacao_autorizador: string | null; // Justificativa em caso de negativa
 
+  @Column({ 
+    type: 'enum', 
+    enum: StatusRequisicao, 
+    nullable: true 
+  })
+  status_anterior_cancelamento: StatusRequisicao | null; // Status antes de ser cancelada (para reativação)
+
   // ============================================================================
   // VALORES (calculados a partir dos itens)
   // ============================================================================

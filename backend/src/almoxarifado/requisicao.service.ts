@@ -681,6 +681,8 @@ export class RequisicaoService {
       }
 
       // Atualiza requisição
+      // Salva o status anterior para permitir reativação
+      requisicao.status_anterior_cancelamento = requisicao.status;
       requisicao.status = StatusRequisicao.CANCELADA;
       requisicao.saldo_reservado = false;
       requisicao.observacoes = `${requisicao.observacoes || ''}\n[Cancelada] ${motivo}`.trim();
@@ -697,6 +699,161 @@ export class RequisicaoService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Erro ao cancelar requisição ${requisicao.numero}: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================================================
+  // REATIVAR REQUISIÇÃO CANCELADA
+  // ============================================================================
+
+  /**
+   * Reativa uma requisição cancelada, voltando para o status anterior
+   * 
+   * IMPORTANTE: 
+   * - Só permite reativar requisições em CANCELADA
+   * - Se tinha ordem de fornecimento quando foi cancelada, volta para AUTORIZADA (ordem foi excluída)
+   * - Se estava AUTORIZADA, re-reserva o saldo no contrato (verifica disponibilidade primeiro)
+   * - Se estava AGUARDANDO_AUTORIZACAO, volta para esse status
+   * - Se estava RASCUNHO, volta para RASCUNHO
+   * - Se estava NEGADA, volta para AGUARDANDO_AUTORIZACAO (pode tentar aprovar novamente)
+   * 
+   * NÃO permite reativar se:
+   * - Não está em CANCELADA
+   * - Não tem status_anterior_cancelamento registrado
+   * - Estava AUTORIZADA mas não há mais saldo disponível no contrato
+   */
+  async reativar(id: string, motivo: string): Promise<Requisicao> {
+    const requisicao = await this.findOne(id);
+
+    // Só permite reativar se estiver CANCELADA
+    if (requisicao.status !== StatusRequisicao.CANCELADA) {
+      throw new BadRequestException(
+        `Requisição não pode ser reativada. Status atual: ${requisicao.status}. ` +
+        `Apenas requisições canceladas podem ser reativadas.`
+      );
+    }
+
+    // Verifica se tem status anterior registrado
+    if (!requisicao.status_anterior_cancelamento) {
+      throw new BadRequestException(
+        'Não foi possível determinar o status anterior desta requisição. ' +
+        'Reativação não é possível sem essa informação.'
+      );
+    }
+
+    const statusAnterior = requisicao.status_anterior_cancelamento;
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Se estava AUTORIZADA ou ORDEM_GERADA, precisa re-reservar saldo
+      if (
+        statusAnterior === StatusRequisicao.AUTORIZADA ||
+        statusAnterior === StatusRequisicao.ORDEM_GERADA
+      ) {
+        // Verifica disponibilidade de saldo antes de re-reservar
+        for (const item of requisicao.itens) {
+          if (item.item_contrato_id) {
+            const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+              where: { id: item.item_contrato_id },
+              lock: { mode: 'pessimistic_write' },
+            });
+
+            if (itemContrato) {
+              const quantidadeASolicitar = item.quantidade_autorizada ?? item.quantidade_solicitada;
+              const saldoDisponivel = Number(itemContrato.saldo_disponivel);
+
+              if (saldoDisponivel < quantidadeASolicitar) {
+                throw new BadRequestException(
+                  `Não há saldo suficiente para reativar esta requisição. ` +
+                  `Item: ${itemContrato.descricao}, ` +
+                  `Saldo disponível: ${saldoDisponivel}, ` +
+                  `Quantidade solicitada: ${quantidadeASolicitar}.`
+                );
+              }
+            }
+          }
+        }
+
+        // Re-reserva saldo
+        for (const item of requisicao.itens) {
+          if (item.item_contrato_id && item.status === StatusItemRequisicao.CANCELADO) {
+            const quantidadeAReservar = item.quantidade_autorizada ?? item.quantidade_solicitada;
+
+            const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+              where: { id: item.item_contrato_id },
+              lock: { mode: 'pessimistic_write' },
+            });
+
+            if (itemContrato) {
+              // Re-reserva saldo
+              itemContrato.quantidade_empenhada = 
+                Number(itemContrato.quantidade_empenhada) + quantidadeAReservar;
+              itemContrato.saldo_disponivel = 
+                Number(itemContrato.quantidade_contratada) - 
+                Number(itemContrato.quantidade_empenhada) - 
+                Number(itemContrato.quantidade_entregue);
+
+              await queryRunner.manager.save(itemContrato);
+
+              this.logger.log(
+                `Saldo re-reservado (reativação): Item ${itemContrato.descricao}, ` +
+                `Quantidade: ${quantidadeAReservar}, ` +
+                `Novo saldo: ${itemContrato.saldo_disponivel}`
+              );
+            }
+
+            // Atualiza status do item
+            item.status = StatusItemRequisicao.RESERVADO;
+            await queryRunner.manager.save(item);
+          }
+        }
+
+        requisicao.saldo_reservado = true;
+      }
+
+      // Define o novo status baseado no status anterior
+      let novoStatus: StatusRequisicao;
+
+      if (statusAnterior === StatusRequisicao.ORDEM_GERADA) {
+        // Se tinha ordem, volta para AUTORIZADA (ordem foi excluída, precisa gerar nova)
+        novoStatus = StatusRequisicao.AUTORIZADA;
+        requisicao.ordem_fornecimento_id = null; // Garante que não há referência a ordem excluída
+      } else if (statusAnterior === StatusRequisicao.NEGADA) {
+        // Se estava negada, volta para aguardando aprovação (pode tentar aprovar novamente)
+        novoStatus = StatusRequisicao.AGUARDANDO_AUTORIZACAO;
+        // Limpa dados da autorização anterior
+        requisicao.usuario_autorizador_id = null;
+        requisicao.usuario_autorizador_nome = null;
+        requisicao.data_autorizacao = null;
+        requisicao.observacao_autorizador = null;
+      } else {
+        // Para outros status (RASCUNHO, AGUARDANDO_AUTORIZACAO, AUTORIZADA), volta para o mesmo status
+        novoStatus = statusAnterior;
+      }
+
+      // Atualiza requisição
+      requisicao.status = novoStatus;
+      requisicao.status_anterior_cancelamento = null; // Limpa o status anterior
+      requisicao.observacoes = `${requisicao.observacoes || ''}\n[Reativada] ${motivo}`.trim();
+
+      await queryRunner.manager.save(requisicao);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Requisição ${requisicao.numero} reativada. ` +
+        `Status anterior: ${statusAnterior}, Novo status: ${novoStatus}. ` +
+        (requisicao.saldo_reservado ? 'Saldo re-reservado.' : '')
+      );
+
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Erro ao reativar requisição ${requisicao.numero}: ${error.message}`, error.stack);
       throw error;
     } finally {
       await queryRunner.release();
