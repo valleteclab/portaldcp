@@ -116,6 +116,7 @@ function OrdensList() {
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showEnviar, setShowEnviar] = useState(false);
   const [showRecebimento, setShowRecebimento] = useState(false);
+  const [showExcluir, setShowExcluir] = useState(false);
   const [emailFornecedor, setEmailFornecedor] = useState('');
   const [observacoesEnvio, setObservacoesEnvio] = useState('');
   const [processando, setProcessando] = useState(false);
