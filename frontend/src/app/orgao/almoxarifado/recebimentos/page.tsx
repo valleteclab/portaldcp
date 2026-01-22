@@ -317,6 +317,39 @@ function RecebimentosList() {
     }
   };
 
+  const handleAbrirExcluir = (rec: Recebimento) => {
+    setRecebimentoSelecionado(rec);
+    setShowExcluir(true);
+  };
+
+  const handleExcluir = async () => {
+    if (!recebimentoSelecionado) return;
+
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/recebimentos/${recebimentoSelecionado.id}`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      if (response.ok) {
+        alert(`Recebimento ${recebimentoSelecionado.numero} excluído com sucesso!`);
+        setShowExcluir(false);
+        carregarRecebimentos();
+      } else {
+        const error = await response.json();
+        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir:', error);
+      alert('Erro ao excluir recebimento');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   const recebimentosFiltrados = recebimentos.filter(rec => {
     if (!busca) return true;
     const termo = busca.toLowerCase();

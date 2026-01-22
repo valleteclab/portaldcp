@@ -142,6 +142,7 @@ function RequisicoesList() {
   const [showAutorizar, setShowAutorizar] = useState(false);
   const [showNegar, setShowNegar] = useState(false);
   const [showCancelar, setShowCancelar] = useState(false);
+  const [showExcluir, setShowExcluir] = useState(false);
   const [showGerarOrdem, setShowGerarOrdem] = useState(false);
   const [motivoNegativa, setMotivoNegativa] = useState('');
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
