@@ -68,15 +68,20 @@ export class RequisicaoService {
     const sequencial = ultimaRequisicao ? ultimaRequisicao.sequencial + 1 : 1;
     const numero = `REQ-${String(sequencial).padStart(4, '0')}/${ano}`;
 
-    // Valida itens do contrato se houver contrato vinculado
+    // =========================================================================
+    // NOVA LÓGICA: Saldo é reservado no momento da CRIAÇÃO do pedido
+    // =========================================================================
+    
+    // Valida e prepara itens do contrato
     let valorTotalEstimado = 0;
     const itensParaCriar: Partial<ItemRequisicao>[] = [];
+    const itensContratoParaReservar: { itemContrato: ItemContrato; quantidade: number }[] = [];
 
     for (const itemDto of dto.itens) {
       let valorUnitario = itemDto.valor_unitario || 0;
       let unidadeMedida = itemDto.unidade_medida;
 
-      // Se tem item_contrato_id, busca informações do item do contrato
+      // Se tem item_contrato_id, busca informações e VALIDA SALDO
       if (itemDto.item_contrato_id) {
         const itemContrato = await this.itemContratoRepository.findOne({
           where: { id: itemDto.item_contrato_id },
@@ -95,13 +100,23 @@ export class RequisicaoService {
           );
         }
 
-        // Verifica saldo disponível (apenas aviso, não bloqueia ainda)
-        if (!itemContrato.temSaldoSuficiente(itemDto.quantidade_solicitada)) {
-          this.logger.warn(
-            `Saldo insuficiente para item ${itemContrato.descricao}. ` +
-            `Disponível: ${itemContrato.saldo_disponivel}, Solicitado: ${itemDto.quantidade_solicitada}`
+        // VALIDA SALDO - BLOQUEIA SE NÃO TIVER SALDO SUFICIENTE
+        const saldoDisponivel = Number(itemContrato.quantidade_contratada) - 
+                                Number(itemContrato.quantidade_empenhada) - 
+                                Number(itemContrato.quantidade_entregue);
+        
+        if (saldoDisponivel < itemDto.quantidade_solicitada) {
+          throw new BadRequestException(
+            `Saldo insuficiente para item "${itemContrato.descricao}". ` +
+            `Disponível: ${saldoDisponivel.toFixed(4)}, Solicitado: ${itemDto.quantidade_solicitada}`
           );
         }
+
+        // Guarda para reservar depois de criar a requisição
+        itensContratoParaReservar.push({
+          itemContrato,
+          quantidade: itemDto.quantidade_solicitada,
+        });
 
         valorUnitario = Number(itemContrato.valor_unitario);
         unidadeMedida = itemContrato.unidade_medida;
@@ -120,49 +135,93 @@ export class RequisicaoService {
         valor_unitario: valorUnitario,
         valor_total_estimado: valorTotalItem,
         observacoes: itemDto.observacoes,
-        status: StatusItemRequisicao.PENDENTE,
+        // Já marca como RESERVADO se tiver item de contrato
+        status: itemDto.item_contrato_id ? StatusItemRequisicao.RESERVADO : StatusItemRequisicao.PENDENTE,
       });
     }
 
-    // Cria requisição
-    const novaRequisicao = new Requisicao();
-    novaRequisicao.orgao_id = orgaoId;
-    novaRequisicao.contrato_id = dto.contrato_id || null;
-    novaRequisicao.numero = numero;
-    novaRequisicao.ano = ano;
-    novaRequisicao.sequencial = sequencial;
-    novaRequisicao.tipo = dto.tipo;
-    novaRequisicao.setor_solicitante = dto.setor_solicitante;
-    novaRequisicao.codigo_setor = dto.codigo_setor || null;
-    novaRequisicao.local_entrega = dto.local_entrega || null;
-    novaRequisicao.justificativa = dto.justificativa;
-    novaRequisicao.prioridade = dto.prioridade || PrioridadeRequisicao.NORMAL;
-    novaRequisicao.data_necessidade = dto.data_necessidade ? new Date(dto.data_necessidade) : null;
-    novaRequisicao.usuario_solicitante_id = usuarioId;
-    novaRequisicao.usuario_solicitante_nome = usuarioNome;
-    novaRequisicao.usuario_solicitante_email = usuarioEmail || null;
-    novaRequisicao.data_solicitacao = new Date();
-    novaRequisicao.status = StatusRequisicao.RASCUNHO;
-    novaRequisicao.valor_total_estimado = valorTotalEstimado;
-    novaRequisicao.saldo_reservado = false;
-    novaRequisicao.observacoes = dto.observacoes || null;
+    // Usa transação para garantir atomicidade (criar requisição + reservar saldo)
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    const requisicaoSalva = await this.requisicaoRepository.save(novaRequisicao);
+    try {
+      // Cria requisição
+      const novaRequisicao = new Requisicao();
+      novaRequisicao.orgao_id = orgaoId;
+      novaRequisicao.contrato_id = dto.contrato_id || null;
+      novaRequisicao.numero = numero;
+      novaRequisicao.ano = ano;
+      novaRequisicao.sequencial = sequencial;
+      novaRequisicao.tipo = dto.tipo;
+      novaRequisicao.setor_solicitante = dto.setor_solicitante;
+      novaRequisicao.codigo_setor = dto.codigo_setor || null;
+      novaRequisicao.local_entrega = dto.local_entrega || null;
+      novaRequisicao.justificativa = dto.justificativa;
+      novaRequisicao.prioridade = dto.prioridade || PrioridadeRequisicao.NORMAL;
+      novaRequisicao.data_necessidade = dto.data_necessidade ? new Date(dto.data_necessidade) : null;
+      novaRequisicao.usuario_solicitante_id = usuarioId;
+      novaRequisicao.usuario_solicitante_nome = usuarioNome;
+      novaRequisicao.usuario_solicitante_email = usuarioEmail || null;
+      novaRequisicao.data_solicitacao = new Date();
+      novaRequisicao.status = StatusRequisicao.RASCUNHO;
+      novaRequisicao.valor_total_estimado = valorTotalEstimado;
+      // Saldo já reservado na criação!
+      novaRequisicao.saldo_reservado = itensContratoParaReservar.length > 0;
+      novaRequisicao.observacoes = dto.observacoes || null;
 
-    // Cria itens da requisição
-    const itensParaSalvar: ItemRequisicao[] = [];
-    for (const item of itensParaCriar) {
-      const novoItem = new ItemRequisicao();
-      Object.assign(novoItem, item);
-      novoItem.requisicao_id = requisicaoSalva.id;
-      itensParaSalvar.push(novoItem);
+      const requisicaoSalva = await queryRunner.manager.save(novaRequisicao);
+
+      // Cria itens da requisição
+      const itensParaSalvar: ItemRequisicao[] = [];
+      for (const item of itensParaCriar) {
+        const novoItem = new ItemRequisicao();
+        Object.assign(novoItem, item);
+        novoItem.requisicao_id = requisicaoSalva.id;
+        itensParaSalvar.push(novoItem);
+      }
+
+      await queryRunner.manager.save(itensParaSalvar);
+
+      // RESERVA SALDO NO CONTRATO IMEDIATAMENTE
+      for (const { itemContrato, quantidade } of itensContratoParaReservar) {
+        // Lock pessimista para evitar race conditions
+        const itemContratoLocked = await queryRunner.manager.findOne(ItemContrato, {
+          where: { id: itemContrato.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (itemContratoLocked) {
+          // Reserva saldo
+          itemContratoLocked.quantidade_empenhada = Number(itemContratoLocked.quantidade_empenhada) + quantidade;
+          itemContratoLocked.saldo_disponivel = Number(itemContratoLocked.quantidade_contratada) - 
+                                                Number(itemContratoLocked.quantidade_empenhada) - 
+                                                Number(itemContratoLocked.quantidade_entregue);
+
+          await queryRunner.manager.save(itemContratoLocked);
+
+          this.logger.log(
+            `[CRIAR] Saldo reservado: Item "${itemContratoLocked.descricao}", ` +
+            `Quantidade: ${quantidade}, Novo saldo: ${itemContratoLocked.saldo_disponivel}`
+          );
+        }
+      }
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Requisição ${numero} criada com ${itensParaSalvar.length} itens. ` +
+        `Saldo reservado para ${itensContratoParaReservar.length} itens de contrato.`
+      );
+
+      return this.findOne(requisicaoSalva.id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Erro ao criar requisição: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    await this.itemRequisicaoRepository.save(itensParaSalvar);
-
-    this.logger.log(`Requisição ${numero} criada com ${itensParaSalvar.length} itens`);
-
-    return this.findOne(requisicaoSalva.id);
   }
 
   // ============================================================================
@@ -269,73 +328,82 @@ export class RequisicaoService {
       throw new BadRequestException('É obrigatório informar uma justificativa para aprovar esta requisição');
     }
 
-    // Inicia transação para garantir consistência
+    // =========================================================================
+    // NOVA LÓGICA: Saldo JÁ FOI RESERVADO na criação do pedido
+    // Na autorização apenas processamos ajustes de quantidade (se houver)
+    // =========================================================================
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
       // Processa ajustes de quantidade se houver
+      // IMPORTANTE: Se quantidade for REDUZIDA, libera a diferença de saldo
       if (dto.ajustes_quantidade) {
-        for (const [itemId, quantidade] of Object.entries(dto.ajustes_quantidade)) {
+        for (const [itemId, novaQuantidade] of Object.entries(dto.ajustes_quantidade)) {
           const item = requisicao.itens.find(i => i.id === itemId);
-          if (item) {
-            item.quantidade_autorizada = quantidade;
-            item.motivo_ajuste = `Quantidade ajustada pelo autorizador de ${item.quantidade_solicitada} para ${quantidade}`;
+          if (item && item.item_contrato_id) {
+            const quantidadeOriginal = Number(item.quantidade_solicitada);
+            const diferenca = quantidadeOriginal - novaQuantidade;
+
+            if (diferenca !== 0) {
+              // Busca item do contrato com lock
+              const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+                where: { id: item.item_contrato_id },
+                lock: { mode: 'pessimistic_write' },
+              });
+
+              if (itemContrato) {
+                if (diferenca > 0) {
+                  // Quantidade foi REDUZIDA - libera a diferença
+                  itemContrato.quantidade_empenhada = Math.max(
+                    0,
+                    Number(itemContrato.quantidade_empenhada) - diferenca
+                  );
+                } else {
+                  // Quantidade foi AUMENTADA - precisa reservar mais
+                  const saldoDisponivel = Number(itemContrato.saldo_disponivel);
+                  if (saldoDisponivel < Math.abs(diferenca)) {
+                    throw new BadRequestException(
+                      `Saldo insuficiente para aumentar quantidade do item "${item.descricao}". ` +
+                      `Disponível: ${saldoDisponivel}, Adicional necessário: ${Math.abs(diferenca)}`
+                    );
+                  }
+                  itemContrato.quantidade_empenhada = Number(itemContrato.quantidade_empenhada) + Math.abs(diferenca);
+                }
+
+                itemContrato.saldo_disponivel = Number(itemContrato.quantidade_contratada) - 
+                                                Number(itemContrato.quantidade_empenhada) - 
+                                                Number(itemContrato.quantidade_entregue);
+
+                await queryRunner.manager.save(itemContrato);
+
+                this.logger.log(
+                  `[AUTORIZAR] Ajuste de saldo: Item "${itemContrato.descricao}", ` +
+                  `Diferença: ${diferenca > 0 ? '-' : '+'}${Math.abs(diferenca)}, ` +
+                  `Novo saldo: ${itemContrato.saldo_disponivel}`
+                );
+              }
+
+              item.quantidade_autorizada = novaQuantidade;
+              item.motivo_ajuste = `Quantidade ajustada pelo autorizador de ${quantidadeOriginal} para ${novaQuantidade}`;
+              await queryRunner.manager.save(item);
+            }
+          } else if (item) {
+            // Item sem contrato, apenas atualiza quantidade
+            item.quantidade_autorizada = novaQuantidade;
+            item.motivo_ajuste = `Quantidade ajustada pelo autorizador de ${item.quantidade_solicitada} para ${novaQuantidade}`;
             await queryRunner.manager.save(item);
           }
         }
       }
 
-      // Reserva saldo no contrato para cada item
+      // Para itens sem ajuste, define quantidade_autorizada = quantidade_solicitada
       for (const item of requisicao.itens) {
-        if (item.item_contrato_id) {
-          const quantidadeAReservar = item.quantidade_autorizada ?? item.quantidade_solicitada;
-          
-          // Busca item do contrato com lock
-          const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
-            where: { id: item.item_contrato_id },
-            lock: { mode: 'pessimistic_write' },
-          });
-
-          if (!itemContrato) {
-            throw new BadRequestException(
-              `Item do contrato ${item.item_contrato_id} não encontrado`
-            );
-          }
-
-          // Verifica saldo disponível
-          const saldoDisponivel = Number(itemContrato.quantidade_contratada) - 
-                                  Number(itemContrato.quantidade_empenhada) - 
-                                  Number(itemContrato.quantidade_entregue);
-
-          if (saldoDisponivel < quantidadeAReservar) {
-            throw new BadRequestException(
-              `Saldo insuficiente para item "${item.descricao}". ` +
-              `Disponível: ${saldoDisponivel}, Solicitado: ${quantidadeAReservar}`
-            );
-          }
-
-          // Reserva saldo
-          itemContrato.quantidade_empenhada = Number(itemContrato.quantidade_empenhada) + quantidadeAReservar;
-          itemContrato.saldo_disponivel = Number(itemContrato.quantidade_contratada) - 
-                                          Number(itemContrato.quantidade_empenhada) - 
-                                          Number(itemContrato.quantidade_entregue);
-
-          await queryRunner.manager.save(itemContrato);
-
-          // Atualiza status do item
-          item.status = StatusItemRequisicao.RESERVADO;
-          if (!item.quantidade_autorizada) {
-            item.quantidade_autorizada = item.quantidade_solicitada;
-          }
+        if (!item.quantidade_autorizada) {
+          item.quantidade_autorizada = item.quantidade_solicitada;
           await queryRunner.manager.save(item);
-
-          this.logger.log(
-            `Saldo reservado: Item ${itemContrato.descricao}, ` +
-            `Quantidade: ${quantidadeAReservar}, ` +
-            `Novo saldo: ${itemContrato.saldo_disponivel}`
-          );
         }
       }
 
@@ -345,7 +413,7 @@ export class RequisicaoService {
       requisicao.usuario_autorizador_nome = autorizadorNome;
       requisicao.data_autorizacao = new Date();
       requisicao.observacao_autorizador = dto.observacao || null;
-      requisicao.saldo_reservado = true;
+      // saldo_reservado já é true (foi reservado na criação)
 
       await queryRunner.manager.save(requisicao);
       await queryRunner.commitTransaction();
@@ -1003,89 +1071,193 @@ export class RequisicaoService {
    * 
    * O saldo já foi liberado durante o cancelamento, então não precisa liberar novamente.
    */
-  async excluir(id: string): Promise<void> {
+  /**
+   * =========================================================================
+   * EXCLUIR REQUISIÇÃO - EXCLUSÃO COMPLETA EM CASCATA
+   * =========================================================================
+   * 
+   * NOVA LÓGICA: Permite excluir requisição de QUALQUER STATUS.
+   * 
+   * O que acontece ao excluir:
+   * 1. Estorna recebimentos ACEITOS (libera quantidade_entregue)
+   * 2. Exclui recebimentos pendentes/rejeitados
+   * 3. Exclui ordem de fornecimento e PDF
+   * 4. Libera saldo reservado (quantidade_empenhada)
+   * 5. Exclui itens da requisição
+   * 6. Exclui a requisição
+   * 
+   * IMPORTANTE: Como o saldo é reservado na CRIAÇÃO, a exclusão SEMPRE
+   * libera o saldo (se houver itens de contrato).
+   * =========================================================================
+   */
+  async excluir(id: string): Promise<{ 
+    success: boolean; 
+    mensagem: string; 
+    detalhes: { 
+      recebimentos_estornados: number;
+      recebimentos_excluidos: number;
+      ordens_excluidas: number;
+      saldo_liberado: boolean;
+    } 
+  }> {
     const requisicao = await this.findOne(id);
+    
+    const detalhes = {
+      recebimentos_estornados: 0,
+      recebimentos_excluidos: 0,
+      ordens_excluidas: 0,
+      saldo_liberado: false,
+    };
 
-    // Só permite excluir RASCUNHO ou CANCELADA
-    const statusPermitidos = [
-      StatusRequisicao.RASCUNHO,
-      StatusRequisicao.CANCELADA,
-    ];
-
-    if (!statusPermitidos.includes(requisicao.status)) {
-      throw new BadRequestException(
-        `Requisição não pode ser excluída. Status atual: ${requisicao.status}. ` +
-        `Apenas requisições em RASCUNHO ou CANCELADA podem ser excluídas.`
-      );
-    }
+    this.logger.log(
+      `[EXCLUIR] Iniciando exclusão da requisição ${requisicao.numero} (status: ${requisicao.status})`
+    );
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // Se tem ordem de fornecimento (mesmo que cancelada), exclui ordem e recebimentos
-      if (requisicao.ordem_fornecimento_id) {
-        const ordem = await queryRunner.manager.findOne(OrdemFornecimento, {
-          where: { id: requisicao.ordem_fornecimento_id },
+      // =====================================================================
+      // 1. PROCESSA ORDENS DE FORNECIMENTO E RECEBIMENTOS
+      // =====================================================================
+      
+      // Busca TODAS as ordens vinculadas a esta requisição (pode haver mais de uma se regerar)
+      const ordens = await queryRunner.manager.find(OrdemFornecimento, {
+        where: { requisicao_id: requisicao.id },
+      });
+
+      for (const ordem of ordens) {
+        // Busca recebimentos da ordem
+        const recebimentos = await queryRunner.manager.find(Recebimento, {
+          where: { ordem_fornecimento_id: ordem.id },
         });
 
-        if (ordem) {
-          // Busca e exclui recebimentos relacionados (se ainda existirem)
-          const recebimentos = await queryRunner.manager.find(Recebimento, {
-            where: { ordem_fornecimento_id: ordem.id },
-          });
+        for (const recebimento of recebimentos) {
+          // Se recebimento foi ACEITO, precisa estornar (liberar quantidade_entregue)
+          if (recebimento.status === StatusRecebimento.ACEITO || 
+              recebimento.status === StatusRecebimento.ACEITO_PARCIAL) {
+            
+            // Estorna: libera quantidade_entregue no contrato
+            for (const itemRec of recebimento.itens) {
+              if (itemRec.item_contrato_id) {
+                const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+                  where: { id: itemRec.item_contrato_id },
+                  lock: { mode: 'pessimistic_write' },
+                });
 
-          for (const recebimento of recebimentos) {
-            // Só exclui se não tiver baixa realizada (se tiver, já foi estornado no cancelamento)
-            if (!recebimento.baixa_realizada) {
-              await queryRunner.manager.remove(recebimento);
+                if (itemContrato) {
+                  // Reverte a entrega
+                  itemContrato.quantidade_entregue = Math.max(
+                    0,
+                    Number(itemContrato.quantidade_entregue) - itemRec.quantidade_aceita
+                  );
+                  itemContrato.saldo_disponivel = Number(itemContrato.quantidade_contratada) - 
+                                                  Number(itemContrato.quantidade_empenhada) - 
+                                                  Number(itemContrato.quantidade_entregue);
+
+                  await queryRunner.manager.save(itemContrato);
+
+                  this.logger.log(
+                    `[EXCLUIR] Estorno de entrega: Item "${itemContrato.descricao}", ` +
+                    `Quantidade: ${itemRec.quantidade_aceita}`
+                  );
+                }
+              }
+            }
+
+            detalhes.recebimentos_estornados++;
+          } else {
+            detalhes.recebimentos_excluidos++;
+          }
+
+          // Exclui o recebimento
+          await queryRunner.manager.remove(recebimento);
+          this.logger.log(`[EXCLUIR] Recebimento ${recebimento.numero} excluído`);
+        }
+
+        // Remove PDF da ordem se existir
+        if (ordem.caminho_pdf) {
+          try {
+            const fs = require('fs');
+            const path = require('path');
+            const pdfPath = path.join(process.cwd(), ordem.caminho_pdf);
+            if (fs.existsSync(pdfPath)) {
+              fs.unlinkSync(pdfPath);
+              this.logger.log(`[EXCLUIR] PDF da ordem ${ordem.numero} removido`);
+            }
+          } catch (error) {
+            this.logger.warn(`[EXCLUIR] Erro ao remover PDF: ${error.message}`);
+          }
+        }
+
+        // Exclui a ordem
+        await queryRunner.manager.remove(ordem);
+        detalhes.ordens_excluidas++;
+        this.logger.log(`[EXCLUIR] Ordem de fornecimento ${ordem.numero} excluída`);
+      }
+
+      // =====================================================================
+      // 2. LIBERA SALDO RESERVADO NO CONTRATO
+      // =====================================================================
+      
+      if (requisicao.saldo_reservado) {
+        for (const item of requisicao.itens) {
+          if (item.item_contrato_id) {
+            const quantidadeALiberar = item.quantidade_autorizada ?? item.quantidade_solicitada;
+
+            const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+              where: { id: item.item_contrato_id },
+              lock: { mode: 'pessimistic_write' },
+            });
+
+            if (itemContrato) {
+              // Libera saldo empenhado
+              itemContrato.quantidade_empenhada = Math.max(
+                0,
+                Number(itemContrato.quantidade_empenhada) - quantidadeALiberar
+              );
+              itemContrato.saldo_disponivel = Number(itemContrato.quantidade_contratada) - 
+                                              Number(itemContrato.quantidade_empenhada) - 
+                                              Number(itemContrato.quantidade_entregue);
+
+              await queryRunner.manager.save(itemContrato);
+
               this.logger.log(
-                `Recebimento ${recebimento.numero} excluído durante exclusão da requisição ${requisicao.numero}`
+                `[EXCLUIR] Saldo liberado: Item "${itemContrato.descricao}", ` +
+                `Quantidade: ${quantidadeALiberar}, Novo saldo: ${itemContrato.saldo_disponivel}`
               );
             }
           }
-
-          // Remove PDF da ordem se existir
-          if (ordem.caminho_pdf) {
-            try {
-              const fs = require('fs');
-              const path = require('path');
-              const pdfPath = path.join(process.cwd(), ordem.caminho_pdf);
-              if (fs.existsSync(pdfPath)) {
-                fs.unlinkSync(pdfPath);
-                this.logger.log(`PDF da ordem ${ordem.numero} removido`);
-              }
-            } catch (error) {
-              this.logger.warn(`Erro ao remover PDF da ordem: ${error.message}`);
-            }
-          }
-
-          // Exclui a ordem
-          await queryRunner.manager.remove(ordem);
-          this.logger.log(
-            `Ordem de fornecimento ${ordem.numero} excluída durante exclusão da requisição ${requisicao.numero}`
-          );
         }
+        detalhes.saldo_liberado = true;
       }
 
-      // Exclui itens primeiro (cascade)
+      // =====================================================================
+      // 3. EXCLUI ITENS E REQUISIÇÃO
+      // =====================================================================
+      
       if (requisicao.itens && requisicao.itens.length > 0) {
         await queryRunner.manager.remove(requisicao.itens);
       }
 
-      // Exclui a requisição
       await queryRunner.manager.remove(requisicao);
 
       await queryRunner.commitTransaction();
 
-      this.logger.log(
+      const mensagem = 
         `Requisição ${requisicao.numero} excluída permanentemente. ` +
-        `Ordem e recebimentos relacionados foram excluídos.`
-      );
+        `${detalhes.ordens_excluidas > 0 ? `${detalhes.ordens_excluidas} ordem(s) excluída(s). ` : ''}` +
+        `${detalhes.recebimentos_estornados > 0 ? `${detalhes.recebimentos_estornados} recebimento(s) estornado(s). ` : ''}` +
+        `${detalhes.recebimentos_excluidos > 0 ? `${detalhes.recebimentos_excluidos} recebimento(s) excluído(s). ` : ''}` +
+        `${detalhes.saldo_liberado ? 'Saldo devolvido ao contrato.' : ''}`;
+
+      this.logger.log(`[EXCLUIR] ${mensagem}`);
+
+      return { success: true, mensagem, detalhes };
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`Erro ao excluir requisição ${requisicao.numero}: ${error.message}`, error.stack);
+      this.logger.error(`[EXCLUIR] Erro ao excluir requisição ${requisicao.numero}: ${error.message}`, error.stack);
       throw error;
     } finally {
       await queryRunner.release();

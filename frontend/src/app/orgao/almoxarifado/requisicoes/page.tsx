@@ -845,18 +845,16 @@ function RequisicoesList() {
                             <RotateCcw className="h-4 w-4" />
                           </Button>
                         )}
-                        {/* Botão de excluir - apenas para RASCUNHO ou CANCELADA sem ordem */}
-                        {(req.status === 'RASCUNHO' || req.status === 'CANCELADA') && !req.ordem_fornecimento_id && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => handleAbrirExcluir(req)}
-                            title="Excluir requisição permanentemente"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        {/* Botão de excluir - QUALQUER STATUS (nova lógica com cascata) */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700"
+                          onClick={() => handleAbrirExcluir(req)}
+                          title="Excluir requisição e tudo relacionado (ordem, recebimentos)"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1198,47 +1196,65 @@ function RequisicoesList() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Excluir Requisição */}
+      {/* Modal Excluir Requisição - NOVA LÓGICA: Exclusão completa em cascata */}
       <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-red-600">Excluir Requisição</DialogTitle>
+            <DialogTitle className="text-red-600">⚠️ Excluir Requisição</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir permanentemente esta requisição? Esta ação não pode ser desfeita.
+              Esta ação vai excluir PERMANENTEMENTE a requisição e TUDO relacionado a ela.
             </DialogDescription>
           </DialogHeader>
           {requisicaoSelecionada && (
-            <div className="bg-red-50 p-4 rounded-lg space-y-2">
-              <p className="font-medium">{requisicaoSelecionada.numero}</p>
-              <p className="text-sm text-gray-600">
-                Setor: {requisicaoSelecionada.setor_solicitante}
-              </p>
-              
-              {infoExclusao && (
-                <div className="mt-3 space-y-2">
-                  {infoExclusao.temOrdem && (
-                    <div className="bg-red-100 p-3 rounded border border-red-300">
-                      <p className="text-sm font-semibold text-red-900">
-                        ⚠️ Serão excluídos permanentemente:
-                      </p>
-                      <ul className="text-sm text-red-800 mt-1 ml-4 list-disc">
-                        <li>Ordem de fornecimento {infoExclusao.ordemNumero}</li>
-                        {infoExclusao.recebimentos.length > 0 && (
-                          <li>{infoExclusao.recebimentos.length} recebimento(s) relacionado(s)</li>
-                        )}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  <p className="text-sm text-red-700 font-semibold">
-                    ⚠️ Atenção: A exclusão desta requisição é irreversível.
-                  </p>
-                  
-                  <p className="text-xs text-gray-600">
-                    O saldo já foi liberado durante o cancelamento.
+            <div className="bg-red-50 p-4 rounded-lg space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-medium text-lg">{requisicaoSelecionada.numero}</p>
+                  <p className="text-sm text-gray-600">
+                    Status: <Badge className={STATUS_COLORS[requisicaoSelecionada.status]}>
+                      {STATUS_LABELS[requisicaoSelecionada.status]}
+                    </Badge>
                   </p>
                 </div>
-              )}
+                <p className="font-medium text-blue-600">
+                  {formatarMoeda(requisicaoSelecionada.valor_total_estimado)}
+                </p>
+              </div>
+              
+              <div className="bg-red-100 p-3 rounded border border-red-300">
+                <p className="text-sm font-semibold text-red-900 mb-2">
+                  🗑️ O que será excluído/estornado:
+                </p>
+                <ul className="text-sm text-red-800 ml-4 list-disc space-y-1">
+                  <li>A requisição {requisicaoSelecionada.numero}</li>
+                  <li>Todos os itens da requisição</li>
+                  {infoExclusao?.temOrdem && (
+                    <>
+                      <li>Ordem de fornecimento {infoExclusao.ordemNumero}</li>
+                      {infoExclusao.recebimentos.length > 0 && (
+                        <li>
+                          {infoExclusao.recebimentos.length} recebimento(s) 
+                          {infoExclusao.recebimentos.some((r: {status: string}) => r.status === 'ACEITO') && 
+                            ' (serão estornados)'}
+                        </li>
+                      )}
+                    </>
+                  )}
+                </ul>
+              </div>
+
+              <div className="bg-green-100 p-3 rounded border border-green-300">
+                <p className="text-sm font-semibold text-green-900">
+                  💰 Saldo do contrato será restaurado automaticamente
+                </p>
+                <p className="text-xs text-green-700 mt-1">
+                  Quantidade empenhada e quantidade entregue serão devolvidas ao saldo disponível.
+                </p>
+              </div>
+              
+              <p className="text-sm text-red-700 font-bold text-center">
+                ⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!
+              </p>
             </div>
           )}
           <DialogFooter>
@@ -1251,7 +1267,7 @@ function RequisicoesList() {
               variant="destructive"
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Excluir Permanentemente
+              Excluir Tudo Permanentemente
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -324,21 +324,14 @@ export class AlmoxarifadoController {
 
   @Delete('requisicoes/:id')
   async excluirRequisicao(@Param('id', ParseUUIDPipe) id: string) {
-    // Obtém informações antes de excluir
-    const infoExclusao = await this.requisicaoService.obterInfoExclusao(id);
+    // NOVA LÓGICA: Exclusão completa em cascata de qualquer status
+    // Retorna detalhes do que foi feito (recebimentos estornados, ordens excluídas, saldo liberado)
+    const resultado = await this.requisicaoService.excluir(id);
     
-    await this.requisicaoService.excluir(id);
-    
-    // Monta mensagem informativa
-    let mensagem = 'Requisição excluída com sucesso. ';
-    
-    if (infoExclusao.temOrdem) {
-      mensagem += `Ordem de fornecimento ${infoExclusao.ordemNumero} e ${infoExclusao.recebimentos.length} recebimento(s) relacionado(s) foram excluídos. `;
-    }
-    
-    mensagem += 'Saldo já havia sido liberado durante o cancelamento.';
-    
-    return { message: mensagem };
+    return { 
+      message: resultado.mensagem,
+      detalhes: resultado.detalhes,
+    };
   }
 
   // ============================================================================
