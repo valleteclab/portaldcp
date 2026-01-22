@@ -736,15 +736,36 @@ export class RequisicaoService {
       );
     }
 
-    // Verifica se tem status anterior registrado
-    if (!requisicao.status_anterior_cancelamento) {
-      throw new BadRequestException(
-        'Não foi possível determinar o status anterior desta requisição. ' +
-        'Reativação não é possível sem essa informação.'
+    // Tenta determinar o status anterior
+    let statusAnterior: StatusRequisicao | null = requisicao.status_anterior_cancelamento;
+
+    // Se não tem status anterior registrado (requisições antigas), tenta inferir
+    if (!statusAnterior) {
+      // Se tinha saldo reservado, provavelmente estava AUTORIZADA ou ORDEM_GERADA
+      // Mas como foi cancelada, o saldo foi liberado, então verificamos outras pistas
+      
+      // Se tem ordem_fornecimento_id, estava em ORDEM_GERADA
+      if (requisicao.ordem_fornecimento_id) {
+        statusAnterior = StatusRequisicao.ORDEM_GERADA;
+      }
+      // Se tem data_autorizacao, estava AUTORIZADA ou ORDEM_GERADA
+      else if (requisicao.data_autorizacao) {
+        statusAnterior = StatusRequisicao.AUTORIZADA;
+      }
+      // Se tem observacao_autorizador com conteúdo negativo, estava NEGADA
+      else if (requisicao.observacao_autorizador && requisicao.observacao_autorizador.toLowerCase().includes('negad')) {
+        statusAnterior = StatusRequisicao.NEGADA;
+      }
+      // Se não tem nenhuma dessas pistas, provavelmente estava em AGUARDANDO_AUTORIZACAO
+      else {
+        statusAnterior = StatusRequisicao.AGUARDANDO_AUTORIZACAO;
+      }
+
+      this.logger.warn(
+        `Requisição ${requisicao.numero} não tinha status_anterior_cancelamento registrado. ` +
+        `Status inferido: ${statusAnterior}`
       );
     }
-
-    const statusAnterior = requisicao.status_anterior_cancelamento;
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
