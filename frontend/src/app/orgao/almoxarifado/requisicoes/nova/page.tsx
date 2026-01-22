@@ -1172,12 +1172,17 @@ function NovaRequisicaoForm() {
               <p className="text-sm">
                 <strong>Salvo em:</strong> {formatarDataHora(rascunhoSalvo.savedAt)}
               </p>
-              {rascunhoSalvo.contratoId && (
-                <p className="text-sm">
-                  <strong>Contrato:</strong>{' '}
-                  {contratos.find(c => c.id === rascunhoSalvo.contratoId)?.numero_contrato || 'Carregando...'}
-                </p>
-              )}
+              {rascunhoSalvo.contratoId && (() => {
+                const contrato = contratos.find(c => c.id === rascunhoSalvo.contratoId);
+                return (
+                  <p className="text-sm">
+                    <strong>Contrato:</strong>{' '}
+                    {contrato 
+                      ? `${contrato.numero_contrato} - ${contrato.fornecedor?.razao_social || 'Fornecedor não definido'}`
+                      : 'Carregando...'}
+                  </p>
+                );
+              })()}
               {rascunhoSalvo.itensRequisicao.length > 0 && (
                 <>
                   <p className="text-sm">
