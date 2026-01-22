@@ -594,9 +594,12 @@ export class RequisicaoService {
             if (recebimento.status === StatusRecebimento.ACEITO || 
                 recebimento.status === StatusRecebimento.ACEITO_PARCIAL) {
               // Estorna recebimento (libera saldo entregue no contrato)
-              await this.recebimentoService.estornarRecebimento(
+              // Usa um ID de sistema e nome genérico para estorno automático
+              await this.recebimentoService.estornar(
                 recebimento.id,
-                `Estorno automático devido ao cancelamento da requisição ${requisicao.numero}: ${motivo}`
+                `Estorno automático devido ao cancelamento da requisição ${requisicao.numero}: ${motivo}`,
+                'sistema',
+                'Sistema'
               );
               this.logger.log(
                 `Recebimento ${recebimento.numero} estornado automaticamente devido ao cancelamento da requisição ${requisicao.numero}`

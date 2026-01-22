@@ -263,9 +263,9 @@ export class AlmoxarifadoController {
       throw new BadRequestException('Usuário não encontrado');
     }
 
-    // Busca requisição para verificar status e obter informações
+    // Busca requisição para verificar status e obter informações ANTES de cancelar
     const requisicao = await this.requisicaoService.findOne(id);
-    const infoExclusao = await this.requisicaoService.obterInfoExclusao(id);
+    const infoExclusaoAntes = await this.requisicaoService.obterInfoExclusao(id);
     
     // Verifica se requer permissão especial (AUTORIZADA ou ORDEM_GERADA)
     const statusRequerPermissao = [
@@ -281,9 +281,6 @@ export class AlmoxarifadoController {
         'Apenas usuários autorizados podem realizar esta ação.'
       );
     }
-
-    // Obtém informações ANTES de cancelar (para incluir na mensagem)
-    const infoExclusao = await this.requisicaoService.obterInfoExclusao(id);
     
     const requisicaoCancelada = await this.requisicaoService.cancelar(
       id, 
@@ -294,11 +291,11 @@ export class AlmoxarifadoController {
     // Monta mensagem informativa sobre o que foi excluído
     let mensagem = 'Requisição cancelada com sucesso. ';
     
-    if (infoExclusao.temOrdem) {
-      mensagem += `Ordem de fornecimento ${infoExclusao.ordemNumero} e ${infoExclusao.recebimentos.length} recebimento(s) relacionado(s) foram excluídos. `;
+    if (infoExclusaoAntes.temOrdem) {
+      mensagem += `Ordem de fornecimento ${infoExclusaoAntes.ordemNumero} e ${infoExclusaoAntes.recebimentos.length} recebimento(s) relacionado(s) foram excluídos. `;
     }
     
-    if (infoExclusao.saldoReservado) {
+    if (infoExclusaoAntes.saldoReservado) {
       mensagem += 'Saldo reservado foi liberado no contrato.';
     }
     
