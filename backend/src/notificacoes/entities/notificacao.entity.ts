@@ -42,6 +42,7 @@ export enum TipoNotificacao {
   // Ordens de Fornecimento
   ORDEM_GERADA = 'ORDEM_GERADA',
   ORDEM_ENVIADA = 'ORDEM_ENVIADA',
+  ORDEM_CANCELADA = 'ORDEM_CANCELADA',
   
   // Recebimentos
   RECEBIMENTO_PENDENTE = 'RECEBIMENTO_PENDENTE',

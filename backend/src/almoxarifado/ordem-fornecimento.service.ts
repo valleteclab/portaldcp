@@ -6,10 +6,11 @@ import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisi
 import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { HistoricoOrdemFornecimento, TipoAcaoOrdem } from './entities/historico-ordem.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
-import { ItemContrato } from '../contratos/entities/item-contrato.entity';
+import { ItemContrato } from './entities/item-contrato.entity';
 import { GerarOrdemDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { PdfOrdemService } from './pdf-ordem.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 
 @Injectable()
 export class OrdemFornecimentoService {
@@ -428,16 +429,19 @@ export class OrdemFornecimentoService {
 
       if (foiEnviada && ordem.fornecedor_id) {
         try {
-          // Cria notificação para o fornecedor
+          // Cria notificação para o fornecedor (usando o fornecedor_id como usuario_id)
           await this.notificacoesService.criar({
             orgao_id: ordem.orgao_id,
-            tipo: 'ORDEM_CANCELADA',
+            usuario_id: ordem.fornecedor_id, // Fornecedor como destinatário
+            tipo: TipoNotificacao.ORDEM_CANCELADA,
             titulo: `Ordem de Fornecimento Cancelada - ${ordem.numero}`,
             mensagem: `A Ordem de Fornecimento ${ordem.numero} foi CANCELADA.\n\nMotivo: ${motivo}\n\nPor favor, desconsidere a ordem anterior.`,
-            destinatario_id: ordem.fornecedor_id,
-            destinatario_tipo: 'fornecedor',
-            referencia_tipo: 'ordem_fornecimento',
-            referencia_id: id,
+            entidade_tipo: 'ordem_fornecimento',
+            entidade_id: id,
+            metadata: {
+              destinatario_tipo: 'fornecedor',
+              fornecedor_id: ordem.fornecedor_id,
+            },
           });
           
           ordem.fornecedor_notificado_cancelamento = true;

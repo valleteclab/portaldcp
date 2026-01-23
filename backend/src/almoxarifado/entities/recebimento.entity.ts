@@ -206,6 +206,22 @@ export class Recebimento {
   data_baixa: Date | null;
 
   // ============================================================================
+  // ESTORNO
+  // ============================================================================
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_estorno: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  usuario_estorno_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  usuario_estorno_nome: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  motivo_estorno: string | null;
+
+  // ============================================================================
   // AUDITORIA
   // ============================================================================
 

@@ -431,8 +431,17 @@ export class AlmoxarifadoController {
     @Body(new ValidationPipe({ transform: true })) dto: EditarOrdemDto,
   ) {
     const user = request.user;
-    // Verifica permissão de aprovação do usuário
-    const temPermissaoAprovacao = user.pode_aprovar_requisicoes || false;
+    
+    // Busca permissão de aprovação do banco de dados
+    let temPermissaoAprovacao = false;
+    if (user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: user.sub } });
+      temPermissaoAprovacao = usuario?.pode_aprovar_requisicoes || false;
+    } else if (user.type === UserType.ORGAO || user.type === UserType.ADMIN) {
+      // Órgão (admin) sempre tem permissão
+      temPermissaoAprovacao = true;
+    }
+    
     return this.ordemService.editarOrdem(
       id,
       dto,
