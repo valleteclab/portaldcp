@@ -54,7 +54,6 @@ interface ItemCSVSimplificado {
 
 interface ImportarCSVInteligenteProps {
   pcaId: string
-  orgaoId: string
   onImportSuccess?: (count: number) => void
 }
 
@@ -85,7 +84,7 @@ function parseData(data: string): string {
   return data
 }
 
-export function ImportarCSVInteligente({ pcaId, orgaoId, onImportSuccess }: ImportarCSVInteligenteProps) {
+export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVInteligenteProps) {
   const [open, setOpen] = useState(false)
   const [etapa, setEtapa] = useState<'upload' | 'preview' | 'importando' | 'concluido'>('upload')
   const [itens, setItens] = useState<ItemCSVSimplificado[]>([])
@@ -289,7 +288,6 @@ export function ImportarCSVInteligente({ pcaId, orgaoId, onImportSuccess }: Impo
     console.log('=== INICIANDO IMPORTAÇÃO INTELIGENTE ===')
     console.log(`Total de itens selecionados: ${itensSelecionados.length}`)
     console.log(`PCA ID: ${pcaId}`)
-    console.log(`Órgão ID: ${orgaoId}`)
 
     const itensParaImportar = itensSelecionados.map(item => ({
       descricao: item.descricao,
@@ -309,7 +307,6 @@ export function ImportarCSVInteligente({ pcaId, orgaoId, onImportSuccess }: Impo
       const response = await authFetch(`${API_URL}/api/pca/${pcaId}/importar-inteligente`, {
         method: 'POST',
         body: JSON.stringify({ 
-          orgaoId,
           itens: itensParaImportar 
         })
       })

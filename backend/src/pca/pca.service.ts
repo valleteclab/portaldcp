@@ -862,7 +862,6 @@ export class PcaService {
    */
   async importarItensInteligente(
     pcaId: string, 
-    orgaoId: string,
     itens: { descricao: string; quantidade?: number; valor_unitario?: number; valor_total?: number; unidade?: string; renovacao?: string; data_desejada?: string }[]
   ): Promise<{
     importados: number;
@@ -878,6 +877,9 @@ export class PcaService {
     if (pca.status === StatusPCA.ENVIADO_PNCP) {
       throw new BadRequestException('Não é possível adicionar itens a um PCA já enviado ao PNCP');
     }
+
+    // Buscar orgaoId do próprio PCA (não receber do frontend)
+    const orgaoId = pca.orgao_id;
 
     // Buscar matches para todas as descrições
     const descricoes = itens.map(i => i.descricao);

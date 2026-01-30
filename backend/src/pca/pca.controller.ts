@@ -194,7 +194,6 @@ export class PcaController {
   async importarItensInteligente(
     @Param('pcaId') pcaId: string,
     @Body() body: { 
-      orgaoId: string;
       itens: { 
         descricao: string; 
         quantidade?: number; 
@@ -206,6 +205,6 @@ export class PcaController {
       }[] 
     }
   ) {
-    return this.pcaService.importarItensInteligente(pcaId, body.orgaoId, body.itens);
+    return this.pcaService.importarItensInteligente(pcaId, body.itens);
   }
 }
