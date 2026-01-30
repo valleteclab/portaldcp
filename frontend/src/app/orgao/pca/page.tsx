@@ -1305,7 +1305,10 @@ function PcaPageContent() {
                       />
                       <ImportarCSVInteligente 
                         pcaId={pcaAtual.id}
-                        orgaoId={orgao?.id || ''}
+                        orgaoId={(() => {
+                          const orgaoData = localStorage.getItem('orgao')
+                          return orgaoData ? JSON.parse(orgaoData)?.id || '' : ''
+                        })()}
                         onImportSuccess={(count) => {
                           carregarPCAs()
                           setShowNovoItem(false)
