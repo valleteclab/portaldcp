@@ -65,6 +65,7 @@ import { CatalogoBusca } from '@/components/catalogo/CatalogoBusca'
 import { UnidadeMedidaSelect } from '@/components/catalogo/UnidadeMedidaSelect'
 import { ImportarParaPCA } from '@/components/catalogo/ImportarParaPCA'
 import { ImportarCSVParaPCA } from '@/components/catalogo/ImportarCSVParaPCA'
+import { ImportarCSVInteligente } from '@/components/catalogo/ImportarCSVInteligente'
 import { BuscaClassificacao, BuscaItemCatalogoProprio } from '@/components/catalogo/BuscaCatalogoProprio'
 import * as XLSX from 'xlsx'
 
@@ -1297,6 +1298,14 @@ function PcaPageContent() {
                       />
                       <ImportarCSVParaPCA 
                         pcaId={pcaAtual.id} 
+                        onImportSuccess={(count) => {
+                          carregarPCAs()
+                          setShowNovoItem(false)
+                        }} 
+                      />
+                      <ImportarCSVInteligente 
+                        pcaId={pcaAtual.id}
+                        orgaoId={orgao?.id || ''}
                         onImportSuccess={(count) => {
                           carregarPCAs()
                           setShowNovoItem(false)

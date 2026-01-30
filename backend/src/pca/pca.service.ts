@@ -712,4 +712,262 @@ export class PcaService {
 
     return query.getMany();
   }
+
+  // ============ MATCHING INTELIGENTE PARA IMPORTAÇÃO ============
+
+  /**
+   * Busca itens similares por descrição para enriquecer dados de importação
+   * Retorna o item mais similar encontrado ou null
+   */
+  async buscarItemSimilar(orgaoId: string, descricao: string, anoReferencia?: number): Promise<ItemPCA | null> {
+    if (!descricao || descricao.trim().length < 10) {
+      return null;
+    }
+
+    const descricaoNormalizada = this.normalizarDescricao(descricao);
+    
+    // Buscar em todos os PCAs do órgão (prioriza ano atual e anterior)
+    const anosParaBuscar = anoReferencia 
+      ? [anoReferencia, anoReferencia - 1, anoReferencia + 1]
+      : [new Date().getFullYear(), new Date().getFullYear() - 1];
+
+    for (const ano of anosParaBuscar) {
+      const itens = await this.itemPcaRepository.createQueryBuilder('item')
+        .leftJoinAndSelect('item.pca', 'pca')
+        .where('pca.orgao_id = :orgaoId', { orgaoId })
+        .andWhere('pca.ano_exercicio = :ano', { ano })
+        .getMany();
+
+      // Buscar por descrição normalizada similar
+      for (const item of itens) {
+        const itemDescNorm = this.normalizarDescricao(item.descricao_objeto);
+        
+        // Match exato
+        if (itemDescNorm === descricaoNormalizada) {
+          this.logger.log(`[MATCHING] Match exato encontrado: "${descricao.substring(0, 50)}..."`);
+          return item;
+        }
+        
+        // Match parcial (80% de similaridade)
+        const similaridade = this.calcularSimilaridade(descricaoNormalizada, itemDescNorm);
+        if (similaridade > 0.8) {
+          this.logger.log(`[MATCHING] Match parcial (${(similaridade * 100).toFixed(0)}%): "${descricao.substring(0, 50)}..."`);
+          return item;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Busca múltiplos itens similares para uma lista de descrições
+   * Retorna mapa de descrição -> item encontrado
+   */
+  async buscarItensSimilares(
+    orgaoId: string, 
+    descricoes: string[], 
+    anoReferencia?: number
+  ): Promise<Map<string, ItemPCA | null>> {
+    this.logger.log(`[MATCHING] Buscando matches para ${descricoes.length} itens`);
+    
+    const resultado = new Map<string, ItemPCA | null>();
+    
+    // Carregar todos os itens do órgão uma vez
+    const anosParaBuscar = anoReferencia 
+      ? [anoReferencia, anoReferencia - 1]
+      : [new Date().getFullYear(), new Date().getFullYear() - 1];
+
+    const todosItens: ItemPCA[] = [];
+    for (const ano of anosParaBuscar) {
+      const itens = await this.itemPcaRepository.createQueryBuilder('item')
+        .leftJoinAndSelect('item.pca', 'pca')
+        .where('pca.orgao_id = :orgaoId', { orgaoId })
+        .andWhere('pca.ano_exercicio = :ano', { ano })
+        .getMany();
+      todosItens.push(...itens);
+    }
+
+    this.logger.log(`[MATCHING] ${todosItens.length} itens existentes carregados para comparação`);
+
+    // Criar mapa de descrições normalizadas
+    const mapaItensExistentes = new Map<string, ItemPCA>();
+    for (const item of todosItens) {
+      const descNorm = this.normalizarDescricao(item.descricao_objeto);
+      if (!mapaItensExistentes.has(descNorm)) {
+        mapaItensExistentes.set(descNorm, item);
+      }
+    }
+
+    // Buscar matches para cada descrição
+    let matchesEncontrados = 0;
+    for (const descricao of descricoes) {
+      const descNorm = this.normalizarDescricao(descricao);
+      
+      // Match exato primeiro
+      if (mapaItensExistentes.has(descNorm)) {
+        resultado.set(descricao, mapaItensExistentes.get(descNorm)!);
+        matchesEncontrados++;
+        continue;
+      }
+
+      // Match parcial
+      let melhorMatch: ItemPCA | null = null;
+      let melhorSimilaridade = 0;
+
+      for (const [itemDescNorm, item] of mapaItensExistentes) {
+        const similaridade = this.calcularSimilaridade(descNorm, itemDescNorm);
+        if (similaridade > 0.75 && similaridade > melhorSimilaridade) {
+          melhorSimilaridade = similaridade;
+          melhorMatch = item;
+        }
+      }
+
+      resultado.set(descricao, melhorMatch);
+      if (melhorMatch) matchesEncontrados++;
+    }
+
+    this.logger.log(`[MATCHING] ${matchesEncontrados}/${descricoes.length} matches encontrados`);
+    return resultado;
+  }
+
+  /**
+   * Calcula similaridade entre duas strings normalizadas (0-1)
+   * Usa algoritmo de Jaccard com n-gramas
+   */
+  private calcularSimilaridade(str1: string, str2: string): number {
+    if (str1 === str2) return 1;
+    if (!str1 || !str2) return 0;
+
+    // Usar trigramas para comparação
+    const trigramas1 = this.gerarNGramas(str1, 3);
+    const trigramas2 = this.gerarNGramas(str2, 3);
+
+    const intersecao = trigramas1.filter(t => trigramas2.includes(t)).length;
+    const uniao = new Set([...trigramas1, ...trigramas2]).size;
+
+    return uniao > 0 ? intersecao / uniao : 0;
+  }
+
+  private gerarNGramas(str: string, n: number): string[] {
+    const ngramas: string[] = [];
+    for (let i = 0; i <= str.length - n; i++) {
+      ngramas.push(str.substring(i, i + n));
+    }
+    return ngramas;
+  }
+
+  /**
+   * Importação inteligente: enriquece itens incompletos com dados de itens existentes
+   */
+  async importarItensInteligente(
+    pcaId: string, 
+    orgaoId: string,
+    itens: { descricao: string; quantidade?: number; valor_unitario?: number; valor_total?: number; unidade?: string; renovacao?: string; data_desejada?: string }[]
+  ): Promise<{
+    importados: number;
+    enriquecidos: number;
+    novos: number;
+    erros: number;
+    detalhes: { descricao: string; status: string; motivo?: string; itemBase?: string }[];
+  }> {
+    this.logger.log(`[IMPORT-INTELIGENTE] ========================================`);
+    this.logger.log(`[IMPORT-INTELIGENTE] Iniciando importação inteligente de ${itens.length} itens`);
+
+    const pca = await this.findOne(pcaId);
+    if (pca.status === StatusPCA.ENVIADO_PNCP) {
+      throw new BadRequestException('Não é possível adicionar itens a um PCA já enviado ao PNCP');
+    }
+
+    // Buscar matches para todas as descrições
+    const descricoes = itens.map(i => i.descricao);
+    const matches = await this.buscarItensSimilares(orgaoId, descricoes, pca.ano_exercicio);
+
+    let importados = 0;
+    let enriquecidos = 0;
+    let novos = 0;
+    let erros = 0;
+    const detalhes: { descricao: string; status: string; motivo?: string; itemBase?: string }[] = [];
+
+    for (const item of itens) {
+      const descricaoResumida = item.descricao.substring(0, 60);
+      
+      try {
+        const itemExistente = matches.get(item.descricao);
+        
+        // Preparar dados do item
+        const dadosItem: Partial<ItemPCA> = {
+          descricao_objeto: item.descricao,
+          quantidade_estimada: item.quantidade || 1,
+          valor_unitario_estimado: item.valor_unitario || 0,
+          valor_estimado: item.valor_total || (item.valor_unitario || 0) * (item.quantidade || 1),
+          unidade_medida: item.unidade || 'UN',
+          renovacao_contrato: item.renovacao?.toLowerCase().includes('sim') ? 'SIM' : 'NAO',
+          data_desejada_contratacao: item.data_desejada ? new Date(item.data_desejada) : undefined,
+        };
+
+        if (itemExistente) {
+          // Enriquecer com dados do item existente
+          dadosItem.categoria = itemExistente.categoria;
+          dadosItem.catalogo_utilizado = itemExistente.catalogo_utilizado;
+          dadosItem.classificacao_catalogo = itemExistente.classificacao_catalogo;
+          dadosItem.codigo_classe = itemExistente.codigo_classe;
+          dadosItem.nome_classe = itemExistente.nome_classe;
+          dadosItem.codigo_pdm = itemExistente.codigo_pdm;
+          dadosItem.nome_pdm = itemExistente.nome_pdm;
+          dadosItem.codigo_item_catalogo = itemExistente.codigo_item_catalogo;
+          dadosItem.descricao_item_catalogo = itemExistente.descricao_item_catalogo;
+          dadosItem.codigo_grupo = itemExistente.codigo_grupo;
+          dadosItem.nome_grupo = itemExistente.nome_grupo;
+          dadosItem.unidade_requisitante = itemExistente.unidade_requisitante;
+          dadosItem.justificativa = itemExistente.justificativa || `Baseado em: ${itemExistente.descricao_objeto.substring(0, 100)}`;
+          
+          this.logger.log(`[IMPORT-INTELIGENTE] ✓ Enriquecido: "${descricaoResumida}..." com dados de item existente`);
+          enriquecidos++;
+          
+          detalhes.push({
+            descricao: descricaoResumida,
+            status: 'enriquecido',
+            itemBase: itemExistente.descricao_objeto.substring(0, 50)
+          });
+        } else {
+          // Item novo - usar categoria padrão SERVICO
+          dadosItem.categoria = CategoriaItemPCA.SERVICO;
+          dadosItem.catalogo_utilizado = 'OUTROS';
+          dadosItem.justificativa = 'Item novo - classificação pendente';
+          
+          this.logger.log(`[IMPORT-INTELIGENTE] + Novo: "${descricaoResumida}..." (sem match encontrado)`);
+          novos++;
+          
+          detalhes.push({
+            descricao: descricaoResumida,
+            status: 'novo',
+            motivo: 'Nenhum item similar encontrado - classificação padrão aplicada'
+          });
+        }
+
+        await this.adicionarItem(pcaId, dadosItem);
+        importados++;
+
+      } catch (error) {
+        erros++;
+        this.logger.error(`[IMPORT-INTELIGENTE] ✗ Erro: "${descricaoResumida}..." - ${error.message}`);
+        detalhes.push({
+          descricao: descricaoResumida,
+          status: 'erro',
+          motivo: error.message
+        });
+      }
+    }
+
+    this.logger.log(`[IMPORT-INTELIGENTE] ========================================`);
+    this.logger.log(`[IMPORT-INTELIGENTE] RESULTADO:`);
+    this.logger.log(`[IMPORT-INTELIGENTE]   Total importados: ${importados}`);
+    this.logger.log(`[IMPORT-INTELIGENTE]   - Enriquecidos: ${enriquecidos}`);
+    this.logger.log(`[IMPORT-INTELIGENTE]   - Novos: ${novos}`);
+    this.logger.log(`[IMPORT-INTELIGENTE]   Erros: ${erros}`);
+    this.logger.log(`[IMPORT-INTELIGENTE] ========================================`);
+
+    return { importados, enriquecidos, novos, erros, detalhes };
+  }
 }

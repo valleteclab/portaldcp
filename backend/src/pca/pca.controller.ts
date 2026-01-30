@@ -187,4 +187,25 @@ export class PcaController {
   async limparItens(@Param('pcaId') pcaId: string) {
     return this.pcaService.limparItens(pcaId);
   }
+
+  // ============ IMPORTAÇÃO INTELIGENTE ============
+
+  @Post(':pcaId/importar-inteligente')
+  async importarItensInteligente(
+    @Param('pcaId') pcaId: string,
+    @Body() body: { 
+      orgaoId: string;
+      itens: { 
+        descricao: string; 
+        quantidade?: number; 
+        valor_unitario?: number; 
+        valor_total?: number; 
+        unidade?: string; 
+        renovacao?: string; 
+        data_desejada?: string 
+      }[] 
+    }
+  ) {
+    return this.pcaService.importarItensInteligente(pcaId, body.orgaoId, body.itens);
+  }
 }
