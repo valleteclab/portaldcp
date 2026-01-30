@@ -71,25 +71,41 @@ interface ImportarCSVParaPCAProps {
   onImportSuccess?: (count: number) => void
 }
 
-// Mapeamento de categorias
+// Mapeamento de categorias - DEVE corresponder ao enum CategoriaItemPCA no backend:
+// MATERIAL, SERVICO, OBRA, SERVICO_ENGENHARIA, SOLUCAO_TIC, LOCACAO_IMOVEL, ALIENACAO
 const CATEGORIAS_MAP: Record<string, string> = {
+  // Formato padrão do PNCP/Compras.gov
   '1-material': 'MATERIAL',
   '2-serviço': 'SERVICO',
   '2-servico': 'SERVICO',
   '3-obras': 'OBRA',
   '4-serviços de engenharia': 'SERVICO_ENGENHARIA',
   '4-servicos de engenharia': 'SERVICO_ENGENHARIA',
-  '5-soluções de tic': 'TIC',
-  '5-solucoes de tic': 'TIC',
+  '5-soluções de tic': 'SOLUCAO_TIC',
+  '5-solucoes de tic': 'SOLUCAO_TIC',
+  '5-soluções de TIC': 'SOLUCAO_TIC',
   '6-locação de imóveis': 'LOCACAO_IMOVEL',
   '6-locacao de imoveis': 'LOCACAO_IMOVEL',
   '7-alienação/concessão/permissão': 'ALIENACAO',
   '7-alienacao/concessao/permissao': 'ALIENACAO',
-  '8-obras e serviços de engenharia': 'OBRA_ENGENHARIA',
-  '8-obras e servicos de engenharia': 'OBRA_ENGENHARIA',
+  // Nota: '8-obras e serviços de engenharia' não existe no enum, mapear para SERVICO_ENGENHARIA
+  '8-obras e serviços de engenharia': 'SERVICO_ENGENHARIA',
+  '8-obras e servicos de engenharia': 'SERVICO_ENGENHARIA',
+  // Formatos simplificados
   'material': 'MATERIAL',
   'serviço': 'SERVICO',
   'servico': 'SERVICO',
+  'obra': 'OBRA',
+  'obras': 'OBRA',
+  'tic': 'SOLUCAO_TIC',
+  'solução de tic': 'SOLUCAO_TIC',
+  'solucao de tic': 'SOLUCAO_TIC',
+  'soluções de tic': 'SOLUCAO_TIC',
+  'solucoes de tic': 'SOLUCAO_TIC',
+  'locação': 'LOCACAO_IMOVEL',
+  'locacao': 'LOCACAO_IMOVEL',
+  'alienação': 'ALIENACAO',
+  'alienacao': 'ALIENACAO',
 }
 
 function formatarMoeda(valor: number): string {
@@ -318,14 +334,40 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
     setEtapa('importando')
     setProgresso(10)
 
+    console.log('=== INICIANDO IMPORTAÇÃO DE PCA ===')
+    console.log(`Total de itens selecionados: ${itensSelecionados.length}`)
+
     // Preparar todos os itens para importação em lote
-    const itensParaImportar = itensSelecionados.map(item => {
-      // Normalizar categoria
-      const categoriaKey = item.categoria.toLowerCase()
-      const categoriaNormalizada = CATEGORIAS_MAP[categoriaKey] || 'SERVICO'
+    const itensParaImportar = itensSelecionados.map((item, index) => {
+      // Normalizar categoria - tentar várias formas
+      const categoriaOriginal = item.categoria || ''
+      const categoriaKey = categoriaOriginal.toLowerCase().trim()
+      let categoriaNormalizada = CATEGORIAS_MAP[categoriaKey]
+      
+      // Se não encontrou, tentar buscar parcialmente
+      if (!categoriaNormalizada) {
+        // Tentar encontrar por substring
+        for (const [key, value] of Object.entries(CATEGORIAS_MAP)) {
+          if (categoriaKey.includes(key) || key.includes(categoriaKey)) {
+            categoriaNormalizada = value
+            break
+          }
+        }
+      }
+      
+      // Fallback para SERVICO se ainda não encontrou
+      if (!categoriaNormalizada) {
+        console.warn(`[Item ${index + 1}] Categoria não mapeada: "${categoriaOriginal}" -> usando SERVICO`)
+        categoriaNormalizada = 'SERVICO'
+      }
+      
+      // Log de debug para cada item
+      console.log(`[Item ${index + 1}] Categoria: "${categoriaOriginal}" -> "${categoriaNormalizada}"`)
+      console.log(`[Item ${index + 1}] Descrição: ${item.descricao?.substring(0, 50)}...`)
+      console.log(`[Item ${index + 1}] Valor: ${item.valor_total}`)
       
       // Determinar se é renovação
-      const isRenovacao = item.renovacao_contrato.toLowerCase().includes('sim') || 
+      const isRenovacao = item.renovacao_contrato?.toLowerCase().includes('sim') || 
                          item.renovacao_contrato === '1-Sim'
 
       return {
@@ -353,10 +395,15 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
       }
     })
 
+    console.log('=== ITENS PREPARADOS PARA ENVIO ===')
+    console.log('Primeiro item:', JSON.stringify(itensParaImportar[0], null, 2))
+    
     setProgresso(30)
 
     try {
       // Usar o novo endpoint de importação em lote com verificação de duplicidade
+      console.log(`Enviando ${itensParaImportar.length} itens para ${API_URL}/api/pca/${pcaId}/importar-itens`)
+      
       const response = await authFetch(`${API_URL}/api/pca/${pcaId}/importar-itens`, {
         method: 'POST',
         body: JSON.stringify({ itens: itensParaImportar })
@@ -366,6 +413,12 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
 
       if (response.ok) {
         const resultado = await response.json()
+        console.log('=== RESULTADO DA IMPORTAÇÃO ===')
+        console.log('Importados:', resultado.importados)
+        console.log('Duplicados:', resultado.duplicados)
+        console.log('Erros:', resultado.erros)
+        console.log('Detalhes:', resultado.detalhes)
+        
         setResultado({ 
           sucesso: resultado.importados, 
           erro: resultado.erros,
@@ -379,13 +432,24 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
         }
       } else {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Erro na importação:', errorData)
-        setResultado({ sucesso: 0, erro: itensSelecionados.length })
+        console.error('=== ERRO NA IMPORTAÇÃO ===')
+        console.error('Status:', response.status)
+        console.error('Dados:', errorData)
+        setResultado({ 
+          sucesso: 0, 
+          erro: itensSelecionados.length,
+          detalhes: [{ item: 'Erro geral', status: 'erro', motivo: errorData.message || `HTTP ${response.status}` }]
+        })
         setEtapa('concluido')
       }
     } catch (e) {
-      console.error('Erro na importação:', e)
-      setResultado({ sucesso: 0, erro: itensSelecionados.length })
+      console.error('=== EXCEÇÃO NA IMPORTAÇÃO ===')
+      console.error(e)
+      setResultado({ 
+        sucesso: 0, 
+        erro: itensSelecionados.length,
+        detalhes: [{ item: 'Erro de conexão', status: 'erro', motivo: String(e) }]
+      })
       setEtapa('concluido')
     }
 
@@ -655,23 +719,62 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
                 </div>
               </div>
 
+              {/* Detalhes dos ERROS - Mais importante, mostrar primeiro */}
+              {resultado.detalhes && resultado.detalhes.filter(d => d.status === 'erro').length > 0 && (
+                <details open className="w-full max-w-2xl bg-red-50 rounded-lg p-4 border border-red-200">
+                  <summary className="cursor-pointer font-medium text-red-800 flex items-center gap-2">
+                    <XCircle className="w-4 h-4" />
+                    Ver detalhes dos {resultado.detalhes.filter(d => d.status === 'erro').length} erro(s)
+                  </summary>
+                  <div className="mt-3 space-y-2 max-h-60 overflow-y-auto">
+                    {resultado.detalhes
+                      .filter(d => d.status === 'erro')
+                      .map((d: any, i) => (
+                        <div key={i} className="bg-white rounded p-2 border border-red-100 text-sm">
+                          <div className="flex items-start gap-2">
+                            <span className="font-mono text-red-600 font-bold shrink-0">
+                              Linha {d.linha || '?'}:
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-gray-800 truncate" title={d.item}>
+                                {d.item}
+                              </p>
+                              <p className="text-red-600 text-xs mt-1">
+                                ❌ {d.motivo}
+                              </p>
+                              {d.dados && (
+                                <pre className="text-xs text-gray-500 mt-1 bg-gray-50 p-1 rounded overflow-x-auto">
+                                  {JSON.stringify(d.dados, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </details>
+              )}
+
               {/* Detalhes dos duplicados */}
               {resultado.detalhes && resultado.detalhes.filter(d => d.status === 'duplicado').length > 0 && (
-                <details className="w-full max-w-md bg-yellow-50 rounded-lg p-4">
-                  <summary className="cursor-pointer font-medium text-yellow-800">
-                    Ver itens duplicados ignorados
+                <details className="w-full max-w-2xl bg-yellow-50 rounded-lg p-4 border border-yellow-200">
+                  <summary className="cursor-pointer font-medium text-yellow-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Ver {resultado.detalhes.filter(d => d.status === 'duplicado').length} item(ns) duplicado(s)
                   </summary>
                   <ul className="mt-2 text-sm text-yellow-700 space-y-1 max-h-40 overflow-y-auto">
                     {resultado.detalhes
                       .filter(d => d.status === 'duplicado')
-                      .slice(0, 20)
-                      .map((d, i) => (
-                        <li key={i} className="truncate">
-                          • {d.item}... <span className="text-xs">({d.motivo})</span>
+                      .slice(0, 30)
+                      .map((d: any, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="font-mono text-yellow-600 shrink-0">Linha {d.linha || '?'}:</span>
+                          <span className="truncate">{d.item}</span>
+                          <span className="text-xs text-yellow-500 shrink-0">({d.motivo})</span>
                         </li>
                       ))}
-                    {resultado.detalhes.filter(d => d.status === 'duplicado').length > 20 && (
-                      <li className="text-xs">... e mais {resultado.detalhes.filter(d => d.status === 'duplicado').length - 20}</li>
+                    {resultado.detalhes.filter(d => d.status === 'duplicado').length > 30 && (
+                      <li className="text-xs italic">... e mais {resultado.detalhes.filter(d => d.status === 'duplicado').length - 30}</li>
                     )}
                   </ul>
                 </details>

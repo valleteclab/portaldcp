@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItemPCA } from './entities/pca.entity';
 
 @Injectable()
 export class PcaService {
+  private readonly logger = new Logger(PcaService.name);
+
   constructor(
     @InjectRepository(PlanoContratacaoAnual)
     private pcaRepository: Repository<PlanoContratacaoAnual>,
@@ -202,8 +204,11 @@ export class PcaService {
     importados: number;
     duplicados: number;
     erros: number;
-    detalhes: { item: string; status: string; motivo?: string }[];
+    detalhes: { item: string; status: string; motivo?: string; linha?: number; dados?: any }[];
   }> {
+    this.logger.log(`[IMPORTAR] ========================================`);
+    this.logger.log(`[IMPORTAR] Iniciando importação de ${itens.length} itens para PCA ${pcaId}`);
+    
     const pca = await this.findOne(pcaId);
 
     if (pca.status === StatusPCA.ENVIADO_PNCP) {
@@ -214,6 +219,8 @@ export class PcaService {
     const itensExistentes = await this.itemPcaRepository.find({
       where: { pca_id: pcaId }
     });
+    
+    this.logger.log(`[IMPORTAR] Itens existentes no PCA: ${itensExistentes.length}`);
 
     // Criar mapa de itens existentes por código ou descrição
     const mapaCodigos = new Set(
@@ -225,41 +232,117 @@ export class PcaService {
     const mapaDescricoes = new Set(
       itensExistentes.map(i => this.normalizarDescricao(i.descricao_objeto))
     );
+    
+    this.logger.log(`[IMPORTAR] Códigos existentes: ${mapaCodigos.size}, Descrições existentes: ${mapaDescricoes.size}`);
+
+    // Categorias válidas do enum
+    const categoriasValidas = Object.values(CategoriaItemPCA);
+    this.logger.log(`[IMPORTAR] Categorias válidas: ${categoriasValidas.join(', ')}`);
 
     let importados = 0;
     let duplicados = 0;
     let erros = 0;
-    const detalhes: { item: string; status: string; motivo?: string }[] = [];
+    const detalhes: { item: string; status: string; motivo?: string; linha?: number; dados?: any }[] = [];
 
-    for (const itemDados of itens) {
+    for (let i = 0; i < itens.length; i++) {
+      const itemDados = itens[i];
       const descricaoResumida = (itemDados.descricao_objeto || '').substring(0, 60);
+      const linhaCSV = i + 2; // +2 porque linha 1 é cabeçalho e array começa em 0
+      
+      // Log detalhado para cada item
+      this.logger.log(`[IMPORTAR] ----------------------------------------`);
+      this.logger.log(`[IMPORTAR] Item ${i + 1}/${itens.length} (linha CSV ${linhaCSV})`);
+      this.logger.log(`[IMPORTAR] Descrição: ${descricaoResumida}`);
+      this.logger.log(`[IMPORTAR] Categoria recebida: "${itemDados.categoria}"`);
+      this.logger.log(`[IMPORTAR] Valor estimado: ${itemDados.valor_estimado}`);
+      this.logger.log(`[IMPORTAR] Código item: ${itemDados.codigo_item_catalogo || 'N/A'}`);
       
       try {
-        // Verificar duplicidade por código
-        if (itemDados.codigo_item_catalogo && mapaCodigos.has(itemDados.codigo_item_catalogo)) {
-          duplicados++;
+        // ===== VALIDAÇÃO 1: Descrição obrigatória =====
+        if (!itemDados.descricao_objeto || itemDados.descricao_objeto.trim() === '') {
+          erros++;
+          const motivo = 'Descrição do objeto é obrigatória';
+          this.logger.error(`[IMPORTAR] ERRO linha ${linhaCSV}: ${motivo}`);
           detalhes.push({
-            item: descricaoResumida,
-            status: 'duplicado',
-            motivo: `Código ${itemDados.codigo_item_catalogo} já existe`
+            item: `Linha ${linhaCSV}: (sem descrição)`,
+            status: 'erro',
+            motivo,
+            linha: linhaCSV
           });
           continue;
         }
 
-        // Verificar duplicidade por descrição similar
+        // ===== VALIDAÇÃO 2: Categoria válida =====
+        const categoriaRecebida = itemDados.categoria as string;
+        if (!categoriaRecebida || !categoriasValidas.includes(categoriaRecebida as CategoriaItemPCA)) {
+          erros++;
+          const motivo = `Categoria inválida: "${categoriaRecebida}". Valores aceitos: ${categoriasValidas.join(', ')}`;
+          this.logger.error(`[IMPORTAR] ERRO linha ${linhaCSV}: ${motivo}`);
+          detalhes.push({
+            item: descricaoResumida,
+            status: 'erro',
+            motivo,
+            linha: linhaCSV,
+            dados: { categoria_recebida: categoriaRecebida }
+          });
+          continue;
+        }
+
+        // ===== VALIDAÇÃO 3: Valor estimado =====
+        const valorEstimado = Number(itemDados.valor_estimado);
+        if (isNaN(valorEstimado) || valorEstimado < 0) {
+          erros++;
+          const motivo = `Valor estimado inválido: "${itemDados.valor_estimado}"`;
+          this.logger.error(`[IMPORTAR] ERRO linha ${linhaCSV}: ${motivo}`);
+          detalhes.push({
+            item: descricaoResumida,
+            status: 'erro',
+            motivo,
+            linha: linhaCSV,
+            dados: { valor_recebido: itemDados.valor_estimado }
+          });
+          continue;
+        }
+
+        // ===== VERIFICAÇÃO DE DUPLICIDADE POR CÓDIGO =====
+        if (itemDados.codigo_item_catalogo && mapaCodigos.has(itemDados.codigo_item_catalogo)) {
+          duplicados++;
+          this.logger.warn(`[IMPORTAR] Linha ${linhaCSV} DUPLICADO por código: ${itemDados.codigo_item_catalogo}`);
+          detalhes.push({
+            item: descricaoResumida,
+            status: 'duplicado',
+            motivo: `Código ${itemDados.codigo_item_catalogo} já existe`,
+            linha: linhaCSV
+          });
+          continue;
+        }
+
+        // ===== VERIFICAÇÃO DE DUPLICIDADE POR DESCRIÇÃO =====
         const descricaoNormalizada = this.normalizarDescricao(itemDados.descricao_objeto || '');
         if (mapaDescricoes.has(descricaoNormalizada)) {
           duplicados++;
+          this.logger.warn(`[IMPORTAR] Linha ${linhaCSV} DUPLICADO por descrição similar`);
           detalhes.push({
             item: descricaoResumida,
             status: 'duplicado',
-            motivo: 'Descrição similar já existe'
+            motivo: 'Descrição similar já existe',
+            linha: linhaCSV
           });
           continue;
         }
 
+        // ===== PREPARAR DADOS PARA SALVAR =====
+        const dadosParaSalvar: Partial<ItemPCA> = {
+          ...itemDados,
+          categoria: categoriaRecebida as CategoriaItemPCA,
+          valor_estimado: valorEstimado,
+          descricao_objeto: itemDados.descricao_objeto.trim()
+        };
+
+        this.logger.log(`[IMPORTAR] Linha ${linhaCSV}: Salvando item...`);
+        
         // Adicionar item
-        await this.adicionarItem(pcaId, itemDados);
+        await this.adicionarItem(pcaId, dadosParaSalvar);
         importados++;
         
         // Adicionar ao mapa para evitar duplicatas no mesmo lote
@@ -268,21 +351,40 @@ export class PcaService {
         }
         mapaDescricoes.add(descricaoNormalizada);
 
+        this.logger.log(`[IMPORTAR] Linha ${linhaCSV}: ✓ IMPORTADO com sucesso`);
         detalhes.push({
           item: descricaoResumida,
-          status: 'importado'
+          status: 'importado',
+          linha: linhaCSV
         });
 
       } catch (error) {
         erros++;
+        const errorMessage = error.message || 'Erro desconhecido';
+        const errorStack = error.stack || '';
+        this.logger.error(`[IMPORTAR] ERRO linha ${linhaCSV}: ${errorMessage}`);
+        this.logger.error(`[IMPORTAR] Stack: ${errorStack.substring(0, 500)}`);
         detalhes.push({
           item: descricaoResumida,
           status: 'erro',
-          motivo: error.message || 'Erro desconhecido'
+          motivo: errorMessage,
+          linha: linhaCSV,
+          dados: {
+            categoria: itemDados.categoria,
+            valor_estimado: itemDados.valor_estimado,
+            codigo_item: itemDados.codigo_item_catalogo
+          }
         });
       }
     }
 
+    this.logger.log(`[IMPORTAR] ========================================`);
+    this.logger.log(`[IMPORTAR] RESULTADO FINAL:`);
+    this.logger.log(`[IMPORTAR]   ✓ Importados: ${importados}`);
+    this.logger.log(`[IMPORTAR]   ⚠ Duplicados: ${duplicados}`);
+    this.logger.log(`[IMPORTAR]   ✗ Erros: ${erros}`);
+    this.logger.log(`[IMPORTAR] ========================================`);
+    
     return { importados, duplicados, erros, detalhes };
   }
 
