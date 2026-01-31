@@ -908,21 +908,17 @@ export class PcaService {
         const itemExistente = matches.get(item.descricao);
         
         // Preparar dados do item
-        // Converter data sem problema de fuso horário
-        let dataDesejada: Date | undefined = undefined;
+        // Passar data como string YYYY-MM-DD para evitar problemas de fuso horário
+        let dataDesejadaStr: string | undefined = undefined;
         if (item.data_desejada) {
           this.logger.log(`[IMPORT-INTELIGENTE] Data recebida: "${item.data_desejada}"`);
           
           // Formato esperado: yyyy-mm-dd
           const match = item.data_desejada.match(/(\d{4})-(\d{2})-(\d{2})/);
           if (match) {
-            const ano = parseInt(match[1]);
-            const mes = parseInt(match[2]) - 1; // JavaScript meses são 0-indexed
-            const dia = parseInt(match[3]);
-            
-            // Criar data usando componentes locais (não UTC)
-            dataDesejada = new Date(ano, mes, dia, 12, 0, 0);
-            this.logger.log(`[IMPORT-INTELIGENTE] Data convertida: ano=${ano}, mes=${mes+1}, dia=${dia} -> ${dataDesejada.toISOString()}`);
+            // Manter como string no formato YYYY-MM-DD
+            dataDesejadaStr = `${match[1]}-${match[2]}-${match[3]}`;
+            this.logger.log(`[IMPORT-INTELIGENTE] Data formatada: ${dataDesejadaStr}`);
           } else {
             this.logger.warn(`[IMPORT-INTELIGENTE] Data não reconhecida: "${item.data_desejada}"`);
           }
@@ -935,7 +931,7 @@ export class PcaService {
           valor_estimado: item.valor_total || (item.valor_unitario || 0) * (item.quantidade || 1),
           unidade_medida: item.unidade || 'UN',
           renovacao_contrato: item.renovacao?.toLowerCase().includes('sim') ? 'SIM' : 'NAO',
-          data_desejada_contratacao: dataDesejada,
+          data_desejada_contratacao: dataDesejadaStr as any,
         };
 
         if (itemExistente) {
