@@ -1619,7 +1619,14 @@ function PcaPageContent() {
                             </td>
                             <td className="py-2 px-2 text-center text-xs">
                               {item.data_desejada_contratacao 
-                                ? new Date(item.data_desejada_contratacao).toLocaleDateString('pt-BR')
+                                ? (() => {
+                                    // Evitar problema de fuso horário: parsear a data como componentes locais
+                                    const match = String(item.data_desejada_contratacao).match(/(\d{4})-(\d{2})-(\d{2})/)
+                                    if (match) {
+                                      return `${match[3]}/${match[2]}/${match[1]}`
+                                    }
+                                    return new Date(item.data_desejada_contratacao).toLocaleDateString('pt-BR')
+                                  })()
                                 : '-'}
                             </td>
                             <td className="py-2 px-2 text-xs max-w-[120px] truncate" title={item.unidade_requisitante || ''}>
