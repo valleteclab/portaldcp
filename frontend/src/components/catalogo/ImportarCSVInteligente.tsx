@@ -41,6 +41,7 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 
 interface ItemCSVSimplificado {
+  numero_item: number
   descricao: string
   unidade: string
   quantidade: number
@@ -76,11 +77,23 @@ function parseValorMonetario(valor: string): number {
 
 function parseData(data: string): string {
   if (!data) return ''
-  // Tenta converter dd/mm/yyyy para yyyy-mm-dd
+  
+  // Tenta converter d/m/yyyy ou dd/mm/yyyy para yyyy-mm-dd
+  // Formato brasileiro: dia/mês/ano
   const match = data.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/)
   if (match) {
-    return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`
+    const dia = match[1].padStart(2, '0')
+    const mes = match[2].padStart(2, '0')
+    const ano = match[3]
+    return `${ano}-${mes}-${dia}`
   }
+  
+  // Tenta yyyy-mm-dd (já no formato correto)
+  const matchIso = data.match(/(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (matchIso) {
+    return `${matchIso[1]}-${matchIso[2].padStart(2, '0')}-${matchIso[3].padStart(2, '0')}`
+  }
+  
   return data
 }
 
@@ -180,6 +193,7 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
         }
 
         const item: ItemCSVSimplificado = {
+          numero_item: i, // Número da linha no CSV (1-indexed)
           descricao,
           unidade: colUnidade >= 0 ? (colunas[colUnidade]?.trim() || 'UN') : 'UN',
           quantidade: colQuantidade >= 0 ? parseFloat(colunas[colQuantidade]?.replace(',', '.')) || 1 : 1,
@@ -263,9 +277,9 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
     }
   }, [])
 
-  const toggleItem = (index: number) => {
-    setItens(prev => prev.map((item, i) => 
-      i === index ? { ...item, selecionado: !item.selecionado } : item
+  const toggleItem = (numeroItem: number) => {
+    setItens(prev => prev.map(item => 
+      item.numero_item === numeroItem ? { ...item, selecionado: !item.selecionado } : item
     ))
   }
 
@@ -289,7 +303,10 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
     console.log(`Total de itens selecionados: ${itensSelecionados.length}`)
     console.log(`PCA ID: ${pcaId}`)
 
-    const itensParaImportar = itensSelecionados.map(item => ({
+    // Ordenar itens por numero_item antes de enviar
+    const itensOrdenados = [...itensSelecionados].sort((a, b) => a.numero_item - b.numero_item)
+
+    const itensParaImportar = itensOrdenados.map(item => ({
       descricao: item.descricao,
       quantidade: item.quantidade,
       valor_unitario: item.valor_unitario,
@@ -487,6 +504,7 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10"></TableHead>
+                      <TableHead className="w-12 text-center">#</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="w-16">Qtd</TableHead>
                       <TableHead className="w-28 text-right">Valor Unit.</TableHead>
@@ -495,7 +513,7 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {itens.map((item, idx) => (
+                    {[...itens].sort((a, b) => a.numero_item - b.numero_item).map((item, idx) => (
                       <TableRow 
                         key={idx}
                         className={item.selecionado ? 'bg-purple-50' : ''}
@@ -503,8 +521,11 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
                         <TableCell>
                           <Checkbox 
                             checked={item.selecionado}
-                            onCheckedChange={() => toggleItem(idx)}
+                            onCheckedChange={() => toggleItem(item.numero_item)}
                           />
+                        </TableCell>
+                        <TableCell className="text-center font-mono text-sm">
+                          {item.numero_item}
                         </TableCell>
                         <TableCell>
                           <p className="text-sm line-clamp-2" title={item.descricao}>
