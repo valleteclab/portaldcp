@@ -71,6 +71,11 @@ export class PcaService {
       throw new NotFoundException('PCA não encontrado');
     }
 
+    // Ordenar itens por numero_item
+    if (pca.itens && pca.itens.length > 0) {
+      pca.itens.sort((a, b) => (a.numero_item || 0) - (b.numero_item || 0));
+    }
+
     return pca;
   }
 
@@ -82,6 +87,11 @@ export class PcaService {
 
     if (!pca) {
       throw new NotFoundException(`PCA do ano ${ano} não encontrado`);
+    }
+
+    // Ordenar itens por numero_item
+    if (pca.itens && pca.itens.length > 0) {
+      pca.itens.sort((a, b) => (a.numero_item || 0) - (b.numero_item || 0));
     }
 
     return pca;
@@ -898,6 +908,17 @@ export class PcaService {
         const itemExistente = matches.get(item.descricao);
         
         // Preparar dados do item
+        // Converter data sem problema de fuso horário
+        let dataDesejada: Date | undefined = undefined;
+        if (item.data_desejada) {
+          // Formato esperado: yyyy-mm-dd
+          const match = item.data_desejada.match(/(\d{4})-(\d{2})-(\d{2})/);
+          if (match) {
+            // Criar data usando componentes locais (não UTC)
+            dataDesejada = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]), 12, 0, 0);
+          }
+        }
+
         const dadosItem: Partial<ItemPCA> = {
           descricao_objeto: item.descricao,
           quantidade_estimada: item.quantidade || 1,
@@ -905,7 +926,7 @@ export class PcaService {
           valor_estimado: item.valor_total || (item.valor_unitario || 0) * (item.quantidade || 1),
           unidade_medida: item.unidade || 'UN',
           renovacao_contrato: item.renovacao?.toLowerCase().includes('sim') ? 'SIM' : 'NAO',
-          data_desejada_contratacao: item.data_desejada ? new Date(item.data_desejada) : undefined,
+          data_desejada_contratacao: dataDesejada,
         };
 
         if (itemExistente) {
