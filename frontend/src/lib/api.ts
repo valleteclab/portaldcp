@@ -150,6 +150,72 @@ export async function adminFetch(url: string, options?: RequestInit): Promise<Re
   return response;
 }
 
+// ============ FUNÇÕES DE DATA (HORÁRIO DE BRASÍLIA) ============
+
+/**
+ * Formata uma data ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss) para exibição brasileira (DD/MM/YYYY)
+ * IMPORTANTE: Não usa new Date() para evitar conversão de fuso horário
+ */
+export function formatarDataBR(dataISO: string | null | undefined): string {
+  if (!dataISO) return '-';
+  
+  // Extrai componentes da data diretamente da string
+  const match = String(dataISO).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  }
+  
+  // Fallback para formato já brasileiro
+  if (dataISO.includes('/')) {
+    return dataISO.split('T')[0];
+  }
+  
+  return dataISO;
+}
+
+/**
+ * Formata uma data ISO com hora para exibição brasileira (DD/MM/YYYY HH:mm)
+ * IMPORTANTE: Não usa new Date() para evitar conversão de fuso horário
+ */
+export function formatarDataHoraBR(dataISO: string | null | undefined): string {
+  if (!dataISO) return '-';
+  
+  // Extrai componentes da data e hora diretamente da string
+  const match = String(dataISO).match(/(\d{4})-(\d{2})-(\d{2})T?(\d{2})?:?(\d{2})?/);
+  if (match) {
+    const data = `${match[3]}/${match[2]}/${match[1]}`;
+    if (match[4] && match[5]) {
+      return `${data} ${match[4]}:${match[5]}`;
+    }
+    return data;
+  }
+  
+  return dataISO;
+}
+
+/**
+ * Converte data brasileira (DD/MM/YYYY) para ISO (YYYY-MM-DD)
+ * Útil para enviar datas ao backend
+ */
+export function dataBRparaISO(dataBR: string): string {
+  if (!dataBR) return '';
+  
+  const match = dataBR.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) {
+    const dia = match[1].padStart(2, '0');
+    const mes = match[2].padStart(2, '0');
+    const ano = match[3];
+    return `${ano}-${mes}-${dia}`;
+  }
+  
+  // Se já estiver em formato ISO, retorna como está
+  if (dataBR.match(/\d{4}-\d{2}-\d{2}/)) {
+    return dataBR.split('T')[0];
+  }
+  
+  return dataBR;
+}
+
 /**
  * Métodos de conveniência para requisições comuns
  */

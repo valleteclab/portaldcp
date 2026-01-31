@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -127,8 +128,6 @@ interface PCA {
   codigo_unidade?: string
   nome_unidade?: string
 }
-
-import { API_URL, authFetch } from '@/lib/api'
 
 const STATUS_PCA = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800' },
@@ -1618,16 +1617,7 @@ function PcaPageContent() {
                               </Badge>
                             </td>
                             <td className="py-2 px-2 text-center text-xs">
-                              {item.data_desejada_contratacao 
-                                ? (() => {
-                                    // Evitar problema de fuso horário: parsear a data como componentes locais
-                                    const match = String(item.data_desejada_contratacao).match(/(\d{4})-(\d{2})-(\d{2})/)
-                                    if (match) {
-                                      return `${match[3]}/${match[2]}/${match[1]}`
-                                    }
-                                    return new Date(item.data_desejada_contratacao).toLocaleDateString('pt-BR')
-                                  })()
-                                : '-'}
+                              {formatarDataBR(item.data_desejada_contratacao)}
                             </td>
                             <td className="py-2 px-2 text-xs max-w-[120px] truncate" title={item.unidade_requisitante || ''}>
                               {item.unidade_requisitante || '-'}
