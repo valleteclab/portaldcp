@@ -911,11 +911,20 @@ export class PcaService {
         // Converter data sem problema de fuso horário
         let dataDesejada: Date | undefined = undefined;
         if (item.data_desejada) {
+          this.logger.log(`[IMPORT-INTELIGENTE] Data recebida: "${item.data_desejada}"`);
+          
           // Formato esperado: yyyy-mm-dd
           const match = item.data_desejada.match(/(\d{4})-(\d{2})-(\d{2})/);
           if (match) {
+            const ano = parseInt(match[1]);
+            const mes = parseInt(match[2]) - 1; // JavaScript meses são 0-indexed
+            const dia = parseInt(match[3]);
+            
             // Criar data usando componentes locais (não UTC)
-            dataDesejada = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]), 12, 0, 0);
+            dataDesejada = new Date(ano, mes, dia, 12, 0, 0);
+            this.logger.log(`[IMPORT-INTELIGENTE] Data convertida: ano=${ano}, mes=${mes+1}, dia=${dia} -> ${dataDesejada.toISOString()}`);
+          } else {
+            this.logger.warn(`[IMPORT-INTELIGENTE] Data não reconhecida: "${item.data_desejada}"`);
           }
         }
 

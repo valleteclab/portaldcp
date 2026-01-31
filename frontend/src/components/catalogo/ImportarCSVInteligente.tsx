@@ -306,15 +306,21 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
     // Ordenar itens por numero_item antes de enviar
     const itensOrdenados = [...itensSelecionados].sort((a, b) => a.numero_item - b.numero_item)
 
-    const itensParaImportar = itensOrdenados.map(item => ({
-      descricao: item.descricao,
-      quantidade: item.quantidade,
-      valor_unitario: item.valor_unitario,
-      valor_total: item.valor_total,
-      unidade: item.unidade,
-      renovacao: item.renovacao,
-      data_desejada: parseData(item.data_desejada)
-    }))
+    const itensParaImportar = itensOrdenados.map(item => {
+      const dataOriginal = item.data_desejada
+      const dataConvertida = parseData(item.data_desejada)
+      console.log(`[DEBUG DATA] Item: "${item.descricao.substring(0, 30)}..." | Original: "${dataOriginal}" | Convertida: "${dataConvertida}"`)
+      
+      return {
+        descricao: item.descricao,
+        quantidade: item.quantidade,
+        valor_unitario: item.valor_unitario,
+        valor_total: item.valor_total,
+        unidade: item.unidade,
+        renovacao: item.renovacao,
+        data_desejada: dataConvertida
+      }
+    })
 
     setProgresso(30)
 
