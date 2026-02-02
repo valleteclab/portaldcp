@@ -126,6 +126,10 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
   }
 
   const fechar = () => {
+    // Chamar onImportSuccess apenas ao fechar, para não causar re-render durante exibição do resultado
+    if (resultado && resultado.importados > 0 && onImportSuccess) {
+      onImportSuccess(resultado.importados)
+    }
     limpar()
     setOpen(false)
   }
@@ -349,10 +353,7 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
         
         setResultado(resultado)
         setEtapa('concluido')
-        
-        if (onImportSuccess && resultado.importados > 0) {
-          onImportSuccess(resultado.importados)
-        }
+        // onImportSuccess será chamado ao fechar o modal para evitar re-render
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.error('Erro na importação:', errorData)
