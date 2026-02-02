@@ -399,4 +399,115 @@ export class CatalogoProprioService implements OnModuleInit {
     };
   }
 
+  // ==================== MIGRAR ITENS DO PCA PARA CATÁLOGO ====================
+
+  async migrarItensPCAParaCatalogo(): Promise<{
+    migrados: number;
+    jaExistentes: number;
+    erros: number;
+    detalhes: { codigo: string; descricao: string; status: string }[];
+  }> {
+    this.logger.log('[MIGRACAO] Iniciando migração de itens do PCA para catálogo próprio...');
+    
+    const dataSource = this.classificacaoRepository.manager.connection;
+    
+    // Buscar itens únicos do PCA que têm código de catálogo
+    const itensPCA = await dataSource.query(`
+      SELECT DISTINCT ON (codigo_item_catalogo)
+        codigo_item_catalogo as codigo,
+        descricao_objeto as descricao,
+        categoria as tipo,
+        unidade_medida as unidade_padrao,
+        codigo_classe,
+        nome_classe,
+        valor_unitario_estimado as valor_referencia
+      FROM itens_pca
+      WHERE codigo_item_catalogo IS NOT NULL 
+        AND codigo_item_catalogo != ''
+      ORDER BY codigo_item_catalogo, created_at DESC
+    `);
+
+    this.logger.log(`[MIGRACAO] Encontrados ${itensPCA.length} itens únicos no PCA`);
+
+    let migrados = 0;
+    let jaExistentes = 0;
+    let erros = 0;
+    const detalhes: { codigo: string; descricao: string; status: string }[] = [];
+
+    for (const item of itensPCA) {
+      try {
+        // Verificar se já existe no catálogo próprio
+        const existe = await this.itemRepository.findOne({ 
+          where: { codigo: item.codigo } 
+        });
+
+        if (existe) {
+          jaExistentes++;
+          detalhes.push({
+            codigo: item.codigo,
+            descricao: item.descricao?.substring(0, 50) || '',
+            status: 'ja_existe'
+          });
+          continue;
+        }
+
+        // Buscar ou criar classificação
+        let classificacao: ClassificacaoCatalogoProprio | null = null;
+        if (item.codigo_classe) {
+          classificacao = await this.classificacaoRepository.findOne({
+            where: { codigo: item.codigo_classe }
+          });
+
+          // Se não encontrou, criar uma classificação baseada no código
+          if (!classificacao) {
+            const tipoItem = item.tipo === 'MATERIAL' ? 'MATERIAL' : 'SERVICO';
+            classificacao = await this.classificacaoRepository.save(
+              this.classificacaoRepository.create({
+                codigo: item.codigo_classe,
+                nome: item.nome_classe || `CLASSIFICAÇÃO ${item.codigo_classe}`,
+                tipo: tipoItem,
+              })
+            );
+            this.logger.log(`[MIGRACAO] Criada classificação: ${item.codigo_classe}`);
+          }
+        }
+
+        // Criar item no catálogo próprio
+        const novoItem = this.itemRepository.create({
+          codigo: item.codigo,
+          descricao: item.descricao,
+          tipo: item.tipo === 'MATERIAL' ? 'MATERIAL' : 'SERVICO',
+          unidade_padrao: item.unidade_padrao || 'UN',
+          valor_referencia: item.valor_referencia || undefined,
+          classificacao_id: classificacao?.id || undefined,
+          ativo: true,
+        });
+
+        await this.itemRepository.save(novoItem);
+        migrados++;
+        
+        detalhes.push({
+          codigo: item.codigo,
+          descricao: item.descricao?.substring(0, 50) || '',
+          status: 'migrado'
+        });
+
+        this.logger.log(`[MIGRACAO] ✓ Migrado: ${item.codigo} - ${item.descricao?.substring(0, 40)}`);
+
+      } catch (error) {
+        erros++;
+        this.logger.error(`[MIGRACAO] ✗ Erro ao migrar ${item.codigo}: ${error.message}`);
+        detalhes.push({
+          codigo: item.codigo,
+          descricao: item.descricao?.substring(0, 50) || '',
+          status: `erro: ${error.message}`
+        });
+      }
+    }
+
+    this.logger.log(`[MIGRACAO] Concluído: ${migrados} migrados, ${jaExistentes} já existentes, ${erros} erros`);
+
+    return { migrados, jaExistentes, erros, detalhes };
+  }
+
 }

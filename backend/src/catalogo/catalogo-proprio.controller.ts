@@ -117,4 +117,11 @@ export class CatalogoProprioController {
   async getEstatisticas() {
     return this.catalogoProprioService.getEstatisticas();
   }
+
+  // ==================== MIGRAÇÃO ====================
+
+  @Post('migrar-itens-pca')
+  async migrarItensPCA() {
+    return this.catalogoProprioService.migrarItensPCAParaCatalogo();
+  }
 }
