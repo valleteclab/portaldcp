@@ -185,6 +185,7 @@ interface BuscaItemCatalogoProprioProps {
   value?: ItemCatalogo | null
   onChange: (item: ItemCatalogo | null) => void
   tipo?: 'MATERIAL' | 'SERVICO'
+  orgaoId?: string
   disabled?: boolean
   placeholder?: string
 }
@@ -193,6 +194,7 @@ export function BuscaItemCatalogoProprio({
   value, 
   onChange, 
   tipo, 
+  orgaoId,
   disabled,
   placeholder = "Buscar item do catálogo..." 
 }: BuscaItemCatalogoProprioProps) {
@@ -218,9 +220,10 @@ export function BuscaItemCatalogoProprio({
       const params = new URLSearchParams()
       if (searchTermo) params.append('termo', searchTermo)
       if (tipo) params.append('tipo', tipo)
+      if (orgaoId) params.append('orgaoId', orgaoId)
       params.append('limite', '15')
 
-      // Buscar nos itens do PCA existentes
+      // Buscar nos itens do PCA existentes do órgão
       const response = await authFetch(`${API_URL}/api/catalogo-proprio/buscar-itens-pca?${params}`)
       if (response.ok) {
         const data = await response.json()
@@ -231,7 +234,7 @@ export function BuscaItemCatalogoProprio({
     } finally {
       setLoading(false)
     }
-  }, [tipo])
+  }, [tipo, orgaoId])
 
   const carregarClassificacoes = async (tipoItem: 'MATERIAL' | 'SERVICO') => {
     try {

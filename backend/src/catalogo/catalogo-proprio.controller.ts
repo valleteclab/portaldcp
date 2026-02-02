@@ -95,11 +95,13 @@ export class CatalogoProprioController {
   async buscarItensPCA(
     @Query('termo') termo?: string,
     @Query('tipo') tipo?: 'MATERIAL' | 'SERVICO',
+    @Query('orgaoId') orgaoId?: string,
     @Query('limite') limite?: string,
   ) {
     return this.catalogoProprioService.buscarItensDoPCA({
       termo,
       tipo,
+      orgaoId,
       limite: limite ? parseInt(limite) : 15,
     });
   }

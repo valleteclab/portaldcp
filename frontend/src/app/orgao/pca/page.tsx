@@ -160,6 +160,7 @@ function PcaPageContent() {
   const [pcaAtual, setPcaAtual] = useState<PCA | null>(null)
   const [loading, setLoading] = useState(true)
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
+  const [orgaoId, setOrgaoId] = useState<string>('')
   const [showNovoItem, setShowNovoItem] = useState(false)
   const [visualizacao, setVisualizacao] = useState<'lista' | 'detalhes'>('lista')
   const [showNovoPCA, setShowNovoPCA] = useState(false)
@@ -243,6 +244,7 @@ function PcaPageContent() {
       if (!orgaoData) return
 
       const orgao = JSON.parse(orgaoData)
+      setOrgaoId(orgao.id) // Salvar orgaoId no estado
       const response = await authFetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
       
       if (response.ok) {
@@ -1336,6 +1338,7 @@ function PcaPageContent() {
                       }
                     }}
                     tipo={novoItem.categoria === 'MATERIAL' ? 'MATERIAL' : undefined}
+                    orgaoId={orgaoId}
                     placeholder="Buscar item existente no catálogo..."
                   />
                   <p className="text-xs text-gray-500 mt-2">

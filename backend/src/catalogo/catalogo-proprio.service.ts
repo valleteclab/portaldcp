@@ -1,16 +1,32 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike } from 'typeorm';
 import { ClassificacaoCatalogoProprio, ItemCatalogoProprio } from './entities/catalogo-proprio.entity';
 
 @Injectable()
-export class CatalogoProprioService {
+export class CatalogoProprioService implements OnModuleInit {
+  private readonly logger = new Logger(CatalogoProprioService.name);
+
   constructor(
     @InjectRepository(ClassificacaoCatalogoProprio)
     private classificacaoRepository: Repository<ClassificacaoCatalogoProprio>,
     @InjectRepository(ItemCatalogoProprio)
     private itemRepository: Repository<ItemCatalogoProprio>,
   ) {}
+
+  async onModuleInit() {
+    // Executar seed de classificações iniciais ao iniciar o módulo
+    try {
+      const resultado = await this.seedClassificacoesIniciais();
+      if (resultado.classificacoes > 0) {
+        this.logger.log(`[SEED] Criadas ${resultado.classificacoes} classificações iniciais do catálogo próprio`);
+      } else {
+        this.logger.log(`[SEED] Classificações do catálogo próprio já existem (${resultado.existentes} encontradas)`);
+      }
+    } catch (error) {
+      this.logger.error(`[SEED] Erro ao criar classificações iniciais: ${error.message}`);
+    }
+  }
 
   // ==================== CLASSIFICAÇÕES ====================
 
@@ -291,42 +307,50 @@ export class CatalogoProprioService {
   async buscarItensDoPCA(params: {
     termo?: string;
     tipo?: 'MATERIAL' | 'SERVICO';
+    orgaoId?: string;
     limite?: number;
   }): Promise<any[]> {
     // Buscar itens únicos do PCA (agrupados por código do item)
-    const { DataSource } = require('typeorm');
     const dataSource = this.classificacaoRepository.manager.connection;
     
+    // Se não tiver orgaoId, retorna array vazio (órgão novo não tem itens)
+    if (!params.orgaoId) {
+      this.logger.log('[BUSCA-PCA] Nenhum orgaoId fornecido, retornando vazio');
+      return [];
+    }
+    
     let query = `
-      SELECT DISTINCT ON (codigo_item_catalogo, descricao_objeto)
-        codigo_item_catalogo as codigo,
-        descricao_objeto as descricao,
-        categoria as tipo,
-        unidade_medida as unidade_padrao,
-        codigo_classe,
-        nome_classe
-      FROM itens_pca
-      WHERE codigo_item_catalogo IS NOT NULL 
-        AND codigo_item_catalogo != ''
+      SELECT DISTINCT ON (ip.codigo_item_catalogo, ip.descricao_objeto)
+        ip.codigo_item_catalogo as codigo,
+        ip.descricao_objeto as descricao,
+        ip.categoria as tipo,
+        ip.unidade_medida as unidade_padrao,
+        ip.codigo_classe,
+        ip.nome_classe
+      FROM itens_pca ip
+      INNER JOIN planos_contratacao_anual pca ON ip.pca_id = pca.id
+      WHERE ip.codigo_item_catalogo IS NOT NULL 
+        AND ip.codigo_item_catalogo != ''
+        AND pca.orgao_id = $1
     `;
 
-    const queryParams: any[] = [];
-    let paramIndex = 1;
+    const queryParams: any[] = [params.orgaoId];
+    let paramIndex = 2;
 
     if (params.termo) {
-      query += ` AND (LOWER(descricao_objeto) LIKE LOWER($${paramIndex}) OR LOWER(codigo_item_catalogo) LIKE LOWER($${paramIndex}))`;
+      query += ` AND (LOWER(ip.descricao_objeto) LIKE LOWER($${paramIndex}) OR LOWER(ip.codigo_item_catalogo) LIKE LOWER($${paramIndex}))`;
       queryParams.push(`%${params.termo}%`);
       paramIndex++;
     }
 
     if (params.tipo) {
       const categoria = params.tipo === 'MATERIAL' ? 'MATERIAL' : 'SERVICO';
-      query += ` AND categoria = $${paramIndex}`;
+      query += ` AND ip.categoria = $${paramIndex}`;
       queryParams.push(categoria);
       paramIndex++;
     }
 
-    query += ` ORDER BY codigo_item_catalogo, descricao_objeto`;
+    query += ` ORDER BY ip.codigo_item_catalogo, ip.descricao_objeto`;
     
     if (params.limite) {
       query += ` LIMIT $${paramIndex}`;
@@ -334,6 +358,7 @@ export class CatalogoProprioService {
     }
 
     const results = await dataSource.query(query, queryParams);
+    this.logger.log(`[BUSCA-PCA] Encontrados ${results.length} itens para orgaoId=${params.orgaoId}`);
 
     // Formatar resultado para o frontend
     return results.map((item: any) => ({
