@@ -48,7 +48,6 @@ export class OrgaosService {
     
     // Verifica duplicidade por CNPJ (comparando sem formatação)
     const orgaos = await this.orgaoRepository.find();
-    console.log('[OrgaosService] Órgãos existentes:', orgaos.map(o => ({ id: o.id, cnpj: o.cnpj })));
     const existingCnpj = orgaos.find(o => o.cnpj?.replace(/\D/g, '') === cnpjNormalizado);
     if (existingCnpj) {
       console.log('[OrgaosService] CNPJ duplicado encontrado:', existingCnpj.id);
@@ -63,10 +62,19 @@ export class OrgaosService {
       throw new ConflictException('Já existe um órgão cadastrado com este código');
     }
 
-    // Salva CNPJ normalizado (sem formatação)
-    createOrgaoDto.cnpj = cnpjNormalizado;
+    // Prepara dados com valores padrão
+    const dadosOrgao = {
+      ...createOrgaoDto,
+      cnpj: cnpjNormalizado,
+      logradouro: createOrgaoDto.logradouro || 'A definir',
+      bairro: createOrgaoDto.bairro || 'Centro',
+      cep: createOrgaoDto.cep || '00000-000',
+      responsavel_nome: createOrgaoDto.responsavel_nome || 'A definir',
+      responsavel_cpf: createOrgaoDto.responsavel_cpf || '000.000.000-00',
+      ativo: createOrgaoDto.ativo !== undefined ? createOrgaoDto.ativo : true,
+    };
     
-    const orgao = this.orgaoRepository.create(createOrgaoDto);
+    const orgao = this.orgaoRepository.create(dadosOrgao);
     return await this.orgaoRepository.save(orgao);
   }
 

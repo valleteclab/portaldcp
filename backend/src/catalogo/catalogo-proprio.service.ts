@@ -225,13 +225,7 @@ export class CatalogoProprioService {
 
   // ==================== SEED INICIAL ====================
 
-  async seedClassificacoesIniciais(): Promise<{ classificacoes: number; itens: number }> {
-    // Verificar se já existe dados
-    const count = await this.classificacaoRepository.count();
-    if (count > 0) {
-      return { classificacoes: 0, itens: 0 };
-    }
-
+  async seedClassificacoesIniciais(): Promise<{ classificacoes: number; itens: number; existentes: number }> {
     // Classificações de Serviços
     const classificacoesServicos = [
       { codigo: '100', nome: 'SERVIÇOS DE UTILIDADE PÚBLICA', palavras_chave: ['água', 'esgoto', 'energia', 'elétrica', 'telefonia', 'internet'] },
@@ -257,28 +251,39 @@ export class CatalogoProprioService {
     ];
 
     let totalClassificacoes = 0;
+    let existentes = 0;
 
     for (const c of classificacoesServicos) {
-      await this.classificacaoRepository.save(
-        this.classificacaoRepository.create({
-          ...c,
-          tipo: 'SERVICO',
-        })
-      );
-      totalClassificacoes++;
+      const existe = await this.classificacaoRepository.findOne({ where: { codigo: c.codigo } });
+      if (!existe) {
+        await this.classificacaoRepository.save(
+          this.classificacaoRepository.create({
+            ...c,
+            tipo: 'SERVICO',
+          })
+        );
+        totalClassificacoes++;
+      } else {
+        existentes++;
+      }
     }
 
     for (const c of classificacoesMateriais) {
-      await this.classificacaoRepository.save(
-        this.classificacaoRepository.create({
-          ...c,
-          tipo: 'MATERIAL',
-        })
-      );
-      totalClassificacoes++;
+      const existe = await this.classificacaoRepository.findOne({ where: { codigo: c.codigo } });
+      if (!existe) {
+        await this.classificacaoRepository.save(
+          this.classificacaoRepository.create({
+            ...c,
+            tipo: 'MATERIAL',
+          })
+        );
+        totalClassificacoes++;
+      } else {
+        existentes++;
+      }
     }
 
-    return { classificacoes: totalClassificacoes, itens: 0 };
+    return { classificacoes: totalClassificacoes, itens: 0, existentes };
   }
 
   // ==================== BUSCAR ITENS DO PCA ====================
@@ -368,4 +373,5 @@ export class CatalogoProprioService {
       classificacoesPorTipo,
     };
   }
+
 }

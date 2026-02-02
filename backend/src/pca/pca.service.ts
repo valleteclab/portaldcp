@@ -450,12 +450,45 @@ export class PcaService {
       throw new BadRequestException('Não é possível alterar itens de um PCA já enviado ao PNCP');
     }
 
-    Object.assign(item, dados);
-    const itemSalvo = await this.itemPcaRepository.save(item);
+    // Limpar campos que não devem ser atualizados diretamente
+    const dadosLimpos = { ...dados };
+    delete (dadosLimpos as any).pca;
+    delete (dadosLimpos as any).id;
+    delete (dadosLimpos as any).pca_id;
+    delete (dadosLimpos as any).created_at;
+    delete (dadosLimpos as any).updated_at;
 
-    await this.recalcularTotais(item.pca_id);
+    // Converter valores numéricos se vierem como string
+    if (dadosLimpos.valor_estimado !== undefined) {
+      dadosLimpos.valor_estimado = Number(dadosLimpos.valor_estimado) || 0;
+    }
+    if (dadosLimpos.valor_unitario_estimado !== undefined) {
+      dadosLimpos.valor_unitario_estimado = Number(dadosLimpos.valor_unitario_estimado) || 0;
+    }
+    if (dadosLimpos.quantidade_estimada !== undefined) {
+      dadosLimpos.quantidade_estimada = Number(dadosLimpos.quantidade_estimada) || 1;
+    }
+    if (dadosLimpos.valor_orcamentario_exercicio !== undefined) {
+      dadosLimpos.valor_orcamentario_exercicio = dadosLimpos.valor_orcamentario_exercicio ? Number(dadosLimpos.valor_orcamentario_exercicio) : undefined;
+    }
+    if (dadosLimpos.trimestre_previsto !== undefined) {
+      dadosLimpos.trimestre_previsto = Number(dadosLimpos.trimestre_previsto) || 1;
+    }
+    if (dadosLimpos.prioridade !== undefined) {
+      dadosLimpos.prioridade = Number(dadosLimpos.prioridade) || 3;
+    }
 
-    return itemSalvo;
+    this.logger.log(`[ATUALIZAR-ITEM] Atualizando item ${itemId} com dados:`, JSON.stringify(dadosLimpos));
+
+    try {
+      Object.assign(item, dadosLimpos);
+      const itemSalvo = await this.itemPcaRepository.save(item);
+      await this.recalcularTotais(item.pca_id);
+      return itemSalvo;
+    } catch (error) {
+      this.logger.error(`[ATUALIZAR-ITEM] Erro ao salvar item ${itemId}:`, error.message);
+      throw new BadRequestException(`Erro ao atualizar item: ${error.message}`);
+    }
   }
 
   async alterarStatusItem(itemId: string, status: StatusItemPCA, licitacaoId?: string): Promise<ItemPCA> {

@@ -23,7 +23,7 @@ export class OrgaosController {
   ) {}
 
   @Post()
-  async create(@Body(new ValidationPipe()) createOrgaoDto: CreateOrgaoDto): Promise<Orgao> {
+  async create(@Body(new ValidationPipe({ transform: true, whitelist: true })) createOrgaoDto: CreateOrgaoDto): Promise<Orgao> {
     return await this.orgaosService.create(createOrgaoDto);
   }
 

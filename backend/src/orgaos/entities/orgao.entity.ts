@@ -51,7 +51,7 @@ export class Orgao {
   esfera: EsferaAdministrativa;
 
   // Endereço
-  @Column()
+  @Column({ nullable: true, default: 'A definir' })
   logradouro: string;
 
   @Column({ nullable: true })
@@ -60,7 +60,7 @@ export class Orgao {
   @Column({ nullable: true })
   complemento: string;
 
-  @Column()
+  @Column({ nullable: true, default: 'Centro' })
   bairro: string;
 
   @Column()
@@ -69,7 +69,7 @@ export class Orgao {
   @Column({ length: 2 })
   uf: string;
 
-  @Column({ length: 9 })
+  @Column({ length: 9, nullable: true, default: '00000-000' })
   cep: string;
 
   // Contato
@@ -83,10 +83,10 @@ export class Orgao {
   site: string;
 
   // Responsável Legal
-  @Column()
+  @Column({ nullable: true, default: 'A definir' })
   responsavel_nome: string;
 
-  @Column()
+  @Column({ nullable: true, default: '000.000.000-00' })
   responsavel_cpf: string;
 
   @Column({ nullable: true })
