@@ -126,6 +126,36 @@ export class CatalogoProprioService implements OnModuleInit {
     });
   }
 
+  async atualizarClassificacao(id: string, dados: {
+    nome?: string;
+    descricao?: string;
+    palavras_chave?: string[];
+    ativo?: boolean;
+  }): Promise<ClassificacaoCatalogoProprio> {
+    const classificacao = await this.findClassificacaoById(id);
+    
+    if (dados.nome) classificacao.nome = dados.nome.toUpperCase();
+    if (dados.descricao !== undefined) classificacao.descricao = dados.descricao;
+    if (dados.palavras_chave !== undefined) classificacao.palavras_chave = dados.palavras_chave;
+    if (dados.ativo !== undefined) classificacao.ativo = dados.ativo;
+
+    return this.classificacaoRepository.save(classificacao);
+  }
+
+  async excluirClassificacao(id: string): Promise<{ success: boolean; message: string }> {
+    const classificacao = await this.findClassificacaoById(id);
+    
+    // Verificar se há itens vinculados
+    if (classificacao.itens && classificacao.itens.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir a classificação "${classificacao.nome}" pois há ${classificacao.itens.length} itens vinculados`
+      );
+    }
+
+    await this.classificacaoRepository.remove(classificacao);
+    return { success: true, message: `Classificação "${classificacao.nome}" excluída com sucesso` };
+  }
+
   // ==================== ITENS ====================
 
   async buscarItens(params: {
@@ -234,6 +264,32 @@ export class CatalogoProprioService implements OnModuleInit {
     }
 
     return item;
+  }
+
+  async atualizarItem(id: string, dados: {
+    descricao?: string;
+    descricao_detalhada?: string;
+    unidade_padrao?: string;
+    valor_referencia?: number;
+    classificacaoId?: string;
+    ativo?: boolean;
+  }): Promise<ItemCatalogoProprio> {
+    const item = await this.findItemById(id);
+    
+    if (dados.descricao) item.descricao = dados.descricao;
+    if (dados.descricao_detalhada !== undefined) item.descricao_detalhada = dados.descricao_detalhada;
+    if (dados.unidade_padrao) item.unidade_padrao = dados.unidade_padrao;
+    if (dados.valor_referencia !== undefined) item.valor_referencia = dados.valor_referencia;
+    if (dados.classificacaoId) item.classificacao_id = dados.classificacaoId;
+    if (dados.ativo !== undefined) item.ativo = dados.ativo;
+
+    return this.itemRepository.save(item);
+  }
+
+  async excluirItem(id: string): Promise<{ success: boolean; message: string }> {
+    const item = await this.findItemById(id);
+    await this.itemRepository.remove(item);
+    return { success: true, message: `Item "${item.codigo}" excluído com sucesso` };
   }
 
   async findItemByCodigo(codigo: string): Promise<ItemCatalogoProprio | null> {

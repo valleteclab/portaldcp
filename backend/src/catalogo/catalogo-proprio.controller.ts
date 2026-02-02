@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { CatalogoProprioService } from './catalogo-proprio.service';
 
 @Controller('catalogo-proprio')
@@ -45,6 +45,24 @@ export class CatalogoProprioController {
     return this.catalogoProprioService.criarClassificacao(dados);
   }
 
+  @Put('classificacoes/:id')
+  async atualizarClassificacao(
+    @Param('id') id: string,
+    @Body() dados: {
+      nome?: string;
+      descricao?: string;
+      palavras_chave?: string[];
+      ativo?: boolean;
+    },
+  ) {
+    return this.catalogoProprioService.atualizarClassificacao(id, dados);
+  }
+
+  @Delete('classificacoes/:id')
+  async excluirClassificacao(@Param('id') id: string) {
+    return this.catalogoProprioService.excluirClassificacao(id);
+  }
+
   // ==================== ITENS ====================
 
   @Get('itens')
@@ -87,6 +105,26 @@ export class CatalogoProprioController {
     },
   ) {
     return this.catalogoProprioService.criarItem(dados);
+  }
+
+  @Put('itens/:id')
+  async atualizarItem(
+    @Param('id') id: string,
+    @Body() dados: {
+      descricao?: string;
+      descricao_detalhada?: string;
+      unidade_padrao?: string;
+      valor_referencia?: number;
+      classificacaoId?: string;
+      ativo?: boolean;
+    },
+  ) {
+    return this.catalogoProprioService.atualizarItem(id, dados);
+  }
+
+  @Delete('itens/:id')
+  async excluirItem(@Param('id') id: string) {
+    return this.catalogoProprioService.excluirItem(id);
   }
 
   // ==================== BUSCA UNIFICADA (Catálogo + PCA) ====================

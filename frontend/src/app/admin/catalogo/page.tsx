@@ -21,6 +21,25 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Package,
   Wrench,
   RefreshCw,
@@ -31,7 +50,10 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  FolderTree
+  FolderTree,
+  Plus,
+  Pencil,
+  Trash2
 } from 'lucide-react'
 
 import { API_URL, adminFetch } from '@/lib/api'
@@ -87,6 +109,30 @@ export default function CatalogoAdminPage() {
   
   // Estados para seed
   const [executandoSeed, setExecutandoSeed] = useState(false)
+
+  // Estados para CRUD de Classificações
+  const [showModalClassificacao, setShowModalClassificacao] = useState(false)
+  const [classificacaoEditando, setClassificacaoEditando] = useState<Classificacao | null>(null)
+  const [formClassificacao, setFormClassificacao] = useState({
+    nome: '',
+    tipo: 'SERVICO' as 'MATERIAL' | 'SERVICO',
+    descricao: ''
+  })
+  const [salvandoClassificacao, setSalvandoClassificacao] = useState(false)
+  const [classificacaoParaExcluir, setClassificacaoParaExcluir] = useState<Classificacao | null>(null)
+
+  // Estados para CRUD de Itens
+  const [showModalItem, setShowModalItem] = useState(false)
+  const [itemEditando, setItemEditando] = useState<ItemCatalogo | null>(null)
+  const [formItem, setFormItem] = useState({
+    descricao: '',
+    tipo: 'SERVICO' as 'MATERIAL' | 'SERVICO',
+    classificacaoId: '',
+    unidade_padrao: 'UN',
+    valor_referencia: ''
+  })
+  const [salvandoItem, setSalvandoItem] = useState(false)
+  const [itemParaExcluir, setItemParaExcluir] = useState<ItemCatalogo | null>(null)
 
   useEffect(() => {
     carregarDados()
@@ -170,6 +216,161 @@ export default function CatalogoAdminPage() {
       setExecutandoSeed(false)
     }
   }
+
+  // ==================== CRUD CLASSIFICAÇÕES ====================
+
+  const abrirModalNovaClassificacao = () => {
+    setClassificacaoEditando(null)
+    setFormClassificacao({ nome: '', tipo: 'SERVICO', descricao: '' })
+    setShowModalClassificacao(true)
+  }
+
+  const abrirModalEditarClassificacao = (c: Classificacao) => {
+    setClassificacaoEditando(c)
+    setFormClassificacao({ nome: c.nome, tipo: c.tipo, descricao: '' })
+    setShowModalClassificacao(true)
+  }
+
+  const salvarClassificacao = async () => {
+    if (!formClassificacao.nome.trim()) {
+      alert('Informe o nome da classificação')
+      return
+    }
+    setSalvandoClassificacao(true)
+    try {
+      const url = classificacaoEditando 
+        ? `${API_URL}/api/catalogo-proprio/classificacoes/${classificacaoEditando.id}`
+        : `${API_URL}/api/catalogo-proprio/classificacoes`
+      
+      const response = await adminFetch(url, {
+        method: classificacaoEditando ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formClassificacao)
+      })
+
+      if (response.ok) {
+        setShowModalClassificacao(false)
+        await carregarDados()
+      } else {
+        const error = await response.json()
+        alert(`Erro: ${error.message || 'Erro ao salvar'}`)
+      }
+    } catch (error: any) {
+      alert(`Erro: ${error.message}`)
+    } finally {
+      setSalvandoClassificacao(false)
+    }
+  }
+
+  const excluirClassificacao = async () => {
+    if (!classificacaoParaExcluir) return
+    try {
+      const response = await adminFetch(
+        `${API_URL}/api/catalogo-proprio/classificacoes/${classificacaoParaExcluir.id}`,
+        { method: 'DELETE' }
+      )
+      if (response.ok) {
+        setClassificacaoParaExcluir(null)
+        await carregarDados()
+      } else {
+        const error = await response.json()
+        alert(`Erro: ${error.message || 'Erro ao excluir'}`)
+      }
+    } catch (error: any) {
+      alert(`Erro: ${error.message}`)
+    }
+  }
+
+  // ==================== CRUD ITENS ====================
+
+  const abrirModalNovoItem = () => {
+    setItemEditando(null)
+    setFormItem({ descricao: '', tipo: 'SERVICO', classificacaoId: '', unidade_padrao: 'UN', valor_referencia: '' })
+    setShowModalItem(true)
+  }
+
+  const abrirModalEditarItem = (item: ItemCatalogo) => {
+    setItemEditando(item)
+    setFormItem({
+      descricao: item.descricao,
+      tipo: item.tipo,
+      classificacaoId: item.classificacao?.id || '',
+      unidade_padrao: item.unidade_padrao || 'UN',
+      valor_referencia: item.valor_referencia?.toString() || ''
+    })
+    setShowModalItem(true)
+  }
+
+  const salvarItem = async () => {
+    if (!formItem.descricao.trim()) {
+      alert('Informe a descrição do item')
+      return
+    }
+    if (!formItem.classificacaoId && !itemEditando) {
+      alert('Selecione uma classificação')
+      return
+    }
+    setSalvandoItem(true)
+    try {
+      const url = itemEditando 
+        ? `${API_URL}/api/catalogo-proprio/itens/${itemEditando.id}`
+        : `${API_URL}/api/catalogo-proprio/itens`
+      
+      const dados: any = {
+        descricao: formItem.descricao,
+        unidade_padrao: formItem.unidade_padrao,
+        valor_referencia: formItem.valor_referencia ? parseFloat(formItem.valor_referencia) : undefined
+      }
+      
+      if (!itemEditando) {
+        dados.tipo = formItem.tipo
+        dados.classificacaoId = formItem.classificacaoId
+      } else if (formItem.classificacaoId) {
+        dados.classificacaoId = formItem.classificacaoId
+      }
+
+      const response = await adminFetch(url, {
+        method: itemEditando ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dados)
+      })
+
+      if (response.ok) {
+        setShowModalItem(false)
+        await carregarDados()
+      } else {
+        const error = await response.json()
+        alert(`Erro: ${error.message || 'Erro ao salvar'}`)
+      }
+    } catch (error: any) {
+      alert(`Erro: ${error.message}`)
+    } finally {
+      setSalvandoItem(false)
+    }
+  }
+
+  const excluirItem = async () => {
+    if (!itemParaExcluir) return
+    try {
+      const response = await adminFetch(
+        `${API_URL}/api/catalogo-proprio/itens/${itemParaExcluir.id}`,
+        { method: 'DELETE' }
+      )
+      if (response.ok) {
+        setItemParaExcluir(null)
+        await carregarDados()
+      } else {
+        const error = await response.json()
+        alert(`Erro: ${error.message || 'Erro ao excluir'}`)
+      }
+    } catch (error: any) {
+      alert(`Erro: ${error.message}`)
+    }
+  }
+
+  const classificacoesFiltradas = classificacoes.filter(c => 
+    formItem.tipo ? c.tipo === formItem.tipo : true
+  )
 
   const itensFiltrados = itens.filter(item => {
     const matchTermo = !termoBusca || 
@@ -341,23 +542,49 @@ export default function CatalogoAdminPage() {
       {/* Classificações */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FolderTree className="w-5 h-5" />
-            Classificações ({classificacoes.length})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <FolderTree className="w-5 h-5" />
+              Classificações ({classificacoes.length})
+            </CardTitle>
+            <Button onClick={abrirModalNovaClassificacao} size="sm">
+              <Plus className="w-4 h-4 mr-2" />
+              Nova Classificação
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             {classificacoes.map(c => (
-              <div key={c.id} className="p-3 border rounded-lg flex items-center justify-between">
-                <div>
+              <div key={c.id} className="p-3 border rounded-lg flex items-center justify-between group hover:bg-gray-50">
+                <div className="flex-1 min-w-0">
                   <span className="font-mono text-sm text-gray-500">{c.codigo}</span>
                   <span className="mx-2">-</span>
-                  <span className="text-sm">{c.nome}</span>
+                  <span className="text-sm truncate">{c.nome}</span>
                 </div>
-                <Badge variant={c.tipo === 'MATERIAL' ? 'default' : 'secondary'}>
-                  {c.tipo === 'MATERIAL' ? 'Material' : 'Serviço'}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={c.tipo === 'MATERIAL' ? 'default' : 'secondary'}>
+                    {c.tipo === 'MATERIAL' ? 'Mat' : 'Serv'}
+                  </Badge>
+                  <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7"
+                      onClick={() => abrirModalEditarClassificacao(c)}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-red-600 hover:text-red-700"
+                      onClick={() => setClassificacaoParaExcluir(c)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             ))}
             {classificacoes.length === 0 && (
@@ -372,10 +599,16 @@ export default function CatalogoAdminPage() {
       {/* Itens do Catálogo */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
-            Itens do Catálogo ({itensFiltrados.length})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Itens do Catálogo ({itensFiltrados.length})
+            </CardTitle>
+            <Button onClick={abrirModalNovoItem} size="sm">
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Item
+            </Button>
+          </div>
           <CardDescription>
             <div className="flex items-center gap-4 mt-2">
               <div className="relative flex-1 max-w-md">
@@ -424,6 +657,7 @@ export default function CatalogoAdminPage() {
                 <TableHead className="w-24">Tipo</TableHead>
                 <TableHead className="w-24">Unidade</TableHead>
                 <TableHead>Classificação</TableHead>
+                <TableHead className="w-24 text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -448,18 +682,38 @@ export default function CatalogoAdminPage() {
                       <span className="text-gray-400">-</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => abrirModalEditarItem(item)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-red-600 hover:text-red-700"
+                        onClick={() => setItemParaExcluir(item)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
               {itensFiltrados.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                  <TableCell colSpan={6} className="text-center text-gray-500 py-8">
                     Nenhum item encontrado. Execute a migração para importar itens do PCA.
                   </TableCell>
                 </TableRow>
               )}
               {itensFiltrados.length > 50 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-gray-500 py-4">
+                  <TableCell colSpan={6} className="text-center text-gray-500 py-4">
                     Mostrando 50 de {itensFiltrados.length} itens. Use a busca para filtrar.
                   </TableCell>
                 </TableRow>
@@ -559,6 +813,212 @@ export default function CatalogoAdminPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Classificação (Criar/Editar) */}
+      <Dialog open={showModalClassificacao} onOpenChange={setShowModalClassificacao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {classificacaoEditando ? 'Editar Classificação' : 'Nova Classificação'}
+            </DialogTitle>
+            <DialogDescription>
+              {classificacaoEditando 
+                ? `Editando: ${classificacaoEditando.codigo} - ${classificacaoEditando.nome}`
+                : 'Preencha os dados da nova classificação'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Nome *</Label>
+              <Input
+                value={formClassificacao.nome}
+                onChange={(e) => setFormClassificacao({...formClassificacao, nome: e.target.value})}
+                placeholder="Ex: SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO"
+              />
+            </div>
+            {!classificacaoEditando && (
+              <div className="space-y-2">
+                <Label>Tipo *</Label>
+                <Select 
+                  value={formClassificacao.tipo} 
+                  onValueChange={(v: 'MATERIAL' | 'SERVICO') => setFormClassificacao({...formClassificacao, tipo: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SERVICO">Serviço</SelectItem>
+                    <SelectItem value="MATERIAL">Material</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Textarea
+                value={formClassificacao.descricao}
+                onChange={(e) => setFormClassificacao({...formClassificacao, descricao: e.target.value})}
+                placeholder="Descrição opcional..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowModalClassificacao(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={salvarClassificacao} disabled={salvandoClassificacao}>
+              {salvandoClassificacao ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              {classificacaoEditando ? 'Salvar' : 'Criar'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Item (Criar/Editar) */}
+      <Dialog open={showModalItem} onOpenChange={setShowModalItem}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {itemEditando ? 'Editar Item' : 'Novo Item'}
+            </DialogTitle>
+            <DialogDescription>
+              {itemEditando 
+                ? `Editando: ${itemEditando.codigo}`
+                : 'Preencha os dados do novo item'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Descrição *</Label>
+              <Textarea
+                value={formItem.descricao}
+                onChange={(e) => setFormItem({...formItem, descricao: e.target.value})}
+                placeholder="Descrição do item..."
+                rows={3}
+              />
+            </div>
+            {!itemEditando && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Tipo *</Label>
+                  <Select 
+                    value={formItem.tipo} 
+                    onValueChange={(v: 'MATERIAL' | 'SERVICO') => setFormItem({...formItem, tipo: v, classificacaoId: ''})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SERVICO">Serviço</SelectItem>
+                      <SelectItem value="MATERIAL">Material</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Classificação *</Label>
+                  <Select 
+                    value={formItem.classificacaoId} 
+                    onValueChange={(v) => setFormItem({...formItem, classificacaoId: v})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classificacoesFiltradas.map(c => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.codigo} - {c.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Unidade</Label>
+                <Select 
+                  value={formItem.unidade_padrao} 
+                  onValueChange={(v) => setFormItem({...formItem, unidade_padrao: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UN">UN - Unidade</SelectItem>
+                    <SelectItem value="MES">MES - Mês</SelectItem>
+                    <SelectItem value="ANO">ANO - Ano</SelectItem>
+                    <SelectItem value="KG">KG - Quilograma</SelectItem>
+                    <SelectItem value="M">M - Metro</SelectItem>
+                    <SelectItem value="M2">M² - Metro Quadrado</SelectItem>
+                    <SelectItem value="L">L - Litro</SelectItem>
+                    <SelectItem value="HR">HR - Hora</SelectItem>
+                    <SelectItem value="DIA">DIA - Diária</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Valor Referência (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formItem.valor_referencia}
+                  onChange={(e) => setFormItem({...formItem, valor_referencia: e.target.value})}
+                  placeholder="0,00"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowModalItem(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={salvarItem} disabled={salvandoItem}>
+              {salvandoItem ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              {itemEditando ? 'Salvar' : 'Criar'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de Exclusão de Classificação */}
+      <AlertDialog open={!!classificacaoParaExcluir} onOpenChange={() => setClassificacaoParaExcluir(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Classificação?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir a classificação "{classificacaoParaExcluir?.nome}"?
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={excluirClassificacao} className="bg-red-600 hover:bg-red-700">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmação de Exclusão de Item */}
+      <AlertDialog open={!!itemParaExcluir} onOpenChange={() => setItemParaExcluir(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir o item "{itemParaExcluir?.codigo}"?
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={excluirItem} className="bg-red-600 hover:bg-red-700">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
