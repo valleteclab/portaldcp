@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItemPCA } from './entities/pca.entity';
+import { ItemCatalogoProprio } from '../catalogo/entities/catalogo-proprio.entity';
 
 @Injectable()
 export class PcaService {
@@ -12,6 +13,8 @@ export class PcaService {
     private pcaRepository: Repository<PlanoContratacaoAnual>,
     @InjectRepository(ItemPCA)
     private itemPcaRepository: Repository<ItemPCA>,
+    @InjectRepository(ItemCatalogoProprio)
+    private itemCatalogoRepository: Repository<ItemCatalogoProprio>,
   ) {}
 
   // ============ PCA ============
@@ -806,6 +809,7 @@ export class PcaService {
   /**
    * Busca múltiplos itens similares para uma lista de descrições
    * Retorna mapa de descrição -> item encontrado
+   * Busca primeiro no PCA do órgão, depois no catálogo global
    */
   async buscarItensSimilares(
     orgaoId: string, 
@@ -816,62 +820,140 @@ export class PcaService {
     
     const resultado = new Map<string, ItemPCA | null>();
     
-    // Carregar todos os itens do órgão uma vez
+    // 1. Carregar itens do PCA do órgão
     const anosParaBuscar = anoReferencia 
       ? [anoReferencia, anoReferencia - 1]
       : [new Date().getFullYear(), new Date().getFullYear() - 1];
 
-    const todosItens: ItemPCA[] = [];
+    const todosItensPCA: ItemPCA[] = [];
     for (const ano of anosParaBuscar) {
       const itens = await this.itemPcaRepository.createQueryBuilder('item')
         .leftJoinAndSelect('item.pca', 'pca')
         .where('pca.orgao_id = :orgaoId', { orgaoId })
         .andWhere('pca.ano_exercicio = :ano', { ano })
         .getMany();
-      todosItens.push(...itens);
+      todosItensPCA.push(...itens);
     }
 
-    this.logger.log(`[MATCHING] ${todosItens.length} itens existentes carregados para comparação`);
+    this.logger.log(`[MATCHING] ${todosItensPCA.length} itens do PCA do órgão carregados`);
 
-    // Criar mapa de descrições normalizadas
-    const mapaItensExistentes = new Map<string, ItemPCA>();
-    for (const item of todosItens) {
+    // 2. Carregar itens do catálogo global (para fallback)
+    const itensCatalogoGlobal = await this.itemCatalogoRepository.find({
+      where: { ativo: true },
+      relations: ['classificacao']
+    });
+    this.logger.log(`[MATCHING] ${itensCatalogoGlobal.length} itens do catálogo global carregados`);
+
+    // Criar mapa de descrições normalizadas do PCA
+    const mapaItensPCA = new Map<string, ItemPCA>();
+    for (const item of todosItensPCA) {
       const descNorm = this.normalizarDescricao(item.descricao_objeto);
-      if (!mapaItensExistentes.has(descNorm)) {
-        mapaItensExistentes.set(descNorm, item);
+      if (!mapaItensPCA.has(descNorm)) {
+        mapaItensPCA.set(descNorm, item);
+      }
+    }
+
+    // Criar mapa de descrições normalizadas do catálogo global
+    const mapaItensCatalogo = new Map<string, ItemCatalogoProprio>();
+    for (const item of itensCatalogoGlobal) {
+      const descNorm = this.normalizarDescricao(item.descricao);
+      if (!mapaItensCatalogo.has(descNorm)) {
+        mapaItensCatalogo.set(descNorm, item);
       }
     }
 
     // Buscar matches para cada descrição
-    let matchesEncontrados = 0;
+    let matchesPCA = 0;
+    let matchesCatalogo = 0;
+    
     for (const descricao of descricoes) {
       const descNorm = this.normalizarDescricao(descricao);
       
-      // Match exato primeiro
-      if (mapaItensExistentes.has(descNorm)) {
-        resultado.set(descricao, mapaItensExistentes.get(descNorm)!);
-        matchesEncontrados++;
+      // 1. Tentar match exato no PCA
+      if (mapaItensPCA.has(descNorm)) {
+        resultado.set(descricao, mapaItensPCA.get(descNorm)!);
+        matchesPCA++;
         continue;
       }
 
-      // Match parcial
-      let melhorMatch: ItemPCA | null = null;
-      let melhorSimilaridade = 0;
+      // 2. Tentar match parcial no PCA
+      let melhorMatchPCA: ItemPCA | null = null;
+      let melhorSimilaridadePCA = 0;
 
-      for (const [itemDescNorm, item] of mapaItensExistentes) {
+      for (const [itemDescNorm, item] of mapaItensPCA) {
         const similaridade = this.calcularSimilaridade(descNorm, itemDescNorm);
-        if (similaridade > 0.75 && similaridade > melhorSimilaridade) {
-          melhorSimilaridade = similaridade;
-          melhorMatch = item;
+        if (similaridade > 0.75 && similaridade > melhorSimilaridadePCA) {
+          melhorSimilaridadePCA = similaridade;
+          melhorMatchPCA = item;
         }
       }
 
-      resultado.set(descricao, melhorMatch);
-      if (melhorMatch) matchesEncontrados++;
+      if (melhorMatchPCA) {
+        resultado.set(descricao, melhorMatchPCA);
+        matchesPCA++;
+        continue;
+      }
+
+      // 3. Se não encontrou no PCA, buscar no catálogo global
+      // Match exato no catálogo
+      if (mapaItensCatalogo.has(descNorm)) {
+        const itemCatalogo = mapaItensCatalogo.get(descNorm)!;
+        // Converter item do catálogo para formato ItemPCA
+        const itemConvertido = this.converterCatalogoParaItemPCA(itemCatalogo);
+        resultado.set(descricao, itemConvertido);
+        matchesCatalogo++;
+        continue;
+      }
+
+      // 4. Match parcial no catálogo global
+      let melhorMatchCatalogo: ItemCatalogoProprio | null = null;
+      let melhorSimilaridadeCatalogo = 0;
+
+      for (const [itemDescNorm, item] of mapaItensCatalogo) {
+        const similaridade = this.calcularSimilaridade(descNorm, itemDescNorm);
+        if (similaridade > 0.70 && similaridade > melhorSimilaridadeCatalogo) {
+          melhorSimilaridadeCatalogo = similaridade;
+          melhorMatchCatalogo = item;
+        }
+      }
+
+      if (melhorMatchCatalogo) {
+        const itemConvertido = this.converterCatalogoParaItemPCA(melhorMatchCatalogo);
+        resultado.set(descricao, itemConvertido);
+        matchesCatalogo++;
+        continue;
+      }
+
+      // Nenhum match encontrado
+      resultado.set(descricao, null);
     }
 
-    this.logger.log(`[MATCHING] ${matchesEncontrados}/${descricoes.length} matches encontrados`);
+    this.logger.log(`[MATCHING] Resultado: ${matchesPCA} do PCA, ${matchesCatalogo} do catálogo global, ${descricoes.length - matchesPCA - matchesCatalogo} sem match`);
     return resultado;
+  }
+
+  /**
+   * Converte um item do catálogo próprio para o formato ItemPCA (para enriquecimento)
+   */
+  private converterCatalogoParaItemPCA(itemCatalogo: ItemCatalogoProprio): ItemPCA {
+    const itemPCA = new ItemPCA();
+    itemPCA.descricao_objeto = itemCatalogo.descricao;
+    itemPCA.categoria = itemCatalogo.tipo === 'MATERIAL' ? CategoriaItemPCA.MATERIAL : CategoriaItemPCA.SERVICO;
+    itemPCA.catalogo_utilizado = 'OUTROS'; // Catálogo próprio usa OUTROS
+    itemPCA.codigo_item_catalogo = itemCatalogo.codigo;
+    itemPCA.unidade_medida = itemCatalogo.unidade_padrao || 'UN';
+    
+    if (itemCatalogo.classificacao) {
+      itemPCA.codigo_classe = itemCatalogo.classificacao.codigo;
+      itemPCA.nome_classe = itemCatalogo.classificacao.nome;
+      itemPCA.classificacao_catalogo = itemCatalogo.classificacao.nome as any;
+    }
+    
+    if (itemCatalogo.valor_referencia) {
+      itemPCA.valor_unitario_estimado = itemCatalogo.valor_referencia;
+    }
+    
+    return itemPCA;
   }
 
   /**
