@@ -483,6 +483,13 @@ export class PcaService {
 
     this.logger.log(`[ATUALIZAR-ITEM] Atualizando item ${itemId} com dados:`, JSON.stringify(dadosLimpos));
 
+    // Gerar código do item automaticamente se classificação foi definida mas código está vazio
+    if (dadosLimpos.codigo_classe && !dadosLimpos.codigo_item_catalogo && !item.codigo_item_catalogo) {
+      const codigoGerado = await this.gerarCodigoItemCatalogo(dadosLimpos.codigo_classe);
+      dadosLimpos.codigo_item_catalogo = codigoGerado;
+      this.logger.log(`[ATUALIZAR-ITEM] Código do item gerado automaticamente: ${codigoGerado}`);
+    }
+
     try {
       Object.assign(item, dadosLimpos);
       const itemSalvo = await this.itemPcaRepository.save(item);
@@ -492,6 +499,31 @@ export class PcaService {
       this.logger.error(`[ATUALIZAR-ITEM] Erro ao salvar item ${itemId}:`, error.message);
       throw new BadRequestException(`Erro ao atualizar item: ${error.message}`);
     }
+  }
+
+  /**
+   * Gera código único para item do catálogo baseado na classe
+   * Formato: CLASSE-SEQUENCIAL (ex: 1500-0001, 1500-0002)
+   */
+  private async gerarCodigoItemCatalogo(codigoClasse: string): Promise<string> {
+    // Buscar último código usado para esta classe
+    const ultimoItem = await this.itemPcaRepository
+      .createQueryBuilder('item')
+      .where('item.codigo_classe = :codigoClasse', { codigoClasse })
+      .andWhere('item.codigo_item_catalogo IS NOT NULL')
+      .andWhere("item.codigo_item_catalogo LIKE :pattern", { pattern: `${codigoClasse}-%` })
+      .orderBy('item.codigo_item_catalogo', 'DESC')
+      .getOne();
+
+    let sequencial = 1;
+    if (ultimoItem?.codigo_item_catalogo) {
+      const match = ultimoItem.codigo_item_catalogo.match(/-(\d+)$/);
+      if (match) {
+        sequencial = parseInt(match[1]) + 1;
+      }
+    }
+
+    return `${codigoClasse}-${sequencial.toString().padStart(4, '0')}`;
   }
 
   async alterarStatusItem(itemId: string, status: StatusItemPCA, licitacaoId?: string): Promise<ItemPCA> {
