@@ -878,7 +878,10 @@ export class PcaService {
     enriquecidos: number;
     novos: number;
     erros: number;
-    detalhes: { descricao: string; status: string; motivo?: string; itemBase?: string }[];
+    anoPca: number;
+    itensDataForaAno: { descricao: string; data: string }[];
+    itensSemClassificacao: { descricao: string; numero_item: number }[];
+    detalhes: { descricao: string; status: string; motivo?: string; itemBase?: string; numero_item?: number }[];
   }> {
     this.logger.log(`[IMPORT-INTELIGENTE] ========================================`);
     this.logger.log(`[IMPORT-INTELIGENTE] Iniciando importação inteligente de ${itens.length} itens`);
@@ -899,9 +902,13 @@ export class PcaService {
     let enriquecidos = 0;
     let novos = 0;
     let erros = 0;
-    const detalhes: { descricao: string; status: string; motivo?: string; itemBase?: string }[] = [];
+    const detalhes: { descricao: string; status: string; motivo?: string; itemBase?: string; numero_item?: number }[] = [];
+    const itensDataForaAno: { descricao: string; data: string }[] = [];
+    const itensSemClassificacao: { descricao: string; numero_item: number }[] = [];
+    let numeroItemAtual = 0;
 
     for (const item of itens) {
+      numeroItemAtual++;
       const descricaoResumida = item.descricao.substring(0, 60);
       
       try {
@@ -910,6 +917,8 @@ export class PcaService {
         // Preparar dados do item
         // Passar data como string YYYY-MM-DD para evitar problemas de fuso horário
         let dataDesejadaStr: string | undefined = undefined;
+        let anoDataDesejada: number | undefined = undefined;
+        
         if (item.data_desejada) {
           this.logger.log(`[IMPORT-INTELIGENTE] Data recebida: "${item.data_desejada}"`);
           
@@ -918,7 +927,17 @@ export class PcaService {
           if (match) {
             // Manter como string no formato YYYY-MM-DD
             dataDesejadaStr = `${match[1]}-${match[2]}-${match[3]}`;
+            anoDataDesejada = parseInt(match[1]);
             this.logger.log(`[IMPORT-INTELIGENTE] Data formatada: ${dataDesejadaStr}`);
+            
+            // Verificar se a data está fora do ano do PCA
+            if (anoDataDesejada !== pca.ano_exercicio) {
+              itensDataForaAno.push({
+                descricao: descricaoResumida,
+                data: `${match[3]}/${match[2]}/${match[1]}` // Formato DD/MM/YYYY para exibição
+              });
+              this.logger.warn(`[IMPORT-INTELIGENTE] ⚠ Data fora do ano do PCA: ${dataDesejadaStr} (PCA ${pca.ano_exercicio})`);
+            }
           } else {
             this.logger.warn(`[IMPORT-INTELIGENTE] Data não reconhecida: "${item.data_desejada}"`);
           }
@@ -956,7 +975,8 @@ export class PcaService {
           detalhes.push({
             descricao: descricaoResumida,
             status: 'enriquecido',
-            itemBase: itemExistente.descricao_objeto.substring(0, 50)
+            itemBase: itemExistente.descricao_objeto.substring(0, 50),
+            numero_item: numeroItemAtual
           });
         } else {
           // Item novo - usar categoria padrão SERVICO
@@ -967,10 +987,17 @@ export class PcaService {
           this.logger.log(`[IMPORT-INTELIGENTE] + Novo: "${descricaoResumida}..." (sem match encontrado)`);
           novos++;
           
+          // Adicionar à lista de itens sem classificação
+          itensSemClassificacao.push({
+            descricao: descricaoResumida,
+            numero_item: numeroItemAtual
+          });
+          
           detalhes.push({
             descricao: descricaoResumida,
             status: 'novo',
-            motivo: 'Nenhum item similar encontrado - classificação padrão aplicada'
+            motivo: 'Nenhum item similar encontrado - classificação padrão aplicada',
+            numero_item: numeroItemAtual
           });
         }
 
@@ -983,7 +1010,8 @@ export class PcaService {
         detalhes.push({
           descricao: descricaoResumida,
           status: 'erro',
-          motivo: error.message
+          motivo: error.message,
+          numero_item: numeroItemAtual
         });
       }
     }
@@ -992,10 +1020,20 @@ export class PcaService {
     this.logger.log(`[IMPORT-INTELIGENTE] RESULTADO:`);
     this.logger.log(`[IMPORT-INTELIGENTE]   Total importados: ${importados}`);
     this.logger.log(`[IMPORT-INTELIGENTE]   - Enriquecidos: ${enriquecidos}`);
-    this.logger.log(`[IMPORT-INTELIGENTE]   - Novos: ${novos}`);
+    this.logger.log(`[IMPORT-INTELIGENTE]   - Novos (sem classificação): ${novos}`);
     this.logger.log(`[IMPORT-INTELIGENTE]   Erros: ${erros}`);
+    this.logger.log(`[IMPORT-INTELIGENTE]   Itens com data fora do ano: ${itensDataForaAno.length}`);
     this.logger.log(`[IMPORT-INTELIGENTE] ========================================`);
 
-    return { importados, enriquecidos, novos, erros, detalhes };
+    return { 
+      importados, 
+      enriquecidos, 
+      novos, 
+      erros, 
+      anoPca: pca.ano_exercicio,
+      itensDataForaAno,
+      itensSemClassificacao,
+      detalhes 
+    };
   }
 }

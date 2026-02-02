@@ -107,8 +107,11 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
     importados: number; 
     enriquecidos: number;
     novos: number;
-    erros: number; 
-    detalhes?: { descricao: string; status: string; motivo?: string; itemBase?: string }[]
+    erros: number;
+    anoPca?: number;
+    itensDataForaAno?: { descricao: string; data: string }[];
+    itensSemClassificacao?: { descricao: string; numero_item: number }[];
+    detalhes?: { descricao: string; status: string; motivo?: string; itemBase?: string; numero_item?: number }[]
   } | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [errosValidacao, setErrosValidacao] = useState<string[]>([])
@@ -669,6 +672,63 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
                       ))}
                   </ul>
                 </details>
+              )}
+
+              {/* Aviso: Itens com data fora do ano do PCA */}
+              {resultado.itensDataForaAno && resultado.itensDataForaAno.length > 0 && (
+                <div className="w-full max-w-2xl bg-amber-50 rounded-lg p-4 border border-amber-300">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-amber-800">
+                        ⚠️ {resultado.itensDataForaAno.length} item(ns) com data desejada fora do ano do PCA ({resultado.anoPca})
+                      </p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Estes itens foram importados, mas a data desejada não corresponde ao ano do PCA. Verifique se está correto:
+                      </p>
+                      <ul className="mt-2 text-sm text-amber-700 space-y-1 max-h-32 overflow-y-auto">
+                        {resultado.itensDataForaAno.slice(0, 10).map((item, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="font-mono text-amber-600">{item.data}</span>
+                            <span className="truncate">{item.descricao}...</span>
+                          </li>
+                        ))}
+                        {resultado.itensDataForaAno.length > 10 && (
+                          <li className="text-amber-500 italic">... e mais {resultado.itensDataForaAno.length - 10} item(ns)</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Aviso: Itens sem classificação (precisam ser classificados manualmente) */}
+              {resultado.itensSemClassificacao && resultado.itensSemClassificacao.length > 0 && (
+                <div className="w-full max-w-2xl bg-orange-50 rounded-lg p-4 border border-orange-300">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-orange-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-orange-800">
+                        📋 {resultado.itensSemClassificacao.length} item(ns) precisam de classificação manual
+                      </p>
+                      <p className="text-sm text-orange-700 mt-1">
+                        Estes itens não foram encontrados no PCA anterior e receberam classificação padrão (Serviço). 
+                        Edite-os para definir a categoria, código de classe e demais dados corretamente:
+                      </p>
+                      <ul className="mt-2 text-sm text-orange-700 space-y-1 max-h-32 overflow-y-auto">
+                        {resultado.itensSemClassificacao.slice(0, 10).map((item, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="font-mono text-orange-600 shrink-0">#{item.numero_item}</span>
+                            <span className="truncate">{item.descricao}...</span>
+                          </li>
+                        ))}
+                        {resultado.itensSemClassificacao.length > 10 && (
+                          <li className="text-orange-500 italic">... e mais {resultado.itensSemClassificacao.length - 10} item(ns)</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Detalhes dos erros */}
