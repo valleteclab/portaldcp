@@ -1468,6 +1468,9 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('PCA não está vinculado a um órgão', HttpStatus.BAD_REQUEST);
     }
 
+    this.logger.log(`[ENVIAR-PCA] Órgão: ${orgao.nome} (CNPJ: ${orgao.cnpj})`);
+    this.logger.log(`[ENVIAR-PCA] pncp_vinculado: ${orgao.pncp_vinculado}, pncp_codigo_unidade: ${orgao.pncp_codigo_unidade}`);
+
     const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO');
     const cnpjOrgaoLimpo = (orgao.cnpj || '').replace(/\D/g, '');
     const cnpjPadraoLimpo = (cnpjPadrao || '').replace(/\D/g, '');
@@ -1490,9 +1493,14 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('CNPJ do órgão não informado', HttpStatus.BAD_REQUEST);
     }
 
-    // Opcional: garantir que órgão está marcado como vinculado ao PNCP
+    this.logger.log(`[ENVIAR-PCA] CNPJ para envio: ${cnpjEnvio}`);
+
+    // Verificar se órgão está marcado como vinculado ao PNCP
     if (!orgao.pncp_vinculado) {
-      throw new HttpException('Órgão não está vinculado ao PNCP na plataforma', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        `Órgão "${orgao.nome}" não está vinculado ao PNCP. Acesse a edição do órgão e marque como "Vinculado ao PNCP".`,
+        HttpStatus.BAD_REQUEST
+      );
     }
 
     const codigoUnidade = pcaPayload.codigo_unidade || orgao.pncp_codigo_unidade || '1';
@@ -1692,16 +1700,18 @@ export class PncpService implements OnModuleInit {
   }
 
   private mapearCategoriaPCA(categoria: string): number {
+    // PNCP aceita apenas: 1=Material, 2=Serviço para classificacaoCatalogo
+    // Outras categorias são mapeadas para Serviço (2) por padrão
     const mapa: Record<string, number> = {
       'MATERIAL': 1,
       'SERVICO': 2,
-      'OBRA': 3,
-      'SERVICO_ENGENHARIA': 4,
-      'SOLUCAO_TIC': 5,
-      'LOCACAO_IMOVEL': 6,
-      'ALIENACAO': 7
+      'OBRA': 2,              // Mapeia para Serviço
+      'SERVICO_ENGENHARIA': 2, // Mapeia para Serviço
+      'SOLUCAO_TIC': 2,       // Mapeia para Serviço
+      'LOCACAO_IMOVEL': 2,    // Mapeia para Serviço
+      'ALIENACAO': 1          // Mapeia para Material
     };
-    return mapa[categoria] || 1;
+    return mapa[categoria] || 2; // Default: Serviço
   }
 
   // ============ PCA - RETIFICAÇÃO E EXCLUSÃO ============
