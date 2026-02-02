@@ -485,7 +485,9 @@ export class PcaService {
 
     // Gerar código do item automaticamente se classificação foi definida mas código está vazio
     if (dadosLimpos.codigo_classe && !dadosLimpos.codigo_item_catalogo && !item.codigo_item_catalogo) {
-      const codigoGerado = await this.gerarCodigoItemCatalogo(dadosLimpos.codigo_classe);
+      // Usar categoria do item (existente ou nova)
+      const categoria = dadosLimpos.categoria || item.categoria;
+      const codigoGerado = await this.gerarCodigoItemCatalogo(dadosLimpos.codigo_classe, categoria);
       dadosLimpos.codigo_item_catalogo = codigoGerado;
       this.logger.log(`[ATUALIZAR-ITEM] Código do item gerado automaticamente: ${codigoGerado}`);
     }
@@ -502,28 +504,37 @@ export class PcaService {
   }
 
   /**
-   * Gera código único para item do catálogo baseado na classe
-   * Formato: CLASSE-SEQUENCIAL (ex: 1500-0001, 1500-0002)
+   * Gera código único para item do catálogo baseado na classe e categoria
+   * Formato: PREFIXO + CLASSE(4 dígitos) + SEQUENCIAL(4 dígitos)
+   * Exemplos: M15000001 (Material classe 1500), S08000001 (Serviço classe 800)
    */
-  private async gerarCodigoItemCatalogo(codigoClasse: string): Promise<string> {
+  private async gerarCodigoItemCatalogo(codigoClasse: string, categoria?: CategoriaItemPCA): Promise<string> {
+    // Prefixo: M para Material, S para Serviço
+    const prefixo = categoria === CategoriaItemPCA.MATERIAL ? 'M' : 'S';
+    
+    // Normalizar código da classe para 4 dígitos (ex: 800 -> 0800, 1500 -> 1500)
+    const classeNormalizada = codigoClasse.padStart(4, '0');
+    
+    // Padrão de busca: prefixo + classe normalizada + 4 dígitos
+    const pattern = `${prefixo}${classeNormalizada}%`;
+    
     // Buscar último código usado para esta classe
     const ultimoItem = await this.itemPcaRepository
       .createQueryBuilder('item')
-      .where('item.codigo_classe = :codigoClasse', { codigoClasse })
-      .andWhere('item.codigo_item_catalogo IS NOT NULL')
-      .andWhere("item.codigo_item_catalogo LIKE :pattern", { pattern: `${codigoClasse}-%` })
+      .where('item.codigo_item_catalogo LIKE :pattern', { pattern })
       .orderBy('item.codigo_item_catalogo', 'DESC')
       .getOne();
 
     let sequencial = 1;
     if (ultimoItem?.codigo_item_catalogo) {
-      const match = ultimoItem.codigo_item_catalogo.match(/-(\d+)$/);
+      // Extrair os últimos 4 dígitos como sequencial
+      const match = ultimoItem.codigo_item_catalogo.match(/(\d{4})$/);
       if (match) {
         sequencial = parseInt(match[1]) + 1;
       }
     }
 
-    return `${codigoClasse}-${sequencial.toString().padStart(4, '0')}`;
+    return `${prefixo}${classeNormalizada}${sequencial.toString().padStart(4, '0')}`;
   }
 
   async alterarStatusItem(itemId: string, status: StatusItemPCA, licitacaoId?: string): Promise<ItemPCA> {
