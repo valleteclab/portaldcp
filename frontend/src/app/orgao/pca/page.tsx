@@ -1814,19 +1814,27 @@ function PcaPageContent() {
               </div>
             </div>
 
-            {/* Linha 2: Classificação - Busca com autocomplete */}
+            {/* Linha 2: Classificação - Busca com autocomplete ou edição manual */}
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Cód. Classificação</label>
                 <Input
                   value={itemEditando.codigo_classe || ''}
-                  readOnly
-                  className="bg-gray-100 font-mono"
-                  placeholder="Automático"
+                  onChange={(e) => setItemEditando({...itemEditando, codigo_classe: e.target.value})}
+                  className="font-mono"
+                  placeholder="Ex: 12345"
                 />
               </div>
-              <div className="col-span-3">
-                <label className="block text-sm font-medium mb-1">Buscar Classificação</label>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium mb-1">Nome da Classe</label>
+                <Input
+                  value={itemEditando.nome_classe || ''}
+                  onChange={(e) => setItemEditando({...itemEditando, nome_classe: e.target.value})}
+                  placeholder="Nome da classificação"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Buscar</label>
                 <BuscaClassificacao
                   value={itemEditando.codigo_classe && itemEditando.nome_classe ? {
                     codigo: itemEditando.codigo_classe,
@@ -1848,7 +1856,7 @@ function PcaPageContent() {
                     }
                   }}
                   tipo={itemEditando.categoria === 'MATERIAL' ? 'MATERIAL' : 'SERVICO'}
-                  placeholder="Buscar classificação..."
+                  placeholder="Buscar..."
                 />
               </div>
             </div>
@@ -1859,9 +1867,9 @@ function PcaPageContent() {
                 <label className="block text-sm font-medium mb-1">Código do Item</label>
                 <Input
                   value={itemEditando.codigo_item_catalogo || ''}
-                  readOnly
-                  className="bg-gray-100 font-mono"
-                  placeholder="Automático"
+                  onChange={(e) => setItemEditando({...itemEditando, codigo_item_catalogo: e.target.value})}
+                  className="font-mono"
+                  placeholder="Ex: 123456"
                 />
               </div>
               <div className="col-span-3">
