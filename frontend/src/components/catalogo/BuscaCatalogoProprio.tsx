@@ -220,11 +220,10 @@ export function BuscaItemCatalogoProprio({
       const params = new URLSearchParams()
       if (searchTermo) params.append('termo', searchTermo)
       if (tipo) params.append('tipo', tipo)
-      if (orgaoId) params.append('orgaoId', orgaoId)
       params.append('limite', '15')
 
-      // Buscar nos itens do PCA existentes do órgão
-      const response = await authFetch(`${API_URL}/api/catalogo-proprio/buscar-itens-pca?${params}`)
+      // Buscar nos itens do catálogo próprio (tabela itens_catalogo_proprio)
+      const response = await authFetch(`${API_URL}/api/catalogo-proprio/itens?${params}`)
       if (response.ok) {
         const data = await response.json()
         setItens(data)
@@ -234,7 +233,7 @@ export function BuscaItemCatalogoProprio({
     } finally {
       setLoading(false)
     }
-  }, [tipo, orgaoId])
+  }, [tipo])
 
   const carregarClassificacoes = async (tipoItem: 'MATERIAL' | 'SERVICO') => {
     try {

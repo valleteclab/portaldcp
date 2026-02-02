@@ -154,12 +154,12 @@ export class CatalogoProprioService implements OnModuleInit {
       query.andWhere('i.classificacao_id = :classificacaoId', { classificacaoId: params.classificacaoId });
     }
 
-    // Buscar itens globais ou do órgão específico
+    // Buscar itens globais (orgao_id IS NULL) + itens do órgão específico se informado
+    // Catálogo global é compartilhado entre todos os órgãos
     if (params.orgaoId) {
       query.andWhere('(i.orgao_id IS NULL OR i.orgao_id = :orgaoId)', { orgaoId: params.orgaoId });
-    } else {
-      query.andWhere('i.orgao_id IS NULL');
     }
+    // Se não informar orgaoId, retorna todos os itens globais (sem filtro de orgao_id)
 
     query.orderBy('i.codigo', 'ASC');
     
@@ -167,7 +167,11 @@ export class CatalogoProprioService implements OnModuleInit {
       query.take(params.limite);
     }
 
-    return query.getMany();
+    this.logger.log(`[BUSCA-ITENS] Buscando itens: termo=${params.termo}, tipo=${params.tipo}, limite=${params.limite}`);
+    const itens = await query.getMany();
+    this.logger.log(`[BUSCA-ITENS] Encontrados ${itens.length} itens`);
+
+    return itens;
   }
 
   async criarItem(dados: {
