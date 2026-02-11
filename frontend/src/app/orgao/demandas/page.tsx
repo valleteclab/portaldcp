@@ -119,7 +119,7 @@ function DemandasPageContent() {
   const [demandas, setDemandas] = useState<Demanda[]>([])
   const [estatisticas, setEstatisticas] = useState<Estatisticas | null>(null)
   const [loading, setLoading] = useState(true)
-  const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear() + 1)
+  const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS')
   const [filtroUnidade, setFiltroUnidade] = useState<string>('TODAS')
   const [unidades, setUnidades] = useState<string[]>([])
@@ -301,8 +301,10 @@ function DemandasPageContent() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[2024, 2025, 2026, 2027].map(ano => (
-                <SelectItem key={ano} value={String(ano)}>{ano}</SelectItem>
+              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(ano => (
+                <SelectItem key={ano} value={String(ano)}>
+                  {ano}{ano === new Date().getFullYear() ? ' (atual)' : ''}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
