@@ -28,6 +28,16 @@ export class ContratosController {
     return this.contratosService.criar(dados);
   }
 
+  @Post('importar')
+  async importarContratos(
+    @Body() body: { orgaoId: string; contratos: any[] }
+  ) {
+    if (!body.orgaoId || !body.contratos || !Array.isArray(body.contratos)) {
+      throw new Error('Dados inválidos. Envie orgaoId e contratos (array).');
+    }
+    return this.contratosService.importarContratos(body.orgaoId, body.contratos);
+  }
+
   @Post('licitacao/:licitacaoId')
   async criarAPartirDaLicitacao(
     @Param('licitacaoId') licitacaoId: string,

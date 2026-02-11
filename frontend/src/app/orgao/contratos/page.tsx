@@ -25,8 +25,12 @@ import {
   Edit,
   Send,
   ClipboardList,
-  Warehouse
+  Warehouse,
+  Upload,
+  X,
+  Loader2
 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useModulosOrgao } from '@/hooks/useModulosOrgao'
 
 interface ItemContrato {
@@ -86,6 +90,66 @@ function ContratosOrgaoPageContent() {
   })
   const { temAcesso } = useModulosOrgao()
   const temAlmoxarifado = temAcesso(ModuloSistema.ALMOXARIFADO)
+
+  // Estados para importação
+  const [showImportar, setShowImportar] = useState(false)
+  const [contratosImportar, setContratosImportar] = useState<any[]>([])
+  const [importando, setImportando] = useState(false)
+  const [resultadoImportacao, setResultadoImportacao] = useState<any>(null)
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string)
+        if (Array.isArray(json)) {
+          setContratosImportar(json)
+          setResultadoImportacao(null)
+        } else {
+          alert('O arquivo deve conter um array de contratos.')
+        }
+      } catch {
+        alert('Arquivo JSON inválido.')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const confirmarImportacao = async () => {
+    const orgaoData = localStorage.getItem('orgao')
+    if (!orgaoData) return
+    const orgao = JSON.parse(orgaoData)
+
+    setImportando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/importar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgaoId: orgao.id, contratos: contratosImportar })
+      })
+      if (res.ok) {
+        const resultado = await res.json()
+        setResultadoImportacao(resultado)
+        carregarDados()
+      } else {
+        alert('Erro ao importar contratos.')
+      }
+    } catch (error) {
+      console.error('Erro na importação:', error)
+      alert('Erro ao importar contratos.')
+    } finally {
+      setImportando(false)
+    }
+  }
+
+  const parseValorBR = (v: string) => {
+    const limpo = (v || '0').replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')
+    return parseFloat(limpo) || 0
+  }
+
   const [estatisticas, setEstatisticas] = useState({
     vigentes: 0,
     encerrados: 0,
@@ -181,12 +245,18 @@ function ContratosOrgaoPageContent() {
           <h1 className="text-2xl font-bold">Gestão de Contratos</h1>
           <p className="text-gray-600">Gerencie os contratos do órgão</p>
         </div>
-        <Button asChild>
-          <Link href="/orgao/contratos/novo">
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Contrato
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => { setShowImportar(true); setContratosImportar([]); setResultadoImportacao(null) }}>
+            <Upload className="w-4 h-4 mr-2" />
+            Importar JSON
+          </Button>
+          <Button asChild>
+            <Link href="/orgao/contratos/novo">
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Contrato
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Cards de Resumo */}
@@ -416,6 +486,121 @@ function ContratosOrgaoPageContent() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal de Importação */}
+      <Dialog open={showImportar} onOpenChange={setShowImportar}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Importar Contratos de Sistema Externo
+            </DialogTitle>
+          </DialogHeader>
+
+          {!resultadoImportacao ? (
+            <div className="space-y-4">
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <Upload className="w-10 h-10 mx-auto text-gray-400 mb-3" />
+                <p className="text-sm text-gray-600 mb-2">Selecione o arquivo JSON exportado do sistema externo</p>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileUpload}
+                  className="block mx-auto text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+              </div>
+
+              {contratosImportar.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">
+                      {contratosImportar.length} contrato(s) encontrado(s) no arquivo
+                    </p>
+                    <Button onClick={confirmarImportacao} disabled={importando}>
+                      {importando ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importando...</>
+                      ) : (
+                        <><Upload className="w-4 h-4 mr-2" /> Confirmar Importação</>
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Nº</th>
+                          <th className="px-3 py-2 text-left">Favorecido</th>
+                          <th className="px-3 py-2 text-left">CNPJ</th>
+                          <th className="px-3 py-2 text-left">Vigência</th>
+                          <th className="px-3 py-2 text-left">Fiscal</th>
+                          <th className="px-3 py-2 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {contratosImportar.map((c, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 font-mono text-xs">{(c.n || '').replace(/-Contrato$/i, '')}</td>
+                            <td className="px-3 py-2 max-w-[200px] truncate" title={c.favorecido}>{c.favorecido}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{c['cpf-cnpj']}</td>
+                            <td className="px-3 py-2 text-xs">{c.vigencia}</td>
+                            <td className="px-3 py-2 text-xs">{c.fiscal}</td>
+                            <td className="px-3 py-2 text-right font-medium">{c.valor}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50 font-medium">
+                        <tr>
+                          <td colSpan={5} className="px-3 py-2 text-right">Total:</td>
+                          <td className="px-3 py-2 text-right">
+                            {contratosImportar.reduce((acc, c) => acc + parseValorBR(c.valor), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-4 text-center">
+                    <p className="text-2xl font-bold text-green-600">{resultadoImportacao.importados}</p>
+                    <p className="text-sm text-gray-500">Importados</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 text-center">
+                    <p className="text-2xl font-bold text-yellow-600">{resultadoImportacao.duplicados}</p>
+                    <p className="text-sm text-gray-500">Duplicados (ignorados)</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 text-center">
+                    <p className="text-2xl font-bold text-red-600">{resultadoImportacao.erros?.length || 0}</p>
+                    <p className="text-sm text-gray-500">Erros</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {resultadoImportacao.erros?.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-red-800 mb-2">Erros encontrados:</p>
+                  {resultadoImportacao.erros.map((e: any, i: number) => (
+                    <p key={i} className="text-xs text-red-600">• {e.numero}: {e.erro}</p>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button onClick={() => setShowImportar(false)}>Fechar</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

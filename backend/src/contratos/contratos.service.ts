@@ -408,6 +408,155 @@ export class ContratosService {
     return Number(result.total) || 0;
   }
 
+  // ============ IMPORTAÇÃO DE CONTRATOS ============
+
+  async importarContratos(orgaoId: string, contratosJson: any[]): Promise<{
+    importados: number;
+    duplicados: number;
+    erros: { numero: string; erro: string }[];
+    contratos_criados: Contrato[];
+  }> {
+    const resultado = {
+      importados: 0,
+      duplicados: 0,
+      erros: [] as { numero: string; erro: string }[],
+      contratos_criados: [] as Contrato[],
+    };
+
+    for (const item of contratosJson) {
+      try {
+        // Parse do número do contrato (ex: "035/2025-Contrato" → "035/2025")
+        const numeroOriginal = item.n || '';
+        const numeroContrato = numeroOriginal.replace(/-Contrato$/i, '').trim();
+        
+        if (!numeroContrato) {
+          resultado.erros.push({ numero: numeroOriginal, erro: 'Número do contrato vazio' });
+          continue;
+        }
+
+        // Extrair ano e sequencial do número (ex: "035/2025")
+        const partes = numeroContrato.split('/');
+        const sequencial = parseInt(partes[0]) || 0;
+        const ano = parseInt(partes[1]) || new Date().getFullYear();
+
+        // Verificar duplicidade
+        const existente = await this.contratoRepository.findOne({
+          where: { numero_contrato: numeroContrato, orgao_id: orgaoId }
+        });
+
+        if (existente) {
+          resultado.duplicados++;
+          continue;
+        }
+
+        // Parse do CNPJ
+        const cnpjOriginal = (item['cpf-cnpj'] || '').replace(/\s/g, '');
+        const cnpjLimpo = cnpjOriginal.replace(/\D/g, '');
+        const favorecido = item.favorecido || 'Não informado';
+
+        // Buscar ou criar fornecedor
+        let fornecedorId: string | null = null;
+        if (cnpjLimpo) {
+          let fornecedor = await this.fornecedorRepository.findOne({
+            where: { cpf_cnpj: cnpjLimpo }
+          });
+
+          if (!fornecedor) {
+            // Criar fornecedor básico
+            fornecedor = this.fornecedorRepository.create({
+              cpf_cnpj: cnpjLimpo,
+              razao_social: favorecido,
+              nome_fantasia: favorecido,
+              tipo_pessoa: cnpjLimpo.length > 11 ? 'PJ' : 'PF',
+              ativo: true,
+            });
+            fornecedor = await this.fornecedorRepository.save(fornecedor);
+            this.logger.log(`Fornecedor criado na importação: ${favorecido} (${cnpjLimpo})`);
+          }
+          fornecedorId = fornecedor.id;
+        }
+
+        // Parse da vigência (ex: "22/12/2025 à 22/12/2026")
+        const { dataInicio, dataFim } = this.parseVigencia(item.vigencia || '');
+
+        // Parse do valor (ex: "R$ 27.499,24")
+        const valor = this.parseValorBR(item.valor || '0');
+
+        // Parse do objeto (limpar \r\n)
+        const objeto = (item.objeto || 'Não informado').replace(/\r\n/g, '\n').trim();
+
+        // Criar contrato
+        const contrato = this.contratoRepository.create({
+          numero_contrato: numeroContrato,
+          ano,
+          sequencial,
+          orgao_id: orgaoId,
+          fornecedor_id: fornecedorId,
+          fornecedor_cnpj: cnpjLimpo || 'Não informado',
+          fornecedor_razao_social: favorecido,
+          tipo: TipoContrato.CONTRATO,
+          categoria: CategoriaContrato.COMPRAS,
+          status: this.determinarStatusPorVigencia(dataFim),
+          objeto,
+          valor_inicial: valor,
+          valor_global: valor,
+          valor_acrescimos: 0,
+          valor_supressoes: 0,
+          data_assinatura: dataInicio || new Date(),
+          data_vigencia_inicio: dataInicio || new Date(),
+          data_vigencia_fim: dataFim || new Date(),
+          fiscal_nome: item.fiscal || null,
+          observacoes: item.aditivos ? `Aditivos: ${item.aditivos}` : `Importado de sistema externo`,
+        });
+
+        const contratoSalvo = await this.contratoRepository.save(contrato);
+        resultado.contratos_criados.push(contratoSalvo);
+        resultado.importados++;
+
+        this.logger.log(`Contrato importado: ${numeroContrato} - ${favorecido}`);
+      } catch (error) {
+        const numero = item.n || 'desconhecido';
+        resultado.erros.push({ numero, erro: error.message });
+        this.logger.warn(`Erro ao importar contrato ${numero}: ${error.message}`);
+      }
+    }
+
+    this.logger.log(`Importação concluída: ${resultado.importados} importados, ${resultado.duplicados} duplicados, ${resultado.erros.length} erros`);
+    return resultado;
+  }
+
+  private parseVigencia(vigencia: string): { dataInicio: Date | null; dataFim: Date | null } {
+    try {
+      // Formato: "22/12/2025 à 22/12/2026" ou "22/12/2025 a 22/12/2026"
+      const partes = vigencia.split(/\s+[àa]\s+/);
+      if (partes.length !== 2) return { dataInicio: null, dataFim: null };
+
+      const parseDataBR = (str: string): Date | null => {
+        const match = str.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (!match) return null;
+        return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+      };
+
+      return {
+        dataInicio: parseDataBR(partes[0]),
+        dataFim: parseDataBR(partes[1]),
+      };
+    } catch {
+      return { dataInicio: null, dataFim: null };
+    }
+  }
+
+  private parseValorBR(valorStr: string): number {
+    // "R$ 27.499,24" → 27499.24
+    const limpo = valorStr.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+    return parseFloat(limpo) || 0;
+  }
+
+  private determinarStatusPorVigencia(dataFim: Date | null): StatusContrato {
+    if (!dataFim) return StatusContrato.VIGENTE;
+    return dataFim >= new Date() ? StatusContrato.VIGENTE : StatusContrato.ENCERRADO;
+  }
+
   // ============ HELPERS ============
 
   private mapearCategoria(tipoContratacao: string): CategoriaContrato {
