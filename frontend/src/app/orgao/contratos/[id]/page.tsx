@@ -38,7 +38,10 @@ import {
   Loader2,
   FileUp,
   History,
-  Shield
+  Shield,
+  Trash2,
+  Package,
+  Pencil
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -60,6 +63,7 @@ interface ItemContrato {
   id: string
   numero_item: number
   descricao: string
+  descricao_detalhada?: string
   quantidade_contratada: number
   quantidade_empenhada: number
   quantidade_entregue: number
@@ -156,6 +160,37 @@ export default function DetalheContratoOrgaoPage() {
 
   const [modalStatus, setModalStatus] = useState(false)
   const [novoStatus, setNovoStatus] = useState('')
+
+  // Estados para itens do contrato
+  const [modalItem, setModalItem] = useState(false)
+  const [editandoItem, setEditandoItem] = useState<ItemContrato | null>(null)
+  const [novoItem, setNovoItem] = useState({
+    numero_item: 1,
+    descricao: '',
+    descricao_detalhada: '',
+    unidade_medida: 'UNIDADE',
+    valor_unitario: '',
+    quantidade_contratada: '',
+    codigo_catalogo: '',
+    observacoes: '',
+  })
+
+  const UNIDADES_MEDIDA = [
+    { value: 'UNIDADE', label: 'Unidade' },
+    { value: 'PECA', label: 'Peça' },
+    { value: 'CAIXA', label: 'Caixa' },
+    { value: 'PACOTE', label: 'Pacote' },
+    { value: 'METRO', label: 'Metro' },
+    { value: 'METRO_QUADRADO', label: 'Metro²' },
+    { value: 'LITRO', label: 'Litro' },
+    { value: 'QUILOGRAMA', label: 'Quilograma' },
+    { value: 'HORA', label: 'Hora' },
+    { value: 'DIARIA', label: 'Diária' },
+    { value: 'MES', label: 'Mês' },
+    { value: 'ANO', label: 'Ano' },
+    { value: 'SERVICO', label: 'Serviço' },
+    { value: 'GLOBAL', label: 'Global' },
+  ]
 
   useEffect(() => {
     if (id) carregarDados()
@@ -294,6 +329,108 @@ export default function DetalheContratoOrgaoPage() {
     return t?.label || tipo
   }
 
+  const abrirModalNovoItem = () => {
+    const proximoNumero = (contrato?.itens?.length || 0) + 1
+    setEditandoItem(null)
+    setNovoItem({
+      numero_item: proximoNumero,
+      descricao: '',
+      descricao_detalhada: '',
+      unidade_medida: contrato?.categoria === 'SERVICOS' ? 'MES' : 'UNIDADE',
+      valor_unitario: '',
+      quantidade_contratada: '',
+      codigo_catalogo: '',
+      observacoes: '',
+    })
+    setModalItem(true)
+  }
+
+  const abrirModalEditarItem = (item: ItemContrato) => {
+    setEditandoItem(item)
+    setNovoItem({
+      numero_item: item.numero_item,
+      descricao: item.descricao,
+      descricao_detalhada: item.descricao_detalhada || '',
+      unidade_medida: item.unidade_medida,
+      valor_unitario: String(item.valor_unitario),
+      quantidade_contratada: String(item.quantidade_contratada),
+      codigo_catalogo: '',
+      observacoes: '',
+    })
+    setModalItem(true)
+  }
+
+  const handleSalvarItem = async () => {
+    setLoadingAction(true)
+    try {
+      if (!novoItem.descricao) throw new Error('Informe a descrição do item.')
+      if (!novoItem.valor_unitario) throw new Error('Informe o valor unitário.')
+      if (!novoItem.quantidade_contratada) throw new Error('Informe a quantidade.')
+
+      if (editandoItem) {
+        // Editar item existente
+        const res = await authFetch(`${API_URL}/api/almoxarifado/itens-contrato/${editandoItem.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            descricao: novoItem.descricao,
+            descricao_detalhada: novoItem.descricao_detalhada || null,
+            valor_unitario: parseFloat(novoItem.valor_unitario),
+          }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.message || 'Erro ao atualizar item')
+        }
+      } else {
+        // Criar novo item
+        const res = await authFetch(`${API_URL}/api/almoxarifado/contratos/${id}/itens`, {
+          method: 'POST',
+          body: JSON.stringify({
+            numero_item: novoItem.numero_item,
+            descricao: novoItem.descricao,
+            descricao_detalhada: novoItem.descricao_detalhada || null,
+            unidade_medida: novoItem.unidade_medida,
+            valor_unitario: parseFloat(novoItem.valor_unitario),
+            quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
+            codigo_catalogo: novoItem.codigo_catalogo || null,
+            observacoes: novoItem.observacoes || null,
+          }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.message || 'Erro ao criar item')
+        }
+      }
+
+      setModalItem(false)
+      carregarDados()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      alert(msg)
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleRemoverItem = async (itemId: string, descricao: string) => {
+    if (!confirm(`Remover item "${descricao}"? Esta ação não pode ser desfeita.`)) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/itens-contrato/${itemId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao remover item')
+      } else {
+        carregarDados()
+      }
+    } catch (error) {
+      console.error('Erro ao remover item:', error)
+      alert('Erro ao remover item')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-8 text-center">
@@ -358,6 +495,7 @@ export default function DetalheContratoOrgaoPage() {
       <Tabs defaultValue="detalhes" className="space-y-6">
         <TabsList>
           <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
+          <TabsTrigger value="itens">Itens ({contrato.itens?.length || 0})</TabsTrigger>
           <TabsTrigger value="termos">Termos Aditivos ({termos.length})</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
@@ -581,6 +719,112 @@ export default function DetalheContratoOrgaoPage() {
           </div>
         </TabsContent>
 
+        <TabsContent value="itens" className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-semibold">Itens do Contrato</h3>
+              <p className="text-sm text-gray-500">
+                {contrato.categoria === 'SERVICOS' ? 'Serviços contratados' : 'Materiais/produtos contratados'} - Controle de saldos
+              </p>
+            </div>
+            <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Item</Button>
+          </div>
+
+          {(!contrato.itens || contrato.itens.length === 0) ? (
+            <Card>
+              <CardContent className="text-center py-12">
+                <Package className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+                <p className="text-gray-500 mb-1">Nenhum item cadastrado neste contrato.</p>
+                <p className="text-sm text-gray-400 mb-4">
+                  {contrato.categoria === 'SERVICOS'
+                    ? 'Para contratos de serviço, cadastre o serviço como item (ex: unidade MÊS).'
+                    : 'Cadastre os materiais/produtos que fazem parte deste contrato.'}
+                </p>
+                <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Primeiro Item</Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left py-3 px-4">#</th>
+                        <th className="text-left py-3 px-4">Descrição</th>
+                        <th className="text-center py-3 px-4">Unidade</th>
+                        <th className="text-right py-3 px-4">Qtd. Contratada</th>
+                        <th className="text-right py-3 px-4">Empenhado</th>
+                        <th className="text-right py-3 px-4">Entregue</th>
+                        <th className="text-right py-3 px-4">Saldo</th>
+                        <th className="text-right py-3 px-4">Valor Unit.</th>
+                        <th className="text-right py-3 px-4">Valor Total</th>
+                        <th className="text-center py-3 px-4">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contrato.itens.map((item) => {
+                        const saldoEmValor = Number(item.saldo_disponivel) * Number(item.valor_unitario)
+                        const percentual = Number(item.quantidade_contratada) > 0
+                          ? (Number(item.quantidade_entregue) / Number(item.quantidade_contratada)) * 100
+                          : 0
+                        return (
+                          <tr key={item.id} className="border-b hover:bg-gray-50">
+                            <td className="py-3 px-4 font-medium">{item.numero_item}</td>
+                            <td className="py-3 px-4 max-w-[250px]">
+                              <p className="font-medium truncate" title={item.descricao}>{item.descricao}</p>
+                              {item.descricao_detalhada && <p className="text-xs text-gray-400 truncate">{item.descricao_detalhada}</p>}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <Badge variant="outline" className="text-xs">{UNIDADES_MEDIDA.find(u => u.value === item.unidade_medida)?.label || item.unidade_medida}</Badge>
+                            </td>
+                            <td className="py-3 px-4 text-right">{Number(item.quantidade_contratada).toLocaleString('pt-BR')}</td>
+                            <td className="py-3 px-4 text-right text-yellow-600">{Number(item.quantidade_empenhada).toLocaleString('pt-BR')}</td>
+                            <td className="py-3 px-4 text-right text-green-600">{Number(item.quantidade_entregue).toLocaleString('pt-BR')}</td>
+                            <td className="py-3 px-4 text-right font-medium">
+                              <span className={Number(item.saldo_disponivel) <= 0 ? 'text-red-600' : ''}>{Number(item.saldo_disponivel).toLocaleString('pt-BR')}</span>
+                            </td>
+                            <td className="py-3 px-4 text-right">{formatarMoeda(item.valor_unitario)}</td>
+                            <td className="py-3 px-4 text-right font-semibold">{formatarMoeda(item.valor_total)}</td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => abrirModalEditarItem(item)} title="Editar">
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" onClick={() => handleRemoverItem(item.id, item.descricao)} title="Remover">
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-medium">
+                      <tr>
+                        <td colSpan={8} className="py-3 px-4 text-right">Total do Contrato (itens):</td>
+                        <td className="py-3 px-4 text-right font-bold text-blue-600">
+                          {formatarMoeda(contrato.itens.reduce((acc, item) => acc + Number(item.valor_total), 0))}
+                        </td>
+                        <td></td>
+                      </tr>
+                      {contrato.saldo_total_em_valor !== undefined && (
+                        <tr>
+                          <td colSpan={8} className="py-3 px-4 text-right">Saldo Disponível Total:</td>
+                          <td className="py-3 px-4 text-right font-bold text-purple-600">
+                            {formatarMoeda(contrato.saldo_total_em_valor)}
+                          </td>
+                          <td></td>
+                        </tr>
+                      )}
+                    </tfoot>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
         <TabsContent value="termos" className="space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Termos Aditivos e Apostilamentos</h3>
@@ -721,6 +965,74 @@ export default function DetalheContratoOrgaoPage() {
             <Button variant="outline" onClick={() => setModalStatus(false)}>Cancelar</Button>
             <Button onClick={handleAlterarStatus} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Confirmar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modalItem} onOpenChange={setModalItem}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editandoItem ? 'Editar Item' : 'Adicionar Item ao Contrato'}</DialogTitle>
+            <DialogDescription>
+              {contrato.categoria === 'SERVICOS'
+                ? 'Para serviços mensais, use unidade MÊS e quantidade = número de meses.'
+                : 'Informe os dados do material/produto contratado.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Nº Item</Label>
+                <Input type="number" min="1" value={novoItem.numero_item} onChange={(e) => setNovoItem({...novoItem, numero_item: parseInt(e.target.value) || 1})} disabled={!!editandoItem} />
+              </div>
+              <div className="col-span-3 space-y-2">
+                <Label>Descrição *</Label>
+                <Input placeholder="Ex: Resma de papel A4 75g" value={novoItem.descricao} onChange={(e) => setNovoItem({...novoItem, descricao: e.target.value})} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Descrição Detalhada</Label>
+              <Textarea placeholder="Especificações técnicas, marca, modelo, etc. (opcional)" value={novoItem.descricao_detalhada} onChange={(e) => setNovoItem({...novoItem, descricao_detalhada: e.target.value})} rows={2} />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Unidade de Medida *</Label>
+                <Select value={novoItem.unidade_medida} onValueChange={(v) => setNovoItem({...novoItem, unidade_medida: v})} disabled={!!editandoItem}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {UNIDADES_MEDIDA.map(u => <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Quantidade Contratada *</Label>
+                <Input type="number" step="0.01" min="0" placeholder="Ex: 100" value={novoItem.quantidade_contratada} onChange={(e) => setNovoItem({...novoItem, quantidade_contratada: e.target.value})} disabled={!!editandoItem} />
+              </div>
+              <div className="space-y-2">
+                <Label>Valor Unitário (R$) *</Label>
+                <Input type="number" step="0.01" min="0" placeholder="Ex: 25.90" value={novoItem.valor_unitario} onChange={(e) => setNovoItem({...novoItem, valor_unitario: e.target.value})} />
+              </div>
+            </div>
+            {novoItem.valor_unitario && novoItem.quantidade_contratada && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                <p className="text-sm text-blue-600">Valor Total do Item:</p>
+                <p className="text-xl font-bold text-blue-700">
+                  {formatarMoeda(parseFloat(novoItem.valor_unitario) * parseFloat(novoItem.quantidade_contratada))}
+                </p>
+              </div>
+            )}
+            {!editandoItem && (
+              <div className="space-y-2">
+                <Label>Código Catálogo (CATMAT/CATSER)</Label>
+                <Input placeholder="Opcional - código do catálogo de compras" value={novoItem.codigo_catalogo} onChange={(e) => setNovoItem({...novoItem, codigo_catalogo: e.target.value})} />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalItem(false)}>Cancelar</Button>
+            <Button onClick={handleSalvarItem} disabled={loadingAction}>
+              {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : editandoItem ? 'Salvar Alterações' : 'Adicionar Item'}
             </Button>
           </DialogFooter>
         </DialogContent>
