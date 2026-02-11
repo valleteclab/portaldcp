@@ -96,6 +96,76 @@ function ContratosOrgaoPageContent() {
   const [contratosImportar, setContratosImportar] = useState<any[]>([])
   const [importando, setImportando] = useState(false)
   const [resultadoImportacao, setResultadoImportacao] = useState<any>(null)
+  const [abaImportacao, setAbaImportacao] = useState<'upload' | 'script'>('upload')
+  const [scriptCopiado, setScriptCopiado] = useState(false)
+
+  const scriptExtracao = `// Script de Extração - Portal de Transparência
+// Cole este script no Console do navegador (F12) enquanto estiver na página de contratos do portal
+(async () => {
+  const baseUrl = window.location.origin + window.location.pathname;
+  const todos = [];
+  let pagina = 1;
+  let temProxima = true;
+  
+  console.log('Iniciando extração de contratos...');
+  
+  while (temProxima) {
+    const url = pagina === 1 ? baseUrl : baseUrl + '?data_publicacao_inicial=&data_publicacao_final=&offset=' + pagina;
+    console.log('Página ' + pagina + '...');
+    
+    try {
+      const resp = await fetch(url);
+      const html = await resp.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const tabela = doc.querySelector('table');
+      
+      if (!tabela) { console.log('Tabela não encontrada na página ' + pagina); break; }
+      
+      const linhas = tabela.querySelectorAll('tbody tr');
+      if (linhas.length === 0) { temProxima = false; break; }
+      
+      const headers = Array.from(tabela.querySelectorAll('thead th')).map(th => th.textContent.trim().toLowerCase().replace(/[\\s\\/]+/g, '-'));
+      
+      linhas.forEach(tr => {
+        const cells = tr.querySelectorAll('td');
+        if (cells.length >= headers.length) {
+          const obj = {};
+          headers.forEach((h, i) => { obj[h] = cells[i]?.textContent?.trim() || ''; });
+          todos.push(obj);
+        }
+      });
+      
+      // Verifica se tem próxima página
+      const proxLink = doc.querySelector('a[href*="offset=' + (pagina + 1) + '"]');
+      if (!proxLink || linhas.length < 30) { temProxima = false; }
+      else { pagina++; }
+      
+      // Pequena pausa para não sobrecarregar o servidor
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) {
+      console.error('Erro na página ' + pagina + ':', e);
+      temProxima = false;
+    }
+  }
+  
+  console.log('Total extraído: ' + todos.length + ' contratos');
+  
+  // Gera e baixa o arquivo JSON
+  const blob = new Blob([JSON.stringify(todos, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'contratos_portal_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  
+  console.log('Arquivo JSON baixado com sucesso!');
+})();`
+
+  const copiarScript = () => {
+    navigator.clipboard.writeText(scriptExtracao)
+    setScriptCopiado(true)
+    setTimeout(() => setScriptCopiado(false), 3000)
+  }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -499,16 +569,81 @@ function ContratosOrgaoPageContent() {
 
           {!resultadoImportacao ? (
             <div className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <Upload className="w-10 h-10 mx-auto text-gray-400 mb-3" />
-                <p className="text-sm text-gray-600 mb-2">Selecione o arquivo JSON exportado do sistema externo</p>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleFileUpload}
-                  className="block mx-auto text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
+              {/* Abas */}
+              <div className="flex border-b">
+                <button
+                  onClick={() => setAbaImportacao('upload')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${abaImportacao === 'upload' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Upload className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                  Upload de Arquivo JSON
+                </button>
+                <button
+                  onClick={() => setAbaImportacao('script')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${abaImportacao === 'script' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  <FileText className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                  Extrair do Portal de Transparencia
+                </button>
               </div>
+
+              {abaImportacao === 'upload' ? (
+                <>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <Upload className="w-10 h-10 mx-auto text-gray-400 mb-3" />
+                    <p className="text-sm text-gray-600 mb-2">Selecione o arquivo JSON exportado do sistema externo</p>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileUpload}
+                      className="block mx-auto text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm font-medium text-blue-800 mb-2">Como extrair todos os contratos do Portal de Transparencia:</p>
+                    <ol className="text-sm text-blue-700 space-y-1.5 list-decimal list-inside">
+                      <li>Acesse a pagina de <strong>Contratos</strong> no Portal de Transparencia do orgao</li>
+                      <li>Pressione <strong>F12</strong> para abrir as Ferramentas do Desenvolvedor</li>
+                      <li>Clique na aba <strong>Console</strong></li>
+                      <li>Copie o script abaixo e cole no console</li>
+                      <li>Pressione <strong>Enter</strong> - o script vai percorrer todas as paginas automaticamente</li>
+                      <li>Ao finalizar, um arquivo JSON sera baixado automaticamente</li>
+                      <li>Volte aqui e faca o upload do arquivo na aba <strong>"Upload de Arquivo JSON"</strong></li>
+                    </ol>
+                  </div>
+
+                  <div className="relative">
+                    <div className="flex items-center justify-between bg-gray-800 text-gray-200 px-4 py-2 rounded-t-lg">
+                      <span className="text-xs font-mono">Script de Extracao</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-gray-300 hover:text-white h-7 text-xs"
+                        onClick={copiarScript}
+                      >
+                        {scriptCopiado ? (
+                          <><CheckCircle className="w-3.5 h-3.5 mr-1" /> Copiado!</>
+                        ) : (
+                          <><ClipboardList className="w-3.5 h-3.5 mr-1" /> Copiar Script</>
+                        )}
+                      </Button>
+                    </div>
+                    <pre className="bg-gray-900 text-green-400 p-4 rounded-b-lg text-xs overflow-x-auto max-h-[300px] overflow-y-auto font-mono">
+                      {scriptExtracao}
+                    </pre>
+                  </div>
+
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-xs text-yellow-800">
+                      <strong>Nota:</strong> O script percorre todas as paginas do portal automaticamente (pode levar alguns minutos dependendo da quantidade de contratos). 
+                      Ao finalizar, um arquivo JSON com todos os contratos sera baixado. Depois, use a aba "Upload de Arquivo JSON" para importar.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {contratosImportar.length > 0 && (
                 <>
@@ -520,7 +655,7 @@ function ContratosOrgaoPageContent() {
                       {importando ? (
                         <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importando...</>
                       ) : (
-                        <><Upload className="w-4 h-4 mr-2" /> Confirmar Importação</>
+                        <><Upload className="w-4 h-4 mr-2" /> Confirmar Importacao</>
                       )}
                     </Button>
                   </div>
@@ -529,10 +664,10 @@ function ContratosOrgaoPageContent() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-3 py-2 text-left">Nº</th>
+                          <th className="px-3 py-2 text-left">No</th>
                           <th className="px-3 py-2 text-left">Favorecido</th>
                           <th className="px-3 py-2 text-left">CNPJ</th>
-                          <th className="px-3 py-2 text-left">Vigência</th>
+                          <th className="px-3 py-2 text-left">Vigencia</th>
                           <th className="px-3 py-2 text-left">Fiscal</th>
                           <th className="px-3 py-2 text-right">Valor</th>
                         </tr>
@@ -540,9 +675,9 @@ function ContratosOrgaoPageContent() {
                       <tbody className="divide-y">
                         {contratosImportar.map((c, i) => (
                           <tr key={i} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 font-mono text-xs">{(c.n || '').replace(/-Contrato$/i, '')}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{(c.n || c['n'] || '').replace(/-Contrato$/i, '')}</td>
                             <td className="px-3 py-2 max-w-[200px] truncate" title={c.favorecido}>{c.favorecido}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{c['cpf-cnpj']}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{c['cpf-cnpj'] || c['cpf/cnpj'] || ''}</td>
                             <td className="px-3 py-2 text-xs">{c.vigencia}</td>
                             <td className="px-3 py-2 text-xs">{c.fiscal}</td>
                             <td className="px-3 py-2 text-right font-medium">{c.valor}</td>
@@ -589,7 +724,7 @@ function ContratosOrgaoPageContent() {
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-sm font-medium text-red-800 mb-2">Erros encontrados:</p>
                   {resultadoImportacao.erros.map((e: any, i: number) => (
-                    <p key={i} className="text-xs text-red-600">• {e.numero}: {e.erro}</p>
+                    <p key={i} className="text-xs text-red-600">- {e.numero}: {e.erro}</p>
                   ))}
                 </div>
               )}
