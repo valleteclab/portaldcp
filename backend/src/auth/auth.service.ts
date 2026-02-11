@@ -88,6 +88,10 @@ export class AuthService {
     hashArmazenado: string,
     atualizarHash?: (novoHash: string) => Promise<void>,
   ): Promise<boolean> {
+    if (!hashArmazenado) {
+      return false;
+    }
+
     // Verifica se é hash bcrypt (começa com $2b$ ou $2a$)
     if (hashArmazenado.startsWith('$2')) {
       return bcrypt.compare(senhaDigitada, hashArmazenado);

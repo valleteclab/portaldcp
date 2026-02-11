@@ -63,8 +63,9 @@ export class OrgaosService {
     }
 
     // Prepara dados com valores padrão
-    const dadosOrgao = {
-      ...createOrgaoDto,
+    const { senha, ...restDto } = createOrgaoDto;
+    const dadosOrgao: any = {
+      ...restDto,
       cnpj: cnpjNormalizado,
       logradouro: createOrgaoDto.logradouro || 'A definir',
       bairro: createOrgaoDto.bairro || 'Centro',
@@ -73,6 +74,11 @@ export class OrgaosService {
       responsavel_cpf: createOrgaoDto.responsavel_cpf || '000.000.000-00',
       ativo: createOrgaoDto.ativo !== undefined ? createOrgaoDto.ativo : true,
     };
+
+    // Hash da senha antes de salvar
+    if (senha) {
+      dadosOrgao.senha_hash = createHash('sha256').update(senha).digest('hex');
+    }
     
     const orgao = this.orgaoRepository.create(dadosOrgao);
     return await this.orgaoRepository.save(orgao);
@@ -131,7 +137,14 @@ export class OrgaosService {
 
   async update(id: string, updateData: Partial<CreateOrgaoDto>): Promise<Orgao> {
     const orgao = await this.findOne(id);
-    Object.assign(orgao, updateData);
+    const { senha, ...restData } = updateData;
+    Object.assign(orgao, restData);
+
+    // Hash da senha se fornecida
+    if (senha) {
+      orgao.senha_hash = createHash('sha256').update(senha).digest('hex');
+    }
+
     return await this.orgaoRepository.save(orgao);
   }
 
