@@ -871,6 +871,16 @@ export default function AdminOrgaosPage() {
               />
             </div>
             <div>
+              <Label>Nova Senha</Label>
+              <Input
+                type="password"
+                value={formOrgao.senha}
+                onChange={(e) => setFormOrgao({ ...formOrgao, senha: e.target.value })}
+                placeholder="Deixe vazio para manter a atual"
+              />
+              <p className="text-xs text-gray-500 mt-1">Preencha apenas se deseja alterar a senha</p>
+            </div>
+            <div>
               <Label>Responsável</Label>
               <Input
                 value={formOrgao.responsavel_nome}

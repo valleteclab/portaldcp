@@ -1,17 +1,22 @@
-import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Orgao } from './entities/orgao.entity';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { ModuloSistema } from './enums/modulos.enum';
+import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import axios from 'axios';
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 @Injectable()
 export class OrgaosService {
+  private readonly logger = new Logger(OrgaosService.name);
+
   constructor(
     @InjectRepository(Orgao)
     private readonly orgaoRepository: Repository<Orgao>,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
   // ============ CRIPTOGRAFIA ============
@@ -81,7 +86,32 @@ export class OrgaosService {
     }
     
     const orgao = this.orgaoRepository.create(dadosOrgao);
-    return await this.orgaoRepository.save(orgao);
+    const orgaoSalvo = await this.orgaoRepository.save(orgao);
+
+    // Criar usuário ADMIN inicial vinculado ao órgão
+    if (createOrgaoDto.email_login && senha) {
+      try {
+        const existeUsuario = await this.usuarioRepository.findOneBy({ email: createOrgaoDto.email_login });
+        if (!existeUsuario) {
+          const usuario = this.usuarioRepository.create({
+            nome: createOrgaoDto.responsavel_nome || orgaoSalvo.nome,
+            email: createOrgaoDto.email_login,
+            senha_hash: createHash('sha256').update(senha).digest('hex'),
+            cpf: createOrgaoDto.responsavel_cpf || null,
+            cargo: createOrgaoDto.responsavel_cargo || 'Administrador',
+            role: RoleUsuario.ADMIN,
+            orgao_id: orgaoSalvo.id,
+            ativo: true,
+          });
+          await this.usuarioRepository.save(usuario);
+          this.logger.log(`Usuário ADMIN inicial criado para órgão ${orgaoSalvo.nome}: ${createOrgaoDto.email_login}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Não foi possível criar usuário inicial para órgão ${orgaoSalvo.nome}: ${error.message}`);
+      }
+    }
+
+    return orgaoSalvo;
   }
 
   async findAll(includeInactive = false): Promise<Orgao[]> {
