@@ -427,7 +427,7 @@ export class ContratosService {
       try {
         // Parse do número do contrato (ex: "035/2025-Contrato" → "035/2025")
         const numeroOriginal = item.n || '';
-        const numeroContrato = numeroOriginal.replace(/-Contrato$/i, '').trim();
+        const numeroContrato = numeroOriginal.replace(/\s*-?\s*Contrato\s*$/i, '').trim();
         
         if (!numeroContrato) {
           resultado.erros.push({ numero: numeroOriginal, erro: 'Número do contrato vazio' });

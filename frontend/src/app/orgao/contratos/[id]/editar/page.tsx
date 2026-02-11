@@ -51,7 +51,7 @@ export default function EditarContratoPage() {
   const [loadingFornecedores, setLoadingFornecedores] = useState(false)
   
   const [formData, setFormData] = useState({
-    tipo: 'CONTRATO', categoria: 'COMPRAS', fornecedor_id: '', fornecedor_cnpj: '', fornecedor_razao_social: '',
+    numero_contrato: '', tipo: 'CONTRATO', categoria: 'COMPRAS', fornecedor_id: '', fornecedor_cnpj: '', fornecedor_razao_social: '',
     objeto: '', objeto_detalhado: '', valor_inicial: '', data_assinatura: '', data_vigencia_inicio: '',
     data_vigencia_fim: '', data_publicacao: '', prazo_execucao_dias: '', prazo_vigencia_meses: '',
     numero_processo: '', amparo_legal: '', dotacao_orcamentaria: '', fonte_recurso: '', programa_trabalho: '',
@@ -73,6 +73,7 @@ export default function EditarContratoPage() {
       if (res.ok) {
         const contrato = await res.json()
         setFormData({
+          numero_contrato: contrato.numero_contrato || '',
           tipo: contrato.tipo || 'CONTRATO',
           categoria: contrato.categoria || 'COMPRAS',
           fornecedor_id: contrato.fornecedor_id || '',
@@ -154,7 +155,7 @@ export default function EditarContratoPage() {
       if (!formData.data_vigencia_inicio || !formData.data_vigencia_fim) throw new Error('Informe as datas de vigência.')
 
       const payload: Record<string, unknown> = {
-        tipo: formData.tipo, categoria: formData.categoria, fornecedor_id: formData.fornecedor_id,
+        numero_contrato: formData.numero_contrato || undefined, tipo: formData.tipo, categoria: formData.categoria, fornecedor_id: formData.fornecedor_id,
         fornecedor_cnpj: formData.fornecedor_cnpj, fornecedor_razao_social: formData.fornecedor_razao_social,
         objeto: formData.objeto, objeto_detalhado: formData.objeto_detalhado || null,
         valor_inicial: parseFloat(formData.valor_inicial), data_assinatura: formData.data_assinatura,
@@ -228,7 +229,11 @@ export default function EditarContratoPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Classificação</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Numero do Contrato</Label>
+              <Input placeholder="Ex: 001/2025" value={formData.numero_contrato} onChange={(e) => handleInputChange('numero_contrato', e.target.value)} />
+            </div>
             <div className="space-y-2">
               <Label>Tipo de Instrumento *</Label>
               <Select value={formData.tipo} onValueChange={(v) => handleInputChange('tipo', v)}>
