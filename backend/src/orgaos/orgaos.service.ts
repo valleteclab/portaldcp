@@ -86,7 +86,7 @@ export class OrgaosService {
     }
     
     const orgao = this.orgaoRepository.create(dadosOrgao);
-    const orgaoSalvo = await this.orgaoRepository.save(orgao);
+    const orgaoSalvo = await this.orgaoRepository.save(orgao) as any as Orgao;
 
     // Criar usuário ADMIN inicial vinculado ao órgão
     if (createOrgaoDto.email_login && senha) {
@@ -97,7 +97,7 @@ export class OrgaosService {
             nome: createOrgaoDto.responsavel_nome || orgaoSalvo.nome,
             email: createOrgaoDto.email_login,
             senha_hash: createHash('sha256').update(senha).digest('hex'),
-            cpf: createOrgaoDto.responsavel_cpf || null,
+            cpf: createOrgaoDto.responsavel_cpf || undefined,
             cargo: createOrgaoDto.responsavel_cargo || 'Administrador',
             role: RoleUsuario.ADMIN,
             orgao_id: orgaoSalvo.id,
