@@ -59,8 +59,19 @@ interface Orgao {
   cnpj: string
   tipo: string
   esfera: string
+  logradouro?: string
+  numero?: string
+  complemento?: string
+  bairro?: string
   cidade: string
   uf: string
+  cep?: string
+  telefone?: string
+  email?: string
+  site?: string
+  responsavel_nome?: string
+  responsavel_cpf?: string
+  responsavel_cargo?: string
   email_login?: string
   ativo: boolean
   // PNCP - Vinculação à plataforma
@@ -273,19 +284,19 @@ export default function AdminOrgaosPage() {
       cnpj: orgao.cnpj,
       tipo: orgao.tipo,
       esfera: orgao.esfera,
-      logradouro: '',
-      numero: '',
-      bairro: '',
+      logradouro: orgao.logradouro || '',
+      numero: orgao.numero || '',
+      bairro: orgao.bairro || '',
       cidade: orgao.cidade,
       uf: orgao.uf,
-      cep: '',
-      telefone: '',
-      email: '',
+      cep: orgao.cep || '',
+      telefone: orgao.telefone || '',
+      email: orgao.email || '',
       email_login: orgao.email_login || '',
       senha: '',
-      responsavel_nome: '',
-      responsavel_cpf: '',
-      responsavel_cargo: ''
+      responsavel_nome: orgao.responsavel_nome || '',
+      responsavel_cpf: orgao.responsavel_cpf || '',
+      responsavel_cargo: orgao.responsavel_cargo || ''
     })
     setShowEditarOrgao(true)
   }
@@ -709,7 +720,7 @@ export default function AdminOrgaosPage() {
 
       {/* Modal Editar Órgão */}
       <Dialog open={showEditarOrgao} onOpenChange={setShowEditarOrgao}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Órgão</DialogTitle>
             <DialogDescription>
@@ -727,16 +738,39 @@ export default function AdminOrgaosPage() {
             </div>
             <div>
               <Label>CNPJ</Label>
-              <Input
-                value={formOrgao.cnpj}
-                onChange={(e) => setFormOrgao({ ...formOrgao, cnpj: e.target.value })}
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={formOrgao.cnpj}
+                  onChange={(e) => setFormOrgao({ ...formOrgao, cnpj: e.target.value })}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={consultarCnpj}
+                  disabled={consultandoCnpj || formOrgao.cnpj.replace(/\D/g, '').length < 14}
+                  title="Buscar dados pelo CNPJ"
+                >
+                  {consultandoCnpj ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
             </div>
             <div className="col-span-2">
               <Label>Nome do Órgão</Label>
               <Input
                 value={formOrgao.nome}
                 onChange={(e) => setFormOrgao({ ...formOrgao, nome: e.target.value })}
+              />
+            </div>
+            <div className="col-span-2">
+              <Label>Nome Fantasia</Label>
+              <Input
+                value={formOrgao.nome_fantasia}
+                onChange={(e) => setFormOrgao({ ...formOrgao, nome_fantasia: e.target.value })}
               />
             </div>
             <div>
@@ -765,6 +799,28 @@ export default function AdminOrgaosPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="col-span-2">
+              <Label>Logradouro</Label>
+              <Input
+                value={formOrgao.logradouro}
+                onChange={(e) => setFormOrgao({ ...formOrgao, logradouro: e.target.value })}
+                placeholder="Rua, Avenida, etc."
+              />
+            </div>
+            <div>
+              <Label>Número</Label>
+              <Input
+                value={formOrgao.numero}
+                onChange={(e) => setFormOrgao({ ...formOrgao, numero: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Bairro</Label>
+              <Input
+                value={formOrgao.bairro}
+                onChange={(e) => setFormOrgao({ ...formOrgao, bairro: e.target.value })}
+              />
+            </div>
             <div>
               <Label>Cidade</Label>
               <Input
@@ -778,6 +834,61 @@ export default function AdminOrgaosPage() {
                 value={formOrgao.uf}
                 onChange={(e) => setFormOrgao({ ...formOrgao, uf: e.target.value.toUpperCase() })}
                 maxLength={2}
+              />
+            </div>
+            <div>
+              <Label>CEP</Label>
+              <Input
+                value={formOrgao.cep}
+                onChange={(e) => setFormOrgao({ ...formOrgao, cep: e.target.value })}
+                placeholder="00000-000"
+              />
+            </div>
+            <div>
+              <Label>Telefone</Label>
+              <Input
+                value={formOrgao.telefone}
+                onChange={(e) => setFormOrgao({ ...formOrgao, telefone: e.target.value })}
+                placeholder="(00) 0000-0000"
+              />
+            </div>
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={formOrgao.email}
+                onChange={(e) => setFormOrgao({ ...formOrgao, email: e.target.value })}
+                placeholder="contato@orgao.gov.br"
+              />
+            </div>
+            <div>
+              <Label>Email de Login</Label>
+              <Input
+                type="email"
+                value={formOrgao.email_login}
+                onChange={(e) => setFormOrgao({ ...formOrgao, email_login: e.target.value })}
+                placeholder="email@orgao.gov.br"
+              />
+            </div>
+            <div>
+              <Label>Responsável</Label>
+              <Input
+                value={formOrgao.responsavel_nome}
+                onChange={(e) => setFormOrgao({ ...formOrgao, responsavel_nome: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>CPF do Responsável</Label>
+              <Input
+                value={formOrgao.responsavel_cpf}
+                onChange={(e) => setFormOrgao({ ...formOrgao, responsavel_cpf: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Cargo do Responsável</Label>
+              <Input
+                value={formOrgao.responsavel_cargo}
+                onChange={(e) => setFormOrgao({ ...formOrgao, responsavel_cargo: e.target.value })}
               />
             </div>
           </div>
