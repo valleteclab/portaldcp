@@ -5,7 +5,7 @@ import { Contrato, StatusContrato, TipoContrato, CategoriaContrato } from './ent
 import { TermoAditivo, TipoTermoAditivo, StatusTermoAditivo } from './entities/termo-aditivo.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.entity';
-import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { Fornecedor, TipoPessoa } from '../fornecedores/entities/fornecedor.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 
 @Injectable()
@@ -455,7 +455,7 @@ export class ContratosService {
         const favorecido = item.favorecido || 'Não informado';
 
         // Buscar ou criar fornecedor
-        let fornecedorId: string | null = null;
+        let fornecedorId: string | undefined = undefined;
         if (cnpjLimpo) {
           let fornecedor = await this.fornecedorRepository.findOne({
             where: { cpf_cnpj: cnpjLimpo }
@@ -467,7 +467,7 @@ export class ContratosService {
               cpf_cnpj: cnpjLimpo,
               razao_social: favorecido,
               nome_fantasia: favorecido,
-              tipo_pessoa: cnpjLimpo.length > 11 ? 'PJ' : 'PF',
+              tipo_pessoa: cnpjLimpo.length > 11 ? TipoPessoa.JURIDICA : TipoPessoa.FISICA,
               ativo: true,
             });
             fornecedor = await this.fornecedorRepository.save(fornecedor);
@@ -491,7 +491,7 @@ export class ContratosService {
           ano,
           sequencial,
           orgao_id: orgaoId,
-          fornecedor_id: fornecedorId,
+          fornecedor_id: fornecedorId as any,
           fornecedor_cnpj: cnpjLimpo || 'Não informado',
           fornecedor_razao_social: favorecido,
           tipo: TipoContrato.CONTRATO,
@@ -509,7 +509,7 @@ export class ContratosService {
           observacoes: item.aditivos ? `Aditivos: ${item.aditivos}` : `Importado de sistema externo`,
         });
 
-        const contratoSalvo = await this.contratoRepository.save(contrato);
+        const contratoSalvo = await this.contratoRepository.save(contrato) as any as Contrato;
         resultado.contratos_criados.push(contratoSalvo);
         resultado.importados++;
 
