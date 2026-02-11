@@ -99,67 +99,77 @@ function ContratosOrgaoPageContent() {
   const [abaImportacao, setAbaImportacao] = useState<'upload' | 'script'>('upload')
   const [scriptCopiado, setScriptCopiado] = useState(false)
 
-  const scriptExtracao = `// Script de Extração - Portal de Transparência
-// Cole este script no Console do navegador (F12) enquanto estiver na página de contratos do portal
+  const scriptExtracao = `// Script de Extração - Portal de Transparência (v4)
+// Cole no Console (F12) na página de contratos do portal
+// Extrai APENAS contratos VIGENTES
+if (window._extraindoContratos) { console.log('JÁ ESTÁ EXECUTANDO! Aguarde...'); } else {
+window._extraindoContratos = true;
 (async () => {
-  const baseUrl = window.location.origin + window.location.pathname;
-  const todos = [];
-  let pagina = 1;
-  let temProxima = true;
-  
-  console.log('Iniciando extração de contratos...');
-  
-  while (temProxima) {
-    const url = pagina === 1 ? baseUrl : baseUrl + '?data_publicacao_inicial=&data_publicacao_final=&offset=' + pagina;
-    console.log('Página ' + pagina + '...');
-    
-    try {
-      const resp = await fetch(url);
-      const html = await resp.text();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const tabela = doc.querySelector('table');
-      
-      if (!tabela) { console.log('Tabela não encontrada na página ' + pagina); break; }
-      
-      const linhas = tabela.querySelectorAll('tbody tr');
-      if (linhas.length === 0) { temProxima = false; break; }
-      
-      const headers = Array.from(tabela.querySelectorAll('thead th')).map(th => th.textContent.trim().toLowerCase().replace(/[\\s\\/]+/g, '-'));
-      
-      linhas.forEach(tr => {
-        const cells = tr.querySelectorAll('td');
-        if (cells.length >= headers.length) {
-          const obj = {};
-          headers.forEach((h, i) => { obj[h] = cells[i]?.textContent?.trim() || ''; });
-          todos.push(obj);
-        }
-      });
-      
-      // Verifica se tem próxima página
-      const proxLink = doc.querySelector('a[href*="offset=' + (pagina + 1) + '"]');
-      if (!proxLink || linhas.length < 30) { temProxima = false; }
-      else { pagina++; }
-      
-      // Pequena pausa para não sobrecarregar o servidor
-      await new Promise(r => setTimeout(r, 500));
-    } catch (e) {
-      console.error('Erro na página ' + pagina + ':', e);
-      temProxima = false;
+  try {
+    const todos = [];
+    const hoje = new Date();
+    function parseDataBR(s) {
+      if (!s) return null;
+      const p = s.trim().split('/');
+      return p.length === 3 ? new Date(p[2], p[1]-1, p[0]) : null;
     }
-  }
-  
-  console.log('Total extraído: ' + todos.length + ' contratos');
-  
-  // Gera e baixa o arquivo JSON
-  const blob = new Blob([JSON.stringify(todos, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'contratos_portal_' + new Date().toISOString().slice(0,10) + '.json';
-  a.click();
-  
-  console.log('Arquivo JSON baixado com sucesso!');
-})();`
+    function vigente(v) {
+      if (!v) return false;
+      const p = v.split(/\\s*[àa]\\s*/i);
+      if (p.length < 2) return false;
+      const d = parseDataBR(p[1]);
+      return d ? d >= hoje : false;
+    }
+    function extrair(doc) {
+      const t = doc.querySelector('table');
+      if (!t) return [];
+      const rows = t.querySelectorAll('tr');
+      const r = [];
+      for (let i = 1; i < rows.length; i++) {
+        const c = rows[i].querySelectorAll('td');
+        if (c.length < 6) continue;
+        const vig = (c[4]?.textContent||'').trim();
+        if (!vigente(vig)) continue;
+        r.push({ n:(c[0]?.textContent||'').trim(), 'cpf-cnpj':(c[1]?.textContent||'').trim(), favorecido:(c[2]?.textContent||'').trim(), objeto:(c[3]?.textContent||'').trim(), vigencia:vig, fiscal:(c[5]?.textContent||'').trim(), valor:(c[6]?.textContent||'').trim() });
+      }
+      return r;
+    }
+    // Página 1
+    todos.push(...extrair(document));
+    console.log('Pág 1: ' + todos.length + ' vigentes');
+    // Descobrir páginas
+    let maxPag = 1;
+    document.querySelectorAll('a[href*="offset="]').forEach(a => {
+      const m = a.href.match(/offset=(\\d+)/);
+      if (m) maxPag = Math.max(maxPag, parseInt(m[1]));
+    });
+    console.log('Páginas: ' + maxPag);
+    // Percorrer
+    for (let p = 2; p <= maxPag; p++) {
+      try {
+        const r = await fetch(location.pathname + '?offset=' + p);
+        const h = await r.text();
+        const d = extrair(new DOMParser().parseFromString(h, 'text/html'));
+        todos.push(...d);
+        console.log('Pág ' + p + ': +' + d.length + ' (total: ' + todos.length + ')');
+        await new Promise(r => setTimeout(r, 1000));
+      } catch(e) { console.error('Erro pág ' + p, e); break; }
+    }
+    console.log('\\n=== PRONTO! ' + todos.length + ' contratos vigentes ===');
+    console.log('Baixando arquivo JSON...');
+    const json = JSON.stringify(todos, null, 2);
+    const blob = new Blob([json], {type: 'application/json'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'contratos_vigentes.json';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 1000);
+    console.log('Arquivo "contratos_vigentes.json" baixado!');
+  } finally { window._extraindoContratos = false; }
+})();
+}`
 
   const copiarScript = () => {
     navigator.clipboard.writeText(scriptExtracao)

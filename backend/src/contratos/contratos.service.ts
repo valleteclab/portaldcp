@@ -462,13 +462,22 @@ export class ContratosService {
           });
 
           if (!fornecedor) {
-            // Criar fornecedor básico
+            // Criar fornecedor básico com campos obrigatórios preenchidos
             fornecedor = this.fornecedorRepository.create({
               cpf_cnpj: cnpjLimpo,
               razao_social: favorecido,
               nome_fantasia: favorecido,
               tipo_pessoa: cnpjLimpo.length > 11 ? TipoPessoa.JURIDICA : TipoPessoa.FISICA,
               ativo: true,
+              logradouro: 'A atualizar',
+              bairro: 'A atualizar',
+              cidade: 'A atualizar',
+              uf: 'BA',
+              cep: '00000000',
+              telefone: '00000000000',
+              email: 'a.atualizar@importacao.tmp',
+              representante_nome: favorecido,
+              representante_cpf: cnpjLimpo.length <= 11 ? cnpjLimpo : '00000000000',
             });
             fornecedor = await this.fornecedorRepository.save(fornecedor);
             this.logger.log(`Fornecedor criado na importação: ${favorecido} (${cnpjLimpo})`);
