@@ -100,6 +100,7 @@ export default function AdminOrgaosPage() {
   const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
   
   const [orgaoSelecionado, setOrgaoSelecionado] = useState<Orgao | null>(null)
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   
   // Form state
   const [formOrgao, setFormOrgao] = useState({
@@ -296,6 +297,45 @@ export default function AdminOrgaosPage() {
       pncp_codigo_unidade: orgao.pncp_codigo_unidade || '1'
     })
     setShowConfigurarPNCP(true)
+  }
+
+  const consultarCnpj = async () => {
+    const cnpjLimpo = formOrgao.cnpj.replace(/\D/g, '')
+    if (cnpjLimpo.length !== 14) {
+      alert('CNPJ deve ter 14 dígitos')
+      return
+    }
+
+    setConsultandoCnpj(true)
+    try {
+      const response = await adminFetch(`${API_URL}/api/fornecedores/consultar-cnpj/${cnpjLimpo}`)
+      if (response.ok) {
+        const dados = await response.json()
+        setFormOrgao(prev => ({
+          ...prev,
+          nome: dados.razao_social || prev.nome,
+          nome_fantasia: dados.nome_fantasia || prev.nome_fantasia,
+          logradouro: dados.endereco?.logradouro ? `${dados.endereco.tipo_logradouro || ''} ${dados.endereco.logradouro}`.trim() : prev.logradouro,
+          numero: dados.endereco?.numero || prev.numero,
+          bairro: dados.endereco?.bairro || prev.bairro,
+          cidade: dados.endereco?.cidade || prev.cidade,
+          uf: dados.endereco?.uf || prev.uf,
+          cep: dados.endereco?.cep || prev.cep,
+          telefone: dados.telefone || prev.telefone,
+          email: dados.email || prev.email,
+          email_login: prev.email_login || dados.email || prev.email_login,
+          responsavel_nome: dados.socios?.[0]?.nome || prev.responsavel_nome,
+        }))
+      } else {
+        const error = await response.json()
+        alert(error.message || 'Erro ao consultar CNPJ')
+      }
+    } catch (error) {
+      console.error('Erro ao consultar CNPJ:', error)
+      alert('Erro ao consultar CNPJ. Verifique sua conexão.')
+    } finally {
+      setConsultandoCnpj(false)
+    }
   }
 
   const formatarCNPJ = (cnpj: string) => {
@@ -513,11 +553,28 @@ export default function AdminOrgaosPage() {
             </div>
             <div>
               <Label>CNPJ</Label>
-              <Input
-                value={formOrgao.cnpj}
-                onChange={(e) => setFormOrgao({ ...formOrgao, cnpj: e.target.value })}
-                placeholder="00.000.000/0000-00"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={formOrgao.cnpj}
+                  onChange={(e) => setFormOrgao({ ...formOrgao, cnpj: e.target.value })}
+                  placeholder="00.000.000/0000-00"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={consultarCnpj}
+                  disabled={consultandoCnpj || formOrgao.cnpj.replace(/\D/g, '').length < 14}
+                  title="Buscar dados pelo CNPJ"
+                >
+                  {consultandoCnpj ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Digite o CNPJ e clique na lupa para buscar dados automaticamente</p>
             </div>
             <div className="col-span-2">
               <Label>Nome do Órgão</Label>
@@ -553,6 +610,28 @@ export default function AdminOrgaosPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="col-span-2">
+              <Label>Logradouro</Label>
+              <Input
+                value={formOrgao.logradouro}
+                onChange={(e) => setFormOrgao({ ...formOrgao, logradouro: e.target.value })}
+                placeholder="Rua, Avenida, etc."
+              />
+            </div>
+            <div>
+              <Label>Número</Label>
+              <Input
+                value={formOrgao.numero}
+                onChange={(e) => setFormOrgao({ ...formOrgao, numero: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Bairro</Label>
+              <Input
+                value={formOrgao.bairro}
+                onChange={(e) => setFormOrgao({ ...formOrgao, bairro: e.target.value })}
+              />
+            </div>
             <div>
               <Label>Cidade</Label>
               <Input
@@ -566,6 +645,22 @@ export default function AdminOrgaosPage() {
                 value={formOrgao.uf}
                 onChange={(e) => setFormOrgao({ ...formOrgao, uf: e.target.value.toUpperCase() })}
                 maxLength={2}
+              />
+            </div>
+            <div>
+              <Label>CEP</Label>
+              <Input
+                value={formOrgao.cep}
+                onChange={(e) => setFormOrgao({ ...formOrgao, cep: e.target.value })}
+                placeholder="00000-000"
+              />
+            </div>
+            <div>
+              <Label>Telefone</Label>
+              <Input
+                value={formOrgao.telefone}
+                onChange={(e) => setFormOrgao({ ...formOrgao, telefone: e.target.value })}
+                placeholder="(00) 0000-0000"
               />
             </div>
             <div>
