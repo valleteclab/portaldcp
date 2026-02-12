@@ -19,7 +19,12 @@ import {
   AlertCircle,
   LayoutGrid,
   List,
-  RotateCcw
+  RotateCcw,
+  Calendar,
+  DollarSign,
+  Filter,
+  Clock,
+  Wallet,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,14 +66,34 @@ interface Contrato {
   id: string;
   numero_contrato: string;
   objeto: string;
+  tipo: string;
+  categoria: string;
   valor_inicial: number;
-  data_inicio: string;
-  data_fim: string;
+  valor_global: number;
+  saldo_total_em_valor?: number;
+  data_assinatura: string;
+  data_vigencia_inicio: string;
+  data_vigencia_fim: string;
+  // Compat: campos antigos mapeados
+  data_inicio?: string;
+  data_fim?: string;
   status: string;
+  fornecedor_razao_social?: string;
+  fornecedor_cnpj?: string;
   fornecedor?: {
     razao_social: string;
+    cpf_cnpj?: string;
   };
+  total_itens?: number;
 }
+
+const CATEGORIA_LABELS: Record<string, { label: string; cor: string }> = {
+  COMPRAS: { label: 'Compras', cor: 'bg-blue-100 text-blue-800' },
+  SERVICOS: { label: 'Serviços', cor: 'bg-purple-100 text-purple-800' },
+  OBRAS: { label: 'Obras', cor: 'bg-orange-100 text-orange-800' },
+  LOCACAO: { label: 'Locação', cor: 'bg-teal-100 text-teal-800' },
+  OUTROS: { label: 'Outros', cor: 'bg-gray-100 text-gray-800' },
+};
 
 interface ItemContrato {
   id: string;
@@ -218,6 +243,7 @@ function NovaRequisicaoForm() {
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [contratoSelecionado, setContratoSelecionado] = useState<Contrato | null>(null);
   const [buscaContrato, setBuscaContrato] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState<string>('TODOS');
   
   // Etapa 2: Itens
   const [itensContrato, setItensContrato] = useState<ItemContrato[]>([]);
@@ -428,11 +454,47 @@ function NovaRequisicaoForm() {
   };
 
   // Filtrar contratos
-  const contratosFiltrados = contratos.filter(c => 
-    c.numero_contrato.toLowerCase().includes(buscaContrato.toLowerCase()) ||
-    c.objeto?.toLowerCase().includes(buscaContrato.toLowerCase()) ||
-    c.fornecedor?.razao_social?.toLowerCase().includes(buscaContrato.toLowerCase())
-  );
+  const contratosFiltrados = contratos.filter(c => {
+    // Filtro por categoria
+    if (filtroCategoria !== 'TODOS' && c.categoria !== filtroCategoria) return false;
+    // Filtro por busca
+    if (buscaContrato) {
+      const busca = buscaContrato.toLowerCase();
+      const matchNumero = c.numero_contrato?.toLowerCase().includes(busca);
+      const matchObjeto = c.objeto?.toLowerCase().includes(busca);
+      const matchFornecedor = (c.fornecedor?.razao_social || c.fornecedor_razao_social || '').toLowerCase().includes(busca);
+      if (!matchNumero && !matchObjeto && !matchFornecedor) return false;
+    }
+    return true;
+  });
+
+  // Helper: nome do fornecedor
+  const getNomeFornecedor = (c: Contrato) => c.fornecedor?.razao_social || c.fornecedor_razao_social || 'Não informado';
+
+  // Helper: vigência formatada
+  const getVigencia = (c: Contrato) => ({
+    inicio: c.data_vigencia_inicio || c.data_inicio || '',
+    fim: c.data_vigencia_fim || c.data_fim || '',
+  });
+
+  // Helper: saldo do contrato
+  const getSaldo = (c: Contrato) => c.saldo_total_em_valor ?? c.valor_global ?? c.valor_inicial ?? 0;
+
+  // Helper: percentual consumido
+  const getPercentualConsumido = (c: Contrato) => {
+    const valorTotal = Number(c.valor_global || c.valor_inicial || 0);
+    const saldo = Number(getSaldo(c));
+    if (valorTotal <= 0) return 0;
+    return Math.max(0, Math.min(100, ((valorTotal - saldo) / valorTotal) * 100));
+  };
+
+  // Helper: dias restantes de vigência
+  const getDiasRestantes = (c: Contrato) => {
+    const fim = getVigencia(c).fim;
+    if (!fim) return null;
+    const diff = new Date(fim).getTime() - new Date().getTime();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  };
 
   // Filtrar itens
   const itensFiltrados = itensContrato.filter(i =>
@@ -447,6 +509,12 @@ function NovaRequisicaoForm() {
   const handleSelecionarContrato = (contrato: Contrato) => {
     setContratoSelecionado(contrato);
     setItensRequisicao([]); // Limpa itens ao mudar contrato
+    // Auto-preencher tipo baseado na categoria do contrato
+    if (contrato.categoria === 'SERVICOS') {
+      setTipo('SERVICO');
+    } else if (contrato.categoria === 'COMPRAS') {
+      setTipo('MATERIAL');
+    }
     setEtapa(1);
   };
 
@@ -606,7 +674,6 @@ function NovaRequisicaoForm() {
                 Escolha o contrato de onde serão solicitados os itens
               </CardDescription>
             </div>
-            {/* Toggle visualização */}
             <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
               <Button
                 variant={visualizacaoContratos === 'cards' ? 'secondary' : 'ghost'}
@@ -628,14 +695,44 @@ function NovaRequisicaoForm() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="relative mb-6">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Buscar por número, objeto ou fornecedor..."
-              value={buscaContrato}
-              onChange={(e) => setBuscaContrato(e.target.value)}
-              className="pl-10"
-            />
+          {/* Busca + Filtros */}
+          <div className="space-y-3 mb-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Buscar por número, objeto ou fornecedor..."
+                value={buscaContrato}
+                onChange={(e) => setBuscaContrato(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Filtro por Categoria */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Filter className="h-4 w-4 text-gray-400" />
+              {[
+                { key: 'TODOS', label: 'Todos' },
+                { key: 'COMPRAS', label: 'Compras' },
+                { key: 'SERVICOS', label: 'Serviços' },
+                { key: 'OBRAS', label: 'Obras' },
+                { key: 'LOCACAO', label: 'Locação' },
+              ].map(cat => (
+                <Button
+                  key={cat.key}
+                  variant={filtroCategoria === cat.key ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setFiltroCategoria(cat.key)}
+                >
+                  {cat.label}
+                  {cat.key !== 'TODOS' && (
+                    <span className="ml-1 opacity-70">
+                      ({contratos.filter(c => c.categoria === cat.key).length})
+                    </span>
+                  )}
+                </Button>
+              ))}
+            </div>
           </div>
 
           {loading ? (
@@ -649,111 +746,180 @@ function NovaRequisicaoForm() {
             </div>
           ) : visualizacaoContratos === 'cards' ? (
             // VISUALIZAÇÃO EM CARDS
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto">
-              {contratosFiltrados.map((contrato) => (
-                <Card
-                  key={contrato.id}
-                  className={`
-                    cursor-pointer transition-all hover:shadow-md
-                    ${contratoSelecionado?.id === contrato.id 
-                      ? 'ring-2 ring-blue-500 bg-blue-50' 
-                      : 'hover:bg-gray-50'
-                    }
-                  `}
-                  onClick={() => handleSelecionarContrato(contrato)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <Badge variant="outline" className="font-mono">
-                        {contrato.numero_contrato}
-                      </Badge>
-                      {contratoSelecionado?.id === contrato.id && (
-                        <CheckCircle2 className="h-5 w-5 text-blue-600" />
-                      )}
-                    </div>
-                    
-                    <p className="text-sm text-gray-700 line-clamp-2 mb-3">
-                      {contrato.objeto || 'Sem objeto definido'}
-                    </p>
-                    
-                    <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-                      <Building2 className="h-4 w-4" />
-                      <span className="truncate">
-                        {contrato.fornecedor?.razao_social || 'Fornecedor não definido'}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Vigência: {formatarData(contrato.data_inicio)} - {formatarData(contrato.data_fim)}</span>
-                    </div>
-                    
-                    <div className="mt-3 pt-3 border-t">
-                      <div className="text-sm font-medium text-blue-600">
-                        {formatarMoeda(contrato.valor_inicial)}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1">
+              {contratosFiltrados.map((contrato) => {
+                const vigencia = getVigencia(contrato);
+                const saldo = getSaldo(contrato);
+                const percentual = getPercentualConsumido(contrato);
+                const diasRestantes = getDiasRestantes(contrato);
+                const catInfo = CATEGORIA_LABELS[contrato.categoria] || CATEGORIA_LABELS.OUTROS;
+
+                return (
+                  <Card
+                    key={contrato.id}
+                    className={`
+                      cursor-pointer transition-all hover:shadow-md
+                      ${contratoSelecionado?.id === contrato.id 
+                        ? 'ring-2 ring-blue-500 bg-blue-50/50' 
+                        : 'hover:bg-gray-50'
+                      }
+                    `}
+                    onClick={() => handleSelecionarContrato(contrato)}
+                  >
+                    <CardContent className="p-4">
+                      {/* Header: Número + Categoria + Check */}
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="font-mono text-xs">
+                            {contrato.numero_contrato}
+                          </Badge>
+                          <Badge className={`${catInfo.cor} text-xs`}>
+                            {catInfo.label}
+                          </Badge>
+                        </div>
+                        {contratoSelecionado?.id === contrato.id && (
+                          <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0" />
+                        )}
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+
+                      {/* Objeto */}
+                      <p className="text-sm text-gray-700 line-clamp-2 mb-2">
+                        {contrato.objeto || 'Sem objeto definido'}
+                      </p>
+
+                      {/* Fornecedor */}
+                      <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+                        <Building2 className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate font-medium">{getNomeFornecedor(contrato)}</span>
+                      </div>
+
+                      {/* Valores: Inicial + Saldo */}
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        <div className="bg-gray-50 rounded-md p-2">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p>
+                          <p className="text-sm font-bold text-gray-800">
+                            {formatarMoeda(contrato.valor_global || contrato.valor_inicial)}
+                          </p>
+                        </div>
+                        <div className="bg-green-50 rounded-md p-2">
+                          <p className="text-[10px] text-green-600 uppercase tracking-wide">Saldo Disponível</p>
+                          <p className="text-sm font-bold text-green-700">
+                            {formatarMoeda(saldo)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Barra de consumo */}
+                      <div className="mb-3">
+                        <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                          <span>Consumido</span>
+                          <span>{percentual.toFixed(0)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full transition-all ${
+                              percentual > 90 ? 'bg-red-500' : percentual > 70 ? 'bg-yellow-500' : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${percentual}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Vigência + Dias restantes */}
+                      <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          <span>{formatarData(vigencia.inicio)} a {formatarData(vigencia.fim)}</span>
+                        </div>
+                        {diasRestantes !== null && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${
+                              diasRestantes <= 30 ? 'border-red-300 text-red-600' :
+                              diasRestantes <= 90 ? 'border-yellow-300 text-yellow-700' :
+                              'border-green-300 text-green-600'
+                            }`}
+                          >
+                            <Clock className="h-2.5 w-2.5 mr-0.5" />
+                            {diasRestantes > 0 ? `${diasRestantes}d restantes` : 'Vencido'}
+                          </Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           ) : (
             // VISUALIZAÇÃO EM LISTA (TABELA)
-            <div className="max-h-[500px] overflow-y-auto border rounded-lg">
+            <div className="max-h-[600px] overflow-y-auto border rounded-lg">
               <Table>
-                <TableHeader className="sticky top-0 bg-white">
+                <TableHeader className="sticky top-0 bg-white z-10">
                   <TableRow>
-                    <TableHead className="w-12"></TableHead>
+                    <TableHead className="w-10"></TableHead>
                     <TableHead>Número</TableHead>
-                    <TableHead>Objeto</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead className="max-w-[200px]">Objeto</TableHead>
                     <TableHead>Fornecedor</TableHead>
                     <TableHead>Vigência</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="text-right">Valor Global</TableHead>
+                    <TableHead className="text-right">Saldo</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {contratosFiltrados.map((contrato) => (
-                    <TableRow 
-                      key={contrato.id}
-                      className={`
-                        cursor-pointer
-                        ${contratoSelecionado?.id === contrato.id 
-                          ? 'bg-blue-50' 
-                          : 'hover:bg-gray-50'
-                        }
-                      `}
-                      onClick={() => handleSelecionarContrato(contrato)}
-                    >
-                      <TableCell>
-                        <input
-                          type="radio"
-                          checked={contratoSelecionado?.id === contrato.id}
-                          onChange={() => handleSelecionarContrato(contrato)}
-                          className="h-4 w-4"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-mono">
-                          {contrato.numero_contrato}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[250px]">
-                        <span className="line-clamp-2 text-sm">
-                          {contrato.objeto || '-'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="max-w-[150px]">
-                        <span className="truncate text-sm">
-                          {contrato.fornecedor?.razao_social || '-'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-gray-500 whitespace-nowrap">
-                        {formatarData(contrato.data_inicio)} - {formatarData(contrato.data_fim)}
-                      </TableCell>
-                      <TableCell className="text-right font-medium text-blue-600">
-                        {formatarMoeda(contrato.valor_inicial)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {contratosFiltrados.map((contrato) => {
+                    const vigencia = getVigencia(contrato);
+                    const saldo = getSaldo(contrato);
+                    const diasRestantes = getDiasRestantes(contrato);
+                    const catInfo = CATEGORIA_LABELS[contrato.categoria] || CATEGORIA_LABELS.OUTROS;
+
+                    return (
+                      <TableRow
+                        key={contrato.id}
+                        className={`cursor-pointer ${
+                          contratoSelecionado?.id === contrato.id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                        }`}
+                        onClick={() => handleSelecionarContrato(contrato)}
+                      >
+                        <TableCell>
+                          <input
+                            type="radio"
+                            checked={contratoSelecionado?.id === contrato.id}
+                            onChange={() => handleSelecionarContrato(contrato)}
+                            className="h-4 w-4"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="font-mono text-xs">
+                            {contrato.numero_contrato}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`${catInfo.cor} text-xs`}>{catInfo.label}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px]">
+                          <span className="line-clamp-1 text-sm">{contrato.objeto || '-'}</span>
+                        </TableCell>
+                        <TableCell className="max-w-[180px]">
+                          <span className="truncate text-sm block">{getNomeFornecedor(contrato)}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-500 whitespace-nowrap">
+                          <div>{formatarData(vigencia.inicio)} - {formatarData(vigencia.fim)}</div>
+                          {diasRestantes !== null && diasRestantes <= 90 && (
+                            <span className={`text-[10px] ${diasRestantes <= 30 ? 'text-red-500' : 'text-yellow-600'}`}>
+                              {diasRestantes > 0 ? `${diasRestantes}d restantes` : 'Vencido'}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-gray-700 whitespace-nowrap">
+                          {formatarMoeda(contrato.valor_global || contrato.valor_inicial)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-green-600 whitespace-nowrap">
+                          {formatarMoeda(saldo)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -768,23 +934,66 @@ function NovaRequisicaoForm() {
     </div>
   );
 
-  const renderEtapa1Itens = () => (
+  const renderEtapa1Itens = () => {
+    const vigenciaContrato = contratoSelecionado ? getVigencia(contratoSelecionado) : { inicio: '', fim: '' };
+    const saldoContrato = contratoSelecionado ? getSaldo(contratoSelecionado) : 0;
+    const diasRestantesContrato = contratoSelecionado ? getDiasRestantes(contratoSelecionado) : null;
+
+    return (
     <div className="space-y-6">
-      {/* Card do contrato selecionado */}
-      <Card className="bg-blue-50 border-blue-200">
+      {/* Card do contrato selecionado - expandido */}
+      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
         <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Badge variant="outline" className="font-mono mb-1">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline" className="font-mono text-xs">
                 {contratoSelecionado?.numero_contrato}
               </Badge>
-              <p className="text-sm text-gray-600">
-                {contratoSelecionado?.fornecedor?.razao_social}
-              </p>
+              {contratoSelecionado?.categoria && (
+                <Badge className={`${(CATEGORIA_LABELS[contratoSelecionado.categoria] || CATEGORIA_LABELS.OUTROS).cor} text-xs`}>
+                  {(CATEGORIA_LABELS[contratoSelecionado.categoria] || CATEGORIA_LABELS.OUTROS).label}
+                </Badge>
+              )}
             </div>
             <Button variant="outline" size="sm" onClick={() => setEtapa(0)}>
               Trocar Contrato
             </Button>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+            <Building2 className="h-4 w-4 text-gray-500 shrink-0" />
+            <span className="font-medium">{contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : '-'}</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white/70 rounded-lg p-2.5">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p>
+              <p className="text-sm font-bold text-gray-800">
+                {formatarMoeda(contratoSelecionado?.valor_global || contratoSelecionado?.valor_inicial || 0)}
+              </p>
+            </div>
+            <div className="bg-white/70 rounded-lg p-2.5">
+              <p className="text-[10px] text-green-600 uppercase tracking-wide">Saldo Disponível</p>
+              <p className="text-sm font-bold text-green-700">{formatarMoeda(saldoContrato)}</p>
+            </div>
+            <div className="bg-white/70 rounded-lg p-2.5">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Vigência</p>
+              <p className="text-xs font-medium text-gray-700">
+                {formatarData(vigenciaContrato.inicio)} a {formatarData(vigenciaContrato.fim)}
+              </p>
+            </div>
+            <div className="bg-white/70 rounded-lg p-2.5">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Prazo</p>
+              <p className={`text-sm font-bold ${
+                diasRestantesContrato !== null && diasRestantesContrato <= 30 ? 'text-red-600' :
+                diasRestantesContrato !== null && diasRestantesContrato <= 90 ? 'text-yellow-600' :
+                'text-gray-700'
+              }`}>
+                {diasRestantesContrato !== null
+                  ? diasRestantesContrato > 0 ? `${diasRestantesContrato} dias` : 'Vencido'
+                  : '-'}
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -918,6 +1127,7 @@ function NovaRequisicaoForm() {
       </Card>
     </div>
   );
+  };
 
   const renderEtapa2Dados = () => (
     <div className="space-y-6">
@@ -1065,7 +1275,15 @@ function NovaRequisicaoForm() {
               </div>
               <div>
                 <span className="text-gray-500">Fornecedor:</span>{' '}
-                <strong>{contratoSelecionado?.fornecedor?.razao_social}</strong>
+                <strong>{contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : '-'}</strong>
+              </div>
+              <div>
+                <span className="text-gray-500">Valor Global:</span>{' '}
+                <strong>{formatarMoeda(contratoSelecionado?.valor_global || contratoSelecionado?.valor_inicial || 0)}</strong>
+              </div>
+              <div>
+                <span className="text-gray-500">Saldo Disponível:</span>{' '}
+                <strong className="text-green-600">{contratoSelecionado ? formatarMoeda(getSaldo(contratoSelecionado)) : '-'}</strong>
               </div>
             </div>
           </div>
@@ -1184,7 +1402,7 @@ function NovaRequisicaoForm() {
                   <p className="text-sm">
                     <strong>Contrato:</strong>{' '}
                     {contrato 
-                      ? `${contrato.numero_contrato} - ${contrato.fornecedor?.razao_social || 'Fornecedor não definido'}`
+                      ? `${contrato.numero_contrato} - ${getNomeFornecedor(contrato)}`
                       : 'Carregando...'}
                   </p>
                 );
