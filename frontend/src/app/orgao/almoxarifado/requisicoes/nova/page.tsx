@@ -897,11 +897,11 @@ function NovaRequisicaoForm() {
                         <TableCell>
                           <Badge className={`${catInfo.cor} text-xs`}>{catInfo.label}</Badge>
                         </TableCell>
-                        <TableCell className="max-w-[200px]">
-                          <span className="line-clamp-1 text-sm">{contrato.objeto || '-'}</span>
+                        <TableCell>
+                          <span className="line-clamp-2 text-sm">{contrato.objeto || '-'}</span>
                         </TableCell>
-                        <TableCell className="max-w-[180px]">
-                          <span className="truncate text-sm block">{getNomeFornecedor(contrato)}</span>
+                        <TableCell>
+                          <span className="text-sm">{getNomeFornecedor(contrato)}</span>
                         </TableCell>
                         <TableCell className="text-xs text-gray-500 whitespace-nowrap">
                           <div>{formatarData(vigencia.inicio)} - {formatarData(vigencia.fim)}</div>
@@ -1377,7 +1377,7 @@ function NovaRequisicaoForm() {
   );
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6">
       {/* Modal de Recuperação de Rascunho */}
       <Dialog open={showRecuperarRascunho} onOpenChange={setShowRecuperarRascunho}>
         <DialogContent>
