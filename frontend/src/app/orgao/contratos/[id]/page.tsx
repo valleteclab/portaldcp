@@ -367,6 +367,15 @@ export default function DetalheContratoOrgaoPage() {
       })
       if (res.ok) {
         const result = await res.json()
+        // Atualizar contrato com dados do PNCP
+        await authFetch(`${API_URL}/api/contratos/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            enviado_pncp: true,
+            data_envio_pncp: new Date().toISOString(),
+            numero_controle_pncp: result.numeroControlePNCP || null,
+          }),
+        })
         alert(`Contrato enviado ao PNCP com sucesso!\nNúmero de Controle: ${result.numeroControlePNCP || 'N/A'}`)
         carregarDados()
       } else {

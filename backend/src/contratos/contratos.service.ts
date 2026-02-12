@@ -192,16 +192,28 @@ export class ContratosService {
 
   async atualizar(id: string, dados: Partial<Contrato>, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
+    const eraEnviadoPncp = contrato.enviado_pncp;
     Object.assign(contrato, dados);
     const salvo = await this.contratoRepository.save(contrato);
 
-    await this.registrarHistorico({
-      contrato_id: id,
-      tipo_acao: TipoAcaoContrato.EDITADO,
-      descricao: 'Contrato editado',
-      usuario_id: usuarioId || null,
-      usuario_nome: usuarioNome || null,
-    });
+    // Detectar envio ao PNCP
+    if (!eraEnviadoPncp && dados.enviado_pncp === true) {
+      await this.registrarHistorico({
+        contrato_id: id,
+        tipo_acao: TipoAcaoContrato.ENVIADO_PNCP,
+        descricao: `Contrato enviado ao PNCP${dados.numero_controle_pncp ? ' - Controle: ' + dados.numero_controle_pncp : ''}`,
+        usuario_id: usuarioId || null,
+        usuario_nome: usuarioNome || null,
+      });
+    } else {
+      await this.registrarHistorico({
+        contrato_id: id,
+        tipo_acao: TipoAcaoContrato.EDITADO,
+        descricao: 'Contrato editado',
+        usuario_id: usuarioId || null,
+        usuario_nome: usuarioNome || null,
+      });
+    }
 
     return salvo;
   }
@@ -646,6 +658,14 @@ export class ContratosService {
         const contratoSalvo = await this.contratoRepository.save(contrato) as any as Contrato;
         resultado.contratos_criados.push(contratoSalvo);
         resultado.importados++;
+
+        await this.registrarHistorico({
+          contrato_id: contratoSalvo.id,
+          tipo_acao: TipoAcaoContrato.CRIADO,
+          descricao: `Contrato ${numeroContrato} importado de sistema externo`,
+          status_novo: contratoSalvo.status,
+          usuario_nome: 'Importação',
+        });
 
         this.logger.log(`Contrato importado: ${numeroContrato} - ${favorecido}`);
       } catch (error) {
