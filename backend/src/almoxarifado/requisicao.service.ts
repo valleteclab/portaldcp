@@ -5,6 +5,7 @@ import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } fr
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
+import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
 import { ItemContratoService } from './item-contrato.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -35,6 +36,8 @@ export class RequisicaoService {
     private readonly ordemFornecimentoRepository: Repository<OrdemFornecimento>,
     @InjectRepository(Recebimento)
     private readonly recebimentoRepository: Repository<Recebimento>,
+    @InjectRepository(Contrato)
+    private readonly contratoRepository: Repository<Contrato>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -67,6 +70,22 @@ export class RequisicaoService {
 
     const sequencial = ultimaRequisicao ? ultimaRequisicao.sequencial + 1 : 1;
     const numero = `REQ-${String(sequencial).padStart(4, '0')}/${ano}`;
+
+    // =========================================================================
+    // VALIDA STATUS DO CONTRATO - Só permite requisições em contratos VIGENTES
+    // =========================================================================
+    if (dto.contrato_id) {
+      const contrato = await this.contratoRepository.findOne({ where: { id: dto.contrato_id } });
+      if (!contrato) {
+        throw new BadRequestException('Contrato não encontrado');
+      }
+      if (contrato.status !== StatusContrato.VIGENTE) {
+        throw new BadRequestException(
+          `Não é possível criar requisições para este contrato. ` +
+          `O contrato precisa estar VIGENTE (liberado para pedidos). Status atual: ${contrato.status}`
+        );
+      }
+    }
 
     // =========================================================================
     // NOVA LÓGICA: Saldo é reservado no momento da CRIAÇÃO do pedido

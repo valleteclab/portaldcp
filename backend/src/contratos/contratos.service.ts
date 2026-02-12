@@ -188,6 +188,51 @@ export class ContratosService {
     return this.contratoRepository.save(contrato);
   }
 
+  async enviarParaLiberacao(id: string): Promise<Contrato> {
+    const contrato = await this.findOne(id);
+
+    if (contrato.status !== StatusContrato.RASCUNHO) {
+      throw new BadRequestException(
+        `Apenas contratos em RASCUNHO podem ser enviados para liberação. Status atual: ${contrato.status}`
+      );
+    }
+
+    contrato.status = StatusContrato.AGUARDANDO_LIBERACAO;
+    return this.contratoRepository.save(contrato);
+  }
+
+  async liberarContrato(id: string, usuarioId: string, usuarioNome: string): Promise<Contrato> {
+    const contrato = await this.findOne(id);
+
+    if (contrato.status !== StatusContrato.AGUARDANDO_LIBERACAO) {
+      throw new BadRequestException(
+        `Apenas contratos AGUARDANDO LIBERAÇÃO podem ser liberados. Status atual: ${contrato.status}`
+      );
+    }
+
+    contrato.status = StatusContrato.VIGENTE;
+    contrato.liberado_por_id = usuarioId;
+    contrato.liberado_por_nome = usuarioNome;
+    contrato.liberado_em = new Date();
+    return this.contratoRepository.save(contrato);
+  }
+
+  async rejeitarLiberacao(id: string, motivo?: string): Promise<Contrato> {
+    const contrato = await this.findOne(id);
+
+    if (contrato.status !== StatusContrato.AGUARDANDO_LIBERACAO) {
+      throw new BadRequestException(
+        `Apenas contratos AGUARDANDO LIBERAÇÃO podem ser rejeitados. Status atual: ${contrato.status}`
+      );
+    }
+
+    contrato.status = StatusContrato.RASCUNHO;
+    if (motivo) {
+      contrato.observacoes = `[Liberação rejeitada] ${motivo}${contrato.observacoes ? '\n\n' + contrato.observacoes : ''}`;
+    }
+    return this.contratoRepository.save(contrato);
+  }
+
   // ============ TERMOS ADITIVOS ============
 
   async criarTermoAditivo(contratoId: string, dados: Partial<TermoAditivo>): Promise<TermoAditivo> {

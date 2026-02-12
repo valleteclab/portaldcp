@@ -85,6 +85,13 @@ export class Usuario {
   @Column({ default: false })
   pode_cancelar_estornar: boolean;
 
+  /**
+   * Indica se o usuário pode liberar contratos para pedidos/requisições.
+   * Contratos precisam ser liberados antes de permitir requisições.
+   */
+  @Column({ default: false })
+  pode_liberar_contratos: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

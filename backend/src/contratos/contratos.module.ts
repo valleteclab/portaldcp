@@ -8,10 +8,11 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Contrato, TermoAditivo, Licitacao, ItemLicitacao, Fornecedor, ItemContrato])
+    TypeOrmModule.forFeature([Contrato, TermoAditivo, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario])
   ],
   controllers: [ContratosController],
   providers: [ContratosService],

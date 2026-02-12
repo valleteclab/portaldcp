@@ -28,7 +28,8 @@ import {
   Warehouse,
   Upload,
   X,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useModulosOrgao } from '@/hooks/useModulosOrgao'
@@ -73,6 +74,8 @@ interface Contrato {
 import { API_URL, authFetch } from '@/lib/api'
 
 const STATUS_CONTRATO = {
+  'RASCUNHO': { label: 'Rascunho', cor: 'bg-slate-100 text-slate-800', icon: FileText },
+  'AGUARDANDO_LIBERACAO': { label: 'Aguardando Liberação', cor: 'bg-amber-100 text-amber-800', icon: Lock },
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800', icon: Clock },
   'RESCINDIDO': { label: 'Rescindido', cor: 'bg-red-100 text-red-800', icon: AlertTriangle },

@@ -14,6 +14,8 @@ export enum TipoContrato {
 }
 
 export enum StatusContrato {
+  RASCUNHO = 'RASCUNHO',
+  AGUARDANDO_LIBERACAO = 'AGUARDANDO_LIBERACAO',
   VIGENTE = 'VIGENTE',
   ENCERRADO = 'ENCERRADO',
   RESCINDIDO = 'RESCINDIDO',
@@ -92,7 +94,7 @@ export class Contrato {
   @Column({
     type: 'enum',
     enum: StatusContrato,
-    default: StatusContrato.VIGENTE
+    default: StatusContrato.RASCUNHO
   })
   status: StatusContrato;
 
@@ -208,6 +210,16 @@ export class Contrato {
 
   @Column({ type: 'timestamp', nullable: true })
   data_envio_pncp: Date;
+
+  // Liberação para pedidos
+  @Column({ nullable: true })
+  liberado_por_id: string;
+
+  @Column({ nullable: true })
+  liberado_por_nome: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  liberado_em: Date;
 
   // Observações
   @Column({ type: 'text', nullable: true })

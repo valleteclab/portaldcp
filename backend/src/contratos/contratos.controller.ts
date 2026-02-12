@@ -10,10 +10,14 @@ import {
   Query,
   Req,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
@@ -22,7 +26,11 @@ import { JwtPayload, UserType } from '../auth/auth.service';
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
 export class ContratosController {
-  constructor(private readonly contratosService: ContratosService) {}
+  constructor(
+    private readonly contratosService: ContratosService,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
+  ) {}
 
   // ============ CRUD CONTRATOS ============
 
@@ -131,6 +139,60 @@ export class ContratosController {
     const contrato = await this.contratosService.findOne(id);
     this.validarPropriedade(request.user, contrato.orgao_id);
     return this.contratosService.alterarStatus(id, status);
+  }
+
+  // ============ LIBERAÇÃO DE CONTRATOS ============
+
+  @Post(':id/enviar-liberacao')
+  async enviarParaLiberacao(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.enviarParaLiberacao(id);
+  }
+
+  @Post(':id/liberar')
+  async liberarContrato(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+
+    // Verifica permissão: órgão (login direto) pode liberar, ou usuário com permissão
+    if (request.user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+      if (!usuario?.pode_liberar_contratos) {
+        throw new ForbiddenException('Você não tem permissão para liberar contratos');
+      }
+      return this.contratosService.liberarContrato(id, usuario.id, usuario.nome);
+    }
+
+    // Órgão ou Admin podem liberar diretamente
+    const nome = request.user.type === UserType.ADMIN ? 'Administrador' : 'Órgão';
+    return this.contratosService.liberarContrato(id, request.user.sub, nome);
+  }
+
+  @Post(':id/rejeitar-liberacao')
+  async rejeitarLiberacao(
+    @Param('id') id: string,
+    @Body('motivo') motivo: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+
+    // Mesma verificação de permissão
+    if (request.user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+      if (!usuario?.pode_liberar_contratos) {
+        throw new ForbiddenException('Você não tem permissão para rejeitar liberação de contratos');
+      }
+    }
+
+    return this.contratosService.rejeitarLiberacao(id, motivo);
   }
 
   // ============ TERMOS ADITIVOS ============

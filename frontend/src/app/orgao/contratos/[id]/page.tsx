@@ -45,7 +45,9 @@ import {
   Upload,
   Search,
   FileSpreadsheet,
-  DownloadCloud
+  DownloadCloud,
+  Lock,
+  Unlock
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -123,12 +125,16 @@ interface Contrato {
   observacoes: string
   orgao: { id: string; nome: string; cnpj: string; cidade: string; uf: string }
   licitacao?: { id: string; numero_processo: string; modalidade: string }
+  liberado_por_nome?: string
+  liberado_em?: string
   saldo_total_em_valor?: number
   itens?: ItemContrato[]
   total_itens?: number
 }
 
 const STATUS_CONTRATO = {
+  'RASCUNHO': { label: 'Rascunho', cor: 'bg-slate-100 text-slate-800', icon: FileText },
+  'AGUARDANDO_LIBERACAO': { label: 'Aguardando Liberação', cor: 'bg-amber-100 text-amber-800', icon: Lock },
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800', icon: Clock },
   'RESCINDIDO': { label: 'Rescindido', cor: 'bg-red-100 text-red-800', icon: AlertCircle },
@@ -337,6 +343,67 @@ export default function DetalheContratoOrgaoPage() {
     } catch (error) {
       console.error('Erro ao enviar ao PNCP:', error)
       alert('Erro ao enviar contrato ao PNCP')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleEnviarParaLiberacao = async () => {
+    if (!confirm('Deseja enviar este contrato para liberação? Após enviar, ele ficará aguardando aprovação de um responsável.')) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/enviar-liberacao`, { method: 'POST' })
+      if (res.ok) {
+        carregarDados()
+      } else {
+        const error = await res.json().catch(() => ({}))
+        alert(error.message || 'Erro ao enviar para liberação')
+      }
+    } catch (error) {
+      console.error('Erro:', error)
+      alert('Erro ao enviar para liberação')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleLiberarContrato = async () => {
+    if (!confirm('Deseja LIBERAR este contrato para pedidos/requisições? Após liberado, o contrato ficará VIGENTE e poderá receber requisições.')) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/liberar`, { method: 'POST' })
+      if (res.ok) {
+        carregarDados()
+      } else {
+        const error = await res.json().catch(() => ({}))
+        alert(error.message || 'Erro ao liberar contrato')
+      }
+    } catch (error) {
+      console.error('Erro:', error)
+      alert('Erro ao liberar contrato')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleRejeitarLiberacao = async () => {
+    const motivo = prompt('Informe o motivo da rejeição (opcional):')
+    if (motivo === null) return // cancelou o prompt
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/rejeitar-liberacao`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo }),
+      })
+      if (res.ok) {
+        carregarDados()
+      } else {
+        const error = await res.json().catch(() => ({}))
+        alert(error.message || 'Erro ao rejeitar liberação')
+      }
+    } catch (error) {
+      console.error('Erro:', error)
+      alert('Erro ao rejeitar liberação')
     } finally {
       setLoadingAction(false)
     }
@@ -600,13 +667,34 @@ export default function DetalheContratoOrgaoPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setNovoStatus(contrato.status); setModalStatus(true) }}>
-            <Shield className="w-4 h-4 mr-2" />Alterar Status
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href={`/orgao/contratos/${id}/editar`}><Edit className="w-4 h-4 mr-2" />Editar</Link>
-          </Button>
-          {!contrato.enviado_pncp && (
+          {contrato.status === 'RASCUNHO' && (
+            <Button onClick={handleEnviarParaLiberacao} disabled={loadingAction} className="bg-amber-600 hover:bg-amber-700">
+              {loadingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+              Enviar para Liberação
+            </Button>
+          )}
+          {contrato.status === 'AGUARDANDO_LIBERACAO' && (
+            <>
+              <Button onClick={handleLiberarContrato} disabled={loadingAction} className="bg-green-600 hover:bg-green-700">
+                {loadingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Unlock className="w-4 h-4 mr-2" />}
+                Liberar Contrato
+              </Button>
+              <Button variant="outline" onClick={handleRejeitarLiberacao} disabled={loadingAction} className="text-red-600 border-red-300 hover:bg-red-50">
+                Rejeitar
+              </Button>
+            </>
+          )}
+          {contrato.status === 'VIGENTE' && (
+            <Button variant="outline" onClick={() => { setNovoStatus(contrato.status); setModalStatus(true) }}>
+              <Shield className="w-4 h-4 mr-2" />Alterar Status
+            </Button>
+          )}
+          {(contrato.status === 'RASCUNHO' || contrato.status === 'VIGENTE') && (
+            <Button variant="outline" asChild>
+              <Link href={`/orgao/contratos/${id}/editar`}><Edit className="w-4 h-4 mr-2" />Editar</Link>
+            </Button>
+          )}
+          {contrato.status === 'VIGENTE' && !contrato.enviado_pncp && (
             <Button onClick={handleEnviarPncp} disabled={loadingAction}>
               {loadingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
               Enviar ao PNCP
@@ -623,6 +711,46 @@ export default function DetalheContratoOrgaoPage() {
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
         </TabsList>
+
+        {contrato.status === 'RASCUNHO' && (
+          <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+            <FileText className="w-5 h-5 text-slate-500 shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium text-slate-700">Contrato em Rascunho</p>
+              <p className="text-sm text-slate-500">Este contrato ainda não foi liberado para pedidos. Revise os dados e envie para liberação quando estiver pronto.</p>
+            </div>
+            <Button onClick={handleEnviarParaLiberacao} disabled={loadingAction} size="sm" className="bg-amber-600 hover:bg-amber-700 shrink-0">
+              <Send className="w-4 h-4 mr-1" /> Enviar para Liberação
+            </Button>
+          </div>
+        )}
+
+        {contrato.status === 'AGUARDANDO_LIBERACAO' && (
+          <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <Lock className="w-5 h-5 text-amber-600 shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium text-amber-700">Aguardando Liberação</p>
+              <p className="text-sm text-amber-600">Este contrato está aguardando liberação de um responsável para permitir pedidos/requisições.</p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button onClick={handleLiberarContrato} disabled={loadingAction} size="sm" className="bg-green-600 hover:bg-green-700">
+                <Unlock className="w-4 h-4 mr-1" /> Liberar
+              </Button>
+              <Button variant="outline" onClick={handleRejeitarLiberacao} disabled={loadingAction} size="sm" className="text-red-600 border-red-300 hover:bg-red-50">
+                Rejeitar
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {contrato.status === 'VIGENTE' && contrato.liberado_por_nome && (
+          <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <Unlock className="w-4 h-4 text-green-600 shrink-0" />
+            <p className="text-sm text-green-700">
+              Liberado por <strong>{contrato.liberado_por_nome}</strong> em {contrato.liberado_em ? formatarData(contrato.liberado_em) : '-'}
+            </p>
+          </div>
+        )}
 
         <TabsContent value="detalhes" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
