@@ -132,6 +132,36 @@ interface Contrato {
   total_itens?: number
 }
 
+interface HistoricoContrato {
+  id: string
+  contrato_id: string
+  tipo_acao: string
+  descricao: string
+  detalhes?: string
+  status_anterior?: string
+  status_novo?: string
+  usuario_id?: string
+  usuario_nome?: string
+  created_at: string
+}
+
+const TIPO_ACAO_LABELS: Record<string, { label: string, cor: string, icon: string }> = {
+  'CRIADO': { label: 'Criação', cor: 'bg-blue-100 text-blue-800', icon: '📄' },
+  'EDITADO': { label: 'Edição', cor: 'bg-gray-100 text-gray-800', icon: '✏️' },
+  'ENVIADO_LIBERACAO': { label: 'Enviado para Liberação', cor: 'bg-amber-100 text-amber-800', icon: '📤' },
+  'LIBERADO': { label: 'Liberado', cor: 'bg-green-100 text-green-800', icon: '✅' },
+  'LIBERACAO_REJEITADA': { label: 'Liberação Rejeitada', cor: 'bg-red-100 text-red-800', icon: '❌' },
+  'STATUS_ALTERADO': { label: 'Status Alterado', cor: 'bg-purple-100 text-purple-800', icon: '🔄' },
+  'TERMO_ADITIVO_CRIADO': { label: 'Termo Aditivo', cor: 'bg-indigo-100 text-indigo-800', icon: '📋' },
+  'REQUISICAO_CRIADA': { label: 'Requisição', cor: 'bg-cyan-100 text-cyan-800', icon: '📦' },
+  'ENVIADO_PNCP': { label: 'Enviado ao PNCP', cor: 'bg-teal-100 text-teal-800', icon: '🌐' },
+  'ITEM_ADICIONADO': { label: 'Item Adicionado', cor: 'bg-emerald-100 text-emerald-800', icon: '➕' },
+  'ITEM_REMOVIDO': { label: 'Item Removido', cor: 'bg-orange-100 text-orange-800', icon: '➖' },
+  'ITEM_ALTERADO': { label: 'Item Alterado', cor: 'bg-yellow-100 text-yellow-800', icon: '🔧' },
+  'DOCUMENTO_ANEXADO': { label: 'Documento', cor: 'bg-sky-100 text-sky-800', icon: '📎' },
+  'OBSERVACAO': { label: 'Observação', cor: 'bg-slate-100 text-slate-800', icon: '💬' },
+}
+
 const STATUS_CONTRATO = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-slate-100 text-slate-800', icon: FileText },
   'AGUARDANDO_LIBERACAO': { label: 'Aguardando Liberação', cor: 'bg-amber-100 text-amber-800', icon: Lock },
@@ -159,6 +189,7 @@ export default function DetalheContratoOrgaoPage() {
 
   const [contrato, setContrato] = useState<Contrato | null>(null)
   const [termos, setTermos] = useState<TermoAditivo[]>([])
+  const [historico, setHistorico] = useState<HistoricoContrato[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingAction, setLoadingAction] = useState(false)
   
@@ -223,12 +254,14 @@ export default function DetalheContratoOrgaoPage() {
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const [contratoRes, termosRes] = await Promise.all([
+      const [contratoRes, termosRes, historicoRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/${id}`),
-        authFetch(`${API_URL}/api/contratos/${id}/termos`)
+        authFetch(`${API_URL}/api/contratos/${id}/termos`),
+        authFetch(`${API_URL}/api/contratos/${id}/historico`)
       ])
       if (contratoRes.ok) setContrato(await contratoRes.json())
       if (termosRes.ok) setTermos(await termosRes.json())
+      if (historicoRes.ok) setHistorico(await historicoRes.json())
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -1140,11 +1173,70 @@ export default function DetalheContratoOrgaoPage() {
         </TabsContent>
 
         <TabsContent value="historico" className="space-y-6">
-          <h3 className="text-lg font-semibold">Histórico de Alterações</h3>
           <Card>
-            <CardContent className="text-center py-12">
-              <History className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500">Histórico de alterações em desenvolvimento.</p>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Histórico do Contrato
+              </CardTitle>
+              <CardDescription>
+                Todas as ações realizadas neste contrato
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {historico.length === 0 ? (
+                <div className="text-center py-12">
+                  <History className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+                  <p className="text-gray-500">Nenhum registro no histórico.</p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="absolute left-6 top-0 bottom-0 w-px bg-gray-200" />
+                  <div className="space-y-6">
+                    {historico.map((item, index) => {
+                      const acaoInfo = TIPO_ACAO_LABELS[item.tipo_acao] || { label: item.tipo_acao, cor: 'bg-gray-100 text-gray-800', icon: '📌' }
+                      const dataHora = new Date(item.created_at)
+                      const dataFormatada = dataHora.toLocaleDateString('pt-BR')
+                      const horaFormatada = dataHora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+                      return (
+                        <div key={item.id} className="relative flex gap-4 pl-2">
+                          <div className="relative z-10 flex items-center justify-center w-9 h-9 rounded-full bg-white border-2 border-gray-200 text-lg shrink-0">
+                            {acaoInfo.icon}
+                          </div>
+                          <div className="flex-1 pb-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Badge className={acaoInfo.cor}>{acaoInfo.label}</Badge>
+                                  {item.status_anterior && item.status_novo && (
+                                    <span className="text-xs text-gray-500">
+                                      {STATUS_CONTRATO[item.status_anterior as keyof typeof STATUS_CONTRATO]?.label || item.status_anterior}
+                                      {' → '}
+                                      {STATUS_CONTRATO[item.status_novo as keyof typeof STATUS_CONTRATO]?.label || item.status_novo}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-700 mt-1">{item.descricao}</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-xs text-gray-500">{dataFormatada}</p>
+                                <p className="text-xs text-gray-400">{horaFormatada}</p>
+                              </div>
+                            </div>
+                            {item.usuario_nome && (
+                              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                {item.usuario_nome}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

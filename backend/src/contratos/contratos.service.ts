@@ -7,6 +7,7 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { Fornecedor, TipoPessoa } from '../fornecedores/entities/fornecedor.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
+import { HistoricoContrato, TipoAcaoContrato } from './entities/historico-contrato.entity';
 
 @Injectable()
 export class ContratosService {
@@ -25,6 +26,8 @@ export class ContratosService {
     private fornecedorRepository: Repository<Fornecedor>,
     @InjectRepository(ItemContrato)
     private itemContratoRepository: Repository<ItemContrato>,
+    @InjectRepository(HistoricoContrato)
+    private historicoContratoRepository: Repository<HistoricoContrato>,
   ) {}
 
   // ============ CONTRATOS ============
@@ -48,7 +51,18 @@ export class ContratosService {
       valor_global: dados.valor_inicial
     });
 
-    return this.contratoRepository.save(contrato);
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: salvo.id,
+      tipo_acao: TipoAcaoContrato.CRIADO,
+      descricao: `Contrato ${numeroContrato} criado`,
+      status_novo: salvo.status,
+      usuario_id: dados.usuario_cadastro_id || null,
+      usuario_nome: dados.usuario_cadastro_nome || null,
+    });
+
+    return salvo;
   }
 
   async criarAPartirDaLicitacao(licitacaoId: string, dados: Partial<Contrato>): Promise<Contrato> {
@@ -176,19 +190,42 @@ export class ContratosService {
     return contrato;
   }
 
-  async atualizar(id: string, dados: Partial<Contrato>): Promise<Contrato> {
+  async atualizar(id: string, dados: Partial<Contrato>, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
     Object.assign(contrato, dados);
-    return this.contratoRepository.save(contrato);
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: id,
+      tipo_acao: TipoAcaoContrato.EDITADO,
+      descricao: 'Contrato editado',
+      usuario_id: usuarioId || null,
+      usuario_nome: usuarioNome || null,
+    });
+
+    return salvo;
   }
 
-  async alterarStatus(id: string, status: StatusContrato): Promise<Contrato> {
+  async alterarStatus(id: string, status: StatusContrato, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
+    const statusAnterior = contrato.status;
     contrato.status = status;
-    return this.contratoRepository.save(contrato);
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: id,
+      tipo_acao: TipoAcaoContrato.STATUS_ALTERADO,
+      descricao: `Status alterado de ${statusAnterior} para ${status}`,
+      status_anterior: statusAnterior,
+      status_novo: status,
+      usuario_id: usuarioId || null,
+      usuario_nome: usuarioNome || null,
+    });
+
+    return salvo;
   }
 
-  async enviarParaLiberacao(id: string): Promise<Contrato> {
+  async enviarParaLiberacao(id: string, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
 
     if (contrato.status !== StatusContrato.RASCUNHO) {
@@ -198,7 +235,19 @@ export class ContratosService {
     }
 
     contrato.status = StatusContrato.AGUARDANDO_LIBERACAO;
-    return this.contratoRepository.save(contrato);
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: id,
+      tipo_acao: TipoAcaoContrato.ENVIADO_LIBERACAO,
+      descricao: 'Contrato enviado para liberação',
+      status_anterior: StatusContrato.RASCUNHO,
+      status_novo: StatusContrato.AGUARDANDO_LIBERACAO,
+      usuario_id: usuarioId || null,
+      usuario_nome: usuarioNome || null,
+    });
+
+    return salvo;
   }
 
   async liberarContrato(id: string, usuarioId: string, usuarioNome: string): Promise<Contrato> {
@@ -214,10 +263,22 @@ export class ContratosService {
     contrato.liberado_por_id = usuarioId;
     contrato.liberado_por_nome = usuarioNome;
     contrato.liberado_em = new Date();
-    return this.contratoRepository.save(contrato);
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: id,
+      tipo_acao: TipoAcaoContrato.LIBERADO,
+      descricao: `Contrato liberado por ${usuarioNome}`,
+      status_anterior: StatusContrato.AGUARDANDO_LIBERACAO,
+      status_novo: StatusContrato.VIGENTE,
+      usuario_id: usuarioId,
+      usuario_nome: usuarioNome,
+    });
+
+    return salvo;
   }
 
-  async rejeitarLiberacao(id: string, motivo?: string): Promise<Contrato> {
+  async rejeitarLiberacao(id: string, motivo?: string, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
 
     if (contrato.status !== StatusContrato.AGUARDANDO_LIBERACAO) {
@@ -230,7 +291,19 @@ export class ContratosService {
     if (motivo) {
       contrato.observacoes = `[Liberação rejeitada] ${motivo}${contrato.observacoes ? '\n\n' + contrato.observacoes : ''}`;
     }
-    return this.contratoRepository.save(contrato);
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: id,
+      tipo_acao: TipoAcaoContrato.LIBERACAO_REJEITADA,
+      descricao: `Liberação rejeitada${motivo ? ': ' + motivo : ''}`,
+      status_anterior: StatusContrato.AGUARDANDO_LIBERACAO,
+      status_novo: StatusContrato.RASCUNHO,
+      usuario_id: usuarioId || null,
+      usuario_nome: usuarioNome || null,
+    });
+
+    return salvo;
   }
 
   // ============ TERMOS ADITIVOS ============
@@ -258,6 +331,13 @@ export class ContratosService {
 
     // Atualizar valores do contrato
     await this.atualizarValoresContrato(contrato, termoSalvo);
+
+    await this.registrarHistorico({
+      contrato_id: contratoId,
+      tipo_acao: TipoAcaoContrato.TERMO_ADITIVO_CRIADO,
+      descricao: `${numeroTermo} criado - ${dados.objeto || ''}`.trim(),
+      detalhes: JSON.stringify({ termo_id: termoSalvo.id, tipo: dados.tipo }),
+    });
 
     return termoSalvo;
   }
@@ -750,10 +830,33 @@ export class ContratosService {
 
       this.logger.log(`Contrato ${contrato.numero_contrato} gerado automaticamente para licitação ${licitacaoId}`);
 
+      // Registrar no histórico
+      await this.registrarHistorico({
+        contrato_id: contrato.id,
+        tipo_acao: TipoAcaoContrato.CRIADO,
+        descricao: `Contrato gerado automaticamente após homologação da licitação ${licitacao.numero_processo}`,
+        status_novo: StatusContrato.VIGENTE,
+        usuario_nome: 'Sistema',
+      });
+
       return contrato;
     } catch (error) {
       this.logger.error(`Erro ao gerar contrato automaticamente para licitação ${licitacaoId}:`, error);
       throw error;
     }
+  }
+
+  // ============ HISTÓRICO ============
+
+  async registrarHistorico(dados: Partial<HistoricoContrato>): Promise<HistoricoContrato> {
+    const historico = this.historicoContratoRepository.create(dados);
+    return this.historicoContratoRepository.save(historico);
+  }
+
+  async listarHistorico(contratoId: string): Promise<HistoricoContrato[]> {
+    return this.historicoContratoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { created_at: 'DESC' },
+    });
   }
 }

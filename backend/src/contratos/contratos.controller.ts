@@ -127,7 +127,8 @@ export class ContratosController {
   ) {
     const contrato = await this.contratosService.findOne(id);
     this.validarPropriedade(request.user, contrato.orgao_id);
-    return this.contratosService.atualizar(id, dados);
+    const userName = await this.resolveUserName(request.user);
+    return this.contratosService.atualizar(id, dados, request.user.sub, userName);
   }
 
   @Patch(':id/status')
@@ -138,7 +139,8 @@ export class ContratosController {
   ) {
     const contrato = await this.contratosService.findOne(id);
     this.validarPropriedade(request.user, contrato.orgao_id);
-    return this.contratosService.alterarStatus(id, status);
+    const userName = await this.resolveUserName(request.user);
+    return this.contratosService.alterarStatus(id, status, request.user.sub, userName);
   }
 
   // ============ LIBERAÇÃO DE CONTRATOS ============
@@ -150,7 +152,8 @@ export class ContratosController {
   ) {
     const contrato = await this.contratosService.findOne(id);
     this.validarPropriedade(request.user, contrato.orgao_id);
-    return this.contratosService.enviarParaLiberacao(id);
+    const userName = await this.resolveUserName(request.user);
+    return this.contratosService.enviarParaLiberacao(id, request.user.sub, userName);
   }
 
   @Post(':id/liberar')
@@ -192,7 +195,20 @@ export class ContratosController {
       }
     }
 
-    return this.contratosService.rejeitarLiberacao(id, motivo);
+    const userName = await this.resolveUserName(request.user);
+    return this.contratosService.rejeitarLiberacao(id, motivo, request.user.sub, userName);
+  }
+
+  // ============ HISTÓRICO ============
+
+  @Get(':id/historico')
+  async listarHistorico(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.listarHistorico(id);
   }
 
   // ============ TERMOS ADITIVOS ============
@@ -224,6 +240,16 @@ export class ContratosController {
   }
 
   // ============ HELPERS ============
+
+  private async resolveUserName(user: JwtPayload): Promise<string> {
+    if (user.type === UserType.ADMIN) return 'Administrador';
+    if (user.type === UserType.ORGAO) return 'Órgão';
+    if (user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: user.sub } });
+      return usuario?.nome || 'Usuário';
+    }
+    return 'Sistema';
+  }
 
   private getOrgaoId(user: JwtPayload): string {
     if (user.type === UserType.ORGAO) return user.sub;
