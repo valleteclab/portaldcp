@@ -85,6 +85,7 @@ interface Contrato {
     cpf_cnpj?: string;
   };
   total_itens?: number;
+  modalidade_execucao?: string;
 }
 
 const CATEGORIA_LABELS: Record<string, { label: string; cor: string }> = {
@@ -519,8 +520,9 @@ function NovaRequisicaoForm() {
   const handleSelecionarContrato = (contrato: Contrato) => {
     setContratoSelecionado(contrato);
     setItensRequisicao([]); // Limpa itens ao mudar contrato
-    // Auto-preencher tipo baseado na categoria do contrato
-    if (contrato.categoria === 'OBRAS') {
+    // Auto-preencher tipo baseado na modalidade/categoria do contrato
+    // Contratos de MEDICAO (obras/serviços por medição) usam fluxo de OS
+    if (contrato.modalidade_execucao === 'MEDICAO' || contrato.categoria === 'OBRAS') {
       setTipo('ORDEM_SERVICO');
     } else if (contrato.categoria === 'SERVICOS') {
       setTipo('SERVICO');

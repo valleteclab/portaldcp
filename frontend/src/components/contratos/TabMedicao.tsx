@@ -276,31 +276,23 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
       {/* Ordem de Serviço — Seção Principal */}
       <Card className={!osAtiva ? 'border-amber-300 bg-amber-50/30' : osAtiva.status === 'ORDEM_GERADA' ? 'border-indigo-300' : ''}>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Ordem de Serviço</CardTitle>
-              <CardDescription>A OS autoriza o início da execução da obra. Sem OS, não é possível registrar medições.</CardDescription>
-            </div>
-            <Button asChild size="sm" variant={osAtiva ? 'outline' : 'default'}>
-              <Link href="/orgao/almoxarifado/requisicoes">
-                <ExternalLink className="w-4 h-4 mr-1" />{osAtiva ? 'Ver Requisições' : 'Criar OS'}
-              </Link>
-            </Button>
-          </div>
+          <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Ordem de Serviço</CardTitle>
+          <CardDescription>A OS autoriza o início da execução da obra. Sem OS, não é possível registrar medições.</CardDescription>
         </CardHeader>
         <CardContent>
           {!osAtiva ? (
-            <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-              <div>
-                <p className="font-medium text-amber-700">Nenhuma Ordem de Serviço ativa</p>
-                <p className="text-sm text-amber-600">
-                  Crie uma OS do tipo "Ordem de Serviço" na{' '}
-                  <Link href="/orgao/almoxarifado/requisicoes" className="underline font-semibold">página de Requisições</Link>{' '}
-                  para liberar o cadastro de etapas e medições.
-                </p>
+            <Link href="/orgao/almoxarifado/requisicoes/nova" className="block">
+              <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 hover:border-amber-300 transition-colors cursor-pointer">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-amber-700">Nenhuma Ordem de Serviço ativa</p>
+                  <p className="text-sm text-amber-600">
+                    Clique aqui para criar uma OS na página de Requisições e liberar o cadastro de etapas e medições.
+                  </p>
+                </div>
+                <ExternalLink className="w-4 h-4 text-amber-500 shrink-0" />
               </div>
-            </div>
+            </Link>
           ) : (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
