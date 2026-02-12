@@ -743,15 +743,6 @@ export default function DetalheContratoOrgaoPage() {
           </div>
         )}
 
-        {contrato.status === 'VIGENTE' && contrato.liberado_por_nome && (
-          <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <Unlock className="w-4 h-4 text-green-600 shrink-0" />
-            <p className="text-sm text-green-700">
-              Liberado por <strong>{contrato.liberado_por_nome}</strong> em {contrato.liberado_em ? formatarData(contrato.liberado_em) : '-'}
-            </p>
-          </div>
-        )}
-
         <TabsContent value="detalhes" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">

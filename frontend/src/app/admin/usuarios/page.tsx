@@ -494,9 +494,7 @@ export default function AdminUsuariosPage() {
                     <TableHead>Email</TableHead>
                     <TableHead>Função</TableHead>
                     <TableHead>Órgão</TableHead>
-                    <TableHead className="text-center">Aprovador</TableHead>
-                    <TableHead className="text-center">Liberar Contratos</TableHead>
-                    <TableHead className="text-center">Cancelar/Estornar</TableHead>
+                    <TableHead>Permissões</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -504,46 +502,38 @@ export default function AdminUsuariosPage() {
                 <TableBody>
                   {usuariosFiltrados.map((usuario) => (
                     <TableRow key={usuario.id}>
-                      <TableCell className="font-medium">{usuario.nome}</TableCell>
-                      <TableCell>{usuario.email}</TableCell>
+                      <TableCell className="font-medium whitespace-nowrap">{usuario.nome}</TableCell>
+                      <TableCell className="text-sm">{usuario.email}</TableCell>
                       <TableCell>
                         <Badge className={`${roleLabels[usuario.role]?.color} text-white`}>
                           {roleLabels[usuario.role]?.icon}
                           <span className="ml-1">{roleLabels[usuario.role]?.label}</span>
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-sm max-w-[180px] truncate" title={usuario.orgao?.nome || '-'}>
+                        {usuario.orgao?.nome?.substring(0, 20) || '-'}
+                      </TableCell>
                       <TableCell>
-                        {usuario.orgao?.nome?.substring(0, 25) || '-'}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {usuario.pode_aprovar_requisicoes ? (
-                          <Badge className="bg-amber-100 text-amber-800">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Sim
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-400 text-xs">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {usuario.pode_liberar_contratos ? (
-                          <Badge className="bg-blue-100 text-blue-800">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Sim
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-400 text-xs">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {usuario.pode_cancelar_estornar ? (
-                          <Badge className="bg-red-100 text-red-800">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Sim
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-400 text-xs">-</span>
-                        )}
+                        <div className="flex gap-1 flex-wrap">
+                          {usuario.pode_aprovar_requisicoes && (
+                            <Badge className="bg-amber-100 text-amber-800 text-xs" title="Pode aprovar requisições">
+                              Aprovador
+                            </Badge>
+                          )}
+                          {usuario.pode_liberar_contratos && (
+                            <Badge className="bg-blue-100 text-blue-800 text-xs" title="Pode liberar contratos">
+                              Liberar
+                            </Badge>
+                          )}
+                          {usuario.pode_cancelar_estornar && (
+                            <Badge className="bg-red-100 text-red-800 text-xs" title="Pode cancelar/estornar">
+                              Cancelar
+                            </Badge>
+                          )}
+                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && (
+                            <span className="text-gray-400 text-xs">-</span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Button
@@ -566,29 +556,33 @@ export default function AdminUsuariosPage() {
                         </Button>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title="Configurar módulos"
-                          onClick={() => abrirModalModulos(usuario)}
-                        >
-                          <Package className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditarUsuario(usuario)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-600"
-                          onClick={() => handleExcluirUsuario(usuario)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Configurar módulos"
+                            onClick={() => abrirModalModulos(usuario)}
+                          >
+                            <Package className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Editar"
+                            onClick={() => handleEditarUsuario(usuario)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600"
+                            title="Excluir"
+                            onClick={() => handleExcluirUsuario(usuario)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -607,7 +601,7 @@ export default function AdminUsuariosPage() {
             setErro(null)
           }}
         >
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {showEditarUsuario ? 'Editar Usuário' : 'Novo Usuário'}
@@ -626,89 +620,90 @@ export default function AdminUsuariosPage() {
                 </div>
               )}
 
-              <div>
-                <Label>Órgão *</Label>
-                <Select
-                  value={formUsuario.orgao_id}
-                  onValueChange={(v) => setFormUsuario({ ...formUsuario, orgao_id: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o órgão" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {orgaos.map((orgao) => (
-                      <SelectItem key={orgao.id} value={orgao.id}>
-                        {orgao.nome}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Órgão *</Label>
+                  <Select
+                    value={formUsuario.orgao_id}
+                    onValueChange={(v) => setFormUsuario({ ...formUsuario, orgao_id: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o órgão" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {orgaos.map((orgao) => (
+                        <SelectItem key={orgao.id} value={orgao.id}>
+                          {orgao.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Função *</Label>
+                  <Select
+                    value={formUsuario.role}
+                    onValueChange={(v: 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO') =>
+                      setFormUsuario({ ...formUsuario, role: v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN">
+                        <div className="flex items-center gap-2">
+                          <Shield className="h-4 w-4" />
+                          Administrador
+                        </div>
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Nome *</Label>
-                <Input
-                  value={formUsuario.nome}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, nome: e.target.value })}
-                  placeholder="Nome completo"
-                />
-              </div>
-
-              <div>
-                <Label>Email *</Label>
-                <Input
-                  type="email"
-                  value={formUsuario.email}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
-                  placeholder="email@exemplo.com"
-                />
-              </div>
-
-              <div>
-                <Label>{showEditarUsuario ? 'Nova Senha (deixe em branco para manter)' : 'Senha *'}</Label>
-                <Input
-                  type="password"
-                  value={formUsuario.senha}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, senha: e.target.value })}
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <div>
-                <Label>Função *</Label>
-                <Select
-                  value={formUsuario.role}
-                  onValueChange={(v: 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO') =>
-                    setFormUsuario({ ...formUsuario, role: v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ADMIN">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Administrador
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="PREGOEIRO">
-                      <div className="flex items-center gap-2">
-                        <Gavel className="h-4 w-4" />
-                        Pregoeiro
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="EQUIPE_APOIO">
-                      <div className="flex items-center gap-2">
-                        <UserCog className="h-4 w-4" />
-                        Equipe de Apoio
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                      <SelectItem value="PREGOEIRO">
+                        <div className="flex items-center gap-2">
+                          <Gavel className="h-4 w-4" />
+                          Pregoeiro
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="EQUIPE_APOIO">
+                        <div className="flex items-center gap-2">
+                          <UserCog className="h-4 w-4" />
+                          Equipe de Apoio
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Nome *</Label>
+                  <Input
+                    value={formUsuario.nome}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, nome: e.target.value })}
+                    placeholder="Nome completo"
+                  />
+                </div>
+                <div>
+                  <Label>Email *</Label>
+                  <Input
+                    type="email"
+                    value={formUsuario.email}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label>{showEditarUsuario ? 'Nova Senha' : 'Senha *'}</Label>
+                  <Input
+                    type="password"
+                    value={formUsuario.senha}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, senha: e.target.value })}
+                    placeholder={showEditarUsuario ? 'Em branco = manter' : '••••••••'}
+                  />
+                </div>
                 <div>
                   <Label>CPF</Label>
                   <Input
@@ -736,49 +731,52 @@ export default function AdminUsuariosPage() {
                 />
               </div>
 
-              {/* Permissão de Aprovação */}
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-amber-800 font-medium">Pode aprovar requisições</Label>
-                    <p className="text-xs text-amber-600 mt-1">
-                      Habilita o acesso à página de aprovações do almoxarifado
-                    </p>
+              {/* Permissões */}
+              <div className="p-4 bg-gray-50 border rounded-lg">
+                <Label className="text-sm font-semibold text-gray-700 mb-3 block">Permissões Especiais</Label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <Checkbox
+                      id="perm-aprovar"
+                      checked={formUsuario.pode_aprovar_requisicoes}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_aprovar_requisicoes: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-aprovar" className="cursor-pointer">
+                      <p className="text-sm font-medium text-amber-800">Aprovar requisições</p>
+                      <p className="text-xs text-amber-600">Página de aprovações do almoxarifado</p>
+                    </label>
                   </div>
-                  <Checkbox
-                    checked={formUsuario.pode_aprovar_requisicoes}
-                    onCheckedChange={(checked) => 
-                      setFormUsuario({ ...formUsuario, pode_aprovar_requisicoes: checked === true })
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-3">
-                  <div>
-                    <Label className="text-blue-800 font-medium">Pode liberar contratos</Label>
-                    <p className="text-xs text-blue-600 mt-1">
-                      Permite liberar contratos para pedidos/requisições
-                    </p>
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <Checkbox
+                      id="perm-liberar"
+                      checked={formUsuario.pode_liberar_contratos}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_liberar_contratos: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-liberar" className="cursor-pointer">
+                      <p className="text-sm font-medium text-blue-800">Liberar contratos</p>
+                      <p className="text-xs text-blue-600">Liberar contratos para pedidos</p>
+                    </label>
                   </div>
-                  <Checkbox
-                    checked={formUsuario.pode_liberar_contratos}
-                    onCheckedChange={(checked) => 
-                      setFormUsuario({ ...formUsuario, pode_liberar_contratos: checked === true })
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
-                  <div>
-                    <Label className="text-red-800 font-medium">Pode cancelar/estornar</Label>
-                    <p className="text-xs text-red-600 mt-1">
-                      Permite cancelar requisições aprovadas e estornar recebimentos
-                    </p>
+                  <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <Checkbox
+                      id="perm-cancelar"
+                      checked={formUsuario.pode_cancelar_estornar}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_cancelar_estornar: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-cancelar" className="cursor-pointer">
+                      <p className="text-sm font-medium text-red-800">Cancelar/Estornar</p>
+                      <p className="text-xs text-red-600">Cancelar requisições e estornar</p>
+                    </label>
                   </div>
-                  <Checkbox
-                    checked={formUsuario.pode_cancelar_estornar}
-                    onCheckedChange={(checked) => 
-                      setFormUsuario({ ...formUsuario, pode_cancelar_estornar: checked === true })
-                    }
-                  />
                 </div>
               </div>
             </div>
