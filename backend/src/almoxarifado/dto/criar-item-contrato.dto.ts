@@ -13,6 +13,18 @@ export class CriarItemContratoDto {
   @IsString()
   codigo_catalogo?: string;
 
+  @IsOptional()
+  @IsString()
+  codigo_catalogo_proprio?: string;
+
+  @IsOptional()
+  @IsNumber()
+  lote_numero?: number;
+
+  @IsOptional()
+  @IsString()
+  lote_descricao?: string;
+
   @IsString()
   descricao: string;
 
@@ -44,6 +56,18 @@ export class AtualizarItemContratoDto {
   @IsOptional()
   @IsString()
   codigo_catalogo?: string;
+
+  @IsOptional()
+  @IsString()
+  codigo_catalogo_proprio?: string;
+
+  @IsOptional()
+  @IsNumber()
+  lote_numero?: number;
+
+  @IsOptional()
+  @IsString()
+  lote_descricao?: string;
 
   @IsOptional()
   @IsString()

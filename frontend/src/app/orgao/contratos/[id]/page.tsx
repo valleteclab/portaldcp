@@ -41,7 +41,11 @@ import {
   Shield,
   Trash2,
   Package,
-  Pencil
+  Pencil,
+  Upload,
+  Search,
+  FileSpreadsheet,
+  DownloadCloud
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -71,6 +75,10 @@ interface ItemContrato {
   valor_unitario: number
   valor_total: number
   unidade_medida: string
+  lote_numero?: number
+  lote_descricao?: string
+  codigo_catalogo?: string
+  codigo_catalogo_proprio?: string
 }
 
 interface Contrato {
@@ -163,7 +171,14 @@ export default function DetalheContratoOrgaoPage() {
 
   // Estados para itens do contrato
   const [modalItem, setModalItem] = useState(false)
+  const [modalImportarCSV, setModalImportarCSV] = useState(false)
   const [editandoItem, setEditandoItem] = useState<ItemContrato | null>(null)
+  const [csvItens, setCsvItens] = useState<any[]>([])
+  const [importandoCSV, setImportandoCSV] = useState(false)
+  const [resultadoImportacao, setResultadoImportacao] = useState<{ importados: number; erros: string[] } | null>(null)
+  const [buscaCatalogo, setBuscaCatalogo] = useState('')
+  const [resultadosCatalogo, setResultadosCatalogo] = useState<any[]>([])
+  const [buscandoCatalogo, setBuscandoCatalogo] = useState(false)
   const [novoItem, setNovoItem] = useState({
     numero_item: 1,
     descricao: '',
@@ -172,6 +187,9 @@ export default function DetalheContratoOrgaoPage() {
     valor_unitario: '',
     quantidade_contratada: '',
     codigo_catalogo: '',
+    codigo_catalogo_proprio: '',
+    lote_numero: '',
+    lote_descricao: '',
     observacoes: '',
   })
 
@@ -332,6 +350,8 @@ export default function DetalheContratoOrgaoPage() {
   const abrirModalNovoItem = () => {
     const proximoNumero = (contrato?.itens?.length || 0) + 1
     setEditandoItem(null)
+    setBuscaCatalogo('')
+    setResultadosCatalogo([])
     setNovoItem({
       numero_item: proximoNumero,
       descricao: '',
@@ -340,6 +360,9 @@ export default function DetalheContratoOrgaoPage() {
       valor_unitario: '',
       quantidade_contratada: '',
       codigo_catalogo: '',
+      codigo_catalogo_proprio: '',
+      lote_numero: '',
+      lote_descricao: '',
       observacoes: '',
     })
     setModalItem(true)
@@ -347,6 +370,8 @@ export default function DetalheContratoOrgaoPage() {
 
   const abrirModalEditarItem = (item: ItemContrato) => {
     setEditandoItem(item)
+    setBuscaCatalogo('')
+    setResultadosCatalogo([])
     setNovoItem({
       numero_item: item.numero_item,
       descricao: item.descricao,
@@ -354,7 +379,10 @@ export default function DetalheContratoOrgaoPage() {
       unidade_medida: item.unidade_medida,
       valor_unitario: String(item.valor_unitario),
       quantidade_contratada: String(item.quantidade_contratada),
-      codigo_catalogo: '',
+      codigo_catalogo: item.codigo_catalogo || '',
+      codigo_catalogo_proprio: item.codigo_catalogo_proprio || '',
+      lote_numero: item.lote_numero ? String(item.lote_numero) : '',
+      lote_descricao: item.lote_descricao || '',
       observacoes: '',
     })
     setModalItem(true)
@@ -368,13 +396,16 @@ export default function DetalheContratoOrgaoPage() {
       if (!novoItem.quantidade_contratada) throw new Error('Informe a quantidade.')
 
       if (editandoItem) {
-        // Editar item existente
         const res = await authFetch(`${API_URL}/api/almoxarifado/itens-contrato/${editandoItem.id}`, {
           method: 'PUT',
           body: JSON.stringify({
             descricao: novoItem.descricao,
             descricao_detalhada: novoItem.descricao_detalhada || null,
             valor_unitario: parseFloat(novoItem.valor_unitario),
+            codigo_catalogo: novoItem.codigo_catalogo || null,
+            codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
+            lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
+            lote_descricao: novoItem.lote_descricao || null,
           }),
         })
         if (!res.ok) {
@@ -382,7 +413,6 @@ export default function DetalheContratoOrgaoPage() {
           throw new Error(err.message || 'Erro ao atualizar item')
         }
       } else {
-        // Criar novo item
         const res = await authFetch(`${API_URL}/api/almoxarifado/contratos/${id}/itens`, {
           method: 'POST',
           body: JSON.stringify({
@@ -393,6 +423,9 @@ export default function DetalheContratoOrgaoPage() {
             valor_unitario: parseFloat(novoItem.valor_unitario),
             quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
             codigo_catalogo: novoItem.codigo_catalogo || null,
+            codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
+            lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
+            lote_descricao: novoItem.lote_descricao || null,
             observacoes: novoItem.observacoes || null,
           }),
         })
@@ -410,6 +443,96 @@ export default function DetalheContratoOrgaoPage() {
     } finally {
       setLoadingAction(false)
     }
+  }
+
+  const buscarNoCatalogoProprio = async (termo: string) => {
+    if (!termo || termo.length < 2) { setResultadosCatalogo([]); return }
+    setBuscandoCatalogo(true)
+    try {
+      const tipo = contrato?.categoria === 'SERVICOS' ? 'SERVICO' : 'MATERIAL'
+      const res = await authFetch(`${API_URL}/api/catalogo-proprio/itens?termo=${encodeURIComponent(termo)}&tipo=${tipo}&limite=10`)
+      if (res.ok) {
+        const data = await res.json()
+        setResultadosCatalogo(data)
+      }
+    } catch (e) { console.error('Erro ao buscar catálogo:', e) }
+    finally { setBuscandoCatalogo(false) }
+  }
+
+  const selecionarItemCatalogo = (item: any) => {
+    setNovoItem(prev => ({
+      ...prev,
+      descricao: item.descricao || prev.descricao,
+      codigo_catalogo_proprio: item.codigo || '',
+      unidade_medida: (item.unidade_padrao || prev.unidade_medida).toUpperCase(),
+      valor_unitario: item.valor_referencia ? String(item.valor_referencia) : prev.valor_unitario,
+    }))
+    setResultadosCatalogo([])
+    setBuscaCatalogo('')
+  }
+
+  const gerarModeloCSV = () => {
+    const header = 'numero_item;descricao;descricao_detalhada;unidade_medida;quantidade_contratada;valor_unitario;lote_numero;lote_descricao;codigo_catalogo;codigo_catalogo_proprio;observacoes'
+    const exemplo1 = '1;Resma de papel A4 75g;Papel sulfite branco formato A4;UNIDADE;500;25.90;1;Material de escritório;;;'
+    const exemplo2 = '2;Toner HP 26A;Toner original HP CF226A;UNIDADE;50;189.90;1;Material de escritório;449158;;'
+    const exemplo3 = '3;Serviço de manutenção predial;Manutenção preventiva mensal;MES;12;3500.00;2;Serviços gerais;;;'
+    const csv = [header, exemplo1, exemplo2, exemplo3].join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'modelo_itens_contrato.csv'
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
+  const handleUploadCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setResultadoImportacao(null)
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      if (!text) return
+
+      const linhas = text.split('\n').map(l => l.trim()).filter(l => l)
+      if (linhas.length < 2) { alert('Arquivo vazio ou sem dados'); return }
+
+      const separador = linhas[0].includes(';') ? ';' : ','
+      const headers = linhas[0].split(separador).map(h => h.trim().toLowerCase().replace(/"/g, ''))
+      const itens: any[] = []
+
+      for (let i = 1; i < linhas.length; i++) {
+        const valores = linhas[i].split(separador).map(v => v.trim().replace(/"/g, ''))
+        const obj: any = {}
+        headers.forEach((h, idx) => { obj[h] = valores[idx] || '' })
+        if (obj.descricao) itens.push(obj)
+      }
+
+      setCsvItens(itens)
+    }
+    reader.readAsText(file, 'UTF-8')
+    e.target.value = ''
+  }
+
+  const handleImportarCSV = async () => {
+    if (csvItens.length === 0) return
+    setImportandoCSV(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/contratos/${id}/itens/importar`, {
+        method: 'POST',
+        body: JSON.stringify({ itens: csvItens }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setResultadoImportacao(result)
+        if (result.importados > 0) carregarDados()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro na importação')
+      }
+    } catch (e) { alert('Erro ao importar itens') }
+    finally { setImportandoCSV(false) }
   }
 
   const handleRemoverItem = async (itemId: string, descricao: string) => {
@@ -727,7 +850,12 @@ export default function DetalheContratoOrgaoPage() {
                 {contrato.categoria === 'SERVICOS' ? 'Serviços contratados' : 'Materiais/produtos contratados'} - Controle de saldos
               </p>
             </div>
-            <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Item</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setCsvItens([]); setResultadoImportacao(null); setModalImportarCSV(true) }}>
+                <Upload className="w-4 h-4 mr-2" />Importar CSV
+              </Button>
+              <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Item</Button>
+            </div>
           </div>
 
           {(!contrato.itens || contrato.itens.length === 0) ? (
@@ -740,7 +868,12 @@ export default function DetalheContratoOrgaoPage() {
                     ? 'Para contratos de serviço, cadastre o serviço como item (ex: unidade MÊS).'
                     : 'Cadastre os materiais/produtos que fazem parte deste contrato.'}
                 </p>
-                <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Primeiro Item</Button>
+                <div className="flex gap-3 justify-center">
+                  <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Item</Button>
+                  <Button variant="outline" onClick={() => { setCsvItens([]); setResultadoImportacao(null); setModalImportarCSV(true) }}>
+                    <Upload className="w-4 h-4 mr-2" />Importar via CSV
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ) : (
@@ -750,68 +883,73 @@ export default function DetalheContratoOrgaoPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">
-                        <th className="text-left py-3 px-4">#</th>
-                        <th className="text-left py-3 px-4">Descrição</th>
-                        <th className="text-center py-3 px-4">Unidade</th>
-                        <th className="text-right py-3 px-4">Qtd. Contratada</th>
-                        <th className="text-right py-3 px-4">Empenhado</th>
-                        <th className="text-right py-3 px-4">Entregue</th>
-                        <th className="text-right py-3 px-4">Saldo</th>
-                        <th className="text-right py-3 px-4">Valor Unit.</th>
-                        <th className="text-right py-3 px-4">Valor Total</th>
-                        <th className="text-center py-3 px-4">Ações</th>
+                        <th className="text-left py-3 px-3">#</th>
+                        <th className="text-left py-3 px-3">Lote</th>
+                        <th className="text-left py-3 px-3">Descrição</th>
+                        <th className="text-center py-3 px-3">Unidade</th>
+                        <th className="text-right py-3 px-3">Qtd.</th>
+                        <th className="text-right py-3 px-3">Emp.</th>
+                        <th className="text-right py-3 px-3">Entr.</th>
+                        <th className="text-right py-3 px-3">Saldo</th>
+                        <th className="text-right py-3 px-3">Valor Unit.</th>
+                        <th className="text-right py-3 px-3">Valor Total</th>
+                        <th className="text-center py-3 px-3">Ações</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {contrato.itens.map((item) => {
-                        const saldoEmValor = Number(item.saldo_disponivel) * Number(item.valor_unitario)
-                        const percentual = Number(item.quantidade_contratada) > 0
-                          ? (Number(item.quantidade_entregue) / Number(item.quantidade_contratada)) * 100
-                          : 0
-                        return (
-                          <tr key={item.id} className="border-b hover:bg-gray-50">
-                            <td className="py-3 px-4 font-medium">{item.numero_item}</td>
-                            <td className="py-3 px-4 max-w-[250px]">
-                              <p className="font-medium truncate" title={item.descricao}>{item.descricao}</p>
-                              {item.descricao_detalhada && <p className="text-xs text-gray-400 truncate">{item.descricao_detalhada}</p>}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <Badge variant="outline" className="text-xs">{UNIDADES_MEDIDA.find(u => u.value === item.unidade_medida)?.label || item.unidade_medida}</Badge>
-                            </td>
-                            <td className="py-3 px-4 text-right">{Number(item.quantidade_contratada).toLocaleString('pt-BR')}</td>
-                            <td className="py-3 px-4 text-right text-yellow-600">{Number(item.quantidade_empenhada).toLocaleString('pt-BR')}</td>
-                            <td className="py-3 px-4 text-right text-green-600">{Number(item.quantidade_entregue).toLocaleString('pt-BR')}</td>
-                            <td className="py-3 px-4 text-right font-medium">
-                              <span className={Number(item.saldo_disponivel) <= 0 ? 'text-red-600' : ''}>{Number(item.saldo_disponivel).toLocaleString('pt-BR')}</span>
-                            </td>
-                            <td className="py-3 px-4 text-right">{formatarMoeda(item.valor_unitario)}</td>
-                            <td className="py-3 px-4 text-right font-semibold">{formatarMoeda(item.valor_total)}</td>
-                            <td className="py-3 px-4 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => abrirModalEditarItem(item)} title="Editar">
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" onClick={() => handleRemoverItem(item.id, item.descricao)} title="Remover">
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
+                      {contrato.itens.map((item) => (
+                        <tr key={item.id} className="border-b hover:bg-gray-50">
+                          <td className="py-3 px-3 font-medium">{item.numero_item}</td>
+                          <td className="py-3 px-3 text-xs">
+                            {item.lote_numero ? (
+                              <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded" title={item.lote_descricao || ''}>
+                                Lote {item.lote_numero}
+                              </span>
+                            ) : <span className="text-gray-300">-</span>}
+                          </td>
+                          <td className="py-3 px-3 max-w-[220px]">
+                            <p className="font-medium truncate" title={item.descricao}>{item.descricao}</p>
+                            <div className="flex gap-1 mt-0.5">
+                              {item.codigo_catalogo_proprio && <span className="text-[10px] bg-purple-50 text-purple-600 px-1 rounded">Cat: {item.codigo_catalogo_proprio}</span>}
+                              {item.codigo_catalogo && <span className="text-[10px] bg-gray-100 text-gray-500 px-1 rounded">CATMAT: {item.codigo_catalogo}</span>}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <Badge variant="outline" className="text-xs">{UNIDADES_MEDIDA.find(u => u.value === item.unidade_medida)?.label || item.unidade_medida}</Badge>
+                          </td>
+                          <td className="py-3 px-3 text-right">{Number(item.quantidade_contratada).toLocaleString('pt-BR')}</td>
+                          <td className="py-3 px-3 text-right text-yellow-600">{Number(item.quantidade_empenhada).toLocaleString('pt-BR')}</td>
+                          <td className="py-3 px-3 text-right text-green-600">{Number(item.quantidade_entregue).toLocaleString('pt-BR')}</td>
+                          <td className="py-3 px-3 text-right font-medium">
+                            <span className={Number(item.saldo_disponivel) <= 0 ? 'text-red-600' : ''}>{Number(item.saldo_disponivel).toLocaleString('pt-BR')}</span>
+                          </td>
+                          <td className="py-3 px-3 text-right">{formatarMoeda(item.valor_unitario)}</td>
+                          <td className="py-3 px-3 text-right font-semibold">{formatarMoeda(item.valor_total)}</td>
+                          <td className="py-3 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => abrirModalEditarItem(item)} title="Editar">
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" onClick={() => handleRemoverItem(item.id, item.descricao)} title="Remover">
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                     <tfoot className="bg-gray-50 font-medium">
                       <tr>
-                        <td colSpan={8} className="py-3 px-4 text-right">Total do Contrato (itens):</td>
-                        <td className="py-3 px-4 text-right font-bold text-blue-600">
+                        <td colSpan={9} className="py-3 px-3 text-right">Total do Contrato (itens):</td>
+                        <td className="py-3 px-3 text-right font-bold text-blue-600">
                           {formatarMoeda(contrato.itens.reduce((acc, item) => acc + Number(item.valor_total), 0))}
                         </td>
                         <td></td>
                       </tr>
                       {contrato.saldo_total_em_valor !== undefined && (
                         <tr>
-                          <td colSpan={8} className="py-3 px-4 text-right">Saldo Disponível Total:</td>
-                          <td className="py-3 px-4 text-right font-bold text-purple-600">
+                          <td colSpan={9} className="py-3 px-3 text-right">Saldo Disponível Total:</td>
+                          <td className="py-3 px-3 text-right font-bold text-purple-600">
                             {formatarMoeda(contrato.saldo_total_em_valor)}
                           </td>
                           <td></td>
@@ -971,7 +1109,7 @@ export default function DetalheContratoOrgaoPage() {
       </Dialog>
 
       <Dialog open={modalItem} onOpenChange={setModalItem}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editandoItem ? 'Editar Item' : 'Adicionar Item ao Contrato'}</DialogTitle>
             <DialogDescription>
@@ -981,20 +1119,55 @@ export default function DetalheContratoOrgaoPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-4 gap-4">
+            {!editandoItem && (
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2"><Search className="w-4 h-4" />Buscar no Catálogo Próprio</Label>
+                <div className="relative">
+                  <Input
+                    placeholder="Digite para buscar no catálogo interno (mín. 2 caracteres)..."
+                    value={buscaCatalogo}
+                    onChange={(e) => { setBuscaCatalogo(e.target.value); buscarNoCatalogoProprio(e.target.value) }}
+                  />
+                  {buscandoCatalogo && <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-3 text-gray-400" />}
+                </div>
+                {resultadosCatalogo.length > 0 && (
+                  <div className="border rounded-lg max-h-40 overflow-y-auto bg-white shadow-sm">
+                    {resultadosCatalogo.map((item: any) => (
+                      <button key={item.id || item.codigo} className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 text-sm" onClick={() => selecionarItemCatalogo(item)}>
+                        <span className="font-medium text-purple-600 mr-2">{item.codigo}</span>
+                        <span>{item.descricao}</span>
+                        {item.valor_referencia && <span className="text-gray-400 ml-2">- Ref: R$ {Number(item.valor_referencia).toFixed(2)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-6 gap-4">
               <div className="space-y-2">
                 <Label>Nº Item</Label>
                 <Input type="number" min="1" value={novoItem.numero_item} onChange={(e) => setNovoItem({...novoItem, numero_item: parseInt(e.target.value) || 1})} disabled={!!editandoItem} />
               </div>
-              <div className="col-span-3 space-y-2">
-                <Label>Descrição *</Label>
-                <Input placeholder="Ex: Resma de papel A4 75g" value={novoItem.descricao} onChange={(e) => setNovoItem({...novoItem, descricao: e.target.value})} />
+              <div className="space-y-2">
+                <Label>Lote Nº</Label>
+                <Input type="number" min="1" placeholder="Ex: 1" value={novoItem.lote_numero} onChange={(e) => setNovoItem({...novoItem, lote_numero: e.target.value})} />
               </div>
+              <div className="col-span-4 space-y-2">
+                <Label>Descrição do Lote</Label>
+                <Input placeholder="Ex: Material de escritório" value={novoItem.lote_descricao} onChange={(e) => setNovoItem({...novoItem, lote_descricao: e.target.value})} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Descrição do Item *</Label>
+              <Input placeholder="Ex: Resma de papel A4 75g" value={novoItem.descricao} onChange={(e) => setNovoItem({...novoItem, descricao: e.target.value})} />
             </div>
             <div className="space-y-2">
               <Label>Descrição Detalhada</Label>
               <Textarea placeholder="Especificações técnicas, marca, modelo, etc. (opcional)" value={novoItem.descricao_detalhada} onChange={(e) => setNovoItem({...novoItem, descricao_detalhada: e.target.value})} rows={2} />
             </div>
+
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Unidade de Medida *</Label>
@@ -1014,6 +1187,7 @@ export default function DetalheContratoOrgaoPage() {
                 <Input type="number" step="0.01" min="0" placeholder="Ex: 25.90" value={novoItem.valor_unitario} onChange={(e) => setNovoItem({...novoItem, valor_unitario: e.target.value})} />
               </div>
             </div>
+
             {novoItem.valor_unitario && novoItem.quantidade_contratada && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
                 <p className="text-sm text-blue-600">Valor Total do Item:</p>
@@ -1022,18 +1196,117 @@ export default function DetalheContratoOrgaoPage() {
                 </p>
               </div>
             )}
-            {!editandoItem && (
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Código Catálogo (CATMAT/CATSER)</Label>
-                <Input placeholder="Opcional - código do catálogo de compras" value={novoItem.codigo_catalogo} onChange={(e) => setNovoItem({...novoItem, codigo_catalogo: e.target.value})} />
+                <Label>Código Catálogo Próprio</Label>
+                <Input placeholder="Código interno do órgão" value={novoItem.codigo_catalogo_proprio} onChange={(e) => setNovoItem({...novoItem, codigo_catalogo_proprio: e.target.value})} />
               </div>
-            )}
+              <div className="space-y-2">
+                <Label>Código CATMAT/CATSER</Label>
+                <Input placeholder="Código do catálogo federal" value={novoItem.codigo_catalogo} onChange={(e) => setNovoItem({...novoItem, codigo_catalogo: e.target.value})} />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalItem(false)}>Cancelar</Button>
             <Button onClick={handleSalvarItem} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : editandoItem ? 'Salvar Alterações' : 'Adicionar Item'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modalImportarCSV} onOpenChange={setModalImportarCSV}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />Importar Itens via CSV</DialogTitle>
+            <DialogDescription>Importe itens em lote usando um arquivo CSV. Baixe o modelo, preencha e faça o upload.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={gerarModeloCSV} className="flex-1">
+                <DownloadCloud className="w-4 h-4 mr-2" />Baixar Modelo CSV
+              </Button>
+              <div className="flex-1">
+                <label className="flex items-center justify-center gap-2 px-4 py-2 border rounded-md cursor-pointer hover:bg-gray-50 h-10 text-sm font-medium">
+                  <Upload className="w-4 h-4" />Selecionar Arquivo CSV
+                  <input type="file" accept=".csv,.txt" className="hidden" onChange={handleUploadCSV} />
+                </label>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
+              <p className="font-medium mb-1">Formato do arquivo:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-xs">
+                <li>Separador: <strong>ponto e vírgula (;)</strong> ou vírgula (,)</li>
+                <li>Primeira linha deve conter os cabeçalhos</li>
+                <li>Campos obrigatórios: <strong>descricao, quantidade_contratada, valor_unitario</strong></li>
+                <li>Unidades: UNIDADE, PECA, CAIXA, METRO, LITRO, QUILOGRAMA, HORA, MES, SERVICO, GLOBAL</li>
+              </ul>
+            </div>
+
+            {csvItens.length > 0 && (
+              <>
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2 border-b font-medium text-sm">
+                    Preview: {csvItens.length} itens encontrados
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-left py-2 px-3">#</th>
+                          <th className="text-left py-2 px-3">Lote</th>
+                          <th className="text-left py-2 px-3">Descrição</th>
+                          <th className="text-center py-2 px-3">Unid.</th>
+                          <th className="text-right py-2 px-3">Qtd.</th>
+                          <th className="text-right py-2 px-3">Valor Unit.</th>
+                          <th className="text-left py-2 px-3">Cód. Próprio</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvItens.map((item, i) => (
+                          <tr key={i} className="border-b hover:bg-gray-50">
+                            <td className="py-2 px-3">{item.numero_item || i + 1}</td>
+                            <td className="py-2 px-3">{item.lote_numero || '-'}</td>
+                            <td className="py-2 px-3 max-w-[200px] truncate">{item.descricao}</td>
+                            <td className="py-2 px-3 text-center">{item.unidade_medida || 'UN'}</td>
+                            <td className="py-2 px-3 text-right">{item.quantidade_contratada}</td>
+                            <td className="py-2 px-3 text-right">{item.valor_unitario}</td>
+                            <td className="py-2 px-3">{item.codigo_catalogo_proprio || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {resultadoImportacao && (
+                  <div className={`border rounded-lg p-4 ${resultadoImportacao.erros.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
+                    <p className="font-medium text-green-700">{resultadoImportacao.importados} itens importados com sucesso</p>
+                    {resultadoImportacao.erros.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-sm font-medium text-red-600">{resultadoImportacao.erros.length} erros:</p>
+                        <ul className="text-xs text-red-500 mt-1 max-h-24 overflow-y-auto">
+                          {resultadoImportacao.erros.map((e, i) => <li key={i}>{e}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalImportarCSV(false)}>
+              {resultadoImportacao ? 'Fechar' : 'Cancelar'}
+            </Button>
+            {csvItens.length > 0 && !resultadoImportacao && (
+              <Button onClick={handleImportarCSV} disabled={importandoCSV}>
+                {importandoCSV ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</> : `Importar ${csvItens.length} Itens`}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

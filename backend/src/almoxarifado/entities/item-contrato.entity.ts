@@ -75,6 +75,15 @@ export class ItemContrato {
   @Column({ type: 'varchar', nullable: true })
   codigo_catalogo: string; // CATMAT/CATSER
 
+  @Column({ type: 'varchar', nullable: true })
+  codigo_catalogo_proprio: string; // Código do catálogo interno do órgão
+
+  @Column({ type: 'int', nullable: true })
+  lote_numero: number; // Número do lote da licitação de origem
+
+  @Column({ type: 'varchar', nullable: true })
+  lote_descricao: string; // Descrição do lote
+
   @Column()
   descricao: string;
 

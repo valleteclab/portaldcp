@@ -124,6 +124,60 @@ export class AlmoxarifadoController {
     return { message: 'Item removido com sucesso' };
   }
 
+  @Post('contratos/:contratoId/itens/importar')
+  async importarItensContrato(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Body() body: { itens: any[] },
+  ) {
+    if (!body.itens || !Array.isArray(body.itens) || body.itens.length === 0) {
+      throw new BadRequestException('Nenhum item para importar');
+    }
+
+    const resultados = { importados: 0, erros: [] as string[] };
+
+    for (let i = 0; i < body.itens.length; i++) {
+      const row = body.itens[i];
+      try {
+        const numero_item = parseInt(row.numero_item) || (i + 1);
+        const descricao = (row.descricao || '').trim();
+        if (!descricao) {
+          resultados.erros.push(`Linha ${i + 1}: Descrição obrigatória`);
+          continue;
+        }
+
+        const unidade = (row.unidade_medida || 'UNIDADE').toUpperCase().trim();
+        const valor_unitario = parseFloat(String(row.valor_unitario || '0').replace(',', '.'));
+        const quantidade = parseFloat(String(row.quantidade_contratada || '0').replace(',', '.'));
+
+        if (valor_unitario <= 0 || quantidade <= 0) {
+          resultados.erros.push(`Linha ${i + 1} (${descricao}): Valor unitário e quantidade devem ser maiores que zero`);
+          continue;
+        }
+
+        await this.itemContratoService.criar({
+          contrato_id: contratoId,
+          numero_item,
+          descricao,
+          descricao_detalhada: (row.descricao_detalhada || '').trim() || undefined,
+          unidade_medida: unidade as any,
+          valor_unitario,
+          quantidade_contratada: quantidade,
+          codigo_catalogo: (row.codigo_catalogo || '').trim() || undefined,
+          codigo_catalogo_proprio: (row.codigo_catalogo_proprio || '').trim() || undefined,
+          lote_numero: row.lote_numero ? parseInt(row.lote_numero) : undefined,
+          lote_descricao: (row.lote_descricao || '').trim() || undefined,
+          observacoes: (row.observacoes || '').trim() || undefined,
+        });
+
+        resultados.importados++;
+      } catch (err) {
+        resultados.erros.push(`Linha ${i + 1}: ${err.message || 'Erro desconhecido'}`);
+      }
+    }
+
+    return resultados;
+  }
+
   // ============================================================================
   // REQUISIÇÕES
   // ============================================================================
