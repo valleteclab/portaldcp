@@ -141,11 +141,14 @@ export class ContratosService {
         where: { contrato_id: contrato.id },
       });
 
-      // Calcula saldo total em valor (soma de saldo_disponivel * valor_unitario)
-      const saldoTotalEmValor = itens.reduce((total, item) => {
-        const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-        return total + saldoValor;
-      }, 0);
+      // Calcula saldo total em valor
+      // Se não tem itens, saldo = valor_global (contrato novo sem itens cadastrados)
+      const saldoTotalEmValor = itens.length > 0
+        ? itens.reduce((total, item) => {
+            const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+            return total + saldoValor;
+          }, 0)
+        : Number(contrato.valor_global || contrato.valor_inicial || 0);
 
       // Adiciona campos calculados ao contrato
       (contrato as any).itens = itens;
@@ -173,10 +176,13 @@ export class ContratosService {
     });
 
     // Calcula saldo total em valor
-    const saldoTotalEmValor = itens.reduce((total, item) => {
-      const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-      return total + saldoValor;
-    }, 0);
+    // Se não tem itens, saldo = valor_global (contrato novo sem itens cadastrados)
+    const saldoTotalEmValor = itens.length > 0
+      ? itens.reduce((total, item) => {
+          const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+          return total + saldoValor;
+        }, 0)
+      : Number(contrato.valor_global || contrato.valor_inicial || 0);
 
     // Adiciona campos calculados ao contrato
     (contrato as any).itens = itens;

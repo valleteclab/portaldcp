@@ -123,6 +123,7 @@ interface Contrato {
   data_envio_pncp: string
   numero_controle_pncp: string
   observacoes: string
+  fornecedor?: { id: string; razao_social: string; cpf_cnpj: string; nome_fantasia?: string }
   orgao: { id: string; nome: string; cnpj: string; cidade: string; uf: string }
   licitacao?: { id: string; numero_processo: string; modalidade: string }
   liberado_por_nome?: string
@@ -685,8 +686,19 @@ export default function DetalheContratoOrgaoPage() {
                 <Badge className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />PNCP</Badge>
               )}
             </div>
-            <h1 className="text-2xl font-bold">Contrato nº {contrato.numero_contrato}</h1>
+            <h1 className="text-2xl font-bold">Contrato nº {contrato.numero_contrato} - {contrato.tipo}</h1>
             <p className="text-gray-600">Processo: {contrato.numero_processo}</p>
+            {(contrato.fornecedor?.razao_social || contrato.fornecedor_razao_social) && (
+              <p className="text-gray-700 font-medium flex items-center gap-1.5 mt-0.5">
+                <Building2 className="w-4 h-4 text-gray-500" />
+                {contrato.fornecedor?.razao_social || contrato.fornecedor_razao_social}
+                {(contrato.fornecedor?.cpf_cnpj || contrato.fornecedor_cnpj) && (
+                  <span className="text-gray-400 text-sm ml-1">
+                    ({contrato.fornecedor?.cpf_cnpj || contrato.fornecedor_cnpj})
+                  </span>
+                )}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
