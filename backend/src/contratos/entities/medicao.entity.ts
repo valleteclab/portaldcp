@@ -32,9 +32,8 @@ import { Contrato } from './contrato.entity';
 export enum StatusMedicao {
   RASCUNHO = 'RASCUNHO',
   AGUARDANDO_APROVACAO = 'AGUARDANDO_APROVACAO',
-  APROVADA = 'APROVADA',
-  REJEITADA = 'REJEITADA',
-  PAGA = 'PAGA',
+  APROVADA = 'APROVADA',                // Medição aprovada, saldo consumido
+  REJEITADA = 'REJEITADA',              // Medição rejeitada, fiscal deve refazer
 }
 
 @Entity('medicoes')

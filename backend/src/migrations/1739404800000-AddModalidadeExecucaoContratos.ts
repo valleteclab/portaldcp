@@ -26,7 +26,7 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
     // 3. Etapas do Cronograma Físico-Financeiro
     await queryRunner.query(`
       CREATE TYPE "status_etapa_cronograma_enum" AS ENUM (
-        'PENDENTE', 'EM_EXECUCAO', 'MEDIDA', 'PAGA'
+        'PENDENTE', 'EM_EXECUCAO', 'MEDIDA_PARCIAL', 'CONCLUIDA'
       )
     `);
 
@@ -58,7 +58,7 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
     // 4. Medições (Boletim de Medição)
     await queryRunner.query(`
       CREATE TYPE "status_medicao_enum" AS ENUM (
-        'RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADA', 'REJEITADA', 'PAGA'
+        'RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADA', 'REJEITADA'
       )
     `);
 
@@ -122,7 +122,7 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
     // 6. Atestações Mensais
     await queryRunner.query(`
       CREATE TYPE "status_atestacao_enum" AS ENUM (
-        'PENDENTE', 'ATESTADA', 'GLOSADA', 'PAGA'
+        'PENDENTE', 'ATESTADA', 'ATESTADA_COM_GLOSA', 'REJEITADA'
       )
     `);
 
@@ -175,7 +175,7 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
     `);
 
     await queryRunner.query(`
-      CREATE TYPE "periodicidade_pagamento_enum" AS ENUM (
+      CREATE TYPE "periodicidade_renovacao_enum" AS ENUM (
         'MENSAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'UNICO'
       )
     `);
@@ -189,9 +189,9 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
         "tipo_licenca" "tipo_licenca_enum" NOT NULL DEFAULT 'USUARIO',
         "quantidade_contratada" integer NOT NULL,
         "quantidade_ativa" integer NOT NULL DEFAULT 0,
-        "valor_unitario_mensal" decimal(15,2) NOT NULL,
-        "valor_unitario_anual" decimal(15,2),
-        "periodicidade_pagamento" "periodicidade_pagamento_enum" NOT NULL DEFAULT 'MENSAL',
+        "valor_unitario" decimal(15,2) NOT NULL,
+        "valor_total_contratado" decimal(15,2) NOT NULL,
+        "periodicidade_renovacao" "periodicidade_renovacao_enum" NOT NULL DEFAULT 'ANUAL',
         "data_ativacao" date NOT NULL,
         "data_expiracao" date NOT NULL,
         "data_proxima_renovacao" date,
@@ -223,7 +223,7 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
 
     await queryRunner.query(`
       CREATE TYPE "status_ordem_servico_enum" AS ENUM (
-        'ABERTA', 'EM_EXECUCAO', 'ENTREGUE', 'EM_ACEITE', 'ACEITA', 'REJEITADA', 'PAGA', 'CANCELADA'
+        'ABERTA', 'EM_EXECUCAO', 'ENTREGUE', 'EM_ACEITE', 'ACEITA', 'REJEITADA', 'CANCELADA'
       )
     `);
 
@@ -324,7 +324,7 @@ export class AddModalidadeExecucaoContratos1739404800000 implements MigrationInt
     // Drop enums
     await queryRunner.query(`DROP TYPE IF EXISTS "status_ordem_servico_enum"`);
     await queryRunner.query(`DROP TYPE IF EXISTS "metrica_os_enum"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "periodicidade_pagamento_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "periodicidade_renovacao_enum"`);
     await queryRunner.query(`DROP TYPE IF EXISTS "status_licenca_enum"`);
     await queryRunner.query(`DROP TYPE IF EXISTS "tipo_licenca_enum"`);
     await queryRunner.query(`DROP TYPE IF EXISTS "status_atestacao_enum"`);

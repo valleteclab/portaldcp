@@ -29,10 +29,10 @@ import {
 import { Contrato } from './contrato.entity';
 
 export enum StatusAtestacao {
-  PENDENTE = 'PENDENTE',
-  ATESTADA = 'ATESTADA',
-  GLOSADA = 'GLOSADA',
-  PAGA = 'PAGA',
+  PENDENTE = 'PENDENTE',                // Aguardando fiscal atestar
+  ATESTADA = 'ATESTADA',                // Fiscal atestou execução integral
+  ATESTADA_COM_GLOSA = 'ATESTADA_COM_GLOSA', // Fiscal atestou com desconto por falhas
+  REJEITADA = 'REJEITADA',              // Fiscal rejeitou - serviço não prestado
 }
 
 @Entity('atestacoes_mensais')

@@ -38,14 +38,13 @@ export enum MetricaOS {
 }
 
 export enum StatusOrdemServico {
-  ABERTA = 'ABERTA',
-  EM_EXECUCAO = 'EM_EXECUCAO',
-  ENTREGUE = 'ENTREGUE',
-  EM_ACEITE = 'EM_ACEITE',
-  ACEITA = 'ACEITA',
-  REJEITADA = 'REJEITADA',
-  PAGA = 'PAGA',
-  CANCELADA = 'CANCELADA',
+  ABERTA = 'ABERTA',                    // OS criada, aguardando início
+  EM_EXECUCAO = 'EM_EXECUCAO',          // Fornecedor executando
+  ENTREGUE = 'ENTREGUE',                // Fornecedor entregou, aguardando aceite
+  EM_ACEITE = 'EM_ACEITE',              // Fiscal analisando entrega
+  ACEITA = 'ACEITA',                    // Fiscal aceitou, saldo consumido
+  REJEITADA = 'REJEITADA',              // Fiscal rejeitou, devolver para execução
+  CANCELADA = 'CANCELADA',              // OS cancelada
 }
 
 @Entity('ordens_servico_contrato')

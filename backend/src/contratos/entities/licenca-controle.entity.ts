@@ -37,7 +37,7 @@ export enum StatusLicenca {
   CANCELADA = 'CANCELADA',
 }
 
-export enum PeriodicidadePagamento {
+export enum PeriodicidadeRenovacao {
   MENSAL = 'MENSAL',
   TRIMESTRAL = 'TRIMESTRAL',
   SEMESTRAL = 'SEMESTRAL',
@@ -81,17 +81,17 @@ export class LicencaControle {
 
   // Valores
   @Column({ type: 'decimal', precision: 15, scale: 2 })
-  valor_unitario_mensal: number;
+  valor_unitario: number; // Valor por licença por período
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
-  valor_unitario_anual: number;
+  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  valor_total_contratado: number; // quantidade × valor_unitario × períodos
 
   @Column({
     type: 'enum',
-    enum: PeriodicidadePagamento,
-    default: PeriodicidadePagamento.MENSAL,
+    enum: PeriodicidadeRenovacao,
+    default: PeriodicidadeRenovacao.ANUAL,
   })
-  periodicidade_pagamento: PeriodicidadePagamento;
+  periodicidade_renovacao: PeriodicidadeRenovacao;
 
   // Datas
   @Column({ type: 'date' })

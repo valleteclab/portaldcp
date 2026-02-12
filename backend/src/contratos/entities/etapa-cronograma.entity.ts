@@ -26,8 +26,8 @@ import { Contrato } from './contrato.entity';
 export enum StatusEtapaCronograma {
   PENDENTE = 'PENDENTE',
   EM_EXECUCAO = 'EM_EXECUCAO',
-  MEDIDA = 'MEDIDA',
-  PAGA = 'PAGA',
+  MEDIDA_PARCIAL = 'MEDIDA_PARCIAL',   // Parcialmente medida pelo fiscal
+  CONCLUIDA = 'CONCLUIDA',             // 100% medida e recebida
 }
 
 @Entity('etapas_cronograma')
