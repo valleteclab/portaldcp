@@ -285,4 +285,51 @@ export class NotificacoesService {
       },
     });
   }
+
+  // ============================================================================
+  // MÉTODOS ESPECÍFICOS PARA CONTRATOS
+  // ============================================================================
+
+  /**
+   * Notifica responsáveis pela liberação sobre novo contrato aguardando liberação
+   */
+  async notificarContratoAguardandoLiberacao(
+    orgaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    valorGlobal: number,
+    origem: string,
+    liberadores: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando ${liberadores.length} liberadores sobre contrato ${contratoNumero} aguardando liberação`);
+
+    const valorFormatado = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(valorGlobal);
+
+    try {
+      const notificacoes = await this.criarParaMultiplos(liberadores, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.CONTRATO_AGUARDANDO_LIBERACAO,
+        titulo: `Contrato aguardando liberação`,
+        mensagem: `O contrato ${contratoNumero} (${origem}) no valor de ${valorFormatado} aguarda sua liberação.`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'contrato',
+        entidade_id: contratoId,
+        link: `/orgao/contratos/${contratoId}`,
+        enviar_email: true,
+        metadata: {
+          contrato_numero: contratoNumero,
+          valor: valorGlobal,
+          origem,
+        },
+      });
+
+      this.logger.log(`Notificações criadas: ${notificacoes.length} para contrato ${contratoNumero}`);
+    } catch (error) {
+      this.logger.error(`Erro ao criar notificações para contrato ${contratoNumero}: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
 }

@@ -8,6 +8,8 @@ import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.enti
 import { Fornecedor, TipoPessoa } from '../fornecedores/entities/fornecedor.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { HistoricoContrato, TipoAcaoContrato } from './entities/historico-contrato.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 
 @Injectable()
 export class ContratosService {
@@ -28,6 +30,9 @@ export class ContratosService {
     private itemContratoRepository: Repository<ItemContrato>,
     @InjectRepository(HistoricoContrato)
     private historicoContratoRepository: Repository<HistoricoContrato>,
+    @InjectRepository(Usuario)
+    private usuarioRepository: Repository<Usuario>,
+    private notificacoesService: NotificacoesService,
   ) {}
 
   // ============ CONTRATOS ============
@@ -48,7 +53,8 @@ export class ContratosService {
       ano,
       sequencial,
       numero_contrato: numeroContrato,
-      valor_global: dados.valor_inicial
+      valor_global: dados.valor_inicial,
+      status: StatusContrato.AGUARDANDO_LIBERACAO,
     });
 
     const salvo = await this.contratoRepository.save(contrato);
@@ -56,11 +62,14 @@ export class ContratosService {
     await this.registrarHistorico({
       contrato_id: salvo.id,
       tipo_acao: TipoAcaoContrato.CRIADO,
-      descricao: `Contrato ${numeroContrato} criado`,
-      status_novo: salvo.status,
+      descricao: `Contrato ${numeroContrato} criado — aguardando liberação`,
+      status_novo: StatusContrato.AGUARDANDO_LIBERACAO,
       usuario_id: dados.usuario_cadastro_id || null,
       usuario_nome: dados.usuario_cadastro_nome || null,
     });
+
+    // Notificar responsáveis pela liberação
+    await this.notificarLiberadores(salvo, 'Criação manual');
 
     return salvo;
   }
@@ -237,31 +246,6 @@ export class ContratosService {
     return salvo;
   }
 
-  async enviarParaLiberacao(id: string, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
-    const contrato = await this.findOne(id);
-
-    if (contrato.status !== StatusContrato.RASCUNHO) {
-      throw new BadRequestException(
-        `Apenas contratos em RASCUNHO podem ser enviados para liberação. Status atual: ${contrato.status}`
-      );
-    }
-
-    contrato.status = StatusContrato.AGUARDANDO_LIBERACAO;
-    const salvo = await this.contratoRepository.save(contrato);
-
-    await this.registrarHistorico({
-      contrato_id: id,
-      tipo_acao: TipoAcaoContrato.ENVIADO_LIBERACAO,
-      descricao: 'Contrato enviado para liberação',
-      status_anterior: StatusContrato.RASCUNHO,
-      status_novo: StatusContrato.AGUARDANDO_LIBERACAO,
-      usuario_id: usuarioId || null,
-      usuario_nome: usuarioNome || null,
-    });
-
-    return salvo;
-  }
-
   async liberarContrato(id: string, usuarioId: string, usuarioNome: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
 
@@ -299,7 +283,7 @@ export class ContratosService {
       );
     }
 
-    contrato.status = StatusContrato.RASCUNHO;
+    // Mantém AGUARDANDO_LIBERACAO — contrato pode ser editado e re-avaliado
     if (motivo) {
       contrato.observacoes = `[Liberação rejeitada] ${motivo}${contrato.observacoes ? '\n\n' + contrato.observacoes : ''}`;
     }
@@ -310,7 +294,7 @@ export class ContratosService {
       tipo_acao: TipoAcaoContrato.LIBERACAO_REJEITADA,
       descricao: `Liberação rejeitada${motivo ? ': ' + motivo : ''}`,
       status_anterior: StatusContrato.AGUARDANDO_LIBERACAO,
-      status_novo: StatusContrato.RASCUNHO,
+      status_novo: StatusContrato.AGUARDANDO_LIBERACAO,
       usuario_id: usuarioId || null,
       usuario_nome: usuarioNome || null,
     });
@@ -642,7 +626,7 @@ export class ContratosService {
           fornecedor_razao_social: favorecido,
           tipo: TipoContrato.CONTRATO,
           categoria: CategoriaContrato.COMPRAS,
-          status: this.determinarStatusPorVigencia(dataFim),
+          status: StatusContrato.AGUARDANDO_LIBERACAO,
           objeto,
           valor_inicial: valor,
           valor_global: valor,
@@ -662,8 +646,8 @@ export class ContratosService {
         await this.registrarHistorico({
           contrato_id: contratoSalvo.id,
           tipo_acao: TipoAcaoContrato.CRIADO,
-          descricao: `Contrato ${numeroContrato} importado de sistema externo`,
-          status_novo: contratoSalvo.status,
+          descricao: `Contrato ${numeroContrato} importado de sistema externo — aguardando liberação`,
+          status_novo: StatusContrato.AGUARDANDO_LIBERACAO,
           usuario_nome: 'Importação',
         });
 
@@ -676,6 +660,30 @@ export class ContratosService {
     }
 
     this.logger.log(`Importação concluída: ${resultado.importados} importados, ${resultado.duplicados} duplicados, ${resultado.erros.length} erros`);
+
+    // Notificar liberadores uma vez para todos os contratos importados
+    if (resultado.contratos_criados.length > 0) {
+      try {
+        const liberadores = await this.usuarioRepository.find({
+          where: { orgao_id: orgaoId, pode_liberar_contratos: true, ativo: true },
+          select: ['id', 'email'],
+        });
+        if (liberadores.length > 0) {
+          const valorTotal = resultado.contratos_criados.reduce((sum, c) => sum + Number(c.valor_global || 0), 0);
+          await this.notificacoesService.notificarContratoAguardandoLiberacao(
+            orgaoId,
+            `${resultado.importados} contratos importados`,
+            resultado.contratos_criados[0].id,
+            valorTotal,
+            'Importação em lote',
+            liberadores.map(l => ({ id: l.id, email: l.email })),
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Erro ao notificar liberadores após importação: ${error.message}`);
+      }
+    }
+
     return resultado;
   }
 
@@ -826,7 +834,7 @@ export class ContratosService {
       const dataVigenciaFim = new Date(dataAssinatura);
       dataVigenciaFim.setDate(dataVigenciaFim.getDate() + maiorPrazoEntrega);
 
-      // Cria contrato automaticamente
+      // Cria contrato automaticamente (criar() já define AGUARDANDO_LIBERACAO e notifica)
       const contrato = await this.criar({
         licitacao_id: licitacaoId,
         orgao_id: licitacao.orgao_id,
@@ -843,21 +851,12 @@ export class ContratosService {
         data_vigencia_inicio: dataVigenciaInicio,
         data_vigencia_fim: dataVigenciaFim,
         prazo_execucao_dias: maiorPrazoEntrega || undefined,
-        status: StatusContrato.VIGENTE,
         tipo: TipoContrato.CONTRATO,
-        observacoes: `Contrato gerado automaticamente após homologação da licitação ${licitacao.numero_processo}`
+        observacoes: `Contrato gerado automaticamente após homologação da licitação ${licitacao.numero_processo}`,
+        usuario_cadastro_nome: 'Sistema',
       });
 
       this.logger.log(`Contrato ${contrato.numero_contrato} gerado automaticamente para licitação ${licitacaoId}`);
-
-      // Registrar no histórico
-      await this.registrarHistorico({
-        contrato_id: contrato.id,
-        tipo_acao: TipoAcaoContrato.CRIADO,
-        descricao: `Contrato gerado automaticamente após homologação da licitação ${licitacao.numero_processo}`,
-        status_novo: StatusContrato.VIGENTE,
-        usuario_nome: 'Sistema',
-      });
 
       return contrato;
     } catch (error) {
@@ -878,5 +877,39 @@ export class ContratosService {
       where: { contrato_id: contratoId },
       order: { created_at: 'DESC' },
     });
+  }
+
+  // ============ NOTIFICAÇÕES ============
+
+  /**
+   * Busca usuários com permissão de liberar contratos do órgão e envia notificação
+   */
+  async notificarLiberadores(contrato: Contrato, origem: string): Promise<void> {
+    try {
+      const liberadores = await this.usuarioRepository.find({
+        where: {
+          orgao_id: contrato.orgao_id,
+          pode_liberar_contratos: true,
+          ativo: true,
+        },
+        select: ['id', 'email'],
+      });
+
+      if (liberadores.length === 0) {
+        this.logger.warn(`Nenhum liberador encontrado para órgão ${contrato.orgao_id}. Contrato ${contrato.numero_contrato} ficará aguardando.`);
+        return;
+      }
+
+      await this.notificacoesService.notificarContratoAguardandoLiberacao(
+        contrato.orgao_id,
+        contrato.numero_contrato,
+        contrato.id,
+        Number(contrato.valor_global) || 0,
+        origem,
+        liberadores.map(l => ({ id: l.id, email: l.email })),
+      );
+    } catch (error) {
+      this.logger.error(`Erro ao notificar liberadores do contrato ${contrato.numero_contrato}: ${error.message}`, error.stack);
+    }
   }
 }

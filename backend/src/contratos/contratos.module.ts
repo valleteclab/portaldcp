@@ -10,10 +10,12 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Contrato, TermoAditivo, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario])
+    TypeOrmModule.forFeature([Contrato, TermoAditivo, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario]),
+    NotificacoesModule,
   ],
   controllers: [ContratosController],
   providers: [ContratosService],

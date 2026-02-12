@@ -145,17 +145,6 @@ export class ContratosController {
 
   // ============ LIBERAÇÃO DE CONTRATOS ============
 
-  @Post(':id/enviar-liberacao')
-  async enviarParaLiberacao(
-    @Param('id') id: string,
-    @Req() request: { user: JwtPayload },
-  ) {
-    const contrato = await this.contratosService.findOne(id);
-    this.validarPropriedade(request.user, contrato.orgao_id);
-    const userName = await this.resolveUserName(request.user);
-    return this.contratosService.enviarParaLiberacao(id, request.user.sub, userName);
-  }
-
   @Post(':id/liberar')
   async liberarContrato(
     @Param('id') id: string,

@@ -390,25 +390,6 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
-  const handleEnviarParaLiberacao = async () => {
-    if (!confirm('Deseja enviar este contrato para liberação? Após enviar, ele ficará aguardando aprovação de um responsável.')) return
-    setLoadingAction(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/contratos/${id}/enviar-liberacao`, { method: 'POST' })
-      if (res.ok) {
-        carregarDados()
-      } else {
-        const error = await res.json().catch(() => ({}))
-        alert(error.message || 'Erro ao enviar para liberação')
-      }
-    } catch (error) {
-      console.error('Erro:', error)
-      alert('Erro ao enviar para liberação')
-    } finally {
-      setLoadingAction(false)
-    }
-  }
-
   const handleLiberarContrato = async () => {
     if (!confirm('Deseja LIBERAR este contrato para pedidos/requisições? Após liberado, o contrato ficará VIGENTE e poderá receber requisições.')) return
     setLoadingAction(true)
@@ -709,12 +690,6 @@ export default function DetalheContratoOrgaoPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          {contrato.status === 'RASCUNHO' && (
-            <Button onClick={handleEnviarParaLiberacao} disabled={loadingAction} className="bg-amber-600 hover:bg-amber-700">
-              {loadingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-              Enviar para Liberação
-            </Button>
-          )}
           {contrato.status === 'AGUARDANDO_LIBERACAO' && (
             <>
               <Button onClick={handleLiberarContrato} disabled={loadingAction} className="bg-green-600 hover:bg-green-700">
@@ -731,7 +706,7 @@ export default function DetalheContratoOrgaoPage() {
               <Shield className="w-4 h-4 mr-2" />Alterar Status
             </Button>
           )}
-          {(contrato.status === 'RASCUNHO' || contrato.status === 'VIGENTE') && (
+          {(contrato.status === 'AGUARDANDO_LIBERACAO' || contrato.status === 'VIGENTE') && (
             <Button variant="outline" asChild>
               <Link href={`/orgao/contratos/${id}/editar`}><Edit className="w-4 h-4 mr-2" />Editar</Link>
             </Button>
@@ -753,19 +728,6 @@ export default function DetalheContratoOrgaoPage() {
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
         </TabsList>
-
-        {contrato.status === 'RASCUNHO' && (
-          <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-            <FileText className="w-5 h-5 text-slate-500 shrink-0" />
-            <div className="flex-1">
-              <p className="font-medium text-slate-700">Contrato em Rascunho</p>
-              <p className="text-sm text-slate-500">Este contrato ainda não foi liberado para pedidos. Revise os dados e envie para liberação quando estiver pronto.</p>
-            </div>
-            <Button onClick={handleEnviarParaLiberacao} disabled={loadingAction} size="sm" className="bg-amber-600 hover:bg-amber-700 shrink-0">
-              <Send className="w-4 h-4 mr-1" /> Enviar para Liberação
-            </Button>
-          </div>
-        )}
 
         {contrato.status === 'AGUARDANDO_LIBERACAO' && (
           <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
