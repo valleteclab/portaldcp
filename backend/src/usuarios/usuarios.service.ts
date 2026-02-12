@@ -26,6 +26,9 @@ export class UsuariosService {
     cargo?: string;
     role?: RoleUsuario;
     orgao_id?: string;
+    pode_aprovar_requisicoes?: boolean;
+    pode_cancelar_estornar?: boolean;
+    pode_liberar_contratos?: boolean;
   }): Promise<Usuario> {
     const existente = await this.usuarioRepository.findOneBy({ email: data.email });
     if (existente) {
@@ -44,6 +47,9 @@ export class UsuariosService {
       role: data.role || RoleUsuario.EQUIPE_APOIO,
       orgao_id: data.orgao_id,
       ativo: true,
+      pode_aprovar_requisicoes: data.pode_aprovar_requisicoes || false,
+      pode_cancelar_estornar: data.pode_cancelar_estornar || false,
+      pode_liberar_contratos: data.pode_liberar_contratos || false,
     });
 
     return await this.usuarioRepository.save(usuario);
@@ -101,6 +107,7 @@ export class UsuariosService {
     ativo: boolean;
     pode_aprovar_requisicoes: boolean;
     pode_cancelar_estornar: boolean;
+    pode_liberar_contratos: boolean;
   }>): Promise<Usuario> {
     const usuario = await this.findById(id);
 

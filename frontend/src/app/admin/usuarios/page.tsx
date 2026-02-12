@@ -82,6 +82,7 @@ interface Usuario {
   modulos_habilitados?: string[]
   pode_aprovar_requisicoes?: boolean
   pode_cancelar_estornar?: boolean
+  pode_liberar_contratos?: boolean
 }
 
 // Lista de módulos disponíveis
@@ -140,6 +141,7 @@ export default function AdminUsuariosPage() {
     orgao_id: '',
     pode_aprovar_requisicoes: false,
     pode_cancelar_estornar: false,
+    pode_liberar_contratos: false,
   })
 
   useEffect(() => {
@@ -184,6 +186,7 @@ export default function AdminUsuariosPage() {
       orgao_id: '',
       pode_aprovar_requisicoes: false,
       pode_cancelar_estornar: false,
+      pode_liberar_contratos: false,
     })
     setShowNovoUsuario(true)
   }
@@ -201,6 +204,7 @@ export default function AdminUsuariosPage() {
       orgao_id: usuario.orgao_id || '',
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
       pode_cancelar_estornar: usuario.pode_cancelar_estornar || false,
+      pode_liberar_contratos: usuario.pode_liberar_contratos || false,
     })
     setShowEditarUsuario(true)
   }
@@ -241,6 +245,7 @@ export default function AdminUsuariosPage() {
         orgao_id: formUsuario.orgao_id,
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
         pode_cancelar_estornar: formUsuario.pode_cancelar_estornar,
+        pode_liberar_contratos: formUsuario.pode_liberar_contratos,
       }
 
       if (formUsuario.senha) {
@@ -490,6 +495,7 @@ export default function AdminUsuariosPage() {
                     <TableHead>Função</TableHead>
                     <TableHead>Órgão</TableHead>
                     <TableHead className="text-center">Aprovador</TableHead>
+                    <TableHead className="text-center">Liberar Contratos</TableHead>
                     <TableHead className="text-center">Cancelar/Estornar</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -512,6 +518,16 @@ export default function AdminUsuariosPage() {
                       <TableCell className="text-center">
                         {usuario.pode_aprovar_requisicoes ? (
                           <Badge className="bg-amber-100 text-amber-800">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Sim
+                          </Badge>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {usuario.pode_liberar_contratos ? (
+                          <Badge className="bg-blue-100 text-blue-800">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             Sim
                           </Badge>
@@ -733,6 +749,20 @@ export default function AdminUsuariosPage() {
                     checked={formUsuario.pode_aprovar_requisicoes}
                     onCheckedChange={(checked) => 
                       setFormUsuario({ ...formUsuario, pode_aprovar_requisicoes: checked === true })
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-3">
+                  <div>
+                    <Label className="text-blue-800 font-medium">Pode liberar contratos</Label>
+                    <p className="text-xs text-blue-600 mt-1">
+                      Permite liberar contratos para pedidos/requisições
+                    </p>
+                  </div>
+                  <Checkbox
+                    checked={formUsuario.pode_liberar_contratos}
+                    onCheckedChange={(checked) => 
+                      setFormUsuario({ ...formUsuario, pode_liberar_contratos: checked === true })
                     }
                   />
                 </div>
