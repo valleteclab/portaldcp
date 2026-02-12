@@ -887,14 +887,14 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               {modalDetalhe.nota_fiscal_numero && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
-                  <p className="text-sm">NF {modalDetalhe.nota_fiscal_numero} — {formatarMoeda(modalDetalhe.nota_fiscal_valor)} — {formatarData(modalDetalhe.nota_fiscal_data)}</p>
+                  <p className="text-sm">NF {modalDetalhe.nota_fiscal_numero} — {formatarMoeda(modalDetalhe.nota_fiscal_valor || 0)} — {formatarData(modalDetalhe.nota_fiscal_data || '')}</p>
                 </div>
               )}
 
               {modalDetalhe.ateste_fiscal_nome && (
                 <div className="p-3 bg-yellow-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Ateste do Fiscal</p>
-                  <p className="text-sm">Atestado por <strong>{modalDetalhe.ateste_fiscal_nome}</strong> em {formatarData(modalDetalhe.ateste_data)}</p>
+                  <p className="text-sm">Atestado por <strong>{modalDetalhe.ateste_fiscal_nome}</strong> em {formatarData(modalDetalhe.ateste_data || '')}</p>
                   {modalDetalhe.ateste_verificado_in_loco && <Badge className="bg-green-100 text-green-700 mt-1">Verificado in loco</Badge>}
                   {modalDetalhe.ateste_observacoes && <p className="text-sm text-gray-600 mt-1">{modalDetalhe.ateste_observacoes}</p>}
                 </div>
@@ -903,7 +903,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               {modalDetalhe.aprovador_nome && (
                 <div className={`p-3 rounded-lg ${modalDetalhe.status === 'APROVADA' ? 'bg-green-50' : 'bg-red-50'}`}>
                   <p className="text-xs text-gray-500 mb-1">{modalDetalhe.status === 'APROVADA' ? 'Aprovação' : 'Rejeição'}</p>
-                  <p className="text-sm">{modalDetalhe.status === 'APROVADA' ? 'Aprovado' : 'Rejeitado'} por <strong>{modalDetalhe.aprovador_nome}</strong> em {formatarData(modalDetalhe.data_aprovacao)}</p>
+                  <p className="text-sm">{modalDetalhe.status === 'APROVADA' ? 'Aprovado' : 'Rejeitado'} por <strong>{modalDetalhe.aprovador_nome}</strong> em {formatarData(modalDetalhe.data_aprovacao || '')}</p>
                   {modalDetalhe.observacao_aprovador && <p className="text-sm text-gray-600 mt-1">{modalDetalhe.observacao_aprovador}</p>}
                 </div>
               )}
