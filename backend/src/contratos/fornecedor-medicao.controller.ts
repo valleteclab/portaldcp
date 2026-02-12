@@ -5,7 +5,7 @@ import {
   Patch,
   Param,
   Body,
-  Req,
+  Query,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -84,6 +84,30 @@ export class FornecedorMedicaoController {
   }
 
   // ============================================================================
+  // CONTRATO INDIVIDUAL DO FORNECEDOR
+  // ============================================================================
+
+  /**
+   * Busca um contrato individual do fornecedor.
+   * GET /api/fornecedor/contratos/:contratoId/detalhe?fornecedorId=X
+   */
+  @Get(':contratoId/detalhe')
+  async buscarContrato(
+    @Param('contratoId') contratoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (fornecedorId && contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+    return contrato;
+  }
+
+  // ============================================================================
   // ETAPAS DO CRONOGRAMA (read-only para fornecedor)
   // ============================================================================
 
@@ -94,10 +118,8 @@ export class FornecedorMedicaoController {
   @Get(':contratoId/etapas')
   async listarEtapas(
     @Param('contratoId') contratoId: string,
-    @Body() body: any,
+    @Query('fornecedorId') fornecedorId: string,
   ) {
-    // O fornecedorId vem via query ou body
-    const fornecedorId = body?.fornecedor_id;
     if (fornecedorId) {
       await this.validarAcessoFornecedor(contratoId, fornecedorId);
     }

@@ -202,11 +202,15 @@ export default function FornecedorContratoDetalhePage() {
   const carregarDados = async () => {
     setLoading(true);
     try {
+      const fornecedorData = localStorage.getItem('fornecedor');
+      const fId = fornecedorData ? JSON.parse(fornecedorData).id : '';
+      const qp = fId ? `?fornecedorId=${fId}` : '';
+
       const [contratoRes, etapasRes, medicoesRes, resumoRes] = await Promise.all([
-        authFetch(`${API_URL}/api/contratos/${contratoId}`),
-        authFetch(`${API_URL}/api/contratos/${contratoId}/etapas`),
-        authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes`),
-        authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes/resumo`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/detalhe${qp}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/etapas${qp}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes/resumo`),
       ]);
 
       if (contratoRes.ok) setContrato(await contratoRes.json());
@@ -447,26 +451,10 @@ export default function FornecedorContratoDetalhePage() {
               <h3 className="text-lg font-semibold">Boletins de Medição</h3>
               <p className="text-sm text-gray-500">Crie e submeta medições para análise do fiscal do contrato</p>
             </div>
-            {resumo?.os_ativa && (
-              <Button onClick={abrirModalNovaMedicao} className="gap-2">
-                <Plus className="w-4 h-4" />Nova Medição
-              </Button>
-            )}
+            <Button onClick={abrirModalNovaMedicao} className="gap-2 bg-blue-600 hover:bg-blue-700">
+              <Plus className="w-4 h-4" />Abrir Medição do Mês
+            </Button>
           </div>
-
-          {!resumo?.os_ativa && (
-            <Card className="border-amber-200 bg-amber-50">
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  <div>
-                    <p className="font-medium text-amber-700">Ordem de Serviço não autorizada</p>
-                    <p className="text-sm text-amber-600">O órgão precisa emitir e autorizar uma Ordem de Serviço antes que você possa submeter medições.</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {medicoes.length === 0 ? (
             <Card>
@@ -629,99 +617,154 @@ export default function FornecedorContratoDetalhePage() {
         </TabsContent>
       </Tabs>
 
-      {/* ============ MODAL: Nova Medição ============ */}
+      {/* ============ MODAL: Nova Medição (Planilha Orçamentária) ============ */}
       <Dialog open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nova Medição</DialogTitle>
-            <DialogDescription>Informe o período e o percentual executado de cada etapa</DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-xl">
+                  Boletim de Medição #{(medicoes.length || 0) + 1}
+                </DialogTitle>
+                <DialogDescription>
+                  {novaMedicao.periodo_inicio && novaMedicao.periodo_fim
+                    ? `Período: ${formatarData(novaMedicao.periodo_inicio)} a ${formatarData(novaMedicao.periodo_fim)}`
+                    : 'Informe o período e preencha a execução de cada item'}
+                </DialogDescription>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  {formatarMoeda(
+                    novaMedicao.itens.reduce((acc, item, idx) => {
+                      const etapa = etapas[idx];
+                      if (!etapa) return acc;
+                      return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                    }, 0)
+                  )}
+                </p>
+              </div>
+            </div>
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Período */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Período Início</Label>
+                <Label>Período Início *</Label>
                 <Input type="date" value={novaMedicao.periodo_inicio}
                   onChange={(e) => setNovaMedicao({ ...novaMedicao, periodo_inicio: e.target.value })} />
               </div>
               <div>
-                <Label>Período Fim</Label>
+                <Label>Período Fim *</Label>
                 <Input type="date" value={novaMedicao.periodo_fim}
                   onChange={(e) => setNovaMedicao({ ...novaMedicao, periodo_fim: e.target.value })} />
               </div>
             </div>
 
-            <div>
-              <Label className="mb-2 block">Percentual Executado por Etapa</Label>
-              <div className="space-y-2 border rounded-lg p-3">
-                {etapas.map((etapa, idx) => {
-                  const jaExecutado = Number(etapa.percentual_executado);
-                  const restante = 100 - jaExecutado;
-                  return (
-                    <div key={etapa.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{etapa.numero_etapa}. {etapa.descricao}</p>
-                        <p className="text-xs text-gray-400">
-                          Já executado: {jaExecutado.toFixed(1)}% | Restante: {restante.toFixed(1)}% | Valor: {formatarMoeda(etapa.valor_previsto)}
-                        </p>
-                      </div>
-                      <div className="w-24">
-                        <Input
-                          type="number"
-                          min="0"
-                          max={restante}
-                          step="0.1"
-                          placeholder="0%"
-                          value={novaMedicao.itens[idx]?.percentual_executado_atual || ''}
-                          onChange={(e) => {
-                            const itens = [...novaMedicao.itens];
-                            itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Number(e.target.value) };
-                            setNovaMedicao({ ...novaMedicao, itens });
-                          }}
-                          className="text-right"
-                        />
-                      </div>
-                      <span className="text-xs text-gray-400 w-4">%</span>
-                    </div>
-                  );
-                })}
-              </div>
+            {/* Planilha Orçamentária */}
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="w-16 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="font-bold text-xs uppercase">Descrição do Serviço</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28">Valor Prev.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-blue-50">Exec. Mês (%)</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28 bg-blue-50">Subtotal</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {etapas.map((etapa, idx) => {
+                    const jaExecutado = Number(etapa.percentual_executado);
+                    const execMes = novaMedicao.itens[idx]?.percentual_executado_atual || 0;
+                    const subtotal = (execMes / 100) * Number(etapa.valor_previsto);
+                    const restante = 100 - jaExecutado;
+                    return (
+                      <TableRow key={etapa.id} className="hover:bg-gray-50">
+                        <TableCell className="text-center font-mono text-sm font-medium">{etapa.numero_etapa}</TableCell>
+                        <TableCell>
+                          <p className="text-sm font-medium">{etapa.descricao}</p>
+                          <p className="text-xs text-gray-400">Previsto: {formatarMoeda(etapa.valor_previsto)} · Restante: {restante.toFixed(1)}%</p>
+                        </TableCell>
+                        <TableCell className="text-right text-sm">{formatarMoeda(etapa.valor_previsto)}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`text-sm font-medium ${jaExecutado > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                            {jaExecutado.toFixed(0)}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="bg-blue-50/50">
+                          <Input
+                            type="number"
+                            min="0"
+                            max={restante}
+                            step="0.1"
+                            placeholder="0"
+                            value={novaMedicao.itens[idx]?.percentual_executado_atual || ''}
+                            onChange={(e) => {
+                              const itens = [...novaMedicao.itens];
+                              itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Number(e.target.value) };
+                              setNovaMedicao({ ...novaMedicao, itens });
+                            }}
+                            className="text-center h-8 text-sm font-medium"
+                          />
+                        </TableCell>
+                        <TableCell className="text-right bg-blue-50/50">
+                          <span className={`text-sm font-medium ${subtotal > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
+                            {formatarMoeda(subtotal)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
 
-            <div>
-              <Label>Observações (opcional)</Label>
-              <Textarea value={novaMedicao.observacoes}
-                onChange={(e) => setNovaMedicao({ ...novaMedicao, observacoes: e.target.value })}
-                placeholder="Descreva os serviços executados no período..." />
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
+            {/* Observações e NF lado a lado */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label>Nº Nota Fiscal</Label>
+                <Label className="flex items-center gap-2 mb-2">
+                  <FileText className="w-4 h-4" />
+                  Observações do Boletim
+                </Label>
+                <Textarea value={novaMedicao.observacoes}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, observacoes: e.target.value })}
+                  placeholder="Descreva observações relevantes sobre o andamento da obra neste período..."
+                  rows={4} />
+              </div>
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" />
+                  Nota Fiscal (opcional)
+                </Label>
                 <Input value={novaMedicao.nota_fiscal_numero}
                   onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_numero: e.target.value })}
-                  placeholder="000000" />
-              </div>
-              <div>
-                <Label>Valor NF</Label>
-                <Input type="number" step="0.01" value={novaMedicao.nota_fiscal_valor}
-                  onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_valor: e.target.value })}
-                  placeholder="0,00" />
-              </div>
-              <div>
-                <Label>Data NF</Label>
-                <Input type="date" value={novaMedicao.nota_fiscal_data}
-                  onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_data: e.target.value })} />
+                  placeholder="Número da NF" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input type="number" step="0.01" value={novaMedicao.nota_fiscal_valor}
+                    onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_valor: e.target.value })}
+                    placeholder="Valor NF" />
+                  <Input type="date" value={novaMedicao.nota_fiscal_data}
+                    onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_data: e.target.value })} />
+                </div>
               </div>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalNovaMedicao(false)}>Cancelar</Button>
-            <Button onClick={handleCriarMedicao} disabled={submitting}>
-              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-              Criar Rascunho
-            </Button>
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <Button variant="outline" onClick={() => setModalNovaMedicao(false)}>Cancelar Lançamento</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleCriarMedicao} disabled={submitting}>
+                {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+                Salvar Rascunho
+              </Button>
+              <Button onClick={handleCriarMedicao} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+                {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                Enviar para Ateste
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -795,14 +838,14 @@ export default function FornecedorContratoDetalhePage() {
               {medicaoDetalhe.nota_fiscal_numero && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
-                  <p className="text-sm">NF {medicaoDetalhe.nota_fiscal_numero} — {formatarMoeda(medicaoDetalhe.nota_fiscal_valor)} — {formatarData(medicaoDetalhe.nota_fiscal_data)}</p>
+                  <p className="text-sm">NF {medicaoDetalhe.nota_fiscal_numero} — {formatarMoeda(medicaoDetalhe.nota_fiscal_valor || 0)} — {formatarData(medicaoDetalhe.nota_fiscal_data || '')}</p>
                 </div>
               )}
 
               {medicaoDetalhe.ateste_fiscal_nome && (
                 <div className="p-3 bg-yellow-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Ateste do Fiscal</p>
-                  <p className="text-sm">Atestado por <strong>{medicaoDetalhe.ateste_fiscal_nome}</strong> em {formatarData(medicaoDetalhe.ateste_data)}</p>
+                  <p className="text-sm">Atestado por <strong>{medicaoDetalhe.ateste_fiscal_nome}</strong> em {formatarData(medicaoDetalhe.ateste_data || '')}</p>
                   {medicaoDetalhe.ateste_observacoes && <p className="text-sm text-gray-600 mt-1">{medicaoDetalhe.ateste_observacoes}</p>}
                 </div>
               )}
@@ -810,7 +853,7 @@ export default function FornecedorContratoDetalhePage() {
               {medicaoDetalhe.aprovador_nome && (
                 <div className="p-3 bg-green-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Aprovação</p>
-                  <p className="text-sm">Aprovado por <strong>{medicaoDetalhe.aprovador_nome}</strong> em {formatarData(medicaoDetalhe.data_aprovacao)}</p>
+                  <p className="text-sm">Aprovado por <strong>{medicaoDetalhe.aprovador_nome}</strong> em {formatarData(medicaoDetalhe.data_aprovacao || '')}</p>
                   {medicaoDetalhe.observacao_aprovador && <p className="text-sm text-gray-600 mt-1">{medicaoDetalhe.observacao_aprovador}</p>}
                 </div>
               )}
