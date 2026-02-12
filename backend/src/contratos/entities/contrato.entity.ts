@@ -32,6 +32,14 @@ export enum CategoriaContrato {
   ALIENACAO = 'ALIENACAO'
 }
 
+export enum ModalidadeExecucao {
+  ITEM_QUANTIDADE = 'ITEM_QUANTIDADE',     // Compras (padrão)
+  MEDICAO = 'MEDICAO',                     // Obras/Engenharia
+  CONTINUADO = 'CONTINUADO',               // Serviços mensais (limpeza, vigilância)
+  LICENCA = 'LICENCA',                     // Software/SaaS
+  ORDEM_SERVICO = 'ORDEM_SERVICO',         // Consultoria/Demanda
+}
+
 @Entity('contratos')
 export class Contrato {
   @PrimaryGeneratedColumn('uuid')
@@ -90,6 +98,13 @@ export class Contrato {
     default: CategoriaContrato.COMPRAS
   })
   categoria: CategoriaContrato;
+
+  @Column({
+    type: 'enum',
+    enum: ModalidadeExecucao,
+    default: ModalidadeExecucao.ITEM_QUANTIDADE
+  })
+  modalidade_execucao: ModalidadeExecucao;
 
   @Column({
     type: 'enum',
