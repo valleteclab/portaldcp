@@ -57,6 +57,14 @@ const CATEGORIAS_CONTRATO = [
   { value: 'ALIENACAO', label: 'Alienação' },
 ]
 
+const MODALIDADES_EXECUCAO = [
+  { value: 'ITEM_QUANTIDADE', label: 'Item/Quantidade', desc: 'Compras de materiais e bens — controle por itens e quantidades' },
+  { value: 'MEDICAO', label: 'Medição', desc: 'Obras e engenharia — controle por cronograma e medições do fiscal' },
+  { value: 'CONTINUADO', label: 'Serviço Continuado', desc: 'Limpeza, vigilância, etc — atestação mensal pelo fiscal' },
+  { value: 'LICENCA', label: 'Licença/Assinatura', desc: 'Software, SaaS — controle de licenças ativas e vigência' },
+  { value: 'ORDEM_SERVICO', label: 'Ordem de Serviço', desc: 'Consultoria, fábrica de software — controle por OS e métricas' },
+]
+
 export default function NovoContratoPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -73,6 +81,7 @@ export default function NovoContratoPage() {
   const [formData, setFormData] = useState({
     tipo: 'CONTRATO',
     categoria: 'COMPRAS',
+    modalidade_execucao: 'ITEM_QUANTIDADE',
     fornecedor_id: '',
     fornecedor_cnpj: '',
     fornecedor_razao_social: '',
@@ -191,6 +200,7 @@ export default function NovoContratoPage() {
         orgao_id: orgaoId,
         tipo: formData.tipo,
         categoria: formData.categoria,
+        modalidade_execucao: formData.modalidade_execucao,
         fornecedor_id: formData.fornecedor_id,
         fornecedor_cnpj: formData.fornecedor_cnpj,
         fornecedor_razao_social: formData.fornecedor_razao_social,
@@ -308,28 +318,44 @@ export default function NovoContratoPage() {
               Classificação
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Tipo de Instrumento *</Label>
-              <Select value={formData.tipo} onValueChange={(v) => handleInputChange('tipo', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIPOS_CONTRATO.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Tipo de Instrumento *</Label>
+                <Select value={formData.tipo} onValueChange={(v) => handleInputChange('tipo', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TIPOS_CONTRATO.map(t => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Categoria *</Label>
+                <Select value={formData.categoria} onValueChange={(v) => handleInputChange('categoria', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIAS_CONTRATO.map(c => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
-              <Label>Categoria *</Label>
-              <Select value={formData.categoria} onValueChange={(v) => handleInputChange('categoria', v)}>
+              <Label>Modalidade de Execução *</Label>
+              <Select value={formData.modalidade_execucao} onValueChange={(v) => handleInputChange('modalidade_execucao', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CATEGORIAS_CONTRATO.map(c => (
-                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                  {MODALIDADES_EXECUCAO.map(m => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                {MODALIDADES_EXECUCAO.find(m => m.value === formData.modalidade_execucao)?.desc}
+              </p>
             </div>
           </CardContent>
         </Card>
