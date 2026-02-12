@@ -1178,9 +1178,11 @@ export default function DetalheContratoOrgaoPage() {
                   <div className="space-y-6">
                     {historico.map((item, index) => {
                       const acaoInfo = TIPO_ACAO_LABELS[item.tipo_acao] || { label: item.tipo_acao, cor: 'bg-gray-100 text-gray-800', icon: '📌' }
-                      const dataHora = new Date(item.created_at)
-                      const dataFormatada = dataHora.toLocaleDateString('pt-BR')
-                      const horaFormatada = dataHora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      // Força interpretação como UTC (backend salva sem timezone) e exibe em Brasília
+                      const raw = item.created_at.endsWith('Z') ? item.created_at : item.created_at + 'Z'
+                      const dataHora = new Date(raw)
+                      const dataFormatada = dataHora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+                      const horaFormatada = dataHora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
 
                       return (
                         <div key={item.id} className="relative flex gap-4 pl-2">
