@@ -18,6 +18,11 @@ import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
 import { LicencaControle } from './entities/licenca-controle.entity';
 import { OrdemServicoContrato } from './entities/ordem-servico-contrato.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
+import { MedicaoService } from './medicao.service';
+import { AtestacaoService } from './atestacao.service';
+import { LicencaControleService } from './licenca-controle.service';
+import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
+import { ModalidadesContratoController } from './modalidades-contrato.controller';
 
 @Module({
   imports: [
@@ -27,8 +32,8 @@ import { BancoMetricas } from './entities/banco-metricas.entity';
     ]),
     NotificacoesModule,
   ],
-  controllers: [ContratosController],
-  providers: [ContratosService],
-  exports: [ContratosService]
+  controllers: [ContratosController, ModalidadesContratoController],
+  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService],
+  exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService]
 })
 export class ContratosModule {}
