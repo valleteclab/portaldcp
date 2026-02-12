@@ -44,6 +44,12 @@ import {
   RotateCcw,
   ChevronRight,
   Loader2,
+  Camera,
+  Paperclip,
+  Trash2,
+  Image,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 
@@ -121,6 +127,21 @@ interface Resumo {
   os_ativa: any;
 }
 
+interface Anexo {
+  id: string;
+  medicao_id: string;
+  tipo: 'FOTO' | 'DOCUMENTO';
+  nome_original: string;
+  nome_arquivo: string;
+  mime_type: string;
+  tamanho_bytes: number;
+  url: string;
+  descricao?: string;
+  enviado_por_nome?: string;
+  origem: string;
+  created_at: string;
+}
+
 // ============ HELPERS ============
 
 const formatarMoeda = (valor: number | null | undefined) => {
@@ -191,6 +212,10 @@ export default function FornecedorContratoDetalhePage() {
   const [modalDetalhe, setModalDetalhe] = useState(false);
   const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
 
+  // Anexos
+  const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
+  const [uploadingAnexo, setUploadingAnexo] = useState(false);
+
   useEffect(() => {
     const fornecedorData = localStorage.getItem('fornecedor');
     if (fornecedorData) {
@@ -215,13 +240,90 @@ export default function FornecedorContratoDetalhePage() {
 
       if (contratoRes.ok) setContrato(await contratoRes.json());
       if (etapasRes.ok) setEtapas(await etapasRes.json());
-      if (medicoesRes.ok) setMedicoes(await medicoesRes.json());
+      if (medicoesRes.ok) {
+        const medicoesData = await medicoesRes.json();
+        setMedicoes(medicoesData);
+        // Carregar anexos de cada medição
+        for (const m of medicoesData) {
+          try {
+            const anexoRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${m.id}/anexos`);
+            if (anexoRes.ok) {
+              const anexoData = await anexoRes.json();
+              setAnexos(prev => ({ ...prev, [m.id]: anexoData }));
+            }
+          } catch {}
+        }
+      }
       if (resumoRes.ok) setResumo(await resumoRes.json());
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const carregarAnexos = async (medicaoId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`);
+      if (res.ok) {
+        const data = await res.json();
+        setAnexos(prev => ({ ...prev, [medicaoId]: data }));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar anexos:', error);
+    }
+  };
+
+  const handleUploadAnexo = async (medicaoId: string, file: File, tipo: 'FOTO' | 'DOCUMENTO', descricao?: string) => {
+    if (!fornecedor) return;
+    setUploadingAnexo(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('tipo', tipo);
+      formData.append('fornecedor_id', fornecedor.id);
+      formData.append('fornecedor_nome', fornecedor.razao_social || fornecedor.nome);
+      if (descricao) formData.append('descricao', descricao);
+
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      if (res.ok) {
+        await carregarAnexos(medicaoId);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || 'Erro ao enviar arquivo');
+      }
+    } catch (error) {
+      alert('Erro ao enviar arquivo');
+    } finally {
+      setUploadingAnexo(false);
+    }
+  };
+
+  const handleExcluirAnexo = async (anexoId: string, medicaoId: string) => {
+    if (!confirm('Excluir este anexo?')) return;
+    try {
+      const fId = fornecedor?.id || '';
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/anexos/${anexoId}?fornecedorId=${fId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await carregarAnexos(medicaoId);
+      }
+    } catch (error) {
+      alert('Erro ao excluir anexo');
+    }
+  };
+
+  const formatarTamanho = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const handleCriarMedicao = async () => {
@@ -523,6 +625,123 @@ export default function FornecedorContratoDetalhePage() {
                         <span className={`px-2 py-0.5 rounded ${medicao.data_aprovacao ? 'bg-green-200 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
                           {medicao.data_aprovacao ? `Aprovada ${formatarData(medicao.data_aprovacao)}` : 'Aprovação'}
                         </span>
+                      </div>
+
+                      {/* Seção de Anexos (Fotos e Documentos) */}
+                      <div className="mt-3 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                            <Paperclip className="w-3 h-3" /> Evidências e Documentos
+                            {anexos[medicao.id] && anexos[medicao.id].length > 0 && (
+                              <Badge variant="outline" className="ml-1 text-xs px-1.5 py-0">{anexos[medicao.id].length}</Badge>
+                            )}
+                          </p>
+                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA' || medicao.status === 'SUBMETIDA') && (
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm" variant="outline" className="h-7 text-xs gap-1"
+                                onClick={() => {
+                                  const input = document.createElement('input');
+                                  input.type = 'file';
+                                  input.accept = 'image/jpeg,image/png,image/jpg';
+                                  input.multiple = true;
+                                  input.onchange = async (e) => {
+                                    const files = (e.target as HTMLInputElement).files;
+                                    if (files) {
+                                      for (const file of Array.from(files)) {
+                                        await handleUploadAnexo(medicao.id, file, 'FOTO');
+                                      }
+                                    }
+                                  };
+                                  input.click();
+                                }}
+                                disabled={uploadingAnexo}
+                              >
+                                <Camera className="w-3 h-3" />Foto
+                              </Button>
+                              <Button
+                                size="sm" variant="outline" className="h-7 text-xs gap-1"
+                                onClick={() => {
+                                  const input = document.createElement('input');
+                                  input.type = 'file';
+                                  input.accept = 'application/pdf,image/jpeg,image/png';
+                                  input.onchange = async (e) => {
+                                    const files = (e.target as HTMLInputElement).files;
+                                    if (files && files[0]) {
+                                      await handleUploadAnexo(medicao.id, files[0], 'DOCUMENTO');
+                                    }
+                                  };
+                                  input.click();
+                                }}
+                                disabled={uploadingAnexo}
+                              >
+                                <Upload className="w-3 h-3" />Documento
+                              </Button>
+                            </div>
+                          )}
+                          {!anexos[medicao.id] && (
+                            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => carregarAnexos(medicao.id)}>
+                              Carregar anexos
+                            </Button>
+                          )}
+                        </div>
+
+                        {uploadingAnexo && (
+                          <div className="flex items-center gap-2 text-xs text-blue-600 mb-2">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Enviando arquivo...
+                          </div>
+                        )}
+
+                        {anexos[medicao.id] && anexos[medicao.id].length > 0 && (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            {anexos[medicao.id].map((anexo) => (
+                              <div key={anexo.id} className="relative group border rounded-lg overflow-hidden bg-gray-50">
+                                {anexo.tipo === 'FOTO' ? (
+                                  <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                                    <img
+                                      src={`${API_URL}${anexo.url}`}
+                                      alt={anexo.descricao || anexo.nome_original}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-gray-400"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>'; }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center p-2">
+                                    <FileText className="w-8 h-8 text-blue-400 mb-1" />
+                                    <p className="text-xs text-center text-gray-600 line-clamp-2">{anexo.nome_original}</p>
+                                  </div>
+                                )}
+                                <div className="p-1.5">
+                                  <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
+                                  <p className="text-xs text-gray-400">{formatarTamanho(anexo.tamanho_bytes)}</p>
+                                </div>
+                                {/* Ações no hover */}
+                                <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                  <a
+                                    href={`${API_URL}${anexo.url}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="bg-white/90 rounded p-1 shadow hover:bg-white"
+                                  >
+                                    <Download className="w-3 h-3 text-gray-600" />
+                                  </a>
+                                  {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
+                                    <button
+                                      onClick={() => handleExcluirAnexo(anexo.id, medicao.id)}
+                                      className="bg-white/90 rounded p-1 shadow hover:bg-red-50"
+                                    >
+                                      <Trash2 className="w-3 h-3 text-red-500" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {anexos[medicao.id] && anexos[medicao.id].length === 0 && (
+                          <p className="text-xs text-gray-400 italic">Nenhum anexo enviado</p>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

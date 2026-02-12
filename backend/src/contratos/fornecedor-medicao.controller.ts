@@ -3,17 +3,25 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
+  UseInterceptors,
+  UploadedFile,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MedicaoService } from './medicao.service';
 import { ContratosService } from './contratos.service';
+import { UploadService } from '../upload/upload.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Contrato } from './entities/contrato.entity';
+import { AnexoMedicao, TipoAnexoMedicao } from './entities/anexo-medicao.entity';
+import { Medicao } from './entities/medicao.entity';
 
 /**
  * Controller para o Portal do Fornecedor — Medições.
@@ -25,8 +33,13 @@ export class FornecedorMedicaoController {
   constructor(
     private readonly medicaoService: MedicaoService,
     private readonly contratosService: ContratosService,
+    private readonly uploadService: UploadService,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
+    @InjectRepository(AnexoMedicao)
+    private readonly anexoRepository: Repository<AnexoMedicao>,
+    @InjectRepository(Medicao)
+    private readonly medicaoRepository: Repository<Medicao>,
   ) {}
 
   /**
@@ -196,5 +209,103 @@ export class FornecedorMedicaoController {
   @Get(':contratoId/medicoes/resumo')
   async resumoMedicoes(@Param('contratoId') contratoId: string) {
     return this.medicaoService.resumoMedicoes(contratoId);
+  }
+
+  // ============================================================================
+  // ANEXOS DE MEDIÇÃO (Fotos e Documentos)
+  // ============================================================================
+
+  /**
+   * Upload de anexo (foto ou documento) para uma medição.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/anexos
+   */
+  @Post('medicoes/:medicaoId/anexos')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAnexo(
+    @Param('medicaoId') medicaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('tipo') tipo: string,
+    @Body('descricao') descricao: string,
+    @Body('fornecedor_id') fornecedorId: string,
+    @Body('fornecedor_nome') fornecedorNome: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo enviado');
+    }
+
+    // Verificar se a medição existe
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Validar acesso do fornecedor
+    if (fornecedorId && medicao.contrato) {
+      await this.validarAcessoFornecedor(medicao.contrato.id, fornecedorId);
+    }
+
+    // Determinar tipo do anexo
+    const tipoAnexo = tipo === 'DOCUMENTO' ? TipoAnexoMedicao.DOCUMENTO : TipoAnexoMedicao.FOTO;
+    const pastaUpload = `medicoes/${medicaoId}`;
+    const fileUrl = this.uploadService.getFileUrl(pastaUpload, file.filename);
+
+    // Salvar registro no banco
+    const anexo = this.anexoRepository.create({
+      medicao_id: medicaoId,
+      tipo: tipoAnexo,
+      nome_original: file.originalname,
+      nome_arquivo: file.filename,
+      mime_type: file.mimetype,
+      tamanho_bytes: file.size,
+      url: fileUrl,
+      descricao: descricao || null,
+      enviado_por_id: fornecedorId,
+      enviado_por_nome: fornecedorNome,
+      origem: 'fornecedor',
+    });
+
+    return this.anexoRepository.save(anexo);
+  }
+
+  /**
+   * Lista anexos de uma medição.
+   * GET /api/fornecedor/contratos/medicoes/:medicaoId/anexos
+   */
+  @Get('medicoes/:medicaoId/anexos')
+  async listarAnexos(@Param('medicaoId') medicaoId: string) {
+    return this.anexoRepository.find({
+      where: { medicao_id: medicaoId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  /**
+   * Exclui um anexo de uma medição.
+   * DELETE /api/fornecedor/contratos/medicoes/anexos/:anexoId
+   */
+  @Delete('medicoes/anexos/:anexoId')
+  async excluirAnexo(
+    @Param('anexoId') anexoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    const anexo = await this.anexoRepository.findOne({
+      where: { id: anexoId },
+      relations: ['medicao', 'medicao.contrato'],
+    });
+    if (!anexo) throw new NotFoundException('Anexo não encontrado');
+
+    // Validar acesso
+    if (fornecedorId && anexo.medicao?.contrato) {
+      await this.validarAcessoFornecedor(anexo.medicao.contrato.id, fornecedorId);
+    }
+
+    // Excluir arquivo físico
+    const pastaUpload = `medicoes/${anexo.medicao_id}`;
+    this.uploadService.deleteFile(pastaUpload, anexo.nome_arquivo);
+
+    // Excluir registro
+    await this.anexoRepository.remove(anexo);
+    return { success: true, message: 'Anexo excluído' };
   }
 }
