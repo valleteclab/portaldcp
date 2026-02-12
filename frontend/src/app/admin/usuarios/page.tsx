@@ -399,7 +399,7 @@ export default function AdminUsuariosPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="px-6 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -510,8 +510,8 @@ export default function AdminUsuariosPage() {
                           <span className="ml-1">{roleLabels[usuario.role]?.label}</span>
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm max-w-[180px] truncate" title={usuario.orgao?.nome || '-'}>
-                        {usuario.orgao?.nome?.substring(0, 20) || '-'}
+                      <TableCell className="text-sm">
+                        {usuario.orgao?.nome || '-'}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1 flex-wrap">
@@ -522,12 +522,12 @@ export default function AdminUsuariosPage() {
                           )}
                           {usuario.pode_liberar_contratos && (
                             <Badge className="bg-blue-100 text-blue-800 text-xs" title="Pode liberar contratos">
-                              Liberar
+                              Liberar Contratos
                             </Badge>
                           )}
                           {usuario.pode_cancelar_estornar && (
                             <Badge className="bg-red-100 text-red-800 text-xs" title="Pode cancelar/estornar">
-                              Cancelar
+                              Cancelar/Estornar
                             </Badge>
                           )}
                           {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && (
