@@ -93,6 +93,14 @@ interface Requisicao {
   };
   itens: ItemRequisicao[];
   status_anterior_cancelamento?: string | null;
+  // Campos específicos de OS
+  descricao_os?: string | null;
+  local_execucao?: string | null;
+  data_inicio_prevista?: string | null;
+  data_fim_prevista?: string | null;
+  prazo_execucao_dias?: number | null;
+  responsavel_tecnico?: string | null;
+  fiscal_contrato_nome?: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -131,6 +139,7 @@ function RequisicoesList() {
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
+  const [filtroTipo, setFiltroTipo] = useState<string>('__all__');
   const [filtroContrato, setFiltroContrato] = useState<string | null>(contratoIdUrl);
   const [contratoInfo, setContratoInfo] = useState<{ numero_contrato: string; fornecedor_razao_social?: string } | null>(null);
   const [busca, setBusca] = useState('');
@@ -565,6 +574,9 @@ function RequisicoesList() {
   };
 
   const requisicoesFiltradas = requisicoes.filter(req => {
+    // Filtro por tipo
+    if (filtroTipo && filtroTipo !== '__all__' && req.tipo !== filtroTipo) return false;
+    // Filtro por busca
     if (!busca) return true;
     const termo = busca.toLowerCase();
     return (
@@ -607,11 +619,11 @@ function RequisicoesList() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Requisições</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Requisições e Ordens de Serviço</h1>
             <p className="text-gray-500">
               {filtroContrato && contratoInfo
                 ? `Requisições do contrato ${contratoInfo.numero_contrato}`
-                : 'Gerencie as requisições de materiais e serviços'}
+                : 'Gerencie requisições, pedidos e ordens de serviço'}
             </p>
           </div>
         </div>
@@ -686,6 +698,18 @@ function RequisicoesList() {
                 <SelectItem value="ATENDIDA">Atendida</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Filtrar por tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos os tipos</SelectItem>
+                <SelectItem value="MATERIAL">Material</SelectItem>
+                <SelectItem value="SERVICO">Serviço</SelectItem>
+                <SelectItem value="PERMANENTE">Permanente</SelectItem>
+                <SelectItem value="ORDEM_SERVICO">Ordem de Serviço</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -697,6 +721,7 @@ function RequisicoesList() {
             <TableHeader>
               <TableRow>
                 <TableHead>Número</TableHead>
+                <TableHead>Tipo</TableHead>
                 <TableHead>Setor</TableHead>
                 <TableHead>Solicitante</TableHead>
                 <TableHead>Data</TableHead>
@@ -709,7 +734,7 @@ function RequisicoesList() {
             <TableBody>
               {requisicoesFiltradas.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={9} className="text-center py-8 text-gray-500">
                     Nenhuma requisição encontrada
                   </TableCell>
                 </TableRow>
@@ -717,6 +742,11 @@ function RequisicoesList() {
                 requisicoesFiltradas.map((req) => (
                   <TableRow key={req.id}>
                     <TableCell className="font-medium">{req.numero}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={req.tipo === 'ORDEM_SERVICO' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}>
+                        {req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'MATERIAL' ? 'Material' : req.tipo === 'SERVICO' ? 'Serviço' : req.tipo}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{req.setor_solicitante}</TableCell>
                     <TableCell>{req.usuario_solicitante_nome}</TableCell>
                     <TableCell>{formatarData(req.data_solicitacao)}</TableCell>

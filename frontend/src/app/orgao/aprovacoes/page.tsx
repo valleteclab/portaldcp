@@ -641,7 +641,9 @@ export default function CentralAprovacoesPage() {
                             <Badge className={PRIORIDADE_COLORS[requisicao.prioridade]}>
                               {requisicao.prioridade}
                             </Badge>
-                            <Badge variant="outline">{requisicao.tipo}</Badge>
+                            <Badge variant="outline" className={requisicao.tipo === 'ORDEM_SERVICO' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}>
+                              {requisicao.tipo === 'ORDEM_SERVICO' ? 'Ordem de Serviço' : requisicao.tipo === 'MATERIAL' ? 'Material' : requisicao.tipo === 'SERVICO' ? 'Serviço' : requisicao.tipo}
+                            </Badge>
                           </div>
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -704,33 +706,67 @@ export default function CentralAprovacoesPage() {
                           <h4 className="font-medium mb-2">Justificativa</h4>
                           <p className="text-sm text-gray-600 bg-white p-3 rounded-md">{requisicao.justificativa}</p>
                         </div>
-                        <div className="mt-4">
-                          <h4 className="font-medium mb-2">Itens ({requisicao.itens?.length || 0})</h4>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="w-16">#</TableHead>
-                                <TableHead>Descrição</TableHead>
-                                <TableHead className="text-center">Unid.</TableHead>
-                                <TableHead className="text-right">Qtd.</TableHead>
-                                <TableHead className="text-right">Valor Unit.</TableHead>
-                                <TableHead className="text-right">Valor Total</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {requisicao.itens?.map((item) => (
-                                <TableRow key={item.id}>
-                                  <TableCell className="font-mono">{item.numero_item}</TableCell>
-                                  <TableCell>{item.descricao}</TableCell>
-                                  <TableCell className="text-center">{item.unidade_medida}</TableCell>
-                                  <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
-                                  <TableCell className="text-right">{formatarMoeda(item.valor_unitario)}</TableCell>
-                                  <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total_estimado)}</TableCell>
+
+                        {requisicao.tipo === 'ORDEM_SERVICO' ? (
+                          <div className="mt-4 space-y-3">
+                            <h4 className="font-medium mb-2">Dados da Ordem de Serviço</h4>
+                            <div className="bg-white p-4 rounded-md space-y-2 text-sm">
+                              {(requisicao as any).descricao_os && (
+                                <div><span className="text-gray-500">Objeto da OS:</span> <strong>{(requisicao as any).descricao_os}</strong></div>
+                              )}
+                              {(requisicao as any).local_execucao && (
+                                <div><span className="text-gray-500">Local de Execução:</span> <strong>{(requisicao as any).local_execucao}</strong></div>
+                              )}
+                              <div className="flex flex-wrap gap-4">
+                                {(requisicao as any).data_inicio_prevista && (
+                                  <span><span className="text-gray-500">Início:</span> <strong>{formatarData((requisicao as any).data_inicio_prevista)}</strong></span>
+                                )}
+                                {(requisicao as any).data_fim_prevista && (
+                                  <span><span className="text-gray-500">Fim:</span> <strong>{formatarData((requisicao as any).data_fim_prevista)}</strong></span>
+                                )}
+                                {(requisicao as any).prazo_execucao_dias && (
+                                  <span><span className="text-gray-500">Prazo:</span> <strong>{(requisicao as any).prazo_execucao_dias} dias</strong></span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-4">
+                                {(requisicao as any).responsavel_tecnico && (
+                                  <span><span className="text-gray-500">Resp. Técnico:</span> <strong>{(requisicao as any).responsavel_tecnico}</strong></span>
+                                )}
+                                {(requisicao as any).fiscal_contrato_nome && (
+                                  <span><span className="text-gray-500">Fiscal:</span> <strong>{(requisicao as any).fiscal_contrato_nome}</strong></span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4">
+                            <h4 className="font-medium mb-2">Itens ({requisicao.itens?.length || 0})</h4>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-16">#</TableHead>
+                                  <TableHead>Descrição</TableHead>
+                                  <TableHead className="text-center">Unid.</TableHead>
+                                  <TableHead className="text-right">Qtd.</TableHead>
+                                  <TableHead className="text-right">Valor Unit.</TableHead>
+                                  <TableHead className="text-right">Valor Total</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
+                              </TableHeader>
+                              <TableBody>
+                                {requisicao.itens?.map((item) => (
+                                  <TableRow key={item.id}>
+                                    <TableCell className="font-mono">{item.numero_item}</TableCell>
+                                    <TableCell>{item.descricao}</TableCell>
+                                    <TableCell className="text-center">{item.unidade_medida}</TableCell>
+                                    <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
+                                    <TableCell className="text-right">{formatarMoeda(item.valor_unitario)}</TableCell>
+                                    <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total_estimado)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>

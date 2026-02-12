@@ -69,14 +69,52 @@ export class CriarRequisicaoDto {
   @IsDateString()
   data_necessidade?: string;
 
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemRequisicaoDto)
-  itens: ItemRequisicaoDto[];
+  itens?: ItemRequisicaoDto[];
 
   @IsOptional()
   @IsString()
   observacoes?: string;
+
+  // ============================================================================
+  // CAMPOS ESPECÍFICOS DE ORDEM DE SERVIÇO (tipo = ORDEM_SERVICO)
+  // ============================================================================
+
+  @IsOptional()
+  @IsString()
+  descricao_os?: string;
+
+  @IsOptional()
+  @IsString()
+  local_execucao?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data_inicio_prevista?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data_fim_prevista?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  prazo_execucao_dias?: number;
+
+  @IsOptional()
+  @IsString()
+  responsavel_tecnico?: string;
+
+  @IsOptional()
+  @IsString()
+  fiscal_contrato_id?: string;
+
+  @IsOptional()
+  @IsString()
+  fiscal_contrato_nome?: string;
 }
 
 export class AtualizarRequisicaoDto {

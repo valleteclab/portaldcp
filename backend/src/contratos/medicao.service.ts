@@ -1,11 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not } from 'typeorm';
-import { Contrato, ModalidadeExecucao, StatusContrato } from './entities/contrato.entity';
+import { Repository, In } from 'typeorm';
+import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
-import { OrdemServicoMedicao, StatusOSMedicao } from './entities/ordem-servico-medicao.entity';
+import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 
 @Injectable()
 export class MedicaoService {
@@ -20,164 +20,36 @@ export class MedicaoService {
     private medicaoRepository: Repository<Medicao>,
     @InjectRepository(ItemMedicao)
     private itemMedicaoRepository: Repository<ItemMedicao>,
-    @InjectRepository(OrdemServicoMedicao)
-    private osMedicaoRepository: Repository<OrdemServicoMedicao>,
+    @InjectRepository(Requisicao)
+    private requisicaoRepository: Repository<Requisicao>,
   ) {}
 
   // ============================================================================
-  // ORDEM DE SERVIÇO (equivalente à Requisição para contratos de medição)
+  // ORDEM DE SERVIÇO — Consulta centralizada (criação/aprovação via módulo de Requisições)
   // ============================================================================
 
-  async criarOS(contratoId: string, dados: {
-    descricao: string;
-    local_execucao?: string;
-    data_emissao: string;
-    data_inicio_prevista?: string;
-    data_fim_prevista?: string;
-    prazo_execucao_dias?: number;
-    responsavel_tecnico?: string;
-    fiscal_id?: string;
-    fiscal_nome?: string;
-    observacoes?: string;
-    usuario_cadastro_id?: string;
-    usuario_cadastro_nome?: string;
-  }): Promise<OrdemServicoMedicao> {
-    const contrato = await this.validarContratoMedicao(contratoId);
-
-    // Verificar se contrato está VIGENTE
-    if (contrato.status !== StatusContrato.VIGENTE) {
-      throw new BadRequestException(
-        `Contrato precisa estar VIGENTE para emitir OS. Status atual: ${contrato.status}`
-      );
-    }
-
-    // Verificar se já existe OS ativa (não cancelada/concluída)
-    const osAtiva = await this.osMedicaoRepository.findOne({
+  /**
+   * Busca a OS autorizada para um contrato de medição.
+   * A OS é uma Requisicao com tipo=ORDEM_SERVICO e status=AUTORIZADA.
+   * Criação e aprovação são feitas pelo módulo centralizado de Requisições.
+   */
+  async getOSAtiva(contratoId: string): Promise<Requisicao | null> {
+    return this.requisicaoRepository.findOne({
       where: {
         contrato_id: contratoId,
-        status: Not(In([StatusOSMedicao.CANCELADA, StatusOSMedicao.CONCLUIDA])),
+        tipo: TipoRequisicao.ORDEM_SERVICO,
+        status: In([StatusRequisicao.AUTORIZADA, StatusRequisicao.ORDEM_GERADA]),
       },
     });
-    if (osAtiva) {
-      throw new BadRequestException(
-        `Já existe uma OS ativa para este contrato (${osAtiva.numero_os}). ` +
-        `Conclua ou cancele a OS atual antes de criar uma nova.`
-      );
-    }
-
-    // Gerar número da OS
-    const ano = new Date().getFullYear();
-    const ultimaOS = await this.osMedicaoRepository.findOne({
-      where: { contrato_id: contratoId },
-      order: { sequencial: 'DESC' },
-    });
-    const sequencial = ultimaOS ? ultimaOS.sequencial + 1 : 1;
-    const numero_os = `OS-${String(sequencial).padStart(3, '0')}/${ano}`;
-
-    const os = new OrdemServicoMedicao();
-    os.contrato_id = contratoId;
-    os.numero_os = numero_os;
-    os.ano = ano;
-    os.sequencial = sequencial;
-    os.descricao = dados.descricao;
-    os.data_emissao = dados.data_emissao as any;
-    os.status = StatusOSMedicao.RASCUNHO;
-    if (dados.local_execucao) os.local_execucao = dados.local_execucao;
-    if (dados.data_inicio_prevista) os.data_inicio_prevista = dados.data_inicio_prevista as any;
-    if (dados.data_fim_prevista) os.data_fim_prevista = dados.data_fim_prevista as any;
-    if (dados.prazo_execucao_dias) os.prazo_execucao_dias = dados.prazo_execucao_dias;
-    if (dados.responsavel_tecnico) os.responsavel_tecnico = dados.responsavel_tecnico;
-    if (dados.fiscal_id) os.fiscal_id = dados.fiscal_id;
-    if (dados.fiscal_nome) os.fiscal_nome = dados.fiscal_nome;
-    if (dados.observacoes) os.observacoes = dados.observacoes;
-    if (dados.usuario_cadastro_id) os.usuario_cadastro_id = dados.usuario_cadastro_id;
-    if (dados.usuario_cadastro_nome) os.usuario_cadastro_nome = dados.usuario_cadastro_nome;
-
-    const osSalva = await this.osMedicaoRepository.save(os);
-    this.logger.log(`OS ${numero_os} criada para contrato ${contrato.numero_contrato}`);
-    return osSalva;
   }
 
-  async listarOS(contratoId: string): Promise<OrdemServicoMedicao[]> {
-    return this.osMedicaoRepository.find({
-      where: { contrato_id: contratoId },
-      order: { sequencial: 'DESC' },
-    });
-  }
-
-  async buscarOS(osId: string): Promise<OrdemServicoMedicao> {
-    const os = await this.osMedicaoRepository.findOne({ where: { id: osId } });
-    if (!os) throw new NotFoundException('Ordem de Serviço não encontrada');
-    return os;
-  }
-
-  async emitirOS(osId: string): Promise<OrdemServicoMedicao> {
-    const os = await this.buscarOS(osId);
-    if (os.status !== StatusOSMedicao.RASCUNHO) {
-      throw new BadRequestException('Apenas OS em rascunho podem ser emitidas');
-    }
-    os.status = StatusOSMedicao.EMITIDA;
-    this.logger.log(`OS ${os.numero_os} emitida, aguardando autorização`);
-    return this.osMedicaoRepository.save(os);
-  }
-
-  async autorizarOS(osId: string, dados: {
-    autorizador_id?: string;
-    autorizador_nome?: string;
-    observacao?: string;
-  }): Promise<OrdemServicoMedicao> {
-    const os = await this.buscarOS(osId);
-    if (os.status !== StatusOSMedicao.EMITIDA) {
-      throw new BadRequestException('Apenas OS emitidas podem ser autorizadas');
-    }
-    os.status = StatusOSMedicao.AUTORIZADA;
-    os.data_autorizacao = new Date() as any;
-    if (dados.autorizador_id) os.autorizador_id = dados.autorizador_id;
-    if (dados.autorizador_nome) os.autorizador_nome = dados.autorizador_nome;
-    if (dados.observacao) os.observacao_autorizador = dados.observacao;
-    this.logger.log(`OS ${os.numero_os} autorizada por ${dados.autorizador_nome}`);
-    return this.osMedicaoRepository.save(os);
-  }
-
-  async iniciarExecucaoOS(osId: string): Promise<OrdemServicoMedicao> {
-    const os = await this.buscarOS(osId);
-    if (os.status !== StatusOSMedicao.AUTORIZADA) {
-      throw new BadRequestException('Apenas OS autorizadas podem iniciar execução');
-    }
-    os.status = StatusOSMedicao.EM_EXECUCAO;
-    os.data_inicio_real = new Date() as any;
-    this.logger.log(`OS ${os.numero_os} - execução iniciada`);
-    return this.osMedicaoRepository.save(os);
-  }
-
-  async concluirOS(osId: string): Promise<OrdemServicoMedicao> {
-    const os = await this.buscarOS(osId);
-    if (os.status !== StatusOSMedicao.EM_EXECUCAO) {
-      throw new BadRequestException('Apenas OS em execução podem ser concluídas');
-    }
-    os.status = StatusOSMedicao.CONCLUIDA;
-    os.data_conclusao = new Date() as any;
-    this.logger.log(`OS ${os.numero_os} concluída`);
-    return this.osMedicaoRepository.save(os);
-  }
-
-  async cancelarOS(osId: string, observacao?: string): Promise<OrdemServicoMedicao> {
-    const os = await this.buscarOS(osId);
-    if (os.status === StatusOSMedicao.CONCLUIDA || os.status === StatusOSMedicao.CANCELADA) {
-      throw new BadRequestException('OS já concluída ou cancelada');
-    }
-    os.status = StatusOSMedicao.CANCELADA;
-    if (observacao) os.observacoes = (os.observacoes ? os.observacoes + '\n' : '') + `Cancelada: ${observacao}`;
-    this.logger.log(`OS ${os.numero_os} cancelada`);
-    return this.osMedicaoRepository.save(os);
-  }
-
-  async getOSAtiva(contratoId: string): Promise<OrdemServicoMedicao | null> {
-    return this.osMedicaoRepository.findOne({
+  async listarOS(contratoId: string): Promise<Requisicao[]> {
+    return this.requisicaoRepository.find({
       where: {
         contrato_id: contratoId,
-        status: In([StatusOSMedicao.AUTORIZADA, StatusOSMedicao.EM_EXECUCAO]),
+        tipo: TipoRequisicao.ORDEM_SERVICO,
       },
+      order: { sequencial: 'DESC' },
     });
   }
 
@@ -254,21 +126,20 @@ export class MedicaoService {
   }): Promise<Medicao> {
     const contrato = await this.validarContratoMedicao(contratoId);
 
-    // REGRA: Exigir OS autorizada/em execução para criar medição
+    // REGRA: Exigir OS autorizada para criar medição
     const osAtiva = await this.getOSAtiva(contratoId);
     if (!osAtiva) {
       throw new BadRequestException(
         'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
-        'Emita e autorize uma OS antes de registrar medições.'
+        'Crie e autorize uma OS na página de Requisições antes de registrar medições.'
       );
     }
 
-    // Se OS está autorizada mas não em execução, mover para EM_EXECUCAO automaticamente
-    if (osAtiva.status === StatusOSMedicao.AUTORIZADA) {
-      osAtiva.status = StatusOSMedicao.EM_EXECUCAO;
-      osAtiva.data_inicio_real = new Date() as any;
-      await this.osMedicaoRepository.save(osAtiva);
-      this.logger.log(`OS ${osAtiva.numero_os} movida para EM_EXECUCAO automaticamente ao criar medição`);
+    // Se OS está AUTORIZADA, mover para ORDEM_GERADA (indica que medições estão sendo feitas)
+    if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
+      osAtiva.status = StatusRequisicao.ORDEM_GERADA;
+      await this.requisicaoRepository.save(osAtiva);
+      this.logger.log(`OS ${osAtiva.numero} movida para ORDEM_GERADA ao criar medição`);
     }
 
     // Gerar número da medição

@@ -51,9 +51,10 @@ export enum PrioridadeRequisicao {
 }
 
 export enum TipoRequisicao {
-  MATERIAL = 'MATERIAL',     // Requisição de materiais de consumo
-  SERVICO = 'SERVICO',       // Requisição de serviços
-  PERMANENTE = 'PERMANENTE', // Requisição de bens permanentes
+  MATERIAL = 'MATERIAL',           // Requisição de materiais de consumo
+  SERVICO = 'SERVICO',             // Requisição de serviços
+  PERMANENTE = 'PERMANENTE',       // Requisição de bens permanentes
+  ORDEM_SERVICO = 'ORDEM_SERVICO', // Ordem de Serviço (contratos de medição/obras)
 }
 
 @Entity('requisicoes')
@@ -213,6 +214,34 @@ export class Requisicao {
 
   @Column({ type: 'text', nullable: true })
   observacoes: string | null;
+
+  // ============================================================================
+  // CAMPOS ESPECÍFICOS DE ORDEM DE SERVIÇO (tipo = ORDEM_SERVICO)
+  // ============================================================================
+
+  @Column({ type: 'text', nullable: true })
+  descricao_os: string | null; // Objeto/descrição da OS
+
+  @Column({ type: 'text', nullable: true })
+  local_execucao: string | null; // Local da obra/serviço
+
+  @Column({ type: 'date', nullable: true })
+  data_inicio_prevista: Date | null;
+
+  @Column({ type: 'date', nullable: true })
+  data_fim_prevista: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  prazo_execucao_dias: number | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  responsavel_tecnico: string | null; // Engenheiro/responsável do fornecedor
+
+  @Column({ type: 'varchar', nullable: true })
+  fiscal_contrato_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  fiscal_contrato_nome: string | null;
 
   // ============================================================================
   // AUDITORIA

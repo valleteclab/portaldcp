@@ -69,7 +69,8 @@ export class RequisicaoService {
     });
 
     const sequencial = ultimaRequisicao ? ultimaRequisicao.sequencial + 1 : 1;
-    const numero = `REQ-${String(sequencial).padStart(4, '0')}/${ano}`;
+    const prefixo = dto.tipo === TipoRequisicao.ORDEM_SERVICO ? 'OS' : 'REQ';
+    const numero = `${prefixo}-${String(sequencial).padStart(4, '0')}/${ano}`;
 
     // =========================================================================
     // VALIDA STATUS DO CONTRATO - Só permite requisições em contratos VIGENTES
@@ -85,12 +86,87 @@ export class RequisicaoService {
           `O contrato precisa estar VIGENTE (liberado para pedidos). Status atual: ${contrato.status}`
         );
       }
+
+      // Para OS: verificar se já existe OS ativa para este contrato
+      if (dto.tipo === TipoRequisicao.ORDEM_SERVICO) {
+        const osAtiva = await this.requisicaoRepository.findOne({
+          where: {
+            contrato_id: dto.contrato_id,
+            tipo: TipoRequisicao.ORDEM_SERVICO,
+            status: In([
+              StatusRequisicao.RASCUNHO,
+              StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+              StatusRequisicao.AUTORIZADA,
+              StatusRequisicao.ORDEM_GERADA,
+            ]),
+          },
+        });
+        if (osAtiva) {
+          throw new BadRequestException(
+            `Já existe uma OS ativa para este contrato (${osAtiva.numero}). ` +
+            `Conclua ou cancele a OS atual antes de criar uma nova.`
+          );
+        }
+      }
     }
 
     // =========================================================================
-    // NOVA LÓGICA: Saldo é reservado no momento da CRIAÇÃO do pedido
+    // ORDEM DE SERVIÇO: Não tem itens, é global para o contrato
+    // =========================================================================
+    if (dto.tipo === TipoRequisicao.ORDEM_SERVICO) {
+      if (!dto.contrato_id) {
+        throw new BadRequestException('Ordem de Serviço deve estar vinculada a um contrato');
+      }
+      if (!dto.descricao_os) {
+        throw new BadRequestException('Descrição da OS é obrigatória');
+      }
+
+      const contrato = await this.contratoRepository.findOne({ where: { id: dto.contrato_id } });
+
+      const novaOS = new Requisicao();
+      novaOS.orgao_id = orgaoId;
+      novaOS.contrato_id = dto.contrato_id;
+      novaOS.numero = numero;
+      novaOS.ano = ano;
+      novaOS.sequencial = sequencial;
+      novaOS.tipo = TipoRequisicao.ORDEM_SERVICO;
+      novaOS.setor_solicitante = dto.setor_solicitante;
+      novaOS.codigo_setor = dto.codigo_setor || null;
+      novaOS.local_entrega = dto.local_entrega || null;
+      novaOS.justificativa = dto.justificativa;
+      novaOS.prioridade = dto.prioridade || PrioridadeRequisicao.NORMAL;
+      novaOS.data_necessidade = dto.data_necessidade ? new Date(dto.data_necessidade) : null;
+      novaOS.usuario_solicitante_id = usuarioId;
+      novaOS.usuario_solicitante_nome = usuarioNome;
+      novaOS.usuario_solicitante_email = usuarioEmail || null;
+      novaOS.data_solicitacao = new Date();
+      novaOS.status = StatusRequisicao.RASCUNHO;
+      novaOS.valor_total_estimado = contrato ? Number(contrato.valor_global) : 0;
+      novaOS.saldo_reservado = false;
+      novaOS.observacoes = dto.observacoes || null;
+      // Campos específicos de OS
+      novaOS.descricao_os = dto.descricao_os;
+      novaOS.local_execucao = dto.local_execucao || null;
+      novaOS.data_inicio_prevista = dto.data_inicio_prevista ? new Date(dto.data_inicio_prevista) as any : null;
+      novaOS.data_fim_prevista = dto.data_fim_prevista ? new Date(dto.data_fim_prevista) as any : null;
+      novaOS.prazo_execucao_dias = dto.prazo_execucao_dias || null;
+      novaOS.responsavel_tecnico = dto.responsavel_tecnico || null;
+      novaOS.fiscal_contrato_id = dto.fiscal_contrato_id || null;
+      novaOS.fiscal_contrato_nome = dto.fiscal_contrato_nome || null;
+
+      const osSalva = await this.requisicaoRepository.save(novaOS);
+      this.logger.log(`OS ${numero} criada para contrato ${contrato?.numero_contrato}`);
+      return this.findOne(osSalva.id);
+    }
+
+    // =========================================================================
+    // REQUISIÇÃO NORMAL: Saldo é reservado no momento da CRIAÇÃO do pedido
     // =========================================================================
     
+    if (!dto.itens || dto.itens.length === 0) {
+      throw new BadRequestException('Requisição deve ter pelo menos um item');
+    }
+
     // Valida e prepara itens do contrato
     let valorTotalEstimado = 0;
     const itensParaCriar: Partial<ItemRequisicao>[] = [];
@@ -256,8 +332,11 @@ export class RequisicaoService {
       );
     }
 
-    if (!requisicao.itens || requisicao.itens.length === 0) {
-      throw new BadRequestException('Requisição deve ter pelo menos um item');
+    // OS não tem itens — apenas requisições normais precisam de itens
+    if (requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+      if (!requisicao.itens || requisicao.itens.length === 0) {
+        throw new BadRequestException('Requisição deve ter pelo menos um item');
+      }
     }
 
     requisicao.status = StatusRequisicao.AGUARDANDO_AUTORIZACAO;
@@ -357,6 +436,46 @@ export class RequisicaoService {
     await queryRunner.startTransaction();
 
     try {
+      // =========================================================================
+      // ORDEM DE SERVIÇO: Autorização simplificada (sem itens, sem saldo)
+      // =========================================================================
+      if (requisicao.tipo === TipoRequisicao.ORDEM_SERVICO) {
+        requisicao.status = StatusRequisicao.AUTORIZADA;
+        requisicao.usuario_autorizador_id = autorizadorId;
+        requisicao.usuario_autorizador_nome = autorizadorNome;
+        requisicao.data_autorizacao = new Date();
+        requisicao.observacao_autorizador = dto.observacao || null;
+
+        await queryRunner.manager.save(requisicao);
+        await queryRunner.commitTransaction();
+
+        this.logger.log(`OS ${requisicao.numero} autorizada por ${autorizadorNome}`);
+
+        // Notifica o solicitante
+        try {
+          await this.notificacoesService.notificarResultadoRequisicao(
+            requisicao.orgao_id,
+            requisicao.numero,
+            requisicao.id,
+            { 
+              id: requisicao.usuario_solicitante_id, 
+              email: requisicao.usuario_solicitante_email || undefined 
+            },
+            true,
+            autorizadorNome,
+            dto.observacao,
+          );
+        } catch (notifError) {
+          this.logger.warn(`Erro ao enviar notificação de aprovação OS: ${notifError.message}`);
+        }
+
+        return this.findOne(id);
+      }
+
+      // =========================================================================
+      // REQUISIÇÃO NORMAL: Processa ajustes de quantidade
+      // =========================================================================
+
       // Processa ajustes de quantidade se houver
       // IMPORTANTE: Se quantidade for REDUZIDA, libera a diferença de saldo
       if (dto.ajustes_quantidade) {

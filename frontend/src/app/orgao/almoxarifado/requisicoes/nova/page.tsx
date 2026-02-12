@@ -261,11 +261,21 @@ function NovaRequisicaoForm() {
   const [dataNecessidade, setDataNecessidade] = useState('');
   const [observacoes, setObservacoes] = useState('');
 
+  // Campos específicos de OS
+  const [descricaoOS, setDescricaoOS] = useState('');
+  const [localExecucao, setLocalExecucao] = useState('');
+  const [dataInicioPrevista, setDataInicioPrevista] = useState('');
+  const [dataFimPrevista, setDataFimPrevista] = useState('');
+  const [prazoExecucaoDias, setPrazoExecucaoDias] = useState('');
+  const [responsavelTecnico, setResponsavelTecnico] = useState('');
+  const [fiscalNome, setFiscalNome] = useState('');
+
   // Ref para controlar auto-save
   const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
   const [ultimoSalvamento, setUltimoSalvamento] = useState<Date | null>(null);
 
-  const STEPS = ['Contrato', 'Itens', 'Dados', 'Resumo'];
+  const isOS = tipo === 'ORDEM_SERVICO';
+  const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
 
   // =========================================================================
   // AUTO-SAVE LOCAL
@@ -510,7 +520,9 @@ function NovaRequisicaoForm() {
     setContratoSelecionado(contrato);
     setItensRequisicao([]); // Limpa itens ao mudar contrato
     // Auto-preencher tipo baseado na categoria do contrato
-    if (contrato.categoria === 'SERVICOS') {
+    if (contrato.categoria === 'OBRAS') {
+      setTipo('ORDEM_SERVICO');
+    } else if (contrato.categoria === 'SERVICOS') {
       setTipo('SERVICO');
     } else if (contrato.categoria === 'COMPRAS') {
       setTipo('MATERIAL');
@@ -561,22 +573,37 @@ function NovaRequisicaoForm() {
   };
 
   const validarEtapa = (): string | null => {
-    switch (etapa) {
-      case 0:
-        if (!contratoSelecionado) return 'Selecione um contrato';
-        break;
-      case 1:
-        if (itensRequisicao.length === 0) return 'Selecione pelo menos um item';
-        for (const item of itensRequisicao) {
-          if (item.quantidade_solicitada > item.saldo_disponivel) {
-            return `Item "${item.descricao}" excede o saldo disponível`;
+    if (isOS) {
+      // Fluxo OS: Etapa 0 = Contrato, Etapa 1 = Dados OS, Etapa 2 = Resumo
+      switch (etapa) {
+        case 0:
+          if (!contratoSelecionado) return 'Selecione um contrato';
+          break;
+        case 1:
+          if (!setorSolicitante.trim()) return 'Informe o setor solicitante';
+          if (!justificativa.trim()) return 'Informe a justificativa';
+          if (!descricaoOS.trim()) return 'Informe a descrição/objeto da OS';
+          break;
+      }
+    } else {
+      // Fluxo normal: Etapa 0 = Contrato, Etapa 1 = Itens, Etapa 2 = Dados, Etapa 3 = Resumo
+      switch (etapa) {
+        case 0:
+          if (!contratoSelecionado) return 'Selecione um contrato';
+          break;
+        case 1:
+          if (itensRequisicao.length === 0) return 'Selecione pelo menos um item';
+          for (const item of itensRequisicao) {
+            if (item.quantidade_solicitada > item.saldo_disponivel) {
+              return `Item "${item.descricao}" excede o saldo disponível`;
+            }
           }
-        }
-        break;
-      case 2:
-        if (!setorSolicitante.trim()) return 'Informe o setor solicitante';
-        if (!justificativa.trim()) return 'Informe a justificativa';
-        break;
+          break;
+        case 2:
+          if (!setorSolicitante.trim()) return 'Informe o setor solicitante';
+          if (!justificativa.trim()) return 'Informe a justificativa';
+          break;
+      }
     }
     return null;
   };
@@ -587,7 +614,7 @@ function NovaRequisicaoForm() {
       alert(erro);
       return;
     }
-    setEtapa(prev => Math.min(prev + 1, 3));
+    setEtapa(prev => Math.min(prev + 1, STEPS.length - 1));
   };
 
   const handleEtapaAnterior = () => {
@@ -597,7 +624,7 @@ function NovaRequisicaoForm() {
   const handleSalvar = async (enviarParaAutorizacao: boolean = false) => {
     setSalvando(true);
     try {
-      const dados = {
+      const dados: any = {
         contrato_id: contratoSelecionado?.id,
         tipo,
         setor_solicitante: setorSolicitante,
@@ -607,15 +634,28 @@ function NovaRequisicaoForm() {
         prioridade,
         data_necessidade: dataNecessidade || undefined,
         observacoes: observacoes || undefined,
-        itens: itensRequisicao.map((item, index) => ({
+      };
+
+      if (isOS) {
+        // Campos específicos de OS
+        dados.descricao_os = descricaoOS;
+        dados.local_execucao = localExecucao || undefined;
+        dados.data_inicio_prevista = dataInicioPrevista || undefined;
+        dados.data_fim_prevista = dataFimPrevista || undefined;
+        dados.prazo_execucao_dias = prazoExecucaoDias ? parseInt(prazoExecucaoDias) : undefined;
+        dados.responsavel_tecnico = responsavelTecnico || undefined;
+        dados.fiscal_contrato_nome = fiscalNome || undefined;
+      } else {
+        // Itens da requisição normal
+        dados.itens = itensRequisicao.map((item, index) => ({
           item_contrato_id: item.item_contrato_id,
           numero_item: index + 1,
           descricao: item.descricao,
           unidade_medida: item.unidade_medida,
           quantidade_solicitada: Number(item.quantidade_solicitada),
           valor_unitario: Number(item.valor_unitario),
-        })),
-      };
+        }));
+      }
 
       const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes`, {
         method: 'POST',
@@ -639,12 +679,16 @@ function NovaRequisicaoForm() {
         );
 
         if (!responseEnviar.ok) {
-          alert('Requisição criada, mas erro ao enviar para autorização.');
+          alert(isOS ? 'OS criada, mas erro ao enviar para autorização.' : 'Requisição criada, mas erro ao enviar para autorização.');
         } else {
-          alert('✅ Requisição criada e enviada para autorização!\n\nSaldo reservado no contrato.');
+          alert(isOS 
+            ? '✅ Ordem de Serviço criada e enviada para autorização!' 
+            : '✅ Requisição criada e enviada para autorização!\n\nSaldo reservado no contrato.');
         }
       } else {
-        alert('✅ Requisição salva como rascunho!\n\nSaldo reservado no contrato.');
+        alert(isOS 
+          ? '✅ Ordem de Serviço salva como rascunho!' 
+          : '✅ Requisição salva como rascunho!\n\nSaldo reservado no contrato.');
       }
 
       router.push('/orgao/almoxarifado/requisicoes');
@@ -1252,6 +1296,156 @@ function NovaRequisicaoForm() {
     </div>
   );
 
+  // =========================================================================
+  // ETAPA OS: Dados da Ordem de Serviço (substitui Itens + Dados para OS)
+  // =========================================================================
+  const renderEtapaOSDados = () => (
+    <div className="space-y-6">
+      <Card className="bg-indigo-50 border-indigo-200">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3">
+            <Badge className="bg-indigo-100 text-indigo-800">Ordem de Serviço</Badge>
+            <p className="text-sm text-indigo-700">
+              Contrato <strong>{contratoSelecionado?.numero_contrato}</strong> — {contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : ''}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Dados da Ordem de Serviço</CardTitle>
+          <CardDescription>
+            Preencha as informações da OS que autoriza o início da execução da obra/serviço
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>Descrição / Objeto da OS *</Label>
+            <Textarea
+              value={descricaoOS}
+              onChange={(e) => setDescricaoOS(e.target.value)}
+              placeholder="Ex: Execução da obra de reforma do prédio sede conforme projeto básico"
+              rows={3}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Setor Solicitante *</Label>
+              <Input
+                value={setorSolicitante}
+                onChange={(e) => setSetorSolicitante(e.target.value)}
+                placeholder="Ex: Departamento de Engenharia"
+              />
+            </div>
+            <div>
+              <Label>Código do Setor</Label>
+              <Input
+                value={codigoSetor}
+                onChange={(e) => setCodigoSetor(e.target.value)}
+                placeholder="Ex: DENG-001"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Justificativa *</Label>
+            <Textarea
+              value={justificativa}
+              onChange={(e) => setJustificativa(e.target.value)}
+              placeholder="Justificativa para emissão da OS..."
+              rows={2}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Local de Execução</Label>
+              <Input
+                value={localExecucao}
+                onChange={(e) => setLocalExecucao(e.target.value)}
+                placeholder="Endereço ou local da obra"
+              />
+            </div>
+            <div>
+              <Label>Prioridade</Label>
+              <Select value={prioridade} onValueChange={setPrioridade}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BAIXA">Baixa</SelectItem>
+                  <SelectItem value="NORMAL">Normal</SelectItem>
+                  <SelectItem value="ALTA">Alta</SelectItem>
+                  <SelectItem value="URGENTE">Urgente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>Início Previsto</Label>
+              <Input
+                type="date"
+                value={dataInicioPrevista}
+                onChange={(e) => setDataInicioPrevista(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Fim Previsto</Label>
+              <Input
+                type="date"
+                value={dataFimPrevista}
+                onChange={(e) => setDataFimPrevista(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Prazo (dias)</Label>
+              <Input
+                type="number"
+                min="1"
+                placeholder="Ex: 180"
+                value={prazoExecucaoDias}
+                onChange={(e) => setPrazoExecucaoDias(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Responsável Técnico</Label>
+              <Input
+                value={responsavelTecnico}
+                onChange={(e) => setResponsavelTecnico(e.target.value)}
+                placeholder="Engenheiro responsável"
+              />
+            </div>
+            <div>
+              <Label>Fiscal do Contrato</Label>
+              <Input
+                value={fiscalNome}
+                onChange={(e) => setFiscalNome(e.target.value)}
+                placeholder="Nome do fiscal"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Observações</Label>
+            <Textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações adicionais (opcional)"
+              rows={2}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderEtapa3Resumo = () => (
     <div className="space-y-6">
       <Card>
@@ -1288,10 +1482,16 @@ function NovaRequisicaoForm() {
             </div>
           </div>
 
-          {/* Dados da Requisição */}
+          {/* Dados */}
           <div className="p-4 bg-gray-50 rounded-lg">
-            <h4 className="font-medium mb-2">Dados</h4>
+            <h4 className="font-medium mb-2">{isOS ? 'Dados da OS' : 'Dados'}</h4>
             <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500">Tipo:</span>{' '}
+                <Badge className={isOS ? 'bg-indigo-100 text-indigo-800' : ''}>
+                  {isOS ? 'Ordem de Serviço' : tipo === 'MATERIAL' ? 'Material' : tipo === 'SERVICO' ? 'Serviço' : tipo}
+                </Badge>
+              </div>
               <div>
                 <span className="text-gray-500">Setor:</span>{' '}
                 <strong>{setorSolicitante}</strong>
@@ -1307,7 +1507,32 @@ function NovaRequisicaoForm() {
                   {prioridade}
                 </Badge>
               </div>
-              {localEntrega && (
+              {isOS && descricaoOS && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">Objeto da OS:</span>{' '}
+                  <strong>{descricaoOS}</strong>
+                </div>
+              )}
+              {isOS && localExecucao && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">Local de Execução:</span>{' '}
+                  <strong>{localExecucao}</strong>
+                </div>
+              )}
+              {isOS && (dataInicioPrevista || dataFimPrevista || prazoExecucaoDias) && (
+                <div className="col-span-2 flex gap-4">
+                  {dataInicioPrevista && <span><span className="text-gray-500">Início:</span> <strong>{formatarData(dataInicioPrevista)}</strong></span>}
+                  {dataFimPrevista && <span><span className="text-gray-500">Fim:</span> <strong>{formatarData(dataFimPrevista)}</strong></span>}
+                  {prazoExecucaoDias && <span><span className="text-gray-500">Prazo:</span> <strong>{prazoExecucaoDias} dias</strong></span>}
+                </div>
+              )}
+              {isOS && (responsavelTecnico || fiscalNome) && (
+                <div className="col-span-2 flex gap-4">
+                  {responsavelTecnico && <span><span className="text-gray-500">Resp. Técnico:</span> <strong>{responsavelTecnico}</strong></span>}
+                  {fiscalNome && <span><span className="text-gray-500">Fiscal:</span> <strong>{fiscalNome}</strong></span>}
+                </div>
+              )}
+              {!isOS && localEntrega && (
                 <div className="col-span-2">
                   <span className="text-gray-500">Local de Entrega:</span>{' '}
                   <strong>{localEntrega}</strong>
@@ -1320,57 +1545,72 @@ function NovaRequisicaoForm() {
             </div>
           </div>
 
-          {/* Itens */}
-          <div>
-            <h4 className="font-medium mb-2">Itens ({itensRequisicao.length})</h4>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>#</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead className="text-right">Qtd</TableHead>
-                  <TableHead className="text-right">Valor Unit.</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {itensRequisicao.map((item, index) => (
-                  <TableRow key={item.item_contrato_id}>
-                    <TableCell>{index + 1}</TableCell>
-                    <TableCell className="max-w-[300px] truncate">
-                      {item.descricao}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.quantidade_solicitada} {item.unidade_medida}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatarMoeda(item.valor_unitario)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatarMoeda(item.valor_total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          {/* Itens (apenas para requisição normal) */}
+          {!isOS && (
+            <>
+              <div>
+                <h4 className="font-medium mb-2">Itens ({itensRequisicao.length})</h4>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Qtd</TableHead>
+                      <TableHead className="text-right">Valor Unit.</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {itensRequisicao.map((item, index) => (
+                      <TableRow key={item.item_contrato_id}>
+                        <TableCell>{index + 1}</TableCell>
+                        <TableCell className="max-w-[300px] truncate">
+                          {item.descricao}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.quantidade_solicitada} {item.unidade_medida}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatarMoeda(item.valor_unitario)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatarMoeda(item.valor_total)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
-          {/* Total */}
-          <div className="p-4 bg-green-50 rounded-lg flex items-center justify-between">
-            <span className="text-lg font-medium">Valor Total da Requisição</span>
-            <span className="text-2xl font-bold text-green-700">
-              {formatarMoeda(calcularTotal())}
-            </span>
-          </div>
+              {/* Total */}
+              <div className="p-4 bg-green-50 rounded-lg flex items-center justify-between">
+                <span className="text-lg font-medium">Valor Total da Requisição</span>
+                <span className="text-2xl font-bold text-green-700">
+                  {formatarMoeda(calcularTotal())}
+                </span>
+              </div>
 
-          {/* Alerta sobre saldo */}
-          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-            <div className="text-sm text-yellow-800">
-              <strong>Importante:</strong> Ao criar a requisição, o saldo será{' '}
-              <strong>reservado imediatamente</strong> no contrato.
+              {/* Alerta sobre saldo */}
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                <div className="text-sm text-yellow-800">
+                  <strong>Importante:</strong> Ao criar a requisição, o saldo será{' '}
+                  <strong>reservado imediatamente</strong> no contrato.
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Alerta OS */}
+          {isOS && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-indigo-600 mt-0.5" />
+              <div className="text-sm text-indigo-800">
+                <strong>Ordem de Serviço:</strong> Após enviar para autorização, a OS será analisada pelo gestor.
+                Uma vez autorizada, as medições poderão ser registradas no contrato.
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -1476,9 +1716,18 @@ function NovaRequisicaoForm() {
 
       {/* Conteúdo da Etapa */}
       {etapa === 0 && renderEtapa0Contrato()}
-      {etapa === 1 && renderEtapa1Itens()}
-      {etapa === 2 && renderEtapa2Dados()}
-      {etapa === 3 && renderEtapa3Resumo()}
+      {isOS ? (
+        <>
+          {etapa === 1 && renderEtapaOSDados()}
+          {etapa === 2 && renderEtapa3Resumo()}
+        </>
+      ) : (
+        <>
+          {etapa === 1 && renderEtapa1Itens()}
+          {etapa === 2 && renderEtapa2Dados()}
+          {etapa === 3 && renderEtapa3Resumo()}
+        </>
+      )}
 
       {/* Navegação */}
       <div className="flex items-center justify-between pt-4 border-t">
@@ -1492,7 +1741,7 @@ function NovaRequisicaoForm() {
         </Button>
 
         <div className="flex gap-2">
-          {etapa < 3 ? (
+          {etapa < STEPS.length - 1 ? (
             <Button onClick={handleProximaEtapa}>
               Próximo
               <ArrowRight className="h-4 w-4 ml-2" />

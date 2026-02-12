@@ -28,56 +28,17 @@ export class ModalidadesContratoController {
   ) {}
 
   // ============================================================================
-  // MEDIÇÃO — Ordem de Serviço (equivalente à Requisição)
+  // MEDIÇÃO — Consulta de OS (criação/aprovação via módulo centralizado de Requisições)
   // ============================================================================
-
-  @Post(':contratoId/os-medicao')
-  async criarOSMedicao(
-    @Param('contratoId') contratoId: string,
-    @Body() dados: any,
-  ) {
-    return this.medicaoService.criarOS(contratoId, dados);
-  }
 
   @Get(':contratoId/os-medicao')
   async listarOSMedicao(@Param('contratoId') contratoId: string) {
     return this.medicaoService.listarOS(contratoId);
   }
 
-  @Get('os-medicao/:osId')
-  async buscarOSMedicao(@Param('osId') osId: string) {
-    return this.medicaoService.buscarOS(osId);
-  }
-
-  @Patch('os-medicao/:osId/emitir')
-  async emitirOSMedicao(@Param('osId') osId: string) {
-    return this.medicaoService.emitirOS(osId);
-  }
-
-  @Patch('os-medicao/:osId/autorizar')
-  async autorizarOSMedicao(
-    @Param('osId') osId: string,
-    @Body() body: any,
-  ) {
-    return this.medicaoService.autorizarOS(osId, body);
-  }
-
-  @Patch('os-medicao/:osId/iniciar')
-  async iniciarExecucaoOSMedicao(@Param('osId') osId: string) {
-    return this.medicaoService.iniciarExecucaoOS(osId);
-  }
-
-  @Patch('os-medicao/:osId/concluir')
-  async concluirOSMedicao(@Param('osId') osId: string) {
-    return this.medicaoService.concluirOS(osId);
-  }
-
-  @Patch('os-medicao/:osId/cancelar')
-  async cancelarOSMedicao(
-    @Param('osId') osId: string,
-    @Body() body: { observacao?: string },
-  ) {
-    return this.medicaoService.cancelarOS(osId, body.observacao);
+  @Get(':contratoId/os-medicao/ativa')
+  async getOSAtivaMedicao(@Param('contratoId') contratoId: string) {
+    return this.medicaoService.getOSAtiva(contratoId);
   }
 
   // ============================================================================

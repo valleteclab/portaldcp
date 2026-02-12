@@ -18,7 +18,7 @@ import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
 import { LicencaControle } from './entities/licenca-controle.entity';
 import { OrdemServicoContrato } from './entities/ordem-servico-contrato.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
-import { OrdemServicoMedicao } from './entities/ordem-servico-medicao.entity';
+import { Requisicao } from '../almoxarifado/entities/requisicao.entity';
 import { MedicaoService } from './medicao.service';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
@@ -29,7 +29,7 @@ import { ModalidadesContratoController } from './modalidades-contrato.controller
   imports: [
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, Medicao, ItemMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, OrdemServicoMedicao,
+      EtapaCronograma, Medicao, ItemMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao,
     ]),
     NotificacoesModule,
   ],
