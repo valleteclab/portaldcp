@@ -53,7 +53,7 @@ export function Sidebar({ userType }: SidebarProps) {
         const usuarioStr = localStorage.getItem('usuario')
         if (usuarioStr) {
           const usuario = JSON.parse(usuarioStr)
-          setPodeAprovar(usuario.pode_aprovar_requisicoes === true)
+          setPodeAprovar(usuario.pode_aprovar_requisicoes === true || usuario.pode_liberar_contratos === true)
         }
       } catch (e) {
         console.error('Erro ao verificar permissão de aprovação:', e)
@@ -96,7 +96,8 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/ordens", label: "Ordens de Fornecimento", icon: Send, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/recebimentos", label: "Recebimentos", icon: Package, modulo: ModuloSistema.ALMOXARIFADO },
-    { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO, requerAprovador: true },
+    { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações Requisições", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO, requerAprovador: true },
+    { href: "/orgao/aprovacoes", label: "Central de Aprovações", icon: CheckCircle, requerAprovador: true },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]

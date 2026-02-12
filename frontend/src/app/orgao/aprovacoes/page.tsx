@@ -1,0 +1,938 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import {
+  Loader2,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Clock,
+  DollarSign,
+  User,
+  Calendar,
+  FileText,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Building2,
+  Unlock,
+  Lock,
+  ClipboardList,
+  FileCheck,
+  Eye,
+  Send,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { API_URL, authFetch } from '@/lib/api';
+
+// ============ INTERFACES ============
+
+interface ItemRequisicao {
+  id: string;
+  numero_item: number;
+  descricao: string;
+  unidade_medida: string;
+  quantidade_solicitada: number;
+  valor_unitario: number | null;
+  valor_total_estimado: number | null;
+}
+
+interface Requisicao {
+  id: string;
+  numero: string;
+  tipo: string;
+  setor_solicitante: string;
+  justificativa: string;
+  prioridade: string;
+  data_solicitacao: string;
+  usuario_solicitante_nome: string;
+  valor_total_estimado: number;
+  contrato?: {
+    id: string;
+    numero_contrato: string;
+    fornecedor?: {
+      razao_social: string;
+    };
+  };
+  itens: ItemRequisicao[];
+}
+
+interface Contrato {
+  id: string;
+  numero_contrato: string;
+  numero_processo: string;
+  objeto: string;
+  objeto_detalhado?: string;
+  fornecedor_razao_social: string;
+  fornecedor_cnpj: string;
+  fornecedor?: {
+    razao_social: string;
+    cpf_cnpj: string;
+    nome_fantasia?: string;
+  };
+  status: string;
+  tipo: string;
+  categoria: string;
+  valor_inicial: number;
+  valor_global: number;
+  data_assinatura: string;
+  data_vigencia_inicio: string;
+  data_vigencia_fim: string;
+  fiscal_nome?: string;
+  observacoes?: string;
+  created_at: string;
+}
+
+// ============ CONSTANTS ============
+
+const PRIORIDADE_COLORS: Record<string, string> = {
+  URGENTE: 'bg-red-100 text-red-800',
+  ALTA: 'bg-orange-100 text-orange-800',
+  NORMAL: 'bg-blue-100 text-blue-800',
+  BAIXA: 'bg-gray-100 text-gray-800',
+};
+
+const CATEGORIA_LABELS: Record<string, string> = {
+  COMPRAS: 'Compras',
+  SERVICOS: 'Serviços',
+  OBRAS: 'Obras',
+  LOCACAO: 'Locação',
+  OUTROS: 'Outros',
+};
+
+// ============ HELPERS ============
+
+const formatarData = (data: string) => {
+  if (!data) return '-';
+  return new Date(data).toLocaleDateString('pt-BR');
+};
+
+const formatarMoeda = (valor: number | null | undefined) => {
+  if (valor === null || valor === undefined) return '-';
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(valor);
+};
+
+const formatarCNPJ = (cnpj: string) => {
+  if (!cnpj || cnpj.length < 14) return cnpj;
+  const limpo = cnpj.replace(/\D/g, '');
+  if (limpo.length === 14) {
+    return limpo.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  }
+  if (limpo.length === 11) {
+    return limpo.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  }
+  return cnpj;
+};
+
+// ============ MAIN COMPONENT ============
+
+export default function CentralAprovacoesPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('contratos');
+
+  // Permissões
+  const [podeAprovarRequisicoes, setPodeAprovarRequisicoes] = useState(false);
+  const [podeLiberarContratos, setPodeLiberarContratos] = useState(false);
+  const [orgaoId, setOrgaoId] = useState<string | null>(null);
+
+  // Dados
+  const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
+  const [contratos, setContratos] = useState<Contrato[]>([]);
+
+  // UI State
+  const [loadingContratos, setLoadingContratos] = useState(false);
+  const [loadingRequisicoes, setLoadingRequisicoes] = useState(false);
+  const [processando, setProcessando] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Modais Requisição
+  const [requisicaoSelecionada, setRequisicaoSelecionada] = useState<Requisicao | null>(null);
+  const [showAprovarRequisicao, setShowAprovarRequisicao] = useState(false);
+  const [showNegarRequisicao, setShowNegarRequisicao] = useState(false);
+  const [observacaoRequisicao, setObservacaoRequisicao] = useState('');
+  const [motivoNegativaRequisicao, setMotivoNegativaRequisicao] = useState('');
+
+  // Modais Contrato
+  const [contratoSelecionado, setContratoSelecionado] = useState<Contrato | null>(null);
+  const [showLiberarContrato, setShowLiberarContrato] = useState(false);
+  const [showRejeitarContrato, setShowRejeitarContrato] = useState(false);
+  const [motivoRejeicaoContrato, setMotivoRejeicaoContrato] = useState('');
+
+  // Verifica permissões
+  useEffect(() => {
+    try {
+      const usuarioStr = localStorage.getItem('usuario');
+      const orgaoStr = localStorage.getItem('orgao');
+
+      if (usuarioStr) {
+        const usuario = JSON.parse(usuarioStr);
+        setPodeAprovarRequisicoes(usuario.pode_aprovar_requisicoes === true);
+        setPodeLiberarContratos(usuario.pode_liberar_contratos === true);
+        setOrgaoId(usuario.orgao_id);
+      } else if (orgaoStr) {
+        // Login direto como órgão — tem todas as permissões
+        const orgao = JSON.parse(orgaoStr);
+        setPodeAprovarRequisicoes(true);
+        setPodeLiberarContratos(true);
+        setOrgaoId(orgao.id);
+      } else {
+        router.push('/orgao-login');
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao verificar permissões:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (!loading && orgaoId) {
+      if (podeLiberarContratos) carregarContratos();
+      if (podeAprovarRequisicoes) carregarRequisicoes();
+    }
+  }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
+
+  // ============ CARREGAR DADOS ============
+
+  const carregarContratos = async () => {
+    setLoadingContratos(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos?status=AGUARDANDO_LIBERACAO&orgaoId=${orgaoId}`);
+      if (res.ok) {
+        setContratos(await res.json());
+      }
+    } catch (error) {
+      console.error('Erro ao carregar contratos:', error);
+    } finally {
+      setLoadingContratos(false);
+    }
+  };
+
+  const carregarRequisicoes = async () => {
+    setLoadingRequisicoes(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/pendentes`);
+      if (res.ok) {
+        setRequisicoes(await res.json());
+      }
+    } catch (error) {
+      console.error('Erro ao carregar requisições:', error);
+    } finally {
+      setLoadingRequisicoes(false);
+    }
+  };
+
+  const recarregarTudo = () => {
+    if (podeLiberarContratos) carregarContratos();
+    if (podeAprovarRequisicoes) carregarRequisicoes();
+  };
+
+  // ============ AÇÕES CONTRATOS ============
+
+  const liberarContrato = async () => {
+    if (!contratoSelecionado) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/liberar`, { method: 'POST' });
+      if (res.ok) {
+        setShowLiberarContrato(false);
+        await carregarContratos();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao liberar contrato');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao liberar contrato');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const rejeitarContrato = async () => {
+    if (!contratoSelecionado) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/rejeitar-liberacao`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo: motivoRejeicaoContrato }),
+      });
+      if (res.ok) {
+        setShowRejeitarContrato(false);
+        setMotivoRejeicaoContrato('');
+        await carregarContratos();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao rejeitar contrato');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao rejeitar liberação');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  // ============ AÇÕES REQUISIÇÕES ============
+
+  const aprovarRequisicao = async () => {
+    if (!requisicaoSelecionada) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/autorizar`, {
+        method: 'POST',
+        body: JSON.stringify({ observacao: observacaoRequisicao }),
+      });
+      if (res.ok) {
+        setShowAprovarRequisicao(false);
+        await carregarRequisicoes();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao aprovar requisição');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao aprovar requisição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const negarRequisicao = async () => {
+    if (!requisicaoSelecionada || !motivoNegativaRequisicao.trim()) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/negar`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo: motivoNegativaRequisicao }),
+      });
+      if (res.ok) {
+        setShowNegarRequisicao(false);
+        setMotivoNegativaRequisicao('');
+        await carregarRequisicoes();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao negar requisição');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao negar requisição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  // ============ RENDER ============
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (!podeAprovarRequisicoes && !podeLiberarContratos) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <Lock className="h-12 w-12 text-gray-400" />
+        <h2 className="text-xl font-semibold text-gray-700">Sem permissão</h2>
+        <p className="text-gray-500">Você não possui permissão para acessar a central de aprovações.</p>
+        <Button variant="outline" onClick={() => router.push('/orgao')}>Voltar ao Dashboard</Button>
+      </div>
+    );
+  }
+
+  const totalPendentes = contratos.length + requisicoes.length;
+  const valorTotalContratos = contratos.reduce((acc, c) => acc + Number(c.valor_global || 0), 0);
+  const valorTotalRequisicoes = requisicoes.reduce((acc, r) => acc + Number(r.valor_total_estimado || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Clock className="h-7 w-7 text-amber-600" />
+            Central de Aprovações
+          </h1>
+          <p className="text-gray-500 mt-1">
+            Itens aguardando sua autorização
+          </p>
+        </div>
+        <Button variant="outline" onClick={recarregarTudo}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Atualizar
+        </Button>
+      </div>
+
+      {/* Contadores */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className={totalPendentes > 0 ? 'border-amber-200 bg-amber-50' : ''}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Total Pendente
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-amber-600">{totalPendentes}</div>
+          </CardContent>
+        </Card>
+
+        {podeLiberarContratos && (
+          <Card className={contratos.length > 0 ? 'border-blue-200 bg-blue-50' : ''}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <FileCheck className="h-4 w-4 text-blue-500" />
+                Contratos
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">{contratos.length}</div>
+              <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorTotalContratos)}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {podeAprovarRequisicoes && (
+          <Card className={requisicoes.length > 0 ? 'border-purple-200 bg-purple-50' : ''}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-purple-500" />
+                Requisições
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-600">{requisicoes.length}</div>
+              <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorTotalRequisicoes)}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500">
+              Valor Total Pendente
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-700">
+              {formatarMoeda(valorTotalContratos + valorTotalRequisicoes)}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          {podeLiberarContratos && (
+            <TabsTrigger value="contratos" className="flex items-center gap-2">
+              <FileCheck className="h-4 w-4" />
+              Contratos
+              {contratos.length > 0 && (
+                <Badge className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0">{contratos.length}</Badge>
+              )}
+            </TabsTrigger>
+          )}
+          {podeAprovarRequisicoes && (
+            <TabsTrigger value="requisicoes" className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4" />
+              Requisições
+              {requisicoes.length > 0 && (
+                <Badge className="ml-1 bg-purple-600 text-white text-xs px-1.5 py-0">{requisicoes.length}</Badge>
+              )}
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        {/* ============ TAB CONTRATOS ============ */}
+        <TabsContent value="contratos" className="space-y-4">
+          {loadingContratos ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : contratos.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhum contrato pendente</h3>
+                <p className="text-gray-500">Todos os contratos foram liberados.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {contratos.map((contrato) => (
+                <Card key={contrato.id} className="overflow-hidden border-l-4 border-l-amber-400 hover:shadow-md transition-shadow">
+                  <CardContent className="p-5">
+                    {/* Header do Card */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-lg text-gray-900">{contrato.numero_contrato}</span>
+                          <Badge className="bg-amber-100 text-amber-800 text-xs">
+                            <Lock className="w-3 h-3 mr-1" />
+                            Aguardando Liberação
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-500">Processo: {contrato.numero_processo || '-'}</p>
+                      </div>
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {CATEGORIA_LABELS[contrato.categoria] || contrato.categoria}
+                      </Badge>
+                    </div>
+
+                    {/* Empresa */}
+                    <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Building2 className="h-4 w-4 text-slate-600" />
+                        <span className="font-semibold text-slate-800">
+                          {contrato.fornecedor?.razao_social || contrato.fornecedor_razao_social || 'Não informado'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 ml-6">
+                        CNPJ: {formatarCNPJ(contrato.fornecedor?.cpf_cnpj || contrato.fornecedor_cnpj || '')}
+                      </p>
+                      {contrato.fornecedor?.nome_fantasia && (
+                        <p className="text-xs text-slate-500 ml-6">
+                          Nome Fantasia: {contrato.fornecedor.nome_fantasia}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Objeto */}
+                    <div className="mb-3">
+                      <p className="text-xs font-medium text-gray-500 mb-1">Objeto</p>
+                      <p className="text-sm text-gray-700 line-clamp-2">{contrato.objeto}</p>
+                    </div>
+
+                    {/* Grid de informações */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="bg-blue-50 rounded-lg p-2.5">
+                        <p className="text-xs text-blue-600 font-medium">Valor Global</p>
+                        <p className="text-base font-bold text-blue-700">{formatarMoeda(contrato.valor_global)}</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-2.5">
+                        <p className="text-xs text-green-600 font-medium">Valor Inicial</p>
+                        <p className="text-base font-bold text-green-700">{formatarMoeda(contrato.valor_inicial)}</p>
+                      </div>
+                    </div>
+
+                    {/* Vigência */}
+                    <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+                      <div>
+                        <p className="text-gray-500">Assinatura</p>
+                        <p className="font-medium">{formatarData(contrato.data_assinatura)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Início Vigência</p>
+                        <p className="font-medium">{formatarData(contrato.data_vigencia_inicio)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Fim Vigência</p>
+                        <p className="font-medium">{formatarData(contrato.data_vigencia_fim)}</p>
+                      </div>
+                    </div>
+
+                    {/* Fiscal */}
+                    {contrato.fiscal_nome && (
+                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+                        <User className="h-3.5 w-3.5" />
+                        <span>Fiscal: <strong>{contrato.fiscal_nome}</strong></span>
+                      </div>
+                    )}
+
+                    {/* Criado em */}
+                    <div className="flex items-center gap-2 text-xs text-gray-400 mb-4">
+                      <Calendar className="h-3.5 w-3.5" />
+                      <span>Criado em {formatarData(contrato.created_at)}</span>
+                    </div>
+
+                    {/* Ações */}
+                    <div className="flex gap-2 pt-3 border-t">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-green-600 hover:bg-green-700"
+                        onClick={() => { setContratoSelecionado(contrato); setShowLiberarContrato(true); }}
+                      >
+                        <Unlock className="h-4 w-4 mr-1" />
+                        Liberar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
+                        onClick={() => { setContratoSelecionado(contrato); setMotivoRejeicaoContrato(''); setShowRejeitarContrato(true); }}
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Rejeitar
+                      </Button>
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link href={`/orgao/contratos/${contrato.id}`}>
+                          <Eye className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ============ TAB REQUISIÇÕES ============ */}
+        <TabsContent value="requisicoes" className="space-y-4">
+          {loadingRequisicoes ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+            </div>
+          ) : requisicoes.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma requisição pendente</h3>
+                <p className="text-gray-500">Todas as requisições foram processadas.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {requisicoes.map((requisicao) => (
+                <Card key={requisicao.id} className="overflow-hidden">
+                  <Collapsible open={expandedId === requisicao.id} onOpenChange={() => setExpandedId(expandedId === requisicao.id ? null : requisicao.id)}>
+                    <div className="p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="font-bold text-lg">{requisicao.numero}</span>
+                            <Badge className={PRIORIDADE_COLORS[requisicao.prioridade]}>
+                              {requisicao.prioridade}
+                            </Badge>
+                            <Badge variant="outline">{requisicao.tipo}</Badge>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <User className="h-4 w-4" />
+                              <span>{requisicao.usuario_solicitante_nome}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <FileText className="h-4 w-4" />
+                              <span>{requisicao.setor_solicitante}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <Calendar className="h-4 w-4" />
+                              <span>{formatarData(requisicao.data_solicitacao)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 font-semibold text-blue-600">
+                              <DollarSign className="h-4 w-4" />
+                              <span>{formatarMoeda(requisicao.valor_total_estimado)}</span>
+                            </div>
+                          </div>
+
+                          {requisicao.contrato && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              <span className="font-medium">Contrato:</span>{' '}
+                              {requisicao.contrato.numero_contrato}
+                              {requisicao.contrato.fornecedor && ` - ${requisicao.contrato.fornecedor.razao_social}`}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 ml-4">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              {expandedId === requisicao.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </Button>
+                          </CollapsibleTrigger>
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => { setRequisicaoSelecionada(requisicao); setObservacaoRequisicao(''); setShowAprovarRequisicao(true); }}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Aprovar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => { setRequisicaoSelecionada(requisicao); setMotivoNegativaRequisicao(''); setShowNegarRequisicao(true); }}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Negar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <CollapsibleContent>
+                      <div className="px-4 pb-4 border-t bg-gray-50">
+                        <div className="mt-4">
+                          <h4 className="font-medium mb-2">Justificativa</h4>
+                          <p className="text-sm text-gray-600 bg-white p-3 rounded-md">{requisicao.justificativa}</p>
+                        </div>
+                        <div className="mt-4">
+                          <h4 className="font-medium mb-2">Itens ({requisicao.itens?.length || 0})</h4>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-16">#</TableHead>
+                                <TableHead>Descrição</TableHead>
+                                <TableHead className="text-center">Unid.</TableHead>
+                                <TableHead className="text-right">Qtd.</TableHead>
+                                <TableHead className="text-right">Valor Unit.</TableHead>
+                                <TableHead className="text-right">Valor Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {requisicao.itens?.map((item) => (
+                                <TableRow key={item.id}>
+                                  <TableCell className="font-mono">{item.numero_item}</TableCell>
+                                  <TableCell>{item.descricao}</TableCell>
+                                  <TableCell className="text-center">{item.unidade_medida}</TableCell>
+                                  <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
+                                  <TableCell className="text-right">{formatarMoeda(item.valor_unitario)}</TableCell>
+                                  <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total_estimado)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* ============ MODAIS CONTRATOS ============ */}
+
+      {/* Modal Liberar Contrato */}
+      <Dialog open={showLiberarContrato} onOpenChange={setShowLiberarContrato}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <Unlock className="h-5 w-5" />
+              Liberar Contrato
+            </DialogTitle>
+            <DialogDescription>
+              Confirma a liberação do contrato {contratoSelecionado?.numero_contrato}?
+            </DialogDescription>
+          </DialogHeader>
+
+          {contratoSelecionado && (
+            <div className="py-4 space-y-3">
+              <div className="bg-green-50 p-4 rounded-lg space-y-2">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-green-700" />
+                  <span className="font-semibold text-green-800">
+                    {contratoSelecionado.fornecedor?.razao_social || contratoSelecionado.fornecedor_razao_social}
+                  </span>
+                </div>
+                <p className="text-sm text-green-700">
+                  CNPJ: {formatarCNPJ(contratoSelecionado.fornecedor?.cpf_cnpj || contratoSelecionado.fornecedor_cnpj || '')}
+                </p>
+                <p className="text-sm text-green-700">
+                  <strong>Valor:</strong> {formatarMoeda(contratoSelecionado.valor_global)}
+                </p>
+                <p className="text-sm text-green-700">
+                  <strong>Vigência:</strong> {formatarData(contratoSelecionado.data_vigencia_inicio)} a {formatarData(contratoSelecionado.data_vigencia_fim)}
+                </p>
+                <p className="text-sm text-green-800 mt-2 pt-2 border-t border-green-200">
+                  Ao liberar, o contrato ficará <strong>VIGENTE</strong> e poderá receber requisições e pedidos.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLiberarContrato(false)}>Cancelar</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={liberarContrato} disabled={processando}>
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Unlock className="h-4 w-4 mr-2" />}
+              Confirmar Liberação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Rejeitar Contrato */}
+      <Dialog open={showRejeitarContrato} onOpenChange={setShowRejeitarContrato}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <XCircle className="h-5 w-5" />
+              Rejeitar Liberação
+            </DialogTitle>
+            <DialogDescription>
+              Rejeitar a liberação do contrato {contratoSelecionado?.numero_contrato}?
+            </DialogDescription>
+          </DialogHeader>
+
+          {contratoSelecionado && (
+            <div className="py-4 space-y-3">
+              <div className="bg-red-50 p-4 rounded-lg space-y-2">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-red-700" />
+                  <span className="font-semibold text-red-800">
+                    {contratoSelecionado.fornecedor?.razao_social || contratoSelecionado.fornecedor_razao_social}
+                  </span>
+                </div>
+                <p className="text-sm text-red-700">
+                  <strong>Valor:</strong> {formatarMoeda(contratoSelecionado.valor_global)}
+                </p>
+                <p className="text-sm text-red-800 mt-2">
+                  O contrato permanecerá aguardando liberação e poderá ser editado e re-avaliado.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="motivo-rejeicao">Motivo da Rejeição (opcional)</Label>
+                <Textarea
+                  id="motivo-rejeicao"
+                  value={motivoRejeicaoContrato}
+                  onChange={(e) => setMotivoRejeicaoContrato(e.target.value)}
+                  placeholder="Informe o motivo da rejeição"
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRejeitarContrato(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={rejeitarContrato} disabled={processando}>
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
+              Confirmar Rejeição
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAIS REQUISIÇÕES ============ */}
+
+      {/* Modal Aprovar Requisição */}
+      <Dialog open={showAprovarRequisicao} onOpenChange={setShowAprovarRequisicao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <CheckCircle className="h-5 w-5" />
+              Aprovar Requisição
+            </DialogTitle>
+            <DialogDescription>
+              Confirma a aprovação da requisição {requisicaoSelecionada?.numero}?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <div className="bg-green-50 p-4 rounded-lg mb-4">
+              <p className="text-sm text-green-800">
+                <strong>Valor:</strong> {formatarMoeda(requisicaoSelecionada?.valor_total_estimado || 0)}
+              </p>
+              <p className="text-sm text-green-800">
+                <strong>Itens:</strong> {requisicaoSelecionada?.itens?.length || 0} item(ns)
+              </p>
+              <p className="text-sm text-green-800 mt-2">
+                Ao aprovar, o saldo será reservado no contrato e o solicitante será notificado.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="obs-aprovacao">Observação (opcional)</Label>
+              <Textarea
+                id="obs-aprovacao"
+                value={observacaoRequisicao}
+                onChange={(e) => setObservacaoRequisicao(e.target.value)}
+                placeholder="Adicione uma observação se necessário"
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAprovarRequisicao(false)}>Cancelar</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={aprovarRequisicao} disabled={processando}>
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              Confirmar Aprovação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Negar Requisição */}
+      <Dialog open={showNegarRequisicao} onOpenChange={setShowNegarRequisicao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <XCircle className="h-5 w-5" />
+              Negar Requisição
+            </DialogTitle>
+            <DialogDescription>
+              Confirma a negativa da requisição {requisicaoSelecionada?.numero}?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <div className="bg-red-50 p-4 rounded-lg mb-4">
+              <p className="text-sm text-red-800">
+                Ao negar, o solicitante será notificado com o motivo informado.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="motivo-negativa">Motivo da Negativa *</Label>
+              <Textarea
+                id="motivo-negativa"
+                value={motivoNegativaRequisicao}
+                onChange={(e) => setMotivoNegativaRequisicao(e.target.value)}
+                placeholder="Informe o motivo da negativa"
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNegarRequisicao(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={negarRequisicao} disabled={processando || !motivoNegativaRequisicao.trim()}>
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
+              Confirmar Negativa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
