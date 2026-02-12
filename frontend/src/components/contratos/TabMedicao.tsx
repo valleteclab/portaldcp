@@ -788,7 +788,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 <p className="text-blue-700"><strong>Fornecedor:</strong> {modalAteste.fornecedor_nome}</p>
                 {modalAteste.fornecedor_observacoes && <p className="text-blue-600 mt-1 italic">"{modalAteste.fornecedor_observacoes}"</p>}
                 {modalAteste.nota_fiscal_numero && (
-                  <p className="text-blue-600 mt-1">NF: {modalAteste.nota_fiscal_numero} — {formatarMoeda(modalAteste.nota_fiscal_valor)}</p>
+                  <p className="text-blue-600 mt-1">NF: {modalAteste.nota_fiscal_numero} — {formatarMoeda(modalAteste.nota_fiscal_valor || 0)}</p>
                 )}
               </div>
             )}
