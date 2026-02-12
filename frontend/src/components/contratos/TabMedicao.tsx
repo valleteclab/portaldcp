@@ -16,8 +16,28 @@ import {
 } from '@/components/ui/table'
 import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
+  FileText, Play, Lock, Unlock, AlertTriangle, Calendar, MapPin,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+
+interface OSMedicao {
+  id: string
+  numero_os: string
+  descricao: string
+  local_execucao: string
+  data_emissao: string
+  data_autorizacao: string
+  data_inicio_prevista: string
+  data_fim_prevista: string
+  data_inicio_real: string
+  data_conclusao: string
+  prazo_execucao_dias: number
+  responsavel_tecnico: string
+  fiscal_nome: string
+  autorizador_nome: string
+  status: string
+  observacoes: string
+}
 
 interface Etapa {
   id: string
@@ -56,6 +76,17 @@ interface Resumo {
   etapas_concluidas: number
   total_medicoes: number
   medicoes_aprovadas: number
+  os_ativa: OSMedicao | null
+  total_os: number
+}
+
+const STATUS_OS: Record<string, { label: string; cor: string }> = {
+  RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800' },
+  EMITIDA: { label: 'Emitida', cor: 'bg-amber-100 text-amber-800' },
+  AUTORIZADA: { label: 'Autorizada', cor: 'bg-blue-100 text-blue-800' },
+  EM_EXECUCAO: { label: 'Em Execução', cor: 'bg-indigo-100 text-indigo-800' },
+  CONCLUIDA: { label: 'Concluída', cor: 'bg-green-100 text-green-800' },
+  CANCELADA: { label: 'Cancelada', cor: 'bg-red-100 text-red-800' },
 }
 
 const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
@@ -82,6 +113,14 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+
+  // OS
+  const [modalOS, setModalOS] = useState(false)
+  const [formOS, setFormOS] = useState({
+    descricao: '', local_execucao: '', data_emissao: '',
+    data_inicio_prevista: '', data_fim_prevista: '', prazo_execucao_dias: '',
+    responsavel_tecnico: '', fiscal_nome: '', observacoes: '',
+  })
 
   // Modais
   const [modalEtapa, setModalEtapa] = useState(false)
@@ -117,6 +156,51 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   }, [contratoId])
 
   useEffect(() => { carregarDados() }, [carregarDados])
+
+  const osAtiva = resumo?.os_ativa
+  const temOSAutorizada = osAtiva && ['AUTORIZADA', 'EM_EXECUCAO'].includes(osAtiva.status)
+
+  // ============ ORDEM DE SERVIÇO ============
+
+  const abrirModalOS = () => {
+    const hoje = new Date().toISOString().split('T')[0]
+    setFormOS({ descricao: '', local_execucao: '', data_emissao: hoje, data_inicio_prevista: '', data_fim_prevista: '', prazo_execucao_dias: '', responsavel_tecnico: '', fiscal_nome: '', observacoes: '' })
+    setModalOS(true)
+  }
+
+  const criarOS = async () => {
+    setActionLoading(true)
+    try {
+      const payload = {
+        descricao: formOS.descricao,
+        local_execucao: formOS.local_execucao || null,
+        data_emissao: formOS.data_emissao,
+        data_inicio_prevista: formOS.data_inicio_prevista || null,
+        data_fim_prevista: formOS.data_fim_prevista || null,
+        prazo_execucao_dias: formOS.prazo_execucao_dias ? parseInt(formOS.prazo_execucao_dias) : null,
+        responsavel_tecnico: formOS.responsavel_tecnico || null,
+        fiscal_nome: formOS.fiscal_nome || null,
+        observacoes: formOS.observacoes || null,
+      }
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/os-medicao`, { method: 'POST', body: JSON.stringify(payload) })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      setModalOS(false)
+      carregarDados()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const acaoOS = async (osId: string, acao: string) => {
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/os-medicao/${osId}/${acao}`, {
+        method: 'PATCH', body: JSON.stringify({ autorizador_nome: 'Gestor' }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      carregarDados()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
 
   // ============ ETAPAS ============
 
@@ -238,8 +322,77 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   return (
     <div className="space-y-6">
+      {/* Ordem de Serviço — Seção Principal */}
+      <Card className={!osAtiva ? 'border-amber-300 bg-amber-50/30' : osAtiva.status === 'EM_EXECUCAO' ? 'border-indigo-300' : ''}>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Ordem de Serviço</CardTitle>
+              <CardDescription>A OS autoriza o início da execução da obra. Sem OS, não é possível registrar medições.</CardDescription>
+            </div>
+            {!osAtiva && (
+              <Button onClick={abrirModalOS} size="sm"><Plus className="w-4 h-4 mr-1" />Emitir OS</Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!osAtiva ? (
+            <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <p className="font-medium text-amber-700">Nenhuma Ordem de Serviço ativa</p>
+                <p className="text-sm text-amber-600">Emita e autorize uma OS para liberar o cadastro de etapas e medições.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Badge className={STATUS_OS[osAtiva.status]?.cor || 'bg-gray-100'}>
+                    {STATUS_OS[osAtiva.status]?.label || osAtiva.status}
+                  </Badge>
+                  <span className="font-bold text-lg">{osAtiva.numero_os}</span>
+                </div>
+                <div className="flex gap-2">
+                  {osAtiva.status === 'RASCUNHO' && (
+                    <Button variant="outline" size="sm" onClick={() => acaoOS(osAtiva.id, 'emitir')} disabled={actionLoading}>
+                      <Send className="w-3.5 h-3.5 mr-1" />Emitir
+                    </Button>
+                  )}
+                  {osAtiva.status === 'EMITIDA' && (
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => acaoOS(osAtiva.id, 'autorizar')} disabled={actionLoading}>
+                      <Unlock className="w-3.5 h-3.5 mr-1" />Autorizar
+                    </Button>
+                  )}
+                  {osAtiva.status === 'EM_EXECUCAO' && (
+                    <Button variant="outline" size="sm" onClick={() => acaoOS(osAtiva.id, 'concluir')} disabled={actionLoading}>
+                      <CheckCircle className="w-3.5 h-3.5 mr-1" />Concluir Obra
+                    </Button>
+                  )}
+                  {!['CONCLUIDA', 'CANCELADA'].includes(osAtiva.status) && (
+                    <Button variant="outline" size="sm" className="text-red-600" onClick={() => { if (confirm('Cancelar esta OS?')) acaoOS(osAtiva.id, 'cancelar') }} disabled={actionLoading}>
+                      <XCircle className="w-3.5 h-3.5 mr-1" />Cancelar
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <p className="text-sm text-gray-700">{osAtiva.descricao}</p>
+              <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                {osAtiva.data_emissao && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Emissão: {osAtiva.data_emissao.split('T')[0]}</span>}
+                {osAtiva.data_autorizacao && <span>Autorizada: {osAtiva.data_autorizacao.split('T')[0]}</span>}
+                {osAtiva.data_inicio_real && <span>Início real: {osAtiva.data_inicio_real.split('T')[0]}</span>}
+                {osAtiva.local_execucao && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{osAtiva.local_execucao}</span>}
+                {osAtiva.responsavel_tecnico && <span>Resp. Técnico: {osAtiva.responsavel_tecnico}</span>}
+                {osAtiva.fiscal_nome && <span>Fiscal: {osAtiva.fiscal_nome}</span>}
+                {osAtiva.prazo_execucao_dias && <span>Prazo: {osAtiva.prazo_execucao_dias} dias</span>}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Resumo */}
-      {resumo && (
+      {resumo && temOSAutorizada && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -279,7 +432,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               <CardTitle className="flex items-center gap-2"><BarChart3 className="w-5 h-5" />Cronograma Físico-Financeiro</CardTitle>
               <CardDescription>Etapas da obra/serviço com percentual e valor previsto</CardDescription>
             </div>
-            <Button onClick={() => abrirModalEtapa()} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
+            <Button onClick={() => abrirModalEtapa()} size="sm" disabled={!temOSAutorizada}><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -351,7 +504,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               <CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5" />Boletins de Medição</CardTitle>
               <CardDescription>Medições realizadas pelo fiscal</CardDescription>
             </div>
-            <Button onClick={abrirModalMedicao} size="sm" disabled={etapas.length === 0}>
+            <Button onClick={abrirModalMedicao} size="sm" disabled={etapas.length === 0 || !temOSAutorizada}>
               <Plus className="w-4 h-4 mr-1" />Nova Medição
             </Button>
           </div>
@@ -563,6 +716,67 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
             <Button variant="destructive" onClick={() => modalRejeitar && rejeitarMedicao(modalRejeitar.id)} disabled={actionLoading || !observacaoRejeicao}>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Rejeitar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Criar OS */}
+      <Dialog open={modalOS} onOpenChange={setModalOS}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Emitir Ordem de Serviço</DialogTitle>
+            <DialogDescription>A OS autoriza o início da execução da obra/serviço vinculada a este contrato.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Descrição / Objeto da OS *</Label>
+              <Textarea placeholder="Ex: Execução da obra de reforma do prédio sede conforme projeto básico" value={formOS.descricao} onChange={e => setFormOS({ ...formOS, descricao: e.target.value })} rows={2} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Local de Execução</Label>
+                <Input placeholder="Endereço ou local" value={formOS.local_execucao} onChange={e => setFormOS({ ...formOS, local_execucao: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Data de Emissão *</Label>
+                <Input type="date" value={formOS.data_emissao} onChange={e => setFormOS({ ...formOS, data_emissao: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Início Previsto</Label>
+                <Input type="date" value={formOS.data_inicio_prevista} onChange={e => setFormOS({ ...formOS, data_inicio_prevista: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Fim Previsto</Label>
+                <Input type="date" value={formOS.data_fim_prevista} onChange={e => setFormOS({ ...formOS, data_fim_prevista: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Prazo (dias)</Label>
+                <Input type="number" min="1" placeholder="Ex: 180" value={formOS.prazo_execucao_dias} onChange={e => setFormOS({ ...formOS, prazo_execucao_dias: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Responsável Técnico</Label>
+                <Input placeholder="Engenheiro responsável" value={formOS.responsavel_tecnico} onChange={e => setFormOS({ ...formOS, responsavel_tecnico: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Fiscal</Label>
+                <Input placeholder="Nome do fiscal" value={formOS.fiscal_nome} onChange={e => setFormOS({ ...formOS, fiscal_nome: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Observações</Label>
+              <Textarea placeholder="Observações adicionais" value={formOS.observacoes} onChange={e => setFormOS({ ...formOS, observacoes: e.target.value })} rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOS(false)}>Cancelar</Button>
+            <Button onClick={criarOS} disabled={actionLoading || !formOS.descricao || !formOS.data_emissao}>
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Emitir OS
             </Button>
           </DialogFooter>
         </DialogContent>
