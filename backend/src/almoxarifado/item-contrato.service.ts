@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ItemContrato } from './entities/item-contrato.entity';
+import { Contrato } from '../contratos/entities/contrato.entity';
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
 
 @Injectable()
@@ -11,8 +12,30 @@ export class ItemContratoService {
   constructor(
     @InjectRepository(ItemContrato)
     private readonly itemContratoRepository: Repository<ItemContrato>,
+    @InjectRepository(Contrato)
+    private readonly contratoRepository: Repository<Contrato>,
     private readonly dataSource: DataSource,
   ) {}
+
+  async validarPropriedadeContrato(contratoId: string, orgaoId: string): Promise<void> {
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para acessar este contrato');
+    }
+  }
+
+  async validarPropriedadeItem(itemId: string, orgaoId: string): Promise<ItemContrato> {
+    const item = await this.itemContratoRepository.findOne({
+      where: { id: itemId },
+      relations: ['contrato'],
+    });
+    if (!item) throw new NotFoundException('Item do contrato não encontrado');
+    if (item.contrato?.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para acessar este item');
+    }
+    return item;
+  }
 
   // ============================================================================
   // CRUD BÁSICO

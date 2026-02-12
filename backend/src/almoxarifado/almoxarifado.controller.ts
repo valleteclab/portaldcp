@@ -75,17 +75,32 @@ export class AlmoxarifadoController {
   // ============================================================================
 
   @Get('contratos/:contratoId/itens')
-  async listarItensContrato(@Param('contratoId', ParseUUIDPipe) contratoId: string) {
+  async listarItensContrato(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
     return this.itemContratoService.findByContrato(contratoId);
   }
 
   @Get('contratos/:contratoId/itens/disponiveis')
-  async listarItensComSaldo(@Param('contratoId', ParseUUIDPipe) contratoId: string) {
+  async listarItensComSaldo(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
     return this.itemContratoService.findComSaldoDisponivel(contratoId);
   }
 
   @Get('contratos/:contratoId/saldos')
-  async getResumoSaldos(@Param('contratoId', ParseUUIDPipe) contratoId: string) {
+  async getResumoSaldos(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
     return this.itemContratoService.getResumoSaldos(contratoId);
   }
 
@@ -93,7 +108,10 @@ export class AlmoxarifadoController {
   async criarItemContrato(
     @Param('contratoId', ParseUUIDPipe) contratoId: string,
     @Body(new ValidationPipe()) dto: CriarItemContratoDto,
+    @Req() request: { user: JwtPayload },
   ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
     return this.itemContratoService.criar({ ...dto, contrato_id: contratoId });
   }
 
@@ -101,12 +119,20 @@ export class AlmoxarifadoController {
   async criarItensEmLote(
     @Param('contratoId', ParseUUIDPipe) contratoId: string,
     @Body(new ValidationPipe()) itens: CriarItemContratoDto[],
+    @Req() request: { user: JwtPayload },
   ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
     return this.itemContratoService.criarEmLote(contratoId, itens);
   }
 
   @Get('itens-contrato/:id')
-  async getItemContrato(@Param('id', ParseUUIDPipe) id: string) {
+  async getItemContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeItem(id, orgaoId);
     return this.itemContratoService.findOne(id);
   }
 
@@ -114,12 +140,20 @@ export class AlmoxarifadoController {
   async atualizarItemContrato(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ValidationPipe()) dto: AtualizarItemContratoDto,
+    @Req() request: { user: JwtPayload },
   ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeItem(id, orgaoId);
     return this.itemContratoService.atualizar(id, dto);
   }
 
   @Delete('itens-contrato/:id')
-  async removerItemContrato(@Param('id', ParseUUIDPipe) id: string) {
+  async removerItemContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeItem(id, orgaoId);
     await this.itemContratoService.remover(id);
     return { message: 'Item removido com sucesso' };
   }
@@ -128,7 +162,11 @@ export class AlmoxarifadoController {
   async importarItensContrato(
     @Param('contratoId', ParseUUIDPipe) contratoId: string,
     @Body() body: { itens: any[] },
+    @Req() request: { user: JwtPayload },
   ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
+
     if (!body.itens || !Array.isArray(body.itens) || body.itens.length === 0) {
       throw new BadRequestException('Nenhum item para importar');
     }

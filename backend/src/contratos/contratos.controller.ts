@@ -7,7 +7,9 @@ import {
   Delete,
   Param,
   Body,
-  Query
+  Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
@@ -15,6 +17,7 @@ import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -91,8 +94,13 @@ export class ContratosController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.contratosService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return contrato;
   }
 
   @Get('numero/:numero')
@@ -104,15 +112,24 @@ export class ContratosController {
   }
 
   @Put(':id')
-  async atualizar(@Param('id') id: string, @Body() dados: Partial<Contrato>) {
+  async atualizar(
+    @Param('id') id: string,
+    @Body() dados: Partial<Contrato>,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
     return this.contratosService.atualizar(id, dados);
   }
 
   @Patch(':id/status')
   async alterarStatus(
     @Param('id') id: string,
-    @Body('status') status: StatusContrato
+    @Body('status') status: StatusContrato,
+    @Req() request: { user: JwtPayload },
   ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
     return this.contratosService.alterarStatus(id, status);
   }
 
@@ -121,19 +138,45 @@ export class ContratosController {
   @Post(':contratoId/termos')
   async criarTermoAditivo(
     @Param('contratoId') contratoId: string,
-    @Body() dados: Partial<TermoAditivo>
+    @Body() dados: Partial<TermoAditivo>,
+    @Req() request: { user: JwtPayload },
   ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
     return this.contratosService.criarTermoAditivo(contratoId, dados);
   }
 
   @Get(':contratoId/termos')
-  async findTermosAditivos(@Param('contratoId') contratoId: string) {
+  async findTermosAditivos(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
     return this.contratosService.findTermosAditivos(contratoId);
   }
 
   @Get('termos/:id')
   async findTermoAditivo(@Param('id') id: string) {
     return this.contratosService.findTermoAditivo(id);
+  }
+
+  // ============ HELPERS ============
+
+  private getOrgaoId(user: JwtPayload): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN) return ''; // Admin acessa tudo
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Órgão não identificado');
+  }
+
+  private validarPropriedade(user: JwtPayload, orgaoIdRecurso: string): void {
+    if (user.type === UserType.ADMIN) return; // Admin acessa tudo
+    const orgaoId = this.getOrgaoId(user);
+    if (orgaoId !== orgaoIdRecurso) {
+      throw new ForbiddenException('Você não tem permissão para acessar este recurso');
+    }
   }
 
   // ============ ENDPOINTS PÚBLICOS ============
