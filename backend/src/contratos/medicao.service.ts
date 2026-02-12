@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -28,11 +28,6 @@ export class MedicaoService {
   // ORDEM DE SERVIÇO — Consulta centralizada (criação/aprovação via módulo de Requisições)
   // ============================================================================
 
-  /**
-   * Busca a OS autorizada para um contrato de medição.
-   * A OS é uma Requisicao com tipo=ORDEM_SERVICO e status=AUTORIZADA.
-   * Criação e aprovação são feitas pelo módulo centralizado de Requisições.
-   */
   async getOSAtiva(contratoId: string): Promise<Requisicao | null> {
     return this.requisicaoRepository.findOne({
       where: {
@@ -58,9 +53,8 @@ export class MedicaoService {
   // ============================================================================
 
   async criarEtapa(contratoId: string, dados: Partial<EtapaCronograma>): Promise<EtapaCronograma> {
-    const contrato = await this.validarContratoMedicao(contratoId);
+    await this.validarContratoMedicao(contratoId);
 
-    // Gerar número da etapa
     const ultimaEtapa = await this.etapaRepository.findOne({
       where: { contrato_id: contratoId },
       order: { numero_etapa: 'DESC' },
@@ -87,7 +81,6 @@ export class MedicaoService {
     const etapa = await this.etapaRepository.findOne({ where: { id: etapaId } });
     if (!etapa) throw new NotFoundException('Etapa não encontrada');
 
-    // Não permitir alterar etapa concluída
     if (etapa.status === StatusEtapaCronograma.CONCLUIDA) {
       throw new BadRequestException('Etapa já concluída não pode ser alterada');
     }
@@ -108,12 +101,22 @@ export class MedicaoService {
   }
 
   // ============================================================================
-  // MEDIÇÕES (Boletim de Medição)
+  // MEDIÇÕES — Criação (pelo fornecedor ou fiscal)
   // ============================================================================
 
+  /**
+   * Cria uma medição. Pode ser chamado pelo fornecedor (via portal) ou pelo fiscal (órgão).
+   * A medição é criada com status RASCUNHO.
+   */
   async criarMedicao(contratoId: string, dados: {
     periodo_inicio: string;
     periodo_fim: string;
+    fornecedor_id?: string;
+    fornecedor_nome?: string;
+    fornecedor_observacoes?: string;
+    nota_fiscal_numero?: string;
+    nota_fiscal_valor?: number;
+    nota_fiscal_data?: string;
     fiscal_id?: string;
     fiscal_nome?: string;
     observacoes?: string;
@@ -135,7 +138,7 @@ export class MedicaoService {
       );
     }
 
-    // Se OS está AUTORIZADA, mover para ORDEM_GERADA (indica que medições estão sendo feitas)
+    // Se OS está AUTORIZADA, mover para ORDEM_GERADA
     if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
       osAtiva.status = StatusRequisicao.ORDEM_GERADA;
       await this.requisicaoRepository.save(osAtiva);
@@ -208,6 +211,12 @@ export class MedicaoService {
       valor_acumulado_atual: valorAcumuladoAnterior + valorMedido,
       percentual_fisico_medido: percentualFisicoMedido,
       percentual_fisico_acumulado: percentualAcumuladoAnterior + percentualFisicoMedido,
+      fornecedor_id: dados.fornecedor_id,
+      fornecedor_nome: dados.fornecedor_nome,
+      fornecedor_observacoes: dados.fornecedor_observacoes,
+      nota_fiscal_numero: dados.nota_fiscal_numero,
+      nota_fiscal_valor: dados.nota_fiscal_valor,
+      nota_fiscal_data: dados.nota_fiscal_data as any,
       fiscal_id: dados.fiscal_id,
       fiscal_nome: dados.fiscal_nome,
       observacoes: dados.observacoes,
@@ -230,17 +239,120 @@ export class MedicaoService {
     return this.buscarMedicaoCompleta(medicaoSalva.id);
   }
 
-  async listarMedicoes(contratoId: string): Promise<Medicao[]> {
-    return this.medicaoRepository.find({
-      where: { contrato_id: contratoId },
-      order: { numero_medicao: 'ASC' },
-    });
-  }
+  // ============================================================================
+  // MEDIÇÕES — Submissão pelo fornecedor
+  // ============================================================================
 
-  async buscarMedicao(medicaoId: string): Promise<Medicao> {
+  /**
+   * Fornecedor submete a medição para análise do fiscal.
+   * Status: RASCUNHO → SUBMETIDA
+   */
+  async submeterMedicao(medicaoId: string, fornecedorId: string, dados?: {
+    fornecedor_observacoes?: string;
+    nota_fiscal_numero?: string;
+    nota_fiscal_valor?: number;
+    nota_fiscal_data?: string;
+  }): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Verificar se é o fornecedor correto
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato && contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para submeter esta medição');
+    }
+
+    if (medicao.status !== StatusMedicao.RASCUNHO && medicao.status !== StatusMedicao.DEVOLVIDA) {
+      throw new BadRequestException('Apenas medições em rascunho ou devolvidas podem ser submetidas');
+    }
+
+    medicao.status = StatusMedicao.SUBMETIDA;
+    medicao.data_submissao = new Date() as any;
+    medicao.fornecedor_id = fornecedorId;
+
+    if (dados) {
+      if (dados.fornecedor_observacoes) medicao.fornecedor_observacoes = dados.fornecedor_observacoes;
+      if (dados.nota_fiscal_numero) medicao.nota_fiscal_numero = dados.nota_fiscal_numero;
+      if (dados.nota_fiscal_valor) medicao.nota_fiscal_valor = dados.nota_fiscal_valor;
+      if (dados.nota_fiscal_data) medicao.nota_fiscal_data = dados.nota_fiscal_data as any;
+    }
+
+    // Limpar dados de devolução anterior
+    medicao.motivo_devolucao = null as any;
+    medicao.data_devolucao = null as any;
+
+    await this.medicaoRepository.save(medicao);
+    this.logger.log(`Medição #${medicao.numero_medicao} submetida pelo fornecedor ${fornecedorId}`);
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
+  // ============================================================================
+  // MEDIÇÕES — Ateste do Fiscal (órgão)
+  // ============================================================================
+
+  /**
+   * Fiscal do órgão faz o ateste técnico da medição.
+   * Status: SUBMETIDA → AGUARDANDO_APROVACAO (pós-ateste, vai para gestor)
+   */
+  async atestarMedicao(medicaoId: string, fiscalId: string, fiscalNome: string, dados?: {
+    observacoes?: string;
+    verificado_in_loco?: boolean;
+  }): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (medicao.status !== StatusMedicao.SUBMETIDA) {
+      throw new BadRequestException('Apenas medições submetidas podem receber ateste');
+    }
+
+    medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
+    medicao.ateste_fiscal_id = fiscalId;
+    medicao.ateste_fiscal_nome = fiscalNome;
+    medicao.ateste_data = new Date() as any;
+    medicao.ateste_observacoes = dados?.observacoes || null as any;
+    medicao.ateste_verificado_in_loco = dados?.verificado_in_loco || false;
+
+    await this.medicaoRepository.save(medicao);
+    this.logger.log(`Medição #${medicao.numero_medicao} atestada pelo fiscal ${fiscalNome}`);
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
+  /**
+   * Fiscal devolve a medição ao fornecedor para correção.
+   * Status: SUBMETIDA → DEVOLVIDA
+   */
+  async devolverMedicao(medicaoId: string, fiscalId: string, fiscalNome: string, motivo: string): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (medicao.status !== StatusMedicao.SUBMETIDA) {
+      throw new BadRequestException('Apenas medições submetidas podem ser devolvidas');
+    }
+
+    if (!motivo || !motivo.trim()) {
+      throw new BadRequestException('Motivo da devolução é obrigatório');
+    }
+
+    medicao.status = StatusMedicao.DEVOLVIDA;
+    medicao.motivo_devolucao = motivo;
+    medicao.data_devolucao = new Date() as any;
+    medicao.ateste_fiscal_id = fiscalId;
+    medicao.ateste_fiscal_nome = fiscalNome;
+
+    await this.medicaoRepository.save(medicao);
+    this.logger.log(`Medição #${medicao.numero_medicao} devolvida pelo fiscal ${fiscalNome}: ${motivo}`);
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
+  // ============================================================================
+  // MEDIÇÕES — Envio direto para aprovação (fluxo legado / fiscal cria e envia)
+  // ============================================================================
+
+  /**
+   * Fiscal envia medição diretamente para aprovação (sem passar pelo fornecedor).
+   * Usado quando o fiscal cria a medição internamente.
+   * Status: RASCUNHO → AGUARDANDO_APROVACAO
+   */
   async enviarParaAprovacao(medicaoId: string, fiscalId: string, fiscalNome: string): Promise<Medicao> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
@@ -252,10 +364,19 @@ export class MedicaoService {
     medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
     medicao.fiscal_id = fiscalId;
     medicao.fiscal_nome = fiscalNome;
+    medicao.ateste_fiscal_id = fiscalId;
+    medicao.ateste_fiscal_nome = fiscalNome;
+    medicao.ateste_data = new Date() as any;
+    medicao.ateste_verificado_in_loco = true;
     medicao.data_medicao = new Date() as any;
 
-    return this.medicaoRepository.save(medicao);
+    await this.medicaoRepository.save(medicao);
+    return this.buscarMedicaoCompleta(medicaoId);
   }
+
+  // ============================================================================
+  // MEDIÇÕES — Aprovação do Gestor (Central de Aprovações)
+  // ============================================================================
 
   async aprovarMedicao(medicaoId: string, aprovadorId: string, aprovadorNome: string): Promise<Medicao> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
@@ -288,13 +409,9 @@ export class MedicaoService {
       }
     }
 
-    // Consumir saldo do contrato
+    // Log consumo de saldo
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
     if (contrato) {
-      const saldoAtual = Number(contrato.valor_global) - Number(contrato.valor_acrescimos || 0);
-      // Atualizar saldo via campo existente (valor_supressoes acumula o consumido)
-      // Na prática, o saldo = valor_global - valor consumido por medições
-      // Usamos um campo dedicado se existir, senão registramos no log
       this.logger.log(
         `Medição #${medicao.numero_medicao} aprovada: R$ ${medicao.valor_medido} consumido do contrato ${contrato.numero_contrato}`
       );
@@ -306,7 +423,8 @@ export class MedicaoService {
     medicao.aprovador_nome = aprovadorNome;
     medicao.data_aprovacao = new Date() as any;
 
-    return this.medicaoRepository.save(medicao);
+    await this.medicaoRepository.save(medicao);
+    return this.buscarMedicaoCompleta(medicaoId);
   }
 
   async rejeitarMedicao(medicaoId: string, aprovadorId: string, aprovadorNome: string, observacao: string): Promise<Medicao> {
@@ -323,8 +441,77 @@ export class MedicaoService {
     medicao.data_aprovacao = new Date() as any;
     medicao.observacao_aprovador = observacao;
 
-    return this.medicaoRepository.save(medicao);
+    await this.medicaoRepository.save(medicao);
+    return this.buscarMedicaoCompleta(medicaoId);
   }
+
+  // ============================================================================
+  // MEDIÇÕES — Consultas
+  // ============================================================================
+
+  async listarMedicoes(contratoId: string): Promise<Medicao[]> {
+    return this.medicaoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_medicao: 'ASC' },
+    });
+  }
+
+  async buscarMedicao(medicaoId: string): Promise<Medicao> {
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
+  /**
+   * Lista medições submetidas pelo fornecedor, pendentes de ateste do fiscal.
+   * Filtrado por orgao_id via contrato.
+   */
+  async listarPendentesAteste(orgaoId: string): Promise<any[]> {
+    const medicoes = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.contrato', 'c')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.SUBMETIDA })
+      .orderBy('m.data_submissao', 'ASC')
+      .getMany();
+
+    return medicoes;
+  }
+
+  /**
+   * Lista medições atestadas pelo fiscal, pendentes de aprovação do gestor.
+   * Filtrado por orgao_id via contrato.
+   */
+  async listarPendentesAprovacao(orgaoId: string): Promise<any[]> {
+    const medicoes = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.contrato', 'c')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.AGUARDANDO_APROVACAO })
+      .orderBy('m.ateste_data', 'ASC')
+      .getMany();
+
+    return medicoes;
+  }
+
+  /**
+   * Lista medições de um fornecedor específico em um contrato.
+   */
+  async listarMedicoesFornecedor(contratoId: string, fornecedorId: string): Promise<Medicao[]> {
+    // Verificar que o fornecedor é dono do contrato
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    return this.medicaoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_medicao: 'ASC' },
+    });
+  }
+
+  // ============================================================================
+  // MEDIÇÕES — Resumo
+  // ============================================================================
 
   async resumoMedicoes(contratoId: string) {
     const contrato = await this.validarContratoMedicao(contratoId);
@@ -334,6 +521,9 @@ export class MedicaoService {
     const medicoesAprovadas = medicoes.filter(m => m.status === StatusMedicao.APROVADA);
     const valorMedidoTotal = medicoesAprovadas.reduce((sum, m) => sum + Number(m.valor_medido), 0);
     const percentualFisicoTotal = medicoesAprovadas.reduce((sum, m) => sum + Number(m.percentual_fisico_medido), 0);
+
+    const pendentesAteste = medicoes.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
+    const pendentesAprovacao = medicoes.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
 
     // Buscar OS ativa
     const osAtiva = await this.getOSAtiva(contratoId);
@@ -349,6 +539,8 @@ export class MedicaoService {
       etapas_concluidas: etapas.filter(e => e.status === StatusEtapaCronograma.CONCLUIDA).length,
       total_medicoes: medicoes.length,
       medicoes_aprovadas: medicoesAprovadas.length,
+      pendentes_ateste: pendentesAteste,
+      pendentes_aprovacao: pendentesAprovacao,
       os_ativa: osAtiva,
       total_os: todasOS.length,
     };
@@ -374,10 +566,11 @@ export class MedicaoService {
   private async buscarMedicaoCompleta(medicaoId: string): Promise<Medicao> {
     const medicao = await this.medicaoRepository.findOne({
       where: { id: medicaoId },
+      relations: ['contrato'],
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    // Buscar itens manualmente (evitar problemas de relation)
+    // Buscar itens manualmente
     const itens = await this.itemMedicaoRepository.find({
       where: { medicao_id: medicaoId },
     });

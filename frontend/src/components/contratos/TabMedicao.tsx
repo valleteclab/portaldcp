@@ -16,7 +16,8 @@ import {
 } from '@/components/ui/table'
 import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
-  FileText, AlertTriangle, Calendar, MapPin, ExternalLink,
+  FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
+  ChevronRight, Eye, Clock, Shield,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -62,6 +63,21 @@ interface Medicao {
   percentual_fisico_medido: number
   percentual_fisico_acumulado: number
   fiscal_nome: string
+  fornecedor_nome?: string
+  fornecedor_observacoes?: string
+  nota_fiscal_numero?: string
+  nota_fiscal_valor?: number
+  nota_fiscal_data?: string
+  data_submissao?: string
+  ateste_fiscal_nome?: string
+  ateste_data?: string
+  ateste_observacoes?: string
+  ateste_verificado_in_loco?: boolean
+  aprovador_nome?: string
+  data_aprovacao?: string
+  observacao_aprovador?: string
+  motivo_devolucao?: string
+  data_devolucao?: string
   status: string
   created_at: string
   itens?: any[]
@@ -76,6 +92,8 @@ interface Resumo {
   etapas_concluidas: number
   total_medicoes: number
   medicoes_aprovadas: number
+  pendentes_ateste: number
+  pendentes_aprovacao: number
   os_ativa: OSRequisicao | null
   total_os: number
 }
@@ -97,15 +115,23 @@ const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
   CONCLUIDA: { label: 'Concluída', cor: 'bg-green-100 text-green-800' },
 }
 
-const STATUS_MEDICAO: Record<string, { label: string; cor: string }> = {
-  RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800' },
-  AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-amber-100 text-amber-800' },
-  APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-800' },
-  REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-800' },
+const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> = {
+  RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800', icon: FileText },
+  SUBMETIDA: { label: 'Submetida', cor: 'bg-blue-100 text-blue-800', icon: Send },
+  AGUARDANDO_ATESTE: { label: 'Aguardando Ateste', cor: 'bg-yellow-100 text-yellow-800', icon: ClipboardCheck },
+  AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-orange-100 text-orange-800', icon: Clock },
+  APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
+  REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-800', icon: XCircle },
+  DEVOLVIDA: { label: 'Devolvida', cor: 'bg-amber-100 text-amber-800', icon: RotateCcw },
 }
 
 function formatarMoeda(v: number | string) {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function formatarData(d: string | null | undefined) {
+  if (!d) return '-'
+  return new Date(d).toLocaleDateString('pt-BR')
 }
 
 export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: string; valorGlobal: number }) {
@@ -119,9 +145,9 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const [modalEtapa, setModalEtapa] = useState(false)
   const [editandoEtapa, setEditandoEtapa] = useState<Etapa | null>(null)
   const [modalMedicao, setModalMedicao] = useState(false)
-  const [modalAprovar, setModalAprovar] = useState<Medicao | null>(null)
-  const [modalRejeitar, setModalRejeitar] = useState<Medicao | null>(null)
-  const [observacaoRejeicao, setObservacaoRejeicao] = useState('')
+  const [modalAteste, setModalAteste] = useState<Medicao | null>(null)
+  const [modalDevolver, setModalDevolver] = useState<Medicao | null>(null)
+  const [modalDetalhe, setModalDetalhe] = useState<Medicao | null>(null)
 
   // Forms
   const [formEtapa, setFormEtapa] = useState({
@@ -132,6 +158,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     periodo_inicio: '', periodo_fim: '', observacoes: '',
     itens: [] as { etapa_id: string; percentual_executado_atual: number }[],
   })
+  const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false })
+  const [motivoDevolucao, setMotivoDevolucao] = useState('')
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -152,6 +180,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   const osAtiva = resumo?.os_ativa
   const temOSAutorizada = osAtiva && ['AUTORIZADA', 'ORDEM_GERADA'].includes(osAtiva.status)
+
+  // Medições separadas por status
+  const medicoesPendentesAteste = medicoes.filter(m => m.status === 'SUBMETIDA')
+  const medicoesEmAndamento = medicoes.filter(m => ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'DEVOLVIDA'].includes(m.status))
+  const medicoesFinalizadas = medicoes.filter(m => ['APROVADA', 'REJEITADA'].includes(m.status))
 
   // ============ ETAPAS ============
 
@@ -202,7 +235,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     carregarDados()
   }
 
-  // ============ MEDIÇÕES ============
+  // ============ MEDIÇÕES — Criação interna (fiscal) ============
 
   const abrirModalMedicao = () => {
     setFormMedicao({
@@ -233,37 +266,61 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     setActionLoading(false)
   }
 
+  // ============ MEDIÇÕES — Envio direto para aprovação (fiscal cria internamente) ============
+
   const enviarParaAprovacao = async (medicaoId: string) => {
     setActionLoading(true)
     try {
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
       await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/enviar-aprovacao`, {
-        method: 'PATCH', body: JSON.stringify({ fiscal_id: '', fiscal_nome: 'Fiscal' }),
+        method: 'PATCH', body: JSON.stringify({
+          fiscal_id: usuario.id || '',
+          fiscal_nome: usuario.nome || 'Fiscal',
+        }),
       })
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
   }
 
-  const aprovarMedicao = async (medicaoId: string) => {
+  // ============ MEDIÇÕES — Ateste do Fiscal ============
+
+  const atestarMedicao = async () => {
+    if (!modalAteste) return
     setActionLoading(true)
     try {
-      await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/aprovar`, {
-        method: 'PATCH', body: JSON.stringify({ aprovador_id: '', aprovador_nome: 'Aprovador' }),
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/atestar`, {
+        method: 'PATCH', body: JSON.stringify({
+          fiscal_id: usuario.id || '',
+          fiscal_nome: usuario.nome || 'Fiscal',
+          observacoes: formAteste.observacoes || null,
+          verificado_in_loco: formAteste.verificado_in_loco,
+        }),
       })
-      setModalAprovar(null)
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      setModalAteste(null)
+      setFormAteste({ observacoes: '', verificado_in_loco: false })
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
   }
 
-  const rejeitarMedicao = async (medicaoId: string) => {
+  const devolverMedicao = async () => {
+    if (!modalDevolver) return
     setActionLoading(true)
     try {
-      await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/rejeitar`, {
-        method: 'PATCH', body: JSON.stringify({ aprovador_id: '', aprovador_nome: 'Aprovador', observacao: observacaoRejeicao }),
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalDevolver.id}/devolver`, {
+        method: 'PATCH', body: JSON.stringify({
+          fiscal_id: usuario.id || '',
+          fiscal_nome: usuario.nome || 'Fiscal',
+          motivo: motivoDevolucao,
+        }),
       })
-      setModalRejeitar(null)
-      setObservacaoRejeicao('')
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      setModalDevolver(null)
+      setMotivoDevolucao('')
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -271,9 +328,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>
 
+  // ============ RENDER ============
+
   return (
     <div className="space-y-6">
-      {/* Ordem de Serviço — Seção Principal */}
+      {/* Ordem de Serviço */}
       <Card className={!osAtiva ? 'border-amber-300 bg-amber-50/30' : osAtiva.status === 'ORDEM_GERADA' ? 'border-indigo-300' : ''}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Ordem de Serviço</CardTitle>
@@ -318,7 +377,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
       {/* Resumo */}
       {resumo && temOSAutorizada && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-gray-500">Valor Medido</p>
@@ -346,7 +405,72 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               <p className="text-xs text-gray-400">{resumo.medicoes_aprovadas} medições aprovadas</p>
             </CardContent>
           </Card>
+          <Card className={resumo.pendentes_ateste > 0 ? 'border-yellow-300 bg-yellow-50/50' : ''}>
+            <CardContent className="pt-6">
+              <p className="text-sm text-gray-500">Pendentes</p>
+              <div className="flex items-center gap-2">
+                {resumo.pendentes_ateste > 0 && (
+                  <Badge className="bg-yellow-100 text-yellow-800">{resumo.pendentes_ateste} ateste</Badge>
+                )}
+                {resumo.pendentes_aprovacao > 0 && (
+                  <Badge className="bg-orange-100 text-orange-800">{resumo.pendentes_aprovacao} aprovação</Badge>
+                )}
+                {resumo.pendentes_ateste === 0 && resumo.pendentes_aprovacao === 0 && (
+                  <p className="text-sm text-green-600 font-medium">Nenhuma</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
+      )}
+
+      {/* Medições Pendentes de Ateste do Fiscal */}
+      {medicoesPendentesAteste.length > 0 && (
+        <Card className="border-yellow-300 bg-yellow-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-yellow-600" />
+              Medições Pendentes de Ateste
+              <Badge className="bg-yellow-100 text-yellow-800">{medicoesPendentesAteste.length}</Badge>
+            </CardTitle>
+            <CardDescription>Medições submetidas pelo fornecedor aguardando seu ateste técnico</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {medicoesPendentesAteste.map(m => (
+              <div key={m.id} className="flex items-center gap-4 p-4 bg-white border border-yellow-200 rounded-lg">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 font-bold text-sm">
+                  {m.numero_medicao}ª
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium">{m.numero_medicao}ª Medição</span>
+                    {m.fornecedor_nome && <span className="text-xs text-gray-500">por {m.fornecedor_nome}</span>}
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <span>{formatarData(m.periodo_inicio)} a {formatarData(m.periodo_fim)}</span>
+                    <span className="font-medium text-gray-700">{formatarMoeda(m.valor_medido)}</span>
+                    <span>{Number(m.percentual_fisico_medido).toFixed(1)}% físico</span>
+                    {m.nota_fiscal_numero && <span className="text-xs">NF: {m.nota_fiscal_numero}</span>}
+                  </div>
+                  {m.fornecedor_observacoes && (
+                    <p className="text-xs text-gray-500 mt-1 italic">"{m.fornecedor_observacoes}"</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setModalDetalhe(m)}>
+                    <Eye className="w-3 h-3 mr-1" />Ver
+                  </Button>
+                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => { setModalAteste(m); setFormAteste({ observacoes: '', verificado_in_loco: false }) }}>
+                    <ClipboardCheck className="w-3 h-3 mr-1" />Atestar
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-amber-600 border-amber-300" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
+                    <RotateCcw className="w-3 h-3 mr-1" />Devolver
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {/* Etapas do Cronograma */}
@@ -421,16 +545,19 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         </CardContent>
       </Card>
 
-      {/* Medições */}
+      {/* Boletins de Medição — Todos */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5" />Boletins de Medição</CardTitle>
-              <CardDescription>Medições realizadas pelo fiscal</CardDescription>
+              <CardDescription>
+                Medições submetidas pelo fornecedor ou criadas internamente pelo fiscal.
+                A aprovação final é feita na Central de Aprovações.
+              </CardDescription>
             </div>
             <Button onClick={abrirModalMedicao} size="sm" disabled={etapas.length === 0 || !temOSAutorizada}>
-              <Plus className="w-4 h-4 mr-1" />Nova Medição
+              <Plus className="w-4 h-4 mr-1" />Nova Medição (Fiscal)
             </Button>
           </div>
         </CardHeader>
@@ -439,62 +566,97 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
             <div className="text-center py-8">
               <TrendingUp className="w-10 h-10 mx-auto text-gray-300 mb-3" />
               <p className="text-gray-500">Nenhuma medição registrada.</p>
+              <p className="text-sm text-gray-400">O fornecedor pode submeter medições pelo portal, ou o fiscal pode criar internamente.</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">#</TableHead>
-                  <TableHead>Período</TableHead>
-                  <TableHead className="text-right">Valor Medido</TableHead>
-                  <TableHead className="text-right">Acumulado</TableHead>
-                  <TableHead className="text-center">% Físico</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="w-32"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {medicoes.map(m => (
-                  <TableRow key={m.id}>
-                    <TableCell className="font-medium">{m.numero_medicao}ª</TableCell>
-                    <TableCell>
-                      <p className="text-sm">{m.periodo_inicio?.split('T')[0]} a {m.periodo_fim?.split('T')[0]}</p>
-                      {m.fiscal_nome && <p className="text-xs text-gray-400">Fiscal: {m.fiscal_nome}</p>}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{formatarMoeda(m.valor_medido)}</TableCell>
-                    <TableCell className="text-right">{formatarMoeda(m.valor_acumulado_atual)}</TableCell>
-                    <TableCell className="text-center">{Number(m.percentual_fisico_acumulado).toFixed(1)}%</TableCell>
-                    <TableCell className="text-center">
-                      <Badge className={STATUS_MEDICAO[m.status]?.cor || 'bg-gray-100'}>
-                        {STATUS_MEDICAO[m.status]?.label || m.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        {m.status === 'RASCUNHO' && (
-                          <Button variant="outline" size="sm" onClick={() => enviarParaAprovacao(m.id)} disabled={actionLoading}>
-                            <Send className="w-3.5 h-3.5 mr-1" />Enviar
-                          </Button>
-                        )}
-                        {m.status === 'AGUARDANDO_APROVACAO' && (
-                          <>
-                            <Button variant="outline" size="sm" className="text-green-600" onClick={() => setModalAprovar(m)} disabled={actionLoading}>
-                              <CheckCircle className="w-3.5 h-3.5 mr-1" />Aprovar
-                            </Button>
-                            <Button variant="outline" size="sm" className="text-red-600" onClick={() => setModalRejeitar(m)} disabled={actionLoading}>
-                              <XCircle className="w-3.5 h-3.5" />
-                            </Button>
-                          </>
+            <div className="space-y-3">
+              {medicoes.map(m => {
+                const statusInfo = STATUS_MEDICAO[m.status] || STATUS_MEDICAO.RASCUNHO
+                const StatusIcon = statusInfo.icon
+                return (
+                  <div key={m.id} className={`flex items-center gap-4 p-4 border rounded-lg hover:shadow-sm transition-shadow ${
+                    m.status === 'DEVOLVIDA' ? 'border-amber-300 bg-amber-50/30' :
+                    m.status === 'SUBMETIDA' ? 'border-yellow-200 bg-yellow-50/20' :
+                    m.status === 'APROVADA' ? 'border-green-200' : ''
+                  }`}>
+                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 text-blue-700 font-bold text-sm shrink-0">
+                      {m.numero_medicao}ª
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium">{m.numero_medicao}ª Medição</span>
+                        <Badge className={statusInfo.cor}>
+                          <StatusIcon className="w-3 h-3 mr-1" />{statusInfo.label}
+                        </Badge>
+                        {m.fornecedor_nome && (
+                          <span className="text-xs text-gray-400">Fornecedor: {m.fornecedor_nome}</span>
                         )}
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span>{formatarData(m.periodo_inicio)} a {formatarData(m.periodo_fim)}</span>
+                        <span className="font-medium text-gray-700">{formatarMoeda(m.valor_medido)}</span>
+                        <span>{Number(m.percentual_fisico_medido).toFixed(1)}% físico</span>
+                        {m.nota_fiscal_numero && <span className="text-xs">NF: {m.nota_fiscal_numero}</span>}
+                      </div>
+
+                      {/* Timeline mini */}
+                      <div className="mt-2 flex items-center gap-1 text-xs">
+                        <span className={`px-1.5 py-0.5 rounded ${m.created_at ? 'bg-gray-200 text-gray-600' : 'bg-gray-100 text-gray-400'}`}>
+                          Criada
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className={`px-1.5 py-0.5 rounded ${m.data_submissao ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {m.data_submissao ? `Submetida ${formatarData(m.data_submissao)}` : 'Submissão'}
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className={`px-1.5 py-0.5 rounded ${m.ateste_data ? 'bg-yellow-200 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {m.ateste_data ? `Atestada ${formatarData(m.ateste_data)}` : 'Ateste'}
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className={`px-1.5 py-0.5 rounded ${
+                          m.status === 'APROVADA' ? 'bg-green-200 text-green-700' :
+                          m.status === 'REJEITADA' ? 'bg-red-200 text-red-700' :
+                          'bg-gray-100 text-gray-400'
+                        }`}>
+                          {m.data_aprovacao ? `${m.status === 'APROVADA' ? 'Aprovada' : 'Rejeitada'} ${formatarData(m.data_aprovacao)}` : 'Aprovação'}
+                        </span>
+                      </div>
+
+                      {m.status === 'DEVOLVIDA' && m.motivo_devolucao && (
+                        <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                          <strong>Devolvida:</strong> {m.motivo_devolucao}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {m.status === 'RASCUNHO' && (
+                        <Button variant="outline" size="sm" onClick={() => enviarParaAprovacao(m.id)} disabled={actionLoading}>
+                          <Send className="w-3.5 h-3.5 mr-1" />Enviar p/ Aprovação
+                        </Button>
+                      )}
+                      {m.status === 'SUBMETIDA' && (
+                        <>
+                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => { setModalAteste(m); setFormAteste({ observacoes: '', verificado_in_loco: false }) }}>
+                            <ClipboardCheck className="w-3.5 h-3.5 mr-1" />Atestar
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-amber-600" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => setModalDetalhe(m)}>
+                        <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
+
+      {/* ============ MODAIS ============ */}
 
       {/* Modal Nova/Editar Etapa */}
       <Dialog open={modalEtapa} onOpenChange={setModalEtapa}>
@@ -543,12 +705,12 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         </DialogContent>
       </Dialog>
 
-      {/* Modal Nova Medição */}
+      {/* Modal Nova Medição (criação interna pelo fiscal) */}
       <Dialog open={modalMedicao} onOpenChange={setModalMedicao}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Nova Medição</DialogTitle>
-            <DialogDescription>Informe o percentual executado de cada etapa neste período</DialogDescription>
+            <DialogTitle>Nova Medição (Fiscal)</DialogTitle>
+            <DialogDescription>Crie uma medição internamente. Ela será enviada diretamente para aprovação do gestor.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -608,41 +770,152 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         </DialogContent>
       </Dialog>
 
-      {/* Modal Aprovar */}
-      <Dialog open={!!modalAprovar} onOpenChange={() => setModalAprovar(null)}>
+      {/* Modal Ateste do Fiscal */}
+      <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Aprovar Medição #{modalAprovar?.numero_medicao}</DialogTitle>
-            <DialogDescription>Valor medido: {modalAprovar && formatarMoeda(modalAprovar.valor_medido)}</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-yellow-600" />
+              Atestar {modalAteste?.numero_medicao}ª Medição
+            </DialogTitle>
+            <DialogDescription>
+              Valor medido: {modalAteste && formatarMoeda(modalAteste.valor_medido)} — {modalAteste && Number(modalAteste.percentual_fisico_medido).toFixed(1)}% físico
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-gray-600">Ao aprovar, o saldo do contrato será consumido e as etapas atualizadas.</p>
+          <div className="space-y-4">
+            {modalAteste?.fornecedor_nome && (
+              <div className="p-3 bg-blue-50 rounded-lg text-sm">
+                <p className="text-blue-700"><strong>Fornecedor:</strong> {modalAteste.fornecedor_nome}</p>
+                {modalAteste.fornecedor_observacoes && <p className="text-blue-600 mt-1 italic">"{modalAteste.fornecedor_observacoes}"</p>}
+                {modalAteste.nota_fiscal_numero && (
+                  <p className="text-blue-600 mt-1">NF: {modalAteste.nota_fiscal_numero} — {formatarMoeda(modalAteste.nota_fiscal_valor)}</p>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-3 p-3 border rounded-lg">
+              <input
+                type="checkbox"
+                id="verificado_in_loco"
+                checked={formAteste.verificado_in_loco}
+                onChange={e => setFormAteste({ ...formAteste, verificado_in_loco: e.target.checked })}
+                className="w-4 h-4"
+              />
+              <label htmlFor="verificado_in_loco" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Shield className="w-4 h-4 text-green-600" />
+                Confirmo que realizei verificação presencial (in loco)
+              </label>
+            </div>
+            <div className="space-y-2">
+              <Label>Observações do Ateste</Label>
+              <Textarea
+                placeholder="Observações sobre a verificação técnica..."
+                value={formAteste.observacoes}
+                onChange={e => setFormAteste({ ...formAteste, observacoes: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              Ao atestar, a medição será encaminhada para aprovação do gestor na Central de Aprovações.
+            </p>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalAprovar(null)}>Cancelar</Button>
-            <Button className="bg-green-600 hover:bg-green-700" onClick={() => modalAprovar && aprovarMedicao(modalAprovar.id)} disabled={actionLoading}>
+            <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
+            <Button className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={atestarMedicao} disabled={actionLoading}>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Aprovar Medição
+              <ClipboardCheck className="w-4 h-4 mr-2" />
+              Atestar Medição
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Modal Rejeitar */}
-      <Dialog open={!!modalRejeitar} onOpenChange={() => setModalRejeitar(null)}>
+      {/* Modal Devolver ao Fornecedor */}
+      <Dialog open={!!modalDevolver} onOpenChange={() => setModalDevolver(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rejeitar Medição #{modalRejeitar?.numero_medicao}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-amber-600" />
+              Devolver {modalDevolver?.numero_medicao}ª Medição
+            </DialogTitle>
+            <DialogDescription>A medição será devolvida ao fornecedor para correção.</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Motivo da Rejeição *</Label>
-            <Textarea placeholder="Informe o motivo..." value={observacaoRejeicao} onChange={e => setObservacaoRejeicao(e.target.value)} rows={3} />
+            <Label>Motivo da Devolução *</Label>
+            <Textarea
+              placeholder="Descreva o que precisa ser corrigido..."
+              value={motivoDevolucao}
+              onChange={e => setMotivoDevolucao(e.target.value)}
+              rows={3}
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalRejeitar(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => modalRejeitar && rejeitarMedicao(modalRejeitar.id)} disabled={actionLoading || !observacaoRejeicao}>
+            <Button variant="outline" onClick={() => setModalDevolver(null)}>Cancelar</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700 text-white" onClick={devolverMedicao} disabled={actionLoading || !motivoDevolucao.trim()}>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Rejeitar
+              Devolver ao Fornecedor
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Detalhe da Medição */}
+      <Dialog open={!!modalDetalhe} onOpenChange={() => setModalDetalhe(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{modalDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>
+          </DialogHeader>
+          {modalDetalhe && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><p className="text-xs text-gray-500">Período</p><p className="font-medium">{formatarData(modalDetalhe.periodo_inicio)} a {formatarData(modalDetalhe.periodo_fim)}</p></div>
+                <div><p className="text-xs text-gray-500">Status</p><Badge className={STATUS_MEDICAO[modalDetalhe.status]?.cor}>{STATUS_MEDICAO[modalDetalhe.status]?.label}</Badge></div>
+                <div><p className="text-xs text-gray-500">Valor Medido</p><p className="font-medium">{formatarMoeda(modalDetalhe.valor_medido)}</p></div>
+                <div><p className="text-xs text-gray-500">% Físico</p><p className="font-medium">{Number(modalDetalhe.percentual_fisico_medido).toFixed(1)}%</p></div>
+                <div><p className="text-xs text-gray-500">Acumulado</p><p className="font-medium">{formatarMoeda(modalDetalhe.valor_acumulado_atual)}</p></div>
+                <div><p className="text-xs text-gray-500">% Acumulado</p><p className="font-medium">{Number(modalDetalhe.percentual_fisico_acumulado).toFixed(1)}%</p></div>
+              </div>
+
+              {modalDetalhe.fornecedor_nome && (
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Fornecedor</p>
+                  <p className="text-sm font-medium">{modalDetalhe.fornecedor_nome}</p>
+                  {modalDetalhe.fornecedor_observacoes && <p className="text-sm text-gray-600 mt-1">{modalDetalhe.fornecedor_observacoes}</p>}
+                  {modalDetalhe.data_submissao && <p className="text-xs text-gray-400 mt-1">Submetida em {formatarData(modalDetalhe.data_submissao)}</p>}
+                </div>
+              )}
+
+              {modalDetalhe.nota_fiscal_numero && (
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
+                  <p className="text-sm">NF {modalDetalhe.nota_fiscal_numero} — {formatarMoeda(modalDetalhe.nota_fiscal_valor)} — {formatarData(modalDetalhe.nota_fiscal_data)}</p>
+                </div>
+              )}
+
+              {modalDetalhe.ateste_fiscal_nome && (
+                <div className="p-3 bg-yellow-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Ateste do Fiscal</p>
+                  <p className="text-sm">Atestado por <strong>{modalDetalhe.ateste_fiscal_nome}</strong> em {formatarData(modalDetalhe.ateste_data)}</p>
+                  {modalDetalhe.ateste_verificado_in_loco && <Badge className="bg-green-100 text-green-700 mt-1">Verificado in loco</Badge>}
+                  {modalDetalhe.ateste_observacoes && <p className="text-sm text-gray-600 mt-1">{modalDetalhe.ateste_observacoes}</p>}
+                </div>
+              )}
+
+              {modalDetalhe.aprovador_nome && (
+                <div className={`p-3 rounded-lg ${modalDetalhe.status === 'APROVADA' ? 'bg-green-50' : 'bg-red-50'}`}>
+                  <p className="text-xs text-gray-500 mb-1">{modalDetalhe.status === 'APROVADA' ? 'Aprovação' : 'Rejeição'}</p>
+                  <p className="text-sm">{modalDetalhe.status === 'APROVADA' ? 'Aprovado' : 'Rejeitado'} por <strong>{modalDetalhe.aprovador_nome}</strong> em {formatarData(modalDetalhe.data_aprovacao)}</p>
+                  {modalDetalhe.observacao_aprovador && <p className="text-sm text-gray-600 mt-1">{modalDetalhe.observacao_aprovador}</p>}
+                </div>
+              )}
+
+              {modalDetalhe.status === 'DEVOLVIDA' && modalDetalhe.motivo_devolucao && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-600 mb-1">Motivo da Devolução</p>
+                  <p className="text-sm text-amber-700">{modalDetalhe.motivo_devolucao}</p>
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

@@ -24,6 +24,7 @@ import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { ModalidadesContratoController } from './modalidades-contrato.controller';
+import { FornecedorMedicaoController } from './fornecedor-medicao.controller';
 
 @Module({
   imports: [
@@ -33,7 +34,7 @@ import { ModalidadesContratoController } from './modalidades-contrato.controller
     ]),
     NotificacoesModule,
   ],
-  controllers: [ContratosController, ModalidadesContratoController],
+  controllers: [ContratosController, ModalidadesContratoController, FornecedorMedicaoController],
   providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService]
 })

@@ -1,0 +1,837 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  ArrowLeft,
+  FileText,
+  Calendar,
+  DollarSign,
+  Building,
+  TrendingUp,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Send,
+  Plus,
+  Eye,
+  RotateCcw,
+  ChevronRight,
+  Loader2,
+} from 'lucide-react';
+import { API_URL, authFetch } from '@/lib/api';
+
+// ============ INTERFACES ============
+
+interface Contrato {
+  id: string;
+  numero_contrato: string;
+  ano: number;
+  objeto: string;
+  objeto_detalhado?: string;
+  status: string;
+  categoria: string;
+  modalidade_execucao: string;
+  valor_global: number;
+  valor_inicial: number;
+  data_assinatura: string;
+  data_vigencia_inicio: string;
+  data_vigencia_fim: string;
+  fiscal_nome?: string;
+  orgao?: { id: string; nome: string; cidade: string; uf: string };
+}
+
+interface Etapa {
+  id: string;
+  numero_etapa: number;
+  descricao: string;
+  percentual_fisico: number;
+  valor_previsto: number;
+  percentual_executado: number;
+  valor_executado: number;
+  status: string;
+  data_inicio_prevista?: string;
+  data_fim_prevista?: string;
+}
+
+interface Medicao {
+  id: string;
+  numero_medicao: number;
+  periodo_inicio: string;
+  periodo_fim: string;
+  valor_medido: number;
+  valor_acumulado_atual: number;
+  percentual_fisico_medido: number;
+  percentual_fisico_acumulado: number;
+  status: string;
+  fornecedor_observacoes?: string;
+  nota_fiscal_numero?: string;
+  nota_fiscal_valor?: number;
+  nota_fiscal_data?: string;
+  data_submissao?: string;
+  ateste_fiscal_nome?: string;
+  ateste_data?: string;
+  ateste_observacoes?: string;
+  aprovador_nome?: string;
+  data_aprovacao?: string;
+  observacao_aprovador?: string;
+  motivo_devolucao?: string;
+  data_devolucao?: string;
+  created_at: string;
+  itens?: any[];
+}
+
+interface Resumo {
+  valor_global: number;
+  valor_medido_total: number;
+  saldo_disponivel: number;
+  percentual_fisico_total: number;
+  total_etapas: number;
+  etapas_concluidas: number;
+  total_medicoes: number;
+  medicoes_aprovadas: number;
+  pendentes_ateste: number;
+  pendentes_aprovacao: number;
+  os_ativa: any;
+}
+
+// ============ HELPERS ============
+
+const formatarMoeda = (valor: number | null | undefined) => {
+  if (valor === null || valor === undefined) return 'R$ 0,00';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+};
+
+const formatarData = (data: string | null | undefined) => {
+  if (!data) return '-';
+  return new Date(data).toLocaleDateString('pt-BR');
+};
+
+const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> = {
+  RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-700', icon: FileText },
+  SUBMETIDA: { label: 'Submetida', cor: 'bg-blue-100 text-blue-700', icon: Send },
+  AGUARDANDO_ATESTE: { label: 'Aguardando Ateste', cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-orange-100 text-orange-700', icon: Clock },
+  APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-700', icon: CheckCircle },
+  REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-700', icon: XCircle },
+  DEVOLVIDA: { label: 'Devolvida', cor: 'bg-amber-100 text-amber-700', icon: RotateCcw },
+};
+
+const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
+  PENDENTE: { label: 'Pendente', cor: 'bg-gray-100 text-gray-700' },
+  EM_ANDAMENTO: { label: 'Em Andamento', cor: 'bg-blue-100 text-blue-700' },
+  MEDIDA_PARCIAL: { label: 'Medida Parcial', cor: 'bg-yellow-100 text-yellow-700' },
+  CONCLUIDA: { label: 'Concluída', cor: 'bg-green-100 text-green-700' },
+};
+
+// ============ MAIN COMPONENT ============
+
+export default function FornecedorContratoDetalhePage() {
+  const params = useParams();
+  const router = useRouter();
+  const contratoId = params.id as string;
+
+  const [contrato, setContrato] = useState<Contrato | null>(null);
+  const [etapas, setEtapas] = useState<Etapa[]>([]);
+  const [medicoes, setMedicoes] = useState<Medicao[]>([]);
+  const [resumo, setResumo] = useState<Resumo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fornecedor, setFornecedor] = useState<any>(null);
+
+  // Modal Nova Medição
+  const [modalNovaMedicao, setModalNovaMedicao] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [novaMedicao, setNovaMedicao] = useState({
+    periodo_inicio: '',
+    periodo_fim: '',
+    observacoes: '',
+    nota_fiscal_numero: '',
+    nota_fiscal_valor: '',
+    nota_fiscal_data: '',
+    itens: [] as { etapa_id: string; percentual_executado_atual: number }[],
+  });
+
+  // Modal Submeter
+  const [modalSubmeter, setModalSubmeter] = useState(false);
+  const [medicaoParaSubmeter, setMedicaoParaSubmeter] = useState<Medicao | null>(null);
+  const [dadosSubmissao, setDadosSubmissao] = useState({
+    fornecedor_observacoes: '',
+    nota_fiscal_numero: '',
+    nota_fiscal_valor: '',
+    nota_fiscal_data: '',
+  });
+
+  // Modal Detalhe
+  const [modalDetalhe, setModalDetalhe] = useState(false);
+  const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
+
+  useEffect(() => {
+    const fornecedorData = localStorage.getItem('fornecedor');
+    if (fornecedorData) {
+      setFornecedor(JSON.parse(fornecedorData));
+    }
+    carregarDados();
+  }, [contratoId]);
+
+  const carregarDados = async () => {
+    setLoading(true);
+    try {
+      const [contratoRes, etapasRes, medicoesRes, resumoRes] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/${contratoId}`),
+        authFetch(`${API_URL}/api/contratos/${contratoId}/etapas`),
+        authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes`),
+        authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes/resumo`),
+      ]);
+
+      if (contratoRes.ok) setContrato(await contratoRes.json());
+      if (etapasRes.ok) setEtapas(await etapasRes.json());
+      if (medicoesRes.ok) setMedicoes(await medicoesRes.json());
+      if (resumoRes.ok) setResumo(await resumoRes.json());
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCriarMedicao = async () => {
+    if (!fornecedor) return;
+    setSubmitting(true);
+    try {
+      const itensComValor = novaMedicao.itens.filter(i => i.percentual_executado_atual > 0);
+      if (itensComValor.length === 0) {
+        alert('Informe o percentual executado em pelo menos uma etapa');
+        setSubmitting(false);
+        return;
+      }
+
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...novaMedicao,
+          nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+          fornecedor_id: fornecedor.id,
+          fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
+          itens: itensComValor,
+        }),
+      });
+
+      if (res.ok) {
+        setModalNovaMedicao(false);
+        setNovaMedicao({
+          periodo_inicio: '', periodo_fim: '', observacoes: '',
+          nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
+          itens: [],
+        });
+        carregarDados();
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Erro ao criar medição');
+      }
+    } catch (error) {
+      alert('Erro ao criar medição');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmeterMedicao = async () => {
+    if (!medicaoParaSubmeter || !fornecedor) return;
+    setSubmitting(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoParaSubmeter.id}/submeter`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fornecedor_id: fornecedor.id,
+          ...dadosSubmissao,
+          nota_fiscal_valor: dadosSubmissao.nota_fiscal_valor ? Number(dadosSubmissao.nota_fiscal_valor) : undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setModalSubmeter(false);
+        setMedicaoParaSubmeter(null);
+        setDadosSubmissao({ fornecedor_observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' });
+        carregarDados();
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Erro ao submeter medição');
+      }
+    } catch (error) {
+      alert('Erro ao submeter medição');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const abrirModalNovaMedicao = () => {
+    setNovaMedicao({
+      periodo_inicio: '', periodo_fim: '', observacoes: '',
+      nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
+      itens: etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0 })),
+    });
+    setModalNovaMedicao(true);
+  };
+
+  const abrirModalSubmeter = (medicao: Medicao) => {
+    setMedicaoParaSubmeter(medicao);
+    setDadosSubmissao({
+      fornecedor_observacoes: medicao.fornecedor_observacoes || '',
+      nota_fiscal_numero: medicao.nota_fiscal_numero || '',
+      nota_fiscal_valor: medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : '',
+      nota_fiscal_data: medicao.nota_fiscal_data || '',
+    });
+    setModalSubmeter(true);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (!contrato) {
+    return (
+      <div className="p-6">
+        <p className="text-gray-500">Contrato não encontrado.</p>
+        <Link href="/fornecedor/contratos">
+          <Button variant="outline" className="mt-4"><ArrowLeft className="w-4 h-4 mr-2" />Voltar</Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Link href="/fornecedor/contratos">
+          <Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4 mr-1" />Voltar</Button>
+        </Link>
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold">Contrato {contrato.numero_contrato}</h1>
+          <p className="text-gray-500 text-sm">{contrato.objeto}</p>
+        </div>
+        <Badge className={contrato.status === 'VIGENTE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>
+          {contrato.status}
+        </Badge>
+      </div>
+
+      {/* Info Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Building className="w-5 h-5 text-blue-500" />
+              <div>
+                <p className="text-xs text-gray-500">Órgão</p>
+                <p className="font-medium text-sm">{contrato.orgao?.nome || '-'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <DollarSign className="w-5 h-5 text-green-500" />
+              <div>
+                <p className="text-xs text-gray-500">Valor Global</p>
+                <p className="font-medium text-sm">{formatarMoeda(contrato.valor_global)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Calendar className="w-5 h-5 text-orange-500" />
+              <div>
+                <p className="text-xs text-gray-500">Vigência</p>
+                <p className="font-medium text-sm">{formatarData(contrato.data_vigencia_inicio)} a {formatarData(contrato.data_vigencia_fim)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="w-5 h-5 text-purple-500" />
+              <div>
+                <p className="text-xs text-gray-500">Avanço Físico</p>
+                <p className="font-medium text-sm">{resumo ? `${resumo.percentual_fisico_total.toFixed(1)}%` : '0%'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Resumo de Medição */}
+      {resumo && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <p className="text-xs text-gray-500">Valor Medido</p>
+                <p className="text-lg font-bold text-green-700">{formatarMoeda(resumo.valor_medido_total)}</p>
+              </div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-xs text-gray-500">Saldo Disponível</p>
+                <p className="text-lg font-bold text-blue-700">{formatarMoeda(resumo.saldo_disponivel)}</p>
+              </div>
+              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                <p className="text-xs text-gray-500">Avanço Físico</p>
+                <p className="text-lg font-bold text-purple-700">{resumo.percentual_fisico_total.toFixed(1)}%</p>
+                <Progress value={resumo.percentual_fisico_total} className="mt-1 h-2" />
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <p className="text-xs text-gray-500">Etapas</p>
+                <p className="text-lg font-bold text-orange-700">{resumo.etapas_concluidas}/{resumo.total_etapas}</p>
+              </div>
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500">Medições Aprovadas</p>
+                <p className="text-lg font-bold">{resumo.medicoes_aprovadas}/{resumo.total_medicoes}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tabs */}
+      <Tabs defaultValue="medicoes">
+        <TabsList>
+          <TabsTrigger value="medicoes" className="gap-2">
+            <FileText className="w-4 h-4" />Medições ({medicoes.length})
+          </TabsTrigger>
+          <TabsTrigger value="cronograma" className="gap-2">
+            <TrendingUp className="w-4 h-4" />Cronograma ({etapas.length})
+          </TabsTrigger>
+          <TabsTrigger value="detalhes" className="gap-2">
+            <Eye className="w-4 h-4" />Detalhes
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Tab Medições */}
+        <TabsContent value="medicoes" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Boletins de Medição</h3>
+              <p className="text-sm text-gray-500">Crie e submeta medições para análise do fiscal do contrato</p>
+            </div>
+            {resumo?.os_ativa && (
+              <Button onClick={abrirModalNovaMedicao} className="gap-2">
+                <Plus className="w-4 h-4" />Nova Medição
+              </Button>
+            )}
+          </div>
+
+          {!resumo?.os_ativa && (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <p className="font-medium text-amber-700">Ordem de Serviço não autorizada</p>
+                    <p className="text-sm text-amber-600">O órgão precisa emitir e autorizar uma Ordem de Serviço antes que você possa submeter medições.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {medicoes.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-center py-12">
+                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">Nenhuma medição registrada</p>
+                <p className="text-sm text-gray-400">Clique em "Nova Medição" para criar seu primeiro boletim</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {medicoes.map((medicao) => {
+                const statusInfo = STATUS_MEDICAO[medicao.status] || STATUS_MEDICAO.RASCUNHO;
+                const StatusIcon = statusInfo.icon;
+                return (
+                  <Card key={medicao.id} className={`hover:shadow-md transition-shadow ${medicao.status === 'DEVOLVIDA' ? 'border-amber-300' : ''}`}>
+                    <CardContent className="pt-4 pb-4">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 text-blue-700 font-bold text-sm">
+                          {medicao.numero_medicao}ª
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium">{medicao.numero_medicao}ª Medição</span>
+                            <Badge className={statusInfo.cor}>
+                              <StatusIcon className="w-3 h-3 mr-1" />{statusInfo.label}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-gray-500">
+                            <span>{formatarData(medicao.periodo_inicio)} a {formatarData(medicao.periodo_fim)}</span>
+                            <span className="font-medium text-gray-700">{formatarMoeda(medicao.valor_medido)}</span>
+                            <span>{medicao.percentual_fisico_medido?.toFixed(1)}% físico</span>
+                          </div>
+                          {medicao.status === 'DEVOLVIDA' && medicao.motivo_devolucao && (
+                            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
+                              <strong>Motivo da devolução:</strong> {medicao.motivo_devolucao}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
+                            <Button size="sm" onClick={() => abrirModalSubmeter(medicao)} className="gap-1">
+                              <Send className="w-3 h-3" />Submeter
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" onClick={() => { setMedicaoDetalhe(medicao); setModalDetalhe(true); }}>
+                            <Eye className="w-3 h-3 mr-1" />Ver
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Timeline */}
+                      <div className="mt-3 flex items-center gap-1 text-xs">
+                        <span className={`px-2 py-0.5 rounded ${medicao.created_at ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-400'}`}>
+                          Criada {formatarData(medicao.created_at)}
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className={`px-2 py-0.5 rounded ${medicao.data_submissao ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {medicao.data_submissao ? `Submetida ${formatarData(medicao.data_submissao)}` : 'Submissão'}
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className={`px-2 py-0.5 rounded ${medicao.ateste_data ? 'bg-yellow-200 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {medicao.ateste_data ? `Atestada ${formatarData(medicao.ateste_data)}` : 'Ateste Fiscal'}
+                        </span>
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className={`px-2 py-0.5 rounded ${medicao.data_aprovacao ? 'bg-green-200 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {medicao.data_aprovacao ? `Aprovada ${formatarData(medicao.data_aprovacao)}` : 'Aprovação'}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Tab Cronograma */}
+        <TabsContent value="cronograma">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Cronograma Físico-Financeiro</CardTitle>
+              <CardDescription>Etapas da obra/serviço com percentual e valor previsto</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {etapas.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">Nenhuma etapa cadastrada pelo órgão</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-center">% Físico</TableHead>
+                      <TableHead className="text-right">Valor Previsto</TableHead>
+                      <TableHead className="text-center">Executado</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {etapas.map((etapa) => {
+                      const statusEtapa = STATUS_ETAPA[etapa.status] || STATUS_ETAPA.PENDENTE;
+                      return (
+                        <TableRow key={etapa.id}>
+                          <TableCell className="font-medium">{etapa.numero_etapa}</TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{etapa.descricao}</p>
+                              {etapa.data_inicio_prevista && (
+                                <p className="text-xs text-gray-400">
+                                  {formatarData(etapa.data_inicio_prevista)} — {formatarData(etapa.data_fim_prevista)}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">{etapa.percentual_fisico}%</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(etapa.valor_previsto)}</TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center gap-2 justify-center">
+                              <Progress value={Number(etapa.percentual_executado)} className="w-16 h-2" />
+                              <span className="text-sm font-medium">{Number(etapa.percentual_executado).toFixed(1)}%</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={statusEtapa.cor}>{statusEtapa.label}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab Detalhes */}
+        <TabsContent value="detalhes">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Detalhes do Contrato</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><p className="text-xs text-gray-500">Número</p><p className="font-medium">{contrato.numero_contrato}</p></div>
+                <div><p className="text-xs text-gray-500">Categoria</p><p className="font-medium">{contrato.categoria}</p></div>
+                <div><p className="text-xs text-gray-500">Modalidade</p><p className="font-medium">{contrato.modalidade_execucao}</p></div>
+                <div><p className="text-xs text-gray-500">Fiscal</p><p className="font-medium">{contrato.fiscal_nome || '-'}</p></div>
+                <div><p className="text-xs text-gray-500">Data Assinatura</p><p className="font-medium">{formatarData(contrato.data_assinatura)}</p></div>
+                <div><p className="text-xs text-gray-500">Valor Inicial</p><p className="font-medium">{formatarMoeda(contrato.valor_inicial)}</p></div>
+              </div>
+              {contrato.objeto_detalhado && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Objeto Detalhado</p>
+                  <p className="text-sm whitespace-pre-wrap">{contrato.objeto_detalhado}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* ============ MODAL: Nova Medição ============ */}
+      <Dialog open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nova Medição</DialogTitle>
+            <DialogDescription>Informe o período e o percentual executado de cada etapa</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Período Início</Label>
+                <Input type="date" value={novaMedicao.periodo_inicio}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, periodo_inicio: e.target.value })} />
+              </div>
+              <div>
+                <Label>Período Fim</Label>
+                <Input type="date" value={novaMedicao.periodo_fim}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, periodo_fim: e.target.value })} />
+              </div>
+            </div>
+
+            <div>
+              <Label className="mb-2 block">Percentual Executado por Etapa</Label>
+              <div className="space-y-2 border rounded-lg p-3">
+                {etapas.map((etapa, idx) => {
+                  const jaExecutado = Number(etapa.percentual_executado);
+                  const restante = 100 - jaExecutado;
+                  return (
+                    <div key={etapa.id} className="flex items-center gap-3 py-2 border-b last:border-0">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{etapa.numero_etapa}. {etapa.descricao}</p>
+                        <p className="text-xs text-gray-400">
+                          Já executado: {jaExecutado.toFixed(1)}% | Restante: {restante.toFixed(1)}% | Valor: {formatarMoeda(etapa.valor_previsto)}
+                        </p>
+                      </div>
+                      <div className="w-24">
+                        <Input
+                          type="number"
+                          min="0"
+                          max={restante}
+                          step="0.1"
+                          placeholder="0%"
+                          value={novaMedicao.itens[idx]?.percentual_executado_atual || ''}
+                          onChange={(e) => {
+                            const itens = [...novaMedicao.itens];
+                            itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Number(e.target.value) };
+                            setNovaMedicao({ ...novaMedicao, itens });
+                          }}
+                          className="text-right"
+                        />
+                      </div>
+                      <span className="text-xs text-gray-400 w-4">%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <Label>Observações (opcional)</Label>
+              <Textarea value={novaMedicao.observacoes}
+                onChange={(e) => setNovaMedicao({ ...novaMedicao, observacoes: e.target.value })}
+                placeholder="Descreva os serviços executados no período..." />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Nº Nota Fiscal</Label>
+                <Input value={novaMedicao.nota_fiscal_numero}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_numero: e.target.value })}
+                  placeholder="000000" />
+              </div>
+              <div>
+                <Label>Valor NF</Label>
+                <Input type="number" step="0.01" value={novaMedicao.nota_fiscal_valor}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_valor: e.target.value })}
+                  placeholder="0,00" />
+              </div>
+              <div>
+                <Label>Data NF</Label>
+                <Input type="date" value={novaMedicao.nota_fiscal_data}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_data: e.target.value })} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalNovaMedicao(false)}>Cancelar</Button>
+            <Button onClick={handleCriarMedicao} disabled={submitting}>
+              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+              Criar Rascunho
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: Submeter Medição ============ */}
+      <Dialog open={modalSubmeter} onOpenChange={setModalSubmeter}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Submeter {medicaoParaSubmeter?.numero_medicao}ª Medição</DialogTitle>
+            <DialogDescription>
+              Ao submeter, a medição será enviada para análise do fiscal do contrato.
+              Valor: {formatarMoeda(medicaoParaSubmeter?.valor_medido)}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label>Observações para o Fiscal</Label>
+              <Textarea value={dadosSubmissao.fornecedor_observacoes}
+                onChange={(e) => setDadosSubmissao({ ...dadosSubmissao, fornecedor_observacoes: e.target.value })}
+                placeholder="Informações relevantes sobre os serviços executados..." />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Nº Nota Fiscal</Label>
+                <Input value={dadosSubmissao.nota_fiscal_numero}
+                  onChange={(e) => setDadosSubmissao({ ...dadosSubmissao, nota_fiscal_numero: e.target.value })} />
+              </div>
+              <div>
+                <Label>Valor NF</Label>
+                <Input type="number" step="0.01" value={dadosSubmissao.nota_fiscal_valor}
+                  onChange={(e) => setDadosSubmissao({ ...dadosSubmissao, nota_fiscal_valor: e.target.value })} />
+              </div>
+              <div>
+                <Label>Data NF</Label>
+                <Input type="date" value={dadosSubmissao.nota_fiscal_data}
+                  onChange={(e) => setDadosSubmissao({ ...dadosSubmissao, nota_fiscal_data: e.target.value })} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalSubmeter(false)}>Cancelar</Button>
+            <Button onClick={handleSubmeterMedicao} disabled={submitting} className="gap-2">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Submeter para Análise
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: Detalhe da Medição ============ */}
+      <Dialog open={modalDetalhe} onOpenChange={setModalDetalhe}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{medicaoDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>
+          </DialogHeader>
+
+          {medicaoDetalhe && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><p className="text-xs text-gray-500">Período</p><p className="font-medium">{formatarData(medicaoDetalhe.periodo_inicio)} a {formatarData(medicaoDetalhe.periodo_fim)}</p></div>
+                <div><p className="text-xs text-gray-500">Status</p><Badge className={STATUS_MEDICAO[medicaoDetalhe.status]?.cor}>{STATUS_MEDICAO[medicaoDetalhe.status]?.label}</Badge></div>
+                <div><p className="text-xs text-gray-500">Valor Medido</p><p className="font-medium">{formatarMoeda(medicaoDetalhe.valor_medido)}</p></div>
+                <div><p className="text-xs text-gray-500">% Físico</p><p className="font-medium">{medicaoDetalhe.percentual_fisico_medido?.toFixed(1)}%</p></div>
+                <div><p className="text-xs text-gray-500">Acumulado</p><p className="font-medium">{formatarMoeda(medicaoDetalhe.valor_acumulado_atual)}</p></div>
+                <div><p className="text-xs text-gray-500">% Acumulado</p><p className="font-medium">{medicaoDetalhe.percentual_fisico_acumulado?.toFixed(1)}%</p></div>
+              </div>
+
+              {medicaoDetalhe.nota_fiscal_numero && (
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
+                  <p className="text-sm">NF {medicaoDetalhe.nota_fiscal_numero} — {formatarMoeda(medicaoDetalhe.nota_fiscal_valor)} — {formatarData(medicaoDetalhe.nota_fiscal_data)}</p>
+                </div>
+              )}
+
+              {medicaoDetalhe.ateste_fiscal_nome && (
+                <div className="p-3 bg-yellow-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Ateste do Fiscal</p>
+                  <p className="text-sm">Atestado por <strong>{medicaoDetalhe.ateste_fiscal_nome}</strong> em {formatarData(medicaoDetalhe.ateste_data)}</p>
+                  {medicaoDetalhe.ateste_observacoes && <p className="text-sm text-gray-600 mt-1">{medicaoDetalhe.ateste_observacoes}</p>}
+                </div>
+              )}
+
+              {medicaoDetalhe.aprovador_nome && (
+                <div className="p-3 bg-green-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Aprovação</p>
+                  <p className="text-sm">Aprovado por <strong>{medicaoDetalhe.aprovador_nome}</strong> em {formatarData(medicaoDetalhe.data_aprovacao)}</p>
+                  {medicaoDetalhe.observacao_aprovador && <p className="text-sm text-gray-600 mt-1">{medicaoDetalhe.observacao_aprovador}</p>}
+                </div>
+              )}
+
+              {medicaoDetalhe.status === 'DEVOLVIDA' && medicaoDetalhe.motivo_devolucao && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-600 mb-1">Motivo da Devolução</p>
+                  <p className="text-sm text-amber-700">{medicaoDetalhe.motivo_devolucao}</p>
+                </div>
+              )}
+
+              {medicaoDetalhe.status === 'REJEITADA' && medicaoDetalhe.observacao_aprovador && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-xs text-red-600 mb-1">Motivo da Rejeição</p>
+                  <p className="text-sm text-red-700">{medicaoDetalhe.observacao_aprovador}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

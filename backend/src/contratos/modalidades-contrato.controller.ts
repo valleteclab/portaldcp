@@ -93,6 +93,36 @@ export class ModalidadesContratoController {
     return this.medicaoService.buscarMedicao(medicaoId);
   }
 
+  @Patch('medicoes/:medicaoId/submeter')
+  async submeterMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      fornecedor_id: string;
+      fornecedor_observacoes?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number;
+      nota_fiscal_data?: string;
+    },
+  ) {
+    return this.medicaoService.submeterMedicao(medicaoId, body.fornecedor_id, body);
+  }
+
+  @Patch('medicoes/:medicaoId/atestar')
+  async atestarMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fiscal_id: string; fiscal_nome: string; observacoes?: string; verificado_in_loco?: boolean },
+  ) {
+    return this.medicaoService.atestarMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, body);
+  }
+
+  @Patch('medicoes/:medicaoId/devolver')
+  async devolverMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fiscal_id: string; fiscal_nome: string; motivo: string },
+  ) {
+    return this.medicaoService.devolverMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, body.motivo);
+  }
+
   @Patch('medicoes/:medicaoId/enviar-aprovacao')
   async enviarMedicaoParaAprovacao(
     @Param('medicaoId') medicaoId: string,
@@ -115,6 +145,16 @@ export class ModalidadesContratoController {
     @Body() body: { aprovador_id: string; aprovador_nome: string; observacao: string },
   ) {
     return this.medicaoService.rejeitarMedicao(medicaoId, body.aprovador_id, body.aprovador_nome, body.observacao);
+  }
+
+  @Get('medicoes/pendentes-ateste')
+  async listarPendentesAteste(@Query('orgaoId') orgaoId: string) {
+    return this.medicaoService.listarPendentesAteste(orgaoId);
+  }
+
+  @Get('medicoes/pendentes-aprovacao')
+  async listarPendentesAprovacao(@Query('orgaoId') orgaoId: string) {
+    return this.medicaoService.listarPendentesAprovacao(orgaoId);
   }
 
   @Get(':contratoId/medicoes/resumo')

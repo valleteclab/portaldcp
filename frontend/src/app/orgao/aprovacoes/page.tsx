@@ -23,6 +23,9 @@ import {
   FileCheck,
   Eye,
   Send,
+  TrendingUp,
+  ChevronRight,
+  Shield,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,6 +114,36 @@ interface Contrato {
   created_at: string;
 }
 
+interface MedicaoPendente {
+  id: string;
+  numero_medicao: number;
+  periodo_inicio: string;
+  periodo_fim: string;
+  valor_medido: number;
+  valor_acumulado_atual: number;
+  percentual_fisico_medido: number;
+  percentual_fisico_acumulado: number;
+  status: string;
+  fornecedor_nome?: string;
+  fornecedor_observacoes?: string;
+  nota_fiscal_numero?: string;
+  nota_fiscal_valor?: number;
+  nota_fiscal_data?: string;
+  data_submissao?: string;
+  ateste_fiscal_nome?: string;
+  ateste_data?: string;
+  ateste_observacoes?: string;
+  ateste_verificado_in_loco?: boolean;
+  created_at: string;
+  contrato?: {
+    id: string;
+    numero_contrato: string;
+    objeto: string;
+    fornecedor_razao_social?: string;
+    fornecedor?: { razao_social: string };
+  };
+}
+
 // ============ CONSTANTS ============
 
 const PRIORIDADE_COLORS: Record<string, string> = {
@@ -170,10 +203,12 @@ export default function CentralAprovacoesPage() {
   // Dados
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
+  const [medicoes, setMedicoes] = useState<MedicaoPendente[]>([]);
 
   // UI State
   const [loadingContratos, setLoadingContratos] = useState(false);
   const [loadingRequisicoes, setLoadingRequisicoes] = useState(false);
+  const [loadingMedicoes, setLoadingMedicoes] = useState(false);
   const [processando, setProcessando] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -189,6 +224,13 @@ export default function CentralAprovacoesPage() {
   const [showLiberarContrato, setShowLiberarContrato] = useState(false);
   const [showRejeitarContrato, setShowRejeitarContrato] = useState(false);
   const [motivoRejeicaoContrato, setMotivoRejeicaoContrato] = useState('');
+
+  // Modais Medição
+  const [medicaoSelecionada, setMedicaoSelecionada] = useState<MedicaoPendente | null>(null);
+  const [showAprovarMedicao, setShowAprovarMedicao] = useState(false);
+  const [showRejeitarMedicao, setShowRejeitarMedicao] = useState(false);
+  const [observacaoMedicao, setObservacaoMedicao] = useState('');
+  const [motivoRejeicaoMedicao, setMotivoRejeicaoMedicao] = useState('');
 
   // Verifica permissões
   useEffect(() => {
@@ -222,6 +264,7 @@ export default function CentralAprovacoesPage() {
     if (!loading && orgaoId) {
       if (podeLiberarContratos) carregarContratos();
       if (podeAprovarRequisicoes) carregarRequisicoes();
+      carregarMedicoes();
     }
   }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
 
@@ -255,9 +298,24 @@ export default function CentralAprovacoesPage() {
     }
   };
 
+  const carregarMedicoes = async () => {
+    setLoadingMedicoes(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/pendentes-aprovacao?orgaoId=${orgaoId}`);
+      if (res.ok) {
+        setMedicoes(await res.json());
+      }
+    } catch (error) {
+      console.error('Erro ao carregar medições:', error);
+    } finally {
+      setLoadingMedicoes(false);
+    }
+  };
+
   const recarregarTudo = () => {
     if (podeLiberarContratos) carregarContratos();
     if (podeAprovarRequisicoes) carregarRequisicoes();
+    carregarMedicoes();
   };
 
   // ============ AÇÕES CONTRATOS ============
@@ -355,6 +413,91 @@ export default function CentralAprovacoesPage() {
     }
   };
 
+  // ============ AÇÕES MEDIÇÕES ============
+
+  const aprovarMedicao = async () => {
+    if (!medicaoSelecionada) return;
+    setProcessando(true);
+    try {
+      const usuarioStr = localStorage.getItem('usuario');
+      const orgaoStr = localStorage.getItem('orgao');
+      let aprovadorId = '';
+      let aprovadorNome = '';
+      if (usuarioStr) {
+        const u = JSON.parse(usuarioStr);
+        aprovadorId = u.id;
+        aprovadorNome = u.nome || u.email;
+      } else if (orgaoStr) {
+        const o = JSON.parse(orgaoStr);
+        aprovadorId = o.id;
+        aprovadorNome = o.nome || o.razao_social;
+      }
+
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSelecionada.id}/aprovar`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          aprovador_id: aprovadorId,
+          aprovador_nome: aprovadorNome,
+        }),
+      });
+      if (res.ok) {
+        setShowAprovarMedicao(false);
+        setObservacaoMedicao('');
+        await carregarMedicoes();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao aprovar medição');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao aprovar medição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const rejeitarMedicao = async () => {
+    if (!medicaoSelecionada || !motivoRejeicaoMedicao.trim()) return;
+    setProcessando(true);
+    try {
+      const usuarioStr = localStorage.getItem('usuario');
+      const orgaoStr = localStorage.getItem('orgao');
+      let aprovadorId = '';
+      let aprovadorNome = '';
+      if (usuarioStr) {
+        const u = JSON.parse(usuarioStr);
+        aprovadorId = u.id;
+        aprovadorNome = u.nome || u.email;
+      } else if (orgaoStr) {
+        const o = JSON.parse(orgaoStr);
+        aprovadorId = o.id;
+        aprovadorNome = o.nome || o.razao_social;
+      }
+
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSelecionada.id}/rejeitar`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          aprovador_id: aprovadorId,
+          aprovador_nome: aprovadorNome,
+          observacao: motivoRejeicaoMedicao,
+        }),
+      });
+      if (res.ok) {
+        setShowRejeitarMedicao(false);
+        setMotivoRejeicaoMedicao('');
+        await carregarMedicoes();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao rejeitar medição');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao rejeitar medição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   // ============ RENDER ============
 
   if (loading) {
@@ -376,9 +519,10 @@ export default function CentralAprovacoesPage() {
     );
   }
 
-  const totalPendentes = contratos.length + requisicoes.length;
+  const totalPendentes = contratos.length + requisicoes.length + medicoes.length;
   const valorTotalContratos = contratos.reduce((acc, c) => acc + Number(c.valor_global || 0), 0);
   const valorTotalRequisicoes = requisicoes.reduce((acc, r) => acc + Number(r.valor_total_estimado || 0), 0);
+  const valorTotalMedicoes = medicoes.reduce((acc, m) => acc + Number(m.valor_medido || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -443,6 +587,19 @@ export default function CentralAprovacoesPage() {
           </Card>
         )}
 
+        <Card className={medicoes.length > 0 ? 'border-emerald-200 bg-emerald-50' : ''}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-emerald-500" />
+              Medições
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">{medicoes.length}</div>
+            <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorTotalMedicoes)}</p>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-gray-500">
@@ -451,7 +608,7 @@ export default function CentralAprovacoesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-700">
-              {formatarMoeda(valorTotalContratos + valorTotalRequisicoes)}
+              {formatarMoeda(valorTotalContratos + valorTotalRequisicoes + valorTotalMedicoes)}
             </div>
           </CardContent>
         </Card>
@@ -478,6 +635,13 @@ export default function CentralAprovacoesPage() {
               )}
             </TabsTrigger>
           )}
+          <TabsTrigger value="medicoes" className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Medições
+            {medicoes.length > 0 && (
+              <Badge className="ml-1 bg-emerald-600 text-white text-xs px-1.5 py-0">{medicoes.length}</Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         {/* ============ TAB CONTRATOS ============ */}
@@ -775,6 +939,238 @@ export default function CentralAprovacoesPage() {
             </div>
           )}
         </TabsContent>
+
+        {/* ============ TAB MEDIÇÕES ============ */}
+        <TabsContent value="medicoes" className="space-y-4">
+          {loadingMedicoes ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+            </div>
+          ) : medicoes.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma medição pendente</h3>
+                <p className="text-gray-500">Todas as medições foram processadas.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {medicoes.map((medicao) => (
+                <Card key={medicao.id} className="overflow-hidden border-l-4 border-l-emerald-400 hover:shadow-md transition-shadow">
+                  <Collapsible open={expandedId === medicao.id} onOpenChange={() => setExpandedId(expandedId === medicao.id ? null : medicao.id)}>
+                    <div className="p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="font-bold text-lg">Medição #{medicao.numero_medicao}</span>
+                            <Badge className="bg-emerald-100 text-emerald-800 text-xs">
+                              <Shield className="w-3 h-3 mr-1" />
+                              Aguardando Aprovação
+                            </Badge>
+                            {medicao.contrato && (
+                              <Badge variant="outline" className="text-xs">
+                                {medicao.contrato.numero_contrato}
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <Calendar className="h-4 w-4" />
+                              <span>{formatarData(medicao.periodo_inicio)} a {formatarData(medicao.periodo_fim)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 font-semibold text-emerald-600">
+                              <DollarSign className="h-4 w-4" />
+                              <span>{formatarMoeda(medicao.valor_medido)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-gray-600">
+                              <TrendingUp className="h-4 w-4" />
+                              <span>{(medicao.percentual_fisico_medido || 0).toFixed(1)}% físico</span>
+                            </div>
+                            {medicao.ateste_fiscal_nome && (
+                              <div className="flex items-center gap-1 text-gray-600">
+                                <User className="h-4 w-4" />
+                                <span>Atestado por: {medicao.ateste_fiscal_nome}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {medicao.contrato && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              <span className="font-medium">Fornecedor:</span>{' '}
+                              {medicao.contrato.fornecedor?.razao_social || medicao.contrato.fornecedor_razao_social || '-'}
+                              {' · '}
+                              <span className="font-medium">Objeto:</span>{' '}
+                              <span className="line-clamp-1">{medicao.contrato.objeto}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 ml-4">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              {expandedId === medicao.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </Button>
+                          </CollapsibleTrigger>
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => { setMedicaoSelecionada(medicao); setObservacaoMedicao(''); setShowAprovarMedicao(true); }}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Aprovar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => { setMedicaoSelecionada(medicao); setMotivoRejeicaoMedicao(''); setShowRejeitarMedicao(true); }}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Rejeitar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <CollapsibleContent>
+                      <div className="px-4 pb-4 border-t bg-gray-50">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                          {/* Dados da Medição */}
+                          <div className="bg-white p-4 rounded-lg space-y-3">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                              <TrendingUp className="h-4 w-4 text-emerald-600" />
+                              Dados da Medição
+                            </h4>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-gray-500">Valor Medido</p>
+                                <p className="font-bold text-emerald-700">{formatarMoeda(medicao.valor_medido)}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500">Valor Acumulado</p>
+                                <p className="font-bold text-blue-700">{formatarMoeda(medicao.valor_acumulado_atual)}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500">% Físico Medido</p>
+                                <p className="font-semibold">{(medicao.percentual_fisico_medido || 0).toFixed(1)}%</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500">% Físico Acumulado</p>
+                                <p className="font-semibold">{(medicao.percentual_fisico_acumulado || 0).toFixed(1)}%</p>
+                              </div>
+                            </div>
+                            {medicao.fornecedor_observacoes && (
+                              <div className="pt-2 border-t">
+                                <p className="text-xs text-gray-500 mb-1">Observações do Fornecedor</p>
+                                <p className="text-sm text-gray-700">{medicao.fornecedor_observacoes}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Nota Fiscal e Ateste */}
+                          <div className="space-y-3">
+                            {medicao.nota_fiscal_numero && (
+                              <div className="bg-white p-4 rounded-lg space-y-2">
+                                <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                                  <FileText className="h-4 w-4 text-blue-600" />
+                                  Nota Fiscal
+                                </h4>
+                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                  <div>
+                                    <p className="text-gray-500">Número</p>
+                                    <p className="font-semibold">{medicao.nota_fiscal_numero}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-500">Valor</p>
+                                    <p className="font-semibold">{formatarMoeda(medicao.nota_fiscal_valor || 0)}</p>
+                                  </div>
+                                  {medicao.nota_fiscal_data && (
+                                    <div>
+                                      <p className="text-gray-500">Data</p>
+                                      <p className="font-semibold">{formatarData(medicao.nota_fiscal_data)}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {medicao.ateste_fiscal_nome && (
+                              <div className="bg-green-50 p-4 rounded-lg space-y-2">
+                                <h4 className="font-medium text-green-900 flex items-center gap-2">
+                                  <Shield className="h-4 w-4 text-green-600" />
+                                  Ateste do Fiscal
+                                </h4>
+                                <div className="text-sm space-y-1">
+                                  <p><span className="text-green-700">Fiscal:</span> <strong>{medicao.ateste_fiscal_nome}</strong></p>
+                                  {medicao.ateste_data && (
+                                    <p><span className="text-green-700">Data:</span> <strong>{formatarData(medicao.ateste_data)}</strong></p>
+                                  )}
+                                  {medicao.ateste_verificado_in_loco && (
+                                    <Badge className="bg-green-200 text-green-800 text-xs mt-1">
+                                      <CheckCircle className="w-3 h-3 mr-1" />
+                                      Verificado in loco
+                                    </Badge>
+                                  )}
+                                  {medicao.ateste_observacoes && (
+                                    <p className="pt-1"><span className="text-green-700">Obs:</span> {medicao.ateste_observacoes}</p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Timeline resumida */}
+                        <div className="mt-4 bg-white p-4 rounded-lg">
+                          <h4 className="font-medium text-gray-900 mb-3">Fluxo da Medição</h4>
+                          <div className="flex items-center gap-2 text-xs">
+                            <div className="flex items-center gap-1 text-green-600">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              <span>Criada</span>
+                            </div>
+                            <ChevronRight className="h-3 w-3 text-gray-400" />
+                            <div className="flex items-center gap-1 text-green-600">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              <span>Submetida</span>
+                            </div>
+                            <ChevronRight className="h-3 w-3 text-gray-400" />
+                            <div className="flex items-center gap-1 text-green-600">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              <span>Atestada</span>
+                            </div>
+                            <ChevronRight className="h-3 w-3 text-gray-400" />
+                            <div className="flex items-center gap-1 text-amber-600 font-semibold">
+                              <Clock className="h-3.5 w-3.5" />
+                              <span>Aguardando Aprovação</span>
+                            </div>
+                            <ChevronRight className="h-3 w-3 text-gray-400" />
+                            <div className="flex items-center gap-1 text-gray-400">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              <span>Aprovada</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Link para contrato */}
+                        {medicao.contrato && (
+                          <div className="mt-3 flex justify-end">
+                            <Button size="sm" variant="outline" asChild>
+                              <Link href={`/orgao/contratos/${medicao.contrato.id}`}>
+                                <Eye className="h-4 w-4 mr-1" />
+                                Ver Contrato
+                              </Link>
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
 
       {/* ============ MODAIS CONTRATOS ============ */}
@@ -965,6 +1361,124 @@ export default function CentralAprovacoesPage() {
             <Button variant="destructive" onClick={negarRequisicao} disabled={processando || !motivoNegativaRequisicao.trim()}>
               {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
               Confirmar Negativa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAIS MEDIÇÕES ============ */}
+
+      {/* Modal Aprovar Medição */}
+      <Dialog open={showAprovarMedicao} onOpenChange={setShowAprovarMedicao}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <CheckCircle className="h-5 w-5" />
+              Aprovar Medição
+            </DialogTitle>
+            <DialogDescription>
+              Confirma a aprovação da Medição #{medicaoSelecionada?.numero_medicao}?
+            </DialogDescription>
+          </DialogHeader>
+
+          {medicaoSelecionada && (
+            <div className="py-4 space-y-3">
+              <div className="bg-green-50 p-4 rounded-lg space-y-2">
+                {medicaoSelecionada.contrato && (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-green-700" />
+                    <span className="font-semibold text-green-800">
+                      Contrato {medicaoSelecionada.contrato.numero_contrato}
+                    </span>
+                  </div>
+                )}
+                <p className="text-sm text-green-700">
+                  <strong>Período:</strong> {formatarData(medicaoSelecionada.periodo_inicio)} a {formatarData(medicaoSelecionada.periodo_fim)}
+                </p>
+                <p className="text-sm text-green-700">
+                  <strong>Valor Medido:</strong> {formatarMoeda(medicaoSelecionada.valor_medido)}
+                </p>
+                <p className="text-sm text-green-700">
+                  <strong>% Físico:</strong> {(medicaoSelecionada.percentual_fisico_medido || 0).toFixed(1)}%
+                </p>
+                {medicaoSelecionada.ateste_fiscal_nome && (
+                  <p className="text-sm text-green-700">
+                    <strong>Atestado por:</strong> {medicaoSelecionada.ateste_fiscal_nome}
+                    {medicaoSelecionada.ateste_data && ` em ${formatarData(medicaoSelecionada.ateste_data)}`}
+                  </p>
+                )}
+                {medicaoSelecionada.nota_fiscal_numero && (
+                  <p className="text-sm text-green-700">
+                    <strong>NF:</strong> {medicaoSelecionada.nota_fiscal_numero} — {formatarMoeda(medicaoSelecionada.nota_fiscal_valor || 0)}
+                  </p>
+                )}
+                <p className="text-sm text-green-800 mt-2 pt-2 border-t border-green-200">
+                  Ao aprovar, o valor será contabilizado como executado no contrato.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAprovarMedicao(false)}>Cancelar</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={aprovarMedicao} disabled={processando}>
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              Confirmar Aprovação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Rejeitar Medição */}
+      <Dialog open={showRejeitarMedicao} onOpenChange={setShowRejeitarMedicao}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <XCircle className="h-5 w-5" />
+              Rejeitar Medição
+            </DialogTitle>
+            <DialogDescription>
+              Rejeitar a Medição #{medicaoSelecionada?.numero_medicao}?
+            </DialogDescription>
+          </DialogHeader>
+
+          {medicaoSelecionada && (
+            <div className="py-4 space-y-3">
+              <div className="bg-red-50 p-4 rounded-lg space-y-2">
+                {medicaoSelecionada.contrato && (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-red-700" />
+                    <span className="font-semibold text-red-800">
+                      Contrato {medicaoSelecionada.contrato.numero_contrato}
+                    </span>
+                  </div>
+                )}
+                <p className="text-sm text-red-700">
+                  <strong>Valor Medido:</strong> {formatarMoeda(medicaoSelecionada.valor_medido)}
+                </p>
+                <p className="text-sm text-red-800 mt-2">
+                  A medição será rejeitada e o fornecedor/fiscal serão notificados.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="motivo-rejeicao-medicao">Motivo da Rejeição *</Label>
+                <Textarea
+                  id="motivo-rejeicao-medicao"
+                  value={motivoRejeicaoMedicao}
+                  onChange={(e) => setMotivoRejeicaoMedicao(e.target.value)}
+                  placeholder="Informe o motivo da rejeição da medição"
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRejeitarMedicao(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={rejeitarMedicao} disabled={processando || !motivoRejeicaoMedicao.trim()}>
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
+              Confirmar Rejeição
             </Button>
           </DialogFooter>
         </DialogContent>

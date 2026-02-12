@@ -4,15 +4,25 @@
  * ============================================================================
  * 
  * Registra a medição de serviços executados em contratos de obras/engenharia.
- * O fiscal mede o percentual executado de cada etapa do cronograma.
  * 
- * Fluxo:
- * RASCUNHO → AGUARDANDO_APROVACAO → APROVADA → PAGA
- *                                  ↘ REJEITADA
+ * Fluxo completo (Lei 14.133/2021):
+ * 
+ *   FORNECEDOR                    FISCAL (Órgão)              GESTOR (Órgão)
+ *       │                              │                          │
+ *   RASCUNHO                           │                          │
+ *       │                              │                          │
+ *   SUBMETIDA ────────────────────►    │                          │
+ *       │                     AGUARDANDO_ATESTE                   │
+ *       │                              │                          │
+ *       │◄── DEVOLVIDA ───────────────┤                          │
+ *       │                              │                          │
+ *       │                     AGUARDANDO_APROVACAO ──────────►    │
+ *       │                              │                     APROVADA / REJEITADA
  * 
  * Fundamentação Legal:
  * - Lei 14.133/2021, Art. 140, I, "a": Recebimento provisório pelo fiscal
  * - Lei 14.133/2021, Art. 134: Cronograma físico-financeiro
+ * - Lei 14.133/2021, Art. 117: Fiscalização do contrato
  * 
  * ============================================================================
  */
@@ -30,10 +40,13 @@ import {
 import { Contrato } from './contrato.entity';
 
 export enum StatusMedicao {
-  RASCUNHO = 'RASCUNHO',
-  AGUARDANDO_APROVACAO = 'AGUARDANDO_APROVACAO',
-  APROVADA = 'APROVADA',                // Medição aprovada, saldo consumido
-  REJEITADA = 'REJEITADA',              // Medição rejeitada, fiscal deve refazer
+  RASCUNHO = 'RASCUNHO',                         // Fornecedor ainda editando
+  SUBMETIDA = 'SUBMETIDA',                        // Fornecedor submeteu para análise
+  AGUARDANDO_ATESTE = 'AGUARDANDO_ATESTE',        // Fiscal do órgão precisa atestar
+  AGUARDANDO_APROVACAO = 'AGUARDANDO_APROVACAO',  // Gestor precisa aprovar (pós-ateste)
+  APROVADA = 'APROVADA',                          // Gestor aprovou, saldo consumido
+  REJEITADA = 'REJEITADA',                        // Gestor rejeitou
+  DEVOLVIDA = 'DEVOLVIDA',                        // Fiscal devolveu ao fornecedor para correção
 }
 
 @Entity('medicoes')
@@ -41,7 +54,8 @@ export class Medicao {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Relacionamento
+  // ============ RELACIONAMENTO ============
+
   @ManyToOne(() => Contrato, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'contrato_id' })
   contrato: Contrato;
@@ -49,18 +63,21 @@ export class Medicao {
   @Column()
   contrato_id: string;
 
-  // Identificação
+  // ============ IDENTIFICAÇÃO ============
+
   @Column({ type: 'int' })
   numero_medicao: number; // Sequencial: 1ª Medição, 2ª Medição...
 
-  // Período da medição
+  // ============ PERÍODO DA MEDIÇÃO ============
+
   @Column({ type: 'date' })
   periodo_inicio: Date;
 
   @Column({ type: 'date' })
   periodo_fim: Date;
 
-  // Valores
+  // ============ VALORES ============
+
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   valor_medido: number; // Valor medido neste período
 
@@ -70,14 +87,58 @@ export class Medicao {
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   valor_acumulado_atual: number; // anterior + medido
 
-  // Percentual físico
+  // ============ PERCENTUAL FÍSICO ============
+
   @Column({ type: 'decimal', precision: 5, scale: 2 })
   percentual_fisico_medido: number; // % físico nesta medição
 
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   percentual_fisico_acumulado: number; // % físico acumulado total
 
-  // Fiscal responsável
+  // ============ FORNECEDOR (quem submete) ============
+
+  @Column({ nullable: true })
+  fornecedor_id: string;
+
+  @Column({ nullable: true })
+  fornecedor_nome: string;
+
+  @Column({ type: 'text', nullable: true })
+  fornecedor_observacoes: string; // Observações do fornecedor ao submeter
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_submissao: Date; // Quando o fornecedor submeteu
+
+  // ============ NOTA FISCAL ============
+
+  @Column({ nullable: true })
+  nota_fiscal_numero: string;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  nota_fiscal_valor: number;
+
+  @Column({ type: 'date', nullable: true })
+  nota_fiscal_data: Date;
+
+  // ============ ATESTE DO FISCAL (órgão) ============
+
+  @Column({ nullable: true })
+  ateste_fiscal_id: string;
+
+  @Column({ nullable: true })
+  ateste_fiscal_nome: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  ateste_data: Date;
+
+  @Column({ type: 'text', nullable: true })
+  ateste_observacoes: string;
+
+  @Column({ default: false })
+  ateste_verificado_in_loco: boolean; // Fiscal confirmou verificação presencial
+
+  // ============ FISCAL RESPONSÁVEL (legado / compatibilidade) ============
+
   @Column({ nullable: true })
   fiscal_id: string;
 
@@ -85,9 +146,10 @@ export class Medicao {
   fiscal_nome: string;
 
   @Column({ type: 'date', nullable: true })
-  data_medicao: Date; // Data em que o fiscal realizou a medição
+  data_medicao: Date;
 
-  // Aprovação
+  // ============ APROVAÇÃO DO GESTOR ============
+
   @Column({ nullable: true })
   aprovador_id: string;
 
@@ -100,7 +162,8 @@ export class Medicao {
   @Column({ type: 'text', nullable: true })
   observacao_aprovador: string;
 
-  // Status
+  // ============ STATUS ============
+
   @Column({
     type: 'enum',
     enum: StatusMedicao,
@@ -108,7 +171,8 @@ export class Medicao {
   })
   status: StatusMedicao;
 
-  // Observações e documentos
+  // ============ OBSERVAÇÕES E DOCUMENTOS ============
+
   @Column({ type: 'text', nullable: true })
   observacoes: string;
 
@@ -118,7 +182,16 @@ export class Medicao {
   @Column({ type: 'text', nullable: true })
   documentos: string; // JSON array de URLs de documentos
 
-  // Auditoria
+  // ============ DEVOLUÇÃO (quando fiscal devolve ao fornecedor) ============
+
+  @Column({ type: 'text', nullable: true })
+  motivo_devolucao: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_devolucao: Date;
+
+  // ============ AUDITORIA ============
+
   @Column({ nullable: true })
   usuario_cadastro_id: string;
 
