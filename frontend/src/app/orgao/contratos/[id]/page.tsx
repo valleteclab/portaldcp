@@ -50,6 +50,10 @@ import {
   Unlock
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import TabMedicao from '@/components/contratos/TabMedicao'
+import TabAtestacao from '@/components/contratos/TabAtestacao'
+import TabLicencas from '@/components/contratos/TabLicencas'
+import TabOrdensServico from '@/components/contratos/TabOrdensServico'
 
 interface TermoAditivo {
   id: string
@@ -1242,106 +1246,26 @@ export default function DetalheContratoOrgaoPage() {
         </TabsContent>
 
         {contrato.modalidade_execucao === 'MEDICAO' && (
-          <TabsContent value="medicao" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5" />
-                  Cronograma Físico-Financeiro
-                </CardTitle>
-                <CardDescription>
-                  Etapas do cronograma e boletins de medição — controle por % executado
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <TrendingUp className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 font-medium">Módulo de Medição</p>
-                  <p className="text-sm text-gray-400 mt-1">Cadastre etapas do cronograma e registre medições do fiscal.</p>
-                  <p className="text-xs text-muted-foreground mt-4">
-                    Endpoints disponíveis: POST /api/contratos/{'{id}'}/etapas, POST /api/contratos/{'{id}'}/medicoes
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="medicao">
+            <TabMedicao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
           </TabsContent>
         )}
 
         {contrato.modalidade_execucao === 'CONTINUADO' && (
-          <TabsContent value="atestacao" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5" />
-                  Atestações Mensais
-                </CardTitle>
-                <CardDescription>
-                  Atestação mensal de execução do serviço pelo fiscal — IMR e glosas
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <CheckCircle className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 font-medium">Módulo de Atestação Mensal</p>
-                  <p className="text-sm text-gray-400 mt-1">Registre atestações mensais com notas IMR e glosas por falhas.</p>
-                  <p className="text-xs text-muted-foreground mt-4">
-                    Endpoints disponíveis: POST /api/contratos/{'{id}'}/atestacoes, PATCH /api/contratos/atestacoes/{'{id}'}/atestar
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="atestacao">
+            <TabAtestacao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
           </TabsContent>
         )}
 
         {contrato.modalidade_execucao === 'LICENCA' && (
-          <TabsContent value="licencas" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5" />
-                  Controle de Licenças
-                </CardTitle>
-                <CardDescription>
-                  Licenças de software e assinaturas — ativação, vigência e renovação
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Shield className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 font-medium">Módulo de Licenças</p>
-                  <p className="text-sm text-gray-400 mt-1">Controle licenças ativas, vigência e alertas de expiração.</p>
-                  <p className="text-xs text-muted-foreground mt-4">
-                    Endpoints disponíveis: POST /api/contratos/{'{id}'}/licencas, PATCH /api/contratos/licencas/{'{id}'}/ativar
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="licencas">
+            <TabLicencas contratoId={contrato.id} />
           </TabsContent>
         )}
 
         {contrato.modalidade_execucao === 'ORDEM_SERVICO' && (
-          <TabsContent value="ordens-servico" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Package className="w-5 h-5" />
-                  Ordens de Serviço
-                </CardTitle>
-                <CardDescription>
-                  Ordens de serviço por demanda — banco de métricas (UST, horas, PF)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <Package className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 font-medium">Módulo de Ordens de Serviço</p>
-                  <p className="text-sm text-gray-400 mt-1">Abra OS, controle métricas e registre aceites do fiscal.</p>
-                  <p className="text-xs text-muted-foreground mt-4">
-                    Endpoints disponíveis: POST /api/contratos/{'{id}'}/ordens-servico, POST /api/contratos/{'{id}'}/banco-metricas
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="ordens-servico">
+            <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
           </TabsContent>
         )}
       </Tabs>
