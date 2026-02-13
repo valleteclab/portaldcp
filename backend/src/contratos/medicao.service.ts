@@ -565,10 +565,27 @@ export class MedicaoService {
   // ============================================================================
 
   async listarMedicoes(contratoId: string): Promise<Medicao[]> {
-    return this.medicaoRepository.find({
+    const medicoes = await this.medicaoRepository.find({
       where: { contrato_id: contratoId },
       order: { numero_medicao: 'ASC' },
     });
+
+    // Enriquecer cada medição com seus itens e dados das etapas
+    for (const medicao of medicoes) {
+      const itens = await this.itemMedicaoRepository.find({
+        where: { medicao_id: medicao.id },
+        relations: ['etapa'],
+      });
+      (medicao as any).itens = itens.map(item => ({
+        ...item,
+        etapa_descricao: item.etapa?.descricao || '',
+        etapa_numero: item.etapa?.numero_etapa || 0,
+        etapa_valor_previsto: item.etapa ? Number(item.etapa.valor_previsto) : 0,
+        etapa_percentual_fisico: item.etapa ? Number(item.etapa.percentual_fisico) : 0,
+      }));
+    }
+
+    return medicoes;
   }
 
   async buscarMedicao(medicaoId: string): Promise<Medicao> {
@@ -685,11 +702,21 @@ export class MedicaoService {
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    // Buscar itens manualmente
+    // Buscar itens com dados da etapa do cronograma
     const itens = await this.itemMedicaoRepository.find({
       where: { medicao_id: medicaoId },
+      relations: ['etapa'],
     });
 
-    return { ...medicao, itens } as any;
+    // Enriquecer cada item com dados da etapa para o frontend
+    const itensEnriquecidos = itens.map(item => ({
+      ...item,
+      etapa_descricao: item.etapa?.descricao || '',
+      etapa_numero: item.etapa?.numero_etapa || 0,
+      etapa_valor_previsto: item.etapa ? Number(item.etapa.valor_previsto) : 0,
+      etapa_percentual_fisico: item.etapa ? Number(item.etapa.percentual_fisico) : 0,
+    }));
+
+    return { ...medicao, itens: itensEnriquecidos } as any;
   }
 }

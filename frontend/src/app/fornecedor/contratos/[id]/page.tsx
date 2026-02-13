@@ -1299,11 +1299,46 @@ export default function FornecedorContratoDetalhePage() {
               <div className="grid grid-cols-2 gap-4">
                 <div><p className="text-xs text-gray-500">Período</p><p className="font-medium">{formatarData(medicaoDetalhe.periodo_inicio)} a {formatarData(medicaoDetalhe.periodo_fim)}</p></div>
                 <div><p className="text-xs text-gray-500">Status</p><Badge className={STATUS_MEDICAO[medicaoDetalhe.status]?.cor}>{STATUS_MEDICAO[medicaoDetalhe.status]?.label}</Badge></div>
-                <div><p className="text-xs text-gray-500">Valor Medido</p><p className="font-medium">{formatarMoeda(medicaoDetalhe.valor_medido)}</p></div>
+                <div><p className="text-xs text-gray-500">Valor Medido</p><p className="font-medium text-blue-700">{formatarMoeda(medicaoDetalhe.valor_medido)}</p></div>
                 <div><p className="text-xs text-gray-500">% Físico</p><p className="font-medium">{Number(medicaoDetalhe.percentual_fisico_medido || 0).toFixed(1)}%</p></div>
                 <div><p className="text-xs text-gray-500">Acumulado</p><p className="font-medium">{formatarMoeda(medicaoDetalhe.valor_acumulado_atual)}</p></div>
                 <div><p className="text-xs text-gray-500">% Acumulado</p><p className="font-medium">{Number(medicaoDetalhe.percentual_fisico_acumulado || 0).toFixed(1)}%</p></div>
               </div>
+
+              {/* Itens da Medição (Cronograma) */}
+              {medicaoDetalhe.itens && medicaoDetalhe.itens.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Itens do Cronograma</p>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50">
+                          <TableHead className="text-xs font-bold w-12">Item</TableHead>
+                          <TableHead className="text-xs font-bold">Descrição</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-24">Valor Prev.</TableHead>
+                          <TableHead className="text-xs font-bold text-center w-20">% Anterior</TableHead>
+                          <TableHead className="text-xs font-bold text-center w-20 bg-blue-50">% Medido</TableHead>
+                          <TableHead className="text-xs font-bold text-center w-20">% Acum.</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-28 bg-blue-50">Valor Medido</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {medicaoDetalhe.itens.map((item: any, idx: number) => (
+                          <TableRow key={item.id || idx}>
+                            <TableCell className="text-sm font-mono">{item.etapa_numero || idx + 1}</TableCell>
+                            <TableCell className="text-sm">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
+                            <TableCell className="text-sm text-right">{formatarMoeda(item.etapa_valor_previsto)}</TableCell>
+                            <TableCell className="text-sm text-center text-gray-500">{Number(item.percentual_executado_anterior || 0).toFixed(1)}%</TableCell>
+                            <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">{Number(item.percentual_executado_atual || 0).toFixed(1)}%</TableCell>
+                            <TableCell className="text-sm text-center font-medium">{Number(item.percentual_executado_acumulado || 0).toFixed(1)}%</TableCell>
+                            <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.valor_medido)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
 
               {medicaoDetalhe.nota_fiscal_numero && (
                 <div className="p-3 bg-gray-50 rounded-lg">
