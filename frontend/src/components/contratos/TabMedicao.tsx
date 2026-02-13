@@ -131,6 +131,12 @@ function formatarMoeda(v: number | string) {
 
 function formatarData(d: string | null | undefined) {
   if (!d) return '-'
+  // Se for formato YYYY-MM-DD (date-only), faz split para evitar problema de timezone UTC
+  const dateOnly = d.split('T')[0]
+  const parts = dateOnly.split('-')
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`
+  }
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
@@ -570,7 +576,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                     <TableCell>
                       <p className="font-medium">{e.descricao}</p>
                       <p className="text-xs text-gray-400">
-                        {e.data_inicio_prevista?.split('T')[0]} → {e.data_fim_prevista?.split('T')[0]}
+                        {formatarData(e.data_inicio_prevista)} → {formatarData(e.data_fim_prevista)}
                       </p>
                     </TableCell>
                     <TableCell className="text-center">{Number(e.percentual_fisico).toFixed(1)}%</TableCell>

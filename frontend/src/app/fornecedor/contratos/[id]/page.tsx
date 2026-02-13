@@ -151,6 +151,12 @@ const formatarMoeda = (valor: number | null | undefined) => {
 
 const formatarData = (data: string | null | undefined) => {
   if (!data) return '-';
+  // Se for formato YYYY-MM-DD (date-only), faz split para evitar problema de timezone UTC
+  const dateOnly = data.split('T')[0];
+  const parts = dateOnly.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
   return new Date(data).toLocaleDateString('pt-BR');
 };
 

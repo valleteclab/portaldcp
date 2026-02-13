@@ -111,6 +111,9 @@ export default function ContratosFornecedorPage() {
 
   const formatarData = (data: string) => {
     if (!data) return '-'
+    const dateOnly = data.split('T')[0]
+    const parts = dateOnly.split('-')
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
     return new Date(data).toLocaleDateString('pt-BR')
   }
 
