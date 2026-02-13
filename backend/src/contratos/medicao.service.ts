@@ -53,7 +53,34 @@ export class MedicaoService {
   // ============================================================================
 
   async criarEtapa(contratoId: string, dados: Partial<EtapaCronograma>): Promise<EtapaCronograma> {
-    await this.validarContratoMedicao(contratoId);
+    const contrato = await this.validarContratoMedicao(contratoId);
+
+    // Validar que a soma dos valores das etapas não ultrapassa o valor global do contrato
+    const etapasExistentes = await this.etapaRepository.find({ where: { contrato_id: contratoId } });
+    const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+    const somaValorExistente = etapasExistentes.reduce((sum, e) => sum + Number(e.valor_previsto), 0);
+    const novoValor = Number(dados.valor_previsto) || 0;
+
+    if (somaValorExistente + novoValor > valorGlobal + 0.01) {
+      const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
+      throw new BadRequestException(
+        `O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível para etapas. ` +
+        `Valor do contrato: R$ ${valorGlobal.toFixed(2)}, já alocado em etapas: R$ ${somaValorExistente.toFixed(2)}, ` +
+        `disponível: R$ ${saldoDisponivel.toFixed(2)}.`
+      );
+    }
+
+    // Validar que a soma dos percentuais não ultrapassa 100%
+    const somaPercentualExistente = etapasExistentes.reduce((sum, e) => sum + Number(e.percentual_fisico), 0);
+    const novoPercentual = Number(dados.percentual_fisico) || 0;
+
+    if (somaPercentualExistente + novoPercentual > 100.01) {
+      const percentualDisponivel = Math.max(0, 100 - somaPercentualExistente);
+      throw new BadRequestException(
+        `O percentual da etapa (${novoPercentual.toFixed(2)}%) excede o percentual disponível. ` +
+        `Já alocado: ${somaPercentualExistente.toFixed(2)}%, disponível: ${percentualDisponivel.toFixed(2)}%.`
+      );
+    }
 
     const ultimaEtapa = await this.etapaRepository.findOne({
       where: { contrato_id: contratoId },
@@ -83,6 +110,45 @@ export class MedicaoService {
 
     if (etapa.status === StatusEtapaCronograma.CONCLUIDA) {
       throw new BadRequestException('Etapa já concluída não pode ser alterada');
+    }
+
+    // Validar valor previsto se foi alterado
+    if (dados.valor_previsto !== undefined) {
+      const contrato = await this.contratoRepository.findOne({ where: { id: etapa.contrato_id } });
+      if (contrato) {
+        const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+        const etapasExistentes = await this.etapaRepository.find({ where: { contrato_id: etapa.contrato_id } });
+        const somaValorOutras = etapasExistentes
+          .filter(e => e.id !== etapaId)
+          .reduce((sum, e) => sum + Number(e.valor_previsto), 0);
+        const novoValor = Number(dados.valor_previsto) || 0;
+
+        if (somaValorOutras + novoValor > valorGlobal + 0.01) {
+          const saldoDisponivel = Math.max(0, valorGlobal - somaValorOutras);
+          throw new BadRequestException(
+            `O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível para etapas. ` +
+            `Valor do contrato: R$ ${valorGlobal.toFixed(2)}, já alocado em outras etapas: R$ ${somaValorOutras.toFixed(2)}, ` +
+            `disponível: R$ ${saldoDisponivel.toFixed(2)}.`
+          );
+        }
+      }
+    }
+
+    // Validar percentual físico se foi alterado
+    if (dados.percentual_fisico !== undefined) {
+      const etapasExistentes = await this.etapaRepository.find({ where: { contrato_id: etapa.contrato_id } });
+      const somaPercentualOutras = etapasExistentes
+        .filter(e => e.id !== etapaId)
+        .reduce((sum, e) => sum + Number(e.percentual_fisico), 0);
+      const novoPercentual = Number(dados.percentual_fisico) || 0;
+
+      if (somaPercentualOutras + novoPercentual > 100.01) {
+        const percentualDisponivel = Math.max(0, 100 - somaPercentualOutras);
+        throw new BadRequestException(
+          `O percentual da etapa (${novoPercentual.toFixed(2)}%) excede o percentual disponível. ` +
+          `Já alocado em outras etapas: ${somaPercentualOutras.toFixed(2)}%, disponível: ${percentualDisponivel.toFixed(2)}%.`
+        );
+      }
     }
 
     Object.assign(etapa, dados);

@@ -215,13 +215,42 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     setModalEtapa(true)
   }
 
+  // Calcula saldo disponível para etapas (valor e percentual)
+  const somaValorEtapas = etapas.reduce((sum, e) => sum + Number(e.valor_previsto), 0)
+  const somaPercentualEtapas = etapas.reduce((sum, e) => sum + Number(e.percentual_fisico), 0)
+  const saldoValorEtapas = valorGlobal - somaValorEtapas
+  const saldoPercentualEtapas = 100 - somaPercentualEtapas
+
   const salvarEtapa = async () => {
+    const novoValor = parseFloat(formEtapa.valor_previsto) || 0
+    const novoPercentual = parseFloat(formEtapa.percentual_fisico) || 0
+
+    // Saldo excluindo a etapa sendo editada
+    const somaValorOutras = editandoEtapa
+      ? etapas.filter(e => e.id !== editandoEtapa.id).reduce((sum, e) => sum + Number(e.valor_previsto), 0)
+      : somaValorEtapas
+    const somaPercentualOutras = editandoEtapa
+      ? etapas.filter(e => e.id !== editandoEtapa.id).reduce((sum, e) => sum + Number(e.percentual_fisico), 0)
+      : somaPercentualEtapas
+
+    if (somaValorOutras + novoValor > valorGlobal + 0.01) {
+      const disponivel = Math.max(0, valorGlobal - somaValorOutras)
+      alert(`O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível.\n\nValor do contrato: R$ ${valorGlobal.toFixed(2)}\nJá alocado: R$ ${somaValorOutras.toFixed(2)}\nDisponível: R$ ${disponivel.toFixed(2)}`)
+      return
+    }
+
+    if (somaPercentualOutras + novoPercentual > 100.01) {
+      const disponivel = Math.max(0, 100 - somaPercentualOutras)
+      alert(`O percentual da etapa (${novoPercentual.toFixed(2)}%) excede o disponível.\n\nJá alocado: ${somaPercentualOutras.toFixed(2)}%\nDisponível: ${disponivel.toFixed(2)}%`)
+      return
+    }
+
     setActionLoading(true)
     try {
       const payload = {
         descricao: formEtapa.descricao,
-        percentual_fisico: parseFloat(formEtapa.percentual_fisico),
-        valor_previsto: parseFloat(formEtapa.valor_previsto),
+        percentual_fisico: novoPercentual,
+        valor_previsto: novoValor,
         data_inicio_prevista: formEtapa.data_inicio_prevista,
         data_fim_prevista: formEtapa.data_fim_prevista,
         observacoes: formEtapa.observacoes || null,
@@ -720,14 +749,47 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               <Label>Descrição *</Label>
               <Input placeholder="Ex: Fundação, Alvenaria, Cobertura..." value={formEtapa.descricao} onChange={e => setFormEtapa({ ...formEtapa, descricao: e.target.value })} />
             </div>
+            {/* Indicador de saldo disponível */}
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Valor do contrato:</span>
+                <span className="font-medium">{formatarMoeda(valorGlobal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Alocado em etapas:</span>
+                <span className="font-medium">{formatarMoeda(editandoEtapa ? somaValorEtapas - Number(editandoEtapa.valor_previsto) : somaValorEtapas)}</span>
+              </div>
+              <div className="flex justify-between border-t border-blue-200 pt-1 mt-1">
+                <span className="text-blue-700 font-medium">Disponível:</span>
+                <span className="font-bold text-blue-700">{formatarMoeda(editandoEtapa ? saldoValorEtapas + Number(editandoEtapa.valor_previsto) : saldoValorEtapas)}</span>
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-gray-600">% Alocado:</span>
+                <span className="font-medium">{(editandoEtapa ? somaPercentualEtapas - Number(editandoEtapa.percentual_fisico) : somaPercentualEtapas).toFixed(2)}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-blue-700 font-medium">% Disponível:</span>
+                <span className="font-bold text-blue-700">{(editandoEtapa ? saldoPercentualEtapas + Number(editandoEtapa.percentual_fisico) : saldoPercentualEtapas).toFixed(2)}%</span>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>% Físico da Obra *</Label>
                 <Input type="number" step="0.01" min="0" max="100" placeholder="Ex: 25" value={formEtapa.percentual_fisico} onChange={e => setFormEtapa({ ...formEtapa, percentual_fisico: e.target.value })} />
+                {formEtapa.percentual_fisico && (() => {
+                  const dispPerc = editandoEtapa ? saldoPercentualEtapas + Number(editandoEtapa.percentual_fisico) : saldoPercentualEtapas
+                  const excede = parseFloat(formEtapa.percentual_fisico) > dispPerc + 0.01
+                  return excede ? <p className="text-xs text-red-500 font-medium">Excede o % disponível ({dispPerc.toFixed(2)}%)</p> : null
+                })()}
               </div>
               <div className="space-y-2">
                 <Label>Valor Previsto (R$) *</Label>
                 <Input type="number" step="0.01" min="0" placeholder="0,00" value={formEtapa.valor_previsto} onChange={e => setFormEtapa({ ...formEtapa, valor_previsto: e.target.value })} />
+                {formEtapa.valor_previsto && (() => {
+                  const dispValor = editandoEtapa ? saldoValorEtapas + Number(editandoEtapa.valor_previsto) : saldoValorEtapas
+                  const excede = parseFloat(formEtapa.valor_previsto) > dispValor + 0.01
+                  return excede ? <p className="text-xs text-red-500 font-medium">Excede o saldo disponível ({formatarMoeda(dispValor)})</p> : null
+                })()}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
