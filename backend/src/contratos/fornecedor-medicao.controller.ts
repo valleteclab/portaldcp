@@ -14,6 +14,9 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 import { MedicaoService } from './medicao.service';
 import { ContratosService } from './contratos.service';
 import { UploadService } from '../upload/upload.service';
@@ -22,6 +25,11 @@ import { Repository } from 'typeorm';
 import { Contrato } from './entities/contrato.entity';
 import { AnexoMedicao, TipoAnexoMedicao } from './entities/anexo-medicao.entity';
 import { Medicao } from './entities/medicao.entity';
+
+// Diretório de uploads — mesmo do UploadModule
+const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+const ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 /**
  * Controller para o Portal do Fornecedor — Medições.
@@ -112,7 +120,38 @@ export class FornecedorMedicaoController {
    * POST /api/fornecedor/contratos/medicoes/:medicaoId/anexos
    */
   @Post('medicoes/:medicaoId/anexos')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (req: any, file, cb) => {
+        const medicaoId = req.params.medicaoId;
+        const dir = join(uploadDir, 'medicoes', medicaoId);
+        try {
+          if (!existsSync(dir)) {
+            mkdirSync(dir, { recursive: true });
+          }
+          cb(null, dir);
+        } catch (e) {
+          cb(e as Error, dir);
+        }
+      },
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = extname(file.originalname).toLowerCase();
+        cb(null, `${uniqueSuffix}${ext}`);
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb: any) => {
+      if (!ALLOWED_MIMES.includes(file.mimetype)) {
+        return cb(new BadRequestException('Tipo de arquivo não permitido. Use PDF, JPG ou PNG.'), false);
+      }
+      const ext = extname(file.originalname).toLowerCase();
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        return cb(new BadRequestException(`Extensão ${ext} não permitida.`), false);
+      }
+      cb(null, true);
+    },
+  }))
   async uploadAnexo(
     @Param('medicaoId') medicaoId: string,
     @UploadedFile() file: Express.Multer.File,
