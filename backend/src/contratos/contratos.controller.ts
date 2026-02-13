@@ -17,6 +17,7 @@ import { Repository } from 'typeorm';
 import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
+import { AnexoMedicao } from './entities/anexo-medicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -30,6 +31,8 @@ export class ContratosController {
     private readonly contratosService: ContratosService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(AnexoMedicao)
+    private readonly anexoRepository: Repository<AnexoMedicao>,
   ) {}
 
   // ============ CRUD CONTRATOS ============
@@ -257,6 +260,22 @@ export class ContratosController {
   }
 
   // ============ ENDPOINTS PÚBLICOS ============
+
+  // ============ ANEXOS DE MEDIÇÃO ============
+
+  /**
+   * Lista anexos (fotos/documentos) de uma medição.
+   * GET /api/contratos/medicoes/:medicaoId/anexos
+   */
+  @Get('medicoes/:medicaoId/anexos')
+  async listarAnexosMedicao(@Param('medicaoId') medicaoId: string) {
+    return this.anexoRepository.find({
+      where: { medicao_id: medicaoId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  // ============ ROTAS PÚBLICAS ============
 
   @Public()
   @Get('publicos/lista')

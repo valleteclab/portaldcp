@@ -44,6 +44,35 @@ export class UploadController {
     };
   }
 
+  /**
+   * Serve arquivos com path de 3 segmentos: /uploads/medicoes/:subdir/:filename
+   * Usado para anexos de medição organizados por medicaoId.
+   */
+  @Public()
+  @Get(':tipo/:subdir/:filename')
+  async getNestedFile(
+    @Param('tipo') tipo: string,
+    @Param('subdir') subdir: string,
+    @Param('filename') filename: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    // Sanitizar parâmetros (evitar path traversal)
+    const safeTipo = tipo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeSubdir = subdir.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    const filePath = this.uploadService.getFilePath(`${safeTipo}/${safeSubdir}`, safeFilename);
+
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('Arquivo não encontrado');
+    }
+
+    const file = createReadStream(filePath);
+    this.setContentType(res, safeFilename);
+    return new StreamableFile(file);
+  }
+
+  @Public()
   @Get(':tipo/:filename')
   async getFile(
     @Param('tipo') tipo: string,
@@ -57,8 +86,12 @@ export class UploadController {
     }
 
     const file = createReadStream(filePath);
-    
-    // Define o content-type baseado na extensão
+    this.setContentType(res, filename);
+    return new StreamableFile(file);
+  }
+
+  /** Helper para definir Content-Type baseado na extensão */
+  private setContentType(res: Response, filename: string) {
     const ext = filename.split('.').pop()?.toLowerCase();
     if (ext === 'pdf') {
       res.set({ 'Content-Type': 'application/pdf' });
@@ -67,8 +100,6 @@ export class UploadController {
     } else if (ext === 'png') {
       res.set({ 'Content-Type': 'image/png' });
     }
-
-    return new StreamableFile(file);
   }
 
   @Delete(':tipo/:filename')

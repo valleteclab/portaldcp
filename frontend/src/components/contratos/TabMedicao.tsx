@@ -178,6 +178,19 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
 
   const [motivoDevolucao, setMotivoDevolucao] = useState('')
+  const [anexosMedicao, setAnexosMedicao] = useState<any[]>([])
+  const [loadingAnexos, setLoadingAnexos] = useState(false)
+
+  const abrirDetalhe = async (m: Medicao) => {
+    setModalDetalhe(m)
+    setAnexosMedicao([])
+    setLoadingAnexos(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`)
+      if (res.ok) setAnexosMedicao(await res.json())
+    } catch { }
+    setLoadingAnexos(false)
+  }
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -560,7 +573,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setModalDetalhe(m)}>
+                  <Button size="sm" variant="outline" onClick={() => abrirDetalhe(m)}>
                     <Eye className="w-3 h-3 mr-1" />Ver
                   </Button>
                   <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
@@ -767,7 +780,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" onClick={() => setModalDetalhe(m)}>
+                      <Button variant="ghost" size="sm" onClick={() => abrirDetalhe(m)}>
                         <Eye className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -1221,6 +1234,45 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                   <p className="text-sm text-amber-700">{modalDetalhe.motivo_devolucao}</p>
                 </div>
               )}
+
+              {/* Anexos (Fotos e Documentos) do Fornecedor */}
+              <div className="border-t pt-3">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold flex items-center gap-1">
+                  📎 Evidências e Documentos {anexosMedicao.length > 0 && <Badge variant="outline" className="text-xs px-1.5 py-0">{anexosMedicao.length}</Badge>}
+                </p>
+                {loadingAnexos && <p className="text-xs text-gray-400">Carregando anexos...</p>}
+                {!loadingAnexos && anexosMedicao.length === 0 && (
+                  <p className="text-xs text-gray-400 italic">Nenhuma evidência enviada pelo fornecedor.</p>
+                )}
+                {anexosMedicao.length > 0 && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {anexosMedicao.map((anexo: any) => (
+                      <div key={anexo.id} className="border rounded-lg overflow-hidden bg-gray-50">
+                        {anexo.tipo === 'FOTO' ? (
+                          <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                            <img
+                              src={`${API_URL}${anexo.url}`}
+                              alt={anexo.descricao || anexo.nome_original}
+                              className="w-full h-full object-cover cursor-pointer"
+                              onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center cursor-pointer" onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}>
+                            <svg className="w-8 h-8 text-blue-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                            <p className="text-xs text-blue-600 text-center px-1 truncate w-full">{anexo.nome_original}</p>
+                          </div>
+                        )}
+                        <div className="p-1.5">
+                          <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
+                          <p className="text-xs text-gray-400">{(anexo.tamanho_bytes / 1024).toFixed(0)} KB</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
