@@ -1265,6 +1265,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                           </div>
                         )}
                         <div className="p-1.5">
+                          {anexo.descricao && <p className="text-xs font-medium text-gray-700 truncate">{anexo.descricao}</p>}
                           <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
                           <p className="text-xs text-gray-400">{(anexo.tamanho_bytes / 1024).toFixed(0)} KB</p>
                         </div>

@@ -846,6 +846,8 @@ export default function FornecedorContratoDetalhePage() {
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
                                 onClick={() => {
+                                  const titulo = prompt('Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):');
+                                  if (titulo === null) return; // cancelou
                                   const input = document.createElement('input');
                                   input.type = 'file';
                                   input.accept = 'image/jpeg,image/png,image/jpg';
@@ -854,7 +856,7 @@ export default function FornecedorContratoDetalhePage() {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files) {
                                       for (const file of Array.from(files)) {
-                                        await handleUploadAnexo(medicao.id, file, 'FOTO');
+                                        await handleUploadAnexo(medicao.id, file, 'FOTO', titulo || undefined);
                                       }
                                     }
                                   };
@@ -867,13 +869,15 @@ export default function FornecedorContratoDetalhePage() {
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
                                 onClick={() => {
+                                  const titulo = prompt('Título do documento (ex: Nota Fiscal, Relatório de medição):');
+                                  if (titulo === null) return;
                                   const input = document.createElement('input');
                                   input.type = 'file';
                                   input.accept = 'application/pdf,image/jpeg,image/png';
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files && files[0]) {
-                                      await handleUploadAnexo(medicao.id, files[0], 'DOCUMENTO');
+                                      await handleUploadAnexo(medicao.id, files[0], 'DOCUMENTO', titulo || undefined);
                                     }
                                   };
                                   input.click();
@@ -917,6 +921,7 @@ export default function FornecedorContratoDetalhePage() {
                                   </div>
                                 )}
                                 <div className="p-1.5">
+                                  {anexo.descricao && <p className="text-xs font-medium text-gray-700 truncate">{anexo.descricao}</p>}
                                   <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
                                   <p className="text-xs text-gray-400">{formatarTamanho(anexo.tamanho_bytes)}</p>
                                 </div>
