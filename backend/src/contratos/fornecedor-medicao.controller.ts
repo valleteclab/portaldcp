@@ -93,6 +93,21 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Fornecedor exclui uma medição em rascunho ou devolvida.
+   * DELETE /api/fornecedor/contratos/medicoes/:medicaoId
+   */
+  @Delete('medicoes/:medicaoId')
+  async excluirMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    return this.medicaoService.excluirMedicao(medicaoId, fornecedorId);
+  }
+
+  /**
    * Upload de anexo (foto ou documento) para uma medição.
    * POST /api/fornecedor/contratos/medicoes/:medicaoId/anexos
    */

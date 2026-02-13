@@ -283,6 +283,23 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     setActionLoading(false)
   }
 
+  // ============ MEDIÇÕES — Exclusão ============
+
+  const excluirMedicao = async (medicaoId: string, numeroMedicao: number) => {
+    if (!confirm(`Excluir a ${numeroMedicao}ª Medição? Esta ação não pode ser desfeita.`)) return
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao excluir medição')
+      } else {
+        carregarDados()
+      }
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
   // ============ MEDIÇÕES — Ateste do Fiscal ============
 
   const atestarMedicao = async () => {
@@ -630,14 +647,24 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {m.status === 'RASCUNHO' && !m.fornecedor_nome && (
-                        <Button variant="outline" size="sm" onClick={() => enviarParaAprovacao(m.id)} disabled={actionLoading}>
-                          <Send className="w-3.5 h-3.5 mr-1" />Enviar p/ Aprovação
-                        </Button>
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => enviarParaAprovacao(m.id)} disabled={actionLoading}>
+                            <Send className="w-3.5 h-3.5 mr-1" />Enviar p/ Aprovação
+                          </Button>
+                          <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => excluirMedicao(m.id, m.numero_medicao)} disabled={actionLoading}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
                       )}
                       {m.status === 'RASCUNHO' && m.fornecedor_nome && (
-                        <Badge variant="outline" className="text-xs text-gray-500">
-                          <Clock className="w-3 h-3 mr-1" />Rascunho do fornecedor
-                        </Badge>
+                        <>
+                          <Badge variant="outline" className="text-xs text-gray-500">
+                            <Clock className="w-3 h-3 mr-1" />Rascunho do fornecedor
+                          </Badge>
+                          <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => excluirMedicao(m.id, m.numero_medicao)} disabled={actionLoading}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
                       )}
                       {m.status === 'SUBMETIDA' && (
                         <>
@@ -645,7 +672,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                             <ClipboardCheck className="w-3.5 h-3.5 mr-1" />Atestar
                           </Button>
                           <Button size="sm" variant="outline" className="text-amber-600" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
-                            <RotateCcw className="w-3.5 h-3.5" />
+                            <RotateCcw className="w-3.5 h-3.5 mr-1" />Devolver
                           </Button>
                         </>
                       )}

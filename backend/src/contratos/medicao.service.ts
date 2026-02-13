@@ -272,6 +272,43 @@ export class MedicaoService {
   }
 
   // ============================================================================
+  // MEDIÇÕES — Exclusão
+  // ============================================================================
+
+  /**
+   * Exclui uma medição e seus itens.
+   * Apenas medições em RASCUNHO ou DEVOLVIDA podem ser excluídas.
+   */
+  async excluirMedicao(medicaoId: string, solicitanteId?: string): Promise<{ message: string }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const statusPermitidos = [StatusMedicao.RASCUNHO, StatusMedicao.DEVOLVIDA];
+    if (!statusPermitidos.includes(medicao.status)) {
+      throw new BadRequestException(
+        `Apenas medições em Rascunho ou Devolvida podem ser excluídas. Status atual: ${medicao.status}`
+      );
+    }
+
+    // Se solicitanteId informado (fornecedor), verificar se é o fornecedor do contrato
+    if (solicitanteId && medicao.contrato && medicao.contrato.fornecedor_id !== solicitanteId) {
+      throw new ForbiddenException('Você não tem permissão para excluir esta medição');
+    }
+
+    // Excluir itens da medição primeiro
+    await this.itemMedicaoRepository.delete({ medicao_id: medicaoId });
+
+    // Excluir a medição
+    await this.medicaoRepository.remove(medicao);
+
+    this.logger.log(`Medição #${medicao.numero_medicao} excluída por ${solicitanteId || 'órgão'}`);
+    return { message: `Medição #${medicao.numero_medicao} excluída com sucesso` };
+  }
+
+  // ============================================================================
   // MEDIÇÕES — Submissão pelo fornecedor
   // ============================================================================
 

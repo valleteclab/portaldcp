@@ -526,6 +526,25 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  // Excluir medição em rascunho/devolvida
+  const handleExcluirMedicao = async (medicao: Medicao) => {
+    if (!fornecedor) return;
+    if (!confirm(`Excluir a ${medicao.numero_medicao}ª Medição? Esta ação não pode ser desfeita.`)) return;
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}?fornecedorId=${fornecedor.id}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        carregarDados();
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Erro ao excluir medição');
+      }
+    } catch (error) {
+      alert('Erro ao excluir medição');
+    }
+  };
+
   const handleSubmeterMedicao = async () => {
     if (!medicaoParaSubmeter || !fornecedor) return;
     setSubmitting(true);
@@ -756,9 +775,14 @@ export default function FornecedorContratoDetalhePage() {
                         </div>
                         <div className="flex items-center gap-2">
                           {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
-                            <Button size="sm" onClick={() => abrirModalSubmeter(medicao)} className="gap-1">
-                              <Send className="w-3 h-3" />Submeter
-                            </Button>
+                            <>
+                              <Button size="sm" onClick={() => abrirModalSubmeter(medicao)} className="gap-1">
+                                <Send className="w-3 h-3" />Submeter
+                              </Button>
+                              <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => handleExcluirMedicao(medicao)}>
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </>
                           )}
                           <Button size="sm" variant="outline" onClick={() => { setMedicaoDetalhe(medicao); setModalDetalhe(true); }}>
                             <Eye className="w-3 h-3 mr-1" />Ver

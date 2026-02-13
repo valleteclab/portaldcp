@@ -123,6 +123,11 @@ export class ModalidadesContratoController {
     return this.medicaoService.devolverMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, body.motivo);
   }
 
+  @Delete('medicoes/:medicaoId')
+  async excluirMedicao(@Param('medicaoId') medicaoId: string) {
+    return this.medicaoService.excluirMedicao(medicaoId);
+  }
+
   @Patch('medicoes/:medicaoId/enviar-aprovacao')
   async enviarMedicaoParaAprovacao(
     @Param('medicaoId') medicaoId: string,
