@@ -494,7 +494,7 @@ export default function FornecedorContratoDetalhePage() {
               <TrendingUp className="w-5 h-5 text-purple-500" />
               <div>
                 <p className="text-xs text-gray-500">Avanço Físico</p>
-                <p className="font-medium text-sm">{resumo ? `${resumo.percentual_fisico_total.toFixed(1)}%` : '0%'}</p>
+                <p className="font-medium text-sm">{resumo ? `${Number(resumo.percentual_fisico_total || 0).toFixed(1)}%` : '0%'}</p>
               </div>
             </div>
           </CardContent>
@@ -516,7 +516,7 @@ export default function FornecedorContratoDetalhePage() {
               </div>
               <div className="text-center p-3 bg-purple-50 rounded-lg">
                 <p className="text-xs text-gray-500">Avanço Físico</p>
-                <p className="text-lg font-bold text-purple-700">{resumo.percentual_fisico_total.toFixed(1)}%</p>
+                <p className="text-lg font-bold text-purple-700">{Number(resumo.percentual_fisico_total || 0).toFixed(1)}%</p>
                 <Progress value={resumo.percentual_fisico_total} className="mt-1 h-2" />
               </div>
               <div className="text-center p-3 bg-orange-50 rounded-lg">
@@ -588,7 +588,7 @@ export default function FornecedorContratoDetalhePage() {
                           <div className="flex items-center gap-4 text-sm text-gray-500">
                             <span>{formatarData(medicao.periodo_inicio)} a {formatarData(medicao.periodo_fim)}</span>
                             <span className="font-medium text-gray-700">{formatarMoeda(medicao.valor_medido)}</span>
-                            <span>{medicao.percentual_fisico_medido?.toFixed(1)}% físico</span>
+                            <span>{Number(medicao.percentual_fisico_medido || 0).toFixed(1)}% físico</span>
                           </div>
                           {medicao.status === 'DEVOLVIDA' && medicao.motivo_devolucao && (
                             <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
@@ -1049,9 +1049,9 @@ export default function FornecedorContratoDetalhePage() {
                 <div><p className="text-xs text-gray-500">Período</p><p className="font-medium">{formatarData(medicaoDetalhe.periodo_inicio)} a {formatarData(medicaoDetalhe.periodo_fim)}</p></div>
                 <div><p className="text-xs text-gray-500">Status</p><Badge className={STATUS_MEDICAO[medicaoDetalhe.status]?.cor}>{STATUS_MEDICAO[medicaoDetalhe.status]?.label}</Badge></div>
                 <div><p className="text-xs text-gray-500">Valor Medido</p><p className="font-medium">{formatarMoeda(medicaoDetalhe.valor_medido)}</p></div>
-                <div><p className="text-xs text-gray-500">% Físico</p><p className="font-medium">{medicaoDetalhe.percentual_fisico_medido?.toFixed(1)}%</p></div>
+                <div><p className="text-xs text-gray-500">% Físico</p><p className="font-medium">{Number(medicaoDetalhe.percentual_fisico_medido || 0).toFixed(1)}%</p></div>
                 <div><p className="text-xs text-gray-500">Acumulado</p><p className="font-medium">{formatarMoeda(medicaoDetalhe.valor_acumulado_atual)}</p></div>
-                <div><p className="text-xs text-gray-500">% Acumulado</p><p className="font-medium">{medicaoDetalhe.percentual_fisico_acumulado?.toFixed(1)}%</p></div>
+                <div><p className="text-xs text-gray-500">% Acumulado</p><p className="font-medium">{Number(medicaoDetalhe.percentual_fisico_acumulado || 0).toFixed(1)}%</p></div>
               </div>
 
               {medicaoDetalhe.nota_fiscal_numero && (

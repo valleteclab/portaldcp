@@ -4,13 +4,13 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
-import { 
-  Building2, 
-  FileText, 
-  Gavel, 
-  LayoutDashboard, 
-  LogOut, 
-  Settings, 
+import {
+  Building2,
+  FileText,
+  Gavel,
+  LayoutDashboard,
+  LogOut,
+  Settings,
   User,
   Bell,
   Search,
@@ -112,14 +112,14 @@ export function Sidebar({ userType }: SidebarProps) {
     if (userType === 'fornecedor') {
       return links // Fornecedor vê todos os links
     }
-    
+
     // SEGURANÇA: Durante loading, mostra apenas links sem módulo (Dashboard, Configurações)
     // Isso evita mostrar links que o usuário pode não ter acesso
     if (modulosLoading) {
       console.log('[Sidebar] Carregando módulos, mostrando apenas links básicos');
       return links.filter(link => !link.modulo)
     }
-    
+
     // SEMPRE filtra baseado nos módulos habilitados
     // Se não há módulos configurados, mostra apenas Dashboard e Configurações
     // Isso é mais seguro que mostrar tudo
@@ -128,21 +128,21 @@ export function Sidebar({ userType }: SidebarProps) {
       if (!link.modulo) {
         return true
       }
-      
+
       // Verifica se o órgão tem acesso ao módulo
       const hasAccess = temAcesso(link.modulo)
       console.log(`[Sidebar] Módulo ${link.modulo}: ${hasAccess ? 'permitido' : 'bloqueado'}`);
-      
+
       if (!hasAccess) {
         return false
       }
-      
+
       // Verifica se requer permissão de aprovador
       if (link.requerAprovador && !podeAprovar) {
         console.log(`[Sidebar] Link ${link.label}: requer aprovador, usuário não tem permissão`);
         return false
       }
-      
+
       return true
     })
   }
@@ -154,10 +154,10 @@ export function Sidebar({ userType }: SidebarProps) {
       <div className="p-4 border-b border-slate-700">
         <Link href="/" className="flex items-center gap-3">
           <div className="bg-white rounded-lg p-1.5">
-            <Image 
-              src="/logo.png" 
-              alt="Portal DCP" 
-              width={50} 
+            <Image
+              src="/logo.png"
+              alt="Portal DCP"
+              width={50}
               height={50}
             />
           </div>
@@ -180,11 +180,10 @@ export function Sidebar({ userType }: SidebarProps) {
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
-                    isActive 
-                      ? 'bg-blue-600 text-white' 
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${isActive
+                      ? 'bg-blue-600 text-white'
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                  }`}
+                    }`}
                 >
                   <Icon className="h-5 w-5" />
                   {link.label}
@@ -196,8 +195,8 @@ export function Sidebar({ userType }: SidebarProps) {
       </nav>
 
       <div className="p-4 border-t border-slate-700">
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="w-full justify-start text-slate-300 hover:text-white hover:bg-slate-800"
           onClick={handleLogout}
         >
@@ -216,25 +215,25 @@ export function Header() {
   useEffect(() => {
     // Verifica se é área do órgão ou fornecedor
     const isOrgao = pathname.startsWith('/orgao')
-    
+
     if (isOrgao) {
       // Prioriza dados do usuário logado (novo sistema)
       const usuarioStr = localStorage.getItem('usuario')
       const orgaoStr = localStorage.getItem('orgao')
-      
+
       if (usuarioStr) {
         try {
           const user = JSON.parse(usuarioStr)
           let orgaoNome = ''
-          
+
           // Buscar nome do órgão
           if (orgaoStr) {
             try {
               const orgao = JSON.parse(orgaoStr)
               orgaoNome = orgao.nome || ''
-            } catch (e) {}
+            } catch (e) { }
           }
-          
+
           setUsuario({
             email: user.email,
             nome: user.nome,
@@ -246,7 +245,7 @@ export function Header() {
           console.error('Erro ao parsear usuario')
         }
       }
-      
+
       // Fallback: dados do órgão (sistema legado)
       if (orgaoStr) {
         try {
@@ -291,14 +290,14 @@ export function Header() {
   return (
     <header className="h-16 bg-white border-b flex items-center justify-between px-6">
       <div className="flex items-center gap-4">
-        <Input 
-          placeholder="Buscar licitações..." 
+        <Input
+          placeholder="Buscar licitações..."
           className="w-80"
         />
       </div>
 
       <div className="flex items-center gap-4">
-        <NotificacoesBadge />
+        {pathname.startsWith('/orgao') && <NotificacoesBadge />}
 
         <div className="flex items-center gap-3">
           <div className="text-right">
