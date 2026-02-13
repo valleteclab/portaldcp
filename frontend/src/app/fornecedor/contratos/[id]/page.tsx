@@ -413,6 +413,119 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  // Criar medição E submeter em um único passo (botão "Enviar para Ateste")
+  const handleCriarESubmeter = async () => {
+    if (!fornecedor) return;
+    setSubmitting(true);
+    try {
+      const itensComValor = novaMedicao.itens
+        .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
+        .map(i => ({
+          etapa_id: i.etapa_id,
+          percentual_executado_atual: i.percentual_executado_atual || 0,
+          valor_executado_atual: i.valor_executado_atual || undefined,
+        }));
+
+      if (itensComValor.length === 0) {
+        alert('Informe o percentual ou valor executado em pelo menos uma etapa');
+        setSubmitting(false);
+        return;
+      }
+
+      // Validar saldo disponível
+      if (resumo) {
+        const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
+          const etapa = etapas[idx];
+          if (!etapa) return acc;
+          if (item.modo_input === 'valor' && item.valor_executado_atual) {
+            return acc + item.valor_executado_atual;
+          }
+          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+        }, 0);
+
+        if (totalMedicao > resumo.saldo_disponivel + 0.01) {
+          alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Validar que nenhum item excede o restante da etapa
+      for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
+        const item = novaMedicao.itens[idx];
+        const etapa = etapas[idx];
+        if (!etapa || !item) continue;
+        const restante = 100 - Number(etapa.percentual_executado);
+        const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0
+          ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100
+          : item.percentual_executado_atual;
+        if (percUsado > restante + 0.01) {
+          alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas você informou ${percUsado.toFixed(1)}%.`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Passo 1: Criar medição como RASCUNHO
+      const resCriar = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          periodo_inicio: novaMedicao.periodo_inicio || undefined,
+          periodo_fim: novaMedicao.periodo_fim || undefined,
+          observacoes: novaMedicao.observacoes || undefined,
+          nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
+          nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+          nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
+          fornecedor_id: fornecedor.id,
+          fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
+          itens: itensComValor,
+        }),
+      });
+
+      if (!resCriar.ok) {
+        const err = await resCriar.json();
+        alert(err.message || 'Erro ao criar medição');
+        setSubmitting(false);
+        return;
+      }
+
+      const medicaoCriada = await resCriar.json();
+
+      // Passo 2: Submeter automaticamente (RASCUNHO → SUBMETIDA)
+      const resSubmeter = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/submeter`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fornecedor_id: fornecedor.id,
+          fornecedor_observacoes: novaMedicao.observacoes || undefined,
+          nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
+          nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+          nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
+        }),
+      });
+
+      if (resSubmeter.ok) {
+        setModalNovaMedicao(false);
+        setNovaMedicao({
+          periodo_inicio: '', periodo_fim: '', observacoes: '',
+          nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
+          itens: [],
+        });
+        carregarDados();
+      } else {
+        // Medição foi criada mas falhou ao submeter - informa o usuário
+        alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
+        setModalNovaMedicao(false);
+        carregarDados();
+      }
+    } catch (error) {
+      alert('Erro ao criar medição');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmeterMedicao = async () => {
     if (!medicaoParaSubmeter || !fornecedor) return;
     setSubmitting(true);
@@ -1093,7 +1206,7 @@ export default function FornecedorContratoDetalhePage() {
                 {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
                 Salvar Rascunho
               </Button>
-              <Button onClick={handleCriarMedicao} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={handleCriarESubmeter} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
                 {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                 Enviar para Ateste
               </Button>

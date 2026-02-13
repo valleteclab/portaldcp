@@ -629,10 +629,15 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {m.status === 'RASCUNHO' && (
+                      {m.status === 'RASCUNHO' && !m.fornecedor_nome && (
                         <Button variant="outline" size="sm" onClick={() => enviarParaAprovacao(m.id)} disabled={actionLoading}>
                           <Send className="w-3.5 h-3.5 mr-1" />Enviar p/ Aprovação
                         </Button>
+                      )}
+                      {m.status === 'RASCUNHO' && m.fornecedor_nome && (
+                        <Badge variant="outline" className="text-xs text-gray-500">
+                          <Clock className="w-3 h-3 mr-1" />Rascunho do fornecedor
+                        </Badge>
                       )}
                       {m.status === 'SUBMETIDA' && (
                         <>
