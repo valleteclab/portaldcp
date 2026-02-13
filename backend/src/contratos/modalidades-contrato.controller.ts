@@ -115,6 +115,24 @@ export class ModalidadesContratoController {
     return this.medicaoService.atestarMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, body);
   }
 
+  @Patch('medicoes/:medicaoId/atestar-itens')
+  async atestarItensMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      fiscal_id: string;
+      fiscal_nome: string;
+      itens: Array<{ item_id: string; observacoes?: string }>;
+      observacoes_gerais?: string;
+      verificado_in_loco?: boolean;
+    },
+  ) {
+    return this.medicaoService.atestarItensMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, {
+      itens: body.itens,
+      observacoes_gerais: body.observacoes_gerais,
+      verificado_in_loco: body.verificado_in_loco,
+    });
+  }
+
   @Patch('medicoes/:medicaoId/devolver')
   async devolverMedicao(
     @Param('medicaoId') medicaoId: string,

@@ -472,8 +472,8 @@ export class MedicaoService {
   // ============================================================================
 
   /**
-   * Fiscal do órgão faz o ateste técnico da medição.
-   * Status: SUBMETIDA → AGUARDANDO_APROVACAO (pós-ateste, vai para gestor)
+   * Fiscal do órgão faz o ateste técnico da medição (atalho: atesta TODOS os itens de uma vez).
+   * Status: SUBMETIDA ou PARCIALMENTE_ATESTADA → AGUARDANDO_APROVACAO
    */
   async atestarMedicao(medicaoId: string, fiscalId: string, fiscalNome: string, dados?: {
     observacoes?: string;
@@ -482,8 +482,21 @@ export class MedicaoService {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    if (medicao.status !== StatusMedicao.SUBMETIDA) {
-      throw new BadRequestException('Apenas medições submetidas podem receber ateste');
+    if (medicao.status !== StatusMedicao.SUBMETIDA && medicao.status !== StatusMedicao.PARCIALMENTE_ATESTADA) {
+      throw new BadRequestException('Apenas medições submetidas ou parcialmente atestadas podem receber ateste');
+    }
+
+    // Atestar todos os itens da medição
+    const itens = await this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } });
+    for (const item of itens) {
+      if (!item.atestado) {
+        item.atestado = true;
+        item.ateste_fiscal_nome = fiscalNome;
+        item.ateste_data = new Date() as any;
+      }
+    }
+    if (itens.length > 0) {
+      await this.itemMedicaoRepository.save(itens);
     }
 
     medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
@@ -494,20 +507,88 @@ export class MedicaoService {
     medicao.ateste_verificado_in_loco = dados?.verificado_in_loco || false;
 
     await this.medicaoRepository.save(medicao);
-    this.logger.log(`Medição #${medicao.numero_medicao} atestada pelo fiscal ${fiscalNome}`);
+    this.logger.log(`Medição #${medicao.numero_medicao} atestada (todos os itens) pelo fiscal ${fiscalNome}`);
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
+  /**
+   * Fiscal do órgão faz o ateste PARCIAL — atesta itens específicos da medição.
+   * Se todos os itens ficarem atestados → AGUARDANDO_APROVACAO
+   * Se ainda faltam itens → PARCIALMENTE_ATESTADA
+   */
+  async atestarItensMedicao(medicaoId: string, fiscalId: string, fiscalNome: string, dados: {
+    itens: Array<{ item_id: string; observacoes?: string }>;
+    observacoes_gerais?: string;
+    verificado_in_loco?: boolean;
+  }): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (medicao.status !== StatusMedicao.SUBMETIDA && medicao.status !== StatusMedicao.PARCIALMENTE_ATESTADA) {
+      throw new BadRequestException('Apenas medições submetidas ou parcialmente atestadas podem receber ateste');
+    }
+
+    if (!dados.itens || dados.itens.length === 0) {
+      throw new BadRequestException('Selecione pelo menos um item para atestar');
+    }
+
+    // Buscar todos os itens da medição
+    const todosItens = await this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } });
+
+    // Atestar os itens selecionados
+    const agora = new Date();
+    for (const itemAteste of dados.itens) {
+      const item = todosItens.find(i => i.id === itemAteste.item_id);
+      if (!item) {
+        this.logger.warn(`Item ${itemAteste.item_id} não encontrado na medição ${medicaoId}`);
+        continue;
+      }
+      if (item.atestado) {
+        continue; // Já atestado, pular
+      }
+      item.atestado = true;
+      item.ateste_fiscal_nome = fiscalNome;
+      item.ateste_data = agora as any;
+      item.ateste_observacoes = itemAteste.observacoes || null as any;
+    }
+
+    await this.itemMedicaoRepository.save(todosItens);
+
+    // Verificar se TODOS os itens estão atestados
+    const todosAtestados = todosItens.every(i => i.atestado);
+
+    if (todosAtestados) {
+      // Ateste completo → enviar para aprovação
+      medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
+      medicao.ateste_fiscal_id = fiscalId;
+      medicao.ateste_fiscal_nome = fiscalNome;
+      medicao.ateste_data = agora as any;
+      medicao.ateste_observacoes = dados.observacoes_gerais || null as any;
+      medicao.ateste_verificado_in_loco = dados.verificado_in_loco || false;
+      this.logger.log(`Medição #${medicao.numero_medicao} totalmente atestada (${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
+    } else {
+      // Ateste parcial
+      medicao.status = StatusMedicao.PARCIALMENTE_ATESTADA;
+      medicao.ateste_fiscal_id = fiscalId;
+      medicao.ateste_fiscal_nome = fiscalNome;
+      const atestados = todosItens.filter(i => i.atestado).length;
+      this.logger.log(`Medição #${medicao.numero_medicao} parcialmente atestada (${atestados}/${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
+    }
+
+    await this.medicaoRepository.save(medicao);
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
   /**
    * Fiscal devolve a medição ao fornecedor para correção.
-   * Status: SUBMETIDA → DEVOLVIDA
+   * Status: SUBMETIDA ou PARCIALMENTE_ATESTADA → DEVOLVIDA
    */
   async devolverMedicao(medicaoId: string, fiscalId: string, fiscalNome: string, motivo: string): Promise<Medicao> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    if (medicao.status !== StatusMedicao.SUBMETIDA) {
-      throw new BadRequestException('Apenas medições submetidas podem ser devolvidas');
+    if (medicao.status !== StatusMedicao.SUBMETIDA && medicao.status !== StatusMedicao.PARCIALMENTE_ATESTADA) {
+      throw new BadRequestException('Apenas medições submetidas ou parcialmente atestadas podem ser devolvidas');
     }
 
     if (!motivo || !motivo.trim()) {

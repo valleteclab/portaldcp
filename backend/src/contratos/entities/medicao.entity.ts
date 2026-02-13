@@ -43,6 +43,7 @@ export enum StatusMedicao {
   RASCUNHO = 'RASCUNHO',                         // Fornecedor ainda editando
   SUBMETIDA = 'SUBMETIDA',                        // Fornecedor submeteu para análise
   AGUARDANDO_ATESTE = 'AGUARDANDO_ATESTE',        // Fiscal do órgão precisa atestar
+  PARCIALMENTE_ATESTADA = 'PARCIALMENTE_ATESTADA', // Fiscal atestou alguns itens, faltam outros
   AGUARDANDO_APROVACAO = 'AGUARDANDO_APROVACAO',  // Gestor precisa aprovar (pós-ateste)
   APROVADA = 'APROVADA',                          // Gestor aprovou, saldo consumido
   REJEITADA = 'REJEITADA',                        // Gestor rejeitou

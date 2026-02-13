@@ -119,6 +119,7 @@ const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> 
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800', icon: FileText },
   SUBMETIDA: { label: 'Submetida', cor: 'bg-blue-100 text-blue-800', icon: Send },
   AGUARDANDO_ATESTE: { label: 'Aguardando Ateste', cor: 'bg-yellow-100 text-yellow-800', icon: ClipboardCheck },
+  PARCIALMENTE_ATESTADA: { label: 'Parcialmente Atestada', cor: 'bg-amber-100 text-amber-800', icon: ClipboardCheck },
   AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-orange-100 text-orange-800', icon: Clock },
   APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-800', icon: XCircle },
@@ -174,6 +175,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     itens: [] as { etapa_id: string; percentual_executado_atual: number }[],
   })
   const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false })
+  const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
+
   const [motivoDevolucao, setMotivoDevolucao] = useState('')
 
   const carregarDados = useCallback(async () => {
@@ -197,7 +200,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const temOSAutorizada = osAtiva && ['AUTORIZADA', 'ORDEM_GERADA'].includes(osAtiva.status)
 
   // Medições separadas por status
-  const medicoesPendentesAteste = medicoes.filter(m => m.status === 'SUBMETIDA')
+  const medicoesPendentesAteste = medicoes.filter(m => m.status === 'SUBMETIDA' || m.status === 'PARCIALMENTE_ATESTADA')
   const medicoesEmAndamento = medicoes.filter(m => ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'DEVOLVIDA'].includes(m.status))
   const medicoesFinalizadas = medicoes.filter(m => ['APROVADA', 'REJEITADA'].includes(m.status))
 
@@ -350,22 +353,51 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   // ============ MEDIÇÕES — Ateste do Fiscal ============
 
+  const abrirModalAteste = (m: Medicao) => {
+    setModalAteste(m)
+    setFormAteste({ observacoes: '', verificado_in_loco: false })
+    // Inicializar estado dos itens (itens já atestados ficam marcados e bloqueados)
+    const itensMap: Record<string, { selecionado: boolean; observacoes: string }> = {}
+    const itens = (m as any).itens || []
+    for (const item of itens) {
+      itensMap[item.id] = {
+        selecionado: !!item.atestado,
+        observacoes: item.ateste_observacoes || '',
+      }
+    }
+    setItensAteste(itensMap)
+  }
+
   const atestarMedicao = async () => {
     if (!modalAteste) return
+
+    const itens = ((modalAteste as any).itens || []) as any[]
+    const itensSelecionados = itens.filter(item => itensAteste[item.id]?.selecionado && !item.atestado)
+
+    if (itensSelecionados.length === 0) {
+      alert('Selecione pelo menos um item não atestado para atestar.')
+      return
+    }
+
     setActionLoading(true)
     try {
       const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
-      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/atestar`, {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/atestar-itens`, {
         method: 'PATCH', body: JSON.stringify({
           fiscal_id: usuario.id || '',
           fiscal_nome: usuario.nome || 'Fiscal',
-          observacoes: formAteste.observacoes || null,
+          itens: itensSelecionados.map((item: any) => ({
+            item_id: item.id,
+            observacoes: itensAteste[item.id]?.observacoes || null,
+          })),
+          observacoes_gerais: formAteste.observacoes || null,
           verificado_in_loco: formAteste.verificado_in_loco,
         }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
       setModalAteste(null)
       setFormAteste({ observacoes: '', verificado_in_loco: false })
+      setItensAteste({})
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -509,6 +541,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium">{m.numero_medicao}ª Medição</span>
+                    <Badge className={STATUS_MEDICAO[m.status]?.cor}>{STATUS_MEDICAO[m.status]?.label}</Badge>
                     {m.fornecedor_nome && <span className="text-xs text-gray-500">por {m.fornecedor_nome}</span>}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-gray-500">
@@ -516,6 +549,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                     <span className="font-medium text-gray-700">{formatarMoeda(m.valor_medido)}</span>
                     <span>{Number(m.percentual_fisico_medido).toFixed(1)}% físico</span>
                     {m.nota_fiscal_numero && <span className="text-xs">NF: {m.nota_fiscal_numero}</span>}
+                    {m.status === 'PARCIALMENTE_ATESTADA' && (() => {
+                      const itens = (m as any).itens || []
+                      const atestados = itens.filter((i: any) => i.atestado).length
+                      return <span className="text-xs text-yellow-600 font-medium">{atestados}/{itens.length} itens atestados</span>
+                    })()}
                   </div>
                   {m.fornecedor_observacoes && (
                     <p className="text-xs text-gray-500 mt-1 italic">"{m.fornecedor_observacoes}"</p>
@@ -525,8 +563,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                   <Button size="sm" variant="outline" onClick={() => setModalDetalhe(m)}>
                     <Eye className="w-3 h-3 mr-1" />Ver
                   </Button>
-                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => { setModalAteste(m); setFormAteste({ observacoes: '', verificado_in_loco: false }) }}>
-                    <ClipboardCheck className="w-3 h-3 mr-1" />Atestar
+                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
+                    <ClipboardCheck className="w-3 h-3 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                   </Button>
                   <Button size="sm" variant="outline" className="text-amber-600 border-amber-300" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
                     <RotateCcw className="w-3 h-3 mr-1" />Devolver
@@ -714,10 +752,10 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                           </Button>
                         </>
                       )}
-                      {m.status === 'SUBMETIDA' && (
+                      {(m.status === 'SUBMETIDA' || m.status === 'PARCIALMENTE_ATESTADA') && (
                         <>
-                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => { setModalAteste(m); setFormAteste({ observacoes: '', verificado_in_loco: false }) }}>
-                            <ClipboardCheck className="w-3.5 h-3.5 mr-1" />Atestar
+                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
+                            <ClipboardCheck className="w-3.5 h-3.5 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                           </Button>
                           <Button size="sm" variant="outline" className="text-amber-600" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
                             <RotateCcw className="w-3.5 h-3.5 mr-1" />Devolver
@@ -905,9 +943,9 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         </DialogContent>
       </Dialog>
 
-      {/* Modal Ateste do Fiscal */}
+      {/* Modal Ateste do Fiscal (com seleção por item) */}
       <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardCheck className="w-5 h-5 text-yellow-600" />
@@ -915,6 +953,9 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
             </DialogTitle>
             <DialogDescription>
               Valor medido: {modalAteste && formatarMoeda(modalAteste.valor_medido)} — {modalAteste && Number(modalAteste.percentual_fisico_medido).toFixed(1)}% físico
+              {modalAteste?.status === 'PARCIALMENTE_ATESTADA' && (
+                <span className="ml-2 text-yellow-600 font-medium">— Ateste parcial em andamento</span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -927,6 +968,85 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 )}
               </div>
             )}
+
+            {/* Tabela de Itens para Ateste */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-gray-500 uppercase tracking-wide font-bold">Itens do Cronograma</p>
+                {(() => {
+                  const itens = ((modalAteste as any)?.itens || []) as any[]
+                  const totalAtestados = itens.filter((i: any) => i.atestado || itensAteste[i.id]?.selecionado).length
+                  return <Badge className={totalAtestados === itens.length ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>{totalAtestados}/{itens.length} atestados</Badge>
+                })()}
+              </div>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="w-10"></TableHead>
+                      <TableHead className="text-xs font-bold">Etapa</TableHead>
+                      <TableHead className="text-xs font-bold text-center w-16">% Med.</TableHead>
+                      <TableHead className="text-xs font-bold text-right w-24">Valor</TableHead>
+                      <TableHead className="text-xs font-bold w-10">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {((modalAteste as any)?.itens || []).map((item: any, idx: number) => {
+                      const jaAtestado = !!item.atestado
+                      const selecionado = itensAteste[item.id]?.selecionado || false
+                      return (
+                        <TableRow key={item.id || idx} className={jaAtestado ? 'bg-green-50/50' : selecionado ? 'bg-yellow-50/50' : ''}>
+                          <TableCell className="text-center">
+                            <input
+                              type="checkbox"
+                              checked={selecionado}
+                              disabled={jaAtestado}
+                              onChange={e => setItensAteste(prev => ({
+                                ...prev,
+                                [item.id]: { ...prev[item.id], selecionado: e.target.checked },
+                              }))}
+                              className="w-4 h-4"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm font-medium">{item.etapa_numero}. {item.etapa_descricao || `Etapa ${idx + 1}`}</p>
+                            {jaAtestado && (
+                              <p className="text-xs text-green-600 mt-0.5">Atestado por {item.ateste_fiscal_nome} em {formatarData(item.ateste_data)}</p>
+                            )}
+                            {!jaAtestado && selecionado && (
+                              <Input
+                                placeholder="Observação sobre este item (opcional)"
+                                className="mt-1 h-7 text-xs"
+                                value={itensAteste[item.id]?.observacoes || ''}
+                                onChange={e => setItensAteste(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...prev[item.id], observacoes: e.target.value },
+                                }))}
+                              />
+                            )}
+                            {jaAtestado && item.ateste_observacoes && (
+                              <p className="text-xs text-gray-500 mt-0.5 italic">"{item.ateste_observacoes}"</p>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center text-sm">{Number(item.percentual_executado_atual || 0).toFixed(1)}%</TableCell>
+                          <TableCell className="text-right text-sm">{formatarMoeda(item.valor_medido)}</TableCell>
+                          <TableCell className="text-center">
+                            {jaAtestado ? (
+                              <CheckCircle className="w-4 h-4 text-green-600 mx-auto" />
+                            ) : selecionado ? (
+                              <ClipboardCheck className="w-4 h-4 text-yellow-600 mx-auto" />
+                            ) : (
+                              <Clock className="w-4 h-4 text-gray-300 mx-auto" />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
             <div className="flex items-center gap-3 p-3 border rounded-lg">
               <input
                 type="checkbox"
@@ -941,24 +1061,41 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               </label>
             </div>
             <div className="space-y-2">
-              <Label>Observações do Ateste</Label>
+              <Label>Observações gerais do Ateste</Label>
               <Textarea
                 placeholder="Observações sobre a verificação técnica..."
                 value={formAteste.observacoes}
                 onChange={e => setFormAteste({ ...formAteste, observacoes: e.target.value })}
-                rows={3}
+                rows={2}
               />
             </div>
-            <p className="text-xs text-gray-500">
-              Ao atestar, a medição será encaminhada para aprovação do gestor na Central de Aprovações.
-            </p>
+            {(() => {
+              const itens = ((modalAteste as any)?.itens || []) as any[]
+              const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
+              const jaAtestados = itens.filter((i: any) => i.atestado).length
+              const todosSerao = jaAtestados + novosAtestados === itens.length && itens.length > 0
+              return (
+                <p className="text-xs text-gray-500">
+                  {novosAtestados === 0
+                    ? 'Selecione os itens que deseja atestar.'
+                    : todosSerao
+                      ? `Ao atestar ${novosAtestados} item(ns), todos os itens estarão atestados e a medição será encaminhada para aprovação.`
+                      : `${novosAtestados} item(ns) selecionado(s). A medição permanecerá como parcialmente atestada.`
+                  }
+                </p>
+              )
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
-            <Button className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={atestarMedicao} disabled={actionLoading}>
+            <Button
+              className="bg-yellow-600 hover:bg-yellow-700 text-white"
+              onClick={atestarMedicao}
+              disabled={actionLoading || !((modalAteste as any)?.itens || []).some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)}
+            >
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               <ClipboardCheck className="w-4 h-4 mr-2" />
-              Atestar Medição
+              Atestar Selecionados
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -164,6 +164,7 @@ const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> 
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-700', icon: FileText },
   SUBMETIDA: { label: 'Submetida', cor: 'bg-blue-100 text-blue-700', icon: Send },
   AGUARDANDO_ATESTE: { label: 'Aguardando Ateste', cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  PARCIALMENTE_ATESTADA: { label: 'Parcialmente Atestada', cor: 'bg-amber-100 text-amber-700', icon: Clock },
   AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-orange-100 text-orange-700', icon: Clock },
   APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-700', icon: CheckCircle },
   REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-700', icon: XCircle },
@@ -806,8 +807,8 @@ export default function FornecedorContratoDetalhePage() {
                           {medicao.data_submissao ? `Submetida ${formatarData(medicao.data_submissao)}` : 'Submissão'}
                         </span>
                         <ChevronRight className="w-3 h-3 text-gray-300" />
-                        <span className={`px-2 py-0.5 rounded ${medicao.ateste_data ? 'bg-yellow-200 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
-                          {medicao.ateste_data ? `Atestada ${formatarData(medicao.ateste_data)}` : 'Ateste Fiscal'}
+                        <span className={`px-2 py-0.5 rounded ${medicao.status === 'PARCIALMENTE_ATESTADA' ? 'bg-amber-200 text-amber-700' : medicao.ateste_data ? 'bg-yellow-200 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {medicao.status === 'PARCIALMENTE_ATESTADA' ? 'Ateste parcial' : medicao.ateste_data ? `Atestada ${formatarData(medicao.ateste_data)}` : 'Ateste Fiscal'}
                         </span>
                         <ChevronRight className="w-3 h-3 text-gray-300" />
                         <span className={`px-2 py-0.5 rounded ${medicao.data_aprovacao ? 'bg-green-200 text-green-700' : 'bg-gray-100 text-gray-400'}`}>

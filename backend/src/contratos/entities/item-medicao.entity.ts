@@ -58,6 +58,20 @@ export class ItemMedicao {
   @Column({ type: 'text', nullable: true })
   observacoes: string;
 
+  // ============ ATESTE DO FISCAL (por item) ============
+
+  @Column({ default: false })
+  atestado: boolean; // Se este item foi atestado pelo fiscal
+
+  @Column({ nullable: true })
+  ateste_fiscal_nome: string; // Quem atestou este item
+
+  @Column({ type: 'timestamp', nullable: true })
+  ateste_data: Date; // Quando foi atestado
+
+  @Column({ type: 'text', nullable: true })
+  ateste_observacoes: string; // Observação específica do fiscal sobre este item
+
   // Auditoria
   @CreateDateColumn()
   created_at: Date;
