@@ -22,7 +22,7 @@ export class MedicaoService {
     private itemMedicaoRepository: Repository<ItemMedicao>,
     @InjectRepository(Requisicao)
     private requisicaoRepository: Repository<Requisicao>,
-  ) {}
+  ) { }
 
   // ============================================================================
   // ORDEM DE SERVIÇO — Consulta centralizada (criação/aprovação via módulo de Requisições)
@@ -124,25 +124,28 @@ export class MedicaoService {
     usuario_cadastro_nome?: string;
     itens: {
       etapa_id: string;
-      percentual_executado_atual: number;
+      percentual_executado_atual?: number;
+      valor_executado_atual?: number;
     }[];
-  }): Promise<Medicao> {
+  }, opcoes?: { skipOSCheck?: boolean }): Promise<Medicao> {
     const contrato = await this.validarContratoMedicao(contratoId);
 
-    // REGRA: Exigir OS autorizada para criar medição
-    const osAtiva = await this.getOSAtiva(contratoId);
-    if (!osAtiva) {
-      throw new BadRequestException(
-        'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
-        'Crie e autorize uma OS na página de Requisições antes de registrar medições.'
-      );
-    }
+    // REGRA: Exigir OS autorizada para criar medição (pode ser pulado pelo portal do fornecedor)
+    if (!opcoes?.skipOSCheck) {
+      const osAtiva = await this.getOSAtiva(contratoId);
+      if (!osAtiva) {
+        throw new BadRequestException(
+          'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
+          'Crie e autorize uma OS na página de Requisições antes de registrar medições.'
+        );
+      }
 
-    // Se OS está AUTORIZADA, mover para ORDEM_GERADA
-    if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
-      osAtiva.status = StatusRequisicao.ORDEM_GERADA;
-      await this.requisicaoRepository.save(osAtiva);
-      this.logger.log(`OS ${osAtiva.numero} movida para ORDEM_GERADA ao criar medição`);
+      // Se OS está AUTORIZADA, mover para ORDEM_GERADA
+      if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
+        osAtiva.status = StatusRequisicao.ORDEM_GERADA;
+        await this.requisicaoRepository.save(osAtiva);
+        this.logger.log(`OS ${osAtiva.numero} movida para ORDEM_GERADA ao criar medição`);
+      }
     }
 
     // Gerar número da medição
@@ -172,25 +175,32 @@ export class MedicaoService {
       const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
       if (!etapa) throw new NotFoundException(`Etapa ${item.etapa_id} não encontrada`);
 
-      if (item.percentual_executado_atual <= 0) continue;
+      // Suporta entrada por percentual OU por valor
+      let percentualExecAtual = item.percentual_executado_atual || 0;
+      if (!percentualExecAtual && item.valor_executado_atual && Number(etapa.valor_previsto) > 0) {
+        // Converter valor para percentual
+        percentualExecAtual = (item.valor_executado_atual / Number(etapa.valor_previsto)) * 100;
+      }
+
+      if (percentualExecAtual <= 0) continue;
 
       const percentualAnterior = Number(etapa.percentual_executado);
-      const percentualAcumulado = percentualAnterior + item.percentual_executado_atual;
+      const percentualAcumulado = percentualAnterior + percentualExecAtual;
 
       if (percentualAcumulado > 100) {
         throw new BadRequestException(
-          `Etapa "${etapa.descricao}": percentual acumulado (${percentualAcumulado}%) excede 100%`
+          `Etapa "${etapa.descricao}": percentual acumulado (${percentualAcumulado.toFixed(1)}%) excede 100%`
         );
       }
 
-      const valorItem = (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+      const valorItem = (percentualExecAtual / 100) * Number(etapa.valor_previsto);
       valorMedido += valorItem;
-      percentualFisicoMedido += (item.percentual_executado_atual / 100) * Number(etapa.percentual_fisico);
+      percentualFisicoMedido += (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
 
       itensParaSalvar.push({
         etapa_id: item.etapa_id,
         percentual_executado_anterior: percentualAnterior,
-        percentual_executado_atual: item.percentual_executado_atual,
+        percentual_executado_atual: percentualExecAtual,
         percentual_executado_acumulado: percentualAcumulado,
         valor_medido: valorItem,
       });

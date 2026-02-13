@@ -251,7 +251,7 @@ export default function FornecedorContratoDetalhePage() {
               const anexoData = await anexoRes.json();
               setAnexos(prev => ({ ...prev, [m.id]: anexoData }));
             }
-          } catch {}
+          } catch { }
         }
       }
       if (resumoRes.ok) setResumo(await resumoRes.json());
@@ -891,6 +891,7 @@ export default function FornecedorContratoDetalhePage() {
                     <TableHead className="text-right font-bold text-xs uppercase w-28">Valor Prev.</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-28 bg-blue-50">Exec. Mês (%)</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-32 bg-green-50">Exec. Mês (R$)</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-28 bg-blue-50">Subtotal</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -900,6 +901,7 @@ export default function FornecedorContratoDetalhePage() {
                     const execMes = novaMedicao.itens[idx]?.percentual_executado_atual || 0;
                     const subtotal = (execMes / 100) * Number(etapa.valor_previsto);
                     const restante = 100 - jaExecutado;
+                    const valorRestante = (restante / 100) * Number(etapa.valor_previsto);
                     return (
                       <TableRow key={etapa.id} className="hover:bg-gray-50">
                         <TableCell className="text-center font-mono text-sm font-medium">{etapa.numero_etapa}</TableCell>
@@ -924,6 +926,25 @@ export default function FornecedorContratoDetalhePage() {
                             onChange={(e) => {
                               const itens = [...novaMedicao.itens];
                               itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Number(e.target.value) };
+                              setNovaMedicao({ ...novaMedicao, itens });
+                            }}
+                            className="text-center h-8 text-sm font-medium"
+                          />
+                        </TableCell>
+                        <TableCell className="bg-green-50/50">
+                          <Input
+                            type="number"
+                            min="0"
+                            max={valorRestante}
+                            step="0.01"
+                            placeholder="0,00"
+                            value={execMes > 0 ? subtotal.toFixed(2) : ''}
+                            onChange={(e) => {
+                              const valor = Number(e.target.value);
+                              const valorPrevisto = Number(etapa.valor_previsto);
+                              const percentual = valorPrevisto > 0 ? (valor / valorPrevisto) * 100 : 0;
+                              const itens = [...novaMedicao.itens];
+                              itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Math.round(percentual * 100) / 100 };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
                             className="text-center h-8 text-sm font-medium"
