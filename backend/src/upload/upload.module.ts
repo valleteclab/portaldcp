@@ -8,10 +8,15 @@ import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
 
 // Cria diretório de uploads se não existir
-const uploadDir = join(process.cwd(), 'uploads');
+// Usa UPLOAD_DIR env var para Railway volume persistente, fallback para cwd/uploads
+const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 if (!existsSync(uploadDir)) {
   mkdirSync(uploadDir, { recursive: true });
 }
+
+// Extensões permitidas (validação dupla: MIME + extensão)
+const ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 @Module({
   imports: [
@@ -20,35 +25,40 @@ if (!existsSync(uploadDir)) {
         destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
           // Organiza por tipo de documento
           const tipo = (req.body as any).tipo || 'geral';
-          const dir = join(uploadDir, tipo);
+          // Sanitizar nome da pasta (evitar path traversal)
+          const safeTipo = tipo.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const dir = join(uploadDir, safeTipo);
           if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
           }
           cb(null, dir);
         },
         filename: (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
-          // Gera nome único para o arquivo
+          // Gera nome único para o arquivo (impede nomes maliciosos)
           const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-          const ext = extname(file.originalname);
+          const ext = extname(file.originalname).toLowerCase();
           cb(null, `${uniqueSuffix}${ext}`);
         },
       }),
       fileFilter: (req: Request, file: Express.Multer.File, cb: any) => {
-        // Aceita apenas PDF e imagens
-        const allowedMimes = [
-          'application/pdf',
-          'image/jpeg',
-          'image/png',
-          'image/jpg',
-        ];
-        if (allowedMimes.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new Error('Tipo de arquivo não permitido. Use PDF, JPG ou PNG.'), false);
+        // Validação 1: MIME type
+        if (!ALLOWED_MIMES.includes(file.mimetype)) {
+          return cb(new Error('Tipo de arquivo não permitido. Use PDF, JPG ou PNG.'), false);
         }
+        // Validação 2: Extensão do arquivo (evitar spoofing de MIME)
+        const ext = extname(file.originalname).toLowerCase();
+        if (!ALLOWED_EXTENSIONS.includes(ext)) {
+          return cb(new Error(`Extensão ${ext} não permitida. Use .pdf, .jpg ou .png.`), false);
+        }
+        // Validação 3: Nome do arquivo não pode conter caracteres perigosos
+        if (/[<>:"/\\|?*\x00-\x1f]/.test(file.originalname)) {
+          return cb(new Error('Nome do arquivo contém caracteres inválidos.'), false);
+        }
+        cb(null, true);
       },
       limits: {
-        fileSize: 25 * 1024 * 1024, // 25MB
+        fileSize: 10 * 1024 * 1024, // 10MB (reduzido de 25MB)
+        files: 5, // Máximo 5 arquivos por request
       },
     }),
   ],

@@ -125,6 +125,30 @@ export class FornecedorMedicaoController {
       throw new BadRequestException('Nenhum arquivo enviado');
     }
 
+    // Validação de segurança: verificar magic bytes do arquivo
+    if (file.buffer || file.path) {
+      const fs = await import('fs');
+      const filePath = file.path;
+      if (filePath && fs.existsSync(filePath)) {
+        const fd = fs.openSync(filePath, 'r');
+        const header = Buffer.alloc(8);
+        fs.readSync(fd, header, 0, 8, 0);
+        fs.closeSync(fd);
+
+        const isJpeg = header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF;
+        const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+        const isPdf = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46;
+
+        if (!isJpeg && !isPng && !isPdf) {
+          // Arquivo suspeito — remover e rejeitar
+          fs.unlinkSync(filePath);
+          throw new BadRequestException(
+            'Arquivo rejeitado: o conteúdo não corresponde a uma imagem (JPG/PNG) ou PDF válido.'
+          );
+        }
+      }
+    }
+
     // Verificar se a medição existe
     const medicao = await this.medicaoRepository.findOne({
       where: { id: medicaoId },

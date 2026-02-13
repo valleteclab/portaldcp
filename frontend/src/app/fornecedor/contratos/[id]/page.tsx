@@ -283,6 +283,23 @@ export default function FornecedorContratoDetalhePage() {
 
   const handleUploadAnexo = async (medicaoId: string, file: File, tipo: 'FOTO' | 'DOCUMENTO', descricao?: string) => {
     if (!fornecedor) return;
+
+    // Validação de tamanho (máx 10MB)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      alert(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Tamanho máximo: 10MB.`);
+      return;
+    }
+
+    // Validação de tipo
+    const tiposPermitidos = tipo === 'FOTO'
+      ? ['image/jpeg', 'image/jpg', 'image/png']
+      : ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+    if (!tiposPermitidos.includes(file.type)) {
+      alert(`Tipo de arquivo não permitido (${file.type}). ${tipo === 'FOTO' ? 'Use JPG ou PNG.' : 'Use PDF, JPG ou PNG.'}`);
+      return;
+    }
+
     setUploadingAnexo(true);
     try {
       const formData = new FormData();
@@ -292,10 +309,9 @@ export default function FornecedorContratoDetalhePage() {
       formData.append('fornecedor_nome', fornecedor.razao_social || fornecedor.nome);
       if (descricao) formData.append('descricao', descricao);
 
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`, {
+      // Usar authFetch que já gerencia o token corretamente (não adiciona Content-Type para FormData)
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`, {
         method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData,
       });
 
