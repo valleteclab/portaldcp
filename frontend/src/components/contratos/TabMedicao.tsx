@@ -774,8 +774,16 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>% Físico da Obra *</Label>
-                <Input type="number" step="0.01" min="0" max="100" placeholder="Ex: 25" value={formEtapa.percentual_fisico} onChange={e => setFormEtapa({ ...formEtapa, percentual_fisico: e.target.value })} />
+                <Label>% Físico da Obra</Label>
+                <Input
+                  type="number" step="0.01" min="0" max="100" placeholder="Ex: 25"
+                  value={formEtapa.percentual_fisico}
+                  onChange={e => {
+                    const perc = e.target.value
+                    const valorCalc = perc && valorGlobal > 0 ? ((parseFloat(perc) / 100) * valorGlobal).toFixed(2) : ''
+                    setFormEtapa({ ...formEtapa, percentual_fisico: perc, valor_previsto: valorCalc })
+                  }}
+                />
                 {formEtapa.percentual_fisico && (() => {
                   const dispPerc = editandoEtapa ? saldoPercentualEtapas + Number(editandoEtapa.percentual_fisico) : saldoPercentualEtapas
                   const excede = parseFloat(formEtapa.percentual_fisico) > dispPerc + 0.01
@@ -783,8 +791,16 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 })()}
               </div>
               <div className="space-y-2">
-                <Label>Valor Previsto (R$) *</Label>
-                <Input type="number" step="0.01" min="0" placeholder="0,00" value={formEtapa.valor_previsto} onChange={e => setFormEtapa({ ...formEtapa, valor_previsto: e.target.value })} />
+                <Label>Valor Previsto (R$)</Label>
+                <Input
+                  type="number" step="0.01" min="0" placeholder="0,00"
+                  value={formEtapa.valor_previsto}
+                  onChange={e => {
+                    const valor = e.target.value
+                    const percCalc = valor && valorGlobal > 0 ? ((parseFloat(valor) / valorGlobal) * 100).toFixed(2) : ''
+                    setFormEtapa({ ...formEtapa, valor_previsto: valor, percentual_fisico: percCalc })
+                  }}
+                />
                 {formEtapa.valor_previsto && (() => {
                   const dispValor = editandoEtapa ? saldoValorEtapas + Number(editandoEtapa.valor_previsto) : saldoValorEtapas
                   const excede = parseFloat(formEtapa.valor_previsto) > dispValor + 0.01
@@ -792,6 +808,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 })()}
               </div>
             </div>
+            <p className="text-xs text-gray-400">Informe o % ou o valor em R$ - o outro campo será calculado automaticamente.</p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Início Previsto *</Label>
