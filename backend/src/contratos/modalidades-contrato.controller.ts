@@ -124,8 +124,11 @@ export class ModalidadesContratoController {
   }
 
   @Delete('medicoes/:medicaoId')
-  async excluirMedicao(@Param('medicaoId') medicaoId: string) {
-    return this.medicaoService.excluirMedicao(medicaoId);
+  async excluirMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Query('isAdmin') isAdmin?: string,
+  ) {
+    return this.medicaoService.excluirMedicao(medicaoId, undefined, { isAdmin: isAdmin === 'true' });
   }
 
   @Patch('medicoes/:medicaoId/enviar-aprovacao')

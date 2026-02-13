@@ -277,25 +277,71 @@ export class MedicaoService {
 
   /**
    * Exclui uma medição e seus itens.
-   * Apenas medições em RASCUNHO ou DEVOLVIDA podem ser excluídas.
+   * - RASCUNHO / DEVOLVIDA: qualquer um pode excluir (fornecedor ou órgão)
+   * - APROVADA: apenas admin pode excluir (reverte saldo das etapas)
+   * - Outros status: não podem ser excluídos
    */
-  async excluirMedicao(medicaoId: string, solicitanteId?: string): Promise<{ message: string }> {
+  async excluirMedicao(medicaoId: string, solicitanteId?: string, opcoes?: { isAdmin?: boolean }): Promise<{ message: string }> {
     const medicao = await this.medicaoRepository.findOne({
       where: { id: medicaoId },
       relations: ['contrato'],
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    const statusPermitidos = [StatusMedicao.RASCUNHO, StatusMedicao.DEVOLVIDA];
-    if (!statusPermitidos.includes(medicao.status)) {
-      throw new BadRequestException(
-        `Apenas medições em Rascunho ou Devolvida podem ser excluídas. Status atual: ${medicao.status}`
-      );
+    const statusPermitidosSemAdmin = [StatusMedicao.RASCUNHO, StatusMedicao.DEVOLVIDA];
+    const statusPermitidosAdmin = [...statusPermitidosSemAdmin, StatusMedicao.APROVADA, StatusMedicao.SUBMETIDA, StatusMedicao.AGUARDANDO_ATESTE, StatusMedicao.AGUARDANDO_APROVACAO, StatusMedicao.REJEITADA];
+
+    const isAdmin = opcoes?.isAdmin === true;
+
+    if (isAdmin) {
+      if (!statusPermitidosAdmin.includes(medicao.status)) {
+        throw new BadRequestException(`Não é possível excluir medição com status ${medicao.status}`);
+      }
+    } else {
+      if (!statusPermitidosSemAdmin.includes(medicao.status)) {
+        throw new BadRequestException(
+          `Apenas medições em Rascunho ou Devolvida podem ser excluídas. Status atual: ${medicao.status}`
+        );
+      }
     }
 
     // Se solicitanteId informado (fornecedor), verificar se é o fornecedor do contrato
     if (solicitanteId && medicao.contrato && medicao.contrato.fornecedor_id !== solicitanteId) {
       throw new ForbiddenException('Você não tem permissão para excluir esta medição');
+    }
+
+    // Se medição APROVADA, reverter os valores das etapas
+    if (medicao.status === StatusMedicao.APROVADA) {
+      const itensMedicao = await this.itemMedicaoRepository.find({
+        where: { medicao_id: medicaoId },
+      });
+
+      for (const item of itensMedicao) {
+        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+        if (etapa) {
+          // Reverter percentual: subtrair o percentual_executado_atual desta medição
+          etapa.percentual_executado = Math.max(0, Number(etapa.percentual_executado) - Number(item.percentual_executado_atual));
+          // Reverter valor: subtrair o valor_medido desta medição
+          etapa.valor_executado = Math.max(0, Number(etapa.valor_executado) - Number(item.valor_medido));
+
+          // Recalcular status da etapa
+          if (Number(etapa.percentual_executado) >= 100) {
+            etapa.status = StatusEtapaCronograma.CONCLUIDA;
+          } else if (Number(etapa.percentual_executado) > 0) {
+            etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+          } else {
+            etapa.status = StatusEtapaCronograma.PENDENTE;
+            etapa.data_fim_real = null as any;
+          }
+
+          await this.etapaRepository.save(etapa);
+        }
+      }
+
+      this.logger.warn(
+        `ADMIN: Medição APROVADA #${medicao.numero_medicao} excluída. ` +
+        `Valor revertido: R$ ${Number(medicao.valor_medido).toFixed(2)} do contrato ${medicao.contrato_id}`
+      );
     }
 
     // Excluir itens da medição primeiro
@@ -304,7 +350,7 @@ export class MedicaoService {
     // Excluir a medição
     await this.medicaoRepository.remove(medicao);
 
-    this.logger.log(`Medição #${medicao.numero_medicao} excluída por ${solicitanteId || 'órgão'}`);
+    this.logger.log(`Medição #${medicao.numero_medicao} (${medicao.status}) excluída por ${solicitanteId || 'órgão/admin'}`);
     return { message: `Medição #${medicao.numero_medicao} excluída com sucesso` };
   }
 

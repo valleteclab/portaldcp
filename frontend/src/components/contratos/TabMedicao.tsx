@@ -141,6 +141,15 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 
+  // Verificar se o usuário logado é ADMIN
+  const [isAdmin, setIsAdmin] = useState(false)
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('usuario') || '{}')
+      setIsAdmin(u.role === 'ADMIN')
+    } catch { setIsAdmin(false) }
+  }, [])
+
   // Modais
   const [modalEtapa, setModalEtapa] = useState(false)
   const [editandoEtapa, setEditandoEtapa] = useState<Etapa | null>(null)
@@ -285,11 +294,15 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   // ============ MEDIÇÕES — Exclusão ============
 
-  const excluirMedicao = async (medicaoId: string, numeroMedicao: number) => {
-    if (!confirm(`Excluir a ${numeroMedicao}ª Medição? Esta ação não pode ser desfeita.`)) return
+  const excluirMedicao = async (medicaoId: string, numeroMedicao: number, statusAtual?: string) => {
+    const msgExtra = statusAtual === 'APROVADA'
+      ? '\n\n⚠️ ATENÇÃO: Esta medição já foi APROVADA. Ao excluí-la, os valores e percentuais das etapas serão revertidos.'
+      : ''
+    if (!confirm(`Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`)) return
     setActionLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}`, { method: 'DELETE' })
+      const params = isAdmin ? '?isAdmin=true' : ''
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}${params}`, { method: 'DELETE' })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
         alert(e.message || 'Erro ao excluir medição')
@@ -675,6 +688,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                             <RotateCcw className="w-3.5 h-3.5 mr-1" />Devolver
                           </Button>
                         </>
+                      )}
+                      {isAdmin && m.status !== 'RASCUNHO' && (
+                        <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => excluirMedicao(m.id, m.numero_medicao, m.status)} disabled={actionLoading}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       )}
                       <Button variant="ghost" size="sm" onClick={() => setModalDetalhe(m)}>
                         <Eye className="w-3.5 h-3.5" />
