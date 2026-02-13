@@ -195,7 +195,7 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_numero: '',
     nota_fiscal_valor: '',
     nota_fiscal_data: '',
-    itens: [] as { etapa_id: string; percentual_executado_atual: number }[],
+    itens: [] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }[],
   });
 
   // Modal Submeter
@@ -330,19 +330,64 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
-      const itensComValor = novaMedicao.itens.filter(i => i.percentual_executado_atual > 0);
+      const itensComValor = novaMedicao.itens
+        .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
+        .map(i => ({
+          etapa_id: i.etapa_id,
+          percentual_executado_atual: i.percentual_executado_atual || 0,
+          valor_executado_atual: i.valor_executado_atual || undefined,
+        }));
+
       if (itensComValor.length === 0) {
-        alert('Informe o percentual executado em pelo menos uma etapa');
+        alert('Informe o percentual ou valor executado em pelo menos uma etapa');
         setSubmitting(false);
         return;
+      }
+
+      // Validar saldo disponível
+      if (resumo) {
+        const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
+          const etapa = etapas[idx];
+          if (!etapa) return acc;
+          if (item.modo_input === 'valor' && item.valor_executado_atual) {
+            return acc + item.valor_executado_atual;
+          }
+          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+        }, 0);
+
+        if (totalMedicao > resumo.saldo_disponivel + 0.01) {
+          alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Validar que nenhum item excede o restante da etapa
+      for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
+        const item = novaMedicao.itens[idx];
+        const etapa = etapas[idx];
+        if (!etapa || !item) continue;
+        const restante = 100 - Number(etapa.percentual_executado);
+        const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0
+          ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100
+          : item.percentual_executado_atual;
+        if (percUsado > restante + 0.01) {
+          alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas você informou ${percUsado.toFixed(1)}%.`);
+          setSubmitting(false);
+          return;
+        }
       }
 
       const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...novaMedicao,
+          periodo_inicio: novaMedicao.periodo_inicio || undefined,
+          periodo_fim: novaMedicao.periodo_fim || undefined,
+          observacoes: novaMedicao.observacoes || undefined,
+          nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
           nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+          nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
           fornecedor_id: fornecedor.id,
           fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
           itens: itensComValor,
@@ -402,7 +447,7 @@ export default function FornecedorContratoDetalhePage() {
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
-      itens: etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0 })),
+      itens: etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
     setModalNovaMedicao(true);
   };
@@ -853,15 +898,28 @@ export default function FornecedorContratoDetalhePage() {
               </div>
               <div className="text-right">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
-                <p className="text-2xl font-bold text-blue-700">
-                  {formatarMoeda(
-                    novaMedicao.itens.reduce((acc, item, idx) => {
-                      const etapa = etapas[idx];
-                      if (!etapa) return acc;
-                      return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-                    }, 0)
-                  )}
-                </p>
+                {(() => {
+                  const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
+                    const etapa = etapas[idx];
+                    if (!etapa) return acc;
+                    if (item.modo_input === 'valor' && item.valor_executado_atual) {
+                      return acc + item.valor_executado_atual;
+                    }
+                    return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                  }, 0);
+                  const saldoDisp = resumo ? resumo.saldo_disponivel : Infinity;
+                  const excedeSaldo = totalMedicao > saldoDisp + 0.01;
+                  return (
+                    <>
+                      <p className={`text-2xl font-bold ${excedeSaldo ? 'text-red-600' : 'text-blue-700'}`}>
+                        {formatarMoeda(totalMedicao)}
+                      </p>
+                      {excedeSaldo && (
+                        <p className="text-xs text-red-500 mt-1">Excede o saldo de {formatarMoeda(saldoDisp)}</p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </DialogHeader>
@@ -898,23 +956,45 @@ export default function FornecedorContratoDetalhePage() {
                 <TableBody>
                   {etapas.map((etapa, idx) => {
                     const jaExecutado = Number(etapa.percentual_executado);
-                    const execMes = novaMedicao.itens[idx]?.percentual_executado_atual || 0;
-                    const subtotal = (execMes / 100) * Number(etapa.valor_previsto);
+                    const itemState = novaMedicao.itens[idx];
+                    const modoInput = itemState?.modo_input || 'percentual';
+                    const execPerc = itemState?.percentual_executado_atual || 0;
+                    const execValor = itemState?.valor_executado_atual || 0;
+                    const valorPrevisto = Number(etapa.valor_previsto);
                     const restante = 100 - jaExecutado;
-                    const valorRestante = (restante / 100) * Number(etapa.valor_previsto);
+                    const valorRestante = (restante / 100) * valorPrevisto;
+
+                    // Calcula subtotal baseado no modo de input
+                    const subtotal = modoInput === 'valor'
+                      ? execValor
+                      : (execPerc / 100) * valorPrevisto;
+
+                    // Calcula % exibido baseado no modo
+                    const percExibido = modoInput === 'valor' && valorPrevisto > 0
+                      ? (execValor / valorPrevisto) * 100
+                      : execPerc;
+
+                    const excedeLimite = percExibido > restante + 0.01;
+
                     return (
                       <TableRow key={etapa.id} className="hover:bg-gray-50">
                         <TableCell className="text-center font-mono text-sm font-medium">{etapa.numero_etapa}</TableCell>
                         <TableCell>
                           <p className="text-sm font-medium">{etapa.descricao}</p>
-                          <p className="text-xs text-gray-400">Previsto: {formatarMoeda(etapa.valor_previsto)} · Restante: {restante.toFixed(1)}%</p>
+                          <p className="text-xs text-gray-400">
+                            Previsto: {formatarMoeda(valorPrevisto)} · Restante: {restante.toFixed(1)}% ({formatarMoeda(valorRestante)})
+                          </p>
+                          {excedeLimite && (
+                            <p className="text-xs text-red-500 font-medium mt-0.5">Excede o restante disponível!</p>
+                          )}
                         </TableCell>
-                        <TableCell className="text-right text-sm">{formatarMoeda(etapa.valor_previsto)}</TableCell>
+                        <TableCell className="text-right text-sm">{formatarMoeda(valorPrevisto)}</TableCell>
                         <TableCell className="text-center">
                           <span className={`text-sm font-medium ${jaExecutado > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                             {jaExecutado.toFixed(0)}%
                           </span>
                         </TableCell>
+                        {/* Input Percentual (%) */}
                         <TableCell className="bg-blue-50/50">
                           <Input
                             type="number"
@@ -922,15 +1002,23 @@ export default function FornecedorContratoDetalhePage() {
                             max={restante}
                             step="0.1"
                             placeholder="0"
-                            value={novaMedicao.itens[idx]?.percentual_executado_atual || ''}
+                            value={modoInput === 'percentual' ? (execPerc || '') : (percExibido > 0 ? percExibido.toFixed(2) : '')}
                             onChange={(e) => {
+                              const val = e.target.value;
+                              const num = val === '' ? 0 : Number(val);
                               const itens = [...novaMedicao.itens];
-                              itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Number(e.target.value) };
+                              itens[idx] = {
+                                etapa_id: etapa.id,
+                                percentual_executado_atual: num,
+                                valor_executado_atual: valorPrevisto > 0 ? (num / 100) * valorPrevisto : 0,
+                                modo_input: 'percentual',
+                              };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
-                            className="text-center h-8 text-sm font-medium"
+                            className={`text-center h-8 text-sm font-medium ${modoInput === 'percentual' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeLimite ? 'border-red-400' : ''}`}
                           />
                         </TableCell>
+                        {/* Input Valor (R$) */}
                         <TableCell className="bg-green-50/50">
                           <Input
                             type="number"
@@ -938,20 +1026,25 @@ export default function FornecedorContratoDetalhePage() {
                             max={valorRestante}
                             step="0.01"
                             placeholder="0,00"
-                            value={execMes > 0 ? subtotal.toFixed(2) : ''}
+                            value={modoInput === 'valor' ? (execValor || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
                             onChange={(e) => {
-                              const valor = Number(e.target.value);
-                              const valorPrevisto = Number(etapa.valor_previsto);
-                              const percentual = valorPrevisto > 0 ? (valor / valorPrevisto) * 100 : 0;
+                              const val = e.target.value;
+                              const num = val === '' ? 0 : Number(val);
+                              const perc = valorPrevisto > 0 ? (num / valorPrevisto) * 100 : 0;
                               const itens = [...novaMedicao.itens];
-                              itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Math.round(percentual * 100) / 100 };
+                              itens[idx] = {
+                                etapa_id: etapa.id,
+                                percentual_executado_atual: Math.round(perc * 100) / 100,
+                                valor_executado_atual: num,
+                                modo_input: 'valor',
+                              };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
-                            className="text-center h-8 text-sm font-medium"
+                            className={`text-center h-8 text-sm font-medium ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeLimite ? 'border-red-400' : ''}`}
                           />
                         </TableCell>
                         <TableCell className="text-right bg-blue-50/50">
-                          <span className={`text-sm font-medium ${subtotal > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
+                          <span className={`text-sm font-medium ${subtotal > 0 ? (excedeLimite ? 'text-red-600' : 'text-blue-700') : 'text-gray-400'}`}>
                             {formatarMoeda(subtotal)}
                           </span>
                         </TableCell>

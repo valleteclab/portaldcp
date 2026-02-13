@@ -128,6 +128,18 @@ export class MedicaoService {
       valor_executado_atual?: number;
     }[];
   }, opcoes?: { skipOSCheck?: boolean }): Promise<Medicao> {
+    // Sanitizar campos opcionais: strings vazias viram undefined para evitar erro em colunas date/numeric
+    if (dados.nota_fiscal_data !== undefined && dados.nota_fiscal_data.toString().trim() === '') {
+      dados.nota_fiscal_data = undefined;
+    }
+    if (dados.nota_fiscal_numero !== undefined && dados.nota_fiscal_numero.toString().trim() === '') {
+      dados.nota_fiscal_numero = undefined;
+    }
+    if (dados.nota_fiscal_valor !== undefined && dados.nota_fiscal_valor !== null) {
+      const nfVal = Number(dados.nota_fiscal_valor);
+      dados.nota_fiscal_valor = isNaN(nfVal) ? undefined : nfVal;
+    }
+
     const contrato = await this.validarContratoMedicao(contratoId);
 
     // REGRA: Exigir OS autorizada para criar medição (pode ser pulado pelo portal do fornecedor)
@@ -210,12 +222,22 @@ export class MedicaoService {
       throw new BadRequestException('A medição deve ter pelo menos um item com valor > 0');
     }
 
+    // Validar que o valor medido não excede o saldo disponível do contrato
+    const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+    const saldoDisponivel = valorContrato - valorAcumuladoAnterior;
+    if (valorMedido > saldoDisponivel + 0.01) { // tolerância de centavo para arredondamento
+      throw new BadRequestException(
+        `O valor da medição (R$ ${valorMedido.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
+        `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já medido: R$ ${valorAcumuladoAnterior.toFixed(2)}.`
+      );
+    }
+
     // Criar medição
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
       numero_medicao: numeroMedicao,
-      periodo_inicio: dados.periodo_inicio as any,
-      periodo_fim: dados.periodo_fim as any,
+      periodo_inicio: dados.periodo_inicio,
+      periodo_fim: dados.periodo_fim,
       valor_medido: valorMedido,
       valor_acumulado_anterior: valorAcumuladoAnterior,
       valor_acumulado_atual: valorAcumuladoAnterior + valorMedido,
@@ -224,25 +246,25 @@ export class MedicaoService {
       fornecedor_id: dados.fornecedor_id,
       fornecedor_nome: dados.fornecedor_nome,
       fornecedor_observacoes: dados.fornecedor_observacoes,
-      nota_fiscal_numero: dados.nota_fiscal_numero,
-      nota_fiscal_valor: dados.nota_fiscal_valor,
-      nota_fiscal_data: dados.nota_fiscal_data as any,
+      nota_fiscal_numero: dados.nota_fiscal_numero || null,
+      nota_fiscal_valor: dados.nota_fiscal_valor || null,
+      nota_fiscal_data: dados.nota_fiscal_data || null,
       fiscal_id: dados.fiscal_id,
       fiscal_nome: dados.fiscal_nome,
       observacoes: dados.observacoes,
       usuario_cadastro_id: dados.usuario_cadastro_id,
       usuario_cadastro_nome: dados.usuario_cadastro_nome,
       status: StatusMedicao.RASCUNHO,
-    });
+    } as any);
 
-    const medicaoSalva = await this.medicaoRepository.save(medicao);
+    const medicaoSalva = await this.medicaoRepository.save(medicao) as unknown as Medicao;
 
     // Salvar itens da medição
     for (const item of itensParaSalvar) {
       const itemMedicao = this.itemMedicaoRepository.create({
         ...item,
         medicao_id: medicaoSalva.id,
-      });
+      } as any);
       await this.itemMedicaoRepository.save(itemMedicao);
     }
 
