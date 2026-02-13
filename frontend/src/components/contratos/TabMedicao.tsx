@@ -141,13 +141,13 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 
-  // Verificar se o usuário logado é ADMIN
-  const [isAdmin, setIsAdmin] = useState(false)
+  // Verificar se o usuário logado tem permissão de excluir medições
+  const [podeExcluirMedicao, setPodeExcluirMedicao] = useState(false)
   useEffect(() => {
     try {
       const u = JSON.parse(localStorage.getItem('usuario') || '{}')
-      setIsAdmin(u.role === 'ADMIN')
-    } catch { setIsAdmin(false) }
+      setPodeExcluirMedicao(u.pode_excluir_medicao === true)
+    } catch { setPodeExcluirMedicao(false) }
   }, [])
 
   // Modais
@@ -301,7 +301,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     if (!confirm(`Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`)) return
     setActionLoading(true)
     try {
-      const params = isAdmin ? '?isAdmin=true' : ''
+      const params = podeExcluirMedicao ? '?podeExcluirMedicao=true' : ''
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}${params}`, { method: 'DELETE' })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
@@ -689,7 +689,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                           </Button>
                         </>
                       )}
-                      {isAdmin && m.status !== 'RASCUNHO' && (
+                      {podeExcluirMedicao && m.status !== 'RASCUNHO' && (
                         <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => excluirMedicao(m.id, m.numero_medicao, m.status)} disabled={actionLoading}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>

@@ -92,6 +92,13 @@ export class Usuario {
   @Column({ default: false })
   pode_liberar_contratos: boolean;
 
+  /**
+   * Indica se o usuário pode excluir medições (inclusive aprovadas).
+   * Ao excluir medição aprovada, o saldo das etapas é revertido automaticamente.
+   */
+  @Column({ default: false })
+  pode_excluir_medicao: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

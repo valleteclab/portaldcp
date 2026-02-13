@@ -83,6 +83,7 @@ interface Usuario {
   pode_aprovar_requisicoes?: boolean
   pode_cancelar_estornar?: boolean
   pode_liberar_contratos?: boolean
+  pode_excluir_medicao?: boolean
 }
 
 // Lista de módulos disponíveis
@@ -142,6 +143,7 @@ export default function AdminUsuariosPage() {
     pode_aprovar_requisicoes: false,
     pode_cancelar_estornar: false,
     pode_liberar_contratos: false,
+    pode_excluir_medicao: false,
   })
 
   useEffect(() => {
@@ -187,6 +189,7 @@ export default function AdminUsuariosPage() {
       pode_aprovar_requisicoes: false,
       pode_cancelar_estornar: false,
       pode_liberar_contratos: false,
+      pode_excluir_medicao: false,
     })
     setShowNovoUsuario(true)
   }
@@ -205,6 +208,7 @@ export default function AdminUsuariosPage() {
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
       pode_cancelar_estornar: usuario.pode_cancelar_estornar || false,
       pode_liberar_contratos: usuario.pode_liberar_contratos || false,
+      pode_excluir_medicao: usuario.pode_excluir_medicao || false,
     })
     setShowEditarUsuario(true)
   }
@@ -246,6 +250,7 @@ export default function AdminUsuariosPage() {
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
         pode_cancelar_estornar: formUsuario.pode_cancelar_estornar,
         pode_liberar_contratos: formUsuario.pode_liberar_contratos,
+        pode_excluir_medicao: formUsuario.pode_excluir_medicao,
       }
 
       if (formUsuario.senha) {
@@ -530,7 +535,12 @@ export default function AdminUsuariosPage() {
                               Cancelar/Estornar
                             </Badge>
                           )}
-                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && (
+                          {usuario.pode_excluir_medicao && (
+                            <Badge className="bg-purple-100 text-purple-800 text-xs" title="Pode excluir medições">
+                              Excluir Medição
+                            </Badge>
+                          )}
+                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && (
                             <span className="text-gray-400 text-xs">-</span>
                           )}
                         </div>
@@ -775,6 +785,20 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-cancelar" className="cursor-pointer">
                       <p className="text-sm font-medium text-red-800">Cancelar/Estornar</p>
                       <p className="text-xs text-red-600">Cancelar requisições e estornar</p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    <Checkbox
+                      id="perm-excluir-medicao"
+                      checked={formUsuario.pode_excluir_medicao}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_excluir_medicao: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-excluir-medicao" className="cursor-pointer">
+                      <p className="text-sm font-medium text-purple-800">Excluir medições</p>
+                      <p className="text-xs text-purple-600">Excluir medições de contratos (inclusive aprovadas, com reversão de saldo)</p>
                     </label>
                   </div>
                 </div>
