@@ -20,6 +20,9 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# Instalar su-exec para drop de privilégios no entrypoint
+RUN apk add --no-cache su-exec
+
 # Criar usuário não-root
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001
@@ -29,11 +32,12 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 
-# Criar diretório de uploads
+# Criar diretório de uploads local (fallback)
 RUN mkdir -p /app/uploads && chown -R nestjs:nodejs /app/uploads
 
-# Usar usuário não-root
-USER nestjs
+# Copiar entrypoint que corrige permissões do volume antes de iniciar
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Expor porta
 EXPOSE 3001
@@ -42,5 +46,5 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/api/health || exit 1
 
-# Comando de inicialização
-CMD ["node", "dist/src/main"]
+# Entrypoint corrige permissões do volume Railway e executa como nestjs
+ENTRYPOINT ["/entrypoint.sh"]
