@@ -136,7 +136,7 @@ export class FornecedorMedicaoController {
       mime_type: file.mimetype,
       tamanho_bytes: file.size,
       url: fileUrl,
-      descricao: descricao || null,
+      descricao: descricao || undefined,
       enviado_por_id: fornecedorId,
       enviado_por_nome: fornecedorNome,
       origem: 'fornecedor',
