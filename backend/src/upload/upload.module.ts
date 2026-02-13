@@ -7,11 +7,15 @@ import { Request } from 'express';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
 
-// Cria diretório de uploads se não existir
 // Usa UPLOAD_DIR env var para Railway volume persistente, fallback para cwd/uploads
 const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-if (!existsSync(uploadDir)) {
-  mkdirSync(uploadDir, { recursive: true });
+// Tenta criar diretório (pode falhar no Railway se volume ainda não estiver montado)
+try {
+  if (!existsSync(uploadDir)) {
+    mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn(`[UploadModule] Não foi possível criar ${uploadDir} na inicialização (será criado sob demanda): ${(e as any).message}`);
 }
 
 // Extensões permitidas (validação dupla: MIME + extensão)
@@ -23,15 +27,19 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
     MulterModule.register({
       storage: diskStorage({
         destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-          // Organiza por tipo de documento
-          const tipo = (req.body as any).tipo || 'geral';
-          // Sanitizar nome da pasta (evitar path traversal)
-          const safeTipo = tipo.replace(/[^a-zA-Z0-9_-]/g, '_');
-          const dir = join(uploadDir, safeTipo);
-          if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
+          try {
+            // Organiza por tipo de documento
+            const tipo = (req.body as any).tipo || 'geral';
+            // Sanitizar nome da pasta (evitar path traversal)
+            const safeTipo = tipo.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const dir = join(uploadDir, safeTipo);
+            if (!existsSync(dir)) {
+              mkdirSync(dir, { recursive: true });
+            }
+            cb(null, dir);
+          } catch (e) {
+            cb(e as Error, uploadDir);
           }
-          cb(null, dir);
         },
         filename: (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
           // Gera nome único para o arquivo (impede nomes maliciosos)

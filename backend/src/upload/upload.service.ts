@@ -10,10 +10,14 @@ export class UploadService {
   private readonly uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
   constructor() {
-    // Garante que o diretório existe na inicialização
-    if (!existsSync(this.uploadDir)) {
-      mkdirSync(this.uploadDir, { recursive: true });
-      this.logger.log(`Diretório de uploads criado: ${this.uploadDir}`);
+    // Tenta criar diretório (pode falhar no Railway se volume ainda não estiver montado)
+    try {
+      if (!existsSync(this.uploadDir)) {
+        mkdirSync(this.uploadDir, { recursive: true });
+        this.logger.log(`Diretório de uploads criado: ${this.uploadDir}`);
+      }
+    } catch (e) {
+      this.logger.warn(`Não foi possível criar ${this.uploadDir} na inicialização (será criado sob demanda): ${(e as any).message}`);
     }
     this.logger.log(`Upload dir: ${this.uploadDir}`);
   }
