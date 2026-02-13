@@ -366,7 +366,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   // ============ MEDIÇÕES — Ateste do Fiscal ============
 
-  const abrirModalAteste = (m: Medicao) => {
+  const abrirModalAteste = async (m: Medicao) => {
     setModalAteste(m)
     setFormAteste({ observacoes: '', verificado_in_loco: false })
     // Inicializar estado dos itens (itens já atestados ficam marcados e bloqueados)
@@ -379,6 +379,14 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
       }
     }
     setItensAteste(itensMap)
+    // Carregar anexos da medição para o fiscal visualizar
+    setAnexosMedicao([])
+    setLoadingAnexos(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`)
+      if (res.ok) setAnexosMedicao(await res.json())
+    } catch { }
+    setLoadingAnexos(false)
   }
 
   const atestarMedicao = async () => {
@@ -1073,6 +1081,44 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 Confirmo que realizei verificação presencial (in loco)
               </label>
             </div>
+            {/* Anexos do Fornecedor (fotos e documentos) */}
+            <div className="border-t pt-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold flex items-center gap-1">
+                Evidências do Fornecedor {anexosMedicao.length > 0 && <Badge variant="outline" className="text-xs px-1.5 py-0">{anexosMedicao.length}</Badge>}
+              </p>
+              {loadingAnexos && <p className="text-xs text-gray-400">Carregando anexos...</p>}
+              {!loadingAnexos && anexosMedicao.length === 0 && (
+                <p className="text-xs text-gray-400 italic">Nenhuma evidência enviada pelo fornecedor.</p>
+              )}
+              {anexosMedicao.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {anexosMedicao.map((anexo: any) => (
+                    <div key={anexo.id} className="border rounded-lg overflow-hidden bg-gray-50 cursor-pointer" onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}>
+                      {anexo.tipo === 'FOTO' ? (
+                        <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                          <img
+                            src={`${API_URL}${anexo.url}`}
+                            alt={anexo.descricao || anexo.nome_original}
+                            className="w-full h-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center">
+                          <svg className="w-8 h-8 text-blue-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                          <p className="text-xs text-blue-600 text-center px-1 truncate w-full">{anexo.nome_original}</p>
+                        </div>
+                      )}
+                      <div className="p-1.5">
+                        {anexo.descricao && <p className="text-xs font-medium text-gray-700 truncate">{anexo.descricao}</p>}
+                        <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label>Observações gerais do Ateste</Label>
               <Textarea
