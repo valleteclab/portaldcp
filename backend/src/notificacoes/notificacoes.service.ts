@@ -612,6 +612,44 @@ export class NotificacoesService {
     }
   }
 
+  /**
+   * Notifica o fornecedor que o órgão solicitou o envio da medição de um mês.
+   */
+  async notificarSolicitacaoMedicao(
+    orgaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    mesReferencia: string,
+    fiscalNome: string,
+    mensagemOpcional: string | undefined,
+    fornecedorDestinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    if (fornecedorDestinatarios.length === 0) return;
+    const [ano, mes] = mesReferencia.split('-');
+    const mesAnoLabel = mes && ano ? `${mes}/${ano}` : mesReferencia;
+    const textoPadrao = `Solicitamos o envio da medição referente a ${mesAnoLabel}.`;
+    const mensagem = mensagemOpcional?.trim()
+      ? `${textoPadrao}\n\nMensagem do fiscal: ${mensagemOpcional.trim()}`
+      : textoPadrao;
+
+    this.logger.log(`Notificando solicitação de medição – contrato ${contratoNumero}, mês ${mesReferencia}`);
+    try {
+      await this.criarParaMultiplos(fornecedorDestinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.SOLICITACAO_MEDICAO,
+        titulo: `Solicitação de medição – ${contratoNumero}`,
+        mensagem,
+        prioridade: PrioridadeNotificacao.NORMAL,
+        entidade_tipo: 'contrato',
+        entidade_id: contratoId,
+        link: `/fornecedor/contratos/${contratoId}`,
+        metadata: { mes_referencia: mesReferencia, contrato_numero: contratoNumero, fiscal: fiscalNome },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar solicitação de medição: ${(error as Error).message}`, (error as Error).stack);
+    }
+  }
+
   // ============================================================================
   // MÉTODOS ESPECÍFICOS PARA CONTRATOS
   // ============================================================================

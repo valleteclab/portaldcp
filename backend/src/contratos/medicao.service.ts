@@ -949,6 +949,110 @@ export class MedicaoService {
     return resultado;
   }
 
+  /**
+   * Resumo fiscal por contrato com indicador de "enviou medição no mês".
+   * Mesmo retorno de resumoFiscalPorContrato + enviou_mes (e opcionalmente medicao_id/numero_medicao).
+   * mesReferencia no formato YYYY-MM.
+   */
+  async resumoFiscalPorContratoComMes(orgaoId: string, mesReferencia: string): Promise<any[]> {
+    const [anoStr, mesStr] = mesReferencia.split('-');
+    const ano = parseInt(anoStr || '0', 10);
+    const mes = parseInt(mesStr || '0', 10);
+    if (!ano || !mes || mes < 1 || mes > 12) {
+      throw new BadRequestException('mes_referencia deve ser no formato YYYY-MM');
+    }
+    const primeiroDia = new Date(ano, mes - 1, 1);
+    const ultimoDia = new Date(ano, mes, 0);
+
+    const contratos = await this.contratoRepository.find({
+      where: {
+        orgao_id: orgaoId,
+        modalidade_execucao: ModalidadeExecucao.MEDICAO,
+      },
+      order: { created_at: 'DESC' },
+    });
+
+    const resultado = [];
+    for (const contrato of contratos) {
+      const medicoes = await this.medicaoRepository.find({
+        where: { contrato_id: contrato.id },
+      });
+
+      const submetidas = medicoes.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
+      const parcialmenteAtestadas = medicoes.filter(m => m.status === StatusMedicao.PARCIALMENTE_ATESTADA).length;
+      const aguardandoAprovacao = medicoes.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
+      const aprovadas = medicoes.filter(m => m.status === StatusMedicao.APROVADA).length;
+      const total = medicoes.length;
+
+      let enviou_mes = false;
+      let medicao_id: string | null = null;
+      let numero_medicao: number | null = null;
+
+      for (const m of medicoes) {
+        const inicio = m.periodo_inicio instanceof Date ? m.periodo_inicio : new Date(m.periodo_inicio as any);
+        const fim = m.periodo_fim instanceof Date ? m.periodo_fim : new Date(m.periodo_fim as any);
+        if (inicio <= ultimoDia && fim >= primeiroDia) {
+          enviou_mes = true;
+          medicao_id = m.id;
+          numero_medicao = m.numero_medicao;
+          break;
+        }
+      }
+
+      resultado.push({
+        id: contrato.id,
+        numero_contrato: contrato.numero_contrato,
+        objeto: contrato.objeto,
+        fornecedor_nome: contrato.fornecedor_razao_social,
+        fornecedor_cnpj: contrato.fornecedor_cnpj,
+        valor_global: Number(contrato.valor_global),
+        fiscal_nome: contrato.fiscal_nome,
+        status: contrato.status,
+        total_medicoes: total,
+        submetidas,
+        parcialmente_atestadas: parcialmenteAtestadas,
+        aguardando_aprovacao: aguardandoAprovacao,
+        aprovadas,
+        pendentes_ateste: submetidas + parcialmenteAtestadas,
+        enviou_mes,
+        medicao_id,
+        numero_medicao,
+      });
+    }
+
+    return resultado;
+  }
+
+  /**
+   * Dispara notificação ao fornecedor solicitando envio da medição do mês.
+   * Chamado após o controller validar que o contrato pertence ao órgão e é MEDICAO.
+   */
+  async solicitarMedicao(contratoId: string, mesReferencia: string, fiscalNome: string, mensagem?: string): Promise<{ message: string }> {
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
+      throw new BadRequestException('Contrato não é da modalidade MEDICAO');
+    }
+
+    const destinatarios = this.getFornecedorDestinatario(contrato);
+    if (destinatarios.length === 0) {
+      throw new BadRequestException('Contrato sem fornecedor vinculado para notificação');
+    }
+
+    await this.notificacoesService.notificarSolicitacaoMedicao(
+      contrato.orgao_id,
+      contrato.numero_contrato,
+      contrato.id,
+      mesReferencia,
+      fiscalNome,
+      mensagem?.trim() || undefined,
+      destinatarios,
+    );
+
+    this.logger.log(`Solicitação de medição enviada: contrato ${contrato.numero_contrato}, mês ${mesReferencia}`);
+    return { message: 'Solicitação enviada ao fornecedor com sucesso' };
+  }
+
   // ============================================================================
   // HELPERS
   // ============================================================================

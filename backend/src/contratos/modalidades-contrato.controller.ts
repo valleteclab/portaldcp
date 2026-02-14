@@ -10,6 +10,8 @@ import {
   Query,
   Req,
   ForbiddenException,
+  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
@@ -22,6 +24,7 @@ import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -33,6 +36,8 @@ export class ModalidadesContratoController {
     private readonly osService: OrdemServicoContratoService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(Contrato)
+    private readonly contratoRepository: Repository<Contrato>,
   ) {}
 
   /**
@@ -122,14 +127,18 @@ export class ModalidadesContratoController {
 
   /**
    * Resumo de medições por contrato para o painel do fiscal.
-   * Retorna contratos com modalidade MEDICAO e contagem de medições por status.
+   * Se mes=YYYY-MM for informado, inclui enviou_mes por contrato.
    */
   @Get('medicoes/resumo-fiscal')
   async resumoFiscal(
     @Req() request: { user: JwtPayload },
     @Query('orgaoId') orgaoIdParam?: string,
+    @Query('mes') mes?: string,
   ) {
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    if (mes?.match(/^\d{4}-\d{2}$/)) {
+      return this.medicaoService.resumoFiscalPorContratoComMes(orgaoId, mes);
+    }
     return this.medicaoService.resumoFiscalPorContrato(orgaoId);
   }
 
@@ -153,6 +162,40 @@ export class ModalidadesContratoController {
   @Get(':contratoId/medicoes/resumo')
   async resumoMedicoes(@Param('contratoId') contratoId: string) {
     return this.medicaoService.resumoMedicoes(contratoId);
+  }
+
+  /**
+   * Solicita ao fornecedor o envio da medição do mês.
+   * Validação multiorgão: contrato deve pertencer ao órgão do usuário.
+   */
+  @Post(':contratoId/medicoes/solicitar')
+  async solicitarMedicao(
+    @Param('contratoId') contratoId: string,
+    @Body() body: { mes_referencia: string; mensagem?: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para acessar este contrato');
+    }
+    if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
+      throw new BadRequestException('Contrato não é da modalidade MEDICAO');
+    }
+    if (!body.mes_referencia?.trim()) {
+      throw new BadRequestException('mes_referencia é obrigatório (formato YYYY-MM)');
+    }
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+
+    return this.medicaoService.solicitarMedicao(
+      contratoId,
+      body.mes_referencia.trim(),
+      fiscalNome,
+      body.mensagem,
+    );
   }
 
   @Get('medicoes/:medicaoId')
