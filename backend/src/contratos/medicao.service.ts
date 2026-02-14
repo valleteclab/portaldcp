@@ -543,6 +543,89 @@ export class MedicaoService {
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
+  /**
+   * Fornecedor atualiza os itens (percentuais/valores) de uma medição DEVOLVIDA.
+   * Permite corrigir os itens pendentes de ateste antes de reenviar.
+   */
+  async atualizarItensMedicao(
+    medicaoId: string,
+    fornecedorId: string,
+    dados: { itens: Array<{ item_id: string; percentual_executado_atual?: number; valor_executado_atual?: number }> },
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId }, relations: ['contrato'] });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato;
+    if (contrato && contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para editar esta medição');
+    }
+
+    if (medicao.status !== StatusMedicao.DEVOLVIDA && medicao.status !== StatusMedicao.RASCUNHO) {
+      throw new BadRequestException('Apenas medições devolvidas ou em rascunho podem ter itens alterados');
+    }
+
+    const todosItens = await this.itemMedicaoRepository.find({
+      where: { medicao_id: medicaoId },
+      relations: ['etapa'],
+    });
+
+    const percentuaisEmTransito = await this.calcularPercentualComprometidoPorEtapa(medicao.contrato_id, medicaoId);
+
+    for (const upd of dados.itens) {
+      const item = todosItens.find(i => i.id === upd.item_id);
+      if (!item || !item.etapa) continue;
+
+      const etapa = item.etapa;
+      let percentualAtual = upd.percentual_executado_atual;
+      if (percentualAtual === undefined && upd.valor_executado_atual !== undefined && Number(etapa.valor_previsto) > 0) {
+        percentualAtual = (upd.valor_executado_atual / Number(etapa.valor_previsto)) * 100;
+      }
+      if (percentualAtual === undefined) continue;
+
+      const percentualAnterior = Number(item.percentual_executado_anterior);
+      const percentualEmTransito = percentuaisEmTransito.get(item.etapa_id) || 0;
+      const percentualAprovado = Number(etapa.percentual_executado);
+      const totalComNovo = percentualAprovado + percentualEmTransito + percentualAtual;
+      if (totalComNovo > 100.01) {
+        throw new BadRequestException(
+          `Etapa "${etapa.descricao}": percentual acumulado (${totalComNovo.toFixed(1)}%) excede 100%`
+        );
+      }
+
+      const percentualAcumulado = percentualAnterior + percentualAtual;
+      const valorItem = (percentualAtual / 100) * Number(etapa.valor_previsto);
+
+      item.percentual_executado_atual = percentualAtual;
+      item.percentual_executado_acumulado = percentualAcumulado;
+      item.valor_medido = valorItem;
+      item.atestado = false;
+      item.ateste_observacoes = null as any;
+      item.ateste_fiscal_nome = null as any;
+      item.ateste_data = null as any;
+    }
+
+    await this.itemMedicaoRepository.save(todosItens);
+
+    let valorMedidoTotal = 0;
+    let percentualFisicoTotal = 0;
+    for (const item of todosItens) {
+      const etapa = item.etapa;
+      if (!etapa) continue;
+      valorMedidoTotal += Number(item.valor_medido);
+      percentualFisicoTotal += (Number(item.percentual_executado_atual) / 100) * Number(etapa.percentual_fisico);
+    }
+
+    const percentualAnterior = Number(medicao.percentual_fisico_medido) || 0;
+    medicao.valor_medido = valorMedidoTotal;
+    medicao.percentual_fisico_medido = percentualFisicoTotal;
+    medicao.valor_acumulado_atual = Number(medicao.valor_acumulado_anterior) + valorMedidoTotal;
+    medicao.percentual_fisico_acumulado = Number(medicao.percentual_fisico_acumulado) - percentualAnterior + percentualFisicoTotal;
+    await this.medicaoRepository.save(medicao);
+
+    this.logger.log(`Medição #${medicao.numero_medicao} itens atualizados pelo fornecedor ${fornecedorId}`);
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
   // ============================================================================
   // MEDIÇÕES — Ateste do Fiscal (órgão)
   // ============================================================================

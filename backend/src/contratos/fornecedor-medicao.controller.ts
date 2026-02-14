@@ -122,6 +122,24 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Fornecedor atualiza os itens (percentuais/valores) de uma medição DEVOLVIDA.
+   * PUT /api/fornecedor/contratos/medicoes/:medicaoId/itens
+   */
+  @Put('medicoes/:medicaoId/itens')
+  async atualizarItensMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      fornecedor_id: string;
+      itens: Array<{ item_id: string; percentual_executado_atual?: number; valor_executado_atual?: number }>;
+    },
+  ) {
+    if (!body.fornecedor_id) {
+      throw new BadRequestException('fornecedor_id é obrigatório');
+    }
+    return this.medicaoService.atualizarItensMedicao(medicaoId, body.fornecedor_id, { itens: body.itens });
+  }
+
+  /**
    * Fornecedor submete a medição para análise do fiscal.
    * PATCH /api/fornecedor/contratos/medicoes/:medicaoId/submeter
    */

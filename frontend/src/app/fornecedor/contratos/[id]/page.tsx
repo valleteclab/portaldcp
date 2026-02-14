@@ -227,6 +227,8 @@ export default function FornecedorContratoDetalhePage() {
   const [modalDetalhe, setModalDetalhe] = useState(false);
   const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
   const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([]);
+  const [editandoItensDetalhe, setEditandoItensDetalhe] = useState(false);
+  const [itensEditados, setItensEditados] = useState<Record<string, { percentual_executado_atual: number; valor_executado_atual: number }>>({});
 
   // Anexos
   const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
@@ -727,6 +729,38 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  const salvarItensMedicao = async () => {
+    if (!medicaoDetalhe || !fornecedor) return;
+    const itens = medicaoDetalhe.itens || [];
+    const payload = itens.map((item: any) => ({
+      item_id: item.id,
+      percentual_executado_atual: itensEditados[item.id]?.percentual_executado_atual ?? Number(item.percentual_executado_atual),
+      valor_executado_atual: itensEditados[item.id]?.valor_executado_atual ?? Number(item.valor_medido),
+    }));
+    setSubmitting(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoDetalhe.id}/itens`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: payload }),
+      });
+      if (res.ok) {
+        const atualizada = await res.json();
+        setMedicaoDetalhe(atualizada);
+        setEditandoItensDetalhe(false);
+        setItensEditados({});
+        carregarDados();
+      } else {
+        const err = await res.json();
+        alert(err?.message || 'Erro ao salvar itens.');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Erro ao salvar itens.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Upload dos arquivos pendentes após criação da medição
   const uploadArquivosPendentes = async (medicaoId: string) => {
     if (arquivosPendentes.length === 0 || !fornecedor) return;
@@ -952,12 +986,17 @@ export default function FornecedorContratoDetalhePage() {
                             </>
                           )}
                           <Button size="sm" variant="outline" onClick={async () => {
+                            setModalDetalhe(true);
                             setMedicaoDetalhe(medicao);
                             setDiscriminacoesDetalhe([]);
-                            setModalDetalhe(true);
+                            setEditandoItensDetalhe(false);
+                            setItensEditados({});
                             try {
-                              const fId = fornecedor?.id || '';
-                              const dRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fId}`);
+                              const [medRes, dRes] = await Promise.all([
+                                authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
+                                authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
+                              ]);
+                              if (medRes.ok) setMedicaoDetalhe(await medRes.json());
                               if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
                             } catch {}
                           }}>
@@ -1685,7 +1724,7 @@ export default function FornecedorContratoDetalhePage() {
 
       {/* ============ MODAL: Detalhe da Medição ============ */}
       <Dialog open={modalDetalhe} onOpenChange={setModalDetalhe}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{medicaoDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>
           </DialogHeader>
@@ -1701,10 +1740,33 @@ export default function FornecedorContratoDetalhePage() {
                 <div><p className="text-xs text-gray-500">% Acumulado</p><p className="font-medium">{Number(medicaoDetalhe.percentual_fisico_acumulado || 0).toFixed(1)}%</p></div>
               </div>
 
-              {/* Itens da Medição (Cronograma) */}
+              {/* Itens da Medição (Cronograma) — com status de ateste por item */}
               {medicaoDetalhe.itens && medicaoDetalhe.itens.length > 0 && (
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Itens do Cronograma</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide font-bold">Itens do Cronograma</p>
+                    {medicaoDetalhe.status === 'DEVOLVIDA' && (
+                      editandoItensDetalhe ? (
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => { setEditandoItensDetalhe(false); setItensEditados({}); }}>Cancelar</Button>
+                          <Button size="sm" onClick={salvarItensMedicao} disabled={submitting} className="gap-1">
+                            {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                            Salvar alterações
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => setEditandoItensDetalhe(true)}>
+                          Editar itens
+                        </Button>
+                      )
+                    )}
+                  </div>
+                  {(medicaoDetalhe.status === 'DEVOLVIDA' || medicaoDetalhe.status === 'PARCIALMENTE_ATESTADA') && medicaoDetalhe.itens.some((i: any) => i.atestado !== undefined) && (
+                    <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+                      <strong>Ateste parcial:</strong> {medicaoDetalhe.itens.filter((i: any) => i.atestado).length} de {medicaoDetalhe.itens.length} itens atestados. 
+                      {medicaoDetalhe.itens.some((i: any) => !i.atestado) && ' Corrija os itens pendentes e reenvie.'}
+                    </div>
+                  )}
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
                       <TableHeader>
@@ -1716,18 +1778,66 @@ export default function FornecedorContratoDetalhePage() {
                           <TableHead className="text-xs font-bold text-center w-20 bg-blue-50">% Medido</TableHead>
                           <TableHead className="text-xs font-bold text-center w-20">% Acum.</TableHead>
                           <TableHead className="text-xs font-bold text-right w-28 bg-blue-50">Valor Medido</TableHead>
+                          {(medicaoDetalhe.status === 'DEVOLVIDA' || medicaoDetalhe.status === 'PARCIALMENTE_ATESTADA') && (
+                            <>
+                              <TableHead className="text-xs font-bold text-center w-20">Atestado</TableHead>
+                              <TableHead className="text-xs font-bold min-w-[140px]">Obs. Fiscal</TableHead>
+                            </>
+                          )}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {medicaoDetalhe.itens.map((item: any, idx: number) => (
-                          <TableRow key={item.id || idx}>
+                          <TableRow key={item.id || idx} className={item.atestado === false ? 'bg-amber-50/50' : ''}>
                             <TableCell className="text-sm font-mono">{item.etapa_numero || idx + 1}</TableCell>
                             <TableCell className="text-sm">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.etapa_valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-center text-gray-500">{Number(item.percentual_executado_anterior || 0).toFixed(1)}%</TableCell>
-                            <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">{Number(item.percentual_executado_atual || 0).toFixed(1)}%</TableCell>
+                            <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">
+                              {editandoItensDetalhe && medicaoDetalhe.status === 'DEVOLVIDA' ? (
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="100"
+                                  className="w-16 h-7 text-center text-sm"
+                                  value={itensEditados[item.id]?.percentual_executado_atual ?? Number(item.percentual_executado_atual || 0)}
+                                  onChange={(e) => {
+                                    const v = e.target.value === '' ? 0 : Number(e.target.value);
+                                    const valorPrev = Number(item.etapa_valor_previsto) || 0;
+                                    setItensEditados(prev => ({ ...prev, [item.id]: { ...prev[item.id], percentual_executado_atual: v, valor_executado_atual: (v / 100) * valorPrev } }));
+                                  }}
+                                />
+                              ) : (
+                                `${Number(item.percentual_executado_atual || 0).toFixed(1)}%`
+                              )}
+                            </TableCell>
                             <TableCell className="text-sm text-center font-medium">{Number(item.percentual_executado_acumulado || 0).toFixed(1)}%</TableCell>
-                            <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.valor_medido)}</TableCell>
+                            <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">
+                              {editandoItensDetalhe && medicaoDetalhe.status === 'DEVOLVIDA' ? (
+                                formatarMoeda(itensEditados[item.id]?.valor_executado_atual ?? Number(item.valor_medido || 0))
+                              ) : (
+                                formatarMoeda(item.valor_medido)
+                              )}
+                            </TableCell>
+                            {(medicaoDetalhe.status === 'DEVOLVIDA' || medicaoDetalhe.status === 'PARCIALMENTE_ATESTADA') && (
+                              <>
+                                <TableCell className="text-sm text-center">
+                                  {item.atestado ? (
+                                    <span className="inline-flex items-center gap-1 text-green-600 font-medium" title="Atestado pelo fiscal">
+                                      <CheckCircle className="w-4 h-4" /> Sim
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-amber-600 font-medium" title="Pendente de ateste">
+                                      <AlertTriangle className="w-4 h-4" /> Não
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-sm text-amber-700">
+                                  {item.ateste_observacoes || '-'}
+                                </TableCell>
+                              </>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1801,10 +1911,17 @@ export default function FornecedorContratoDetalhePage() {
                 </div>
               )}
 
-              {medicaoDetalhe.status === 'DEVOLVIDA' && medicaoDetalhe.motivo_devolucao && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-xs text-amber-600 mb-1">Motivo da Devolução</p>
-                  <p className="text-sm text-amber-700">{medicaoDetalhe.motivo_devolucao}</p>
+              {medicaoDetalhe.status === 'DEVOLVIDA' && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                  {medicaoDetalhe.motivo_devolucao && (
+                    <>
+                      <p className="text-xs text-amber-600 font-bold">Motivo da Devolução</p>
+                      <p className="text-sm text-amber-700">{medicaoDetalhe.motivo_devolucao}</p>
+                    </>
+                  )}
+                  <p className="text-sm text-amber-800">
+                    Feche este modal, corrija os itens pendentes (acima) e clique em <strong>Submeter</strong> para reenviar.
+                  </p>
                 </div>
               )}
 

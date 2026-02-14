@@ -1035,7 +1035,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
       {/* Modal Ateste do Fiscal (com seleção por item) */}
       <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardCheck className="w-5 h-5 text-yellow-600" />
@@ -1297,7 +1297,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
       {/* Modal Detalhe da Medição */}
       <Dialog open={!!modalDetalhe} onOpenChange={() => setModalDetalhe(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{modalDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>
           </DialogHeader>
