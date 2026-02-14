@@ -120,6 +120,7 @@ interface Resumo {
   valor_em_analise?: number;
   saldo_disponivel: number;
   percentual_fisico_total: number;
+  etapas_comprometidas?: Record<string, number>;
   total_etapas: number;
   etapas_concluidas: number;
   total_medicoes: number;
@@ -401,16 +402,23 @@ export default function FornecedorContratoDetalhePage() {
       }
 
       // Validar que nenhum item excede o restante da etapa
+      // Considera percentual aprovado + percentual em trânsito (de medições submetidas/em análise)
+      const etapasCompr = resumo?.etapas_comprometidas || {};
       for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
         const item = novaMedicao.itens[idx];
         const etapa = etapas[idx];
         if (!etapa || !item) continue;
-        const restante = 100 - Number(etapa.percentual_executado);
+        const percAprovado = Number(etapa.percentual_executado);
+        const percEmTransito = etapasCompr[etapa.id] || 0;
+        const restante = 100 - percAprovado - percEmTransito;
         const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0
           ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100
           : item.percentual_executado_atual;
         if (percUsado > restante + 0.01) {
-          alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas você informou ${percUsado.toFixed(1)}%.`);
+          const msg = percEmTransito > 0
+            ? `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponivel (aprovado: ${percAprovado.toFixed(1)}%, em analise: ${percEmTransito.toFixed(1)}%), mas voce informou ${percUsado.toFixed(1)}%.`
+            : `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas voce informou ${percUsado.toFixed(1)}%.`;
+          alert(msg);
           setSubmitting(false);
           return;
         }
@@ -512,17 +520,23 @@ export default function FornecedorContratoDetalhePage() {
         }
       }
 
-      // Validar que nenhum item excede o restante da etapa
+      // Validar que nenhum item excede o restante da etapa (considerando em trânsito)
+      const etapasComprCS = resumo?.etapas_comprometidas || {};
       for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
         const item = novaMedicao.itens[idx];
         const etapa = etapas[idx];
         if (!etapa || !item) continue;
-        const restante = 100 - Number(etapa.percentual_executado);
+        const percAprovado = Number(etapa.percentual_executado);
+        const percEmTransito = etapasComprCS[etapa.id] || 0;
+        const restante = 100 - percAprovado - percEmTransito;
         const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0
           ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100
           : item.percentual_executado_atual;
         if (percUsado > restante + 0.01) {
-          alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas você informou ${percUsado.toFixed(1)}%.`);
+          const msg = percEmTransito > 0
+            ? `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponivel (aprovado: ${percAprovado.toFixed(1)}%, em analise: ${percEmTransito.toFixed(1)}%), mas voce informou ${percUsado.toFixed(1)}%.`
+            : `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas voce informou ${percUsado.toFixed(1)}%.`;
+          alert(msg);
           setSubmitting(false);
           return;
         }
@@ -1235,12 +1249,14 @@ export default function FornecedorContratoDetalhePage() {
                 <TableBody>
                   {etapas.map((etapa, idx) => {
                     const jaExecutado = Number(etapa.percentual_executado);
+                    const etapasComprT = resumo?.etapas_comprometidas || {};
+                    const emTransito = etapasComprT[etapa.id] || 0;
                     const itemState = novaMedicao.itens[idx];
                     const modoInput = itemState?.modo_input || 'percentual';
                     const execPerc = itemState?.percentual_executado_atual || 0;
                     const execValor = itemState?.valor_executado_atual || 0;
                     const valorPrevisto = Number(etapa.valor_previsto);
-                    const restante = 100 - jaExecutado;
+                    const restante = 100 - jaExecutado - emTransito;
                     const valorRestante = (restante / 100) * valorPrevisto;
 
                     // Calcula subtotal baseado no modo de input
@@ -1261,16 +1277,18 @@ export default function FornecedorContratoDetalhePage() {
                         <TableCell>
                           <p className="text-sm font-medium">{etapa.descricao}</p>
                           <p className="text-xs text-gray-400">
-                            Previsto: {formatarMoeda(valorPrevisto)} · Restante: {restante.toFixed(1)}% ({formatarMoeda(valorRestante)})
+                            Previsto: {formatarMoeda(valorPrevisto)} · Disponivel: {restante.toFixed(1)}% ({formatarMoeda(valorRestante)})
+                            {emTransito > 0 && <span className="text-amber-600"> · Em analise: {emTransito.toFixed(1)}%</span>}
                           </p>
                           {excedeLimite && (
-                            <p className="text-xs text-red-500 font-medium mt-0.5">Excede o restante disponível!</p>
+                            <p className="text-xs text-red-500 font-medium mt-0.5">Excede o disponivel!</p>
                           )}
                         </TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorPrevisto)}</TableCell>
                         <TableCell className="text-center">
                           <span className={`text-sm font-medium ${jaExecutado > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                             {jaExecutado.toFixed(0)}%
+                            {emTransito > 0 && <span className="text-amber-500 text-xs ml-0.5">+{emTransito.toFixed(0)}%</span>}
                           </span>
                         </TableCell>
                         {/* Input Percentual (%) */}
