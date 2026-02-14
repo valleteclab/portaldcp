@@ -18,7 +18,8 @@ export class NotificacoesController {
   }
 
   private isFornecedor(user: JwtPayload): boolean {
-    return (user as any).type === 'fornecedor';
+    const tipo = ((user as any).type || '').toUpperCase();
+    return tipo === 'FORNECEDOR';
   }
 
   /**

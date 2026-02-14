@@ -1,19 +1,33 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, ForbiddenException } from '@nestjs/common';
 import { CatalogoProprioService } from './catalogo-proprio.service';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('catalogo-proprio')
 export class CatalogoProprioController {
   constructor(private readonly catalogoProprioService: CatalogoProprioService) {}
 
+  /**
+   * Extrai orgaoId do JWT. Admin pode passar query param.
+   * Retorna undefined se admin sem param (ver tudo).
+   */
+  private getOrgaoIdOptional(user: JwtPayload, orgaoIdParam?: string): string | undefined {
+    if (user.type === UserType.ADMIN) return orgaoIdParam;
+    if (user.type === UserType.ORGAO) return user.sub;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    return orgaoId || orgaoIdParam;
+  }
+
   // ==================== CLASSIFICAÇÕES ====================
 
   @Get('classificacoes')
   async buscarClassificacoes(
+    @Req() request: { user: JwtPayload },
     @Query('termo') termo?: string,
     @Query('tipo') tipo?: 'MATERIAL' | 'SERVICO',
-    @Query('orgaoId') orgaoId?: string,
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('limite') limite?: string,
   ) {
+    const orgaoId = this.getOrgaoIdOptional(request.user, orgaoIdParam);
     return this.catalogoProprioService.buscarClassificacoes({
       termo,
       tipo,
@@ -67,12 +81,14 @@ export class CatalogoProprioController {
 
   @Get('itens')
   async buscarItens(
+    @Req() request: { user: JwtPayload },
     @Query('termo') termo?: string,
     @Query('tipo') tipo?: 'MATERIAL' | 'SERVICO',
     @Query('classificacaoId') classificacaoId?: string,
-    @Query('orgaoId') orgaoId?: string,
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('limite') limite?: string,
   ) {
+    const orgaoId = this.getOrgaoIdOptional(request.user, orgaoIdParam);
     return this.catalogoProprioService.buscarItens({
       termo,
       tipo,
@@ -131,11 +147,13 @@ export class CatalogoProprioController {
 
   @Get('buscar-itens-pca')
   async buscarItensPCA(
+    @Req() request: { user: JwtPayload },
     @Query('termo') termo?: string,
     @Query('tipo') tipo?: 'MATERIAL' | 'SERVICO',
-    @Query('orgaoId') orgaoId?: string,
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('limite') limite?: string,
   ) {
+    const orgaoId = this.getOrgaoIdOptional(request.user, orgaoIdParam);
     return this.catalogoProprioService.buscarItensDoPCA({
       termo,
       tipo,

@@ -19,6 +19,7 @@ import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
+import { Medicao } from './entities/medicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { UploadService } from '../upload/upload.service';
 import { Public } from '../auth/public.decorator';
@@ -36,6 +37,8 @@ export class ContratosController {
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(AnexoMedicao)
     private readonly anexoRepository: Repository<AnexoMedicao>,
+    @InjectRepository(Medicao)
+    private readonly medicaoRepository: Repository<Medicao>,
   ) {}
 
   // ============ CRUD CONTRATOS ============
@@ -47,12 +50,14 @@ export class ContratosController {
 
   @Post('importar')
   async importarContratos(
-    @Body() body: { orgaoId: string; contratos: any[] }
+    @Req() request: { user: JwtPayload },
+    @Body() body: { orgaoId?: string; contratos: any[] }
   ) {
-    if (!body.orgaoId || !body.contratos || !Array.isArray(body.contratos)) {
-      throw new Error('Dados inválidos. Envie orgaoId e contratos (array).');
+    const orgaoId = request.user.type === UserType.ADMIN ? (body.orgaoId || '') : this.getOrgaoId(request.user);
+    if (!orgaoId || !body.contratos || !Array.isArray(body.contratos)) {
+      throw new BadRequestException('Dados inválidos. Envie contratos (array).');
     }
-    return this.contratosService.importarContratos(body.orgaoId, body.contratos);
+    return this.contratosService.importarContratos(orgaoId, body.contratos);
   }
 
   @Post('licitacao/:licitacaoId')
@@ -65,13 +70,15 @@ export class ContratosController {
 
   @Get()
   async findAll(
-    @Query('orgaoId') orgaoId?: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('fornecedorId') fornecedorId?: string,
     @Query('status') status?: StatusContrato,
     @Query('tipo') tipo?: TipoContrato,
     @Query('ano') ano?: string,
     @Query('vigentes') vigentes?: string
   ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
     return this.contratosService.findAll({
       orgaoId,
       fornecedorId,
@@ -83,23 +90,31 @@ export class ContratosController {
   }
 
   @Get('estatisticas/status')
-  async estatisticasPorStatus(@Query('orgaoId') orgaoId: string) {
+  async estatisticasPorStatus(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
     return this.contratosService.contarPorStatus(orgaoId);
   }
 
   @Get('estatisticas/a-vencer')
   async contratosAVencer(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('dias') dias?: string
   ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
     return this.contratosService.contratosAVencer(orgaoId, dias ? parseInt(dias) : 30);
   }
 
   @Get('estatisticas/valor-total')
   async valorTotal(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('ano') ano?: string
   ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
     const valor = await this.contratosService.valorTotalContratado(
       orgaoId,
       ano ? parseInt(ano) : undefined
@@ -120,8 +135,10 @@ export class ContratosController {
   @Get('numero/:numero')
   async findByNumero(
     @Param('numero') numero: string,
-    @Query('orgaoId') orgaoId: string
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
     return this.contratosService.findByNumero(numero, orgaoId);
   }
 
@@ -262,16 +279,38 @@ export class ContratosController {
     }
   }
 
+  /**
+   * Valida que uma medição pertence a um contrato do órgão do usuário logado.
+   */
+  private async validarPropriedadeMedicao(user: JwtPayload, medicaoId: string): Promise<void> {
+    if (user.type === UserType.ADMIN) return;
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (medicao.contrato?.orgao_id) {
+      this.validarPropriedade(user, medicao.contrato.orgao_id);
+    }
+  }
+
   // ============ ENDPOINTS PÚBLICOS ============
 
   // ============ ANEXOS DE MEDIÇÃO ============
 
   /**
    * Lista anexos (fotos/documentos) de uma medição.
+   * Valida que a medição pertence a um contrato do órgão do usuário.
    * GET /api/contratos/medicoes/:medicaoId/anexos
    */
   @Get('medicoes/:medicaoId/anexos')
-  async listarAnexosMedicao(@Param('medicaoId') medicaoId: string) {
+  async listarAnexosMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    // Validar que a medição pertence ao órgão do usuário
+    await this.validarPropriedadeMedicao(request.user, medicaoId);
+
     return this.anexoRepository.find({
       where: { medicao_id: medicaoId },
       order: { created_at: 'DESC' },
@@ -280,14 +319,24 @@ export class ContratosController {
 
   /**
    * Órgão exclui um anexo de medição (qualquer status).
+   * Valida propriedade via órgão do contrato.
    * DELETE /api/contratos/medicoes/anexos/:anexoId
    */
   @Delete('medicoes/anexos/:anexoId')
-  async excluirAnexoMedicao(@Param('anexoId') anexoId: string) {
+  async excluirAnexoMedicao(
+    @Param('anexoId') anexoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
     const anexo = await this.anexoRepository.findOne({
       where: { id: anexoId },
+      relations: ['medicao', 'medicao.contrato'],
     });
     if (!anexo) throw new NotFoundException('Anexo não encontrado');
+
+    // Validar que o anexo pertence ao órgão do usuário
+    if (anexo.medicao?.contrato?.orgao_id) {
+      this.validarPropriedade(request.user, anexo.medicao.contrato.orgao_id);
+    }
 
     // Excluir arquivo físico
     const pastaUpload = `medicoes/${anexo.medicao_id}`;

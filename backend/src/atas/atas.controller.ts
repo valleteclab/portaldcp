@@ -6,18 +6,29 @@ import {
   Patch,
   Param,
   Body,
-  Query
+  Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AtasService } from './atas.service';
 import { AtaRegistroPreco, ItemAta, StatusAta } from './entities/ata-registro-preco.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('atas')
 @RequireModule(ModuloSistema.ATAS)
 export class AtasController {
   constructor(private readonly atasService: AtasService) {}
+
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN && orgaoIdParam) return orgaoIdParam;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+  }
 
   // ============ CRUD ATAS ============
 
@@ -36,12 +47,14 @@ export class AtasController {
 
   @Get()
   async findAll(
-    @Query('orgaoId') orgaoId?: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('fornecedorId') fornecedorId?: string,
     @Query('status') status?: StatusAta,
     @Query('ano') ano?: string,
     @Query('vigentes') vigentes?: string
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.atasService.findAll({
       orgaoId,
       fornecedorId,
@@ -52,15 +65,21 @@ export class AtasController {
   }
 
   @Get('estatisticas/status')
-  async estatisticasPorStatus(@Query('orgaoId') orgaoId: string) {
+  async estatisticasPorStatus(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.atasService.contarPorStatus(orgaoId);
   }
 
   @Get('estatisticas/a-vencer')
   async atasAVencer(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('dias') dias?: string
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.atasService.atasAVencer(orgaoId, dias ? parseInt(dias) : 30);
   }
 

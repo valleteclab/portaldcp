@@ -7,18 +7,29 @@ import {
   Delete,
   Param,
   Body,
-  Query
+  Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ContratacaoDiretaService } from './contratacao-direta.service';
 import { ContratacaoDireta, ItemContratacaoDireta, TipoContratacaoDireta, StatusContratacaoDireta } from './entities/contratacao-direta.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('contratacao-direta')
 @RequireModule(ModuloSistema.CREDENCIAMENTO)
 export class ContratacaoDiretaController {
   constructor(private readonly service: ContratacaoDiretaService) {}
+
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN && orgaoIdParam) return orgaoIdParam;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+  }
 
   // ============ CRUD ============
 
@@ -29,11 +40,13 @@ export class ContratacaoDiretaController {
 
   @Get()
   async findAll(
-    @Query('orgaoId') orgaoId?: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('tipo') tipo?: TipoContratacaoDireta,
     @Query('status') status?: StatusContratacaoDireta,
     @Query('ano') ano?: string
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.service.findAll({
       orgaoId,
       tipo,
@@ -58,9 +71,11 @@ export class ContratacaoDiretaController {
 
   @Get('estatisticas')
   async getEstatisticas(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('ano') ano?: string
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.service.getEstatisticas(orgaoId, ano ? parseInt(ano) : undefined);
   }
 

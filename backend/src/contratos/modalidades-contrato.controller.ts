@@ -8,14 +8,20 @@ import {
   Param,
   Body,
   Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { JwtPayload, UserType } from '../auth/auth.service';
 import { MedicaoService } from './medicao.service';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -25,7 +31,27 @@ export class ModalidadesContratoController {
     private readonly atestacaoService: AtestacaoService,
     private readonly licencaService: LicencaControleService,
     private readonly osService: OrdemServicoContratoService,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
   ) {}
+
+  /**
+   * Extrai o orgaoId do JWT de forma segura.
+   * Prioriza o token JWT, usa query param apenas como fallback para admin.
+   */
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) {
+      return user.sub;
+    }
+    if (user.type === UserType.ADMIN && orgaoIdParam) {
+      return orgaoIdParam;
+    }
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) {
+      return orgaoId;
+    }
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+  }
 
   // ============================================================================
   // MEDIÇÃO — Consulta de OS (criação/aprovação via módulo centralizado de Requisições)
@@ -144,11 +170,17 @@ export class ModalidadesContratoController {
   @Delete('medicoes/:medicaoId')
   async excluirMedicao(
     @Param('medicaoId') medicaoId: string,
-    @Query('podeExcluirMedicao') podeExcluirMedicao?: string,
+    @Req() request: { user: JwtPayload },
   ) {
-    return this.medicaoService.excluirMedicao(medicaoId, undefined, {
-      isAdmin: podeExcluirMedicao === 'true',
-    });
+    // Verificar permissão real no banco de dados (não confiar em query params)
+    let isAdmin = request.user.type === UserType.ADMIN;
+    if (!isAdmin && request.user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({
+        where: { id: request.user.sub },
+      });
+      isAdmin = usuario?.pode_excluir_medicao === true;
+    }
+    return this.medicaoService.excluirMedicao(medicaoId, undefined, { isAdmin });
   }
 
   @Patch('medicoes/:medicaoId/enviar-aprovacao')
@@ -176,12 +208,20 @@ export class ModalidadesContratoController {
   }
 
   @Get('medicoes/pendentes-ateste')
-  async listarPendentesAteste(@Query('orgaoId') orgaoId: string) {
+  async listarPendentesAteste(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.medicaoService.listarPendentesAteste(orgaoId);
   }
 
   @Get('medicoes/pendentes-aprovacao')
-  async listarPendentesAprovacao(@Query('orgaoId') orgaoId: string) {
+  async listarPendentesAprovacao(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.medicaoService.listarPendentesAprovacao(orgaoId);
   }
 
@@ -190,7 +230,11 @@ export class ModalidadesContratoController {
    * Retorna contratos com modalidade MEDICAO e contagem de medições por status.
    */
   @Get('medicoes/resumo-fiscal')
-  async resumoFiscal(@Query('orgaoId') orgaoId: string) {
+  async resumoFiscal(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.medicaoService.resumoFiscalPorContrato(orgaoId);
   }
 

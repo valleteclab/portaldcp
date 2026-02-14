@@ -7,17 +7,28 @@ import {
   Delete,
   Param,
   Body,
-  Query
+  Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PcaService } from './pca.service';
 import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItemPCA } from './entities/pca.entity';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('pca')
 @RequireModule(ModuloSistema.PCA)
 export class PcaController {
   constructor(private readonly pcaService: PcaService) {}
+
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN && orgaoIdParam) return orgaoIdParam;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+  }
 
   // ============ CRUD PCA ============
 
@@ -28,10 +39,12 @@ export class PcaController {
 
   @Get()
   async findAll(
-    @Query('orgaoId') orgaoId?: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('ano') ano?: string,
     @Query('status') status?: StatusPCA
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.pcaService.findAll({
       orgaoId,
       ano: ano ? parseInt(ano) : undefined,
@@ -45,24 +58,32 @@ export class PcaController {
   }
 
   @Get('pendentes')
-  async getItensPendentes(@Query('orgaoId') orgaoId: string) {
+  async getItensPendentes(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.pcaService.getItensPendentes(orgaoId);
   }
 
   // Buscar itens do PCA por órgão e ano (para vinculação em licitações)
   @Get('itens')
   async buscarItensPca(
-    @Query('orgao_id') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgao_id') orgaoIdParam?: string,
     @Query('ano') ano?: string
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.pcaService.buscarItensPorOrgao(orgaoId, ano ? parseInt(ano) : undefined);
   }
 
   @Get('ano/:ano')
   async findByAno(
     @Param('ano') ano: string,
-    @Query('orgaoId') orgaoId: string
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.pcaService.findByAno(orgaoId, parseInt(ano));
   }
 

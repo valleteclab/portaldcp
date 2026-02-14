@@ -11,7 +11,8 @@ import {
   UploadedFile,
   HttpException,
   HttpStatus,
-  Req
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PncpService } from './pncp.service';
@@ -19,12 +20,21 @@ import { ResultadoItemDto, ContratoDto, TIPO_DOCUMENTO } from './dto/pncp.dto';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('pncp')
 @RequireModule(ModuloSistema.PNCP)
 export class PncpController {
   constructor(private readonly pncpService: PncpService) {
     console.log('[PncpController] Controller initialized');
+  }
+
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN && orgaoIdParam) return orgaoIdParam;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
   }
 
   // ============ CREDENCIAIS PNCP DA PLATAFORMA ============
@@ -234,12 +244,20 @@ export class PncpController {
   }
 
   @Get('pendentes')
-  async listarPendentes(@Query('orgaoId') orgaoId?: string) {
+  async listarPendentes(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? orgaoIdParam : this.getOrgaoId(request.user, orgaoIdParam);
     return this.pncpService.listarPendentes(orgaoId);
   }
 
   @Get('erros')
-  async listarErros(@Query('orgaoId') orgaoId?: string) {
+  async listarErros(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? orgaoIdParam : this.getOrgaoId(request.user, orgaoIdParam);
     return this.pncpService.listarErros(orgaoId);
   }
 

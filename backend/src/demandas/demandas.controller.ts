@@ -1,23 +1,38 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Patch, Req, ForbiddenException } from '@nestjs/common';
 import { DemandasService } from './demandas.service';
 import { StatusDemanda, ItemDemanda } from './entities/demanda.entity';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('demandas')
 @RequireModule(ModuloSistema.DEMANDAS)
 export class DemandasController {
   constructor(private readonly demandasService: DemandasService) {}
 
+  /**
+   * Extrai o orgaoId do JWT de forma segura.
+   * Admin pode usar query param como fallback.
+   */
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN && orgaoIdParam) return orgaoIdParam;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+  }
+
   // ==================== DEMANDAS ====================
 
   @Get()
   async findAll(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('ano') ano?: string,
     @Query('status') status?: StatusDemanda,
     @Query('unidadeRequisitante') unidadeRequisitante?: string,
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.demandasService.findAll({
       orgaoId,
       ano: ano ? parseInt(ano) : undefined,
@@ -28,22 +43,30 @@ export class DemandasController {
 
   @Get('estatisticas')
   async getEstatisticas(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
     @Query('ano') ano: string,
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.demandasService.getEstatisticas(orgaoId, parseInt(ano));
   }
 
   @Get('unidades')
-  async getUnidadesRequisitantes(@Query('orgaoId') orgaoId: string) {
+  async getUnidadesRequisitantes(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.demandasService.getUnidadesRequisitantes(orgaoId);
   }
 
   @Get('para-consolidar')
   async getDemandasParaConsolidar(
-    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
     @Query('ano') ano: string,
+    @Query('orgaoId') orgaoIdParam?: string,
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.demandasService.getDemandasParaConsolidar(orgaoId, parseInt(ano));
   }
 

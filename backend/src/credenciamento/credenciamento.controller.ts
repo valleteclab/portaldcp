@@ -6,15 +6,26 @@ import {
   Patch,
   Param,
   Body,
-  Query
+  Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CredenciamentoService } from './credenciamento.service';
 import { Credenciamento, StatusCredenciamento, StatusCredenciado, TipoCredenciamento } from './entities/credenciamento.entity';
 import { Public } from '../auth/public.decorator';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
 @Controller('credenciamento')
 export class CredenciamentoController {
   constructor(private readonly service: CredenciamentoService) {}
+
+  private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
+    if (user.type === UserType.ORGAO) return user.sub;
+    if (user.type === UserType.ADMIN && orgaoIdParam) return orgaoIdParam;
+    const orgaoId = user.orgaoId || (user as any).orgao_id;
+    if (orgaoId) return orgaoId;
+    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+  }
 
   // ============ CRUD ============
 
@@ -25,10 +36,12 @@ export class CredenciamentoController {
 
   @Get()
   async findAll(
-    @Query('orgaoId') orgaoId?: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
     @Query('status') status?: StatusCredenciamento,
     @Query('tipo') tipo?: TipoCredenciamento
   ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.service.findAll({ orgaoId, status, tipo });
   }
 
