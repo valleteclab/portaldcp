@@ -1027,7 +1027,32 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-gray-50">
-                      <TableHead className="w-10"></TableHead>
+                      <TableHead className="w-10 text-center">
+                        {(() => {
+                          const itens = ((modalAteste as any)?.itens || []) as any[]
+                          const naoAtestados = itens.filter((i: any) => !i.atestado)
+                          const todosSelecionados = naoAtestados.length > 0 && naoAtestados.every((i: any) => itensAteste[i.id]?.selecionado)
+                          if (naoAtestados.length === 0) return null
+                          return (
+                            <input
+                              type="checkbox"
+                              checked={todosSelecionados}
+                              onChange={(e) => {
+                                const checked = e.target.checked
+                                setItensAteste(prev => {
+                                  const novo = { ...prev }
+                                  for (const item of naoAtestados) {
+                                    novo[item.id] = { ...novo[item.id], selecionado: checked }
+                                  }
+                                  return novo
+                                })
+                              }}
+                              className="w-4 h-4"
+                              title={todosSelecionados ? 'Desmarcar todos' : 'Selecionar todos'}
+                            />
+                          )
+                        })()}
+                      </TableHead>
                       <TableHead className="text-xs font-bold">Etapa</TableHead>
                       <TableHead className="text-xs font-bold text-center w-16">% Med.</TableHead>
                       <TableHead className="text-xs font-bold text-right w-24">Valor</TableHead>

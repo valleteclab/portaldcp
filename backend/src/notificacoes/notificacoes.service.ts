@@ -160,6 +160,78 @@ export class NotificacoesService {
     );
   }
 
+  // ============================================================================
+  // MÉTODOS PARA LOGIN DIRETO COMO ÓRGÃO
+  // Quando o órgão loga diretamente (não como usuário), ele vê TODAS as
+  // notificações do órgão, sem filtrar por usuario_id específico.
+  // ============================================================================
+
+  /**
+   * Lista todas as notificações de um órgão (sem filtro por usuario_id).
+   * Usado quando o login é direto como órgão.
+   */
+  async listarPorOrgao(
+    orgaoId: string,
+    options?: {
+      apenasNaoLidas?: boolean;
+      limite?: number;
+    },
+  ): Promise<Notificacao[]> {
+    const query = this.notificacaoRepository.createQueryBuilder('n')
+      .where('n.orgao_id = :orgaoId', { orgaoId })
+      .orderBy('n.created_at', 'DESC');
+
+    if (options?.apenasNaoLidas) {
+      query.andWhere('n.lida = false');
+    }
+
+    if (options?.limite) {
+      query.take(options.limite);
+    }
+
+    return query.getMany();
+  }
+
+  /**
+   * Conta todas as notificações não lidas de um órgão (sem filtro por usuario_id).
+   */
+  async contarNaoLidasPorOrgao(orgaoId: string): Promise<number> {
+    return this.notificacaoRepository.count({
+      where: {
+        orgao_id: orgaoId,
+        lida: false,
+      },
+    });
+  }
+
+  /**
+   * Marca notificação como lida pelo órgão (valida que pertence ao órgão).
+   */
+  async marcarComoLidaPorOrgao(id: string, orgaoId: string): Promise<Notificacao> {
+    const notificacao = await this.notificacaoRepository.findOne({
+      where: { id, orgao_id: orgaoId },
+    });
+
+    if (!notificacao) {
+      throw new Error('Notificação não encontrada');
+    }
+
+    notificacao.lida = true;
+    notificacao.data_leitura = new Date();
+
+    return this.notificacaoRepository.save(notificacao);
+  }
+
+  /**
+   * Marca todas as notificações do órgão como lidas.
+   */
+  async marcarTodasComoLidasPorOrgao(orgaoId: string): Promise<void> {
+    await this.notificacaoRepository.update(
+      { orgao_id: orgaoId, lida: false },
+      { lida: true, data_leitura: new Date() },
+    );
+  }
+
   /**
    * Conta notificações não lidas
    */
@@ -364,7 +436,7 @@ export class NotificacoesService {
         prioridade: PrioridadeNotificacao.ALTA,
         entidade_tipo: 'medicao',
         entidade_id: medicaoId,
-        link: `/orgao/contratos/${contratoId}`,
+        link: `/orgao/medicoes`,
         metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fornecedor: fornecedorNome, valor: valorMedido },
       });
     } catch (error) {

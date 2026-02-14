@@ -204,6 +204,8 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_data: '',
     itens: [] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }[],
   });
+  // Arquivos pendentes para upload após criação da medição
+  const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
 
   // Modal Submeter
   const [modalSubmeter, setModalSubmeter] = useState(false);
@@ -425,12 +427,18 @@ export default function FornecedorContratoDetalhePage() {
       });
 
       if (res.ok) {
+        const medicaoCriada = await res.json();
+        // Upload de arquivos pendentes (fotos/documentos)
+        if (arquivosPendentes.length > 0 && medicaoCriada?.id) {
+          await uploadArquivosPendentes(medicaoCriada.id);
+        }
         setModalNovaMedicao(false);
         setNovaMedicao({
           periodo_inicio: '', periodo_fim: '', observacoes: '',
           nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
           itens: [],
         });
+        setArquivosPendentes([]);
         carregarDados();
       } else {
         const err = await res.json();
@@ -529,6 +537,11 @@ export default function FornecedorContratoDetalhePage() {
 
       const medicaoCriada = await resCriar.json();
 
+      // Upload de arquivos pendentes (fotos/documentos) antes de submeter
+      if (arquivosPendentes.length > 0 && medicaoCriada?.id) {
+        await uploadArquivosPendentes(medicaoCriada.id);
+      }
+
       // Passo 2: Submeter automaticamente (RASCUNHO → SUBMETIDA)
       const resSubmeter = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/submeter`, {
         method: 'PATCH',
@@ -549,11 +562,13 @@ export default function FornecedorContratoDetalhePage() {
           nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
           itens: [],
         });
+        setArquivosPendentes([]);
         carregarDados();
       } else {
         // Medição foi criada mas falhou ao submeter - informa o usuário
         alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
         setModalNovaMedicao(false);
+        setArquivosPendentes([]);
         carregarDados();
       }
     } catch (error) {
@@ -618,7 +633,29 @@ export default function FornecedorContratoDetalhePage() {
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       itens: etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
+    setArquivosPendentes([]);
     setModalNovaMedicao(true);
+  };
+
+  // Upload dos arquivos pendentes após criação da medição
+  const uploadArquivosPendentes = async (medicaoId: string) => {
+    if (arquivosPendentes.length === 0 || !fornecedor) return;
+    for (const arq of arquivosPendentes) {
+      try {
+        const formData = new FormData();
+        formData.append('file', arq.file);
+        formData.append('tipo', arq.tipo);
+        formData.append('fornecedor_id', fornecedor.id);
+        formData.append('fornecedor_nome', fornecedor.razao_social || fornecedor.nome);
+        if (arq.descricao) formData.append('descricao', arq.descricao);
+        await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`, {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (err) {
+        console.error('Erro ao enviar anexo pendente:', err);
+      }
+    }
   };
 
   const abrirModalSubmeter = (medicao: Medicao) => {
@@ -1262,6 +1299,78 @@ export default function FornecedorContratoDetalhePage() {
                     onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_data: e.target.value })} />
                 </div>
               </div>
+            </div>
+
+            {/* Fotos e Documentos */}
+            <div className="border rounded-lg p-4 bg-gray-50/50">
+              <div className="flex items-center justify-between mb-3">
+                <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                  <Paperclip className="w-4 h-4" />
+                  Fotos e Documentos
+                  <span className="text-xs font-normal text-gray-400">(opcional)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      const titulo = prompt('Título da foto (opcional):') ?? '';
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'image/jpeg,image/png,image/jpg';
+                      input.multiple = true;
+                      input.onchange = (e) => {
+                        const files = (e.target as HTMLInputElement).files;
+                        if (files) {
+                          const novos = Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }));
+                          setArquivosPendentes(prev => [...prev, ...novos]);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    <Camera className="w-3 h-3" /> Foto
+                  </Button>
+                  <Button
+                    type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      const titulo = prompt('Título do documento (opcional):') ?? '';
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'application/pdf,image/jpeg,image/png';
+                      input.onchange = (e) => {
+                        const files = (e.target as HTMLInputElement).files;
+                        if (files && files[0]) {
+                          setArquivosPendentes(prev => [...prev, { file: files[0], tipo: 'DOCUMENTO', descricao: titulo }]);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    <Upload className="w-3 h-3" /> Documento
+                  </Button>
+                </div>
+              </div>
+              {arquivosPendentes.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-2">Nenhum arquivo adicionado. Você pode adicionar fotos e documentos agora ou depois.</p>
+              ) : (
+                <div className="space-y-1">
+                  {arquivosPendentes.map((arq, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{arq.tipo === 'FOTO' ? '📷' : '📄'}</span>
+                        <span className="truncate font-medium">{arq.descricao || arq.file.name}</span>
+                        <span className="text-gray-400 flex-shrink-0">({(arq.file.size / 1024).toFixed(0)} KB)</span>
+                      </div>
+                      <Button
+                        type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                        onClick={() => setArquivosPendentes(prev => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

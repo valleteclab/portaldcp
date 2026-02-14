@@ -98,7 +98,43 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // MEDIÇÃO — Boletins de Medição
+  // MEDIÇÃO — Rotas estáticas DEVEM vir ANTES das rotas com :parametro
+  //           para evitar que NestJS interprete "resumo-fiscal" como :medicaoId
+  // ============================================================================
+
+  @Get('medicoes/pendentes-ateste')
+  async listarPendentesAteste(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarPendentesAteste(orgaoId);
+  }
+
+  @Get('medicoes/pendentes-aprovacao')
+  async listarPendentesAprovacao(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarPendentesAprovacao(orgaoId);
+  }
+
+  /**
+   * Resumo de medições por contrato para o painel do fiscal.
+   * Retorna contratos com modalidade MEDICAO e contagem de medições por status.
+   */
+  @Get('medicoes/resumo-fiscal')
+  async resumoFiscal(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.resumoFiscalPorContrato(orgaoId);
+  }
+
+  // ============================================================================
+  // MEDIÇÃO — Rotas parametrizadas (medicoes/:medicaoId e :contratoId/medicoes)
   // ============================================================================
 
   @Post(':contratoId/medicoes')
@@ -112,6 +148,11 @@ export class ModalidadesContratoController {
   @Get(':contratoId/medicoes')
   async listarMedicoes(@Param('contratoId') contratoId: string) {
     return this.medicaoService.listarMedicoes(contratoId);
+  }
+
+  @Get(':contratoId/medicoes/resumo')
+  async resumoMedicoes(@Param('contratoId') contratoId: string) {
+    return this.medicaoService.resumoMedicoes(contratoId);
   }
 
   @Get('medicoes/:medicaoId')
@@ -205,42 +246,6 @@ export class ModalidadesContratoController {
     @Body() body: { aprovador_id: string; aprovador_nome: string; observacao: string },
   ) {
     return this.medicaoService.rejeitarMedicao(medicaoId, body.aprovador_id, body.aprovador_nome, body.observacao);
-  }
-
-  @Get('medicoes/pendentes-ateste')
-  async listarPendentesAteste(
-    @Req() request: { user: JwtPayload },
-    @Query('orgaoId') orgaoIdParam?: string,
-  ) {
-    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
-    return this.medicaoService.listarPendentesAteste(orgaoId);
-  }
-
-  @Get('medicoes/pendentes-aprovacao')
-  async listarPendentesAprovacao(
-    @Req() request: { user: JwtPayload },
-    @Query('orgaoId') orgaoIdParam?: string,
-  ) {
-    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
-    return this.medicaoService.listarPendentesAprovacao(orgaoId);
-  }
-
-  /**
-   * Resumo de medições por contrato para o painel do fiscal.
-   * Retorna contratos com modalidade MEDICAO e contagem de medições por status.
-   */
-  @Get('medicoes/resumo-fiscal')
-  async resumoFiscal(
-    @Req() request: { user: JwtPayload },
-    @Query('orgaoId') orgaoIdParam?: string,
-  ) {
-    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
-    return this.medicaoService.resumoFiscalPorContrato(orgaoId);
-  }
-
-  @Get(':contratoId/medicoes/resumo')
-  async resumoMedicoes(@Param('contratoId') contratoId: string) {
-    return this.medicaoService.resumoMedicoes(contratoId);
   }
 
   // ============================================================================
