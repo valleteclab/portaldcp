@@ -12,7 +12,7 @@ import {
   ClipboardCheck, TrendingUp, Search, Building2, FileText,
   Loader2, Eye, AlertTriangle, ChevronRight, CheckCircle, Clock,
 } from 'lucide-react'
-import { authFetch } from '@/lib/auth'
+import { authFetch } from '@/lib/api'
 import TabMedicao from '@/components/contratos/TabMedicao'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
