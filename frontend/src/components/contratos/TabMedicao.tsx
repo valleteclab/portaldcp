@@ -453,17 +453,22 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
     const itens = ((modalAteste as any).itens || []) as any[]
     const itensSelecionados = itens.filter(item => itensAteste[item.id]?.selecionado && !item.atestado)
-    const jaAtestados = itens.filter((i: any) => i.atestado).length
-    const todosSerao = jaAtestados + itensSelecionados.length === itens.length && itens.length > 0
+    const itensCancelarAteste = itens.filter(item => item.atestado && !itensAteste[item.id]?.selecionado).map((i: any) => i.id)
+    const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
+    const todosSerao = jaAtestadosMantidos + itensSelecionados.length === itens.length && itens.length > 0
 
-    if (itensSelecionados.length === 0) {
-      alert('Selecione pelo menos um item não atestado para atestar.')
+    const temAcao = itensSelecionados.length > 0 || itensCancelarAteste.length > 0
+    if (!temAcao) {
+      alert('Selecione itens para atestar ou desmarque itens para cancelar o ateste.')
       return
     }
 
-    if (!todosSerao && !formAteste.motivo_devolucao_parcial?.trim()) {
-      alert('No ateste parcial, informe o motivo da devolução para os itens não atestados.')
-      return
+    if (!todosSerao && itensSelecionados.length > 0 && !formAteste.motivo_devolucao_parcial?.trim()) {
+      const itensNaoSelecionados = itens.filter(i => !itensAteste[i.id]?.selecionado && !i.atestado).length
+      if (itensNaoSelecionados > 0) {
+        alert('No ateste parcial, informe o motivo da devolução para os itens não atestados.')
+        return
+      }
     }
 
     setActionLoading(true)
@@ -477,6 +482,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
             item_id: item.id,
             observacoes: itensAteste[item.id]?.observacoes || null,
           })),
+          itens_cancelar_ateste: itensCancelarAteste.length > 0 ? itensCancelarAteste : undefined,
           observacoes_gerais: formAteste.observacoes || null,
           verificado_in_loco: formAteste.verificado_in_loco,
           motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
@@ -493,8 +499,10 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         alert('Medição atestada com sucesso! Foi enviada para aprovação do gestor na Central de Aprovações.')
       } else if (resultado.status === 'DEVOLVIDA') {
         alert('Itens atestados e medição devolvida ao fornecedor com sucesso! O fornecedor será notificado para corrigir os itens não atestados.')
+      } else if (resultado.status === 'SUBMETIDA') {
+        alert('Ateste(s) cancelado(s) com sucesso! A medição voltou ao status submetida.')
       } else if (resultado.status === 'PARCIALMENTE_ATESTADA') {
-        alert('Itens atestados com sucesso! A medição ficou parcialmente atestada.')
+        alert('Alterações salvas com sucesso! A medição ficou parcialmente atestada.')
       }
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -1119,13 +1127,14 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                     {((modalAteste as any)?.itens || []).map((item: any, idx: number) => {
                       const jaAtestado = !!item.atestado
                       const selecionado = itensAteste[item.id]?.selecionado || false
+                      const podeEditarAteste = ['SUBMETIDA', 'PARCIALMENTE_ATESTADA'].includes((modalAteste as any)?.status || '')
                       return (
                         <TableRow key={item.id || idx} className={jaAtestado ? 'bg-green-50/50' : selecionado ? 'bg-yellow-50/50' : ''}>
                           <TableCell className="text-center">
                             <input
                               type="checkbox"
                               checked={selecionado}
-                              disabled={jaAtestado}
+                              disabled={jaAtestado && !podeEditarAteste}
                               onChange={e => setItensAteste(prev => ({
                                 ...prev,
                                 [item.id]: { ...prev[item.id], selecionado: e.target.checked },
@@ -1265,11 +1274,13 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                     </div>
                   )}
                   <p className="text-xs text-gray-500">
-                    {novosAtestados === 0
+                    {novosAtestados === 0 && !itens.some((i: any) => i.atestado && !itensAteste[i.id]?.selecionado)
                       ? 'Selecione os itens que deseja atestar.'
                       : todosSerao
                         ? `Ao atestar ${novosAtestados} item(ns), todos os itens estarão atestados e a medição será encaminhada para aprovação.`
-                        : `${novosAtestados} item(ns) selecionado(s). Informe o motivo e a medição será devolvida ao fornecedor em um clique.`
+                        : itens.some((i: any) => i.atestado && !itensAteste[i.id]?.selecionado) && novosAtestados === 0
+                          ? 'Desmarque os itens para cancelar o ateste. Clique em "Cancelar Atestes" para confirmar.'
+                          : `${novosAtestados} item(ns) selecionado(s). Informe o motivo e a medição será devolvida ao fornecedor em um clique.`
                     }
                   </p>
                 </>
@@ -1281,19 +1292,22 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
             {(() => {
               const itens = ((modalAteste as any)?.itens || []) as any[]
               const temSelecionados = itens.some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)
+              const temCancelados = itens.some((i: any) => i.atestado && !itensAteste[i.id]?.selecionado)
+              const temAcao = temSelecionados || temCancelados
               const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
-              const jaAtestados = itens.filter((i: any) => i.atestado).length
-              const todosSerao = jaAtestados + novosAtestados === itens.length && itens.length > 0
-              const motivoObrigatorio = !todosSerao && !formAteste.motivo_devolucao_parcial?.trim()
+              const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
+              const todosSerao = jaAtestadosMantidos + novosAtestados === itens.length && itens.length > 0
+              const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
+              const motivoObrigatorio = !todosSerao && temSelecionados && itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()
               return (
                 <Button
                   className="bg-yellow-600 hover:bg-yellow-700 text-white"
                   onClick={atestarMedicao}
-                  disabled={actionLoading || !temSelecionados || motivoObrigatorio}
+                  disabled={actionLoading || !temAcao || motivoObrigatorio}
                 >
                   {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   <ClipboardCheck className="w-4 h-4 mr-2" />
-                  {todosSerao ? 'Atestar Selecionados' : 'Atestar e Devolver'}
+                  {temCancelados && !temSelecionados ? 'Cancelar Atestes' : todosSerao ? 'Atestar Selecionados' : 'Atestar e Devolver'}
                 </Button>
               )
             })()}

@@ -686,6 +686,7 @@ export class MedicaoService {
    */
   async atestarItensMedicao(medicaoId: string, fiscalId: string, fiscalNome: string, dados: {
     itens: Array<{ item_id: string; observacoes?: string }>;
+    itens_cancelar_ateste?: string[]; // IDs dos itens cujo ateste deve ser cancelado (quando ainda não enviado para aprovação)
     observacoes_gerais?: string;
     verificado_in_loco?: boolean;
     motivo_devolucao?: string; // Quando ateste parcial: motivo para devolver ao fornecedor (obrigatório)
@@ -697,16 +698,33 @@ export class MedicaoService {
       throw new BadRequestException('Apenas medições submetidas ou parcialmente atestadas podem receber ateste');
     }
 
-    if (!dados.itens || dados.itens.length === 0) {
-      throw new BadRequestException('Selecione pelo menos um item para atestar');
+    const temItensAtestar = dados.itens && dados.itens.length > 0;
+    const temItensCancelar = dados.itens_cancelar_ateste && dados.itens_cancelar_ateste.length > 0;
+    if (!temItensAtestar && !temItensCancelar) {
+      throw new BadRequestException('Selecione itens para atestar ou desmarque itens para cancelar o ateste');
     }
 
     // Buscar todos os itens da medição
     const todosItens = await this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } });
 
+    // Cancelar atestes dos itens desmarcados pelo fiscal (quando ainda não enviado para aprovação)
+    if (temItensCancelar) {
+      for (const itemId of dados.itens_cancelar_ateste!) {
+        const item = todosItens.find(i => i.id === itemId);
+        if (item && item.atestado) {
+          item.atestado = false;
+          item.ateste_fiscal_nome = null as any;
+          item.ateste_data = null as any;
+          item.ateste_observacoes = null as any;
+          this.logger.log(`Ateste do item ${itemId} cancelado pelo fiscal ${fiscalNome}`);
+        }
+      }
+      await this.itemMedicaoRepository.save(todosItens);
+    }
+
     // Atestar os itens selecionados
     const agora = new Date();
-    for (const itemAteste of dados.itens) {
+    for (const itemAteste of dados.itens || []) {
       const item = todosItens.find(i => i.id === itemAteste.item_id);
       if (!item) {
         this.logger.warn(`Item ${itemAteste.item_id} não encontrado na medição ${medicaoId}`);
@@ -748,11 +766,11 @@ export class MedicaoService {
         const atestados = todosItens.filter(i => i.atestado).length;
         this.logger.log(`Medição #${medicao.numero_medicao} parcialmente atestada e devolvida (${atestados}/${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
       } else {
-        medicao.status = StatusMedicao.PARCIALMENTE_ATESTADA;
+        const atestados = todosItens.filter(i => i.atestado).length;
+        medicao.status = atestados === 0 ? StatusMedicao.SUBMETIDA : StatusMedicao.PARCIALMENTE_ATESTADA;
         medicao.ateste_fiscal_id = fiscalId;
         medicao.ateste_fiscal_nome = fiscalNome;
-        const atestados = todosItens.filter(i => i.atestado).length;
-        this.logger.log(`Medição #${medicao.numero_medicao} parcialmente atestada (${atestados}/${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
+        this.logger.log(`Medição #${medicao.numero_medicao} ${atestados === 0 ? 'atestes cancelados' : `parcialmente atestada (${atestados}/${todosItens.length} itens)`} pelo fiscal ${fiscalNome}`);
       }
     }
 
@@ -773,8 +791,8 @@ export class MedicaoService {
           this.notificarDevolucaoMedicao(medicao, contrato, fiscalNome, motivoDevolucao).catch(e =>
             this.logger.error(`Erro ao enviar notificações de devolução: ${e.message}`),
           );
-        } else {
-          // Notificar fornecedor sobre ateste parcial (sem devolução)
+        } else if (todosItens.filter(i => i.atestado).length > 0) {
+          // Notificar fornecedor sobre ateste parcial (sem devolução) — só se ainda houver itens atestados
           this.notificarAtesteParcialMedicao(medicao, contrato, fiscalNome).catch(e =>
             this.logger.error(`Erro ao enviar notificações de ateste parcial: ${e.message}`),
           );

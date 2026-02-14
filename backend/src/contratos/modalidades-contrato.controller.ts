@@ -329,6 +329,7 @@ export class ModalidadesContratoController {
       fiscal_id: string;
       fiscal_nome: string;
       itens: Array<{ item_id: string; observacoes?: string }>;
+      itens_cancelar_ateste?: string[];
       observacoes_gerais?: string;
       verificado_in_loco?: boolean;
       motivo_devolucao?: string;
@@ -336,6 +337,7 @@ export class ModalidadesContratoController {
   ) {
     return this.medicaoService.atestarItensMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, {
       itens: body.itens,
+      itens_cancelar_ateste: body.itens_cancelar_ateste,
       observacoes_gerais: body.observacoes_gerais,
       verificado_in_loco: body.verificado_in_loco,
       motivo_devolucao: body.motivo_devolucao,
