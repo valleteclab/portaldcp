@@ -989,7 +989,7 @@ export default function CentralAprovacoesPage() {
                             </div>
                             <div className="flex items-center gap-1 text-gray-600">
                               <TrendingUp className="h-4 w-4" />
-                              <span>{(medicao.percentual_fisico_medido || 0).toFixed(1)}% físico</span>
+                              <span>{Number(medicao.percentual_fisico_medido || 0).toFixed(1)}% físico</span>
                             </div>
                             {medicao.ateste_fiscal_nome && (
                               <div className="flex items-center gap-1 text-gray-600">
@@ -1056,11 +1056,11 @@ export default function CentralAprovacoesPage() {
                               </div>
                               <div>
                                 <p className="text-gray-500">% Físico Medido</p>
-                                <p className="font-semibold">{(medicao.percentual_fisico_medido || 0).toFixed(1)}%</p>
+                                <p className="font-semibold">{Number(medicao.percentual_fisico_medido || 0).toFixed(1)}%</p>
                               </div>
                               <div>
                                 <p className="text-gray-500">% Físico Acumulado</p>
-                                <p className="font-semibold">{(medicao.percentual_fisico_acumulado || 0).toFixed(1)}%</p>
+                                <p className="font-semibold">{Number(medicao.percentual_fisico_acumulado || 0).toFixed(1)}%</p>
                               </div>
                             </div>
                             {medicao.fornecedor_observacoes && (
@@ -1402,7 +1402,7 @@ export default function CentralAprovacoesPage() {
                   <strong>Valor Medido:</strong> {formatarMoeda(medicaoSelecionada.valor_medido)}
                 </p>
                 <p className="text-sm text-green-700">
-                  <strong>% Físico:</strong> {(medicaoSelecionada.percentual_fisico_medido || 0).toFixed(1)}%
+                  <strong>% Físico:</strong> {Number(medicaoSelecionada.percentual_fisico_medido || 0).toFixed(1)}%
                 </p>
                 {medicaoSelecionada.ateste_fiscal_nome && (
                   <p className="text-sm text-green-700">
