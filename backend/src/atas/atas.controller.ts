@@ -49,15 +49,25 @@ export class AtasController {
   async findAll(
     @Req() request: { user: JwtPayload },
     @Query('orgaoId') orgaoIdParam?: string,
-    @Query('fornecedorId') fornecedorId?: string,
+    @Query('fornecedorId') fornecedorIdParam?: string,
     @Query('status') status?: StatusAta,
     @Query('ano') ano?: string,
     @Query('vigentes') vigentes?: string
   ) {
+    // Fornecedor: lista apenas suas atas (fornecedorId = sub do JWT)
+    if (request.user.type === UserType.FORNECEDOR) {
+      const fornecedorId = request.user.sub;
+      return this.atasService.findAll({
+        fornecedorId,
+        status,
+        ano: ano ? parseInt(ano) : undefined,
+        vigentes: vigentes === 'true'
+      });
+    }
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.atasService.findAll({
       orgaoId,
-      fornecedorId,
+      fornecedorId: fornecedorIdParam,
       status,
       ano: ano ? parseInt(ano) : undefined,
       vigentes: vigentes === 'true'

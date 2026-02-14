@@ -72,16 +72,27 @@ export class ContratosController {
   async findAll(
     @Req() request: { user: JwtPayload },
     @Query('orgaoId') orgaoIdParam?: string,
-    @Query('fornecedorId') fornecedorId?: string,
+    @Query('fornecedorId') fornecedorIdParam?: string,
     @Query('status') status?: StatusContrato,
     @Query('tipo') tipo?: TipoContrato,
     @Query('ano') ano?: string,
     @Query('vigentes') vigentes?: string
   ) {
+    // Fornecedor: lista apenas seus contratos (fornecedorId = sub do JWT)
+    if (request.user.type === UserType.FORNECEDOR) {
+      const fornecedorId = request.user.sub;
+      return this.contratosService.findAll({
+        fornecedorId,
+        status,
+        tipo,
+        ano: ano ? parseInt(ano) : undefined,
+        vigentes: vigentes === 'true'
+      });
+    }
     const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
     return this.contratosService.findAll({
       orgaoId,
-      fornecedorId,
+      fornecedorId: fornecedorIdParam,
       status,
       tipo,
       ano: ano ? parseInt(ano) : undefined,
