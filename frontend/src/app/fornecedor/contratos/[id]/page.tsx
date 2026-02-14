@@ -841,7 +841,7 @@ export default function FornecedorContratoDetalhePage() {
                               <Badge variant="outline" className="ml-1 text-xs px-1.5 py-0">{anexos[medicao.id].length}</Badge>
                             )}
                           </p>
-                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
+                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA' || medicao.status === 'PARCIALMENTE_ATESTADA') && (
                             <div className="flex gap-1">
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
@@ -935,7 +935,7 @@ export default function FornecedorContratoDetalhePage() {
                                   >
                                     <Download className="w-3 h-3 text-gray-600" />
                                   </a>
-                                  {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
+                                  {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA' || medicao.status === 'PARCIALMENTE_ATESTADA') && (
                                     <button
                                       onClick={() => handleExcluirAnexo(anexo.id, medicao.id)}
                                       className="bg-white/90 rounded p-1 shadow hover:bg-red-50"

@@ -192,6 +192,22 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     setLoadingAnexos(false)
   }
 
+  const handleExcluirAnexoOrgao = async (anexoId: string, nomeAnexo: string) => {
+    if (!confirm(`Deseja excluir o anexo "${nomeAnexo}"?`)) return
+    if (!confirm('CONFIRMAÇÃO FINAL: Esta ação é irreversível. Tem certeza que deseja excluir este arquivo?')) return
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/anexos/${anexoId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setAnexosMedicao(prev => prev.filter(a => a.id !== anexoId))
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao excluir anexo')
+      }
+    } catch {
+      alert('Erro ao excluir anexo')
+    }
+  }
+
   const carregarDados = useCallback(async () => {
     setLoading(true)
     try {
@@ -1093,25 +1109,37 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               {anexosMedicao.length > 0 && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {anexosMedicao.map((anexo: any) => (
-                    <div key={anexo.id} className="border rounded-lg overflow-hidden bg-gray-50 cursor-pointer" onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}>
-                      {anexo.tipo === 'FOTO' ? (
-                        <div className="aspect-square bg-gray-100 flex items-center justify-center">
-                          <img
-                            src={`${API_URL}${anexo.url}`}
-                            alt={anexo.descricao || anexo.nome_original}
-                            className="w-full h-full object-cover"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center">
-                          <svg className="w-8 h-8 text-blue-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                          <p className="text-xs text-blue-600 text-center px-1 truncate w-full">{anexo.nome_original}</p>
-                        </div>
-                      )}
+                    <div key={anexo.id} className="relative group border rounded-lg overflow-hidden bg-gray-50">
+                      <div className="cursor-pointer" onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}>
+                        {anexo.tipo === 'FOTO' ? (
+                          <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                            <img
+                              src={`${API_URL}${anexo.url}`}
+                              alt={anexo.descricao || anexo.nome_original}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center">
+                            <svg className="w-8 h-8 text-blue-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                            <p className="text-xs text-blue-600 text-center px-1 truncate w-full">{anexo.nome_original}</p>
+                          </div>
+                        )}
+                      </div>
                       <div className="p-1.5">
                         {anexo.descricao && <p className="text-xs font-medium text-gray-700 truncate">{anexo.descricao}</p>}
                         <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
+                      </div>
+                      {/* Botão excluir (órgão) */}
+                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleExcluirAnexoOrgao(anexo.id, anexo.descricao || anexo.nome_original) }}
+                          className="bg-white/90 rounded p-1 shadow hover:bg-red-50"
+                          title="Excluir anexo"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-500" />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1293,27 +1321,38 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 {anexosMedicao.length > 0 && (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {anexosMedicao.map((anexo: any) => (
-                      <div key={anexo.id} className="border rounded-lg overflow-hidden bg-gray-50">
-                        {anexo.tipo === 'FOTO' ? (
-                          <div className="aspect-square bg-gray-100 flex items-center justify-center">
-                            <img
-                              src={`${API_URL}${anexo.url}`}
-                              alt={anexo.descricao || anexo.nome_original}
-                              className="w-full h-full object-cover cursor-pointer"
-                              onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                          </div>
-                        ) : (
-                          <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center cursor-pointer" onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}>
-                            <svg className="w-8 h-8 text-blue-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                            <p className="text-xs text-blue-600 text-center px-1 truncate w-full">{anexo.nome_original}</p>
-                          </div>
-                        )}
+                      <div key={anexo.id} className="relative group border rounded-lg overflow-hidden bg-gray-50">
+                        <div className="cursor-pointer" onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}>
+                          {anexo.tipo === 'FOTO' ? (
+                            <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                              <img
+                                src={`${API_URL}${anexo.url}`}
+                                alt={anexo.descricao || anexo.nome_original}
+                                className="w-full h-full object-cover"
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                            </div>
+                          ) : (
+                            <div className="aspect-square bg-blue-50 flex flex-col items-center justify-center">
+                              <svg className="w-8 h-8 text-blue-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                              <p className="text-xs text-blue-600 text-center px-1 truncate w-full">{anexo.nome_original}</p>
+                            </div>
+                          )}
+                        </div>
                         <div className="p-1.5">
                           {anexo.descricao && <p className="text-xs font-medium text-gray-700 truncate">{anexo.descricao}</p>}
                           <p className="text-xs text-gray-500 truncate">{anexo.nome_original}</p>
                           <p className="text-xs text-gray-400">{(anexo.tamanho_bytes / 1024).toFixed(0)} KB</p>
+                        </div>
+                        {/* Botão excluir (órgão) */}
+                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleExcluirAnexoOrgao(anexo.id, anexo.descricao || anexo.nome_original) }}
+                            className="bg-white/90 rounded p-1 shadow hover:bg-red-50"
+                            title="Excluir anexo"
+                          >
+                            <Trash2 className="w-3 h-3 text-red-500" />
+                          </button>
                         </div>
                       </div>
                     ))}

@@ -195,14 +195,14 @@ export class FornecedorMedicaoController {
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    // Só permite upload em medições RASCUNHO ou DEVOLVIDA
-    if (!['RASCUNHO', 'DEVOLVIDA'].includes(medicao.status)) {
+    // Só permite upload em medições RASCUNHO, DEVOLVIDA ou PARCIALMENTE_ATESTADA
+    if (!['RASCUNHO', 'DEVOLVIDA', 'PARCIALMENTE_ATESTADA'].includes(medicao.status)) {
       // Remover arquivo salvo em disco antes de rejeitar
       if (file.path) {
         const fs = await import('fs');
         if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
       }
-      throw new BadRequestException('Só é possível enviar anexos em medições com status Rascunho ou Devolvida.');
+      throw new BadRequestException('Só é possível enviar anexos em medições com status Rascunho, Devolvida ou Parcialmente Atestada.');
     }
 
     // Validar acesso do fornecedor
@@ -260,9 +260,9 @@ export class FornecedorMedicaoController {
     });
     if (!anexo) throw new NotFoundException('Anexo não encontrado');
 
-    // Só permite excluir em medições RASCUNHO ou DEVOLVIDA
-    if (anexo.medicao && !['RASCUNHO', 'DEVOLVIDA'].includes(anexo.medicao.status)) {
-      throw new BadRequestException('Só é possível excluir anexos em medições com status Rascunho ou Devolvida.');
+    // Só permite excluir em medições RASCUNHO, DEVOLVIDA ou PARCIALMENTE_ATESTADA
+    if (anexo.medicao && !['RASCUNHO', 'DEVOLVIDA', 'PARCIALMENTE_ATESTADA'].includes(anexo.medicao.status)) {
+      throw new BadRequestException('Só é possível excluir anexos em medições com status Rascunho, Devolvida ou Parcialmente Atestada.');
     }
 
     // Validar acesso

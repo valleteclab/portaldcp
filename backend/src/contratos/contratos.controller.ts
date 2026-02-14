@@ -11,6 +11,7 @@ import {
   Req,
   ForbiddenException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,6 +20,7 @@ import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.enti
 import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { UploadService } from '../upload/upload.service';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
@@ -29,6 +31,7 @@ import { JwtPayload, UserType } from '../auth/auth.service';
 export class ContratosController {
   constructor(
     private readonly contratosService: ContratosService,
+    private readonly uploadService: UploadService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(AnexoMedicao)
@@ -273,6 +276,26 @@ export class ContratosController {
       where: { medicao_id: medicaoId },
       order: { created_at: 'DESC' },
     });
+  }
+
+  /**
+   * Órgão exclui um anexo de medição (qualquer status).
+   * DELETE /api/contratos/medicoes/anexos/:anexoId
+   */
+  @Delete('medicoes/anexos/:anexoId')
+  async excluirAnexoMedicao(@Param('anexoId') anexoId: string) {
+    const anexo = await this.anexoRepository.findOne({
+      where: { id: anexoId },
+    });
+    if (!anexo) throw new NotFoundException('Anexo não encontrado');
+
+    // Excluir arquivo físico
+    const pastaUpload = `medicoes/${anexo.medicao_id}`;
+    this.uploadService.deleteFile(pastaUpload, anexo.nome_arquivo);
+
+    // Excluir registro
+    await this.anexoRepository.remove(anexo);
+    return { success: true, message: 'Anexo excluído pelo órgão' };
   }
 
   // ============ ROTAS PÚBLICAS ============
