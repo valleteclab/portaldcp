@@ -1072,11 +1072,9 @@ export class MedicaoService {
   }
 
   private async notificarAprovacaoMedicao(medicao: Medicao, contrato: Contrato, aprovadorNome: string): Promise<void> {
-    // Notificar usuários do órgão (fiscal)
     const orgaoDestinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
     const fornecedorDest = this.getFornecedorDestinatario(contrato);
-    const todos = [...orgaoDestinatarios, ...fornecedorDest];
-    if (todos.length === 0) return;
+    if (orgaoDestinatarios.length === 0 && fornecedorDest.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoAprovada(
       contrato.orgao_id,
@@ -1086,15 +1084,15 @@ export class MedicaoService {
       contrato.id,
       aprovadorNome,
       Number(medicao.valor_medido),
-      todos,
+      orgaoDestinatarios,
+      fornecedorDest,
     );
   }
 
   private async notificarRejeicaoMedicao(medicao: Medicao, contrato: Contrato, aprovadorNome: string, observacao: string): Promise<void> {
     const orgaoDestinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
     const fornecedorDest = this.getFornecedorDestinatario(contrato);
-    const todos = [...orgaoDestinatarios, ...fornecedorDest];
-    if (todos.length === 0) return;
+    if (orgaoDestinatarios.length === 0 && fornecedorDest.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoRejeitada(
       contrato.orgao_id,
@@ -1104,7 +1102,8 @@ export class MedicaoService {
       contrato.id,
       aprovadorNome,
       observacao,
-      todos,
+      orgaoDestinatarios,
+      fornecedorDest,
     );
   }
 

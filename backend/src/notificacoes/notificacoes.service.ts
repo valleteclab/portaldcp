@@ -506,7 +506,8 @@ export class NotificacoesService {
   }
 
   /**
-   * Notifica que a medição foi aprovada pelo gestor
+   * Notifica que a medição foi aprovada pelo gestor.
+   * Órgão recebe link para /orgao/contratos; fornecedor para /fornecedor/contratos.
    */
   async notificarMedicaoAprovada(
     orgaoId: string,
@@ -516,28 +517,35 @@ export class NotificacoesService {
     contratoId: string,
     aprovadorNome: string,
     valorMedido: number,
-    destinatarios: { id: string; email?: string }[],
+    orgaoDestinatarios: { id: string; email?: string }[],
+    fornecedorDestinatarios: { id: string; email?: string }[],
   ): Promise<void> {
     this.logger.log(`Notificando medição #${medicaoNumero} aprovada`);
+    const base = {
+      orgao_id: orgaoId,
+      tipo: TipoNotificacao.MEDICAO_APROVADA,
+      titulo: `Medição #${medicaoNumero} aprovada`,
+      mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} (${this.formatarMoeda(valorMedido)}) foi aprovada por ${aprovadorNome}.`,
+      prioridade: PrioridadeNotificacao.NORMAL,
+      entidade_tipo: 'medicao',
+      entidade_id: medicaoId,
+      metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, aprovador: aprovadorNome, valor: valorMedido },
+    };
     try {
-      await this.criarParaMultiplos(destinatarios, {
-        orgao_id: orgaoId,
-        tipo: TipoNotificacao.MEDICAO_APROVADA,
-        titulo: `Medição #${medicaoNumero} aprovada`,
-        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} (${this.formatarMoeda(valorMedido)}) foi aprovada por ${aprovadorNome}.`,
-        prioridade: PrioridadeNotificacao.NORMAL,
-        entidade_tipo: 'medicao',
-        entidade_id: medicaoId,
-        link: `/orgao/contratos/${contratoId}`,
-        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, aprovador: aprovadorNome, valor: valorMedido },
-      });
+      if (orgaoDestinatarios.length > 0) {
+        await this.criarParaMultiplos(orgaoDestinatarios, { ...base, link: `/orgao/contratos/${contratoId}` });
+      }
+      if (fornecedorDestinatarios.length > 0) {
+        await this.criarParaMultiplos(fornecedorDestinatarios, { ...base, link: `/fornecedor/contratos/${contratoId}` });
+      }
     } catch (error) {
       this.logger.error(`Erro ao notificar medição aprovada: ${error.message}`, error.stack);
     }
   }
 
   /**
-   * Notifica que a medição foi rejeitada pelo gestor
+   * Notifica que a medição foi rejeitada pelo gestor.
+   * Órgão recebe link para /orgao/contratos; fornecedor para /fornecedor/contratos.
    */
   async notificarMedicaoRejeitada(
     orgaoId: string,
@@ -547,21 +555,27 @@ export class NotificacoesService {
     contratoId: string,
     aprovadorNome: string,
     observacao: string,
-    destinatarios: { id: string; email?: string }[],
+    orgaoDestinatarios: { id: string; email?: string }[],
+    fornecedorDestinatarios: { id: string; email?: string }[],
   ): Promise<void> {
     this.logger.log(`Notificando medição #${medicaoNumero} rejeitada`);
+    const base = {
+      orgao_id: orgaoId,
+      tipo: TipoNotificacao.MEDICAO_REJEITADA,
+      titulo: `Medição #${medicaoNumero} rejeitada`,
+      mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} foi rejeitada por ${aprovadorNome}. Motivo: ${observacao}`,
+      prioridade: PrioridadeNotificacao.ALTA,
+      entidade_tipo: 'medicao',
+      entidade_id: medicaoId,
+      metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, aprovador: aprovadorNome, observacao },
+    };
     try {
-      await this.criarParaMultiplos(destinatarios, {
-        orgao_id: orgaoId,
-        tipo: TipoNotificacao.MEDICAO_REJEITADA,
-        titulo: `Medição #${medicaoNumero} rejeitada`,
-        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} foi rejeitada por ${aprovadorNome}. Motivo: ${observacao}`,
-        prioridade: PrioridadeNotificacao.ALTA,
-        entidade_tipo: 'medicao',
-        entidade_id: medicaoId,
-        link: `/orgao/contratos/${contratoId}`,
-        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, aprovador: aprovadorNome, observacao },
-      });
+      if (orgaoDestinatarios.length > 0) {
+        await this.criarParaMultiplos(orgaoDestinatarios, { ...base, link: `/orgao/contratos/${contratoId}` });
+      }
+      if (fornecedorDestinatarios.length > 0) {
+        await this.criarParaMultiplos(fornecedorDestinatarios, { ...base, link: `/fornecedor/contratos/${contratoId}` });
+      }
     } catch (error) {
       this.logger.error(`Erro ao notificar medição rejeitada: ${error.message}`, error.stack);
     }
