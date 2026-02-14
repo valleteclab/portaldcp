@@ -86,6 +86,8 @@ interface Medicao {
 interface Resumo {
   valor_global: number
   valor_medido_total: number
+  valor_comprometido_total?: number
+  valor_em_analise?: number
   saldo_disponivel: number
   percentual_fisico_total: number
   total_etapas: number
@@ -569,8 +571,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <p className="text-sm text-gray-500">Saldo Disponível</p>
-              <p className="text-xl font-bold text-green-600">{formatarMoeda(resumo.saldo_disponivel)}</p>
+              <p className="text-sm text-gray-500">Saldo Disponivel</p>
+              <p className={`text-xl font-bold ${resumo.saldo_disponivel > 0 ? 'text-green-600' : 'text-red-600'}`}>{formatarMoeda(resumo.saldo_disponivel)}</p>
+              {(resumo.valor_em_analise || 0) > 0 && (
+                <p className="text-xs text-amber-600">Em analise: {formatarMoeda(resumo.valor_em_analise || 0)}</p>
+              )}
             </CardContent>
           </Card>
           <Card>

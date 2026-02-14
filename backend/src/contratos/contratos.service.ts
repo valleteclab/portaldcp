@@ -147,11 +147,13 @@ export class ContratosService {
       let saldoTotalEmValor: number;
 
       if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
-        // Contrato de medição: saldo = valor_global - soma das medições aprovadas
-        const valorMedidoTotal = await this.somarValorMedicoesAprovadas(contrato.id);
+        // Contrato de medição: saldo = valor_global - soma das medições comprometidas
+        const { aprovado, comprometido } = await this.somarValorMedicoes(contrato.id);
         const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
-        saldoTotalEmValor = Math.max(0, valorGlobal - valorMedidoTotal);
-        (contrato as any).valor_medido_total = valorMedidoTotal;
+        saldoTotalEmValor = Math.max(0, valorGlobal - comprometido);
+        (contrato as any).valor_medido_total = aprovado;
+        (contrato as any).valor_comprometido_total = comprometido;
+        (contrato as any).valor_em_analise = Math.max(0, comprometido - aprovado);
       } else {
         // Demais contratos: saldo a partir dos itens ou valor_global
         saldoTotalEmValor = itens.length > 0
@@ -190,10 +192,12 @@ export class ContratosService {
     let saldoTotalEmValor: number;
 
     if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
-      const valorMedidoTotal = await this.somarValorMedicoesAprovadas(contrato.id);
+      const { aprovado, comprometido } = await this.somarValorMedicoes(contrato.id);
       const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
-      saldoTotalEmValor = Math.max(0, valorGlobal - valorMedidoTotal);
-      (contrato as any).valor_medido_total = valorMedidoTotal;
+      saldoTotalEmValor = Math.max(0, valorGlobal - comprometido);
+      (contrato as any).valor_medido_total = aprovado;
+      (contrato as any).valor_comprometido_total = comprometido;
+      (contrato as any).valor_em_analise = Math.max(0, comprometido - aprovado);
     } else {
       saldoTotalEmValor = itens.length > 0
         ? itens.reduce((total, item) => {
@@ -212,16 +216,33 @@ export class ContratosService {
   }
 
   /**
-   * Soma o valor_medido de todas as medições aprovadas do contrato (para saldo em contratos MEDICAO).
+   * Soma o valor_medido de todas as medições que comprometem o saldo do contrato.
+   * Inclui: APROVADA + em trânsito (SUBMETIDA, AGUARDANDO_ATESTE, PARCIALMENTE_ATESTADA, AGUARDANDO_APROVACAO).
+   * Retorna { aprovado, comprometido } para exibir ambos os valores no frontend.
    */
-  private async somarValorMedicoesAprovadas(contratoId: string): Promise<number> {
-    const result = await this.medicaoRepository
+  private async somarValorMedicoes(contratoId: string): Promise<{ aprovado: number; comprometido: number }> {
+    const statusComprometidos = [
+      'SUBMETIDA', 'AGUARDANDO_ATESTE', 'PARCIALMENTE_ATESTADA', 'AGUARDANDO_APROVACAO', 'APROVADA',
+    ];
+
+    const resultAprovado = await this.medicaoRepository
       .createQueryBuilder('m')
       .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
       .where('m.contrato_id = :contratoId', { contratoId })
       .andWhere('m.status = :status', { status: 'APROVADA' })
       .getRawOne<{ total: string }>();
-    return Number(result?.total ?? 0);
+
+    const resultComprometido = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusComprometidos })
+      .getRawOne<{ total: string }>();
+
+    return {
+      aprovado: Number(resultAprovado?.total ?? 0),
+      comprometido: Number(resultComprometido?.total ?? 0),
+    };
   }
 
   async findByNumero(numeroContrato: string, orgaoId: string): Promise<Contrato> {

@@ -134,6 +134,9 @@ interface Contrato {
   liberado_por_nome?: string
   liberado_em?: string
   saldo_total_em_valor?: number
+  valor_medido_total?: number
+  valor_comprometido_total?: number
+  valor_em_analise?: number
   itens?: ItemContrato[]
   total_itens?: number
 }
@@ -814,8 +817,11 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                     {contrato.saldo_total_em_valor !== undefined && (
                       <div className="p-4 bg-purple-50 rounded-lg">
-                        <p className="text-sm text-purple-600">Saldo Disponível</p>
-                        <p className="text-xl font-bold text-purple-600">{formatarMoeda(contrato.saldo_total_em_valor)}</p>
+                        <p className="text-sm text-purple-600">Saldo Disponivel</p>
+                        <p className={`text-xl font-bold ${contrato.saldo_total_em_valor > 0 ? 'text-purple-600' : 'text-red-600'}`}>{formatarMoeda(contrato.saldo_total_em_valor)}</p>
+                        {(contrato.valor_em_analise || 0) > 0 && (
+                          <p className="text-xs text-amber-600 mt-1">Em analise: {formatarMoeda(contrato.valor_em_analise || 0)}</p>
+                        )}
                       </div>
                     )}
                   </div>

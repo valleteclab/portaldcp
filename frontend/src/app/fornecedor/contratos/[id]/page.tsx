@@ -116,6 +116,8 @@ interface Medicao {
 interface Resumo {
   valor_global: number;
   valor_medido_total: number;
+  valor_comprometido_total?: number;
+  valor_em_analise?: number;
   saldo_disponivel: number;
   percentual_fisico_total: number;
   total_etapas: number;
@@ -811,8 +813,11 @@ export default function FornecedorContratoDetalhePage() {
                 <p className="text-lg font-bold text-green-700">{formatarMoeda(resumo.valor_medido_total)}</p>
               </div>
               <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <p className="text-xs text-gray-500">Saldo Disponível</p>
-                <p className="text-lg font-bold text-blue-700">{formatarMoeda(resumo.saldo_disponivel)}</p>
+                <p className="text-xs text-gray-500">Saldo Disponivel</p>
+                <p className={`text-lg font-bold ${resumo.saldo_disponivel > 0 ? 'text-blue-700' : 'text-red-600'}`}>{formatarMoeda(resumo.saldo_disponivel)}</p>
+                {(resumo.valor_em_analise || 0) > 0 && (
+                  <p className="text-xs text-amber-600">Em analise: {formatarMoeda(resumo.valor_em_analise || 0)}</p>
+                )}
               </div>
               <div className="text-center p-3 bg-purple-50 rounded-lg">
                 <p className="text-xs text-gray-500">Avanço Físico</p>

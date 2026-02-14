@@ -314,12 +314,14 @@ export class MedicaoService {
     }
 
     // Validar que o valor medido não excede o saldo disponível do contrato
+    // Considera TODAS as medições comprometidas (em trânsito + aprovadas), não apenas aprovadas
     const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
-    const saldoDisponivel = valorContrato - valorAcumuladoAnterior;
-    if (valorMedido > saldoDisponivel + 0.01) { // tolerância de centavo para arredondamento
+    const valorComprometido = await this.somarValorMedicoesComprometidas(contratoId);
+    const saldoReal = valorContrato - valorComprometido;
+    if (valorMedido > saldoReal + 0.01) { // tolerância de centavo para arredondamento
       throw new BadRequestException(
-        `O valor da medição (R$ ${valorMedido.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
-        `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já medido: R$ ${valorAcumuladoAnterior.toFixed(2)}.`
+        `O valor da medição (R$ ${valorMedido.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoReal.toFixed(2)}). ` +
+        `Valor do contrato: R$ ${valorContrato.toFixed(2)}, comprometido (aprovadas + em análise): R$ ${valorComprometido.toFixed(2)}.`
       );
     }
 
@@ -470,6 +472,23 @@ export class MedicaoService {
 
     if (medicao.status !== StatusMedicao.RASCUNHO && medicao.status !== StatusMedicao.DEVOLVIDA) {
       throw new BadRequestException('Apenas medições em rascunho ou devolvidas podem ser submetidas');
+    }
+
+    // VALIDAÇÃO DE SALDO: verificar se o valor desta medição não excede o saldo disponível
+    // Considera todas as medições comprometidas (submetidas + em análise + aprovadas),
+    // excluindo esta própria medição (que ainda está em RASCUNHO/DEVOLVIDA)
+    if (contrato) {
+      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
+      const saldoDisponivel = valorContrato - valorComprometido;
+      const valorMedicao = Number(medicao.valor_medido) || 0;
+
+      if (valorMedicao > saldoDisponivel + 0.01) {
+        throw new BadRequestException(
+          `Não é possível submeter: o valor desta medição (R$ ${valorMedicao.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
+          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido (aprovadas + em análise): R$ ${valorComprometido.toFixed(2)}.`
+        );
+      }
     }
 
     medicao.status = StatusMedicao.SUBMETIDA;
@@ -885,6 +904,10 @@ export class MedicaoService {
     const valorMedidoTotal = medicoesAprovadas.reduce((sum, m) => sum + Number(m.valor_medido), 0);
     const percentualFisicoTotal = medicoesAprovadas.reduce((sum, m) => sum + Number(m.percentual_fisico_medido), 0);
 
+    // Valor comprometido = aprovadas + em trânsito (submetidas, aguardando ateste/aprovação)
+    const valorComprometido = await this.somarValorMedicoesComprometidas(contratoId);
+    const valorEmAnalise = Math.max(0, valorComprometido - valorMedidoTotal);
+
     const pendentesAteste = medicoes.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
     const pendentesAprovacao = medicoes.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
 
@@ -892,11 +915,15 @@ export class MedicaoService {
     const osAtiva = await this.getOSAtiva(contratoId);
     const todasOS = await this.listarOS(contratoId);
 
+    const valorGlobal = Number(contrato.valor_global);
+
     return {
       contrato_id: contratoId,
-      valor_global: Number(contrato.valor_global),
+      valor_global: valorGlobal,
       valor_medido_total: valorMedidoTotal,
-      saldo_disponivel: Number(contrato.valor_global) - valorMedidoTotal,
+      valor_comprometido_total: valorComprometido,
+      valor_em_analise: valorEmAnalise,
+      saldo_disponivel: Math.max(0, valorGlobal - valorComprometido),
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       total_etapas: etapas.length,
       etapas_concluidas: etapas.filter(e => e.status === StatusEtapaCronograma.CONCLUIDA).length,
@@ -1188,6 +1215,35 @@ export class MedicaoService {
   // ============================================================================
   // HELPERS
   // ============================================================================
+
+  /**
+   * Soma valor_medido de todas as medições que "comprometem" o saldo do contrato.
+   * Inclui: SUBMETIDA, AGUARDANDO_ATESTE, PARCIALMENTE_ATESTADA, AGUARDANDO_APROVACAO, APROVADA.
+   * Exclui: RASCUNHO, DEVOLVIDA, REJEITADA (essas não comprometem saldo).
+   * Se excludeMedicaoId for informado, exclui essa medição (para validar resubmissão).
+   */
+  private async somarValorMedicoesComprometidas(contratoId: string, excludeMedicaoId?: string): Promise<number> {
+    const statusComprometidos = [
+      StatusMedicao.SUBMETIDA,
+      StatusMedicao.AGUARDANDO_ATESTE,
+      StatusMedicao.PARCIALMENTE_ATESTADA,
+      StatusMedicao.AGUARDANDO_APROVACAO,
+      StatusMedicao.APROVADA,
+    ];
+
+    const qb = this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusComprometidos });
+
+    if (excludeMedicaoId) {
+      qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
+    }
+
+    const result = await qb.getRawOne<{ total: string }>();
+    return Number(result?.total ?? 0);
+  }
 
   private async validarContratoMedicao(contratoId: string): Promise<Contrato> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
