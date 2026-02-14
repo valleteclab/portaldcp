@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import { Contrato, StatusContrato, TipoContrato, CategoriaContrato } from './entities/contrato.entity';
+import { Contrato, StatusContrato, TipoContrato, CategoriaContrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { TermoAditivo, TipoTermoAditivo, StatusTermoAditivo } from './entities/termo-aditivo.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.entity';
@@ -10,6 +10,7 @@ import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { HistoricoContrato, TipoAcaoContrato } from './entities/historico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { Medicao } from './entities/medicao.entity';
 
 @Injectable()
 export class ContratosService {
@@ -32,6 +33,8 @@ export class ContratosService {
     private historicoContratoRepository: Repository<HistoricoContrato>,
     @InjectRepository(Usuario)
     private usuarioRepository: Repository<Usuario>,
+    @InjectRepository(Medicao)
+    private medicaoRepository: Repository<Medicao>,
     private notificacoesService: NotificacoesService,
   ) {}
 
@@ -141,14 +144,23 @@ export class ContratosService {
         where: { contrato_id: contrato.id },
       });
 
-      // Calcula saldo total em valor
-      // Se não tem itens, saldo = valor_global (contrato novo sem itens cadastrados)
-      const saldoTotalEmValor = itens.length > 0
-        ? itens.reduce((total, item) => {
-            const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-            return total + saldoValor;
-          }, 0)
-        : Number(contrato.valor_global || contrato.valor_inicial || 0);
+      let saldoTotalEmValor: number;
+
+      if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
+        // Contrato de medição: saldo = valor_global - soma das medições aprovadas
+        const valorMedidoTotal = await this.somarValorMedicoesAprovadas(contrato.id);
+        const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
+        saldoTotalEmValor = Math.max(0, valorGlobal - valorMedidoTotal);
+        (contrato as any).valor_medido_total = valorMedidoTotal;
+      } else {
+        // Demais contratos: saldo a partir dos itens ou valor_global
+        saldoTotalEmValor = itens.length > 0
+          ? itens.reduce((total, item) => {
+              const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+              return total + saldoValor;
+            }, 0)
+          : Number(contrato.valor_global || contrato.valor_inicial || 0);
+      }
 
       // Adiciona campos calculados ao contrato
       (contrato as any).itens = itens;
@@ -175,14 +187,21 @@ export class ContratosService {
       order: { numero_item: 'ASC' },
     });
 
-    // Calcula saldo total em valor
-    // Se não tem itens, saldo = valor_global (contrato novo sem itens cadastrados)
-    const saldoTotalEmValor = itens.length > 0
-      ? itens.reduce((total, item) => {
-          const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-          return total + saldoValor;
-        }, 0)
-      : Number(contrato.valor_global || contrato.valor_inicial || 0);
+    let saldoTotalEmValor: number;
+
+    if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
+      const valorMedidoTotal = await this.somarValorMedicoesAprovadas(contrato.id);
+      const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
+      saldoTotalEmValor = Math.max(0, valorGlobal - valorMedidoTotal);
+      (contrato as any).valor_medido_total = valorMedidoTotal;
+    } else {
+      saldoTotalEmValor = itens.length > 0
+        ? itens.reduce((total, item) => {
+            const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+            return total + saldoValor;
+          }, 0)
+        : Number(contrato.valor_global || contrato.valor_inicial || 0);
+    }
 
     // Adiciona campos calculados ao contrato
     (contrato as any).itens = itens;
@@ -190,6 +209,19 @@ export class ContratosService {
     (contrato as any).total_itens = itens.length;
 
     return contrato;
+  }
+
+  /**
+   * Soma o valor_medido de todas as medições aprovadas do contrato (para saldo em contratos MEDICAO).
+   */
+  private async somarValorMedicoesAprovadas(contratoId: string): Promise<number> {
+    const result = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: 'APROVADA' })
+      .getRawOne<{ total: string }>();
+    return Number(result?.total ?? 0);
   }
 
   async findByNumero(numeroContrato: string, orgaoId: string): Promise<Contrato> {
