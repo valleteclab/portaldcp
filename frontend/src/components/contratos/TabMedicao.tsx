@@ -427,7 +427,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   const abrirModalAteste = async (m: Medicao) => {
     setModalAteste(m)
-    setFormAteste({ observacoes: '', verificado_in_loco: false })
+    setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
     // Inicializar estado dos itens (itens já atestados ficam marcados e bloqueados)
     const itensMap: Record<string, { selecionado: boolean; observacoes: string }> = {}
     const itens = (m as any).itens || []
