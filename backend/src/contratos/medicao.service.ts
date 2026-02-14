@@ -688,6 +688,7 @@ export class MedicaoService {
     itens: Array<{ item_id: string; observacoes?: string }>;
     observacoes_gerais?: string;
     verificado_in_loco?: boolean;
+    motivo_devolucao?: string; // Quando ateste parcial: motivo para devolver ao fornecedor (obrigatório)
   }): Promise<Medicao> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
@@ -736,11 +737,23 @@ export class MedicaoService {
       this.logger.log(`Medição #${medicao.numero_medicao} totalmente atestada (${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
     } else {
       // Ateste parcial
-      medicao.status = StatusMedicao.PARCIALMENTE_ATESTADA;
-      medicao.ateste_fiscal_id = fiscalId;
-      medicao.ateste_fiscal_nome = fiscalNome;
-      const atestados = todosItens.filter(i => i.atestado).length;
-      this.logger.log(`Medição #${medicao.numero_medicao} parcialmente atestada (${atestados}/${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
+      const motivoDevolucao = dados.motivo_devolucao?.trim();
+      if (motivoDevolucao) {
+        // Atestar itens selecionados e devolver em um único passo (agilidade do fiscal)
+        medicao.status = StatusMedicao.DEVOLVIDA;
+        medicao.motivo_devolucao = motivoDevolucao;
+        medicao.data_devolucao = new Date() as any;
+        medicao.ateste_fiscal_id = fiscalId;
+        medicao.ateste_fiscal_nome = fiscalNome;
+        const atestados = todosItens.filter(i => i.atestado).length;
+        this.logger.log(`Medição #${medicao.numero_medicao} parcialmente atestada e devolvida (${atestados}/${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
+      } else {
+        medicao.status = StatusMedicao.PARCIALMENTE_ATESTADA;
+        medicao.ateste_fiscal_id = fiscalId;
+        medicao.ateste_fiscal_nome = fiscalNome;
+        const atestados = todosItens.filter(i => i.atestado).length;
+        this.logger.log(`Medição #${medicao.numero_medicao} parcialmente atestada (${atestados}/${todosItens.length} itens) pelo fiscal ${fiscalNome}`);
+      }
     }
 
     await this.medicaoRepository.save(medicao);
@@ -754,10 +767,18 @@ export class MedicaoService {
           this.logger.error(`Erro ao enviar notificações de ateste completo: ${e.message}`),
         );
       } else {
-        // Notificar fornecedor sobre ateste parcial
-        this.notificarAtesteParcialMedicao(medicao, contrato, fiscalNome).catch(e =>
-          this.logger.error(`Erro ao enviar notificações de ateste parcial: ${e.message}`),
-        );
+        const motivoDevolucao = dados.motivo_devolucao?.trim();
+        if (motivoDevolucao) {
+          // Notificar fornecedor sobre devolução (itens não atestados)
+          this.notificarDevolucaoMedicao(medicao, contrato, fiscalNome, motivoDevolucao).catch(e =>
+            this.logger.error(`Erro ao enviar notificações de devolução: ${e.message}`),
+          );
+        } else {
+          // Notificar fornecedor sobre ateste parcial (sem devolução)
+          this.notificarAtesteParcialMedicao(medicao, contrato, fiscalNome).catch(e =>
+            this.logger.error(`Erro ao enviar notificações de ateste parcial: ${e.message}`),
+          );
+        }
       }
     }
 

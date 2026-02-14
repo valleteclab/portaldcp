@@ -180,7 +180,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     periodo_inicio: '', periodo_fim: '', observacoes: '',
     itens: [] as { etapa_id: string; percentual_executado_atual: number }[],
   })
-  const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false })
+  const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
   const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
 
   const [motivoDevolucao, setMotivoDevolucao] = useState('')
@@ -453,9 +453,16 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
     const itens = ((modalAteste as any).itens || []) as any[]
     const itensSelecionados = itens.filter(item => itensAteste[item.id]?.selecionado && !item.atestado)
+    const jaAtestados = itens.filter((i: any) => i.atestado).length
+    const todosSerao = jaAtestados + itensSelecionados.length === itens.length && itens.length > 0
 
     if (itensSelecionados.length === 0) {
       alert('Selecione pelo menos um item não atestado para atestar.')
+      return
+    }
+
+    if (!todosSerao && !formAteste.motivo_devolucao_parcial?.trim()) {
+      alert('No ateste parcial, informe o motivo da devolução para os itens não atestados.')
       return
     }
 
@@ -472,19 +479,22 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
           })),
           observacoes_gerais: formAteste.observacoes || null,
           verificado_in_loco: formAteste.verificado_in_loco,
+          motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
         }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
       const resultado = await res.json().catch(() => ({}))
       setModalAteste(null)
-      setFormAteste({ observacoes: '', verificado_in_loco: false })
+      setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
       setItensAteste({})
       carregarDados()
       // Mensagem informativa ao fiscal
       if (resultado.status === 'AGUARDANDO_APROVACAO') {
-        alert('Medicao atestada com sucesso! Foi enviada para aprovacao do gestor na Central de Aprovacoes.')
+        alert('Medição atestada com sucesso! Foi enviada para aprovação do gestor na Central de Aprovações.')
+      } else if (resultado.status === 'DEVOLVIDA') {
+        alert('Itens atestados e medição devolvida ao fornecedor com sucesso! O fornecedor será notificado para corrigir os itens não atestados.')
       } else if (resultado.status === 'PARCIALMENTE_ATESTADA') {
-        alert('Itens atestados com sucesso! A medicao ficou parcialmente atestada. Os itens nao atestados serao devolvidos ao fornecedor para ajuste.')
+        alert('Itens atestados com sucesso! A medição ficou parcialmente atestada.')
       }
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -1240,28 +1250,53 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               const jaAtestados = itens.filter((i: any) => i.atestado).length
               const todosSerao = jaAtestados + novosAtestados === itens.length && itens.length > 0
               return (
-                <p className="text-xs text-gray-500">
-                  {novosAtestados === 0
-                    ? 'Selecione os itens que deseja atestar.'
-                    : todosSerao
-                      ? `Ao atestar ${novosAtestados} item(ns), todos os itens estarão atestados e a medição será encaminhada para aprovação.`
-                      : `${novosAtestados} item(ns) selecionado(s). A medição permanecerá como parcialmente atestada.`
-                  }
-                </p>
+                <>
+                  {!todosSerao && novosAtestados > 0 && (
+                    <div className="space-y-2 p-3 border border-amber-200 rounded-lg bg-amber-50/50">
+                      <Label className="text-amber-800">Motivo da devolução (itens não atestados) *</Label>
+                      <Textarea
+                        placeholder="Informe o motivo para devolver ao fornecedor (obrigatório no ateste parcial)..."
+                        value={formAteste.motivo_devolucao_parcial}
+                        onChange={e => setFormAteste({ ...formAteste, motivo_devolucao_parcial: e.target.value })}
+                        rows={2}
+                        className="border-amber-200"
+                      />
+                      <p className="text-xs text-amber-700">A medição será devolvida ao fornecedor em um único passo.</p>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500">
+                    {novosAtestados === 0
+                      ? 'Selecione os itens que deseja atestar.'
+                      : todosSerao
+                        ? `Ao atestar ${novosAtestados} item(ns), todos os itens estarão atestados e a medição será encaminhada para aprovação.`
+                        : `${novosAtestados} item(ns) selecionado(s). Informe o motivo e a medição será devolvida ao fornecedor em um clique.`
+                    }
+                  </p>
+                </>
               )
             })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
-            <Button
-              className="bg-yellow-600 hover:bg-yellow-700 text-white"
-              onClick={atestarMedicao}
-              disabled={actionLoading || !((modalAteste as any)?.itens || []).some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)}
-            >
-              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              <ClipboardCheck className="w-4 h-4 mr-2" />
-              Atestar Selecionados
-            </Button>
+            {(() => {
+              const itens = ((modalAteste as any)?.itens || []) as any[]
+              const temSelecionados = itens.some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)
+              const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
+              const jaAtestados = itens.filter((i: any) => i.atestado).length
+              const todosSerao = jaAtestados + novosAtestados === itens.length && itens.length > 0
+              const motivoObrigatorio = !todosSerao && !formAteste.motivo_devolucao_parcial?.trim()
+              return (
+                <Button
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                  onClick={atestarMedicao}
+                  disabled={actionLoading || !temSelecionados || motivoObrigatorio}
+                >
+                  {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  <ClipboardCheck className="w-4 h-4 mr-2" />
+                  {todosSerao ? 'Atestar Selecionados' : 'Atestar e Devolver'}
+                </Button>
+              )
+            })()}
           </DialogFooter>
         </DialogContent>
       </Dialog>

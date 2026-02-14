@@ -331,12 +331,14 @@ export class ModalidadesContratoController {
       itens: Array<{ item_id: string; observacoes?: string }>;
       observacoes_gerais?: string;
       verificado_in_loco?: boolean;
+      motivo_devolucao?: string;
     },
   ) {
     return this.medicaoService.atestarItensMedicao(medicaoId, body.fiscal_id, body.fiscal_nome, {
       itens: body.itens,
       observacoes_gerais: body.observacoes_gerais,
       verificado_in_loco: body.verificado_in_loco,
+      motivo_devolucao: body.motivo_devolucao,
     });
   }
 
