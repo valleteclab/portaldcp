@@ -212,6 +212,89 @@ export class ModalidadesContratoController {
     return this.medicaoService.listarSolicitacoesEnviadas(orgaoId, contratoId);
   }
 
+  // ============================================================================
+  // DISCRIMINAÇÃO DE DESPESAS — Órgão (fiscal/gestor)
+  // ============================================================================
+
+  /**
+   * Lista discriminações de despesa de uma medição.
+   * GET /api/contratos/medicoes/:medicaoId/discriminacoes
+   */
+  @Get('medicoes/:medicaoId/discriminacoes')
+  async listarDiscriminacoes(
+    @Param('medicaoId') medicaoId: string,
+  ) {
+    return this.medicaoService.listarDiscriminacoes(medicaoId);
+  }
+
+  /**
+   * Fiscal corrige um item de discriminação.
+   * PATCH /api/contratos/medicoes/:medicaoId/discriminacoes/:discriminacaoId
+   */
+  @Patch('medicoes/:medicaoId/discriminacoes/:discriminacaoId')
+  async corrigirDiscriminacao(
+    @Param('medicaoId') medicaoId: string,
+    @Param('discriminacaoId') discriminacaoId: string,
+    @Body() body: { descricao?: string; valor?: number; percentual?: number; motivo_correcao: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.corrigirDiscriminacao(
+      medicaoId,
+      discriminacaoId,
+      body,
+      request.user.sub,
+      fiscalNome,
+      orgaoId,
+    );
+  }
+
+  /**
+   * Fiscal substitui todas as discriminações (correção em massa).
+   * PUT /api/contratos/medicoes/:medicaoId/discriminacoes
+   */
+  @Put('medicoes/:medicaoId/discriminacoes')
+  async corrigirTodasDiscriminacoes(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      itens: { descricao: string; valor: number; percentual: number }[];
+      motivo_correcao: string;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.corrigirTodasDiscriminacoes(
+      medicaoId,
+      body.itens || [],
+      body.motivo_correcao,
+      request.user.sub,
+      fiscalNome,
+      orgaoId,
+    );
+  }
+
+  // ============================================================================
+  // EXECUÇÃO FISCAL/FINANCEIRA (auto-calculada)
+  // ============================================================================
+
+  /**
+   * Retorna o resumo de execução fiscal/financeira por item do contrato.
+   * GET /api/contratos/:contratoId/execucao-financeira?medicaoId=xxx
+   */
+  @Get(':contratoId/execucao-financeira')
+  async execucaoFinanceira(
+    @Param('contratoId') contratoId: string,
+    @Query('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.medicaoService.calcularExecucaoFinanceira(contratoId, orgaoId, medicaoId || undefined);
+  }
+
   @Get('medicoes/:medicaoId')
   async buscarMedicao(@Param('medicaoId') medicaoId: string) {
     return this.medicaoService.buscarMedicao(medicaoId);

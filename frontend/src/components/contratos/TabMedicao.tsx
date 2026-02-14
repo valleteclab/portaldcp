@@ -164,6 +164,10 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const [modalAteste, setModalAteste] = useState<Medicao | null>(null)
   const [modalDevolver, setModalDevolver] = useState<Medicao | null>(null)
   const [modalDetalhe, setModalDetalhe] = useState<Medicao | null>(null)
+  const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([])
+  const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null)
+  const [editandoDiscriminacao, setEditandoDiscriminacao] = useState<string | null>(null)
+  const [motivoCorrecao, setMotivoCorrecao] = useState('')
 
   // Forms
   const [formEtapa, setFormEtapa] = useState({
@@ -184,12 +188,49 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const abrirDetalhe = async (m: Medicao) => {
     setModalDetalhe(m)
     setAnexosMedicao([])
+    setDiscriminacoesDetalhe([])
+    setExecucaoFinanceira(null)
+    setEditandoDiscriminacao(null)
+    setMotivoCorrecao('')
     setLoadingAnexos(true)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`)
-      if (res.ok) setAnexosMedicao(await res.json())
+      const [anexosRes, discRes, execRes] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/discriminacoes`),
+        authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${m.id}`),
+      ])
+      if (anexosRes.ok) setAnexosMedicao(await anexosRes.json())
+      if (discRes.ok) setDiscriminacoesDetalhe(await discRes.json())
+      if (execRes.ok) setExecucaoFinanceira(await execRes.json())
     } catch { }
     setLoadingAnexos(false)
+  }
+
+  const handleCorrigirDiscriminacao = async (discId: string, dados: { descricao?: string; valor?: number; percentual?: number }) => {
+    if (!motivoCorrecao.trim()) {
+      alert('Informe o motivo da correção')
+      return
+    }
+    try {
+      const medicaoId = modalDetalhe?.id
+      if (!medicaoId) return
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/discriminacoes/${discId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...dados, motivo_correcao: motivoCorrecao }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setDiscriminacoesDetalhe(prev => prev.map(d => d.id === discId ? updated : d))
+        setEditandoDiscriminacao(null)
+        setMotivoCorrecao('')
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao corrigir discriminação')
+      }
+    } catch {
+      alert('Erro ao corrigir discriminação')
+    }
   }
 
   const handleExcluirAnexoOrgao = async (anexoId: string, nomeAnexo: string) => {
@@ -1314,6 +1355,139 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
                   <p className="text-sm">NF {modalDetalhe.nota_fiscal_numero} — {formatarMoeda(modalDetalhe.nota_fiscal_valor || 0)} — {formatarData(modalDetalhe.nota_fiscal_data || '')}</p>
+                </div>
+              )}
+
+              {/* Discriminação das Despesas */}
+              {discriminacoesDetalhe.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Discriminacao das Despesas</p>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-amber-50">
+                          <TableHead className="text-xs font-bold w-12">Item</TableHead>
+                          <TableHead className="text-xs font-bold">Discriminacao</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-28">Valor R$</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-20">%</TableHead>
+                          <TableHead className="text-xs font-bold w-10"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {discriminacoesDetalhe.map((d: any, idx: number) => (
+                          <TableRow key={d.id || idx}>
+                            <TableCell className="text-sm font-mono">{d.numero_item || idx + 1}</TableCell>
+                            <TableCell className="text-sm">
+                              {editandoDiscriminacao === d.id ? (
+                                <Input
+                                  defaultValue={d.descricao}
+                                  className="h-7 text-sm"
+                                  onBlur={(e) => {
+                                    const novoValor = e.target.value
+                                    if (novoValor !== d.descricao) {
+                                      handleCorrigirDiscriminacao(d.id, { descricao: novoValor })
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <>
+                                  {d.descricao}
+                                  {d.corrigido_por_nome && (
+                                    <span className="ml-1 text-xs text-amber-600" title={`Corrigido por ${d.corrigido_por_nome}: ${d.motivo_correcao || ''}`}>
+                                      (corrigido)
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm text-right font-medium">{formatarMoeda(d.valor)}</TableCell>
+                            <TableCell className="text-sm text-right">{Number(d.percentual || 0).toFixed(2)}%</TableCell>
+                            <TableCell>
+                              <button
+                                onClick={() => {
+                                  if (editandoDiscriminacao === d.id) {
+                                    setEditandoDiscriminacao(null)
+                                    setMotivoCorrecao('')
+                                  } else {
+                                    setEditandoDiscriminacao(d.id)
+                                  }
+                                }}
+                                className="p-1 hover:bg-gray-100 rounded"
+                                title="Corrigir"
+                              >
+                                <Pencil className="w-3 h-3 text-gray-400" />
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="bg-gray-50 font-bold">
+                          <TableCell></TableCell>
+                          <TableCell className="text-sm font-bold">Total</TableCell>
+                          <TableCell className="text-sm text-right font-bold">{formatarMoeda(discriminacoesDetalhe.reduce((s: number, d: any) => s + Number(d.valor || 0), 0))}</TableCell>
+                          <TableCell className="text-sm text-right font-bold">{discriminacoesDetalhe.reduce((s: number, d: any) => s + Number(d.percentual || 0), 0).toFixed(2)}%</TableCell>
+                          <TableCell></TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {editandoDiscriminacao && (
+                    <div className="mt-2 flex gap-2 items-center">
+                      <Input
+                        placeholder="Motivo da correção (obrigatório)"
+                        value={motivoCorrecao}
+                        onChange={(e) => setMotivoCorrecao(e.target.value)}
+                        className="h-8 text-sm flex-1"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Execução Fiscal/Financeira */}
+              {execucaoFinanceira && execucaoFinanceira.itens && execucaoFinanceira.itens.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Execucao Fiscal/Financeira</p>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-indigo-50">
+                          <TableHead className="text-xs font-bold w-12">Item</TableHead>
+                          <TableHead className="text-xs font-bold">Descricao</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-24">Previsto</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-24 bg-blue-50">No Periodo</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-24">Ate Periodo</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-24 bg-green-50">A Executar</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {execucaoFinanceira.itens.map((item: any, idx: number) => (
+                          <TableRow key={item.etapa_id || idx}>
+                            <TableCell className="text-sm font-mono">{item.numero_etapa}</TableCell>
+                            <TableCell className="text-sm">{item.descricao}</TableCell>
+                            <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
+                            <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
+                            <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>
+                            <TableCell className="text-sm text-right font-medium text-green-700 bg-green-50/50">{formatarMoeda(item.a_executar)}</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="bg-gray-50 font-bold">
+                          <TableCell></TableCell>
+                          <TableCell className="text-sm font-bold">Total</TableCell>
+                          <TableCell className="text-sm text-right font-bold">{formatarMoeda(execucaoFinanceira.totais?.valor_previsto || 0)}</TableCell>
+                          <TableCell className="text-sm text-right font-bold text-blue-700">{formatarMoeda(execucaoFinanceira.totais?.no_periodo || 0)}</TableCell>
+                          <TableCell className="text-sm text-right font-bold">{formatarMoeda(execucaoFinanceira.totais?.ate_periodo || 0)}</TableCell>
+                          <TableCell className="text-sm text-right font-bold text-green-700">{formatarMoeda(execucaoFinanceira.totais?.a_executar || 0)}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {execucaoFinanceira.execucao_fiscal && (
+                    <div className="mt-2 p-2 bg-indigo-50/50 rounded text-xs text-gray-600">
+                      <span className="font-medium">Execucao Temporal:</span>{' '}
+                      {execucaoFinanceira.execucao_fiscal.meses_executados} meses e {execucaoFinanceira.execucao_fiscal.dias_executados_extra} dias executados
+                      {' | '}{execucaoFinanceira.execucao_fiscal.meses_restantes} meses e {execucaoFinanceira.execucao_fiscal.dias_restantes_extra} dias restantes
+                    </div>
+                  )}
                 </div>
               )}
 

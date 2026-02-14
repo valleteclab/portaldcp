@@ -204,6 +204,9 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_data: '',
     itens: [] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }[],
   });
+  // Discriminação de Despesas
+  const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
+
   // Arquivos pendentes para upload após criação da medição
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
 
@@ -220,6 +223,7 @@ export default function FornecedorContratoDetalhePage() {
   // Modal Detalhe
   const [modalDetalhe, setModalDetalhe] = useState(false);
   const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
+  const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([]);
 
   // Anexos
   const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
@@ -428,6 +432,16 @@ export default function FornecedorContratoDetalhePage() {
 
       if (res.ok) {
         const medicaoCriada = await res.json();
+        // Salvar discriminações de despesas
+        if (discriminacoes.length > 0 && medicaoCriada?.id) {
+          try {
+            await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }),
+            });
+          } catch { /* silently ignore */ }
+        }
         // Upload de arquivos pendentes (fotos/documentos)
         if (arquivosPendentes.length > 0 && medicaoCriada?.id) {
           await uploadArquivosPendentes(medicaoCriada.id);
@@ -438,6 +452,7 @@ export default function FornecedorContratoDetalhePage() {
           nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
           itens: [],
         });
+        setDiscriminacoes([]);
         setArquivosPendentes([]);
         carregarDados();
       } else {
@@ -537,6 +552,17 @@ export default function FornecedorContratoDetalhePage() {
 
       const medicaoCriada = await resCriar.json();
 
+      // Salvar discriminações de despesas
+      if (discriminacoes.length > 0 && medicaoCriada?.id) {
+        try {
+          await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }),
+          });
+        } catch { /* silently ignore */ }
+      }
+
       // Upload de arquivos pendentes (fotos/documentos) antes de submeter
       if (arquivosPendentes.length > 0 && medicaoCriada?.id) {
         await uploadArquivosPendentes(medicaoCriada.id);
@@ -562,12 +588,14 @@ export default function FornecedorContratoDetalhePage() {
           nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
           itens: [],
         });
+        setDiscriminacoes([]);
         setArquivosPendentes([]);
         carregarDados();
       } else {
         // Medição foi criada mas falhou ao submeter - informa o usuário
         alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
         setModalNovaMedicao(false);
+        setDiscriminacoes([]);
         setArquivosPendentes([]);
         carregarDados();
       }
@@ -627,14 +655,35 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
-  const abrirModalNovaMedicao = () => {
+  const abrirModalNovaMedicao = async () => {
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       itens: etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
     setArquivosPendentes([]);
+    setDiscriminacoes([]);
     setModalNovaMedicao(true);
+
+    // Carregar sugestão de discriminação da última medição aprovada
+    // Precisa de uma medição existente para buscar sugestão. Usamos a última medição do contrato como referência.
+    if (medicoes.length > 0) {
+      try {
+        const fId = fornecedor?.id || '';
+        const ultimaMedicao = medicoes[medicoes.length - 1];
+        const sugRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}/discriminacoes/sugestao?fornecedorId=${fId}`);
+        if (sugRes.ok) {
+          const sugestoes = await sugRes.json();
+          if (sugestoes && sugestoes.length > 0) {
+            setDiscriminacoes(sugestoes.map((s: any) => ({
+              descricao: s.descricao,
+              valor: Number(s.valor) || 0,
+              percentual: Number(s.percentual) || 0,
+            })));
+          }
+        }
+      } catch { /* ignore */ }
+    }
   };
 
   // Upload dos arquivos pendentes após criação da medição
@@ -858,7 +907,16 @@ export default function FornecedorContratoDetalhePage() {
                               </Button>
                             </>
                           )}
-                          <Button size="sm" variant="outline" onClick={() => { setMedicaoDetalhe(medicao); setModalDetalhe(true); }}>
+                          <Button size="sm" variant="outline" onClick={async () => {
+                            setMedicaoDetalhe(medicao);
+                            setDiscriminacoesDetalhe([]);
+                            setModalDetalhe(true);
+                            try {
+                              const fId = fornecedor?.id || '';
+                              const dRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fId}`);
+                              if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
+                            } catch {}
+                          }}>
                             <Eye className="w-3 h-3 mr-1" />Ver
                           </Button>
                         </div>
@@ -1301,6 +1359,132 @@ export default function FornecedorContratoDetalhePage() {
               </div>
             </div>
 
+            {/* Discriminação das Despesas */}
+            {(() => {
+              // Calcular o valor medido atual para o cálculo bidirecional %/R$
+              const valorMedidoAtual = novaMedicao.itens.reduce((acc, item, idx) => {
+                const etapa = etapas[idx];
+                if (!etapa) return acc;
+                if (item.modo_input === 'valor' && item.valor_executado_atual) {
+                  return acc + item.valor_executado_atual;
+                }
+                return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+              }, 0);
+
+              const totalDiscValor = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+              const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);
+
+              return (
+                <div className="border rounded-lg p-4 bg-amber-50/30">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                      <DollarSign className="w-4 h-4" />
+                      Discriminacao das Despesas
+                      <span className="text-xs font-normal text-gray-400">(opcional - composicao do valor da NF)</span>
+                    </Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDiscriminacoes([...discriminacoes, { descricao: '', valor: 0, percentual: 0 }])}
+                    >
+                      <Plus className="w-3 h-3 mr-1" /> Adicionar Item
+                    </Button>
+                  </div>
+
+                  {discriminacoes.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 text-xs font-semibold text-gray-500 uppercase px-1">
+                        <span>Item</span>
+                        <span>Discriminacao</span>
+                        <span className="text-right">Valor R$</span>
+                        <span className="text-right">%</span>
+                        <span></span>
+                      </div>
+                      {discriminacoes.map((disc, idx) => (
+                        <div key={idx} className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center">
+                          <span className="text-sm text-center font-mono text-gray-500">{idx + 1}</span>
+                          <Input
+                            value={disc.descricao}
+                            onChange={(e) => {
+                              const updated = [...discriminacoes];
+                              updated[idx] = { ...updated[idx], descricao: e.target.value };
+                              setDiscriminacoes(updated);
+                            }}
+                            placeholder="Ex: Tributacao, Servicos..."
+                            className="h-8 text-sm"
+                          />
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={disc.valor || ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : Number(e.target.value);
+                              const perc = valorMedidoAtual > 0 ? (val / valorMedidoAtual) * 100 : 0;
+                              const updated = [...discriminacoes];
+                              updated[idx] = { ...updated[idx], valor: val, percentual: Math.round(perc * 10000) / 10000 };
+                              setDiscriminacoes(updated);
+                            }}
+                            placeholder="0,00"
+                            className="h-8 text-sm text-right"
+                          />
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            value={disc.percentual || ''}
+                            onChange={(e) => {
+                              const perc = e.target.value === '' ? 0 : Number(e.target.value);
+                              const val = valorMedidoAtual > 0 ? (perc / 100) * valorMedidoAtual : 0;
+                              const updated = [...discriminacoes];
+                              updated[idx] = { ...updated[idx], percentual: perc, valor: Math.round(val * 100) / 100 };
+                              setDiscriminacoes(updated);
+                            }}
+                            placeholder="0,00"
+                            className="h-8 text-sm text-right"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-red-400 hover:text-red-600"
+                            onClick={() => {
+                              setDiscriminacoes(discriminacoes.filter((_, i) => i !== idx));
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      {/* Totais */}
+                      <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center border-t pt-2 mt-2">
+                        <span></span>
+                        <span className="text-sm font-bold text-gray-700">Total</span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorMedidoAtual) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>
+                          {formatarMoeda(totalDiscValor)}
+                        </span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscPerc - 100) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>
+                          {totalDiscPerc.toFixed(2)}%
+                        </span>
+                        <span></span>
+                      </div>
+                      {valorMedidoAtual > 0 && Math.abs(totalDiscValor - valorMedidoAtual) > 0.02 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Valor da medicao: {formatarMoeda(valorMedidoAtual)}. Diferenca: {formatarMoeda(totalDiscValor - valorMedidoAtual)}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-3">
+                      Nenhuma discriminacao adicionada. Clique em &quot;Adicionar Item&quot; para informar a composicao das despesas.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Fotos e Documentos */}
             <div className="border rounded-lg p-4 bg-gray-50/50">
               <div className="flex items-center justify-between mb-3">
@@ -1495,6 +1679,48 @@ export default function FornecedorContratoDetalhePage() {
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
                   <p className="text-sm">NF {medicaoDetalhe.nota_fiscal_numero} — {formatarMoeda(medicaoDetalhe.nota_fiscal_valor || 0)} — {formatarData(medicaoDetalhe.nota_fiscal_data || '')}</p>
+                </div>
+              )}
+
+              {/* Discriminação de Despesas (read-only) */}
+              {discriminacoesDetalhe.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Discriminacao das Despesas</p>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-amber-50">
+                          <TableHead className="text-xs font-bold w-12">Item</TableHead>
+                          <TableHead className="text-xs font-bold">Discriminacao</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-28">Valor R$</TableHead>
+                          <TableHead className="text-xs font-bold text-right w-20">%</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {discriminacoesDetalhe.map((d: any, idx: number) => (
+                          <TableRow key={d.id || idx}>
+                            <TableCell className="text-sm font-mono">{d.numero_item || idx + 1}</TableCell>
+                            <TableCell className="text-sm">
+                              {d.descricao}
+                              {d.corrigido_por_nome && (
+                                <span className="ml-2 text-xs text-amber-600" title={`Corrigido por ${d.corrigido_por_nome}: ${d.motivo_correcao || ''}`}>
+                                  (corrigido pelo fiscal)
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm text-right font-medium">{formatarMoeda(d.valor)}</TableCell>
+                            <TableCell className="text-sm text-right">{Number(d.percentual || 0).toFixed(2)}%</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="bg-gray-50 font-bold">
+                          <TableCell></TableCell>
+                          <TableCell className="text-sm font-bold">Total</TableCell>
+                          <TableCell className="text-sm text-right font-bold">{formatarMoeda(discriminacoesDetalhe.reduce((s: number, d: any) => s + Number(d.valor || 0), 0))}</TableCell>
+                          <TableCell className="text-sm text-right font-bold">{discriminacoesDetalhe.reduce((s: number, d: any) => s + Number(d.percentual || 0), 0).toFixed(2)}%</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               )}
 

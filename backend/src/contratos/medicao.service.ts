@@ -6,9 +6,12 @@ import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronogr
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
+import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
+import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities/notificacao.entity';
 
 @Injectable()
 export class MedicaoService {
@@ -25,6 +28,10 @@ export class MedicaoService {
     private itemMedicaoRepository: Repository<ItemMedicao>,
     @InjectRepository(MensagemSolicitacaoMedicao)
     private mensagemSolicitacaoRepository: Repository<MensagemSolicitacaoMedicao>,
+    @InjectRepository(DiscriminacaoDespesaMedicao)
+    private discriminacaoRepository: Repository<DiscriminacaoDespesaMedicao>,
+    @InjectRepository(ItemContrato)
+    private itemContratoRepository: Repository<ItemContrato>,
     @InjectRepository(Requisicao)
     private requisicaoRepository: Repository<Requisicao>,
     @InjectRepository(Usuario)
@@ -1350,5 +1357,388 @@ export class MedicaoService {
       motivo,
       fornecedorDest,
     );
+  }
+
+  // ============================================================================
+  // DISCRIMINAÇÃO DE DESPESAS DA MEDIÇÃO
+  // ============================================================================
+
+  /**
+   * Salva (substitui) as discriminações de despesa de uma medição.
+   * O fornecedor envia um array; o sistema faz delete+insert em transação.
+   * Valida: propriedade da medição, status RASCUNHO ou DEVOLVIDA.
+   */
+  async salvarDiscriminacoes(
+    medicaoId: string,
+    fornecedorId: string,
+    itens: { descricao: string; valor: number; percentual: number }[],
+  ): Promise<DiscriminacaoDespesaMedicao[]> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Verificar propriedade
+    if (medicao.contrato && medicao.contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para alterar esta medição');
+    }
+
+    // Verificar status
+    if (medicao.status !== StatusMedicao.RASCUNHO && medicao.status !== StatusMedicao.DEVOLVIDA) {
+      throw new BadRequestException('Discriminações só podem ser alteradas em medições em rascunho ou devolvidas');
+    }
+
+    // Deletar anteriores
+    await this.discriminacaoRepository.delete({ medicao_id: medicaoId });
+
+    // Inserir novas
+    const novas: DiscriminacaoDespesaMedicao[] = [];
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      if (!item.descricao || item.descricao.trim() === '') continue;
+      const disc = this.discriminacaoRepository.create({
+        medicao_id: medicaoId,
+        numero_item: i + 1,
+        descricao: item.descricao.trim(),
+        valor: Number(item.valor) || 0,
+        percentual: Number(item.percentual) || 0,
+      });
+      novas.push(await this.discriminacaoRepository.save(disc));
+    }
+
+    this.logger.log(`Discriminações salvas para medição ${medicaoId}: ${novas.length} itens`);
+    return novas;
+  }
+
+  /**
+   * Lista discriminações de despesa de uma medição.
+   */
+  async listarDiscriminacoes(medicaoId: string): Promise<DiscriminacaoDespesaMedicao[]> {
+    return this.discriminacaoRepository.find({
+      where: { medicao_id: medicaoId },
+      order: { numero_item: 'ASC' },
+    });
+  }
+
+  /**
+   * Retorna as discriminações da última medição APROVADA do mesmo contrato,
+   * para pré-preencher o formulário do fornecedor (sugestão).
+   */
+  async sugerirDiscriminacoes(contratoId: string): Promise<{ descricao: string; valor: number; percentual: number }[]> {
+    // Buscar última medição aprovada do contrato
+    const ultimaMedicao = await this.medicaoRepository.findOne({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      order: { numero_medicao: 'DESC' },
+    });
+
+    if (!ultimaMedicao) return [];
+
+    const discriminacoes = await this.discriminacaoRepository.find({
+      where: { medicao_id: ultimaMedicao.id },
+      order: { numero_item: 'ASC' },
+    });
+
+    // Retorna apenas os campos necessários (sem IDs) para sugestão
+    return discriminacoes.map(d => ({
+      descricao: d.descricao,
+      valor: Number(d.valor),
+      percentual: Number(d.percentual),
+    }));
+  }
+
+  /**
+   * Fiscal corrige um item de discriminação.
+   * Registra quem corrigiu e notifica o fornecedor.
+   */
+  async corrigirDiscriminacao(
+    medicaoId: string,
+    discriminacaoId: string,
+    dados: { descricao?: string; valor?: number; percentual?: number; motivo_correcao: string },
+    fiscalId: string,
+    fiscalNome: string,
+    orgaoId: string,
+  ): Promise<DiscriminacaoDespesaMedicao> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Validar que o contrato pertence ao órgão
+    if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para corrigir esta medição');
+    }
+
+    const disc = await this.discriminacaoRepository.findOne({
+      where: { id: discriminacaoId, medicao_id: medicaoId },
+    });
+    if (!disc) throw new NotFoundException('Discriminação não encontrada');
+
+    if (!dados.motivo_correcao || !dados.motivo_correcao.trim()) {
+      throw new BadRequestException('Motivo da correção é obrigatório');
+    }
+
+    // Aplicar correções
+    if (dados.descricao !== undefined) disc.descricao = dados.descricao.trim();
+    if (dados.valor !== undefined) disc.valor = Number(dados.valor);
+    if (dados.percentual !== undefined) disc.percentual = Number(dados.percentual);
+    disc.corrigido_por_id = fiscalId;
+    disc.corrigido_por_nome = fiscalNome;
+    disc.corrigido_em = new Date();
+    disc.motivo_correcao = dados.motivo_correcao.trim();
+
+    await this.discriminacaoRepository.save(disc);
+
+    // Notificar fornecedor
+    this.notificarCorrecaoDiscriminacao(medicao, fiscalNome, dados.motivo_correcao).catch(e =>
+      this.logger.error(`Erro ao notificar correção de discriminação: ${e.message}`),
+    );
+
+    this.logger.log(`Discriminação ${discriminacaoId} corrigida por ${fiscalNome} na medição ${medicaoId}`);
+    return disc;
+  }
+
+  /**
+   * Fiscal substitui todas as discriminações de uma medição (correção em massa).
+   */
+  async corrigirTodasDiscriminacoes(
+    medicaoId: string,
+    itens: { descricao: string; valor: number; percentual: number }[],
+    motivo_correcao: string,
+    fiscalId: string,
+    fiscalNome: string,
+    orgaoId: string,
+  ): Promise<DiscriminacaoDespesaMedicao[]> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para corrigir esta medição');
+    }
+
+    if (!motivo_correcao || !motivo_correcao.trim()) {
+      throw new BadRequestException('Motivo da correção é obrigatório');
+    }
+
+    // Deletar anteriores
+    await this.discriminacaoRepository.delete({ medicao_id: medicaoId });
+
+    // Inserir novas com registro de correção
+    const novas: DiscriminacaoDespesaMedicao[] = [];
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      if (!item.descricao || item.descricao.trim() === '') continue;
+      const disc = this.discriminacaoRepository.create({
+        medicao_id: medicaoId,
+        numero_item: i + 1,
+        descricao: item.descricao.trim(),
+        valor: Number(item.valor) || 0,
+        percentual: Number(item.percentual) || 0,
+        corrigido_por_id: fiscalId,
+        corrigido_por_nome: fiscalNome,
+        corrigido_em: new Date(),
+        motivo_correcao: motivo_correcao.trim(),
+      });
+      novas.push(await this.discriminacaoRepository.save(disc));
+    }
+
+    // Notificar fornecedor
+    this.notificarCorrecaoDiscriminacao(medicao, fiscalNome, motivo_correcao).catch(e =>
+      this.logger.error(`Erro ao notificar correção de discriminação: ${e.message}`),
+    );
+
+    this.logger.log(`Todas discriminações corrigidas por ${fiscalNome} na medição ${medicaoId}: ${novas.length} itens`);
+    return novas;
+  }
+
+  /**
+   * Notifica o fornecedor quando o fiscal corrige uma discriminação.
+   */
+  private async notificarCorrecaoDiscriminacao(medicao: Medicao, fiscalNome: string, motivo: string): Promise<void> {
+    const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) return;
+
+    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    if (fornecedorDest.length === 0) return;
+
+    try {
+      await this.notificacoesService.criarParaMultiplos(fornecedorDest, {
+        orgao_id: contrato.orgao_id,
+        tipo: TipoNotificacao.CORRECAO_DISCRIMINACAO_MEDICAO,
+        titulo: `Correção na discriminação – Medição #${medicao.numero_medicao}`,
+        mensagem: `O fiscal ${fiscalNome} realizou uma correção na discriminação de despesas da medição #${medicao.numero_medicao} do contrato ${contrato.numero_contrato}. Motivo: ${motivo}`,
+        prioridade: PrioridadeNotificacao.NORMAL,
+        entidade_tipo: 'medicao',
+        entidade_id: medicao.id,
+        link: `/fornecedor/contratos/${contrato.id}`,
+        metadata: {
+          medicao_numero: medicao.numero_medicao,
+          contrato_numero: contrato.numero_contrato,
+          fiscal: fiscalNome,
+          motivo_correcao: motivo,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao criar notificação de correção discriminação: ${(error as Error).message}`);
+    }
+  }
+
+  // ============================================================================
+  // EXECUÇÃO FISCAL/FINANCEIRA (auto-calculada)
+  // ============================================================================
+
+  /**
+   * Calcula o resumo de execução fiscal/financeira por item contratado (EtapaCronograma).
+   * Para cada etapa/item:
+   *   - no_periodo: valor medido na medição informada (ou na medição mais recente)
+   *   - ate_periodo: soma de todas medições aprovadas anteriores
+   *   - a_executar: valor_previsto - ate_periodo - no_periodo
+   *   - execução temporal baseada nas datas de vigência do contrato
+   */
+  async calcularExecucaoFinanceira(contratoId: string, orgaoId: string, medicaoId?: string): Promise<any> {
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    const etapas = await this.etapaRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_etapa: 'ASC' },
+    });
+
+    // Buscar todas as medições aprovadas
+    const medicoesAprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      order: { numero_medicao: 'ASC' },
+    });
+
+    // Buscar a medição atual (se informada)
+    let medicaoAtual: Medicao | null = null;
+    if (medicaoId) {
+      medicaoAtual = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    }
+
+    // Buscar itens de cada medição aprovada
+    const itensPorMedicao: Record<string, ItemMedicao[]> = {};
+    for (const m of medicoesAprovadas) {
+      itensPorMedicao[m.id] = await this.itemMedicaoRepository.find({
+        where: { medicao_id: m.id },
+      });
+    }
+
+    // Se temos uma medição atual não aprovada, buscar itens dela
+    let itensMedicaoAtual: ItemMedicao[] = [];
+    if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
+      itensMedicaoAtual = await this.itemMedicaoRepository.find({
+        where: { medicao_id: medicaoAtual.id },
+      });
+    }
+
+    // Calcular execução por etapa
+    const resultado = etapas.map(etapa => {
+      const valorPrevisto = Number(etapa.valor_previsto) || 0;
+
+      // Somar valores aprovados para esta etapa
+      let atePeríodo = 0;
+      for (const m of medicoesAprovadas) {
+        // Se a medição atual é aprovada, tratar no_periodo separado
+        if (medicaoAtual && m.id === medicaoAtual.id) continue;
+        const itensM = itensPorMedicao[m.id] || [];
+        const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+        if (itemEtapa) {
+          atePeríodo += Number(itemEtapa.valor_medido) || 0;
+        }
+      }
+
+      // Valor no período (medição atual)
+      let noPeriodo = 0;
+      if (medicaoAtual) {
+        if (medicaoAtual.status === StatusMedicao.APROVADA) {
+          // Se aprovada, buscar dos itens aprovados
+          const itensM = itensPorMedicao[medicaoAtual.id] || [];
+          const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+          if (itemEtapa) {
+            noPeriodo = Number(itemEtapa.valor_medido) || 0;
+          }
+        } else {
+          // Se não aprovada, buscar dos itens da medição atual
+          const itemEtapa = itensMedicaoAtual.find(i => i.etapa_id === etapa.id);
+          if (itemEtapa) {
+            noPeriodo = Number(itemEtapa.valor_medido) || 0;
+          }
+        }
+      }
+
+      const aExecutar = Math.max(0, valorPrevisto - atePeríodo - noPeriodo);
+
+      return {
+        etapa_id: etapa.id,
+        numero_etapa: etapa.numero_etapa,
+        descricao: etapa.descricao,
+        valor_previsto: valorPrevisto,
+        percentual_fisico: Number(etapa.percentual_fisico) || 0,
+        // Execução financeira
+        no_periodo: Math.round(noPeriodo * 100) / 100,
+        ate_periodo: Math.round(atePeríodo * 100) / 100,
+        a_executar: Math.round(aExecutar * 100) / 100,
+      };
+    });
+
+    // Calcular execução temporal (fiscal)
+    const vigenciaInicio = contrato.data_vigencia_inicio
+      ? new Date(contrato.data_vigencia_inicio as any)
+      : null;
+    const vigenciaFim = contrato.data_vigencia_fim
+      ? new Date(contrato.data_vigencia_fim as any)
+      : null;
+
+    let execucaoFiscal: any = null;
+    if (vigenciaInicio && vigenciaFim) {
+      const hoje = new Date();
+      const totalDias = Math.max(1, Math.ceil((vigenciaFim.getTime() - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
+      const diasExecutados = Math.max(0, Math.ceil((Math.min(hoje.getTime(), vigenciaFim.getTime()) - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
+      const diasRestantes = Math.max(0, totalDias - diasExecutados);
+
+      execucaoFiscal = {
+        vigencia_inicio: vigenciaInicio.toISOString().split('T')[0],
+        vigencia_fim: vigenciaFim.toISOString().split('T')[0],
+        total_dias: totalDias,
+        dias_executados: diasExecutados,
+        dias_restantes: diasRestantes,
+        meses_executados: Math.floor(diasExecutados / 30),
+        dias_executados_extra: diasExecutados % 30,
+        meses_restantes: Math.floor(diasRestantes / 30),
+        dias_restantes_extra: diasRestantes % 30,
+      };
+    }
+
+    // Totais
+    const totalNoPeriodo = resultado.reduce((s, r) => s + r.no_periodo, 0);
+    const totalAtePeriodo = resultado.reduce((s, r) => s + r.ate_periodo, 0);
+    const totalAExecutar = resultado.reduce((s, r) => s + r.a_executar, 0);
+    const totalPrevisto = resultado.reduce((s, r) => s + r.valor_previsto, 0);
+
+    return {
+      contrato_id: contratoId,
+      itens: resultado,
+      totais: {
+        valor_previsto: Math.round(totalPrevisto * 100) / 100,
+        no_periodo: Math.round(totalNoPeriodo * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodo * 100) / 100,
+        a_executar: Math.round(totalAExecutar * 100) / 100,
+      },
+      execucao_fiscal: execucaoFiscal,
+      medicao_referencia: medicaoAtual ? {
+        id: medicaoAtual.id,
+        numero_medicao: medicaoAtual.numero_medicao,
+        status: medicaoAtual.status,
+      } : null,
+    };
   }
 }

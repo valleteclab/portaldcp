@@ -215,6 +215,28 @@ export default function CentralAprovacoesPage() {
   const [processando, setProcessando] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Discriminação e Execução Financeira (carregados ao expandir medição)
+  const [discriminacoesAprov, setDiscriminacoesAprov] = useState<Record<string, any[]>>({});
+  const [execucaoAprov, setExecucaoAprov] = useState<Record<string, any>>({});
+
+  const carregarDadosMedicaoExpanded = async (medicaoId: string, contratoId: string) => {
+    if (discriminacoesAprov[medicaoId]) return; // já carregado
+    try {
+      const [discRes, execRes] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/discriminacoes`),
+        authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${medicaoId}`),
+      ]);
+      if (discRes.ok) {
+        const discData = await discRes.json();
+        setDiscriminacoesAprov(prev => ({ ...prev, [medicaoId]: discData }));
+      }
+      if (execRes.ok) {
+        const execData = await execRes.json();
+        setExecucaoAprov(prev => ({ ...prev, [medicaoId]: execData }));
+      }
+    } catch { /* ignore */ }
+  };
+
   // Modais Requisição
   const [requisicaoSelecionada, setRequisicaoSelecionada] = useState<Requisicao | null>(null);
   const [showAprovarRequisicao, setShowAprovarRequisicao] = useState(false);
@@ -961,7 +983,13 @@ export default function CentralAprovacoesPage() {
             <div className="space-y-4">
               {medicoes.map((medicao) => (
                 <Card key={medicao.id} className="overflow-hidden border-l-4 border-l-emerald-400 hover:shadow-md transition-shadow">
-                  <Collapsible open={expandedId === medicao.id} onOpenChange={() => setExpandedId(expandedId === medicao.id ? null : medicao.id)}>
+                  <Collapsible open={expandedId === medicao.id} onOpenChange={() => {
+                    const newId = expandedId === medicao.id ? null : medicao.id;
+                    setExpandedId(newId);
+                    if (newId && medicao.contrato) {
+                      carregarDadosMedicaoExpanded(medicao.id, medicao.contrato.id);
+                    }
+                  }}>
                     <div className="p-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -1123,6 +1151,94 @@ export default function CentralAprovacoesPage() {
                             )}
                           </div>
                         </div>
+
+                        {/* Discriminação das Despesas */}
+                        {discriminacoesAprov[medicao.id] && discriminacoesAprov[medicao.id].length > 0 && (
+                          <div className="mt-4 bg-white p-4 rounded-lg">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                              <DollarSign className="h-4 w-4 text-amber-600" />
+                              Discriminacao das Despesas
+                            </h4>
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-amber-50">
+                                  <TableHead className="text-xs font-bold w-12">Item</TableHead>
+                                  <TableHead className="text-xs font-bold">Discriminacao</TableHead>
+                                  <TableHead className="text-xs font-bold text-right w-28">Valor R$</TableHead>
+                                  <TableHead className="text-xs font-bold text-right w-20">%</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {discriminacoesAprov[medicao.id].map((d: any, idx: number) => (
+                                  <TableRow key={d.id || idx}>
+                                    <TableCell className="text-sm font-mono">{d.numero_item || idx + 1}</TableCell>
+                                    <TableCell className="text-sm">
+                                      {d.descricao}
+                                      {d.corrigido_por_nome && <span className="ml-1 text-xs text-amber-600">(corrigido)</span>}
+                                    </TableCell>
+                                    <TableCell className="text-sm text-right font-medium">{formatarMoeda(d.valor)}</TableCell>
+                                    <TableCell className="text-sm text-right">{Number(d.percentual || 0).toFixed(2)}%</TableCell>
+                                  </TableRow>
+                                ))}
+                                <TableRow className="bg-gray-50 font-bold">
+                                  <TableCell></TableCell>
+                                  <TableCell className="text-sm font-bold">Total</TableCell>
+                                  <TableCell className="text-sm text-right font-bold">{formatarMoeda(discriminacoesAprov[medicao.id].reduce((s: number, d: any) => s + Number(d.valor || 0), 0))}</TableCell>
+                                  <TableCell className="text-sm text-right font-bold">{discriminacoesAprov[medicao.id].reduce((s: number, d: any) => s + Number(d.percentual || 0), 0).toFixed(2)}%</TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+
+                        {/* Execução Fiscal/Financeira */}
+                        {execucaoAprov[medicao.id] && execucaoAprov[medicao.id].itens && execucaoAprov[medicao.id].itens.length > 0 && (
+                          <div className="mt-4 bg-white p-4 rounded-lg">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                              <TrendingUp className="h-4 w-4 text-indigo-600" />
+                              Execucao Fiscal/Financeira
+                            </h4>
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-indigo-50">
+                                  <TableHead className="text-xs font-bold w-12">Item</TableHead>
+                                  <TableHead className="text-xs font-bold">Descricao</TableHead>
+                                  <TableHead className="text-xs font-bold text-right w-24">Previsto</TableHead>
+                                  <TableHead className="text-xs font-bold text-right w-24 bg-blue-50">No Periodo</TableHead>
+                                  <TableHead className="text-xs font-bold text-right w-24">Ate Periodo</TableHead>
+                                  <TableHead className="text-xs font-bold text-right w-24 bg-green-50">A Executar</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {execucaoAprov[medicao.id].itens.map((item: any, idx: number) => (
+                                  <TableRow key={item.etapa_id || idx}>
+                                    <TableCell className="text-sm font-mono">{item.numero_etapa}</TableCell>
+                                    <TableCell className="text-sm">{item.descricao}</TableCell>
+                                    <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
+                                    <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
+                                    <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>
+                                    <TableCell className="text-sm text-right font-medium text-green-700 bg-green-50/50">{formatarMoeda(item.a_executar)}</TableCell>
+                                  </TableRow>
+                                ))}
+                                <TableRow className="bg-gray-50 font-bold">
+                                  <TableCell></TableCell>
+                                  <TableCell className="text-sm font-bold">Total</TableCell>
+                                  <TableCell className="text-sm text-right font-bold">{formatarMoeda(execucaoAprov[medicao.id].totais?.valor_previsto || 0)}</TableCell>
+                                  <TableCell className="text-sm text-right font-bold text-blue-700">{formatarMoeda(execucaoAprov[medicao.id].totais?.no_periodo || 0)}</TableCell>
+                                  <TableCell className="text-sm text-right font-bold">{formatarMoeda(execucaoAprov[medicao.id].totais?.ate_periodo || 0)}</TableCell>
+                                  <TableCell className="text-sm text-right font-bold text-green-700">{formatarMoeda(execucaoAprov[medicao.id].totais?.a_executar || 0)}</TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                            {execucaoAprov[medicao.id].execucao_fiscal && (
+                              <div className="mt-2 text-xs text-gray-600">
+                                <span className="font-medium">Execucao Temporal:</span>{' '}
+                                {execucaoAprov[medicao.id].execucao_fiscal.meses_executados}m {execucaoAprov[medicao.id].execucao_fiscal.dias_executados_extra}d executados
+                                {' | '}{execucaoAprov[medicao.id].execucao_fiscal.meses_restantes}m {execucaoAprov[medicao.id].execucao_fiscal.dias_restantes_extra}d restantes
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Timeline resumida */}
                         <div className="mt-4 bg-white p-4 rounded-lg">

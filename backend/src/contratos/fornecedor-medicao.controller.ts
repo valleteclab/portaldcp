@@ -319,6 +319,69 @@ export class FornecedorMedicaoController {
   }
 
   // ============================================================================
+  // DISCRIMINAÇÃO DE DESPESAS
+  // ============================================================================
+
+  /**
+   * Retorna sugestão de discriminação (da última medição aprovada do contrato).
+   * GET /api/fornecedor/contratos/medicoes/:medicaoId/discriminacoes/sugestao
+   */
+  @Get('medicoes/:medicaoId/discriminacoes/sugestao')
+  async sugestaoDiscriminacoes(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (fornecedorId && medicao.contrato) {
+      await this.validarAcessoFornecedor(medicao.contrato.id, fornecedorId);
+    }
+    return this.medicaoService.sugerirDiscriminacoes(medicao.contrato_id);
+  }
+
+  /**
+   * Lista discriminações de despesa de uma medição.
+   * GET /api/fornecedor/contratos/medicoes/:medicaoId/discriminacoes
+   */
+  @Get('medicoes/:medicaoId/discriminacoes')
+  async listarDiscriminacoes(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (fornecedorId && medicao.contrato) {
+      await this.validarAcessoFornecedor(medicao.contrato.id, fornecedorId);
+    }
+    return this.medicaoService.listarDiscriminacoes(medicaoId);
+  }
+
+  /**
+   * Salva discriminações de despesa (substitui todas).
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/discriminacoes
+   */
+  @Post('medicoes/:medicaoId/discriminacoes')
+  async salvarDiscriminacoes(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      fornecedor_id: string;
+      itens: { descricao: string; valor: number; percentual: number }[];
+    },
+  ) {
+    if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
+    if (!body.itens || !Array.isArray(body.itens)) {
+      throw new BadRequestException('itens é obrigatório e deve ser um array');
+    }
+    return this.medicaoService.salvarDiscriminacoes(medicaoId, body.fornecedor_id, body.itens);
+  }
+
+  // ============================================================================
   // ROTAS COM PARÂMETROS DINÂMICOS (:contratoId/..., :fornecedorId/...)
   // ============================================================================
 
