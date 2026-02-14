@@ -680,25 +680,50 @@ export default function FornecedorContratoDetalhePage() {
     setArquivosPendentes([]);
     setDiscriminacoes([]);
     setModalNovaMedicao(true);
+  };
 
-    // Carregar sugestão de discriminação da última medição aprovada
-    // Precisa de uma medição existente para buscar sugestão. Usamos a última medição do contrato como referência.
-    if (medicoes.length > 0) {
-      try {
-        const fId = fornecedor?.id || '';
-        const ultimaMedicao = medicoes[medicoes.length - 1];
-        const sugRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}/discriminacoes/sugestao?fornecedorId=${fId}`);
-        if (sugRes.ok) {
-          const sugestoes = await sugRes.json();
-          if (sugestoes && sugestoes.length > 0) {
-            setDiscriminacoes(sugestoes.map((s: any) => ({
-              descricao: s.descricao,
-              valor: Number(s.valor) || 0,
-              percentual: Number(s.percentual) || 0,
-            })));
-          }
-        }
-      } catch { /* ignore */ }
+  // Reaproveitar despesas do último mês: usa apenas % da última medição aprovada e recalcula valores pela medição atual
+  const reaproveitarDespesasUltimoMes = async () => {
+    const valorMedidoAtual = novaMedicao.itens.reduce((acc, item, idx) => {
+      const etapa = etapas[idx];
+      if (!etapa) return acc;
+      if (item.modo_input === 'valor' && item.valor_executado_atual) {
+        return acc + item.valor_executado_atual;
+      }
+      return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+    }, 0);
+
+    if (valorMedidoAtual <= 0) {
+      alert('Preencha os itens da planilha de medição do serviço antes de reaproveitar.');
+      return;
+    }
+    if (medicoes.length === 0) {
+      alert('Não há medições anteriores para reaproveitar.');
+      return;
+    }
+
+    try {
+      const fId = fornecedor?.id || '';
+      const ultimaMedicao = medicoes[medicoes.length - 1];
+      const sugRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}/discriminacoes/sugestao?fornecedorId=${fId}`);
+      if (!sugRes.ok) return;
+      const sugestoes = await sugRes.json();
+      if (!sugestoes || sugestoes.length === 0) {
+        alert('Nenhuma medição anterior possui discriminação de despesas para reaproveitar.');
+        return;
+      }
+      // Usa apenas descricao e % da última medição; recalcula valor pela medição atual
+      setDiscriminacoes(sugestoes.map((s: any) => {
+        const perc = Number(s.percentual) || 0;
+        const valor = (perc / 100) * valorMedidoAtual;
+        return {
+          descricao: s.descricao || '',
+          percentual: perc,
+          valor: Math.round(valor * 100) / 100,
+        };
+      }));
+    } catch {
+      alert('Erro ao buscar despesas da última medição.');
     }
   };
 
@@ -1405,14 +1430,27 @@ export default function FornecedorContratoDetalhePage() {
                       Discriminacao das Despesas
                       <span className="text-xs font-normal text-gray-400">(opcional - composicao do valor da NF)</span>
                     </Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDiscriminacoes([...discriminacoes, { descricao: '', valor: 0, percentual: 0 }])}
-                    >
-                      <Plus className="w-3 h-3 mr-1" /> Adicionar Item
-                    </Button>
+                    <div className="flex gap-2">
+                      {medicoes.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={reaproveitarDespesasUltimoMes}
+                          className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                        >
+                          Reaproveitar despesas do último mês
+                        </Button>
+                        )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDiscriminacoes([...discriminacoes, { descricao: '', valor: 0, percentual: 0 }])}
+                      >
+                        <Plus className="w-3 h-3 mr-1" /> Adicionar Item
+                      </Button>
+                    </div>
                   </div>
 
                   {discriminacoes.length > 0 ? (
@@ -1501,7 +1539,7 @@ export default function FornecedorContratoDetalhePage() {
                     </div>
                   ) : (
                     <p className="text-sm text-gray-400 text-center py-3">
-                      Nenhuma discriminacao adicionada. Clique em &quot;Adicionar Item&quot; para informar a composicao das despesas.
+                      Nenhuma discriminacao adicionada. Use &quot;Reaproveitar despesas do último mês&quot; para trazer os % da última medição (valores recalculados pela medição atual) ou &quot;Adicionar Item&quot; para criar manualmente.
                     </p>
                   )}
                 </div>

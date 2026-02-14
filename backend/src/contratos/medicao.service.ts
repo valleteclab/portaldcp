@@ -1551,13 +1551,13 @@ export class MedicaoService {
   }
 
   /**
-   * Retorna as discriminações da última medição APROVADA do mesmo contrato,
+   * Retorna as discriminações da última medição do mesmo contrato (independente do status),
    * para pré-preencher o formulário do fornecedor (sugestão).
    */
   async sugerirDiscriminacoes(contratoId: string): Promise<{ descricao: string; valor: number; percentual: number }[]> {
-    // Buscar última medição aprovada do contrato
+    // Buscar última medição do contrato (qualquer status)
     const ultimaMedicao = await this.medicaoRepository.findOne({
-      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      where: { contrato_id: contratoId },
       order: { numero_medicao: 'DESC' },
     });
 
