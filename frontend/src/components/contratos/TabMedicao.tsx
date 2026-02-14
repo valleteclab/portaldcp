@@ -432,10 +432,17 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      const resultado = await res.json().catch(() => ({}))
       setModalAteste(null)
       setFormAteste({ observacoes: '', verificado_in_loco: false })
       setItensAteste({})
       carregarDados()
+      // Mensagem informativa ao fiscal
+      if (resultado.status === 'AGUARDANDO_APROVACAO') {
+        alert('Medicao atestada com sucesso! Foi enviada para aprovacao do gestor na Central de Aprovacoes.')
+      } else if (resultado.status === 'PARCIALMENTE_ATESTADA') {
+        alert('Itens atestados com sucesso! A medicao ficou parcialmente atestada. Os itens nao atestados serao devolvidos ao fornecedor para ajuste.')
+      }
     } catch (e) { console.error(e) }
     setActionLoading(false)
   }

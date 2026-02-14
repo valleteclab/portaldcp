@@ -6,6 +6,8 @@ import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronogr
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 
 @Injectable()
 export class MedicaoService {
@@ -22,6 +24,9 @@ export class MedicaoService {
     private itemMedicaoRepository: Repository<ItemMedicao>,
     @InjectRepository(Requisicao)
     private requisicaoRepository: Repository<Requisicao>,
+    @InjectRepository(Usuario)
+    private usuarioRepository: Repository<Usuario>,
+    private notificacoesService: NotificacoesService,
   ) { }
 
   // ============================================================================
@@ -464,6 +469,12 @@ export class MedicaoService {
 
     await this.medicaoRepository.save(medicao);
     this.logger.log(`Medição #${medicao.numero_medicao} submetida pelo fornecedor ${fornecedorId}`);
+
+    // Notificar usuários do órgão (fiscal e gestores)
+    this.notificarSubmissaoMedicao(medicao, contrato).catch(e =>
+      this.logger.error(`Erro ao enviar notificações de submissão: ${e.message}`),
+    );
+
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -508,6 +519,15 @@ export class MedicaoService {
 
     await this.medicaoRepository.save(medicao);
     this.logger.log(`Medição #${medicao.numero_medicao} atestada (todos os itens) pelo fiscal ${fiscalNome}`);
+
+    // Notificar gestores/aprovadores que há medição aguardando aprovação
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato) {
+      this.notificarAtesteMedicao(medicao, contrato, fiscalNome).catch(e =>
+        this.logger.error(`Erro ao enviar notificações de ateste: ${e.message}`),
+      );
+    }
+
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -576,6 +596,23 @@ export class MedicaoService {
     }
 
     await this.medicaoRepository.save(medicao);
+
+    // Notificações baseadas no resultado do ateste
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato) {
+      if (todosAtestados) {
+        // Notificar gestores sobre medição pronta para aprovação
+        this.notificarAtesteMedicao(medicao, contrato, fiscalNome).catch(e =>
+          this.logger.error(`Erro ao enviar notificações de ateste completo: ${e.message}`),
+        );
+      } else {
+        // Notificar fornecedor sobre ateste parcial
+        this.notificarAtesteParcialMedicao(medicao, contrato, fiscalNome).catch(e =>
+          this.logger.error(`Erro ao enviar notificações de ateste parcial: ${e.message}`),
+        );
+      }
+    }
+
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -603,6 +640,15 @@ export class MedicaoService {
 
     await this.medicaoRepository.save(medicao);
     this.logger.log(`Medição #${medicao.numero_medicao} devolvida pelo fiscal ${fiscalNome}: ${motivo}`);
+
+    // Notificar fornecedor sobre devolução
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato) {
+      this.notificarDevolucaoMedicao(medicao, contrato, fiscalNome, motivo).catch(e =>
+        this.logger.error(`Erro ao enviar notificações de devolução: ${e.message}`),
+      );
+    }
+
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -686,6 +732,14 @@ export class MedicaoService {
     medicao.data_aprovacao = new Date() as any;
 
     await this.medicaoRepository.save(medicao);
+
+    // Notificar fiscal e fornecedor sobre aprovação
+    if (contrato) {
+      this.notificarAprovacaoMedicao(medicao, contrato, aprovadorNome).catch(e =>
+        this.logger.error(`Erro ao enviar notificações de aprovação: ${e.message}`),
+      );
+    }
+
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -704,6 +758,15 @@ export class MedicaoService {
     medicao.observacao_aprovador = observacao;
 
     await this.medicaoRepository.save(medicao);
+
+    // Notificar fiscal e fornecedor sobre rejeição
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato) {
+      this.notificarRejeicaoMedicao(medicao, contrato, aprovadorNome, observacao).catch(e =>
+        this.logger.error(`Erro ao enviar notificações de rejeição: ${e.message}`),
+      );
+    }
+
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -763,6 +826,7 @@ export class MedicaoService {
     const medicoes = await this.medicaoRepository
       .createQueryBuilder('m')
       .innerJoinAndSelect('m.contrato', 'c')
+      .leftJoinAndSelect('c.fornecedor', 'f')
       .where('c.orgao_id = :orgaoId', { orgaoId })
       .andWhere('m.status = :status', { status: StatusMedicao.AGUARDANDO_APROVACAO })
       .orderBy('m.ateste_data', 'ASC')
@@ -826,6 +890,56 @@ export class MedicaoService {
   }
 
   // ============================================================================
+  // RESUMO FISCAL — Painel do Fiscal
+  // ============================================================================
+
+  /**
+   * Retorna contratos com modalidade MEDICAO do órgão,
+   * com contagem de medições por status para o painel do fiscal.
+   */
+  async resumoFiscalPorContrato(orgaoId: string): Promise<any[]> {
+    const contratos = await this.contratoRepository.find({
+      where: {
+        orgao_id: orgaoId,
+        modalidade_execucao: ModalidadeExecucao.MEDICAO,
+      },
+      order: { created_at: 'DESC' },
+    });
+
+    const resultado = [];
+    for (const contrato of contratos) {
+      const medicoes = await this.medicaoRepository.find({
+        where: { contrato_id: contrato.id },
+      });
+
+      const submetidas = medicoes.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
+      const parcialmenteAtestadas = medicoes.filter(m => m.status === StatusMedicao.PARCIALMENTE_ATESTADA).length;
+      const aguardandoAprovacao = medicoes.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
+      const aprovadas = medicoes.filter(m => m.status === StatusMedicao.APROVADA).length;
+      const total = medicoes.length;
+
+      resultado.push({
+        id: contrato.id,
+        numero_contrato: contrato.numero_contrato,
+        objeto: contrato.objeto,
+        fornecedor_nome: contrato.fornecedor_nome,
+        fornecedor_cnpj: contrato.fornecedor_cnpj,
+        valor_global: Number(contrato.valor_global),
+        fiscal_nome: contrato.fiscal_nome,
+        status: contrato.status,
+        total_medicoes: total,
+        submetidas,
+        parcialmente_atestadas: parcialmenteAtestadas,
+        aguardando_aprovacao: aguardandoAprovacao,
+        aprovadas,
+        pendentes_ateste: submetidas + parcialmenteAtestadas,
+      });
+    }
+
+    return resultado;
+  }
+
+  // ============================================================================
   // HELPERS
   // ============================================================================
 
@@ -865,5 +979,138 @@ export class MedicaoService {
     }));
 
     return { ...medicao, itens: itensEnriquecidos } as any;
+  }
+
+  // ============================================================================
+  // HELPERS — Notificações de Medição
+  // ============================================================================
+
+  /**
+   * Busca usuários do órgão para enviar notificações.
+   * Retorna todos os usuários ativos do órgão.
+   */
+  private async buscarUsuariosOrgao(orgaoId: string): Promise<{ id: string; email?: string }[]> {
+    try {
+      const usuarios = await this.usuarioRepository.find({
+        where: { orgao_id: orgaoId, ativo: true },
+        select: ['id', 'email'],
+      });
+      return usuarios.map(u => ({ id: u.id, email: u.email }));
+    } catch (e) {
+      this.logger.warn(`Não foi possível buscar usuários do órgão ${orgaoId}: ${(e as any).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Busca o fornecedor (user login) para enviar notificações.
+   * Usa o fornecedor_id do contrato como usuario_id (pois fornecedores logam com seu ID).
+   */
+  private getFornecedorDestinatario(contrato: Contrato): { id: string; email?: string }[] {
+    if (!contrato.fornecedor_id) return [];
+    return [{ id: contrato.fornecedor_id }];
+  }
+
+  private async notificarSubmissaoMedicao(medicao: Medicao, contrato: Contrato | null): Promise<void> {
+    if (!contrato) return;
+    const destinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
+    if (destinatarios.length === 0) return;
+
+    await this.notificacoesService.notificarMedicaoSubmetida(
+      contrato.orgao_id,
+      medicao.numero_medicao,
+      medicao.id,
+      contrato.numero_contrato,
+      contrato.id,
+      contrato.fornecedor_nome || 'Fornecedor',
+      Number(medicao.valor_medido),
+      destinatarios,
+    );
+  }
+
+  private async notificarAtesteMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string): Promise<void> {
+    // Notificar gestores/aprovadores do órgão
+    const destinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
+    if (destinatarios.length === 0) return;
+
+    await this.notificacoesService.notificarMedicaoAtestada(
+      contrato.orgao_id,
+      medicao.numero_medicao,
+      medicao.id,
+      contrato.numero_contrato,
+      contrato.id,
+      fiscalNome,
+      Number(medicao.valor_medido),
+      destinatarios,
+    );
+  }
+
+  private async notificarAtesteParcialMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string): Promise<void> {
+    // Notificar fornecedor sobre ateste parcial (itens devolvidos)
+    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    if (fornecedorDest.length === 0) return;
+
+    await this.notificacoesService.notificarMedicaoParcialmenteAtestada(
+      contrato.orgao_id,
+      medicao.numero_medicao,
+      medicao.id,
+      contrato.numero_contrato,
+      contrato.id,
+      fiscalNome,
+      fornecedorDest,
+    );
+  }
+
+  private async notificarAprovacaoMedicao(medicao: Medicao, contrato: Contrato, aprovadorNome: string): Promise<void> {
+    // Notificar usuários do órgão (fiscal)
+    const orgaoDestinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
+    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const todos = [...orgaoDestinatarios, ...fornecedorDest];
+    if (todos.length === 0) return;
+
+    await this.notificacoesService.notificarMedicaoAprovada(
+      contrato.orgao_id,
+      medicao.numero_medicao,
+      medicao.id,
+      contrato.numero_contrato,
+      contrato.id,
+      aprovadorNome,
+      Number(medicao.valor_medido),
+      todos,
+    );
+  }
+
+  private async notificarRejeicaoMedicao(medicao: Medicao, contrato: Contrato, aprovadorNome: string, observacao: string): Promise<void> {
+    const orgaoDestinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
+    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const todos = [...orgaoDestinatarios, ...fornecedorDest];
+    if (todos.length === 0) return;
+
+    await this.notificacoesService.notificarMedicaoRejeitada(
+      contrato.orgao_id,
+      medicao.numero_medicao,
+      medicao.id,
+      contrato.numero_contrato,
+      contrato.id,
+      aprovadorNome,
+      observacao,
+      todos,
+    );
+  }
+
+  private async notificarDevolucaoMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string, motivo: string): Promise<void> {
+    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    if (fornecedorDest.length === 0) return;
+
+    await this.notificacoesService.notificarMedicaoDevolvida(
+      contrato.orgao_id,
+      medicao.numero_medicao,
+      medicao.id,
+      contrato.numero_contrato,
+      contrato.id,
+      fiscalNome,
+      motivo,
+      fornecedorDest,
+    );
   }
 }

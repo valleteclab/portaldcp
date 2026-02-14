@@ -185,6 +185,15 @@ export class ModalidadesContratoController {
     return this.medicaoService.listarPendentesAprovacao(orgaoId);
   }
 
+  /**
+   * Resumo de medições por contrato para o painel do fiscal.
+   * Retorna contratos com modalidade MEDICAO e contagem de medições por status.
+   */
+  @Get('medicoes/resumo-fiscal')
+  async resumoFiscal(@Query('orgaoId') orgaoId: string) {
+    return this.medicaoService.resumoFiscalPorContrato(orgaoId);
+  }
+
   @Get(':contratoId/medicoes/resumo')
   async resumoMedicoes(@Param('contratoId') contratoId: string) {
     return this.medicaoService.resumoMedicoes(contratoId);

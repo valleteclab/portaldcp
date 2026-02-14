@@ -84,6 +84,7 @@ interface Usuario {
   pode_cancelar_estornar?: boolean
   pode_liberar_contratos?: boolean
   pode_excluir_medicao?: boolean
+  eh_fiscal_contrato?: boolean
 }
 
 // Lista de módulos disponíveis
@@ -144,6 +145,7 @@ export default function AdminUsuariosPage() {
     pode_cancelar_estornar: false,
     pode_liberar_contratos: false,
     pode_excluir_medicao: false,
+    eh_fiscal_contrato: false,
   })
 
   useEffect(() => {
@@ -190,6 +192,7 @@ export default function AdminUsuariosPage() {
       pode_cancelar_estornar: false,
       pode_liberar_contratos: false,
       pode_excluir_medicao: false,
+      eh_fiscal_contrato: false,
     })
     setShowNovoUsuario(true)
   }
@@ -209,6 +212,7 @@ export default function AdminUsuariosPage() {
       pode_cancelar_estornar: usuario.pode_cancelar_estornar || false,
       pode_liberar_contratos: usuario.pode_liberar_contratos || false,
       pode_excluir_medicao: usuario.pode_excluir_medicao || false,
+      eh_fiscal_contrato: usuario.eh_fiscal_contrato || false,
     })
     setShowEditarUsuario(true)
   }
@@ -251,6 +255,7 @@ export default function AdminUsuariosPage() {
         pode_cancelar_estornar: formUsuario.pode_cancelar_estornar,
         pode_liberar_contratos: formUsuario.pode_liberar_contratos,
         pode_excluir_medicao: formUsuario.pode_excluir_medicao,
+        eh_fiscal_contrato: formUsuario.eh_fiscal_contrato,
       }
 
       if (formUsuario.senha) {
@@ -540,7 +545,12 @@ export default function AdminUsuariosPage() {
                               Excluir Medição
                             </Badge>
                           )}
-                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && (
+                          {usuario.eh_fiscal_contrato && (
+                            <Badge className="bg-teal-100 text-teal-800 text-xs" title="Fiscal de contrato - atesta medições">
+                              Fiscal
+                            </Badge>
+                          )}
+                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && (
                             <span className="text-gray-400 text-xs">-</span>
                           )}
                         </div>
@@ -799,6 +809,20 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-excluir-medicao" className="cursor-pointer">
                       <p className="text-sm font-medium text-purple-800">Excluir medições</p>
                       <p className="text-xs text-purple-600">Excluir medições de contratos (inclusive aprovadas, com reversão de saldo)</p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                    <Checkbox
+                      id="perm-fiscal"
+                      checked={formUsuario.eh_fiscal_contrato}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, eh_fiscal_contrato: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-fiscal" className="cursor-pointer">
+                      <p className="text-sm font-medium text-teal-800">Fiscal de contrato</p>
+                      <p className="text-xs text-teal-600">Atestar medições, devolver ao fornecedor e acessar o painel de medições</p>
                     </label>
                   </div>
                 </div>

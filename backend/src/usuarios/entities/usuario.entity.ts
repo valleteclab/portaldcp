@@ -99,6 +99,13 @@ export class Usuario {
   @Column({ default: false })
   pode_excluir_medicao: boolean;
 
+  /**
+   * Indica se o usuário é fiscal de contrato.
+   * Fiscais podem atestar medições, devolver ao fornecedor e acessar o painel de medições.
+   */
+  @Column({ default: false })
+  eh_fiscal_contrato: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

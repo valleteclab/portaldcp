@@ -114,6 +114,53 @@ export class NotificacoesService {
   }
 
   /**
+   * Lista notificações de um fornecedor (sem filtro por órgão)
+   */
+  async listarPorUsuarioSemOrgao(
+    usuarioId: string,
+    options?: {
+      apenasNaoLidas?: boolean;
+      limite?: number;
+    },
+  ): Promise<Notificacao[]> {
+    const query = this.notificacaoRepository.createQueryBuilder('n')
+      .where('n.usuario_id = :usuarioId', { usuarioId })
+      .orderBy('n.created_at', 'DESC');
+
+    if (options?.apenasNaoLidas) {
+      query.andWhere('n.lida = false');
+    }
+
+    if (options?.limite) {
+      query.take(options.limite);
+    }
+
+    return query.getMany();
+  }
+
+  /**
+   * Conta notificações não lidas de um fornecedor (sem filtro por órgão)
+   */
+  async contarNaoLidasSemOrgao(usuarioId: string): Promise<number> {
+    return this.notificacaoRepository.count({
+      where: {
+        usuario_id: usuarioId,
+        lida: false,
+      },
+    });
+  }
+
+  /**
+   * Marca todas as notificações de um fornecedor como lidas (sem filtro por órgão)
+   */
+  async marcarTodasComoLidasSemOrgao(usuarioId: string): Promise<void> {
+    await this.notificacaoRepository.update(
+      { usuario_id: usuarioId, lida: false },
+      { lida: true, data_leitura: new Date() },
+    );
+  }
+
+  /**
    * Conta notificações não lidas
    */
   async contarNaoLidas(usuarioId: string, orgaoId: string): Promise<number> {
@@ -284,6 +331,199 @@ export class NotificacoesService {
         observacao,
       },
     });
+  }
+
+  // ============================================================================
+  // MÉTODOS ESPECÍFICOS PARA MEDIÇÕES
+  // ============================================================================
+
+  private formatarMoeda(valor: number): string {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+  }
+
+  /**
+   * Notifica o órgão que uma medição foi submetida pelo fornecedor
+   */
+  async notificarMedicaoSubmetida(
+    orgaoId: string,
+    medicaoNumero: number,
+    medicaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    fornecedorNome: string,
+    valorMedido: number,
+    destinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando medição #${medicaoNumero} submetida - contrato ${contratoNumero}`);
+    try {
+      await this.criarParaMultiplos(destinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.MEDICAO_SUBMETIDA,
+        titulo: `Medição #${medicaoNumero} submetida`,
+        mensagem: `O fornecedor ${fornecedorNome} submeteu a Medição #${medicaoNumero} do contrato ${contratoNumero} no valor de ${this.formatarMoeda(valorMedido)}. Aguarda ateste do fiscal.`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'medicao',
+        entidade_id: medicaoId,
+        link: `/orgao/contratos/${contratoId}`,
+        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fornecedor: fornecedorNome, valor: valorMedido },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar medição submetida: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notifica que a medição foi atestada pelo fiscal (vai para aprovação)
+   */
+  async notificarMedicaoAtestada(
+    orgaoId: string,
+    medicaoNumero: number,
+    medicaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    fiscalNome: string,
+    valorMedido: number,
+    destinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando medição #${medicaoNumero} atestada - contrato ${contratoNumero}`);
+    try {
+      await this.criarParaMultiplos(destinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.MEDICAO_ATESTADA,
+        titulo: `Medição #${medicaoNumero} atestada`,
+        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} (${this.formatarMoeda(valorMedido)}) foi atestada por ${fiscalNome} e aguarda aprovação do gestor.`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'medicao',
+        entidade_id: medicaoId,
+        link: `/orgao/aprovacoes`,
+        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fiscal: fiscalNome, valor: valorMedido },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar medição atestada: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notifica que a medição foi parcialmente atestada
+   */
+  async notificarMedicaoParcialmenteAtestada(
+    orgaoId: string,
+    medicaoNumero: number,
+    medicaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    fiscalNome: string,
+    fornecedorDestinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando medição #${medicaoNumero} parcialmente atestada`);
+    try {
+      await this.criarParaMultiplos(fornecedorDestinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.MEDICAO_PARCIALMENTE_ATESTADA,
+        titulo: `Medição #${medicaoNumero} parcialmente atestada`,
+        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} foi parcialmente atestada por ${fiscalNome}. Itens não atestados foram devolvidos para ajuste.`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'medicao',
+        entidade_id: medicaoId,
+        link: `/fornecedor/contratos/${contratoId}`,
+        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fiscal: fiscalNome },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar medição parcialmente atestada: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notifica que a medição foi aprovada pelo gestor
+   */
+  async notificarMedicaoAprovada(
+    orgaoId: string,
+    medicaoNumero: number,
+    medicaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    aprovadorNome: string,
+    valorMedido: number,
+    destinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando medição #${medicaoNumero} aprovada`);
+    try {
+      await this.criarParaMultiplos(destinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.MEDICAO_APROVADA,
+        titulo: `Medição #${medicaoNumero} aprovada`,
+        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} (${this.formatarMoeda(valorMedido)}) foi aprovada por ${aprovadorNome}.`,
+        prioridade: PrioridadeNotificacao.NORMAL,
+        entidade_tipo: 'medicao',
+        entidade_id: medicaoId,
+        link: `/orgao/contratos/${contratoId}`,
+        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, aprovador: aprovadorNome, valor: valorMedido },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar medição aprovada: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notifica que a medição foi rejeitada pelo gestor
+   */
+  async notificarMedicaoRejeitada(
+    orgaoId: string,
+    medicaoNumero: number,
+    medicaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    aprovadorNome: string,
+    observacao: string,
+    destinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando medição #${medicaoNumero} rejeitada`);
+    try {
+      await this.criarParaMultiplos(destinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.MEDICAO_REJEITADA,
+        titulo: `Medição #${medicaoNumero} rejeitada`,
+        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} foi rejeitada por ${aprovadorNome}. Motivo: ${observacao}`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'medicao',
+        entidade_id: medicaoId,
+        link: `/orgao/contratos/${contratoId}`,
+        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, aprovador: aprovadorNome, observacao },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar medição rejeitada: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notifica o fornecedor que a medição foi devolvida pelo órgão
+   */
+  async notificarMedicaoDevolvida(
+    orgaoId: string,
+    medicaoNumero: number,
+    medicaoId: string,
+    contratoNumero: string,
+    contratoId: string,
+    fiscalNome: string,
+    motivo: string,
+    fornecedorDestinatarios: { id: string; email?: string }[],
+  ): Promise<void> {
+    this.logger.log(`Notificando medição #${medicaoNumero} devolvida`);
+    try {
+      await this.criarParaMultiplos(fornecedorDestinatarios, {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.MEDICAO_DEVOLVIDA,
+        titulo: `Medição #${medicaoNumero} devolvida`,
+        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} foi devolvida por ${fiscalNome}. Motivo: ${motivo}`,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'medicao',
+        entidade_id: medicaoId,
+        link: `/fornecedor/contratos/${contratoId}`,
+        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fiscal: fiscalNome, motivo },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao notificar medição devolvida: ${error.message}`, error.stack);
+    }
   }
 
   // ============================================================================

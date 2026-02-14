@@ -37,7 +37,7 @@ import { UploadModule } from '../upload/upload.module';
     NotificacoesModule,
     UploadModule,
   ],
-  controllers: [ContratosController, ModalidadesContratoController, FornecedorMedicaoController],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController],
   providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService]
 })

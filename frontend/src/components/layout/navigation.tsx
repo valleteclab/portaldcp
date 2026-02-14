@@ -20,7 +20,8 @@ import {
   FileCheck,
   Warehouse,
   CheckCircle,
-  Package
+  Package,
+  ClipboardCheck
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -92,6 +93,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/licitacoes", label: "Licitações", icon: FileText, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
+    { href: "/orgao/medicoes", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/ordens", label: "Ordens de Fornecimento", icon: Send, modulo: ModuloSistema.ALMOXARIFADO },
@@ -297,7 +299,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
-        {pathname.startsWith('/orgao') && <NotificacoesBadge />}
+        {(pathname.startsWith('/orgao') || pathname.startsWith('/fornecedor')) && <NotificacoesBadge />}
 
         <div className="flex items-center gap-3">
           <div className="text-right">
