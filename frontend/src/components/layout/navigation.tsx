@@ -21,7 +21,8 @@ import {
   Warehouse,
   CheckCircle,
   Package,
-  ClipboardCheck
+  ClipboardCheck,
+  Mail
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -79,6 +80,7 @@ export function Sidebar({ userType }: SidebarProps) {
 
   const fornecedorLinks: MenuLink[] = [
     { href: "/fornecedor", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/fornecedor/mensagens", label: "Caixa de entrada", icon: Mail },
     { href: "/fornecedor/licitacoes", label: "Licitações Disponíveis", icon: Search },
     { href: "/fornecedor/participacoes", label: "Minhas Participações", icon: FileText },
     { href: "/fornecedor/propostas", label: "Minhas Propostas", icon: Gavel },

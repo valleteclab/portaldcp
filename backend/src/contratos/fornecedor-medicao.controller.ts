@@ -7,12 +7,14 @@ import {
   Param,
   Body,
   Query,
+  Req,
   UseInterceptors,
   UploadedFile,
   ForbiddenException,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { JwtPayload, UserType } from '../auth/auth.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -67,6 +69,43 @@ export class FornecedorMedicaoController {
       throw new ForbiddenException('Você não tem acesso a este contrato');
     }
     return contrato;
+  }
+
+  // ============================================================================
+  // CAIXA DE ENTRADA — Mensagens de solicitação de medição
+  // ============================================================================
+
+  /**
+   * Lista mensagens recebidas (solicitações do órgão).
+   * GET /api/fornecedor/contratos/mensagens?fornecedorId=X
+   */
+  @Get('mensagens')
+  async listarMensagens(
+    @Query('fornecedorId') fornecedorId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    if (!fornecedorId) throw new BadRequestException('fornecedorId é obrigatório');
+    if (request.user.type === UserType.FORNECEDOR && request.user.sub !== fornecedorId) {
+      throw new ForbiddenException('Acesso negado');
+    }
+    return this.medicaoService.listarMensagensRecebidas(fornecedorId);
+  }
+
+  /**
+   * Busca uma mensagem e marca como lida.
+   * GET /api/fornecedor/contratos/mensagens/:mensagemId?fornecedorId=X
+   */
+  @Get('mensagens/:mensagemId')
+  async buscarMensagem(
+    @Param('mensagemId') mensagemId: string,
+    @Query('fornecedorId') fornecedorId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    if (!fornecedorId) throw new BadRequestException('fornecedorId é obrigatório');
+    if (request.user.type === UserType.FORNECEDOR && request.user.sub !== fornecedorId) {
+      throw new ForbiddenException('Acesso negado');
+    }
+    return this.medicaoService.buscarMensagemEMarcarComoLida(mensagemId, fornecedorId);
   }
 
   // ============================================================================

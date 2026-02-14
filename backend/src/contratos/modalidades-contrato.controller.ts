@@ -194,8 +194,22 @@ export class ModalidadesContratoController {
       contratoId,
       body.mes_referencia.trim(),
       fiscalNome,
+      request.user.sub,
       body.mensagem,
     );
+  }
+
+  /**
+   * Histórico de solicitações de medição enviadas pelo órgão.
+   */
+  @Get('medicoes/solicitacoes-enviadas')
+  async listarSolicitacoesEnviadas(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+    @Query('contratoId') contratoId?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarSolicitacoesEnviadas(orgaoId, contratoId);
   }
 
   @Get('medicoes/:medicaoId')

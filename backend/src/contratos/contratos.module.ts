@@ -26,13 +26,14 @@ import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { ModalidadesContratoController } from './modalidades-contrato.controller';
 import { FornecedorMedicaoController } from './fornecedor-medicao.controller';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
+import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
 import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, Medicao, ItemMedicao, AnexoMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao,
+      EtapaCronograma, Medicao, ItemMedicao, AnexoMedicao, MensagemSolicitacaoMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao,
     ]),
     NotificacoesModule,
     UploadModule,

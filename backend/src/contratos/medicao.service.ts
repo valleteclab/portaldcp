@@ -5,6 +5,7 @@ import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
+import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -22,6 +23,8 @@ export class MedicaoService {
     private medicaoRepository: Repository<Medicao>,
     @InjectRepository(ItemMedicao)
     private itemMedicaoRepository: Repository<ItemMedicao>,
+    @InjectRepository(MensagemSolicitacaoMedicao)
+    private mensagemSolicitacaoRepository: Repository<MensagemSolicitacaoMedicao>,
     @InjectRepository(Requisicao)
     private requisicaoRepository: Repository<Requisicao>,
     @InjectRepository(Usuario)
@@ -1035,10 +1038,16 @@ export class MedicaoService {
   }
 
   /**
-   * Dispara notificação ao fornecedor solicitando envio da medição do mês.
+   * Dispara notificação ao fornecedor e persiste mensagem (histórico + caixa de entrada).
    * Chamado após o controller validar que o contrato pertence ao órgão e é MEDICAO.
    */
-  async solicitarMedicao(contratoId: string, mesReferencia: string, fiscalNome: string, mensagem?: string): Promise<{ message: string }> {
+  async solicitarMedicao(
+    contratoId: string,
+    mesReferencia: string,
+    fiscalNome: string,
+    solicitadoPorId: string,
+    mensagem?: string,
+  ): Promise<{ message: string }> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
     if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
@@ -1049,6 +1058,27 @@ export class MedicaoService {
     if (destinatarios.length === 0) {
       throw new BadRequestException('Contrato sem fornecedor vinculado para notificação');
     }
+
+    const [ano, mes] = mesReferencia.split('-');
+    const mesAnoLabel = mes && ano ? `${mes}/${ano}` : mesReferencia;
+    const textoPadrao = `Solicitamos o envio da medição referente a ${mesAnoLabel}.`;
+    const mensagemCompleta = mensagem?.trim()
+      ? `${textoPadrao}\n\nMensagem do fiscal: ${mensagem.trim()}`
+      : textoPadrao;
+    const titulo = `Solicitação de medição – ${contrato.numero_contrato}`;
+
+    // Persistir mensagem (histórico órgão + caixa de entrada fornecedor)
+    const msg = this.mensagemSolicitacaoRepository.create({
+      contrato_id: contratoId,
+      orgao_id: contrato.orgao_id,
+      fornecedor_id: contrato.fornecedor_id,
+      mes_referencia: mesReferencia,
+      titulo,
+      mensagem: mensagemCompleta,
+      solicitado_por: solicitadoPorId,
+      solicitado_por_nome: fiscalNome,
+    });
+    await this.mensagemSolicitacaoRepository.save(msg);
 
     await this.notificacoesService.notificarSolicitacaoMedicao(
       contrato.orgao_id,
@@ -1062,6 +1092,90 @@ export class MedicaoService {
 
     this.logger.log(`Solicitação de medição enviada: contrato ${contrato.numero_contrato}, mês ${mesReferencia}`);
     return { message: 'Solicitação enviada ao fornecedor com sucesso' };
+  }
+
+  /**
+   * Lista histórico de solicitações enviadas pelo órgão (para o painel do fiscal).
+   */
+  async listarSolicitacoesEnviadas(orgaoId: string, contratoId?: string): Promise<any[]> {
+    const qb = this.mensagemSolicitacaoRepository
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.contrato', 'c')
+      .where('m.orgao_id = :orgaoId', { orgaoId })
+      .orderBy('m.created_at', 'DESC');
+
+    if (contratoId) {
+      qb.andWhere('m.contrato_id = :contratoId', { contratoId });
+    }
+
+    const list = await qb.getMany();
+    return list.map((m) => ({
+      id: m.id,
+      contrato_id: m.contrato_id,
+      numero_contrato: (m as any).contrato?.numero_contrato,
+      fornecedor_nome: (m as any).contrato?.fornecedor_razao_social,
+      mes_referencia: m.mes_referencia,
+      titulo: m.titulo,
+      mensagem: m.mensagem,
+      solicitado_por_nome: m.solicitado_por_nome,
+      created_at: m.created_at,
+    }));
+  }
+
+  /**
+   * Lista mensagens recebidas pelo fornecedor (caixa de entrada).
+   */
+  async listarMensagensRecebidas(fornecedorId: string): Promise<any[]> {
+    const list = await this.mensagemSolicitacaoRepository.find({
+      where: { fornecedor_id: fornecedorId },
+      relations: ['contrato', 'contrato.orgao'],
+      order: { created_at: 'DESC' },
+    });
+    return list.map((m) => ({
+      id: m.id,
+      contrato_id: m.contrato_id,
+      numero_contrato: m.contrato?.numero_contrato,
+      orgao_nome: (m.contrato as any)?.orgao?.nome,
+      mes_referencia: m.mes_referencia,
+      titulo: m.titulo,
+      mensagem: m.mensagem,
+      solicitado_por_nome: m.solicitado_por_nome,
+      created_at: m.created_at,
+      lida: m.lida,
+      lida_em: m.lida_em,
+    }));
+  }
+
+  /**
+   * Busca uma mensagem e marca como lida (para o fornecedor).
+   */
+  async buscarMensagemEMarcarComoLida(mensagemId: string, fornecedorId: string): Promise<any> {
+    const m = await this.mensagemSolicitacaoRepository.findOne({
+      where: { id: mensagemId },
+      relations: ['contrato', 'contrato.orgao'],
+    });
+    if (!m) throw new NotFoundException('Mensagem não encontrada');
+    if (m.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem acesso a esta mensagem');
+    }
+    if (!m.lida) {
+      m.lida = true;
+      m.lida_em = new Date();
+      await this.mensagemSolicitacaoRepository.save(m);
+    }
+    return {
+      id: m.id,
+      contrato_id: m.contrato_id,
+      numero_contrato: m.contrato?.numero_contrato,
+      orgao_nome: (m.contrato as any)?.orgao?.nome,
+      mes_referencia: m.mes_referencia,
+      titulo: m.titulo,
+      mensagem: m.mensagem,
+      solicitado_por_nome: m.solicitado_por_nome,
+      created_at: m.created_at,
+      lida: m.lida,
+      lida_em: m.lida_em,
+    };
   }
 
   // ============================================================================

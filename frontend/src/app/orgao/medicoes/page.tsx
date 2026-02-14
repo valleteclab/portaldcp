@@ -13,7 +13,7 @@ import {
 import {
   ClipboardCheck, TrendingUp, Search, Building2, FileText,
   Loader2, AlertTriangle, ChevronRight, CheckCircle, Clock,
-  Send, XCircle, Calendar,
+  Send, XCircle, Calendar, History, Mail,
 } from 'lucide-react'
 import { authFetch } from '@/lib/api'
 import TabMedicao from '@/components/contratos/TabMedicao'
@@ -60,6 +60,18 @@ function formatarMesReferencia(ym: string): string {
   return idx >= 0 && idx < 12 ? `${meses[idx]}/${y}` : ym
 }
 
+interface SolicitacaoEnviada {
+  id: string
+  contrato_id: string
+  numero_contrato: string
+  fornecedor_nome: string
+  mes_referencia: string
+  titulo: string
+  mensagem: string
+  solicitado_por_nome: string
+  created_at: string
+}
+
 export default function MedicoesPage() {
   const [contratos, setContratos] = useState<ContratoResumo[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,6 +82,10 @@ export default function MedicoesPage() {
   const [mensagemSolicitar, setMensagemSolicitar] = useState('')
   const [loadingSolicitar, setLoadingSolicitar] = useState(false)
   const [erroSolicitar, setErroSolicitar] = useState<string | null>(null)
+  const [historico, setHistorico] = useState<SolicitacaoEnviada[]>([])
+  const [loadingHistorico, setLoadingHistorico] = useState(false)
+  const [historicoAberto, setHistoricoAberto] = useState(false)
+  const [mensagemDetalhe, setMensagemDetalhe] = useState<SolicitacaoEnviada | null>(null)
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -91,6 +107,24 @@ export default function MedicoesPage() {
 
   useEffect(() => { carregarDados() }, [carregarDados])
 
+  const carregarHistorico = useCallback(async () => {
+    setLoadingHistorico(true)
+    try {
+      const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+      const orgaoId = orgao.id
+      if (!orgaoId) return
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/solicitacoes-enviadas?orgaoId=${orgaoId}`)
+      if (res.ok) setHistorico(await res.json())
+    } catch (e) {
+      console.error('Erro ao carregar histórico:', e)
+    }
+    setLoadingHistorico(false)
+  }, [])
+
+  useEffect(() => {
+    if (historicoAberto && historico.length === 0) carregarHistorico()
+  }, [historicoAberto, historico.length, carregarHistorico])
+
   const enviarSolicitacao = async () => {
     if (!solicitarContrato) return
     setErroSolicitar(null)
@@ -111,6 +145,7 @@ export default function MedicoesPage() {
       setSolicitarContrato(null)
       setMensagemSolicitar('')
       carregarDados()
+      if (historicoAberto) carregarHistorico()
     } catch (e) {
       setErroSolicitar(e instanceof Error ? e.message : 'Erro ao enviar solicitação')
     }
@@ -331,6 +366,54 @@ export default function MedicoesPage() {
         </div>
       )}
 
+      {/* Histórico de solicitações enviadas */}
+      <Card>
+        <button
+          type="button"
+          className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 rounded-lg transition-colors"
+          onClick={() => setHistoricoAberto(!historicoAberto)}
+        >
+          <CardTitle className="text-base flex items-center gap-2">
+            <History className="w-4 h-4 text-gray-500" />
+            Histórico de solicitações enviadas
+          </CardTitle>
+          <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${historicoAberto ? 'rotate-90' : ''}`} />
+        </button>
+        {historicoAberto && (
+          <CardContent className="pt-0 border-t">
+            {loadingHistorico ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : historico.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4">Nenhuma solicitação enviada ainda.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {historico.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-gray-900">{s.numero_contrato}</span>
+                      <span className="text-gray-500 mx-2">–</span>
+                      <span className="text-sm text-gray-600">{s.fornecedor_nome}</span>
+                      <span className="text-gray-400 text-sm ml-2">{formatarMesReferencia(s.mes_referencia)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-gray-400">{new Date(s.created_at).toLocaleString('pt-BR')}</span>
+                      <Button variant="ghost" size="sm" onClick={() => setMensagemDetalhe(s)}>
+                        <Mail className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       {/* Modal com TabMedicao */}
       <Dialog open={!!contratoAberto} onOpenChange={() => setContratoAberto(null)}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
@@ -345,6 +428,30 @@ export default function MedicoesPage() {
               contratoId={contratoAberto.id}
               valorGlobal={contratoAberto.valor_global}
             />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal detalhe da mensagem (histórico) */}
+      <Dialog open={!!mensagemDetalhe} onOpenChange={(open) => !open && setMensagemDetalhe(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              {mensagemDetalhe?.titulo}
+            </DialogTitle>
+          </DialogHeader>
+          {mensagemDetalhe && (
+            <div className="space-y-3 text-sm">
+              <p><span className="text-gray-500">Contrato:</span> {mensagemDetalhe.numero_contrato} – {mensagemDetalhe.fornecedor_nome}</p>
+              <p><span className="text-gray-500">Mês:</span> {formatarMesReferencia(mensagemDetalhe.mes_referencia)}</p>
+              <p><span className="text-gray-500">Enviado por:</span> {mensagemDetalhe.solicitado_por_nome}</p>
+              <p><span className="text-gray-500">Data:</span> {new Date(mensagemDetalhe.created_at).toLocaleString('pt-BR')}</p>
+              <div className="pt-2 border-t">
+                <p className="text-gray-500 mb-1">Mensagem:</p>
+                <p className="whitespace-pre-wrap text-gray-800">{mensagemDetalhe.mensagem}</p>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
