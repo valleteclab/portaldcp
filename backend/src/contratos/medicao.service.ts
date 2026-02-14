@@ -953,6 +953,7 @@ export class MedicaoService {
    * Resumo fiscal por contrato com indicador de "enviou medição no mês".
    * Mesmo retorno de resumoFiscalPorContrato + enviou_mes (e opcionalmente medicao_id/numero_medicao).
    * mesReferencia no formato YYYY-MM.
+   * Inclui apenas contratos cuja vigência (data_vigencia_inicio a data_vigencia_fim) contém o mês selecionado.
    */
   async resumoFiscalPorContratoComMes(orgaoId: string, mesReferencia: string): Promise<any[]> {
     const [anoStr, mesStr] = mesReferencia.split('-');
@@ -974,6 +975,16 @@ export class MedicaoService {
 
     const resultado = [];
     for (const contrato of contratos) {
+      // Só incluir contratos cuja vigência contém o mês de referência
+      const vigenciaInicio = contrato.data_vigencia_inicio instanceof Date
+        ? contrato.data_vigencia_inicio
+        : new Date(contrato.data_vigencia_inicio as any);
+      const vigenciaFim = contrato.data_vigencia_fim instanceof Date
+        ? contrato.data_vigencia_fim
+        : new Date(contrato.data_vigencia_fim as any);
+      if (vigenciaInicio > ultimoDia || vigenciaFim < primeiroDia) {
+        continue; // mês fora da vigência do contrato
+      }
       const medicoes = await this.medicaoRepository.find({
         where: { contrato_id: contrato.id },
       });
