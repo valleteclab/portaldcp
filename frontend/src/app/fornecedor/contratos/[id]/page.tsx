@@ -353,6 +353,13 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
+      // Validar campos obrigatórios
+      if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
+        alert('Informe o período de início e fim da medição');
+        setSubmitting(false);
+        return;
+      }
+
       const itensComValor = novaMedicao.itens
         .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
         .map(i => ({
@@ -441,6 +448,13 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
+      // Validar campos obrigatórios
+      if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
+        alert('Informe o período de início e fim da medição');
+        setSubmitting(false);
+        return;
+      }
+
       const itensComValor = novaMedicao.itens
         .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
         .map(i => ({

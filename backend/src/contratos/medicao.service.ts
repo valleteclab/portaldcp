@@ -199,6 +199,16 @@ export class MedicaoService {
       valor_executado_atual?: number;
     }[];
   }, opcoes?: { skipOSCheck?: boolean }): Promise<Medicao> {
+    // Validar campos obrigatórios
+    if (!dados.periodo_inicio || !dados.periodo_fim) {
+      throw new BadRequestException('Período de início e fim são obrigatórios');
+    }
+
+    // Validar que itens foram informados
+    if (!dados.itens || !Array.isArray(dados.itens) || dados.itens.length === 0) {
+      throw new BadRequestException('Informe pelo menos um item de medição');
+    }
+
     // Sanitizar campos opcionais: strings vazias viram undefined para evitar erro em colunas date/numeric
     if (dados.nota_fiscal_data !== undefined && dados.nota_fiscal_data.toString().trim() === '') {
       dados.nota_fiscal_data = undefined;
