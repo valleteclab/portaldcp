@@ -841,7 +841,7 @@ export default function FornecedorContratoDetalhePage() {
                               <Badge variant="outline" className="ml-1 text-xs px-1.5 py-0">{anexos[medicao.id].length}</Badge>
                             )}
                           </p>
-                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA' || medicao.status === 'SUBMETIDA') && (
+                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
                             <div className="flex gap-1">
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"

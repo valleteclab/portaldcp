@@ -195,6 +195,16 @@ export class FornecedorMedicaoController {
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
+    // Só permite upload em medições RASCUNHO ou DEVOLVIDA
+    if (!['RASCUNHO', 'DEVOLVIDA'].includes(medicao.status)) {
+      // Remover arquivo salvo em disco antes de rejeitar
+      if (file.path) {
+        const fs = await import('fs');
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      }
+      throw new BadRequestException('Só é possível enviar anexos em medições com status Rascunho ou Devolvida.');
+    }
+
     // Validar acesso do fornecedor
     if (fornecedorId && medicao.contrato) {
       await this.validarAcessoFornecedor(medicao.contrato.id, fornecedorId);
@@ -249,6 +259,11 @@ export class FornecedorMedicaoController {
       relations: ['medicao', 'medicao.contrato'],
     });
     if (!anexo) throw new NotFoundException('Anexo não encontrado');
+
+    // Só permite excluir em medições RASCUNHO ou DEVOLVIDA
+    if (anexo.medicao && !['RASCUNHO', 'DEVOLVIDA'].includes(anexo.medicao.status)) {
+      throw new BadRequestException('Só é possível excluir anexos em medições com status Rascunho ou Devolvida.');
+    }
 
     // Validar acesso
     if (fornecedorId && anexo.medicao?.contrato) {
