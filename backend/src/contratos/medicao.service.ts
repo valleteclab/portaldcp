@@ -922,7 +922,7 @@ export class MedicaoService {
         id: contrato.id,
         numero_contrato: contrato.numero_contrato,
         objeto: contrato.objeto,
-        fornecedor_nome: contrato.fornecedor_nome,
+        fornecedor_nome: contrato.fornecedor_razao_social,
         fornecedor_cnpj: contrato.fornecedor_cnpj,
         valor_global: Number(contrato.valor_global),
         fiscal_nome: contrato.fiscal_nome,
@@ -1022,7 +1022,7 @@ export class MedicaoService {
       medicao.id,
       contrato.numero_contrato,
       contrato.id,
-      contrato.fornecedor_nome || 'Fornecedor',
+      contrato.fornecedor_razao_social || 'Fornecedor',
       Number(medicao.valor_medido),
       destinatarios,
     );
