@@ -17,3 +17,4 @@ export class AddSolicitacaoMedicaoNotificacao1739910000000 implements MigrationI
   public async down(_queryRunner: QueryRunner): Promise<void> {
     // PostgreSQL não permite remover valor de enum de forma simples
   }
+}
