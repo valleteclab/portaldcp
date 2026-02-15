@@ -990,24 +990,49 @@ export class MedicaoService {
   }
 
   /**
-   * Lista medições submetidas pelo fornecedor, pendentes de ateste do fiscal.
-   * Filtrado por orgao_id via contrato.
+   * Lista medições pendentes de ateste do fiscal (SUBMETIDA + PARCIALMENTE_ATESTADA).
+   * Retorna dados enriquecidos para o Painel de Medições (contrato, fornecedor, itens).
    */
   async listarPendentesAteste(orgaoId: string): Promise<any[]> {
     const medicoes = await this.medicaoRepository
       .createQueryBuilder('m')
       .innerJoinAndSelect('m.contrato', 'c')
       .where('c.orgao_id = :orgaoId', { orgaoId })
-      .andWhere('m.status = :status', { status: StatusMedicao.SUBMETIDA })
+      .andWhere('m.status IN (:...statuses)', { statuses: [StatusMedicao.SUBMETIDA, StatusMedicao.PARCIALMENTE_ATESTADA] })
       .orderBy('m.data_submissao', 'ASC')
       .getMany();
 
-    return medicoes;
+    // Enriquecer com contagem de itens (total e atestados)
+    const result = [];
+    for (const med of medicoes) {
+      const itens = await this.itemMedicaoRepository.find({ where: { medicao_id: med.id } });
+      const contrato = (med as any).contrato;
+      result.push({
+        id: med.id,
+        contrato_id: med.contrato_id,
+        numero_medicao: med.numero_medicao,
+        status: med.status,
+        periodo_inicio: med.periodo_inicio,
+        periodo_fim: med.periodo_fim,
+        valor_medido: med.valor_medido,
+        percentual_fisico_medido: med.percentual_fisico_medido,
+        data_submissao: med.data_submissao,
+        fornecedor_nome: med.fornecedor_nome || contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
+        nota_fiscal_numero: med.nota_fiscal_numero,
+        numero_contrato: contrato?.numero_contrato,
+        objeto_contrato: contrato?.objeto,
+        fiscal_nome: contrato?.fiscal_nome,
+        total_itens: itens.length,
+        itens_atestados: itens.filter(i => i.atestado).length,
+      });
+    }
+
+    return result;
   }
 
   /**
    * Lista medições atestadas pelo fiscal, pendentes de aprovação do gestor.
-   * Filtrado por orgao_id via contrato.
+   * Retorna dados enriquecidos para o Painel de Medições.
    */
   async listarPendentesAprovacao(orgaoId: string): Promise<any[]> {
     const medicoes = await this.medicaoRepository
@@ -1019,7 +1044,24 @@ export class MedicaoService {
       .orderBy('m.ateste_data', 'ASC')
       .getMany();
 
-    return medicoes;
+    return medicoes.map(med => {
+      const contrato = (med as any).contrato;
+      return {
+        id: med.id,
+        contrato_id: med.contrato_id,
+        numero_medicao: med.numero_medicao,
+        status: med.status,
+        periodo_inicio: med.periodo_inicio,
+        periodo_fim: med.periodo_fim,
+        valor_medido: med.valor_medido,
+        percentual_fisico_medido: med.percentual_fisico_medido,
+        ateste_fiscal_nome: med.ateste_fiscal_nome,
+        ateste_data: med.ateste_data,
+        fornecedor_nome: med.fornecedor_nome || contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
+        numero_contrato: contrato?.numero_contrato,
+        objeto_contrato: contrato?.objeto,
+      };
+    });
   }
 
   /**

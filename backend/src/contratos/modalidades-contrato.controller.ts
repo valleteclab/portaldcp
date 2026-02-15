@@ -200,6 +200,70 @@ export class ModalidadesContratoController {
   }
 
   /**
+   * Solicita medição em lote para múltiplos contratos de uma vez.
+   */
+  @Post('medicoes/solicitar-lote')
+  async solicitarMedicaoLote(
+    @Body() body: { contrato_ids: string[]; mes_referencia: string; mensagem?: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    if (!body.contrato_ids || body.contrato_ids.length === 0) {
+      throw new BadRequestException('Selecione pelo menos um contrato');
+    }
+    if (!body.mes_referencia?.trim()) {
+      throw new BadRequestException('mes_referencia é obrigatório (formato YYYY-MM)');
+    }
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+
+    const resultados: { contrato_id: string; numero_contrato?: string; sucesso: boolean; erro?: string }[] = [];
+
+    for (const contratoId of body.contrato_ids) {
+      try {
+        const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+        if (!contrato) {
+          resultados.push({ contrato_id: contratoId, sucesso: false, erro: 'Contrato não encontrado' });
+          continue;
+        }
+        if (contrato.orgao_id !== orgaoId) {
+          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Sem permissão' });
+          continue;
+        }
+        if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
+          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Não é modalidade medição' });
+          continue;
+        }
+        await this.medicaoService.solicitarMedicao(
+          contratoId,
+          body.mes_referencia.trim(),
+          fiscalNome,
+          request.user.sub,
+          body.mensagem,
+        );
+        resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: true });
+      } catch (e) {
+        resultados.push({
+          contrato_id: contratoId,
+          sucesso: false,
+          erro: e instanceof Error ? e.message : 'Erro desconhecido',
+        });
+      }
+    }
+
+    const enviados = resultados.filter(r => r.sucesso).length;
+    const erros = resultados.filter(r => !r.sucesso).length;
+    return {
+      message: `Solicitações enviadas: ${enviados} sucesso, ${erros} erro(s)`,
+      total: body.contrato_ids.length,
+      enviados,
+      erros,
+      resultados,
+    };
+  }
+
+  /**
    * Histórico de solicitações de medição enviadas pelo órgão.
    */
   @Get('medicoes/solicitacoes-enviadas')
