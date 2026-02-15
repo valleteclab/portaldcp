@@ -116,6 +116,15 @@ export class ModalidadesContratoController {
     return this.medicaoService.listarPendentesAteste(orgaoId);
   }
 
+  @Get('medicoes/devolvidas')
+  async listarDevolvidas(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarDevolvidas(orgaoId);
+  }
+
   @Get('medicoes/pendentes-aprovacao')
   async listarPendentesAprovacao(
     @Req() request: { user: JwtPayload },

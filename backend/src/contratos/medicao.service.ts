@@ -1099,6 +1099,40 @@ export class MedicaoService {
   }
 
   /**
+   * Lista medições devolvidas ao fornecedor (status DEVOLVIDA).
+   * Para controle do fiscal no Painel de Medições.
+   */
+  async listarDevolvidas(orgaoId: string): Promise<any[]> {
+    const medicoes = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.contrato', 'c')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.DEVOLVIDA })
+      .orderBy('m.data_devolucao', 'DESC')
+      .getMany();
+
+    return medicoes.map(med => {
+      const contrato = (med as any).contrato;
+      return {
+        id: med.id,
+        contrato_id: med.contrato_id,
+        numero_medicao: med.numero_medicao,
+        status: med.status,
+        periodo_inicio: med.periodo_inicio,
+        periodo_fim: med.periodo_fim,
+        valor_medido: med.valor_medido,
+        percentual_fisico_medido: med.percentual_fisico_medido,
+        data_submissao: med.data_submissao,
+        motivo_devolucao: med.motivo_devolucao,
+        data_devolucao: med.data_devolucao,
+        fornecedor_nome: med.fornecedor_nome || contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
+        numero_contrato: contrato?.numero_contrato,
+        objeto_contrato: contrato?.objeto,
+      };
+    });
+  }
+
+  /**
    * Lista medições de um fornecedor específico em um contrato.
    */
   async listarMedicoesFornecedor(contratoId: string, fornecedorId: string): Promise<Medicao[]> {

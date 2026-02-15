@@ -84,6 +84,23 @@ interface MedicaoAprovacao {
   objeto_contrato: string
 }
 
+interface MedicaoDevolvida {
+  id: string
+  contrato_id: string
+  numero_medicao: number
+  status: string
+  periodo_inicio: string
+  periodo_fim: string
+  valor_medido: number
+  percentual_fisico_medido: number
+  data_submissao?: string
+  motivo_devolucao?: string
+  data_devolucao?: string
+  fornecedor_nome: string
+  numero_contrato: string
+  objeto_contrato: string
+}
+
 interface SolicitacaoEnviada {
   id: string
   contrato_id: string
@@ -157,12 +174,14 @@ export default function MedicoesPage() {
   const [contratos, setContratos] = useState<ContratoResumo[]>([])
   const [pendentesAteste, setPendentesAteste] = useState<MedicaoPendente[]>([])
   const [pendentesAprovacao, setPendentesAprovacao] = useState<MedicaoAprovacao[]>([])
+  const [devolvidas, setDevolvidas] = useState<MedicaoDevolvida[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [mesReferencia, setMesReferencia] = useState(mesAnteriorYYYYMM)
 
   // Seções colapsáveis
   const [secaoAprovacaoAberta, setSecaoAprovacaoAberta] = useState(false)
+  const [secaoDevolvidasAberta, setSecaoDevolvidasAberta] = useState(false)
   const [secaoContratosAberta, setSecaoContratosAberta] = useState(false)
   const [historicoAberto, setHistoricoAberto] = useState(false)
 
@@ -201,10 +220,11 @@ export default function MedicoesPage() {
       const orgaoId = orgao.id
       if (!orgaoId) return
 
-      const [resContratos, resPendentes, resAprovacao, resHistorico] = await Promise.all([
+      const [resContratos, resPendentes, resAprovacao, resDevolvidas, resHistorico] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/resumo-fiscal?orgaoId=${orgaoId}&mes=${mesReferencia}`),
         authFetch(`${API_URL}/api/contratos/medicoes/pendentes-ateste?orgaoId=${orgaoId}`),
         authFetch(`${API_URL}/api/contratos/medicoes/pendentes-aprovacao?orgaoId=${orgaoId}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/devolvidas?orgaoId=${orgaoId}`),
         authFetch(`${API_URL}/api/contratos/medicoes/solicitacoes-enviadas?orgaoId=${orgaoId}`),
       ])
 
@@ -224,6 +244,7 @@ export default function MedicoesPage() {
       }
       if (resPendentes.ok) setPendentesAteste(await resPendentes.json())
       if (resAprovacao.ok) setPendentesAprovacao(await resAprovacao.json())
+      if (resDevolvidas.ok) setDevolvidas(await resDevolvidas.json())
     } catch (e) {
       console.error('Erro ao carregar dados:', e)
     }
@@ -752,6 +773,67 @@ export default function MedicoesPage() {
                   <Badge className="bg-orange-100 text-orange-800 text-xs">Aguardando Aprovação</Badge>
                 </div>
               ))}
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {/* ============ SEÇÃO: MEDIÇÕES DEVOLVIDAS (colapsável) ============ */}
+      {devolvidas.length > 0 && (
+        <Card>
+          <button
+            type="button"
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 rounded-lg transition-colors"
+            onClick={() => setSecaoDevolvidasAberta(!secaoDevolvidasAberta)}
+          >
+            <CardTitle className="text-base flex items-center gap-2">
+              <RotateCcw className="w-4 h-4 text-amber-600" />
+              Medições Devolvidas ({devolvidas.length})
+              <span className="text-xs font-normal text-gray-500 ml-2">Devolvidas ao fornecedor para correção</span>
+            </CardTitle>
+            <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${secaoDevolvidasAberta ? 'rotate-180' : ''}`} />
+          </button>
+          {secaoDevolvidasAberta && (
+            <CardContent className="pt-0 border-t space-y-2">
+              {devolvidas
+                .filter(m => !busca || [m.numero_contrato, m.fornecedor_nome, m.objeto_contrato].some(v => v?.toLowerCase().includes(busca.toLowerCase())))
+                .map((med) => (
+                  <div
+                    key={med.id}
+                    className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50/30"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                        <span className="text-sm font-bold text-amber-700">{med.numero_medicao}ª</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900 text-sm">{med.numero_contrato}</span>
+                          <span className="text-gray-400">-</span>
+                          <span className="text-sm text-gray-600 truncate">{med.fornecedor_nome}</span>
+                          <Badge className="bg-amber-100 text-amber-800 text-xs">Devolvida</Badge>
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                          <span>{formatarData(med.periodo_inicio)} a {formatarData(med.periodo_fim)}</span>
+                          <span className="font-medium text-gray-700">{formatarMoeda(med.valor_medido)}</span>
+                        </div>
+                        {med.motivo_devolucao && (
+                          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                            <strong>Devolvida:</strong> {med.motivo_devolucao}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { const c = contratos.find(x => x.id === med.contrato_id); if (c) setContratoAberto(c) }}
+                      title="Abrir contrato para ver detalhes"
+                    >
+                      <Eye className="w-4 h-4 mr-1" /> Ver contrato
+                    </Button>
+                  </div>
+                ))}
             </CardContent>
           )}
         </Card>
