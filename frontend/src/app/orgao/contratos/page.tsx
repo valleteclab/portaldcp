@@ -479,17 +479,17 @@ window._extraindoContratos = true;
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-fixed">
                 <thead>
                   <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-2">Contrato</th>
-                    <th className="text-left py-3 px-2">Fornecedor</th>
-                    <th className="text-left py-3 px-2">Objeto</th>
-                    <th className="text-right py-3 px-2">Valor</th>
-                    <th className="text-center py-3 px-2">Vigência</th>
-                    <th className="text-center py-3 px-2">Status</th>
-                    <th className="text-center py-3 px-2">PNCP</th>
-                    <th className="text-center py-3 px-2">Ações</th>
+                    <th className="text-left py-3 px-2 w-24">Contrato</th>
+                    <th className="text-left py-3 px-2 w-48">Fornecedor</th>
+                    <th className="text-left py-3 px-2 w-2/5">Objeto</th>
+                    <th className="text-right py-3 px-2 w-32">Valor</th>
+                    <th className="text-center py-3 px-2 w-28">Vigência</th>
+                    <th className="text-center py-3 px-2 w-28">Status</th>
+                    <th className="text-center py-3 px-2 w-16">PNCP</th>
+                    <th className="text-center py-3 px-2 w-32">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -498,17 +498,19 @@ window._extraindoContratos = true;
                     const diasRestantes = calcularDiasRestantes(contrato.data_vigencia_fim)
                     
                     return (
-                      <tr key={contrato.id} className="border-b hover:bg-gray-50">
-                        <td className="py-3 px-2">
+                      <tr key={contrato.id} className="border-b hover:bg-gray-50 align-top">
+                        <td className="py-3 px-2 align-top">
                           <p className="font-medium">{contrato.numero_contrato}</p>
                           <p className="text-xs text-gray-500">{contrato.numero_processo}</p>
                         </td>
-                        <td className="py-3 px-2">
+                        <td className="py-3 px-2 align-top">
                           <p className="font-medium">{contrato.fornecedor_razao_social}</p>
                           <p className="text-xs text-gray-500">{contrato.fornecedor_cnpj}</p>
                         </td>
-                        <td className="py-3 px-2 max-w-xs truncate">{contrato.objeto}</td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-3 px-2 align-top min-w-[200px]">
+                          <p className="text-sm text-gray-700 whitespace-normal break-words">{contrato.objeto}</p>
+                        </td>
+                        <td className="py-3 px-2 text-right align-top">
                           <div className="font-medium">{formatarMoeda(contrato.valor_global)}</div>
                           {contrato.saldo_total_em_valor !== undefined && (
                             <div className="text-xs text-gray-500">
@@ -516,7 +518,7 @@ window._extraindoContratos = true;
                             </div>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-center">
+                        <td className="py-3 px-2 text-center align-top">
                           <p className="text-sm">{formatarData(contrato.data_vigencia_fim)}</p>
                           {contrato.status === 'VIGENTE' && diasRestantes <= 30 && (
                             <Badge variant="secondary" className="text-xs">
@@ -524,20 +526,20 @@ window._extraindoContratos = true;
                             </Badge>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-center">
+                        <td className="py-3 px-2 text-center align-top">
                           <Badge className={STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.cor || ''}>
                             <StatusIcon className="w-3 h-3 mr-1" />
                             {STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.label || contrato.status}
                           </Badge>
                         </td>
-                        <td className="py-3 px-2 text-center">
+                        <td className="py-3 px-2 text-center align-top">
                           {contrato.enviado_pncp ? (
                             <CheckCircle className="w-5 h-5 text-green-500 mx-auto" />
                           ) : (
                             <Clock className="w-5 h-5 text-yellow-500 mx-auto" />
                           )}
                         </td>
-                        <td className="py-3 px-2 text-center">
+                        <td className="py-3 px-2 text-center align-top">
                           <div className="flex items-center justify-center gap-1">
                             <Button variant="ghost" size="sm" asChild title="Ver detalhes">
                               <Link href={`/orgao/contratos/${contrato.id}`}>
