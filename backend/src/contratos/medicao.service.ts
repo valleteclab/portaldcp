@@ -1002,9 +1002,42 @@ export class MedicaoService {
       .orderBy('m.data_submissao', 'ASC')
       .getMany();
 
-    // Enriquecer com contagem de itens (total e atestados)
+    // Mapa (contrato_id|mes_referencia) -> data_solicitacao mais recente
+    const pares = medicoes.map(med => {
+      const inicio = med.periodo_inicio instanceof Date ? med.periodo_inicio : new Date(med.periodo_inicio as any);
+      const mesRef = `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}`;
+      return { contrato_id: med.contrato_id, mes_referencia: mesRef };
+    });
+    const contratoIds = [...new Set(pares.map(p => p.contrato_id))];
+    const mesRefs = [...new Set(pares.map(p => p.mes_referencia))];
+    const solicitacoes = contratoIds.length && mesRefs.length
+      ? await this.mensagemSolicitacaoRepository
+          .createQueryBuilder('msg')
+          .select('msg.contrato_id', 'contrato_id')
+          .addSelect('msg.mes_referencia', 'mes_referencia')
+          .addSelect('MAX(msg.created_at)', 'created_at')
+          .where('msg.orgao_id = :orgaoId', { orgaoId })
+          .andWhere('msg.contrato_id IN (:...contratoIds)', { contratoIds })
+          .andWhere('msg.mes_referencia IN (:...mesRefs)', { mesRefs })
+          .groupBy('msg.contrato_id')
+          .addGroupBy('msg.mes_referencia')
+          .getRawMany()
+      : [];
+    const dataSolicitacaoMap = new Map<string, Date>();
+    for (const s of solicitacoes) {
+      const key = `${s.contrato_id}|${s.mes_referencia}`;
+      const dt = s.created_at instanceof Date ? s.created_at : new Date(s.created_at);
+      const existing = dataSolicitacaoMap.get(key);
+      if (!existing || dt > existing) dataSolicitacaoMap.set(key, dt);
+    }
+
+    // Enriquecer com contagem de itens (total e atestados) e data_solicitacao
     const result = [];
     for (const med of medicoes) {
+      const inicio = med.periodo_inicio instanceof Date ? med.periodo_inicio : new Date(med.periodo_inicio as any);
+      const mesRef = `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}`;
+      const dataSolicitacao = dataSolicitacaoMap.get(`${med.contrato_id}|${mesRef}`) || null;
+
       const itens = await this.itemMedicaoRepository.find({ where: { medicao_id: med.id } });
       const contrato = (med as any).contrato;
       result.push({
@@ -1017,6 +1050,7 @@ export class MedicaoService {
         valor_medido: med.valor_medido,
         percentual_fisico_medido: med.percentual_fisico_medido,
         data_submissao: med.data_submissao,
+        data_solicitacao: dataSolicitacao,
         fornecedor_nome: med.fornecedor_nome || contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
         nota_fiscal_numero: med.nota_fiscal_numero,
         numero_contrato: contrato?.numero_contrato,
@@ -1200,6 +1234,13 @@ export class MedicaoService {
     const primeiroDia = new Date(ano, mes - 1, 1);
     const ultimoDia = new Date(ano, mes, 0);
 
+    // Contratos com solicitação enviada para este mês (para solicitou_mes)
+    const solicitacoesMes = await this.mensagemSolicitacaoRepository.find({
+      where: { orgao_id: orgaoId, mes_referencia: mesReferencia },
+      select: ['contrato_id'],
+    });
+    const contratosSolicitados = new Set(solicitacoesMes.map(s => s.contrato_id));
+
     const contratos = await this.contratoRepository.find({
       where: {
         orgao_id: orgaoId,
@@ -1233,15 +1274,17 @@ export class MedicaoService {
       let enviou_mes = false;
       let medicao_id: string | null = null;
       let numero_medicao: number | null = null;
+      const numero_medicoes_mes: number[] = [];
+      let valor_medicoes_mes = 0;
 
       for (const m of medicoes) {
         const inicio = m.periodo_inicio instanceof Date ? m.periodo_inicio : new Date(m.periodo_inicio as any);
         const fim = m.periodo_fim instanceof Date ? m.periodo_fim : new Date(m.periodo_fim as any);
         if (inicio <= ultimoDia && fim >= primeiroDia) {
           enviou_mes = true;
-          medicao_id = m.id;
-          numero_medicao = m.numero_medicao;
-          break;
+          if (!medicao_id) { medicao_id = m.id; numero_medicao = m.numero_medicao; }
+          numero_medicoes_mes.push(m.numero_medicao);
+          valor_medicoes_mes += Number(m.valor_medido) || 0;
         }
       }
 
@@ -1261,8 +1304,11 @@ export class MedicaoService {
         aprovadas,
         pendentes_ateste: submetidas + parcialmenteAtestadas,
         enviou_mes,
+        solicitou_mes: contratosSolicitados.has(contrato.id),
         medicao_id,
         numero_medicao,
+        numero_medicoes_mes,
+        valor_medicoes_mes,
       });
     }
 

@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table'
 import {
   ClipboardCheck, TrendingUp, Search, Building2, FileText,
-  Loader2, AlertTriangle, ChevronRight, CheckCircle, Clock,
+  Loader2, AlertTriangle, ChevronRight, ChevronLeft, CheckCircle, Clock,
   Send, XCircle, Calendar, History, Mail, Eye, Shield, RotateCcw, ChevronDown,
 } from 'lucide-react'
 import { authFetch } from '@/lib/api'
@@ -41,8 +41,11 @@ interface ContratoResumo {
   aprovadas: number
   pendentes_ateste: number
   enviou_mes?: boolean
+  solicitou_mes?: boolean
   medicao_id?: string | null
   numero_medicao?: number | null
+  numero_medicoes_mes?: number[]
+  valor_medicoes_mes?: number
 }
 
 interface MedicaoPendente {
@@ -55,6 +58,7 @@ interface MedicaoPendente {
   valor_medido: number
   percentual_fisico_medido: number
   data_submissao: string
+  data_solicitacao?: string | null
   fornecedor_nome: string
   nota_fiscal_numero?: string
   numero_contrato: string
@@ -112,6 +116,23 @@ function formatarMesReferencia(ym: string): string {
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   const idx = parseInt(m, 10) - 1
   return idx >= 0 && idx < 12 ? `${meses[idx]}/${y}` : ym
+}
+
+function formatarMesNomeCompleto(ym: string): { mes: string; ano: string } {
+  const [y, m] = ym.split('-')
+  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+  const idx = parseInt(m || '1', 10) - 1
+  return { mes: idx >= 0 && idx < 12 ? meses[idx] : m || '', ano: y || '' }
+}
+
+function navegarMes(ym: string, direcao: 1 | -1): string {
+  const [y, m] = ym.split('-').map(Number)
+  let ano = y || new Date().getFullYear()
+  let mes = m || new Date().getMonth() + 1
+  mes += direcao
+  if (mes > 12) { mes = 1; ano++ }
+  if (mes < 1) { mes = 12; ano-- }
+  return `${ano}-${String(mes).padStart(2, '0')}`
 }
 
 function formatarData(d: string | null | undefined) {
@@ -180,11 +201,14 @@ export default function MedicoesPage() {
       const orgaoId = orgao.id
       if (!orgaoId) return
 
-      const [resContratos, resPendentes, resAprovacao] = await Promise.all([
+      const [resContratos, resPendentes, resAprovacao, resHistorico] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/resumo-fiscal?orgaoId=${orgaoId}&mes=${mesReferencia}`),
         authFetch(`${API_URL}/api/contratos/medicoes/pendentes-ateste?orgaoId=${orgaoId}`),
         authFetch(`${API_URL}/api/contratos/medicoes/pendentes-aprovacao?orgaoId=${orgaoId}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/solicitacoes-enviadas?orgaoId=${orgaoId}`),
       ])
+
+      if (resHistorico.ok) setHistorico(await resHistorico.json())
 
       if (resContratos.ok) {
         const data = await resContratos.json()
@@ -383,9 +407,12 @@ export default function MedicoesPage() {
   const totalPendentesAteste = contratos.reduce((s, c) => s + c.pendentes_ateste, 0)
   const totalAguardandoAprovacao = contratos.reduce((s, c) => s + c.aguardando_aprovacao, 0)
   const totalAprovadas = contratos.reduce((s, c) => s + c.aprovadas, 0)
-  const totalMedicoes = contratos.reduce((s, c) => s + c.total_medicoes, 0)
   const contratosNaoEnviaram = contratos.filter(c => c.enviou_mes === false)
   const totalSelecionadosSolicitar = Object.values(contratosSelecionados).filter(Boolean).length
+
+  // Aguardando Fornecedor: contratos com solicitação enviada no mês e fornecedor ainda não enviou (usa solicitou_mes do backend)
+  const contratosAguardandoFornecedor = contratos.filter(c => c.solicitou_mes && c.enviou_mes === false)
+  const aguardandoFornecedor = contratosAguardandoFornecedor.length
 
   if (loading) {
     return (
@@ -411,86 +438,163 @@ export default function MedicoesPage() {
         </Button>
       </div>
 
-      {/* Cards Resumo */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className={totalPendentesAteste > 0 ? 'border-yellow-300 bg-yellow-50' : ''}>
+      {/* Cards de Status - Fluxo do Mockup */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className={`border-l-4 border-amber-500 shadow-sm transition-shadow hover:shadow-md ${aguardandoFornecedor > 0 ? 'bg-amber-50/50' : ''}`}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-yellow-500" />
-              Pendentes de Ateste
-            </CardTitle>
+            <div className="flex items-start justify-between">
+              <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                <Clock className="w-6 h-6 text-amber-600" />
+              </div>
+              <Badge className="bg-amber-100 text-amber-800 text-xs font-semibold">PENDENTE</Badge>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-700">{totalPendentesAteste}</div>
-            <p className="text-xs text-gray-500 mt-1">Medições aguardando verificação do fiscal</p>
+            <div className="text-3xl font-bold text-gray-900 mb-1">{aguardandoFornecedor}</div>
+            <div className="text-sm text-gray-600">Aguardando Fornecedor</div>
+            <p className="text-xs text-gray-500 mt-2">Medições solicitadas</p>
           </CardContent>
         </Card>
 
-        <Card className={totalAguardandoAprovacao > 0 ? 'border-blue-300 bg-blue-50' : ''}>
+        <Card className={`border-l-4 border-blue-500 shadow-sm transition-shadow hover:shadow-md ${totalPendentesAteste > 0 ? 'bg-blue-50/50' : ''}`}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-blue-500" />
-              Aguardando Aprovação
-            </CardTitle>
+            <div className="flex items-start justify-between">
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <ClipboardCheck className="w-6 h-6 text-blue-600" />
+              </div>
+              <Badge className="bg-blue-100 text-blue-800 text-xs font-semibold">AÇÃO NECESSÁRIA</Badge>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-700">{totalAguardandoAprovacao}</div>
-            <p className="text-xs text-gray-500 mt-1">Atestadas, na Central de Aprovações</p>
+            <div className="text-3xl font-bold text-gray-900 mb-1">{totalPendentesAteste}</div>
+            <div className="text-sm text-gray-600">Aguardando Seu Ateste</div>
+            <p className="text-xs text-gray-500 mt-2">Submetidas pelos fornecedores</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={`border-l-4 border-purple-500 shadow-sm transition-shadow hover:shadow-md ${totalAguardandoAprovacao > 0 ? 'bg-purple-50/50' : ''}`}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              Aprovadas
-            </CardTitle>
+            <div className="flex items-start justify-between">
+              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-6 h-6 text-purple-600" />
+              </div>
+              <Badge className="bg-purple-100 text-purple-800 text-xs font-semibold">EM APROVAÇÃO</Badge>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-700">{totalAprovadas}</div>
+            <div className="text-3xl font-bold text-gray-900 mb-1">{totalAguardandoAprovacao}</div>
+            <div className="text-sm text-gray-600">Aguardando Aprovação</div>
+            <p className="text-xs text-gray-500 mt-2">Atestadas, na Central de Aprovações</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-l-4 border-green-500 shadow-sm transition-shadow hover:shadow-md">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-gray-500" />
-              Total
-            </CardTitle>
+            <div className="flex items-start justify-between">
+              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
+              <Badge className="bg-green-100 text-green-800 text-xs font-semibold">CONCLUÍDO</Badge>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-700">{totalMedicoes}</div>
-            <p className="text-xs text-gray-500 mt-1">{contratos.length} contratos</p>
+            <div className="text-3xl font-bold text-gray-900 mb-1">{totalAprovadas}</div>
+            <div className="text-sm text-gray-600">Aprovadas</div>
+            <p className="text-xs text-gray-500 mt-2">Finalizadas no mês</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Mês de referência e Busca */}
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Label htmlFor="mes-ref" className="text-sm text-gray-600 flex items-center gap-1">
-            <Calendar className="w-4 h-4" />
-            Mês de referência
-          </Label>
-          <Input
-            id="mes-ref"
-            type="month"
-            value={mesReferencia}
-            onChange={(e) => setMesReferencia(e.target.value)}
-            className="w-[140px]"
-          />
-          <span className="text-sm text-gray-500">{formatarMesReferencia(mesReferencia)}</span>
-        </div>
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input
-            className="pl-10"
-            placeholder="Buscar por contrato, fornecedor, objeto ou fiscal..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
+      {/* Seletor de Competência (Mês de Referência) */}
+      <div className="mb-6">
+        <Label className="block text-sm font-medium text-gray-700 mb-3">Competência (Mês de Referência)</Label>
+        <div className="flex gap-3 items-center">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0"
+            onClick={() => setMesReferencia(navegarMes(mesReferencia, -1))}
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6 min-w-[200px]">
+            <div className="text-center">
+              <div className="text-3xl md:text-4xl font-bold text-gray-900">{formatarMesNomeCompleto(mesReferencia).mes}</div>
+              <div className="text-lg md:text-xl text-gray-600 mt-1">{formatarMesNomeCompleto(mesReferencia).ano}</div>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0"
+            onClick={() => setMesReferencia(navegarMes(mesReferencia, 1))}
+          >
+            <ChevronRight className="w-5 h-5" />
+          </Button>
         </div>
       </div>
+
+      {/* Busca */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Input
+          className="pl-10"
+          placeholder="Buscar por contrato, fornecedor, objeto ou fiscal..."
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+        />
+      </div>
+
+      {/* ============ SEÇÃO: AGUARDANDO FORNECEDOR ============ */}
+      {aguardandoFornecedor > 0 && (
+        <Card className="border-amber-300 bg-amber-50/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-600" />
+              Aguardando Fornecedor ({aguardandoFornecedor})
+              <span className="text-xs font-normal text-gray-500 ml-2">Solicitação enviada, aguardando envio da medição</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {contratosAguardandoFornecedor
+              .filter(c => !busca || [c.numero_contrato, c.fornecedor_nome, c.objeto].some(v => v?.toLowerCase().includes(busca.toLowerCase())))
+              .map((c) => {
+                const ultimaSolicitacao = historico
+                  .filter(s => s.contrato_id === c.id && s.mes_referencia === mesReferencia)
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+                const dataSolicitada = ultimaSolicitacao ? formatarData(ultimaSolicitacao.created_at) : '—'
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between gap-3 p-3 bg-white rounded-lg border hover:shadow-sm transition-shadow"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-gray-900 text-sm">{c.numero_contrato}</span>
+                        <span className="text-gray-400">-</span>
+                        <span className="text-sm text-gray-600 truncate">{c.fornecedor_nome}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">Solicitada em {dataSolicitada}</div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                      onClick={() => {
+                        setSolicitarContrato(c)
+                        setMensagemSolicitar('Lembramos que a medição ainda está pendente.')
+                      }}
+                      disabled={loadingSolicitar}
+                    >
+                      <Mail className="w-4 h-4 mr-1" />
+                      Lembrar fornecedor
+                    </Button>
+                  </div>
+                )
+              })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ============ SEÇÃO 1: PENDENTES DE ATESTE ============ */}
       {pendentesAtesteFiltradas.length > 0 && (
@@ -502,58 +606,90 @@ export default function MedicoesPage() {
               <span className="text-xs font-normal text-gray-500 ml-2">Medições aguardando sua verificação</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-4 divide-y divide-gray-100">
             {pendentesAtesteFiltradas.map((med) => {
               const status = STATUS_MEDICAO[med.status] || { label: med.status, cor: 'bg-gray-100 text-gray-800' }
+              // Timeline: 1=Solicitada, 2=Submetida, 3=Atestada, 4=Aprovada. Para pendentes ateste: etapa atual = 3
+              const etapaAtual = 3
+              const etapas = [
+                { nome: 'Solicitada', idx: 1 },
+                { nome: 'Submetida', idx: 2 },
+                { nome: 'Atestada', idx: 3 },
+                { nome: 'Aprovada', idx: 4 },
+              ]
               return (
-                <div
-                  key={med.id}
-                  className="flex items-center justify-between gap-3 p-3 bg-white rounded-lg border hover:shadow-sm transition-shadow"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                      <span className="text-sm font-bold text-yellow-700">{med.numero_medicao}ª</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-gray-900 text-sm">{med.numero_contrato}</span>
-                        <span className="text-gray-400">-</span>
-                        <span className="text-sm text-gray-600 truncate">{med.fornecedor_nome}</span>
-                        <Badge className={`${status.cor} text-xs`}>{status.label}</Badge>
+                <div key={med.id} className="pt-4 first:pt-0 hover:bg-gray-50/50 -mx-2 px-4 py-4 rounded-lg transition-colors">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-mono rounded">Med. #{String(med.numero_medicao).padStart(3, '0')}</span>
+                        <span className="text-xs text-gray-400">•</span>
+                        <span className="text-sm font-medium text-gray-900">Contrato {med.numero_contrato}</span>
                       </div>
-                      <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
-                        <span>{formatarData(med.periodo_inicio)} a {formatarData(med.periodo_fim)}</span>
-                        <span className="font-medium text-gray-700">{formatarMoeda(med.valor_medido)}</span>
+                      <h4 className="text-base font-semibold text-gray-900 mb-1">{med.fornecedor_nome}</h4>
+                      <p className="text-sm text-gray-600 mb-3">Competência: <span className="font-semibold">{formatarMesReferencia(typeof med.periodo_inicio === 'string' ? med.periodo_inicio.slice(0, 7) : med.periodo_inicio ? new Date(med.periodo_inicio).toISOString().slice(0, 7) : '')}</span></p>
+
+                      {/* Timeline */}
+                      <div className="flex items-center gap-1 sm:gap-2 mb-3 flex-wrap">
+                        {etapas.map((e, i) => (
+                          <div key={e.idx} className="flex items-center gap-1">
+                            <div
+                              className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                                e.idx < etapaAtual ? 'bg-green-500' : e.idx === etapaAtual ? 'bg-amber-500' : 'bg-gray-300'
+                              }`}
+                            />
+                            <span className={`text-xs ${e.idx <= etapaAtual ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>{e.nome}</span>
+                            {i < etapas.length - 1 && <div className="w-4 sm:w-8 h-0.5 bg-gray-200 flex-shrink-0" />}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
+                        {med.data_solicitacao && <span>Solicitada: {formatarData(med.data_solicitacao)}</span>}
+                        {med.data_solicitacao && <span>•</span>}
+                        <span>Submetida: {formatarData(med.data_submissao)}</span>
                         {med.total_itens > 0 && (
-                          <span className={med.itens_atestados > 0 ? 'text-green-600 font-medium' : ''}>
-                            {med.itens_atestados}/{med.total_itens} itens atestados
-                          </span>
+                          <>
+                            <span>•</span>
+                            <span className={med.itens_atestados > 0 ? 'text-green-600 font-medium' : ''}>
+                              {med.itens_atestados}/{med.total_itens} itens atestados
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
+
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-xl font-bold text-gray-900">{formatarMoeda(med.valor_medido)}</div>
+                      <div className="text-xs text-gray-500 mt-1">Valor da medição</div>
+                      <div className="flex items-center gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          className={med.itens_atestados > 0 ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}
+                          onClick={() => abrirModalAtesteDireto(med)}
+                          disabled={loadingAteste}
+                        >
+                          {loadingAteste ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4 mr-1" />}
+                          {med.itens_atestados > 0 ? 'Continuar Ateste' : 'Atestar Medição'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400"
+                          onClick={() => { const c = contratos.find(x => x.id === med.contrato_id); if (c) setContratoAberto(c) }}
+                          title="Abrir contrato completo"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button
-                      size="sm"
-                      className="bg-yellow-600 hover:bg-yellow-700 text-white"
-                      onClick={() => abrirModalAtesteDireto(med)}
-                      disabled={loadingAteste}
-                    >
-                      {loadingAteste ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4 mr-1" />}
-                      {med.itens_atestados > 0 ? 'Continuar Ateste' : 'Atestar'}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-gray-400"
-                      onClick={() => {
-                        const contrato = contratos.find(c => c.id === med.contrato_id)
-                        if (contrato) setContratoAberto(contrato)
-                      }}
-                      title="Abrir contrato completo"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
+
+                  <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100">
+                    <Badge className={`${status.cor} text-xs`}>{status.label}</Badge>
+                    <span className="text-xs text-gray-500">
+                      {med.status === 'SUBMETIDA' ? 'Enviada pelo fornecedor, aguardando seu ateste' : 'Aguardando conclusão do ateste'}
+                    </span>
                   </div>
                 </div>
               )
@@ -626,7 +762,7 @@ export default function MedicoesPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Send className="w-5 h-5 text-blue-600" />
-            Solicitar Medições — {formatarMesReferencia(mesReferencia)}
+            Solicitar Nova Medição — {formatarMesNomeCompleto(mesReferencia).mes}/{formatarMesNomeCompleto(mesReferencia).ano}
             {contratosNaoEnviaram.length > 0 && (
               <Badge className="bg-amber-100 text-amber-800 text-xs ml-2">
                 {contratosNaoEnviaram.length} pendente{contratosNaoEnviaram.length > 1 ? 's' : ''}
@@ -635,6 +771,9 @@ export default function MedicoesPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-4 text-sm text-blue-800">
+            Ao solicitar, você está pedindo que o fornecedor envie a planilha de medições e notas fiscais referentes aos serviços executados em {formatarMesNomeCompleto(mesReferencia).mes} de {formatarMesNomeCompleto(mesReferencia).ano}.
+          </div>
           {contratos.length === 0 ? (
             <p className="text-sm text-gray-500">Nenhum contrato de medição encontrado.</p>
           ) : (
@@ -711,7 +850,7 @@ export default function MedicoesPage() {
         </CardContent>
       </Card>
 
-      {/* ============ SEÇÃO 4: CONTRATOS (colapsável) ============ */}
+      {/* ============ SEÇÃO 4: TABELA DE CONTRATOS ============ */}
       <Card>
         <button
           type="button"
@@ -726,41 +865,71 @@ export default function MedicoesPage() {
           <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${secaoContratosAberta ? 'rotate-180' : ''}`} />
         </button>
         {secaoContratosAberta && (
-          <CardContent className="pt-0 border-t">
+          <CardContent className="pt-0 border-t overflow-x-auto">
             {contratosFiltrados.length === 0 ? (
               <div className="py-8 text-center">
                 <FileText className="w-10 h-10 text-gray-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">Nenhum contrato encontrado</p>
               </div>
             ) : (
-              <div className="space-y-2 mt-3">
-                {contratosFiltrados.map((contrato) => (
-                  <div
-                    key={contrato.id}
-                    className={`flex items-center justify-between gap-3 p-3 rounded-lg border hover:shadow-sm transition-shadow cursor-pointer ${
-                      contrato.pendentes_ateste > 0 ? 'border-l-4 border-l-yellow-400' : ''
-                    }`}
-                    onClick={() => setContratoAberto(contrato)}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-gray-400" />
-                        <span className="font-bold text-gray-900 text-sm">{contrato.numero_contrato}</span>
-                        <span className="text-sm text-gray-600 truncate">{contrato.fornecedor_nome}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 ml-6 line-clamp-1 mt-0.5">{contrato.objeto}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {contrato.submetidas > 0 && <Badge className="bg-yellow-100 text-yellow-800 text-xs">{contrato.submetidas} submetida{contrato.submetidas > 1 ? 's' : ''}</Badge>}
-                      {contrato.parcialmente_atestadas > 0 && <Badge className="bg-amber-100 text-amber-800 text-xs">{contrato.parcialmente_atestadas} parcial</Badge>}
-                      {contrato.aguardando_aprovacao > 0 && <Badge className="bg-blue-100 text-blue-800 text-xs">{contrato.aguardando_aprovacao} aprovação</Badge>}
-                      {contrato.aprovadas > 0 && <Badge className="bg-green-100 text-green-800 text-xs">{contrato.aprovadas} aprovada{contrato.aprovadas > 1 ? 's' : ''}</Badge>}
-                      {contrato.total_medicoes === 0 && <Badge variant="outline" className="text-xs text-gray-400">Sem medições</Badge>}
-                      <ChevronRight className="w-4 h-4 text-gray-300" />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <Table className="mt-3">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Contrato</TableHead>
+                    <TableHead>Fornecedor</TableHead>
+                    <TableHead>Nº Med.</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="w-[120px]">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {contratosFiltrados.map((c) => {
+                    const nums = c.numero_medicoes_mes?.length ? c.numero_medicoes_mes.map(n => `#${String(n).padStart(3, '0')}`).join(', ') : '—'
+                    const valor = (c.valor_medicoes_mes ?? 0) > 0 ? formatarMoeda(c.valor_medicoes_mes!) : '—'
+                    let statusLabel = 'Não solicitada'
+                    let statusClass = 'bg-gray-100 text-gray-700'
+                    if (c.solicitou_mes && !c.enviou_mes) {
+                      statusLabel = 'Aguardando fornecedor'
+                      statusClass = 'bg-amber-100 text-amber-800'
+                    } else if (c.pendentes_ateste > 0) {
+                      statusLabel = `${c.pendentes_ateste} pendente${c.pendentes_ateste > 1 ? 's' : ''}`
+                      statusClass = 'bg-yellow-100 text-yellow-800'
+                    } else if (c.aguardando_aprovacao > 0) {
+                      statusLabel = 'Aguardando aprovação'
+                      statusClass = 'bg-purple-100 text-purple-800'
+                    } else if (c.aprovadas > 0) {
+                      statusLabel = `${c.aprovadas} aprovada${c.aprovadas > 1 ? 's' : ''}`
+                      statusClass = 'bg-green-100 text-green-800'
+                    } else if (c.enviou_mes) {
+                      statusLabel = 'Enviou'
+                      statusClass = 'bg-green-100 text-green-800'
+                    }
+                    return (
+                      <TableRow key={c.id} className="cursor-pointer hover:bg-gray-50" onClick={() => setContratoAberto(c)}>
+                        <TableCell className="font-medium">{c.numero_contrato}</TableCell>
+                        <TableCell className="max-w-[180px] truncate">{c.fornecedor_nome}</TableCell>
+                        <TableCell className="font-mono text-xs">{nums}</TableCell>
+                        <TableCell><Badge className={`${statusClass} text-xs`}>{statusLabel}</Badge></TableCell>
+                        <TableCell className="text-right font-medium">{valor}</TableCell>
+                        <TableCell>
+                          {!c.solicitou_mes && !c.enviou_mes ? (
+                            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={(e) => { e.stopPropagation(); setSolicitarContrato(c) }}>
+                              <Send className="w-4 h-4 mr-1" />
+                              Solicitar
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={(e) => { e.stopPropagation(); setContratoAberto(c) }}>
+                              <Eye className="w-4 h-4 mr-1" />
+                              Ver detalhes
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         )}
@@ -813,6 +982,29 @@ export default function MedicoesPage() {
           </CardContent>
         )}
       </Card>
+
+      {/* ============ FOOTER: Como funciona o fluxo? ============ */}
+      <div className="bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl p-6 border border-gray-200">
+        <h4 className="font-semibold text-gray-900 mb-3">Como funciona o fluxo?</h4>
+        <div className="grid md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <div className="font-medium text-amber-700 mb-1">1. Solicitada</div>
+            <p className="text-gray-600">Você solicita a medição ao fornecedor para a competência do mês</p>
+          </div>
+          <div>
+            <div className="font-medium text-blue-700 mb-1">2. Submetida</div>
+            <p className="text-gray-600">Fornecedor envia planilha de medições e notas fiscais</p>
+          </div>
+          <div>
+            <div className="font-medium text-purple-700 mb-1">3. Atestada</div>
+            <p className="text-gray-600">Você verifica e atesta os itens executados</p>
+          </div>
+          <div>
+            <div className="font-medium text-green-700 mb-1">4. Aprovada</div>
+            <p className="text-gray-600">Central de Aprovações finaliza o processo</p>
+          </div>
+        </div>
+      </div>
 
       {/* ============ MODAL: ATESTE DIRETO ============ */}
       <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
