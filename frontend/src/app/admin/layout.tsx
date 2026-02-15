@@ -173,7 +173,9 @@ export default function AdminLayout({
 
         {/* Main content */}
         <main className="flex-1 p-6 lg:p-8 min-h-[calc(100vh-64px)]">
-          {children}
+          <div className="max-w-[1600px] mx-auto w-full">
+            {children}
+          </div>
         </main>
       </div>
     </div>
