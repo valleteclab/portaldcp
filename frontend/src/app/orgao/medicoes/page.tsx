@@ -18,7 +18,7 @@ import {
   Loader2, AlertTriangle, ChevronRight, ChevronLeft, CheckCircle, Clock,
   Send, XCircle, Calendar, History, Mail, Eye, Shield, RotateCcw, ChevronDown,
 } from 'lucide-react'
-import { authFetch } from '@/lib/api'
+import { authFetch, formatarDataHoraBR } from '@/lib/api'
 import TabMedicao from '@/components/contratos/TabMedicao'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -803,16 +803,14 @@ export default function MedicoesPage() {
                     className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50/30"
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-                        <span className="text-sm font-bold text-amber-700">{med.numero_medicao}ª</span>
-                      </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-gray-900 text-sm">{med.numero_contrato}</span>
-                          <span className="text-gray-400">-</span>
-                          <span className="text-sm text-gray-600 truncate">{med.fornecedor_nome}</span>
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-mono rounded">Med. #{String(med.numero_medicao).padStart(3, '0')}</span>
+                          <span className="text-xs text-gray-400">•</span>
+                          <span className="text-sm font-medium text-gray-900">Contrato {med.numero_contrato}</span>
                           <Badge className="bg-amber-100 text-amber-800 text-xs">Devolvida</Badge>
                         </div>
+                        <div className="text-sm text-gray-600 truncate mb-0.5">{med.fornecedor_nome}</div>
                         <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
                           <span>{formatarData(med.periodo_inicio)} a {formatarData(med.periodo_fim)}</span>
                           <span className="font-medium text-gray-700">{formatarMoeda(med.valor_medido)}</span>
@@ -1052,7 +1050,7 @@ export default function MedicoesPage() {
                       <span className="text-gray-400 text-sm ml-2">{formatarMesReferencia(s.mes_referencia)}</span>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-gray-400">{new Date(s.created_at).toLocaleString('pt-BR')}</span>
+                      <span className="text-xs text-gray-400">{formatarDataHoraBR(s.created_at)}</span>
                       <Button variant="ghost" size="sm" onClick={() => setMensagemDetalhe(s)}>
                         <Mail className="w-4 h-4" />
                       </Button>
@@ -1322,7 +1320,7 @@ export default function MedicoesPage() {
               <p><span className="text-gray-500">Contrato:</span> {mensagemDetalhe.numero_contrato} – {mensagemDetalhe.fornecedor_nome}</p>
               <p><span className="text-gray-500">Mês:</span> {formatarMesReferencia(mensagemDetalhe.mes_referencia)}</p>
               <p><span className="text-gray-500">Enviado por:</span> {mensagemDetalhe.solicitado_por_nome}</p>
-              <p><span className="text-gray-500">Data:</span> {new Date(mensagemDetalhe.created_at).toLocaleString('pt-BR')}</p>
+              <p><span className="text-gray-500">Data:</span> {formatarDataHoraBR(mensagemDetalhe.created_at)}</p>
               <div className="pt-2 border-t">
                 <p className="text-gray-500 mb-1">Mensagem:</p>
                 <p className="whitespace-pre-wrap text-gray-800">{mensagemDetalhe.mensagem}</p>

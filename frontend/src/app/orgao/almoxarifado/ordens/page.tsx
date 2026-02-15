@@ -54,7 +54,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
-import { API_URL, authFetch } from '@/lib/api';
+import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api';
 
 interface OrdemFornecimento {
   id: string;
@@ -257,15 +257,7 @@ function OrdensList() {
     });
   };
 
-  const formatarDataHora = (data: string) => {
-    return new Date(data).toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatarDataHora = (data: string) => formatarDataHoraBR(data);
 
   // Handlers
   const handleVerDetalhes = (ordem: OrdemFornecimento) => {

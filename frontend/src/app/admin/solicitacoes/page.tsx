@@ -52,7 +52,7 @@ import {
   FileText
 } from 'lucide-react'
 
-import { API_URL, adminFetch } from '@/lib/api'
+import { API_URL, adminFetch, formatarDataHoraBR } from '@/lib/api'
 
 interface Solicitacao {
   id: string
@@ -217,7 +217,7 @@ export default function AdminSolicitacoesPage() {
   }
 
   const formatarData = (data: string) => {
-    return new Date(data).toLocaleString('pt-BR')
+    return formatarDataHoraBR(data)
   }
 
   const getStatusBadge = (status: string) => {

@@ -152,45 +152,47 @@ export async function adminFetch(url: string, options?: RequestInit): Promise<Re
 
 // ============ FUNÇÕES DE DATA (HORÁRIO DE BRASÍLIA) ============
 
+/** Fuso horário padrão: Brasília (America/Sao_Paulo) */
+export const TIMEZONE_BRASILIA = 'America/Sao_Paulo';
+
 /**
  * Formata uma data ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss) para exibição brasileira (DD/MM/YYYY)
- * IMPORTANTE: Não usa new Date() para evitar conversão de fuso horário
+ * Usa horário de Brasília para conversão correta quando a string inclui hora
  */
 export function formatarDataBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
-  
-  // Extrai componentes da data diretamente da string
-  const match = String(dataISO).match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    return `${match[3]}/${match[2]}/${match[1]}`;
+  try {
+    const d = new Date(dataISO);
+    if (isNaN(d.getTime())) return dataISO;
+    return d.toLocaleDateString('pt-BR', { timeZone: TIMEZONE_BRASILIA });
+  } catch {
+    const match = String(dataISO).match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+    return dataISO;
   }
-  
-  // Fallback para formato já brasileiro
-  if (dataISO.includes('/')) {
-    return dataISO.split('T')[0];
-  }
-  
-  return dataISO;
 }
 
 /**
- * Formata uma data ISO com hora para exibição brasileira (DD/MM/YYYY HH:mm)
- * IMPORTANTE: Não usa new Date() para evitar conversão de fuso horário
+ * Formata uma data ISO com hora para exibição em horário de Brasília (DD/MM/YYYY, HH:mm:ss)
+ * Converte corretamente de UTC para America/Sao_Paulo
  */
 export function formatarDataHoraBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
-  
-  // Extrai componentes da data e hora diretamente da string
-  const match = String(dataISO).match(/(\d{4})-(\d{2})-(\d{2})T?(\d{2})?:?(\d{2})?/);
-  if (match) {
-    const data = `${match[3]}/${match[2]}/${match[1]}`;
-    if (match[4] && match[5]) {
-      return `${data} ${match[4]}:${match[5]}`;
-    }
-    return data;
+  try {
+    const d = new Date(dataISO);
+    if (isNaN(d.getTime())) return dataISO;
+    return d.toLocaleString('pt-BR', {
+      timeZone: TIMEZONE_BRASILIA,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    return dataISO;
   }
-  
-  return dataISO;
 }
 
 /**

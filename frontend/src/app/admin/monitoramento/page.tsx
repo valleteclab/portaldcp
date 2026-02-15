@@ -19,7 +19,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { API_URL, adminFetch } from '@/lib/api'
+import { API_URL, adminFetch, formatarDataHoraBR } from '@/lib/api'
 import Link from 'next/link'
 
 interface SessaoAtiva {
@@ -240,7 +240,7 @@ export default function MonitoramentoPage() {
   }
 
   const formatarData = (data: string) => {
-    return new Date(data).toLocaleString('pt-BR')
+    return formatarDataHoraBR(data)
   }
 
   const sessoesFiltradas = sessoesAtivas.filter(s => 

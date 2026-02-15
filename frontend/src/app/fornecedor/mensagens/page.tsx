@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { Mail, Loader2, FileText, Building2, ChevronRight } from 'lucide-react'
-import { authFetch } from '@/lib/api'
+import { authFetch, formatarDataHoraBR } from '@/lib/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -130,7 +130,7 @@ export default function MensagensFornecedorPage() {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="text-xs text-gray-400">
-                      {new Date(msg.created_at).toLocaleString('pt-BR')}
+                      {formatarDataHoraBR(msg.created_at)}
                     </span>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
                   </div>
@@ -160,7 +160,7 @@ export default function MensagensFornecedorPage() {
                 <p><span className="text-gray-500">De:</span> {detalhe.solicitado_por_nome} {detalhe.orgao_nome && `(${detalhe.orgao_nome})`}</p>
                 <p><span className="text-gray-500">Contrato:</span> {detalhe.numero_contrato}</p>
                 <p><span className="text-gray-500">Mês referência:</span> {formatarMesReferencia(detalhe.mes_referencia)}</p>
-                <p><span className="text-gray-500">Data:</span> {new Date(detalhe.created_at).toLocaleString('pt-BR')}</p>
+                <p><span className="text-gray-500">Data:</span> {formatarDataHoraBR(detalhe.created_at)}</p>
               </div>
               <div className="pt-3 border-t">
                 <p className="text-gray-500 text-sm mb-1">Mensagem:</p>
