@@ -280,8 +280,8 @@ window._extraindoContratos = true;
     }
   }
 
-  const formatarMoeda = (valor: number) => {
-    return (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formatarMoeda = (valor: number | string) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor ?? 0))
   }
 
   const formatarData = (data: string) => {
@@ -698,7 +698,7 @@ window._extraindoContratos = true;
                             <td className="px-3 py-2 font-mono text-xs">{c['cpf-cnpj'] || c['cpf/cnpj'] || ''}</td>
                             <td className="px-3 py-2 text-xs">{c.vigencia}</td>
                             <td className="px-3 py-2 text-xs">{c.fiscal}</td>
-                            <td className="px-3 py-2 text-right font-medium">{c.valor}</td>
+                            <td className="px-3 py-2 text-right font-medium">{formatarMoeda(parseValorBR(c.valor))}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -706,7 +706,7 @@ window._extraindoContratos = true;
                         <tr>
                           <td colSpan={5} className="px-3 py-2 text-right">Total:</td>
                           <td className="px-3 py-2 text-right">
-                            {contratosImportar.reduce((acc, c) => acc + parseValorBR(c.valor), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {formatarMoeda(contratosImportar.reduce((acc, c) => acc + parseValorBR(c.valor), 0))}
                           </td>
                         </tr>
                       </tfoot>
