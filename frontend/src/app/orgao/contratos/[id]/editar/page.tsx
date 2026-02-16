@@ -48,7 +48,7 @@ const MODALIDADES_EXECUCAO = [
 ]
 
 const MODALIDADES_LICITACAO = [
-  { value: '', label: '— Não informado' },
+  { value: '__NONE__', label: '— Não informado' },
   { value: 'PREGAO_ELETRONICO', label: 'Pregão Eletrônico' },
   { value: 'PREGAO_PRESENCIAL', label: 'Pregão Presencial' },
   { value: 'CONCORRENCIA', label: 'Concorrência' },
@@ -124,7 +124,7 @@ export default function EditarContratoPage() {
           percentual_garantia: contrato.percentual_garantia?.toString() || '',
           tipo_garantia: contrato.tipo_garantia || '',
           observacoes: contrato.observacoes || '',
-          modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '',
+          modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '__NONE__',
         })
       } else {
         setError('Contrato não encontrado')
@@ -194,7 +194,7 @@ export default function EditarContratoPage() {
         exige_garantia: formData.exige_garantia,
         percentual_garantia: formData.percentual_garantia ? parseFloat(formData.percentual_garantia) : null,
         tipo_garantia: formData.tipo_garantia || null, observacoes: formData.observacoes || null,
-        modalidade_licitacao: formData.modalidade_licitacao || null,
+        modalidade_licitacao: (formData.modalidade_licitacao && formData.modalidade_licitacao !== '__NONE__') ? formData.modalidade_licitacao : null,
       }
 
       const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
@@ -324,11 +324,11 @@ export default function EditarContratoPage() {
               </div>
               <div className="space-y-2">
                 <Label>Tipo da Licitação</Label>
-                <Select value={formData.modalidade_licitacao || ''} onValueChange={(v) => handleInputChange('modalidade_licitacao', v)}>
+                <Select value={formData.modalidade_licitacao || '__NONE__'} onValueChange={(v) => handleInputChange('modalidade_licitacao', v)}>
                   <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {MODALIDADES_LICITACAO.map(m => (
-                      <SelectItem key={m.value || 'empty'} value={m.value}>{m.label}</SelectItem>
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
