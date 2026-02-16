@@ -70,6 +70,7 @@ interface Contrato {
   itens?: ItemContrato[]
   total_itens?: number
   licitacao?: { id: string; numero_processo: string; modalidade: string }
+  modalidade_licitacao?: string
 }
 
 import { API_URL, authFetch } from '@/lib/api'
@@ -520,7 +521,7 @@ window._extraindoContratos = true;
                           <p className="text-sm text-gray-700 whitespace-normal break-words">{contrato.objeto}</p>
                         </td>
                         <td className="py-3 px-2 text-center align-top">
-                          <span className="text-sm text-gray-600">{formatarModalidadeLicitacao(contrato.licitacao?.modalidade)}</span>
+                          <span className="text-sm text-gray-600">{formatarModalidadeLicitacao(contrato.licitacao?.modalidade || contrato.modalidade_licitacao)}</span>
                         </td>
                         <td className="py-3 px-2 text-right align-top">
                           <div className="font-medium">{formatarMoeda(contrato.valor_global)}</div>

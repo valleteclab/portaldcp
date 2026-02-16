@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import { Contrato, StatusContrato, TipoContrato, CategoriaContrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { TermoAditivo, TipoTermoAditivo, StatusTermoAditivo } from './entities/termo-aditivo.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
@@ -137,34 +137,44 @@ export class ContratosService {
     }
 
     const contratos = await query.orderBy('contrato.created_at', 'DESC').getMany();
+    const contratoIds = contratos.map((c) => c.id);
 
-    // Carrega itens e calcula saldo total em valor para cada contrato
+    // Batch: carregar todos os itens de uma vez
+    const todosItens = contratoIds.length > 0
+      ? await this.itemContratoRepository.find({ where: { contrato_id: In(contratoIds) } })
+      : [];
+    const itensPorContrato = new Map<string, ItemContrato[]>();
+    for (const item of todosItens) {
+      const lista = itensPorContrato.get(item.contrato_id) || [];
+      lista.push(item);
+      itensPorContrato.set(item.contrato_id, lista);
+    }
+
+    // Batch: somar medições para contratos MEDICAO
+    const idsMedicao = contratos.filter((c) => c.modalidade_execucao === ModalidadeExecucao.MEDICAO).map((c) => c.id);
+    const medicoesPorContrato = idsMedicao.length > 0 ? await this.somarValorMedicoesBatch(idsMedicao) : new Map();
+
     for (const contrato of contratos) {
-      const itens = await this.itemContratoRepository.find({
-        where: { contrato_id: contrato.id },
-      });
-
+      const itens = itensPorContrato.get(contrato.id) || [];
       let saldoTotalEmValor: number;
 
       if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
-        // Contrato de medição: saldo = valor_global - soma das medições comprometidas
-        const { aprovado, comprometido } = await this.somarValorMedicoes(contrato.id);
+        const { aprovado, comprometido } = medicoesPorContrato.get(contrato.id) || { aprovado: 0, comprometido: 0 };
         const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
         saldoTotalEmValor = Math.max(0, valorGlobal - comprometido);
         (contrato as any).valor_medido_total = aprovado;
         (contrato as any).valor_comprometido_total = comprometido;
         (contrato as any).valor_em_analise = Math.max(0, comprometido - aprovado);
       } else {
-        // Demais contratos: saldo a partir dos itens ou valor_global
-        saldoTotalEmValor = itens.length > 0
-          ? itens.reduce((total, item) => {
-              const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-              return total + saldoValor;
-            }, 0)
-          : Number(contrato.valor_global || contrato.valor_inicial || 0);
+        saldoTotalEmValor =
+          itens.length > 0
+            ? itens.reduce((total, item) => {
+                const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
+                return total + saldoValor;
+              }, 0)
+            : Number(contrato.valor_global || contrato.valor_inicial || 0);
       }
 
-      // Adiciona campos calculados ao contrato
       (contrato as any).itens = itens;
       (contrato as any).saldo_total_em_valor = saldoTotalEmValor;
       (contrato as any).total_itens = itens.length;
@@ -213,6 +223,54 @@ export class ContratosService {
     (contrato as any).total_itens = itens.length;
 
     return contrato;
+  }
+
+  /**
+   * Batch: soma valor_medido de medições para múltiplos contratos em 2 queries.
+   */
+  private async somarValorMedicoesBatch(
+    contratoIds: string[],
+  ): Promise<Map<string, { aprovado: number; comprometido: number }>> {
+    const statusComprometidos = [
+      'SUBMETIDA',
+      'AGUARDANDO_ATESTE',
+      'PARCIALMENTE_ATESTADA',
+      'AGUARDANDO_APROVACAO',
+      'APROVADA',
+    ];
+    const resultado = new Map<string, { aprovado: number; comprometido: number }>();
+    for (const id of contratoIds) {
+      resultado.set(id, { aprovado: 0, comprometido: 0 });
+    }
+
+    const [aprovados, comprometidos] = await Promise.all([
+      this.medicaoRepository
+        .createQueryBuilder('m')
+        .select('m.contrato_id', 'contrato_id')
+        .addSelect('COALESCE(SUM(m.valor_medido), 0)', 'total')
+        .where('m.contrato_id IN (:...ids)', { ids: contratoIds })
+        .andWhere('m.status = :status', { status: 'APROVADA' })
+        .groupBy('m.contrato_id')
+        .getRawMany<{ contrato_id: string; total: string }>(),
+      this.medicaoRepository
+        .createQueryBuilder('m')
+        .select('m.contrato_id', 'contrato_id')
+        .addSelect('COALESCE(SUM(m.valor_medido), 0)', 'total')
+        .where('m.contrato_id IN (:...ids)', { ids: contratoIds })
+        .andWhere('m.status IN (:...status)', { status: statusComprometidos })
+        .groupBy('m.contrato_id')
+        .getRawMany<{ contrato_id: string; total: string }>(),
+    ]);
+
+    for (const r of aprovados) {
+      const curr = resultado.get(r.contrato_id);
+      if (curr) curr.aprovado = Number(r.total ?? 0);
+    }
+    for (const r of comprometidos) {
+      const curr = resultado.get(r.contrato_id);
+      if (curr) curr.comprometido = Number(r.total ?? 0);
+    }
+    return resultado;
   }
 
   /**

@@ -47,6 +47,18 @@ const MODALIDADES_EXECUCAO = [
   { value: 'ORDEM_SERVICO', label: 'Ordem de Serviço', desc: 'Consultoria, fábrica de software — controle por OS e métricas' },
 ]
 
+const MODALIDADES_LICITACAO = [
+  { value: '', label: '— Não informado' },
+  { value: 'PREGAO_ELETRONICO', label: 'Pregão Eletrônico' },
+  { value: 'PREGAO_PRESENCIAL', label: 'Pregão Presencial' },
+  { value: 'CONCORRENCIA', label: 'Concorrência' },
+  { value: 'CONCURSO', label: 'Concurso' },
+  { value: 'LEILAO', label: 'Leilão' },
+  { value: 'DIALOGO_COMPETITIVO', label: 'Diálogo Competitivo' },
+  { value: 'DISPENSA_ELETRONICA', label: 'Dispensa Eletrônica' },
+  { value: 'INEXIGIBILIDADE', label: 'Inexigibilidade' },
+]
+
 export default function EditarContratoPage() {
   const params = useParams()
   const router = useRouter()
@@ -65,6 +77,7 @@ export default function EditarContratoPage() {
     numero_processo: '', amparo_legal: '', dotacao_orcamentaria: '', fonte_recurso: '', programa_trabalho: '',
     elemento_despesa: '', fiscal_nome: '', fiscal_matricula: '', gestor_nome: '', gestor_matricula: '',
     exige_garantia: false, percentual_garantia: '', tipo_garantia: '', observacoes: '',
+    modalidade_licitacao: '',
   })
 
   useEffect(() => {
@@ -111,6 +124,7 @@ export default function EditarContratoPage() {
           percentual_garantia: contrato.percentual_garantia?.toString() || '',
           tipo_garantia: contrato.tipo_garantia || '',
           observacoes: contrato.observacoes || '',
+          modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '',
         })
       } else {
         setError('Contrato não encontrado')
@@ -180,6 +194,7 @@ export default function EditarContratoPage() {
         exige_garantia: formData.exige_garantia,
         percentual_garantia: formData.percentual_garantia ? parseFloat(formData.percentual_garantia) : null,
         tipo_garantia: formData.tipo_garantia || null, observacoes: formData.observacoes || null,
+        modalidade_licitacao: formData.modalidade_licitacao || null,
       }
 
       const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
@@ -302,10 +317,21 @@ export default function EditarContratoPage() {
               <Label>Objeto Detalhado</Label>
               <Textarea placeholder="Descrição detalhada do objeto (opcional)" value={formData.objeto_detalhado} onChange={(e) => handleInputChange('objeto_detalhado', e.target.value)} rows={5} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Número do Processo</Label>
                 <Input placeholder="Ex: 001/2024" value={formData.numero_processo} onChange={(e) => handleInputChange('numero_processo', e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo da Licitação</Label>
+                <Select value={formData.modalidade_licitacao || ''} onValueChange={(v) => handleInputChange('modalidade_licitacao', v)}>
+                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    {MODALIDADES_LICITACAO.map(m => (
+                      <SelectItem key={m.value || 'empty'} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Amparo Legal</Label>

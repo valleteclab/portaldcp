@@ -206,6 +206,10 @@ export class Contrato {
   @Column({ nullable: true })
   numero_processo: string;
 
+  /** Tipo/modalidade da licitação (ex: PREGAO_ELETRONICO). Usado quando contrato não tem licitação vinculada. */
+  @Column({ nullable: true, length: 50 })
+  modalidade_licitacao: string;
+
   // Documentos
   @Column({ nullable: true })
   arquivo_contrato: string; // Caminho do PDF
