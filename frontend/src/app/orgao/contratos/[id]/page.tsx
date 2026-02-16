@@ -50,6 +50,7 @@ import {
   Unlock
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { formatarModalidadeLicitacao } from '@/lib/utils'
 import TabMedicao from '@/components/contratos/TabMedicao'
 import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
@@ -238,6 +239,9 @@ export default function DetalheContratoOrgaoPage() {
     lote_descricao: '',
     observacoes: '',
   })
+
+  const [editandoObservacoes, setEditandoObservacoes] = useState(false)
+  const [textoObservacoesEdit, setTextoObservacoesEdit] = useState('')
 
   const UNIDADES_MEDIDA = [
     { value: 'UNIDADE', label: 'Unidade' },
@@ -909,12 +913,60 @@ export default function DetalheContratoOrgaoPage() {
                 </Card>
               )}
 
-              {contrato.observacoes && (
-                <Card>
-                  <CardHeader><CardTitle>Observações</CardTitle></CardHeader>
-                  <CardContent><p className="text-gray-700 whitespace-pre-wrap">{contrato.observacoes}</p></CardContent>
-                </Card>
-              )}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle>Observações</CardTitle>
+                  {!editandoObservacoes ? (
+                    <Button variant="ghost" size="sm" onClick={() => { setTextoObservacoesEdit(contrato.observacoes || ''); setEditandoObservacoes(true) }}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  ) : null}
+                </CardHeader>
+                <CardContent>
+                  {editandoObservacoes ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={textoObservacoesEdit}
+                        onChange={(e) => setTextoObservacoesEdit(e.target.value)}
+                        rows={4}
+                        className="resize-none"
+                        placeholder="Adicione observações sobre o contrato..."
+                      />
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={async () => {
+                          setLoadingAction(true)
+                          try {
+                            const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
+                              method: 'PUT',
+                              body: JSON.stringify({ observacoes: textoObservacoesEdit || null }),
+                            })
+                            if (res.ok) {
+                              setContrato(prev => prev ? { ...prev, observacoes: textoObservacoesEdit || '' } : null)
+                              setEditandoObservacoes(false)
+                            } else {
+                              const err = await res.json().catch(() => ({}))
+                              alert(err.message || 'Erro ao salvar')
+                            }
+                          } catch (e) {
+                            alert('Erro ao salvar observações')
+                          } finally {
+                            setLoadingAction(false)
+                          }
+                        }}>
+                          Salvar
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => { setEditandoObservacoes(false); setTextoObservacoesEdit(contrato.observacoes || '') }}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-gray-700 whitespace-pre-wrap min-h-[2rem]">
+                      {contrato.observacoes ? contrato.observacoes : <span className="text-gray-400 italic">Nenhuma observação. Clique no lápis para adicionar.</span>}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
             </div>
 
             <div className="space-y-6">
@@ -973,7 +1025,7 @@ export default function DetalheContratoOrgaoPage() {
                   <CardHeader><CardTitle>Licitação de Origem</CardTitle></CardHeader>
                   <CardContent>
                     <p className="font-medium">{contrato.licitacao.numero_processo}</p>
-                    <p className="text-sm text-gray-500">{contrato.licitacao.modalidade}</p>
+                    <p className="text-sm text-gray-500">{formatarModalidadeLicitacao(contrato.licitacao.modalidade)}</p>
                     <Button variant="link" className="p-0 h-auto mt-2" asChild>
                       <Link href={`/orgao/licitacoes/${contrato.licitacao.id}`}>Ver licitação →</Link>
                     </Button>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,7 @@ import {
   Link as LinkIcon
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { formatarModalidadeLicitacao } from '@/lib/utils'
 
 interface Licitacao {
   id: string
@@ -67,6 +68,8 @@ const MODALIDADES_EXECUCAO = [
 
 export default function NovoContratoPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const fromLicitacao = searchParams.get('from') === 'licitacao'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [orgaoId, setOrgaoId] = useState<string | null>(null)
@@ -76,7 +79,7 @@ export default function NovoContratoPage() {
   const [loadingLicitacoes, setLoadingLicitacoes] = useState(false)
   const [loadingFornecedores, setLoadingFornecedores] = useState(false)
   
-  const [usarLicitacao, setUsarLicitacao] = useState(false)
+  const [usarLicitacao, setUsarLicitacao] = useState(fromLicitacao)
   const [licitacaoId, setLicitacaoId] = useState('')
   const [formData, setFormData] = useState({
     tipo: 'CONTRATO',
@@ -278,25 +281,27 @@ export default function NovoContratoPage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
+        <Card className={usarLicitacao ? 'border-blue-300 bg-blue-50/30' : ''}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <LinkIcon className="h-5 w-5" />
-              Vinculação com Licitação
+              Importar / Vincular de Licitação
             </CardTitle>
-            <CardDescription>Opcionalmente vincule o contrato a uma licitação homologada</CardDescription>
+            <CardDescription>
+              Vincule o contrato a uma licitação homologada para preencher automaticamente objeto, processo e valor
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center space-x-2">
               <Switch id="usar-licitacao" checked={usarLicitacao} onCheckedChange={setUsarLicitacao} />
-              <Label htmlFor="usar-licitacao">Vincular a uma licitação existente</Label>
+              <Label htmlFor="usar-licitacao" className="font-medium">Vincular a uma licitação existente</Label>
             </div>
             {usarLicitacao && (
-              <div className="space-y-2">
-                <Label>Licitação</Label>
+              <div className="space-y-3 p-4 bg-white rounded-lg border">
+                <Label>Licitação *</Label>
                 <Select value={licitacaoId} onValueChange={handleLicitacaoChange}>
                   <SelectTrigger>
-                    <SelectValue placeholder={loadingLicitacoes ? "Carregando..." : "Selecione a licitação"} />
+                    <SelectValue placeholder={loadingLicitacoes ? "Carregando..." : "Selecione a licitação homologada"} />
                   </SelectTrigger>
                   <SelectContent>
                     {licitacoes.map(l => (
@@ -306,6 +311,12 @@ export default function NovoContratoPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {licitacaoId && licitacoes.find(l => l.id === licitacaoId) && (
+                  <div className="text-sm text-gray-600 p-2 bg-gray-50 rounded">
+                    <span className="font-medium">Tipo da licitação: </span>
+                    {formatarModalidadeLicitacao(licitacoes.find(l => l.id === licitacaoId)?.modalidade)}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

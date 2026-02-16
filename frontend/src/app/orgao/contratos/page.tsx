@@ -69,9 +69,11 @@ interface Contrato {
   saldo_total_em_valor?: number
   itens?: ItemContrato[]
   total_itens?: number
+  licitacao?: { id: string; numero_processo: string; modalidade: string }
 }
 
 import { API_URL, authFetch } from '@/lib/api'
+import { formatarModalidadeLicitacao } from '@/lib/utils'
 
 const STATUS_CONTRATO = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-slate-100 text-slate-800', icon: FileText },
@@ -336,6 +338,12 @@ window._extraindoContratos = true;
             <Upload className="w-4 h-4 mr-2" />
             Importar JSON
           </Button>
+          <Button variant="outline" asChild>
+            <Link href="/orgao/contratos/novo?from=licitacao">
+              <FileText className="w-4 h-4 mr-2" />
+              Novo a partir de Licitação
+            </Link>
+          </Button>
           <Button asChild>
             <Link href="/orgao/contratos/novo">
               <Plus className="w-4 h-4 mr-2" />
@@ -485,6 +493,7 @@ window._extraindoContratos = true;
                     <th className="text-left py-3 px-2 w-24">Contrato</th>
                     <th className="text-left py-3 px-2 w-48">Fornecedor</th>
                     <th className="text-left py-3 px-2 w-2/5">Objeto</th>
+                    <th className="text-center py-3 px-2 w-28">Tipo Licitação</th>
                     <th className="text-right py-3 px-2 w-32">Valor</th>
                     <th className="text-center py-3 px-2 w-28">Vigência</th>
                     <th className="text-center py-3 px-2 w-28">Status</th>
@@ -509,6 +518,9 @@ window._extraindoContratos = true;
                         </td>
                         <td className="py-3 px-2 align-top min-w-[200px]">
                           <p className="text-sm text-gray-700 whitespace-normal break-words">{contrato.objeto}</p>
+                        </td>
+                        <td className="py-3 px-2 text-center align-top">
+                          <span className="text-sm text-gray-600">{formatarModalidadeLicitacao(contrato.licitacao?.modalidade)}</span>
                         </td>
                         <td className="py-3 px-2 text-right align-top">
                           <div className="font-medium">{formatarMoeda(contrato.valor_global)}</div>
