@@ -37,7 +37,7 @@ import { API_URL, authFetch } from "@/lib/api"
 
 const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
 
-function formatarMoeda(v: number) {
+function formatarMoeda(v: number | undefined) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 }
 
@@ -327,7 +327,7 @@ function PainelLicitacoes({ data, loading }: { data: EficienciaLicitacoes | null
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" />
                   <YAxis tickFormatter={(v) => formatarMoeda(v)} />
-                  <Tooltip formatter={(v: number) => formatarMoeda(v)} />
+                  <Tooltip formatter={(v) => formatarMoeda(v ?? 0)} />
                   <Bar dataKey="valor" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -482,7 +482,7 @@ function PainelContratos({ data, loading }: { data: FinanceiroContratos | null; 
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" tickFormatter={(v) => formatarMoeda(v)} />
                   <YAxis type="category" dataKey="nome" width={80} />
-                  <Tooltip formatter={(v: number) => formatarMoeda(v)} />
+                  <Tooltip formatter={(v) => formatarMoeda(v ?? 0)} />
                   <Bar dataKey="valor" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -584,7 +584,7 @@ function PainelAlmoxarifado({ data, loading }: { data: ConsumoAlmoxarifado | nul
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="mes" />
                   <YAxis tickFormatter={(v) => formatarMoeda(v)} />
-                  <Tooltip formatter={(v: number) => formatarMoeda(v)} />
+                  <Tooltip formatter={(v) => formatarMoeda(v ?? 0)} />
                   <Line type="monotone" dataKey="valor" stroke="#3b82f6" strokeWidth={2} dot />
                 </LineChart>
               </ResponsiveContainer>
