@@ -85,6 +85,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/fornecedor/participacoes", label: "Minhas Participações", icon: FileText },
     { href: "/fornecedor/propostas", label: "Minhas Propostas", icon: Gavel },
     { href: "/fornecedor/contratos", label: "Meus Contratos", icon: FileCheck },
+    { href: "/fornecedor/ordens", label: "Ordens de Fornecimento", icon: Send },
     { href: "/fornecedor/cadastro-sicaf", label: "Meu Cadastro", icon: User },
   ]
 

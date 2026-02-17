@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AlmoxarifadoController } from './almoxarifado.controller';
+import { FornecedorOrdensController } from './fornecedor-ordens.controller';
 import { RequisicaoService } from './requisicao.service';
 import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
@@ -40,7 +41,7 @@ import { ContratosModule } from '../contratos/contratos.module';
     NotificacoesModule,
     forwardRef(() => ContratosModule),
   ],
-  controllers: [AlmoxarifadoController],
+  controllers: [AlmoxarifadoController, FornecedorOrdensController],
   providers: [
     RequisicaoService, 
     ItemContratoService,

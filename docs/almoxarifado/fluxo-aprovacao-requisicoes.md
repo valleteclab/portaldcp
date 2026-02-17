@@ -152,10 +152,11 @@ Quando um usuário tenta aprovar uma requisição:
 │                      REQUISIÇÃO APROVADA                         │
 │                                                                  │
 │  1. Status muda para: AUTORIZADA                                │
-│  2. Saldo é RESERVADO no contrato (quantidade_empenhada)        │
+│  2. Saldo já foi reservado na criação (quantidade_empenhada)   │
 │  3. Registra autorizador e data                                 │
 │  4. Notifica solicitante (sistema + email)                      │
-│  5. Requisição fica pronta para gerar Ordem de Fornecimento     │
+│  5. Ordem de Fornecimento é gerada AUTOMATICAMENTE              │
+│     (status requisição: ORDEM_GERADA)                           │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -169,6 +170,19 @@ Quando um usuário tenta aprovar uma requisição:
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Controle de Saldo no Contrato
+
+| Momento | O que acontece |
+|---------|----------------|
+| **Criação da requisição** | Saldo é **reservado** no contrato (`quantidade_empenhada` aumenta). Campo `saldo_reservado = true`. |
+| **Autorização** | Apenas ajustes de quantidade (se houver). Saldo já estava reservado. |
+| **Negação/Cancelamento** | Saldo é **liberado** (`quantidade_empenhada` diminui). |
+| **Recebimento aceito** | Baixa definitiva: `quantidade_empenhada` diminui, `quantidade_entregue` aumenta. |
+
+> **Nota**: A reserva ocorre na **criação** da requisição (ao salvar com itens vinculados ao contrato), não na autorização. Isso evita que outro usuário reserve o mesmo saldo enquanto a requisição aguarda aprovação.
 
 ---
 
@@ -317,7 +331,8 @@ Localização: `Admin → Usuários → Editar Usuário`
        │                    │    ✅ Aprova       │
        │                    │<───────────────────│
        │                    │                    │
-       │                    │ Reserva saldo      │
+       │                    │ (Saldo já reservado│
+       │                    │  na criação)       │
        │                    │ Atualiza status    │
        │                    │                    │
        │  Notifica resultado│                    │

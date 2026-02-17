@@ -691,7 +691,25 @@ export class OrdemFornecimentoService {
       ordem.status = StatusOrdemFornecimento.ATENDIDA_PARCIAL;
     }
 
-    return this.ordemRepository.save(ordem);
+    const ordemSalva = await this.ordemRepository.save(ordem);
+
+    // Sincroniza status da requisição vinculada (lacuna corrigida)
+    if (ordem.requisicao_id) {
+      const requisicao = await this.requisicaoRepository.findOne({
+        where: { id: ordem.requisicao_id },
+      });
+      if (requisicao && requisicao.status === StatusRequisicao.ORDEM_GERADA) {
+        requisicao.status = totalmenteAtendida
+          ? StatusRequisicao.ATENDIDA
+          : StatusRequisicao.ATENDIDA_PARCIAL;
+        await this.requisicaoRepository.save(requisicao);
+        this.logger.log(
+          `Requisição ${requisicao.numero} sincronizada: status ${requisicao.status}`,
+        );
+      }
+    }
+
+    return ordemSalva;
   }
 
   /**
@@ -739,9 +757,30 @@ export class OrdemFornecimentoService {
       ordem.status = StatusOrdemFornecimento.ATENDIDA;
     }
 
+    const ordemSalva = await this.ordemRepository.save(ordem);
+
+    // Sincroniza status da requisição vinculada (reversão)
+    if (ordem.requisicao_id) {
+      const requisicao = await this.requisicaoRepository.findOne({
+        where: { id: ordem.requisicao_id },
+      });
+      if (requisicao && [StatusRequisicao.ORDEM_GERADA, StatusRequisicao.ATENDIDA_PARCIAL, StatusRequisicao.ATENDIDA].includes(requisicao.status)) {
+        const novoStatusReq = nenhumItemEntregue
+          ? StatusRequisicao.ORDEM_GERADA
+          : parcialmenteAtendida
+            ? StatusRequisicao.ATENDIDA_PARCIAL
+            : StatusRequisicao.ATENDIDA;
+        requisicao.status = novoStatusReq;
+        await this.requisicaoRepository.save(requisicao);
+        this.logger.log(
+          `Requisição ${requisicao.numero} sincronizada (reversão): status ${requisicao.status}`,
+        );
+      }
+    }
+
     this.logger.log(`Atendimento revertido para ordem ${ordem.numero}`);
 
-    return this.ordemRepository.save(ordem);
+    return ordemSalva;
   }
 
   // ============================================================================
@@ -796,6 +835,113 @@ export class OrdemFornecimentoService {
     }
 
     return ordem;
+  }
+
+  /**
+   * Lista ordens do fornecedor (para portal do fornecedor)
+   */
+  async findByFornecedor(
+    fornecedorId: string,
+    status?: StatusOrdemFornecimento,
+  ): Promise<OrdemFornecimento[]> {
+    const query = this.ordemRepository.createQueryBuilder('ordem')
+      .leftJoinAndSelect('ordem.contrato', 'contrato')
+      .leftJoinAndSelect('ordem.orgao', 'orgao')
+      .leftJoinAndSelect('ordem.requisicao', 'requisicao')
+      .where('ordem.fornecedor_id = :fornecedorId', { fornecedorId })
+      .andWhere('ordem.status != :cancelada', { cancelada: StatusOrdemFornecimento.CANCELADA });
+
+    if (status) {
+      query.andWhere('ordem.status = :status', { status });
+    }
+
+    return query.orderBy('ordem.created_at', 'DESC').getMany();
+  }
+
+  /**
+   * Fornecedor dá ciência de recebimento da ordem (ENVIADA → EM_ATENDIMENTO)
+   */
+  async fornecedorCienciaRecebimento(
+    ordemId: string,
+    fornecedorId: string,
+    observacao?: string,
+  ): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(ordemId);
+
+    if (ordem.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
+    }
+
+    if (ordem.status !== StatusOrdemFornecimento.ENVIADA) {
+      throw new BadRequestException(
+        `Ordem não pode receber ciência de recebimento. Status atual: ${ordem.status}`,
+      );
+    }
+
+    ordem.status = StatusOrdemFornecimento.EM_ATENDIMENTO;
+    ordem.data_visualizacao_fornecedor = ordem.data_visualizacao_fornecedor || new Date();
+    ordem.data_aceite_fornecedor = new Date();
+    ordem.observacao_fornecedor = observacao || ordem.observacao_fornecedor;
+
+    await this.ordemRepository.save(ordem);
+
+    await this.registrarHistorico({
+      ordemId,
+      tipoAcao: TipoAcaoOrdem.ACEITA_FORNECEDOR,
+      descricao: 'Fornecedor deu ciência de recebimento da ordem',
+      statusNovo: StatusOrdemFornecimento.EM_ATENDIMENTO,
+      usuarioTipo: 'fornecedor',
+    });
+
+    this.logger.log(`Fornecedor ${fornecedorId} deu ciência de recebimento da ordem ${ordem.numero}`);
+
+    return this.findOne(ordemId);
+  }
+
+  /**
+   * Fornecedor dá ciência de entrega (informa que entregou)
+   * Nota: O recebimento definitivo e baixa no contrato são feitos pelo órgão via RecebimentoService
+   */
+  async fornecedorCienciaEntrega(
+    ordemId: string,
+    fornecedorId: string,
+    dataEntrega: Date,
+    observacao?: string,
+  ): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(ordemId);
+
+    if (ordem.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
+    }
+
+    const statusPermitidos = [
+      StatusOrdemFornecimento.ENVIADA,
+      StatusOrdemFornecimento.EM_ATENDIMENTO,
+      StatusOrdemFornecimento.ATENDIDA_PARCIAL,
+    ];
+
+    if (!statusPermitidos.includes(ordem.status)) {
+      throw new BadRequestException(
+        `Ordem não pode receber ciência de entrega. Status atual: ${ordem.status}`,
+      );
+    }
+
+    ordem.data_entrega_realizada = new Date(dataEntrega);
+    ordem.observacao_fornecedor = observacao
+      ? `${ordem.observacao_fornecedor || ''}\n[Ciência entrega] ${observacao}`.trim()
+      : ordem.observacao_fornecedor;
+
+    if (ordem.status === StatusOrdemFornecimento.ENVIADA) {
+      ordem.status = StatusOrdemFornecimento.EM_ATENDIMENTO;
+    }
+
+    await this.ordemRepository.save(ordem);
+
+    this.logger.log(
+      `Fornecedor ${fornecedorId} informou entrega da ordem ${ordem.numero} em ${dataEntrega}`,
+    );
+
+    return this.findOne(ordemId);
   }
 
   async findPendentesEnvio(orgaoId: string): Promise<OrdemFornecimento[]> {
