@@ -13,8 +13,6 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useRouter } from "next/navigation"
-import { ModuleGuard } from "@/components/ModuleGuard"
-import { ModuloSistema } from "@/hooks/useModulosOrgao"
 
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -416,9 +414,5 @@ function LicitacoesOrgaoPageContent() {
 }
 
 export default function LicitacoesOrgaoPage() {
-  return (
-    <ModuleGuard modulo={ModuloSistema.LICITACOES}>
-      <LicitacoesOrgaoPageContent />
-    </ModuleGuard>
-  )
+  return <LicitacoesOrgaoPageContent />
 }
