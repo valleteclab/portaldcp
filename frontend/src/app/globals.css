@@ -120,3 +120,50 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Impressão para exportação PDF dos relatórios */
+@media print {
+  body.print-relatorio nav,
+  body.print-relatorio header,
+  body.print-relatorio [data-sidebar],
+  body.print-relatorio button[aria-label],
+  body.print-relatorio .sidebar,
+  body.print-relatorio aside {
+    display: none !important;
+  }
+
+  body.print-relatorio main {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  body.print-relatorio .relatorios-container {
+    padding: 0;
+  }
+
+  body.print-relatorio .relatorios-container select,
+  body.print-relatorio .relatorios-container button {
+    display: none !important;
+  }
+
+  body.print-relatorio [role="tablist"] {
+    display: none !important;
+  }
+
+  body.print-relatorio [role="tabpanel"] {
+    display: block !important;
+  }
+
+  body.print-relatorio .break-before {
+    page-break-before: always;
+  }
+
+  body.print-relatorio .break-after {
+    page-break-after: always;
+  }
+
+  body.print-relatorio svg {
+    max-width: 100%;
+    height: auto;
+  }
+}

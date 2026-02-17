@@ -22,7 +22,8 @@ import {
   CheckCircle,
   Package,
   ClipboardCheck,
-  Mail
+  Mail,
+  BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -103,6 +104,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/almoxarifado/recebimentos", label: "Recebimentos", icon: Package, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações Requisições", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO, requerAprovador: true },
     { href: "/orgao/aprovacoes", label: "Central de Aprovações", icon: CheckCircle, requerAprovador: true },
+    { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3 },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]
