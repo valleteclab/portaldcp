@@ -62,7 +62,7 @@ interface EstatisticasOrdens {
 }
 
 export default function OrgaoDashboard() {
-  const { temAcesso, modulosLoading } = useModulosOrgao()
+  const { temAcesso, loading: modulosLoading } = useModulosOrgao()
   const [podeAprovar, setPodeAprovar] = useState(false)
 
   const [loading, setLoading] = useState(true)
