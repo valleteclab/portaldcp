@@ -646,6 +646,45 @@ export class ContratosService {
     return Number(result.total) || 0;
   }
 
+  /**
+   * Estatísticas de valores dos contratos vigentes (para dashboard)
+   * valor_total, valor_gasto, valor_disponivel, percentual_executado
+   */
+  async getEstatisticasValores(orgaoId: string): Promise<{
+    valor_total: number;
+    valor_gasto: number;
+    valor_disponivel: number;
+    percentual_executado: number;
+    contratos_vigentes: number;
+  }> {
+    const contratos = await this.findAll({
+      orgaoId,
+      status: StatusContrato.VIGENTE,
+      vigentes: true,
+    });
+
+    let valor_total = 0;
+    let valor_disponivel = 0;
+
+    for (const c of contratos) {
+      const valorGlobal = Number(c.valor_global || c.valor_inicial || 0);
+      const saldo = Number((c as any).saldo_total_em_valor ?? valorGlobal);
+      valor_total += valorGlobal;
+      valor_disponivel += saldo;
+    }
+
+    const valor_gasto = Math.max(0, valor_total - valor_disponivel);
+    const percentual_executado = valor_total > 0 ? (valor_gasto / valor_total) * 100 : 0;
+
+    return {
+      valor_total,
+      valor_gasto,
+      valor_disponivel,
+      percentual_executado: Math.round(percentual_executado * 10) / 10,
+      contratos_vigentes: contratos.length,
+    };
+  }
+
   // ============ IMPORTAÇÃO DE CONTRATOS ============
 
   async importarContratos(orgaoId: string, contratosJson: any[]): Promise<{

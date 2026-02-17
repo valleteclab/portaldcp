@@ -133,6 +133,18 @@ export class ContratosController {
     return { valor_total: valor };
   }
 
+  @Get('estatisticas/valores')
+  async estatisticasValores(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
+    if (!orgaoId) {
+      throw new BadRequestException('orgaoId é obrigatório para usuários admin');
+    }
+    return this.contratosService.getEstatisticasValores(orgaoId);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id') id: string,
