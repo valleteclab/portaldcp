@@ -62,7 +62,7 @@ interface EstatisticasOrdens {
 }
 
 export default function OrgaoDashboard() {
-  const { temAcesso, loading: modulosLoading } = useModulosOrgao()
+  const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
   const [podeAprovar, setPodeAprovar] = useState(false)
 
   const [loading, setLoading] = useState(true)
@@ -92,7 +92,7 @@ export default function OrgaoDashboard() {
     setLoading(true)
     const promises: Promise<void>[] = []
 
-    if (temAcesso(ModuloSistema.CONTRATOS)) {
+    if (modulos.includes(ModuloSistema.CONTRATOS)) {
       promises.push(
         authFetch(`${API_URL}/api/contratos/estatisticas/valores`)
           .then((r) => (r.ok ? r.json() : null))
@@ -113,7 +113,7 @@ export default function OrgaoDashboard() {
       )
     }
 
-    if (temAcesso(ModuloSistema.ALMOXARIFADO)) {
+    if (modulos.includes(ModuloSistema.ALMOXARIFADO)) {
       promises.push(
         authFetch(`${API_URL}/api/almoxarifado/requisicoes/estatisticas`)
           .then((r) => (r.ok ? r.json() : null))
@@ -144,7 +144,7 @@ export default function OrgaoDashboard() {
 
     await Promise.all(promises)
     setLoading(false)
-  }, [temAcesso, podeAprovar])
+  }, [modulos, podeAprovar])
 
   useEffect(() => {
     if (!modulosLoading) carregarDados()
