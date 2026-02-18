@@ -10,6 +10,7 @@ import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-me
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities/notificacao.entity';
 
@@ -36,6 +37,8 @@ export class MedicaoService {
     private requisicaoRepository: Repository<Requisicao>,
     @InjectRepository(Usuario)
     private usuarioRepository: Repository<Usuario>,
+    @InjectRepository(Fornecedor)
+    private fornecedorRepository: Repository<Fornecedor>,
     private notificacoesService: NotificacoesService,
   ) { }
 
@@ -1366,7 +1369,7 @@ export class MedicaoService {
       throw new BadRequestException('Contrato não é da modalidade MEDICAO');
     }
 
-    const destinatarios = this.getFornecedorDestinatario(contrato);
+    const destinatarios = await this.getFornecedorDestinatario(contrato);
     if (destinatarios.length === 0) {
       throw new BadRequestException('Contrato sem fornecedor vinculado para notificação');
     }
@@ -1608,13 +1611,13 @@ export class MedicaoService {
    * Busca usuários do órgão para enviar notificações.
    * Retorna todos os usuários ativos do órgão.
    */
-  private async buscarUsuariosOrgao(orgaoId: string): Promise<{ id: string; email?: string }[]> {
+  private async buscarUsuariosOrgao(orgaoId: string): Promise<{ id: string; email?: string; telefone?: string }[]> {
     try {
       const usuarios = await this.usuarioRepository.find({
         where: { orgao_id: orgaoId, ativo: true },
-        select: ['id', 'email'],
+        select: ['id', 'email', 'telefone'],
       });
-      return usuarios.map(u => ({ id: u.id, email: u.email }));
+      return usuarios.map(u => ({ id: u.id, email: u.email, telefone: u.telefone }));
     } catch (e) {
       this.logger.warn(`Não foi possível buscar usuários do órgão ${orgaoId}: ${(e as any).message}`);
       return [];
@@ -1625,9 +1628,15 @@ export class MedicaoService {
    * Busca o fornecedor (user login) para enviar notificações.
    * Usa o fornecedor_id do contrato como usuario_id (pois fornecedores logam com seu ID).
    */
-  private getFornecedorDestinatario(contrato: Contrato): { id: string; email?: string }[] {
+  private async getFornecedorDestinatario(contrato: Contrato): Promise<{ id: string; email?: string; telefone?: string }[]> {
     if (!contrato.fornecedor_id) return [];
-    return [{ id: contrato.fornecedor_id }];
+    const fornecedor = await this.fornecedorRepository.findOne({
+      where: { id: contrato.fornecedor_id },
+      select: ['id', 'email', 'representante_telefone', 'telefone'],
+    });
+    if (!fornecedor) return [{ id: contrato.fornecedor_id }];
+    const telefone = fornecedor.representante_telefone || fornecedor.telefone;
+    return [{ id: fornecedor.id, email: fornecedor.email, telefone: telefone || undefined }];
   }
 
   private async notificarSubmissaoMedicao(medicao: Medicao, contrato: Contrato | null): Promise<void> {
@@ -1666,7 +1675,7 @@ export class MedicaoService {
 
   private async notificarAtesteParcialMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string): Promise<void> {
     // Notificar fornecedor sobre ateste parcial (itens devolvidos)
-    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const fornecedorDest = await this.getFornecedorDestinatario(contrato);
     if (fornecedorDest.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoParcialmenteAtestada(
@@ -1682,7 +1691,7 @@ export class MedicaoService {
 
   private async notificarAprovacaoMedicao(medicao: Medicao, contrato: Contrato, aprovadorNome: string): Promise<void> {
     const orgaoDestinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
-    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const fornecedorDest = await this.getFornecedorDestinatario(contrato);
     if (orgaoDestinatarios.length === 0 && fornecedorDest.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoAprovada(
@@ -1700,7 +1709,7 @@ export class MedicaoService {
 
   private async notificarRejeicaoMedicao(medicao: Medicao, contrato: Contrato, aprovadorNome: string, observacao: string): Promise<void> {
     const orgaoDestinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
-    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const fornecedorDest = await this.getFornecedorDestinatario(contrato);
     if (orgaoDestinatarios.length === 0 && fornecedorDest.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoRejeitada(
@@ -1717,7 +1726,7 @@ export class MedicaoService {
   }
 
   private async notificarDevolucaoMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string, motivo: string): Promise<void> {
-    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const fornecedorDest = await this.getFornecedorDestinatario(contrato);
     if (fornecedorDest.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoDevolvida(
@@ -1935,7 +1944,7 @@ export class MedicaoService {
     const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
     if (!contrato) return;
 
-    const fornecedorDest = this.getFornecedorDestinatario(contrato);
+    const fornecedorDest = await this.getFornecedorDestinatario(contrato);
     if (fornecedorDest.length === 0) return;
 
     try {

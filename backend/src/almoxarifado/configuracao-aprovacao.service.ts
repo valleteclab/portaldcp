@@ -239,9 +239,9 @@ export class ConfiguracaoAprovacaoService {
   async listarAprovadores(
     orgaoId: string,
     valorRequisicao: number,
-    usuariosOrgao: { id: string; perfil: string; email?: string }[],
+    usuariosOrgao: { id: string; perfil: string; email?: string; telefone?: string }[],
     solicitanteId: string,
-  ): Promise<{ id: string; email?: string }[]> {
+  ): Promise<{ id: string; email?: string; telefone?: string }[]> {
     this.logger.log(`Listando aprovadores para órgão ${orgaoId}, valor: ${valorRequisicao}, usuários recebidos: ${usuariosOrgao.length}`);
     
     const config = await this.encontrarConfiguracao(orgaoId, valorRequisicao);
@@ -250,7 +250,7 @@ export class ConfiguracaoAprovacaoService {
       // Sem configuração = todos podem aprovar, exceto solicitante
       const aprovadores = usuariosOrgao
         .filter(u => u.id !== solicitanteId)
-        .map(u => ({ id: u.id, email: u.email }));
+        .map(u => ({ id: u.id, email: u.email, telefone: u.telefone }));
       this.logger.log(`Sem configuração específica. Aprovadores encontrados: ${aprovadores.length}`);
       return aprovadores;
     }
@@ -295,7 +295,7 @@ export class ConfiguracaoAprovacaoService {
       this.logger.log(`Após bloquear auto-aprovação: ${antesFiltro} -> ${aprovadores.length} aprovadores`);
     }
 
-    const resultado = aprovadores.map(u => ({ id: u.id, email: u.email }));
+    const resultado = aprovadores.map(u => ({ id: u.id, email: u.email, telefone: u.telefone }));
     this.logger.log(`Total de aprovadores finais: ${resultado.length}`);
     return resultado;
   }

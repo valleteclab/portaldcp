@@ -292,7 +292,7 @@ export class AlmoxarifadoController {
         pode_aprovar_requisicoes: true,
         ativo: true,
       },
-      select: ['id', 'email', 'role'],
+      select: ['id', 'email', 'role', 'telefone'],
     });
 
     // Converte para o formato esperado pelo service
@@ -300,6 +300,7 @@ export class AlmoxarifadoController {
       id: u.id,
       perfil: u.role || 'USUARIO',
       email: u.email || undefined,
+      telefone: u.telefone || undefined,
     }));
 
     return this.requisicaoService.enviarParaAutorizacao(id, usuariosOrgao);

@@ -3,11 +3,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Notificacao, TipoNotificacao, PrioridadeNotificacao } from './entities/notificacao.entity';
 import { EmailService } from '../email/email.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 export interface CriarNotificacaoDto {
   orgao_id: string;
   usuario_id: string;
   usuario_email?: string;
+  usuario_telefone?: string;
   tipo: TipoNotificacao;
   titulo: string;
   mensagem: string;
@@ -27,6 +29,7 @@ export class NotificacoesService {
     @InjectRepository(Notificacao)
     private readonly notificacaoRepository: Repository<Notificacao>,
     private readonly emailService: EmailService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   /**
@@ -37,6 +40,7 @@ export class NotificacoesService {
       orgao_id: dto.orgao_id,
       usuario_id: dto.usuario_id,
       usuario_email: dto.usuario_email || null,
+      usuario_telefone: dto.usuario_telefone || null,
       tipo: dto.tipo,
       titulo: dto.titulo,
       mensagem: dto.mensagem,
@@ -52,7 +56,7 @@ export class NotificacoesService {
     const saved = await this.notificacaoRepository.save(notificacao);
 
     // Se deve enviar email, enfileira para envio
-    if (dto.enviar_email && dto.usuario_email) {
+    if (dto.enviar_email && (dto.usuario_email || dto.usuario_telefone)) {
       await this.enfileirarEmail(saved);
     }
 
@@ -63,8 +67,8 @@ export class NotificacoesService {
    * Cria notificação para múltiplos usuários
    */
   async criarParaMultiplos(
-    usuarios: { id: string; email?: string }[],
-    dados: Omit<CriarNotificacaoDto, 'usuario_id' | 'usuario_email'>,
+    usuarios: { id: string; email?: string; telefone?: string }[],
+    dados: Omit<CriarNotificacaoDto, 'usuario_id' | 'usuario_email' | 'usuario_telefone'>,
   ): Promise<Notificacao[]> {
     this.logger.log(`Criando notificações para ${usuarios.length} usuários`);
     const notificacoes: Notificacao[] = [];
@@ -75,6 +79,7 @@ export class NotificacoesService {
           ...dados,
           usuario_id: usuario.id,
           usuario_email: usuario.email,
+          usuario_telefone: usuario.telefone,
         });
         notificacoes.push(notificacao);
         this.logger.debug(`Notificação criada para usuário ${usuario.id}`);
@@ -279,27 +284,47 @@ export class NotificacoesService {
    * Envia notificação por email usando SMTP configurado do órgão
    */
   private async enfileirarEmail(notificacao: Notificacao): Promise<void> {
-    if (!notificacao.usuario_email) {
+    if (!notificacao.usuario_email && !notificacao.usuario_telefone) {
       notificacao.email_enviado = true;
       notificacao.data_envio_email = new Date();
       await this.notificacaoRepository.save(notificacao);
       return;
     }
 
-    try {
-      const enviado = await this.emailService.enviar(notificacao.orgao_id, {
-        to: notificacao.usuario_email,
-        subject: notificacao.titulo,
-        text: notificacao.mensagem,
-        html: `<p>${notificacao.mensagem.replace(/\n/g, '<br>')}</p>${notificacao.link ? `<p><a href="${notificacao.link}">Acessar no sistema</a></p>` : ''}`,
-      });
-      if (enviado) {
-        this.logger.log(`Email enviado para ${notificacao.usuario_email}: ${notificacao.titulo}`);
-      } else {
-        this.logger.warn(`SMTP nao configurado para orgao ${notificacao.orgao_id}, email nao enviado`);
+    if (notificacao.usuario_email) {
+      try {
+        const enviado = await this.emailService.enviar(notificacao.orgao_id, {
+          to: notificacao.usuario_email,
+          subject: notificacao.titulo,
+          text: notificacao.mensagem,
+          html: `<p>${notificacao.mensagem.replace(/\n/g, '<br>')}</p>${notificacao.link ? `<p><a href="${notificacao.link}">Acessar no sistema</a></p>` : ''}`,
+        });
+        if (enviado) {
+          this.logger.log(`Email enviado para ${notificacao.usuario_email}: ${notificacao.titulo}`);
+        } else {
+          this.logger.warn(`SMTP nao configurado para orgao ${notificacao.orgao_id}, email nao enviado`);
+        }
+      } catch (error: any) {
+        this.logger.error(`Erro ao enviar email para ${notificacao.usuario_email}: ${error.message}`);
       }
-    } catch (error: any) {
-      this.logger.error(`Erro ao enviar email para ${notificacao.usuario_email}: ${error.message}`);
+    }
+
+    if (notificacao.usuario_telefone) {
+      try {
+        const configurado = await this.whatsappService.isConfigurado(notificacao.orgao_id);
+        if (configurado) {
+          const mensagem = `${notificacao.titulo}\n\n${notificacao.mensagem}${notificacao.link ? `\n\n${notificacao.link}` : ''}`;
+          const enviado = await this.whatsappService.enviar(notificacao.orgao_id, {
+            to: notificacao.usuario_telefone,
+            mensagem,
+          });
+          if (enviado) {
+            this.logger.log(`WhatsApp enviado para ${notificacao.usuario_telefone}: ${notificacao.titulo}`);
+          }
+        }
+      } catch (error: any) {
+        this.logger.error(`Erro ao enviar WhatsApp para ${notificacao.usuario_telefone}: ${error.message}`);
+      }
     }
 
     notificacao.email_enviado = true;

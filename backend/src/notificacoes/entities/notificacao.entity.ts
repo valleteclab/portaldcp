@@ -103,6 +103,9 @@ export class Notificacao {
   @Column({ type: 'varchar', nullable: true })
   usuario_email: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  usuario_telefone: string | null;
+
   // ============================================================================
   // CONTEÚDO
   // ============================================================================

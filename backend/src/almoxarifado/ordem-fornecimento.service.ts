@@ -11,6 +11,7 @@ import { GerarOrdemDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { PdfOrdemService } from './pdf-ordem.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { EmailService } from '../email/email.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import * as fs from 'fs';
 
@@ -31,6 +32,7 @@ export class OrdemFornecimentoService {
     private readonly pdfOrdemService: PdfOrdemService,
     private readonly notificacoesService: NotificacoesService,
     private readonly emailService: EmailService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   // ============================================================================
@@ -276,6 +278,19 @@ export class OrdemFornecimentoService {
       }
     }
 
+    const telefoneFornecedor = ordem.fornecedor?.representante_telefone || ordem.fornecedor?.telefone;
+    if (telefoneFornecedor) {
+      try {
+        const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
+        if (configurado) {
+          const mensagem = `Ordem de Fornecimento ${ordem.numero} enviada.\n\nFornecedor: ${ordem.fornecedor?.razao_social || ''}\n\nVerifique seu email para o documento em anexo.${observacoes ? `\n\nObservacoes: ${observacoes}` : ''}`;
+          await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
+        }
+      } catch (err: any) {
+        this.logger.warn(`WhatsApp da ordem nao enviado: ${err.message}`);
+      }
+    }
+
     this.logger.log(`Ordem ${ordem.numero} enviada ao fornecedor`);
 
     return ordemSalva;
@@ -339,6 +354,19 @@ export class OrdemFornecimentoService {
         });
       } catch (err: any) {
         this.logger.warn(`Email da ordem nao reenviado: ${err.message}`);
+      }
+    }
+
+    const telefoneFornecedor = ordem.fornecedor?.representante_telefone || ordem.fornecedor?.telefone;
+    if (telefoneFornecedor) {
+      try {
+        const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
+        if (configurado) {
+          const mensagem = `[Reenvio] Ordem de Fornecimento ${ordem.numero}.\n\nFornecedor: ${ordem.fornecedor?.razao_social || ''}\n\nVerifique seu email para o documento em anexo.${observacoes ? `\n\nObservacoes: ${observacoes}` : ''}`;
+          await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
+        }
+      } catch (err: any) {
+        this.logger.warn(`WhatsApp da ordem nao reenviado: ${err.message}`);
       }
     }
 

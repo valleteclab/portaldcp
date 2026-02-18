@@ -323,7 +323,7 @@ export class RequisicaoService {
   // ENVIAR PARA AUTORIZAÇÃO
   // ============================================================================
 
-  async enviarParaAutorizacao(id: string, usuariosOrgao?: { id: string; perfil: string; email?: string }[]): Promise<Requisicao> {
+  async enviarParaAutorizacao(id: string, usuariosOrgao?: { id: string; perfil: string; email?: string; telefone?: string }[]): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
     if (requisicao.status !== StatusRequisicao.RASCUNHO) {

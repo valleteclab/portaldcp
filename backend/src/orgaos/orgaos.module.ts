@@ -13,6 +13,7 @@ import { UnidadesController } from './unidades.controller';
 import { AuthModule } from '../auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { ImapModule } from '../imap/imap.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ImapModule } from '../imap/imap.module';
     AuthModule,
     EmailModule,
     ImapModule,
+    WhatsAppModule,
   ],
   controllers: [OrgaosController, SolicitacoesController, UnidadesController],
   providers: [OrgaosService, SolicitacoesService, UnidadesService],

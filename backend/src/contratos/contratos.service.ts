@@ -822,7 +822,7 @@ export class ContratosService {
       try {
         const liberadores = await this.usuarioRepository.find({
           where: { orgao_id: orgaoId, pode_liberar_contratos: true, ativo: true },
-          select: ['id', 'email'],
+          select: ['id', 'email', 'telefone'],
         });
         if (liberadores.length > 0) {
           const valorTotal = resultado.contratos_criados.reduce((sum, c) => sum + Number(c.valor_global || 0), 0);
@@ -832,7 +832,7 @@ export class ContratosService {
             resultado.contratos_criados[0].id,
             valorTotal,
             'Importação em lote',
-            liberadores.map(l => ({ id: l.id, email: l.email })),
+            liberadores.map(l => ({ id: l.id, email: l.email, telefone: l.telefone })),
           );
         }
       } catch (error) {
@@ -1048,7 +1048,7 @@ export class ContratosService {
           pode_liberar_contratos: true,
           ativo: true,
         },
-        select: ['id', 'email'],
+        select: ['id', 'email', 'telefone'],
       });
 
       if (liberadores.length === 0) {
@@ -1062,7 +1062,7 @@ export class ContratosService {
         contrato.id,
         Number(contrato.valor_global) || 0,
         origem,
-        liberadores.map(l => ({ id: l.id, email: l.email })),
+        liberadores.map(l => ({ id: l.id, email: l.email, telefone: l.telefone })),
       );
     } catch (error) {
       this.logger.error(`Erro ao notificar liberadores do contrato ${contrato.numero_contrato}: ${error.message}`, error.stack);

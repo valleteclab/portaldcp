@@ -23,6 +23,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { EmailModule } from '../email/email.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { EmailModule } from '../email/email.module';
     NotificacoesModule,
     forwardRef(() => ContratosModule),
     EmailModule,
+    WhatsAppModule,
   ],
   controllers: [AlmoxarifadoController, FornecedorOrdensController],
   providers: [

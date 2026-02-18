@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { OrgaosService } from './orgaos.service';
 import { EmailService } from '../email/email.service';
 import { ImapService } from '../imap/imap.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { Orgao } from './entities/orgao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
@@ -21,6 +22,7 @@ export class OrgaosController {
     private readonly orgaosService: OrgaosService,
     private readonly emailService: EmailService,
     private readonly imapService: ImapService,
+    private readonly whatsappService: WhatsAppService,
     private readonly authService: AuthService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
@@ -327,6 +329,38 @@ export class OrgaosController {
   @Post(':id/email-config/testar-imap')
   async testarImapConfig(@Param('id') id: string) {
     return await this.imapService.testarConexao(id);
+  }
+
+  // ============ CONFIGURAÇÃO WHATSAPP ============
+
+  @Get(':id/whatsapp-config')
+  async getWhatsAppConfig(@Param('id') id: string) {
+    return await this.orgaosService.getWhatsAppConfig(id);
+  }
+
+  @Put(':id/whatsapp-config')
+  async atualizarWhatsAppConfig(
+    @Param('id') id: string,
+    @Body() config: {
+      whatsapp_provider?: string;
+      whatsapp_instance_id?: string;
+      whatsapp_token?: string;
+      whatsapp_client_token?: string;
+    }
+  ) {
+    const orgao = await this.orgaosService.atualizarWhatsAppConfig(id, config);
+    return {
+      success: true,
+      config: await this.orgaosService.getWhatsAppConfig(id),
+    };
+  }
+
+  @Post(':id/whatsapp-config/testar')
+  async testarWhatsAppConfig(
+    @Param('id') id: string,
+    @Body() body: { numero: string }
+  ) {
+    return await this.whatsappService.testarConexao(id, body?.numero || '');
   }
 
   // ============ CAIXA DE ENTRADA (IMAP) ============

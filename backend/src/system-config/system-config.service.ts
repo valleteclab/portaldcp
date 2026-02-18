@@ -164,4 +164,37 @@ export class SystemConfigService {
       order: { key: 'ASC' }
     });
   }
+
+  // ============ WHATSAPP GLOBAL (FALLBACK) ============
+
+  async getWhatsAppGlobalConfig(): Promise<{
+    instanceId: string | null;
+    configurado: boolean;
+  }> {
+    const instanceId = await this.getValue('WHATSAPP_ZAPI_INSTANCE_ID');
+    const token = await this.getValue('WHATSAPP_ZAPI_TOKEN');
+    const clientToken = await this.getValue('WHATSAPP_ZAPI_CLIENT_TOKEN');
+    return {
+      instanceId: instanceId || null,
+      configurado: !!(instanceId && token && clientToken),
+    };
+  }
+
+  async setWhatsAppGlobalConfig(config: {
+    instance_id?: string;
+    token?: string;
+    client_token?: string;
+  }): Promise<void> {
+    if (config.instance_id !== undefined) {
+      await this.setValue('WHATSAPP_ZAPI_INSTANCE_ID', config.instance_id, 'Z-API Instance ID (fallback global)');
+    }
+    if (config.token !== undefined && config.token !== '') {
+      const encrypted = this.encryptText(config.token);
+      await this.setValue('WHATSAPP_ZAPI_TOKEN', encrypted, 'Z-API Token (criptografado)');
+    }
+    if (config.client_token !== undefined && config.client_token !== '') {
+      const encrypted = this.encryptText(config.client_token);
+      await this.setValue('WHATSAPP_ZAPI_CLIENT_TOKEN', encrypted, 'Z-API Client Token (criptografado)');
+    }
+  }
 }

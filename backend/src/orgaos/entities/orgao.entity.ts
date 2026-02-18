@@ -169,6 +169,20 @@ export class Orgao {
   @Column({ nullable: true })
   email_imap_senha: string; // criptografada
 
+  // ============ WHATSAPP (Z-API / Meta+Chatwoot) ============
+
+  @Column({ length: 20, nullable: true })
+  whatsapp_provider: string; // 'ZAPI', 'META'
+
+  @Column({ length: 100, nullable: true })
+  whatsapp_instance_id: string;
+
+  @Column({ length: 500, nullable: true })
+  whatsapp_token: string; // criptografado
+
+  @Column({ length: 500, nullable: true })
+  whatsapp_client_token: string; // criptografado
+
   // ============ CONFIGURAÇÕES DE DISPUTA ============
   
   @Column({ default: true })

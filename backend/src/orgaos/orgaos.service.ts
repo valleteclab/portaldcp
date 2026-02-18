@@ -330,6 +330,37 @@ export class OrgaosService {
     return await this.orgaoRepository.save(orgao);
   }
 
+  async getWhatsAppConfig(id: string): Promise<{
+    whatsapp_provider: string | null;
+    whatsapp_instance_id: string | null;
+    configurado: boolean;
+  }> {
+    const orgao = await this.findOne(id);
+    return {
+      whatsapp_provider: orgao.whatsapp_provider || null,
+      whatsapp_instance_id: orgao.whatsapp_instance_id || null,
+      configurado: !!(orgao.whatsapp_instance_id && orgao.whatsapp_token && orgao.whatsapp_client_token),
+    };
+  }
+
+  async atualizarWhatsAppConfig(id: string, config: {
+    whatsapp_provider?: string;
+    whatsapp_instance_id?: string;
+    whatsapp_token?: string;
+    whatsapp_client_token?: string;
+  }): Promise<Orgao> {
+    const orgao = await this.findOne(id);
+    if (config.whatsapp_provider !== undefined) orgao.whatsapp_provider = config.whatsapp_provider;
+    if (config.whatsapp_instance_id !== undefined) orgao.whatsapp_instance_id = config.whatsapp_instance_id;
+    if (config.whatsapp_token !== undefined && config.whatsapp_token !== '') {
+      orgao.whatsapp_token = this.encryptText(config.whatsapp_token);
+    }
+    if (config.whatsapp_client_token !== undefined && config.whatsapp_client_token !== '') {
+      orgao.whatsapp_client_token = this.encryptText(config.whatsapp_client_token);
+    }
+    return await this.orgaoRepository.save(orgao);
+  }
+
   /**
    * Atualiza os módulos habilitados de um órgão
    * Permite que qualquer módulo seja habilitado/desabilitado, incluindo LICITACOES

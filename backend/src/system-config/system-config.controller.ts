@@ -46,6 +46,31 @@ export class SystemConfigController {
     }
   }
 
+  // ============ WHATSAPP GLOBAL (FALLBACK) ============
+
+  @Get('whatsapp-global')
+  async getWhatsAppGlobalConfig() {
+    try {
+      return await this.systemConfigService.getWhatsAppGlobalConfig();
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Put('whatsapp-global')
+  async setWhatsAppGlobalConfig(@Body() body: {
+    instance_id?: string;
+    token?: string;
+    client_token?: string;
+  }) {
+    try {
+      await this.systemConfigService.setWhatsAppGlobalConfig(body);
+      return { success: true, message: 'Config WhatsApp global atualizada com sucesso!' };
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   // ============ CONFIGURAÇÕES GERAIS ============
 
   @Get()

@@ -47,7 +47,8 @@ import {
   Loader2,
   Shield,
   Link2,
-  Mail
+  Mail,
+  MessageCircle
 } from 'lucide-react'
 
 import { API_URL, adminFetch } from '@/lib/api'
@@ -110,11 +111,15 @@ export default function AdminOrgaosPage() {
   const [showEditarOrgao, setShowEditarOrgao] = useState(false)
   const [showConfigurarPNCP, setShowConfigurarPNCP] = useState(false)
   const [showConfigurarEmail, setShowConfigurarEmail] = useState(false)
+  const [showConfigurarWhatsApp, setShowConfigurarWhatsApp] = useState(false)
+  const [showConfigWhatsAppGlobal, setShowConfigWhatsAppGlobal] = useState(false)
   const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
   
   const [orgaoSelecionado, setOrgaoSelecionado] = useState<Orgao | null>(null)
   const [testandoEmail, setTestandoEmail] = useState(false)
   const [salvandoEmail, setSalvandoEmail] = useState(false)
+  const [testandoWhatsApp, setTestandoWhatsApp] = useState(false)
+  const [salvandoWhatsApp, setSalvandoWhatsApp] = useState(false)
   const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   
   // Form state
@@ -158,6 +163,19 @@ export default function AdminOrgaosPage() {
     email_imap_senha: ''
   })
   const [testandoImap, setTestandoImap] = useState(false)
+
+  const [formWhatsApp, setFormWhatsApp] = useState({
+    whatsapp_provider: 'ZAPI',
+    whatsapp_instance_id: '',
+    whatsapp_token: '',
+    whatsapp_client_token: ''
+  })
+  const [formWhatsAppGlobal, setFormWhatsAppGlobal] = useState({
+    instance_id: '',
+    token: '',
+    client_token: ''
+  })
+  const [whatsappNumeroTeste, setWhatsappNumeroTeste] = useState('')
 
   useEffect(() => {
     carregarOrgaos()
@@ -417,6 +435,121 @@ export default function AdminOrgaosPage() {
     }
   }
 
+  const abrirConfigurarWhatsApp = async (orgao: Orgao) => {
+    setOrgaoSelecionado(orgao)
+    setShowConfigurarWhatsApp(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${orgao.id}/whatsapp-config`)
+      if (res.ok) {
+        const cfg = await res.json()
+        setFormWhatsApp({
+          whatsapp_provider: cfg.whatsapp_provider || 'ZAPI',
+          whatsapp_instance_id: cfg.whatsapp_instance_id || '',
+          whatsapp_token: '',
+          whatsapp_client_token: ''
+        })
+      }
+    } catch (e) {
+      console.error('Erro ao carregar config WhatsApp:', e)
+    }
+  }
+
+  const salvarConfiguracaoWhatsApp = async () => {
+    if (!orgaoSelecionado) return
+    setSalvandoWhatsApp(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/whatsapp-config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          whatsapp_provider: formWhatsApp.whatsapp_provider,
+          whatsapp_instance_id: formWhatsApp.whatsapp_instance_id || undefined,
+          whatsapp_token: formWhatsApp.whatsapp_token || undefined,
+          whatsapp_client_token: formWhatsApp.whatsapp_client_token || undefined
+        })
+      })
+      if (res.ok) {
+        alert('Configuracao de WhatsApp salva com sucesso!')
+        carregarOrgaos()
+      } else {
+        const err = await res.json()
+        alert(err.message || 'Erro ao salvar')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao salvar configuracao')
+    } finally {
+      setSalvandoWhatsApp(false)
+    }
+  }
+
+  const testarConfiguracaoWhatsApp = async () => {
+    if (!orgaoSelecionado) return
+    const num = whatsappNumeroTeste.replace(/\D/g, '')
+    if (num.length < 10) {
+      alert('Informe um numero de teste valido (ex: 5511999999999)')
+      return
+    }
+    setTestandoWhatsApp(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/whatsapp-config/testar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numero: num })
+      })
+      const data = await res.json()
+      alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
+    } catch (e) {
+      alert('Erro ao testar WhatsApp')
+    } finally {
+      setTestandoWhatsApp(false)
+    }
+  }
+
+  const abrirConfigWhatsAppGlobal = async () => {
+    setShowConfigWhatsAppGlobal(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/system-config/whatsapp-global`)
+      if (res.ok) {
+        const cfg = await res.json()
+        setFormWhatsAppGlobal({
+          instance_id: cfg.instanceId || '',
+          token: '',
+          client_token: ''
+        })
+      }
+    } catch (e) {
+      console.error('Erro ao carregar config WhatsApp global:', e)
+    }
+  }
+
+  const salvarConfigWhatsAppGlobal = async () => {
+    setSalvandoWhatsApp(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/system-config/whatsapp-global`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instance_id: formWhatsAppGlobal.instance_id || undefined,
+          token: formWhatsAppGlobal.token || undefined,
+          client_token: formWhatsAppGlobal.client_token || undefined
+        })
+      })
+      if (res.ok) {
+        alert('Config WhatsApp global salva com sucesso!')
+        setShowConfigWhatsAppGlobal(false)
+      } else {
+        const err = await res.json()
+        alert(err.message || 'Erro ao salvar')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao salvar')
+    } finally {
+      setSalvandoWhatsApp(false)
+    }
+  }
+
   const consultarCnpj = async () => {
     const cnpjLimpo = formOrgao.cnpj.replace(/\D/g, '')
     if (cnpjLimpo.length !== 14) {
@@ -501,10 +634,16 @@ export default function AdminOrgaosPage() {
           </h1>
           <p className="text-gray-600">Gerencie os órgãos vinculados ao portal e suas integrações PNCP</p>
         </div>
-        <Button onClick={() => setShowNovoOrgao(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Novo Órgão
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={abrirConfigWhatsAppGlobal}>
+            <MessageCircle className="w-4 h-4 mr-2" />
+            WhatsApp Global
+          </Button>
+          <Button onClick={() => setShowNovoOrgao(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Novo Órgão
+          </Button>
+        </div>
       </div>
 
       {/* Estatísticas */}
@@ -620,6 +759,14 @@ export default function AdminOrgaosPage() {
                         title="Configurar Email (SMTP)"
                       >
                         <Mail className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => abrirConfigurarWhatsApp(orgao)}
+                        title="Configurar WhatsApp"
+                      >
+                        <MessageCircle className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="outline"
@@ -1278,6 +1425,134 @@ export default function AdminOrgaosPage() {
             </Button>
             <Button onClick={salvarConfiguracaoEmail} disabled={salvandoEmail}>
               {salvandoEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Salvar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Configurar WhatsApp */}
+      <Dialog open={showConfigurarWhatsApp} onOpenChange={setShowConfigurarWhatsApp}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5" />
+              Configurar WhatsApp (Z-API)
+            </DialogTitle>
+            <DialogDescription>
+              {orgaoSelecionado?.nome} - Envio de mensagens via Z-API. Deixe vazio para usar config global.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-3 bg-blue-50 rounded-lg text-sm">
+              <p className="font-medium text-blue-800">Z-API</p>
+              <p className="text-blue-700 mt-1 text-xs">
+                Obtenha as credenciais em z-api.io. Instance ID, Token e Client Token.
+              </p>
+            </div>
+            <div>
+              <Label>Provedor</Label>
+              <Select value={formWhatsApp.whatsapp_provider} onValueChange={(v) => setFormWhatsApp({ ...formWhatsApp, whatsapp_provider: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ZAPI">Z-API</SelectItem>
+                  <SelectItem value="META" disabled>Meta + Chatwoot (em breve)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Instance ID</Label>
+              <Input
+                value={formWhatsApp.whatsapp_instance_id}
+                onChange={(e) => setFormWhatsApp({ ...formWhatsApp, whatsapp_instance_id: e.target.value })}
+                placeholder="ID da instancia Z-API"
+              />
+            </div>
+            <div>
+              <Label>Token</Label>
+              <Input
+                type="password"
+                value={formWhatsApp.whatsapp_token}
+                onChange={(e) => setFormWhatsApp({ ...formWhatsApp, whatsapp_token: e.target.value })}
+                placeholder="Deixe vazio para manter o atual"
+              />
+            </div>
+            <div>
+              <Label>Client Token</Label>
+              <Input
+                type="password"
+                value={formWhatsApp.whatsapp_client_token}
+                onChange={(e) => setFormWhatsApp({ ...formWhatsApp, whatsapp_client_token: e.target.value })}
+                placeholder="Deixe vazio para manter o atual"
+              />
+            </div>
+            <div>
+              <Label>Numero para teste (ex: 5511999999999)</Label>
+              <Input
+                value={whatsappNumeroTeste}
+                onChange={(e) => setWhatsappNumeroTeste(e.target.value)}
+                placeholder="5511999999999"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={testarConfiguracaoWhatsApp} disabled={testandoWhatsApp}>
+              {testandoWhatsApp ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4 mr-1" />}
+              Testar
+            </Button>
+            <Button variant="outline" onClick={() => setShowConfigurarWhatsApp(false)}>Cancelar</Button>
+            <Button onClick={salvarConfiguracaoWhatsApp} disabled={salvandoWhatsApp}>
+              {salvandoWhatsApp ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Salvar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Config WhatsApp Global (fallback) */}
+      <Dialog open={showConfigWhatsAppGlobal} onOpenChange={setShowConfigWhatsAppGlobal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5" />
+              WhatsApp Global (fallback)
+            </DialogTitle>
+            <DialogDescription>
+              Usado quando o orgao nao tem config propria. Z-API.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Instance ID</Label>
+              <Input
+                value={formWhatsAppGlobal.instance_id}
+                onChange={(e) => setFormWhatsAppGlobal({ ...formWhatsAppGlobal, instance_id: e.target.value })}
+                placeholder="ID da instancia Z-API"
+              />
+            </div>
+            <div>
+              <Label>Token</Label>
+              <Input
+                type="password"
+                value={formWhatsAppGlobal.token}
+                onChange={(e) => setFormWhatsAppGlobal({ ...formWhatsAppGlobal, token: e.target.value })}
+                placeholder="Deixe vazio para manter o atual"
+              />
+            </div>
+            <div>
+              <Label>Client Token</Label>
+              <Input
+                type="password"
+                value={formWhatsAppGlobal.client_token}
+                onChange={(e) => setFormWhatsAppGlobal({ ...formWhatsAppGlobal, client_token: e.target.value })}
+                placeholder="Deixe vazio para manter o atual"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowConfigWhatsAppGlobal(false)}>Cancelar</Button>
+            <Button onClick={salvarConfigWhatsAppGlobal} disabled={salvandoWhatsApp}>
+              {salvandoWhatsApp ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Salvar
             </Button>
           </div>
