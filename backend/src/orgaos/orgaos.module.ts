@@ -11,11 +11,15 @@ import { SolicitacoesController } from './solicitacoes.controller';
 import { UnidadesService } from './unidades.service';
 import { UnidadesController } from './unidades.controller';
 import { AuthModule } from '../auth/auth.module';
+import { EmailModule } from '../email/email.module';
+import { ImapModule } from '../imap/imap.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Orgao, UnidadeOrgao, SolicitacaoAcesso, Usuario]),
     AuthModule,
+    EmailModule,
+    ImapModule,
   ],
   controllers: [OrgaosController, SolicitacoesController, UnidadesController],
   providers: [OrgaosService, SolicitacoesService, UnidadesService],

@@ -1,5 +1,34 @@
 # Scratchpad
 
+## ✅ Tarefa Concluída: Configuração de Email (SMTP/IMAP) por Órgão (2026-02-18)
+
+Implementado conforme plano anexo:
+
+**Fase 1 (SMTP) - já estava feita:**
+- Migration + campos Orgao (SMTP)
+- EmailModule + EmailService
+- Endpoints e página Admin de config SMTP
+- Integração NotificacoesService e OrdemFornecimentoService
+
+**Fase 2 (IMAP) - implementada agora:**
+- [X] Campos IMAP na entidade Orgao: email_imap_host, email_imap_port, email_imap_user, email_imap_senha
+- [X] Migration 1768400001000-AddEmailImapOrgao.ts
+- [X] ImapModule + ImapService (imapflow)
+- [X] OrgaosService: getEmailConfig e atualizarEmailConfig com campos IMAP
+- [X] Endpoints: GET /orgaos/:id/emails, GET /orgaos/:id/emails/:uid, POST /orgaos/:id/emails/:uid/responder, POST /orgaos/:id/email-config/testar-imap
+- [X] Admin modal: abas SMTP e IMAP, botão Testar IMAP
+- [X] Página /orgao/emails (caixa de entrada, listar, ver detalhe, responder)
+- [X] Link "Caixa de Entrada" no sidebar do órgão
+
+Arquivos criados/modificados:
+- backend/src/imap/imap.service.ts, imap.module.ts
+- backend/src/orgaos/entities/orgao.entity.ts
+- backend/src/orgaos/orgaos.service.ts, orgaos.controller.ts, orgaos.module.ts
+- backend/src/migrations/1768400001000-AddEmailImapOrgao.ts
+- frontend/src/app/admin/orgaos/page.tsx
+- frontend/src/app/orgao/emails/page.tsx
+- frontend/src/components/layout/navigation.tsx
+
 ## ✅ Tarefa Concluída: Ações Rápidas na Gestão de Contratos (2026-02-17)
 
 Implementado conforme plano:

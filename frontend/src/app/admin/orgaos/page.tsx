@@ -46,7 +46,8 @@ import {
   Search,
   Loader2,
   Shield,
-  Link2
+  Link2,
+  Mail
 } from 'lucide-react'
 
 import { API_URL, adminFetch } from '@/lib/api'
@@ -108,9 +109,12 @@ export default function AdminOrgaosPage() {
   const [showNovoOrgao, setShowNovoOrgao] = useState(false)
   const [showEditarOrgao, setShowEditarOrgao] = useState(false)
   const [showConfigurarPNCP, setShowConfigurarPNCP] = useState(false)
+  const [showConfigurarEmail, setShowConfigurarEmail] = useState(false)
   const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
   
   const [orgaoSelecionado, setOrgaoSelecionado] = useState<Orgao | null>(null)
+  const [testandoEmail, setTestandoEmail] = useState(false)
+  const [salvandoEmail, setSalvandoEmail] = useState(false)
   const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   
   // Form state
@@ -140,6 +144,20 @@ export default function AdminOrgaosPage() {
     pncp_vinculado: false,
     pncp_codigo_unidade: '1'
   })
+
+  const [formEmail, setFormEmail] = useState({
+    email_smtp_host: '',
+    email_smtp_port: 587,
+    email_smtp_secure: false,
+    email_smtp_user: '',
+    email_smtp_senha: '',
+    email_from: '',
+    email_imap_host: '',
+    email_imap_port: 993,
+    email_imap_user: '',
+    email_imap_senha: ''
+  })
+  const [testandoImap, setTestandoImap] = useState(false)
 
   useEffect(() => {
     carregarOrgaos()
@@ -308,6 +326,77 @@ export default function AdminOrgaosPage() {
       pncp_codigo_unidade: orgao.pncp_codigo_unidade || '1'
     })
     setShowConfigurarPNCP(true)
+  }
+
+  const abrirConfigurarEmail = async (orgao: Orgao) => {
+    setOrgaoSelecionado(orgao)
+    setShowConfigurarEmail(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${orgao.id}/email-config`)
+      if (res.ok) {
+        const cfg = await res.json()
+        setFormEmail({
+          email_smtp_host: cfg.email_smtp_host || '',
+          email_smtp_port: cfg.email_smtp_port ?? 587,
+          email_smtp_secure: cfg.email_smtp_secure ?? false,
+          email_smtp_user: cfg.email_smtp_user || '',
+          email_smtp_senha: '',
+          email_from: cfg.email_from || '',
+          email_imap_host: cfg.email_imap_host || '',
+          email_imap_port: cfg.email_imap_port ?? 993,
+          email_imap_user: cfg.email_imap_user || '',
+          email_imap_senha: ''
+        })
+      }
+    } catch (e) {
+      console.error('Erro ao carregar config email:', e)
+    }
+  }
+
+  const salvarConfiguracaoEmail = async () => {
+    if (!orgaoSelecionado) return
+    setSalvandoEmail(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formEmail,
+          email_smtp_senha: formEmail.email_smtp_senha || undefined,
+          email_imap_senha: formEmail.email_imap_senha || undefined
+        })
+      })
+      if (res.ok) {
+        alert('Configuracao de email salva com sucesso!')
+        carregarOrgaos()
+      } else {
+        const err = await res.json()
+        alert(err.message || 'Erro ao salvar')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao salvar configuracao')
+    } finally {
+      setSalvandoEmail(false)
+    }
+  }
+
+  const testarConfiguracaoEmail = async () => {
+    if (!orgaoSelecionado) return
+    setTestandoEmail(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config/testar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formEmail.email_smtp_user })
+      })
+      const data = await res.json()
+      alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
+    } catch (e) {
+      alert('Erro ao testar conexao')
+    } finally {
+      setTestandoEmail(false)
+    }
   }
 
   const consultarCnpj = async () => {
@@ -506,6 +595,14 @@ export default function AdminOrgaosPage() {
                   <TableCell>{getStatusPNCPBadge(orgao)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => abrirConfigurarEmail(orgao)}
+                        title="Configurar Email (SMTP)"
+                      >
+                        <Mail className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -991,6 +1088,171 @@ export default function AdminOrgaosPage() {
               Cancelar
             </Button>
             <Button onClick={salvarConfiguracaoPNCP}>
+              Salvar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Configurar Email (SMTP/IMAP) */}
+      <Dialog open={showConfigurarEmail} onOpenChange={setShowConfigurarEmail}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              Configurar Email (SMTP / IMAP)
+            </DialogTitle>
+            <DialogDescription>
+              {orgaoSelecionado?.nome} - Envio (SMTP) e recepção (IMAP) de emails
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Tabs defaultValue="smtp" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="smtp">SMTP (Envio)</TabsTrigger>
+              <TabsTrigger value="imap">IMAP (Recepção)</TabsTrigger>
+            </TabsList>
+            <TabsContent value="smtp" className="space-y-4 py-4">
+            <div className="p-3 bg-blue-50 rounded-lg text-sm">
+              <p className="font-medium text-blue-800">Provedores comuns</p>
+              <p className="text-blue-700 mt-1 text-xs">
+                Gmail: smtp.gmail.com:587 (use Senha de app com 2FA) | Outlook: smtp.office365.com:587
+              </p>
+            </div>
+
+            <div>
+              <Label>Servidor SMTP (host)</Label>
+              <Input
+                value={formEmail.email_smtp_host}
+                onChange={(e) => setFormEmail({ ...formEmail, email_smtp_host: e.target.value })}
+                placeholder="smtp.gmail.com"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Porta</Label>
+                <Input
+                  type="number"
+                  value={formEmail.email_smtp_port}
+                  onChange={(e) => setFormEmail({ ...formEmail, email_smtp_port: parseInt(e.target.value) || 587 })}
+                  placeholder="587"
+                />
+              </div>
+              <div className="flex items-center gap-2 pt-8">
+                <Switch
+                  checked={formEmail.email_smtp_secure}
+                  onCheckedChange={(c) => setFormEmail({ ...formEmail, email_smtp_secure: c })}
+                />
+                <Label>SSL/TLS (porta 465)</Label>
+              </div>
+            </div>
+            <div>
+              <Label>Usuario (email)</Label>
+              <Input
+                type="email"
+                value={formEmail.email_smtp_user}
+                onChange={(e) => setFormEmail({ ...formEmail, email_smtp_user: e.target.value })}
+                placeholder="contato@orgao.gov.br"
+              />
+            </div>
+            <div>
+              <Label>Senha</Label>
+              <Input
+                type="password"
+                value={formEmail.email_smtp_senha}
+                onChange={(e) => setFormEmail({ ...formEmail, email_smtp_senha: e.target.value })}
+                placeholder="Deixe vazio para manter a atual"
+              />
+            </div>
+            <div>
+              <Label>Remetente (From)</Label>
+              <Input
+                value={formEmail.email_from}
+                onChange={(e) => setFormEmail({ ...formEmail, email_from: e.target.value })}
+                placeholder="Prefeitura &lt;contato@prefeitura.gov.br&gt;"
+              />
+              <p className="text-xs text-gray-500 mt-1">Ex: Nome &lt;email@orgao.gov.br&gt;</p>
+            </div>
+            </TabsContent>
+            <TabsContent value="imap" className="space-y-4 py-4">
+            <div className="p-3 bg-blue-50 rounded-lg text-sm">
+              <p className="font-medium text-blue-800">Recepção de emails</p>
+              <p className="text-blue-700 mt-1 text-xs">
+                Gmail: imap.gmail.com:993 | Outlook: outlook.office365.com:993
+              </p>
+            </div>
+            <div>
+              <Label>Servidor IMAP (host)</Label>
+              <Input
+                value={formEmail.email_imap_host}
+                onChange={(e) => setFormEmail({ ...formEmail, email_imap_host: e.target.value })}
+                placeholder="imap.gmail.com"
+              />
+            </div>
+            <div>
+              <Label>Porta IMAP</Label>
+              <Input
+                type="number"
+                value={formEmail.email_imap_port}
+                onChange={(e) => setFormEmail({ ...formEmail, email_imap_port: parseInt(e.target.value) || 993 })}
+                placeholder="993"
+              />
+            </div>
+            <div>
+              <Label>Usuário (email)</Label>
+              <Input
+                type="email"
+                value={formEmail.email_imap_user}
+                onChange={(e) => setFormEmail({ ...formEmail, email_imap_user: e.target.value })}
+                placeholder="contato@orgao.gov.br"
+              />
+            </div>
+            <div>
+              <Label>Senha IMAP</Label>
+              <Input
+                type="password"
+                value={formEmail.email_imap_senha}
+                onChange={(e) => setFormEmail({ ...formEmail, email_imap_senha: e.target.value })}
+                placeholder="Deixe vazio para manter a atual"
+              />
+            </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                if (!orgaoSelecionado) return
+                setTestandoImap(true)
+                try {
+                  const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config/testar-imap`, { method: 'POST' })
+                  const data = await res.json()
+                  alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
+                } catch (e) {
+                  alert('Erro ao testar IMAP')
+                } finally {
+                  setTestandoImap(false)
+                }
+              }}
+              disabled={testandoImap || !formEmail.email_imap_host || !formEmail.email_imap_user}
+            >
+              {testandoImap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4 mr-1" />}
+              Testar IMAP
+            </Button>
+            <Button
+              variant="outline"
+              onClick={testarConfiguracaoEmail}
+              disabled={testandoEmail || !formEmail.email_smtp_host || !formEmail.email_smtp_user}
+            >
+              {testandoEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4 mr-1" />}
+              Testar
+            </Button>
+            <Button variant="outline" onClick={() => setShowConfigurarEmail(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={salvarConfiguracaoEmail} disabled={salvandoEmail}>
+              {salvandoEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Salvar
             </Button>
           </div>

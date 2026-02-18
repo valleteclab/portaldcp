@@ -22,6 +22,7 @@ import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { ContratosModule } from '../contratos/contratos.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { ContratosModule } from '../contratos/contratos.module';
     ]),
     NotificacoesModule,
     forwardRef(() => ContratosModule),
+    EmailModule,
   ],
   controllers: [AlmoxarifadoController, FornecedorOrdensController],
   providers: [

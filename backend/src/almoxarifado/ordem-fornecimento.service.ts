@@ -10,7 +10,9 @@ import { ItemContrato } from './entities/item-contrato.entity';
 import { GerarOrdemDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { PdfOrdemService } from './pdf-ordem.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { EmailService } from '../email/email.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import * as fs from 'fs';
 
 @Injectable()
 export class OrdemFornecimentoService {
@@ -28,6 +30,7 @@ export class OrdemFornecimentoService {
     private readonly dataSource: DataSource,
     private readonly pdfOrdemService: PdfOrdemService,
     private readonly notificacoesService: NotificacoesService,
+    private readonly emailService: EmailService,
   ) {}
 
   // ============================================================================
@@ -256,7 +259,22 @@ export class OrdemFornecimentoService {
       usuarioTipo: 'orgao',
     });
 
-    // TODO: Implementar envio real de email
+    if (ordemSalva.email_fornecedor) {
+      try {
+        const pdfPath = await this.pdfOrdemService.gerarPdf(id);
+        const pdfBuffer = fs.readFileSync(pdfPath);
+        const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
+        await this.emailService.enviar(ordem.orgao_id, {
+          to: ordemSalva.email_fornecedor,
+          subject: `Ordem de Fornecimento ${ordem.numero} - ${ordem.fornecedor?.razao_social || ''}`,
+          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero}.\n\n${observacoes ? `Observações: ${observacoes}` : ''}`,
+          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong>.</p>${observacoes ? `<p><em>Observações: ${observacoes}</em></p>` : ''}`,
+          attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
+        });
+      } catch (err: any) {
+        this.logger.warn(`Email da ordem nao enviado: ${err.message}`);
+      }
+    }
 
     this.logger.log(`Ordem ${ordem.numero} enviada ao fornecedor`);
 
@@ -307,7 +325,22 @@ export class OrdemFornecimentoService {
       usuarioTipo: 'orgao',
     });
 
-    // TODO: Implementar envio real de email
+    if (ordemSalva.email_fornecedor) {
+      try {
+        const pdfPath = await this.pdfOrdemService.gerarPdf(id);
+        const pdfBuffer = fs.readFileSync(pdfPath);
+        const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
+        await this.emailService.enviar(ordem.orgao_id, {
+          to: ordemSalva.email_fornecedor,
+          subject: `[Reenvio] Ordem de Fornecimento ${ordem.numero} - ${ordem.fornecedor?.razao_social || ''}`,
+          text: `Reenvio da Ordem de Fornecimento ${ordem.numero}.\n\n${observacoes ? `Observações: ${observacoes}` : ''}`,
+          html: `<p>Reenvio da Ordem de Fornecimento <strong>${ordem.numero}</strong>.</p>${observacoes ? `<p><em>Observações: ${observacoes}</em></p>` : ''}`,
+          attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
+        });
+      } catch (err: any) {
+        this.logger.warn(`Email da ordem nao reenviado: ${err.message}`);
+      }
+    }
 
     this.logger.log(`Ordem ${ordem.numero} reenviada ao fornecedor`);
 

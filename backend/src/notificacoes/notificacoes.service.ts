@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Notificacao, TipoNotificacao, PrioridadeNotificacao } from './entities/notificacao.entity';
+import { EmailService } from '../email/email.service';
 
 export interface CriarNotificacaoDto {
   orgao_id: string;
@@ -25,6 +26,7 @@ export class NotificacoesService {
   constructor(
     @InjectRepository(Notificacao)
     private readonly notificacaoRepository: Repository<Notificacao>,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -274,21 +276,32 @@ export class NotificacoesService {
   }
 
   /**
-   * Enfileira notificação para envio de email
-   * TODO: Integrar com serviço de email (SendGrid, SES, etc.)
+   * Envia notificação por email usando SMTP configurado do órgão
    */
   private async enfileirarEmail(notificacao: Notificacao): Promise<void> {
-    this.logger.log(`Email enfileirado para ${notificacao.usuario_email}: ${notificacao.titulo}`);
-    
-    // TODO: Implementar envio real de email
-    // Por enquanto, apenas marca como enviado para não reenviar
-    // await this.emailService.enviar({
-    //   to: notificacao.usuario_email,
-    //   subject: notificacao.titulo,
-    //   body: notificacao.mensagem,
-    // });
+    if (!notificacao.usuario_email) {
+      notificacao.email_enviado = true;
+      notificacao.data_envio_email = new Date();
+      await this.notificacaoRepository.save(notificacao);
+      return;
+    }
 
-    // Marca como enviado (simulado por enquanto)
+    try {
+      const enviado = await this.emailService.enviar(notificacao.orgao_id, {
+        to: notificacao.usuario_email,
+        subject: notificacao.titulo,
+        text: notificacao.mensagem,
+        html: `<p>${notificacao.mensagem.replace(/\n/g, '<br>')}</p>${notificacao.link ? `<p><a href="${notificacao.link}">Acessar no sistema</a></p>` : ''}`,
+      });
+      if (enviado) {
+        this.logger.log(`Email enviado para ${notificacao.usuario_email}: ${notificacao.titulo}`);
+      } else {
+        this.logger.warn(`SMTP nao configurado para orgao ${notificacao.orgao_id}, email nao enviado`);
+      }
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar email para ${notificacao.usuario_email}: ${error.message}`);
+    }
+
     notificacao.email_enviado = true;
     notificacao.data_envio_email = new Date();
     await this.notificacaoRepository.save(notificacao);

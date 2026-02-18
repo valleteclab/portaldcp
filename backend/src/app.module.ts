@@ -39,6 +39,7 @@ import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
     AlmoxarifadoModule,
     NotificacoesModule,
     RelatoriosModule,
+    EmailModule,
   ],
   controllers: [HealthController],
   providers: [

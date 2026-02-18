@@ -135,6 +135,40 @@ export class Orgao {
   @Column({ nullable: true })
   pncp_status: string; // 'VINCULADO', 'PENDENTE', 'ERRO'
 
+  // ============ EMAIL (SMTP - envio) ============
+
+  @Column({ nullable: true })
+  email_smtp_host: string;
+
+  @Column({ type: 'int', nullable: true })
+  email_smtp_port: number;
+
+  @Column({ type: 'boolean', nullable: true, default: false })
+  email_smtp_secure: boolean;
+
+  @Column({ nullable: true })
+  email_smtp_user: string;
+
+  @Column({ nullable: true })
+  email_smtp_senha: string; // criptografada
+
+  @Column({ nullable: true })
+  email_from: string; // "Prefeitura <contato@prefeitura.gov.br>"
+
+  // ============ EMAIL (IMAP - recepção) ============
+
+  @Column({ nullable: true })
+  email_imap_host: string;
+
+  @Column({ type: 'int', nullable: true })
+  email_imap_port: number;
+
+  @Column({ nullable: true })
+  email_imap_user: string;
+
+  @Column({ nullable: true })
+  email_imap_senha: string; // criptografada
+
   // ============ CONFIGURAÇÕES DE DISPUTA ============
   
   @Column({ default: true })
