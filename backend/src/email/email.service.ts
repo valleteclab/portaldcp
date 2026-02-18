@@ -143,6 +143,9 @@ export class EmailService {
       if (mensagem.includes('wrong version number') || mensagem.includes('ssl3_get_record')) {
         mensagem = 'Erro SSL: na porta 587 use SSL/TLS desligado (STARTTLS). Na porta 465 ligue SSL/TLS. Corrija a configuração e tente novamente.';
       }
+      if (mensagem.includes('Application-specific password') || mensagem.includes('InvalidSecondFactor') || mensagem.includes('534-5.7.9')) {
+        mensagem = 'Gmail com 2FA exige Senha de app (não a senha normal). Acesse https://myaccount.google.com/apppasswords — ative 2FA se necessário, gere uma senha de app e use os 16 caracteres no campo Senha.';
+      }
       return { sucesso: false, mensagem };
     }
   }

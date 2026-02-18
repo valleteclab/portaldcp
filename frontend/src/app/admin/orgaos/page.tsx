@@ -1134,10 +1134,14 @@ export default function AdminOrgaosPage() {
             <div className="p-3 bg-blue-50 rounded-lg text-sm">
               <p className="font-medium text-blue-800">SMTP = ENVIO de emails</p>
               <p className="text-blue-700 mt-1 text-xs">
-                Gmail: smtp.gmail.com porta 587 (Senha de app com 2FA) | Outlook: smtp.office365.com porta 587
+                Gmail: smtp.gmail.com porta 587 | Outlook: smtp.office365.com porta 587
               </p>
               <p className="text-amber-700 mt-1 text-xs font-medium">
-                Não use pop. ou imap. aqui — esses são para receber emails (aba IMAP).
+                Gmail com 2FA: use Senha de app (não a senha normal).{' '}
+                <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="underline">Criar senha de app</a>
+              </p>
+              <p className="text-amber-700 mt-1 text-xs">
+                Não use pop. ou imap. aqui — esses são para receber (aba IMAP).
               </p>
             </div>
 

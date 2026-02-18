@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ImapFlow } from 'imapflow';
 import { createDecipheriv } from 'crypto';
+import * as dns from 'dns/promises';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 
 export interface EmailResumido {
@@ -75,14 +76,29 @@ export class ImapService {
     };
   }
 
-  private createClient(config: { host: string; port: number; secure: boolean; user: string; pass: string }): ImapFlow {
-    return new ImapFlow({
-      host: config.host,
+  private async createClient(config: { host: string; port: number; secure: boolean; user: string; pass: string }): Promise<ImapFlow> {
+    // Resolve host para IPv4 para evitar timeout/greeting em redes sem IPv6
+    let hostToUse = config.host;
+    try {
+      const addrs = await dns.resolve4(config.host);
+      if (addrs.length > 0) hostToUse = addrs[0];
+    } catch {
+      // mantém hostname se resolve4 falhar
+    }
+
+    const options: any = {
+      host: hostToUse,
       port: config.port,
       secure: config.secure,
       auth: { user: config.user, pass: config.pass },
       logger: false,
-    });
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+    };
+    if (hostToUse !== config.host) {
+      options.tls = { servername: config.host };
+    }
+    return new ImapFlow(options);
   }
 
   async listarEmails(
@@ -96,7 +112,7 @@ export class ImapService {
       throw new NotFoundException('IMAP não configurado para este órgão');
     }
 
-    const client = this.createClient(config);
+    const client = await this.createClient(config);
     try {
       await client.connect();
       const lock = await client.getMailboxLock(pasta);
@@ -147,7 +163,7 @@ export class ImapService {
       throw new NotFoundException('IMAP não configurado para este órgão');
     }
 
-    const client = this.createClient(config);
+    const client = await this.createClient(config);
     try {
       await client.connect();
       const lock = await client.getMailboxLock(pasta);
@@ -206,7 +222,7 @@ export class ImapService {
       throw new NotFoundException('IMAP não configurado para este órgão');
     }
 
-    const client = this.createClient(config);
+    const client = await this.createClient(config);
     try {
       await client.connect();
       const lock = await client.getMailboxLock(pasta);
@@ -226,7 +242,7 @@ export class ImapService {
       return { sucesso: false, mensagem: 'IMAP não configurado para este órgão' };
     }
 
-    const client = this.createClient(config);
+    const client = await this.createClient(config);
     try {
       await client.connect();
       const lock = await client.getMailboxLock('INBOX');
@@ -238,7 +254,11 @@ export class ImapService {
         lock.release();
       }
     } catch (error: any) {
-      return { sucesso: false, mensagem: error.message || 'Erro ao conectar ao servidor IMAP' };
+      let mensagem = error.message || 'Erro ao conectar ao servidor IMAP';
+      if (mensagem.includes('Failed to receive greeting') || mensagem.includes('greeting')) {
+        mensagem = 'Timeout na conexão IMAP. Verifique se o host (imap.gmail.com) e porta (993) estão corretos. Se o servidor não tem IPv6, já configuramos para usar IPv4.';
+      }
+      return { sucesso: false, mensagem };
     } finally {
       try {
         await client.logout();
