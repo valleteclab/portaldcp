@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as nodemailer from 'nodemailer';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import * as dns from 'dns/promises';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 
 export interface EnviarEmailDto {
@@ -75,11 +76,21 @@ export class EmailService {
     }
 
     try {
+      // Resolve host para IPv4 para evitar ENETUNREACH em redes sem IPv6
+      let hostToUse = config.host;
+      try {
+        const addrs = await dns.resolve4(config.host);
+        if (addrs.length > 0) hostToUse = addrs[0];
+      } catch {
+        // mantém hostname se resolve4 falhar (ex: host já é IP)
+      }
+
       const transport = nodemailer.createTransport({
-        host: config.host,
+        host: hostToUse,
         port: config.port,
         secure: config.secure,
         auth: { user: config.user, pass: config.pass },
+        tls: hostToUse !== config.host ? { servername: config.host } : undefined,
       });
 
       const to = Array.isArray(dto.to) ? dto.to.join(', ') : dto.to;
@@ -118,7 +129,14 @@ export class EmailService {
       });
       return { sucesso: true, mensagem: `Email de teste enviado para ${destino}` };
     } catch (error: any) {
-      return { sucesso: false, mensagem: error.message || 'Erro ao enviar email de teste' };
+      let mensagem = error.message || 'Erro ao enviar email de teste';
+      if (mensagem.includes('Invalid greeting') || mensagem.includes('Gpop') || mensagem.includes('POP')) {
+        mensagem = 'Servidor incorreto: você configurou POP3 ou IMAP na aba SMTP. Para ENVIAR emails use smtp.gmail.com (porta 587) ou smtp.office365.com (porta 587). pop.gmail.com e imap.gmail.com são para RECEBER.';
+      }
+      if (mensagem.includes('ENETUNREACH') || mensagem.includes('ETIMEDOUT')) {
+        mensagem = 'Rede inacessível. O servidor pode não ter IPv6. Já configuramos para usar IPv4. Verifique firewall, proxy ou se o host permite conexões SMTP na porta 587.';
+      }
+      return { sucesso: false, mensagem };
     }
   }
 }

@@ -355,6 +355,15 @@ export default function AdminOrgaosPage() {
 
   const salvarConfiguracaoEmail = async () => {
     if (!orgaoSelecionado) return
+    const host = (formEmail.email_smtp_host || '').toLowerCase()
+    if (host.includes('pop.') || host.includes('imap.')) {
+      alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
+      return
+    }
+    if ([993, 995].includes(formEmail.email_smtp_port)) {
+      alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
+      return
+    }
     setSalvandoEmail(true)
     try {
       const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config`, {
@@ -383,6 +392,15 @@ export default function AdminOrgaosPage() {
 
   const testarConfiguracaoEmail = async () => {
     if (!orgaoSelecionado) return
+    const host = (formEmail.email_smtp_host || '').toLowerCase()
+    if (host.includes('pop.') || host.includes('imap.')) {
+      alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
+      return
+    }
+    if ([993, 995].includes(formEmail.email_smtp_port)) {
+      alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
+      return
+    }
     setTestandoEmail(true)
     try {
       const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config/testar`, {
@@ -1114,14 +1132,17 @@ export default function AdminOrgaosPage() {
             </TabsList>
             <TabsContent value="smtp" className="space-y-4 py-4">
             <div className="p-3 bg-blue-50 rounded-lg text-sm">
-              <p className="font-medium text-blue-800">Provedores comuns</p>
+              <p className="font-medium text-blue-800">SMTP = ENVIO de emails</p>
               <p className="text-blue-700 mt-1 text-xs">
-                Gmail: smtp.gmail.com:587 (use Senha de app com 2FA) | Outlook: smtp.office365.com:587
+                Gmail: smtp.gmail.com porta 587 (Senha de app com 2FA) | Outlook: smtp.office365.com porta 587
+              </p>
+              <p className="text-amber-700 mt-1 text-xs font-medium">
+                Não use pop. ou imap. aqui — esses são para receber emails (aba IMAP).
               </p>
             </div>
 
             <div>
-              <Label>Servidor SMTP (host)</Label>
+              <Label>Servidor SMTP (host) — ex: smtp.gmail.com</Label>
               <Input
                 value={formEmail.email_smtp_host}
                 onChange={(e) => setFormEmail({ ...formEmail, email_smtp_host: e.target.value })}
@@ -1130,7 +1151,7 @@ export default function AdminOrgaosPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Porta</Label>
+                <Label>Porta (SMTP: 587 ou 465)</Label>
                 <Input
                   type="number"
                   value={formEmail.email_smtp_port}

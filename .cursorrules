@@ -158,6 +158,7 @@ Implementar sistema completo de autenticação JWT para proteger todas as APIs d
 
 ## Cursor learned
 
+- Config email: SMTP = envio (smtp.gmail.com:587), POP/IMAP = recepção (pop/imap.gmail.com:993,995). Erro "Invalid greeting" + "Gpop" = usuário usou servidor POP na aba SMTP
 - For search results, ensure proper handling of different character encodings (UTF-8) for international queries
 - Add debug information to stderr while keeping the main output clean in stdout for better pipeline integration
 - When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
