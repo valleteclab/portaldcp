@@ -33,7 +33,8 @@ import {
   ChevronDown,
   ClipboardCheck,
   Package,
-  FileCheck
+  FileCheck,
+  Info
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -112,6 +113,20 @@ function formatarMesReferencia(ym: string): string {
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   const idx = parseInt(m, 10) - 1
   return idx >= 0 && idx < 12 ? `${meses[idx]}/${y}` : ym
+}
+
+/** Gera lista dos últimos 24 meses em formato YYYY-MM para seleção */
+function opcoesMesesReferencia(): { value: string; label: string }[] {
+  const hoje = new Date()
+  const opcoes: { value: string; label: string }[] = []
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const value = `${y}-${m}`
+    opcoes.push({ value, label: formatarMesReferencia(value) })
+  }
+  return opcoes
 }
 
 function ContratosOrgaoPageContent() {
@@ -500,6 +515,32 @@ window._extraindoContratos = true;
         </Card>
       )}
 
+      {/* Instruções: O que você pode fazer */}
+      <Card className="border-blue-200 bg-blue-50/50">
+        <CardContent className="pt-6">
+          <div className="flex gap-3">
+            <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-gray-700 space-y-1">
+              <p className="font-medium text-gray-900">O que você pode fazer nesta página</p>
+              <ul className="list-disc list-inside space-y-0.5 text-gray-600">
+                <li><strong>Ver</strong> (ícone de olho) — Abre os detalhes do contrato</li>
+                <li><strong>Editar</strong> (ícone de lápis) — Edita o contrato</li>
+                <li><strong>Mais ações</strong> (▼) — Menu com ações rápidas conforme o tipo de contrato:
+                  <ul className="list-[circle] list-inside ml-4 mt-1 space-y-0.5">
+                    <li><em>Solicitar medição</em> — Contratos por medição vigentes: abre modal para solicitar envio ao fornecedor (escolha o mês)</li>
+                    <li><em>Ver medições</em> — Contratos por medição: vai direto para a aba de medições</li>
+                    <li><em>Nova requisição</em> — Contratos com itens (Almoxarifado): cria pedido/requisição</li>
+                    <li><em>Criar ordem de serviço</em> — Contratos por OS vigentes: abre a aba de ordens de serviço</li>
+                    <li><em>Requisições</em> — Lista as requisições deste contrato</li>
+                  </ul>
+                </li>
+                <li><strong>Enviar ao PNCP</strong> (ícone de avião) — Envia o contrato ao Portal Nacional de Contratações Públicas</li>
+              </ul>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Filtros e Lista */}
       <Card>
         <CardHeader>
@@ -713,7 +754,18 @@ window._extraindoContratos = true;
               </p>
               <div>
                 <Label>Mês de referência</Label>
-                <p className="text-sm font-medium text-gray-900 mt-1">{formatarMesReferencia(mesReferencia)}</p>
+                <Select value={mesReferencia} onValueChange={setMesReferencia}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Selecione o mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {opcoesMesesReferencia().map((op) => (
+                      <SelectItem key={op.value} value={op.value}>
+                        {op.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="msg-solicitar">Mensagem ao fornecedor (opcional)</Label>
