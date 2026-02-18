@@ -85,10 +85,14 @@ export class EmailService {
         // mantém hostname se resolve4 falhar (ex: host já é IP)
       }
 
+      // Porta 587 = STARTTLS (secure: false). Porta 465 = SSL implícito (secure: true).
+      // Usar secure: true na 587 causa "wrong version number".
+      const secure = config.port === 465 ? true : false;
+
       const transport = nodemailer.createTransport({
         host: hostToUse,
         port: config.port,
-        secure: config.secure,
+        secure,
         auth: { user: config.user, pass: config.pass },
         tls: hostToUse !== config.host ? { servername: config.host } : undefined,
       });
@@ -135,6 +139,9 @@ export class EmailService {
       }
       if (mensagem.includes('ENETUNREACH') || mensagem.includes('ETIMEDOUT')) {
         mensagem = 'Rede inacessível. O servidor pode não ter IPv6. Já configuramos para usar IPv4. Verifique firewall, proxy ou se o host permite conexões SMTP na porta 587.';
+      }
+      if (mensagem.includes('wrong version number') || mensagem.includes('ssl3_get_record')) {
+        mensagem = 'Erro SSL: na porta 587 use SSL/TLS desligado (STARTTLS). Na porta 465 ligue SSL/TLS. Corrija a configuração e tente novamente.';
       }
       return { sucesso: false, mensagem };
     }
