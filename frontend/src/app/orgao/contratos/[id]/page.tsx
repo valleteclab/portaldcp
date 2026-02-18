@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -192,10 +192,22 @@ const TIPOS_TERMO = [
   { value: 'SUSPENSAO', label: 'Suspensão' },
 ]
 
+const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'historico']
+
 export default function DetalheContratoOrgaoPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const id = params.id as string
+
+  const tabUrl = searchParams.get('tab')
+  const tabAtivo = tabUrl && TABS_VALIDOS.includes(tabUrl) ? tabUrl : 'detalhes'
+
+  const setTabAtivo = (tab: string) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('tab', tab)
+    router.replace(url.pathname + url.search)
+  }
 
   const [contrato, setContrato] = useState<Contrato | null>(null)
   const [termos, setTermos] = useState<TermoAditivo[]>([])
@@ -747,7 +759,7 @@ export default function DetalheContratoOrgaoPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="detalhes" className="space-y-6">
+      <Tabs value={tabAtivo} onValueChange={setTabAtivo} className="space-y-6">
         <TabsList>
           <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
           {(!contrato.modalidade_execucao || contrato.modalidade_execucao === 'ITEM_QUANTIDADE') && (

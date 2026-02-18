@@ -29,9 +29,21 @@ import {
   Upload,
   X,
   Loader2,
-  Lock
+  Lock,
+  ChevronDown,
+  ClipboardCheck,
+  Package,
+  FileCheck
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useModulosOrgao } from '@/hooks/useModulosOrgao'
 
 interface ItemContrato {
@@ -71,6 +83,7 @@ interface Contrato {
   total_itens?: number
   licitacao?: { id: string; numero_processo: string; modalidade: string }
   modalidade_licitacao?: string
+  modalidade_execucao?: string
 }
 
 import { API_URL, authFetch } from '@/lib/api'
@@ -85,6 +98,22 @@ const STATUS_CONTRATO = {
   'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800', icon: AlertTriangle }
 }
 
+function mesAnteriorYYYYMM(): string {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 1)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+function formatarMesReferencia(ym: string): string {
+  const [y, m] = ym.split('-')
+  if (!m || !y) return ym
+  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  const idx = parseInt(m, 10) - 1
+  return idx >= 0 && idx < 12 ? `${meses[idx]}/${y}` : ym
+}
+
 function ContratosOrgaoPageContent() {
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
@@ -96,6 +125,13 @@ function ContratosOrgaoPageContent() {
   })
   const { temAcesso } = useModulosOrgao()
   const temAlmoxarifado = temAcesso(ModuloSistema.ALMOXARIFADO)
+
+  // Estados para modal Solicitar medição
+  const [solicitarContrato, setSolicitarContrato] = useState<Contrato | null>(null)
+  const [mesReferencia, setMesReferencia] = useState(mesAnteriorYYYYMM)
+  const [mensagemSolicitar, setMensagemSolicitar] = useState('')
+  const [loadingSolicitar, setLoadingSolicitar] = useState(false)
+  const [erroSolicitar, setErroSolicitar] = useState<string | null>(null)
 
   // Estados para importação
   const [showImportar, setShowImportar] = useState(false)
@@ -299,6 +335,30 @@ window._extraindoContratos = true;
     const fim = new Date(dataFim)
     const hoje = new Date()
     return Math.ceil((fim.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+  }
+
+  const enviarSolicitacao = async () => {
+    if (!solicitarContrato) return
+    setErroSolicitar(null)
+    setLoadingSolicitar(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${solicitarContrato.id}/medicoes/solicitar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mes_referencia: mesReferencia, mensagem: mensagemSolicitar.trim() || undefined }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.message || `Erro ${res.status}`)
+      }
+      setSolicitarContrato(null)
+      setMensagemSolicitar('')
+      setMesReferencia(mesAnteriorYYYYMM())
+      carregarDados()
+    } catch (e) {
+      setErroSolicitar(e instanceof Error ? e.message : 'Erro ao enviar')
+    }
+    setLoadingSolicitar(false)
   }
 
   const contratosFiltrados = contratos.filter(contrato => {
@@ -506,7 +566,14 @@ window._extraindoContratos = true;
                   {contratosFiltrados.map((contrato) => {
                     const StatusIcon = STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.icon || Clock
                     const diasRestantes = calcularDiasRestantes(contrato.data_vigencia_fim)
-                    
+                    const temItens = (contrato.total_itens ?? contrato.itens?.length ?? 0) > 0
+                    const hasAcoesRapidas =
+                      (contrato.modalidade_execucao === 'MEDICAO' && contrato.status === 'VIGENTE') ||
+                      contrato.modalidade_execucao === 'MEDICAO' ||
+                      (temAlmoxarifado && contrato.status === 'VIGENTE' && (contrato.modalidade_execucao === 'ITEM_QUANTIDADE' || temItens)) ||
+                      (contrato.modalidade_execucao === 'ORDEM_SERVICO' && contrato.status === 'VIGENTE') ||
+                      (temAlmoxarifado && contrato.status === 'VIGENTE')
+
                     return (
                       <tr key={contrato.id} className="border-b hover:bg-gray-50 align-top">
                         <td className="py-3 px-2 align-top">
@@ -564,12 +631,54 @@ window._extraindoContratos = true;
                                 <Edit className="w-4 h-4" />
                               </Link>
                             </Button>
-                            {temAlmoxarifado && contrato.status === 'VIGENTE' && (
-                              <Button variant="ghost" size="sm" asChild title="Requisições deste contrato" className="text-green-600 hover:text-green-700 hover:bg-green-50">
-                                <Link href={`/orgao/almoxarifado/requisicoes?contrato=${contrato.id}`}>
-                                  <ClipboardList className="w-4 h-4" />
-                                </Link>
-                              </Button>
+                            {hasAcoesRapidas && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" title="Mais ações">
+                                  <ChevronDown className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="min-w-[200px]">
+                                {contrato.modalidade_execucao === 'MEDICAO' && contrato.status === 'VIGENTE' && (
+                                  <DropdownMenuItem onClick={() => { setSolicitarContrato(contrato); setMesReferencia(mesAnteriorYYYYMM()); setMensagemSolicitar(''); setErroSolicitar(null) }}>
+                                    <Send className="w-4 h-4 mr-2" />
+                                    Solicitar medição
+                                  </DropdownMenuItem>
+                                )}
+                                {contrato.modalidade_execucao === 'MEDICAO' && (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/orgao/contratos/${contrato.id}?tab=medicao`}>
+                                      <ClipboardCheck className="w-4 h-4 mr-2" />
+                                      Ver medições
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
+                                {temAlmoxarifado && contrato.status === 'VIGENTE' && (contrato.modalidade_execucao === 'ITEM_QUANTIDADE' || (contrato.total_itens ?? contrato.itens?.length ?? 0) > 0) && (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/orgao/almoxarifado/requisicoes/nova?contrato=${contrato.id}`}>
+                                      <Package className="w-4 h-4 mr-2" />
+                                      Nova requisição
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
+                                {contrato.modalidade_execucao === 'ORDEM_SERVICO' && contrato.status === 'VIGENTE' && (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/orgao/contratos/${contrato.id}?tab=ordens-servico`}>
+                                      <FileCheck className="w-4 h-4 mr-2" />
+                                      Criar ordem de serviço
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
+                                {temAlmoxarifado && contrato.status === 'VIGENTE' && (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/orgao/almoxarifado/requisicoes?contrato=${contrato.id}`} className="text-green-600">
+                                      <ClipboardList className="w-4 h-4 mr-2" />
+                                      Requisições
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                             )}
                             {!contrato.enviado_pncp && (
                               <Button variant="ghost" size="sm" title="Enviar ao PNCP">
@@ -587,6 +696,52 @@ window._extraindoContratos = true;
           )}
         </CardContent>
       </Card>
+
+      {/* Modal Solicitar medição */}
+      <Dialog open={!!solicitarContrato} onOpenChange={(open) => !open && setSolicitarContrato(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5 text-blue-600" />
+              Solicitar envio de medição
+            </DialogTitle>
+          </DialogHeader>
+          {solicitarContrato && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Contrato <strong>{solicitarContrato.numero_contrato}</strong> — {solicitarContrato.fornecedor_razao_social}
+              </p>
+              <div>
+                <Label>Mês de referência</Label>
+                <p className="text-sm font-medium text-gray-900 mt-1">{formatarMesReferencia(mesReferencia)}</p>
+              </div>
+              <div>
+                <Label htmlFor="msg-solicitar">Mensagem ao fornecedor (opcional)</Label>
+                <Textarea
+                  id="msg-solicitar"
+                  value={mensagemSolicitar}
+                  onChange={(e) => setMensagemSolicitar(e.target.value)}
+                  placeholder="Ex.: Precisamos da medição para fechamento do mês..."
+                  className="mt-1 min-h-[80px]"
+                  rows={3}
+                />
+              </div>
+              {erroSolicitar && (
+                <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{erroSolicitar}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setSolicitarContrato(null)} disabled={loadingSolicitar}>
+                  Cancelar
+                </Button>
+                <Button onClick={enviarSolicitacao} disabled={loadingSolicitar}>
+                  {loadingSolicitar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+                  Enviar solicitação
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de Importação */}
       <Dialog open={showImportar} onOpenChange={setShowImportar}>

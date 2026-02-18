@@ -1,5 +1,17 @@
 # Scratchpad
 
+## ✅ Tarefa Concluída: Ações Rápidas na Gestão de Contratos (2026-02-17)
+
+Implementado conforme plano:
+- [X] Verificar backend: GET /api/contratos retorna modalidade_execucao, total_itens, itens
+- [X] DropdownMenu "Mais ações" na coluna Ações (só aparece quando há ações)
+- [X] Modal Solicitar medição (mês referência + mensagem) → POST /api/contratos/:id/medicoes/solicitar
+- [X] Links: Ver medições (?tab=medicao), Nova requisição (?contrato=id), Criar ordem de serviço (?tab=ordens-servico)
+- [X] Regras condicionais: MEDICAO+VIGENTE (solicitar), MEDICAO (ver), Almoxarifado+itens+VIGENTE (nova req), ORDEM_SERVICO+VIGENTE (criar OS)
+- [X] Página de detalhe do contrato aceita ?tab= para abrir aba específica
+
+Arquivos modificados: frontend/src/app/orgao/contratos/page.tsx, frontend/src/app/orgao/contratos/[id]/page.tsx
+
 ## ✅ Tarefa Concluída: Sistema de Módulos Opcionais por Órgão - COMPLETO E TESTADO
 
 ### Resumo da Implementação (Atualizado 2026-01-19)
