@@ -30,6 +30,7 @@ export class ZApiProvider implements IWhatsAppProvider {
 
     try {
       const url = `${ZAPI_BASE}/instances/${config.instanceId}/token/${config.token}/send-text`;
+      this.logger.log(`Chamando Z-API: POST ${url} | phone=${phone} | clientToken=${config.clientToken ? 'presente' : 'ausente'}`);
       const response = await axios.post(
         url,
         { phone, message: mensagem },
@@ -47,7 +48,7 @@ export class ZApiProvider implements IWhatsAppProvider {
       }
       return false;
     } catch (error: any) {
-      this.logger.error(`Erro ao enviar WhatsApp para ${phone}: ${error.response?.data?.message || error.message}`);
+      this.logger.error(`Erro ao enviar WhatsApp para ${phone}: status=${error.response?.status} body=${JSON.stringify(error.response?.data)} msg=${error.message}`);
       return false;
     }
   }
