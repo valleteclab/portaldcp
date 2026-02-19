@@ -695,25 +695,17 @@ export class NotificacoesService {
     if (enviarWhatsapp) {
       const baseUrl = appUrl || process.env.APP_URL || 'https://portaldcp-production.up.railway.app';
       const linkPortal = `${baseUrl}/fornecedor/contratos/${contratoId}`;
-      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\n${mensagem}`;
+      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\n${mensagem}\n\n🔗 Acesse o portal para enviar a medição:\n${linkPortal}`;
 
       for (const dest of fornecedorDestinatarios) {
         if (!dest.telefone) continue;
         try {
-          const enviado = await this.whatsappService.enviarComBotao(orgaoId, {
+          const enviado = await this.whatsappService.enviar(orgaoId, {
             to: dest.telefone,
             mensagem: mensagemWpp,
-            botoes: [
-              {
-                id: '1',
-                type: 'URL',
-                label: 'Acessar Portal de Medições',
-                url: linkPortal,
-              },
-            ],
           });
           if (enviado) {
-            this.logger.log(`WhatsApp (botão) enviado para ${dest.telefone}: solicitação medição ${contratoNumero}`);
+            this.logger.log(`WhatsApp enviado para ${dest.telefone}: solicitação medição ${contratoNumero}`);
           }
         } catch (error: any) {
           this.logger.error(`Erro ao enviar WhatsApp para ${dest.telefone}: ${error.message}`);
