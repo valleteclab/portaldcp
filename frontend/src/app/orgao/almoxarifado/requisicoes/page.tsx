@@ -19,7 +19,8 @@ import {
   FilePlus,
   Ban,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  BarChart2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -79,6 +80,7 @@ interface Requisicao {
   usuario_autorizador_nome?: string;
   observacao_autorizador?: string;
   valor_total_estimado: number;
+  contrato_id?: string | null;
   ordem_fornecimento_id?: string | null;
   ordem_fornecimento?: {
     id: string;
@@ -771,8 +773,22 @@ function RequisicoesList() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {/* Botão para gerar ordem manualmente (requisições aprovadas sem ordem) */}
-                        {(req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && !req.ordem_fornecimento_id && (
+                        {/* OS aprovada → link para medições do contrato */}
+                        {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && req.contrato_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-indigo-600 hover:text-indigo-700"
+                            asChild
+                            title="Ver medições do contrato"
+                          >
+                            <Link href={`/orgao/medicoes?contrato=${req.contrato_id}`}>
+                              <BarChart2 className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        )}
+                        {/* Botão para gerar ordem manualmente (apenas para requisições de material/serviço aprovadas sem ordem) */}
+                        {req.tipo !== 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && !req.ordem_fornecimento_id && (
                           <Button
                             variant="ghost"
                             size="sm"
