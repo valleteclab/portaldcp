@@ -36,7 +36,7 @@ export class ZApiProvider implements IWhatsAppProvider {
         {
           headers: {
             'Content-Type': 'application/json',
-            'Client-Token': config.clientToken,
+            ...(config.clientToken ? { 'Client-Token': config.clientToken } : {}),
           },
           timeout: 15000,
         },
@@ -57,8 +57,8 @@ export class ZApiProvider implements IWhatsAppProvider {
     numeroTeste?: string;
   }): Promise<{ sucesso: boolean; mensagem: string }> {
     const { config, numeroTeste } = params;
-    if (!config.instanceId || !config.token || !config.clientToken) {
-      return { sucesso: false, mensagem: 'Configuração Z-API incompleta (instance_id, token, client_token)' };
+    if (!config.instanceId || !config.token) {
+      return { sucesso: false, mensagem: 'Configuração Z-API incompleta (instance_id e token são obrigatórios)' };
     }
     const phone = numeroTeste ? this.normalizarTelefone(numeroTeste) : null;
     if (!phone || phone.length < 12) {

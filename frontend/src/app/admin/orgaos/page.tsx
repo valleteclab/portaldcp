@@ -1448,7 +1448,7 @@ export default function AdminOrgaosPage() {
             <div className="p-3 bg-blue-50 rounded-lg text-sm">
               <p className="font-medium text-blue-800">Z-API</p>
               <p className="text-blue-700 mt-1 text-xs">
-                Obtenha as credenciais em z-api.io. Instance ID, Token e Client Token.
+                Obtenha o Instance ID e Token na aba "Dados da instância web" da Z-API. O Client Token (opcional) fica no perfil da sua conta Z-API.
               </p>
             </div>
             <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm space-y-2">
@@ -1501,12 +1501,12 @@ export default function AdminOrgaosPage() {
               />
             </div>
             <div>
-              <Label>Client Token</Label>
+              <Label>Client Token <span className="text-gray-400 font-normal text-xs">(opcional - Security Token da conta)</span></Label>
               <Input
                 type="password"
                 value={formWhatsApp.whatsapp_client_token}
                 onChange={(e) => setFormWhatsApp({ ...formWhatsApp, whatsapp_client_token: e.target.value })}
-                placeholder="Deixe vazio para manter o atual"
+                placeholder="Opcional - deixe vazio se não tiver"
               />
             </div>
             <div>

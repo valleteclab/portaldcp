@@ -14,5 +14,5 @@ export interface IWhatsAppProvider {
 export interface WhatsAppConfig {
   instanceId: string;
   token: string;
-  clientToken: string;
+  clientToken?: string;
 }
