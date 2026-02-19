@@ -694,7 +694,8 @@ export class NotificacoesService {
     }
 
     if (enviarWhatsapp) {
-      const baseUrl = appUrl || process.env.APP_URL || 'https://www.portaldcp.com.br';
+      const envUrl = process.env.APP_URL;
+      const baseUrl = appUrl || (envUrl?.includes('portaldcp') ? envUrl : 'https://www.portaldcp.com.br');
       const linkPortal = `${baseUrl}/fornecedor/contratos/${contratoId}`;
       const [ano, mes] = mesReferencia.split('-');
       const mesAnoLabel2 = mes && ano ? `${mes}/${ano}` : mesReferencia;
