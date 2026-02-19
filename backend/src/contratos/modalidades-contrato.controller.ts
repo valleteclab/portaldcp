@@ -215,7 +215,7 @@ export class ModalidadesContratoController {
    */
   @Post('medicoes/solicitar-lote')
   async solicitarMedicaoLote(
-    @Body() body: { contrato_ids: string[]; mes_referencia: string; mensagem?: string },
+    @Body() body: { contrato_ids: string[]; mes_referencia: string; mensagem?: string; enviar_whatsapp?: boolean },
     @Req() request: { user: JwtPayload },
   ) {
     const orgaoId = this.getOrgaoId(request.user);
@@ -252,6 +252,7 @@ export class ModalidadesContratoController {
           fiscalNome,
           request.user.sub,
           body.mensagem,
+          body.enviar_whatsapp,
         );
         resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: true });
       } catch (e) {

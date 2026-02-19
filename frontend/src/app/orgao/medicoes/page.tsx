@@ -17,6 +17,7 @@ import {
   ClipboardCheck, TrendingUp, Search, Building2, FileText,
   Loader2, AlertTriangle, ChevronRight, ChevronLeft, CheckCircle, Clock,
   Send, XCircle, Calendar, History, Mail, Eye, Shield, RotateCcw, ChevronDown,
+  MessageCircle,
 } from 'lucide-react'
 import { authFetch, formatarDataHoraBR } from '@/lib/api'
 import dynamic from 'next/dynamic'
@@ -204,12 +205,18 @@ export default function MedicoesPage() {
   const [contratosSelecionados, setContratosSelecionados] = useState<Record<string, boolean>>({})
   const [mensagemLote, setMensagemLote] = useState('')
   const [loadingSolicitarLote, setLoadingSolicitarLote] = useState(false)
+  const [enviarWhatsappLote, setEnviarWhatsappLote] = useState(false)
 
   // Solicitar individual (mantido)
   const [solicitarContrato, setSolicitarContrato] = useState<ContratoResumo | null>(null)
   const [mensagemSolicitar, setMensagemSolicitar] = useState('')
   const [loadingSolicitar, setLoadingSolicitar] = useState(false)
   const [erroSolicitar, setErroSolicitar] = useState<string | null>(null)
+  const [enviarWhatsappIndividual, setEnviarWhatsappIndividual] = useState(false)
+  const [telefoneWhatsappIndividual, setTelefoneWhatsappIndividual] = useState('')
+
+  // WhatsApp configurado
+  const [whatsappConfigurado, setWhatsappConfigurado] = useState(false)
 
   // Histórico
   const [historico, setHistorico] = useState<SolicitacaoEnviada[]>([])
@@ -217,6 +224,18 @@ export default function MedicoesPage() {
   const [mensagemDetalhe, setMensagemDetalhe] = useState<SolicitacaoEnviada | null>(null)
 
   // ============ FETCH DE DADOS ============
+
+  useEffect(() => {
+    const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+    const orgaoId = orgao.id
+    if (!orgaoId) return
+    authFetch(`${API_URL}/api/orgaos/${orgaoId}/whatsapp-config`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) setWhatsappConfigurado(!!(data.whatsapp_instance_id || data.configurado))
+      })
+      .catch(() => {})
+  }, [])
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -369,12 +388,14 @@ export default function MedicoesPage() {
           contrato_ids: ids,
           mes_referencia: mesReferencia,
           mensagem: mensagemLote.trim() || undefined,
+          enviar_whatsapp: enviarWhatsappLote || undefined,
         }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
       const resultado = await res.json()
       alert(resultado.message)
       setMensagemLote('')
+      setEnviarWhatsappLote(false)
       carregarDados()
       if (historicoAberto) carregarHistorico()
     } catch { alert('Erro ao enviar solicitações') }
@@ -391,7 +412,12 @@ export default function MedicoesPage() {
       const res = await authFetch(`${API_URL}/api/contratos/${solicitarContrato.id}/medicoes/solicitar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mes_referencia: mesReferencia, mensagem: mensagemSolicitar.trim() || undefined }),
+        body: JSON.stringify({
+          mes_referencia: mesReferencia,
+          mensagem: mensagemSolicitar.trim() || undefined,
+          enviar_whatsapp: enviarWhatsappIndividual || undefined,
+          telefone_whatsapp: enviarWhatsappIndividual && telefoneWhatsappIndividual.trim() ? telefoneWhatsappIndividual.trim() : undefined,
+        }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -399,6 +425,8 @@ export default function MedicoesPage() {
       }
       setSolicitarContrato(null)
       setMensagemSolicitar('')
+      setEnviarWhatsappIndividual(false)
+      setTelefoneWhatsappIndividual('')
       carregarDados()
       if (historicoAberto) carregarHistorico()
     } catch (e) {
@@ -609,6 +637,8 @@ export default function MedicoesPage() {
                       onClick={() => {
                         setSolicitarContrato(c)
                         setMensagemSolicitar('Lembramos que a medição ainda está pendente.')
+                        setEnviarWhatsappIndividual(false)
+                        setTelefoneWhatsappIndividual('')
                       }}
                       disabled={loadingSolicitar}
                     >
@@ -911,6 +941,27 @@ export default function MedicoesPage() {
                   className="mt-1"
                 />
               </div>
+
+              {whatsappConfigurado && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="wpp-lote"
+                    checked={enviarWhatsappLote}
+                    onChange={(e) => setEnviarWhatsappLote(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-green-600"
+                  />
+                  <label htmlFor="wpp-lote" className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                    <MessageCircle className="w-4 h-4 text-green-600" />
+                    <span className="font-medium text-gray-700">Notificar via WhatsApp</span>
+                  </label>
+                  {enviarWhatsappLote && (
+                    <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
+                      Será enviado para o telefone cadastrado de cada fornecedor
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center gap-3 flex-wrap">
                 <Button
@@ -1336,7 +1387,7 @@ export default function MedicoesPage() {
       </Dialog>
 
       {/* ============ MODAL: Solicitar individual (mantido) ============ */}
-      <Dialog open={!!solicitarContrato} onOpenChange={(open) => !open && setSolicitarContrato(null)}>
+      <Dialog open={!!solicitarContrato} onOpenChange={(open) => { if (!open) { setSolicitarContrato(null); setEnviarWhatsappIndividual(false); setTelefoneWhatsappIndividual('') } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1364,11 +1415,42 @@ export default function MedicoesPage() {
                   rows={3}
                 />
               </div>
+
+              {whatsappConfigurado && (
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={enviarWhatsappIndividual}
+                      onChange={(e) => setEnviarWhatsappIndividual(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-green-600"
+                    />
+                    <MessageCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-sm font-medium text-gray-700">Notificar via WhatsApp</span>
+                  </label>
+                  {enviarWhatsappIndividual && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                      <p className="text-xs font-medium text-gray-700">Número que receberá a mensagem:</p>
+                      <input
+                        type="tel"
+                        value={telefoneWhatsappIndividual}
+                        onChange={(e) => setTelefoneWhatsappIndividual(e.target.value)}
+                        placeholder="Ex: 5577999999999"
+                        className="w-full text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                      {!telefoneWhatsappIndividual.trim() && (
+                        <p className="text-xs text-amber-600">⚠️ Informe o número manualmente (código país + DDD + número)</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {erroSolicitar && (
                 <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{erroSolicitar}</p>
               )}
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setSolicitarContrato(null)} disabled={loadingSolicitar}>
+                <Button variant="outline" onClick={() => { setSolicitarContrato(null); setEnviarWhatsappIndividual(false); setTelefoneWhatsappIndividual('') }} disabled={loadingSolicitar}>
                   Cancelar
                 </Button>
                 <Button onClick={enviarSolicitacao} disabled={loadingSolicitar}>
