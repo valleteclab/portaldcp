@@ -47,6 +47,7 @@ import {
   Loader2,
   Shield,
   Link2,
+  Link as LinkIcon,
   Mail,
   MessageCircle
 } from 'lucide-react'
@@ -1449,6 +1450,17 @@ export default function AdminOrgaosPage() {
               <p className="text-blue-700 mt-1 text-xs">
                 Obtenha as credenciais em z-api.io. Instance ID, Token e Client Token.
               </p>
+            </div>
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
+              <p className="font-medium text-green-800 flex items-center gap-1">
+                <LinkIcon className="w-4 h-4" /> URL do Webhook
+              </p>
+              <p className="text-green-700 mt-1 text-xs mb-2">
+                Copie esta URL e cole nas configurações da sua instância Z-API:
+              </p>
+              <code className="block bg-white p-2 rounded text-xs break-all border">
+                {API_URL}/api/webhooks/zapi
+              </code>
             </div>
             <div>
               <Label>Provedor</Label>

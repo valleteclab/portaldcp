@@ -40,6 +40,7 @@ import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
 import { EmailModule } from './email/email.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { EmailModule } from './email/email.module';
     NotificacoesModule,
     RelatoriosModule,
     EmailModule,
+    WebhooksModule,
   ],
   controllers: [HealthController],
   providers: [
