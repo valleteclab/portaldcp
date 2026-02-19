@@ -782,7 +782,7 @@ function RequisicoesList() {
                             asChild
                             title="Ver medições do contrato"
                           >
-                            <Link href={`/orgao/medicoes?contrato=${req.contrato_id}`}>
+                            <Link href={`/orgao/contratos/${req.contrato_id}?tab=medicao`}>
                               <BarChart2 className="h-4 w-4" />
                             </Link>
                           </Button>
