@@ -71,6 +71,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
       migrations: process.env.NODE_ENV === 'production' ? ['dist/migrations/*.js'] : [],
       migrationsRun: process.env.NODE_ENV === 'production',
       ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+      extra: {
+        options: '-c timezone=UTC',
+      },
     }),
     AuthModule,
     OrgaosModule,

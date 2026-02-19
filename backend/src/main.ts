@@ -3,9 +3,6 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
-// Configurar timezone para Brasil (Brasília)
-process.env.TZ = 'America/Sao_Paulo';
-
 // Tenta múltiplos caminhos para garantir que funcione em qualquer cenário
 const envPath = path.resolve(__dirname, '../.env');
 const projectRootEnv = path.resolve(process.cwd(), '.env');

@@ -48,7 +48,7 @@ export class MensagemSolicitacaoMedicao {
   @Column({ length: 255 })
   solicitado_por_nome: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
   @Column({ default: false })
