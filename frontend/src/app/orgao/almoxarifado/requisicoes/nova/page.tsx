@@ -382,6 +382,14 @@ function NovaRequisicaoForm() {
       const contrato = contratos.find(c => c.id === contratoIdUrl);
       if (contrato) {
         setContratoSelecionado(contrato);
+        // Aplica a mesma lógica de tipo que handleSelecionarContrato
+        if (contrato.modalidade_execucao === 'MEDICAO' || contrato.categoria === 'OBRAS') {
+          setTipo('ORDEM_SERVICO');
+        } else if (contrato.categoria === 'SERVICOS') {
+          setTipo('SERVICO');
+        } else if (contrato.categoria === 'COMPRAS') {
+          setTipo('MATERIAL');
+        }
         setEtapa(1);
         limparRascunhoLocal(); // Limpa rascunho se veio da URL
       }
