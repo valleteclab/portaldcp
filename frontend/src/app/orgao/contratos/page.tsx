@@ -308,10 +308,10 @@ window._extraindoContratos = true;
       const orgaoData = localStorage.getItem('orgao')
       if (!orgaoData) return
       const orgao = JSON.parse(orgaoData)
-      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/whatsapp/status`)
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/whatsapp-config`)
       if (res.ok) {
         const data = await res.json()
-        setWhatsappConfigurado(data.configurado === true)
+        setWhatsappConfigurado(!!(data.whatsapp_instance_id || data.configurado))
       }
     } catch {
       setWhatsappConfigurado(false)
