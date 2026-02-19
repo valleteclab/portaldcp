@@ -215,7 +215,7 @@ export class ModalidadesContratoController {
    */
   @Post('medicoes/solicitar-lote')
   async solicitarMedicaoLote(
-    @Body() body: { contrato_ids: string[]; mes_referencia: string; mensagem?: string; enviar_whatsapp?: boolean },
+    @Body() body: { contrato_ids: string[]; mes_referencia: string; mensagem?: string; enviar_whatsapp?: boolean; telefone_overrides?: Record<string, string> },
     @Req() request: { user: JwtPayload },
   ) {
     const orgaoId = this.getOrgaoId(request.user);
@@ -229,11 +229,11 @@ export class ModalidadesContratoController {
     const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
     const fiscalNome = usuario?.nome || 'Fiscal';
 
-    const resultados: { contrato_id: string; numero_contrato?: string; sucesso: boolean; erro?: string }[] = [];
+    const resultados: { contrato_id: string; numero_contrato?: string; fornecedor_nome?: string; sucesso: boolean; erro?: string; whatsapp_tentado?: boolean; whatsapp_telefone?: string | null; whatsapp_sem_telefone?: boolean }[] = [];
 
     for (const contratoId of body.contrato_ids) {
       try {
-        const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+        const contrato = await this.contratoRepository.findOne({ where: { id: contratoId }, relations: ['fornecedor'] });
         if (!contrato) {
           resultados.push({ contrato_id: contratoId, sucesso: false, erro: 'Contrato não encontrado' });
           continue;
@@ -246,15 +246,26 @@ export class ModalidadesContratoController {
           resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Não é modalidade medição' });
           continue;
         }
-        await this.medicaoService.solicitarMedicao(
+        const telefoneOverride = body.telefone_overrides?.[contratoId];
+        const resultado = await this.medicaoService.solicitarMedicao(
           contratoId,
           body.mes_referencia.trim(),
           fiscalNome,
           request.user.sub,
           body.mensagem,
           body.enviar_whatsapp,
+          telefoneOverride,
         );
-        resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: true });
+        const semTelefone = body.enviar_whatsapp && !resultado.whatsapp_telefone;
+        resultados.push({
+          contrato_id: contratoId,
+          numero_contrato: contrato.numero_contrato,
+          fornecedor_nome: contrato.fornecedor_razao_social,
+          sucesso: true,
+          whatsapp_tentado: resultado.whatsapp_tentado,
+          whatsapp_telefone: resultado.whatsapp_telefone,
+          whatsapp_sem_telefone: semTelefone,
+        });
       } catch (e) {
         resultados.push({
           contrato_id: contratoId,

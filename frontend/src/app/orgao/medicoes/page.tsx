@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,7 @@ interface ContratoResumo {
   objeto: string
   fornecedor_nome: string
   fornecedor_cnpj: string
+  fornecedor_telefone?: string | null
   valor_global: number
   fiscal_nome: string
   status: string
@@ -52,6 +53,17 @@ interface ContratoResumo {
   numero_medicao?: number | null
   numero_medicoes_mes?: number[]
   valor_medicoes_mes?: number
+}
+
+interface ResultadoEnvioLote {
+  contrato_id: string
+  numero_contrato?: string
+  fornecedor_nome?: string
+  sucesso: boolean
+  erro?: string
+  whatsapp_tentado?: boolean
+  whatsapp_telefone?: string | null
+  whatsapp_sem_telefone?: boolean
 }
 
 interface MedicaoPendente {
@@ -206,6 +218,8 @@ export default function MedicoesPage() {
   const [mensagemLote, setMensagemLote] = useState('')
   const [loadingSolicitarLote, setLoadingSolicitarLote] = useState(false)
   const [enviarWhatsappLote, setEnviarWhatsappLote] = useState(false)
+  const [telefonesLote, setTelefonesLote] = useState<Record<string, string>>({})
+  const [resultadoLote, setResultadoLote] = useState<ResultadoEnvioLote[] | null>(null)
 
   // Solicitar individual (mantido)
   const [solicitarContrato, setSolicitarContrato] = useState<ContratoResumo | null>(null)
@@ -381,6 +395,15 @@ export default function MedicoesPage() {
       }
       if (ids.length === 0) { alert('Nenhum contrato selecionado.'); setLoadingSolicitarLote(false); return }
 
+      // Montar overrides de telefone para contratos que tiveram o número editado
+      const telefoneOverrides: Record<string, string> = {}
+      if (enviarWhatsappLote) {
+        ids.forEach(id => {
+          const tel = telefonesLote[id]?.trim()
+          if (tel) telefoneOverrides[id] = tel
+        })
+      }
+
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/solicitar-lote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -389,13 +412,19 @@ export default function MedicoesPage() {
           mes_referencia: mesReferencia,
           mensagem: mensagemLote.trim() || undefined,
           enviar_whatsapp: enviarWhatsappLote || undefined,
+          telefone_overrides: Object.keys(telefoneOverrides).length > 0 ? telefoneOverrides : undefined,
         }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
       const resultado = await res.json()
-      alert(resultado.message)
       setMensagemLote('')
       setEnviarWhatsappLote(false)
+      setTelefonesLote({})
+      if (enviarWhatsappLote && resultado.resultados?.length) {
+        setResultadoLote(resultado.resultados)
+      } else {
+        alert(resultado.message)
+      }
       carregarDados()
       if (historicoAberto) carregarHistorico()
     } catch { alert('Erro ao enviar solicitações') }
@@ -943,23 +972,78 @@ export default function MedicoesPage() {
               </div>
 
               {whatsappConfigurado && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="wpp-lote"
-                    checked={enviarWhatsappLote}
-                    onChange={(e) => setEnviarWhatsappLote(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-green-600"
-                  />
-                  <label htmlFor="wpp-lote" className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-                    <MessageCircle className="w-4 h-4 text-green-600" />
-                    <span className="font-medium text-gray-700">Notificar via WhatsApp</span>
-                  </label>
-                  {enviarWhatsappLote && (
-                    <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
-                      Será enviado para o telefone cadastrado de cada fornecedor
-                    </span>
-                  )}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="wpp-lote"
+                      checked={enviarWhatsappLote}
+                      onChange={(e) => {
+                        setEnviarWhatsappLote(e.target.checked)
+                        if (e.target.checked) {
+                          // Pré-preencher telefones com os cadastrados
+                          const tels: Record<string, string> = {}
+                          contratos.forEach(c => { if (c.fornecedor_telefone) tels[c.id] = c.fornecedor_telefone })
+                          setTelefonesLote(tels)
+                        } else {
+                          setTelefonesLote({})
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-gray-300 text-green-600"
+                    />
+                    <label htmlFor="wpp-lote" className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                      <MessageCircle className="w-4 h-4 text-green-600" />
+                      <span className="font-medium text-gray-700">Notificar via WhatsApp</span>
+                    </label>
+                  </div>
+
+                  {enviarWhatsappLote && (() => {
+                    const idsSelecionados = Object.entries(contratosSelecionados).filter(([, v]) => v).map(([k]) => k)
+                    const contratosSel = contratos.filter(c => idsSelecionados.includes(c.id) && !c.enviou_mes)
+                    const semTelefone = contratosSel.filter(c => !telefonesLote[c.id]?.trim())
+                    const comTelefone = contratosSel.filter(c => !!telefonesLote[c.id]?.trim())
+                    return (
+                      <div className="border border-green-200 rounded-lg overflow-hidden">
+                        <div className="bg-green-50 px-3 py-2 flex items-center justify-between">
+                          <span className="text-xs font-medium text-green-800">Checklist de envio WhatsApp</span>
+                          <div className="flex gap-3 text-xs">
+                            <span className="text-green-700">✓ {comTelefone.length} com telefone</span>
+                            {semTelefone.length > 0 && <span className="text-red-600">⚠ {semTelefone.length} sem telefone</span>}
+                          </div>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto divide-y divide-gray-100">
+                          {contratosSel.map(c => {
+                            const tel = telefonesLote[c.id] || ''
+                            const temTel = !!tel.trim()
+                            return (
+                              <div key={c.id} className={`flex items-center gap-2 px-3 py-2 text-xs ${temTel ? 'bg-white' : 'bg-red-50'}`}>
+                                <span className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold ${temTel ? 'bg-green-500' : 'bg-red-400'}`}>
+                                  {temTel ? '✓' : '!'}
+                                </span>
+                                <span className="font-medium text-gray-800 w-20 flex-shrink-0 truncate">{c.numero_contrato}</span>
+                                <span className="text-gray-500 flex-1 truncate">{c.fornecedor_nome}</span>
+                                <input
+                                  type="tel"
+                                  value={tel}
+                                  onChange={(e) => setTelefonesLote(prev => ({ ...prev, [c.id]: e.target.value }))}
+                                  placeholder={temTel ? '' : 'Informe o telefone'}
+                                  className={`w-36 flex-shrink-0 border rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 ${temTel ? 'border-gray-200' : 'border-red-300 bg-red-50'}`}
+                                />
+                              </div>
+                            )
+                          })}
+                          {contratosSel.length === 0 && (
+                            <p className="text-xs text-gray-400 px-3 py-2">Selecione contratos acima para ver o checklist.</p>
+                          )}
+                        </div>
+                        {semTelefone.length > 0 && (
+                          <div className="bg-amber-50 border-t border-amber-200 px-3 py-2 text-xs text-amber-700">
+                            ⚠ Fornecedores sem telefone não receberão o WhatsApp. Preencha o número ou desmarque-os.
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 
@@ -1460,6 +1544,110 @@ export default function MedicoesPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: Monitoramento de envio WhatsApp em lote ============ */}
+      <Dialog open={!!resultadoLote} onOpenChange={(open) => !open && setResultadoLote(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5 text-green-600" />
+              Resultado do envio — WhatsApp
+            </DialogTitle>
+            <DialogDescription>
+              {resultadoLote && (() => {
+                const ok = resultadoLote.filter(r => r.sucesso && r.whatsapp_tentado && r.whatsapp_telefone).length
+                const semTel = resultadoLote.filter(r => r.sucesso && r.whatsapp_sem_telefone).length
+                const erros = resultadoLote.filter(r => !r.sucesso).length
+                return `${ok} enviado(s) via WhatsApp · ${semTel} sem telefone · ${erros} erro(s)`
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+
+          {resultadoLote && (
+            <div className="space-y-2 mt-2">
+              {/* Resumo */}
+              {(() => {
+                const ok = resultadoLote.filter(r => r.sucesso && r.whatsapp_tentado && r.whatsapp_telefone).length
+                const semTel = resultadoLote.filter(r => r.sucesso && r.whatsapp_sem_telefone).length
+                const erros = resultadoLote.filter(r => !r.sucesso).length
+                return (
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-green-700">{ok}</div>
+                      <div className="text-xs text-green-600 mt-0.5">WhatsApp enviado</div>
+                    </div>
+                    <div className={`border rounded-lg p-3 text-center ${semTel > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className={`text-2xl font-bold ${semTel > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{semTel}</div>
+                      <div className={`text-xs mt-0.5 ${semTel > 0 ? 'text-amber-600' : 'text-gray-400'}`}>Sem telefone</div>
+                    </div>
+                    <div className={`border rounded-lg p-3 text-center ${erros > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className={`text-2xl font-bold ${erros > 0 ? 'text-red-700' : 'text-gray-400'}`}>{erros}</div>
+                      <div className={`text-xs mt-0.5 ${erros > 0 ? 'text-red-600' : 'text-gray-400'}`}>Erro no envio</div>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Lista detalhada */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-600 grid grid-cols-[1fr_1.5fr_auto] gap-2">
+                  <span>Contrato</span>
+                  <span>Fornecedor</span>
+                  <span>Status WhatsApp</span>
+                </div>
+                <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                  {resultadoLote.map((r) => {
+                    let statusIcon: ReactNode
+                    let statusText: string
+                    let rowBg: string
+
+                    if (!r.sucesso) {
+                      statusIcon = <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      statusText = r.erro || 'Erro'
+                      rowBg = 'bg-red-50'
+                    } else if (r.whatsapp_tentado && r.whatsapp_telefone) {
+                      statusIcon = <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      statusText = r.whatsapp_telefone
+                      rowBg = 'bg-white'
+                    } else if (r.whatsapp_sem_telefone) {
+                      statusIcon = <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                      statusText = 'Sem telefone cadastrado'
+                      rowBg = 'bg-amber-50'
+                    } else {
+                      statusIcon = <Mail className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                      statusText = 'Solicitação enviada (sem WhatsApp)'
+                      rowBg = 'bg-white'
+                    }
+
+                    return (
+                      <div key={r.contrato_id} className={`grid grid-cols-[1fr_1.5fr_auto] gap-2 items-center px-3 py-2.5 text-xs ${rowBg}`}>
+                        <span className="font-mono font-medium text-gray-800">{r.numero_contrato || r.contrato_id.slice(0, 8)}</span>
+                        <span className="text-gray-600 truncate">{r.fornecedor_nome || '—'}</span>
+                        <div className="flex items-center gap-1.5 justify-end">
+                          {statusIcon}
+                          <span className={`truncate max-w-[160px] ${!r.sucesso ? 'text-red-600' : r.whatsapp_sem_telefone ? 'text-amber-600' : 'text-gray-600'}`}>
+                            {statusText}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {resultadoLote.some(r => r.whatsapp_sem_telefone) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+                  <strong>Dica:</strong> Para os fornecedores sem telefone, acesse o cadastro do fornecedor e adicione o número de WhatsApp para os próximos envios.
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setResultadoLote(null)}>Fechar</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

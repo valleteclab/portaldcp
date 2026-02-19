@@ -1283,6 +1283,7 @@ export class MedicaoService {
         orgao_id: orgaoId,
         modalidade_execucao: ModalidadeExecucao.MEDICAO,
       },
+      relations: ['fornecedor'],
       order: { created_at: 'DESC' },
     });
 
@@ -1325,12 +1326,16 @@ export class MedicaoService {
         }
       }
 
+      const fornecedor = (contrato as any).fornecedor;
+      const fornecedor_telefone = fornecedor?.representante_telefone || fornecedor?.telefone || null;
+
       resultado.push({
         id: contrato.id,
         numero_contrato: contrato.numero_contrato,
         objeto: contrato.objeto,
         fornecedor_nome: contrato.fornecedor_razao_social,
         fornecedor_cnpj: contrato.fornecedor_cnpj,
+        fornecedor_telefone,
         valor_global: Number(contrato.valor_global),
         fiscal_nome: contrato.fiscal_nome,
         status: contrato.status,
@@ -1364,7 +1369,7 @@ export class MedicaoService {
     mensagem?: string,
     enviarWhatsapp?: boolean,
     telefoneOverride?: string,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; whatsapp_tentado?: boolean; whatsapp_telefone?: string | null }> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
     if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
@@ -1401,6 +1406,8 @@ export class MedicaoService {
       ? destinatarios.map(d => ({ ...d, telefone: telefoneOverride.trim() }))
       : destinatarios;
 
+    const telefoneWhatsapp = destinatariosComOverride[0]?.telefone || null;
+
     await this.notificacoesService.notificarSolicitacaoMedicao(
       contrato.orgao_id,
       contrato.numero_contrato,
@@ -1415,7 +1422,11 @@ export class MedicaoService {
     );
 
     this.logger.log(`Solicitação de medição enviada: contrato ${contrato.numero_contrato}, mês ${mesReferencia}`);
-    return { message: 'Solicitação enviada ao fornecedor com sucesso' };
+    return {
+      message: 'Solicitação enviada ao fornecedor com sucesso',
+      whatsapp_tentado: !!enviarWhatsapp,
+      whatsapp_telefone: enviarWhatsapp ? telefoneWhatsapp : null,
+    };
   }
 
   /**
