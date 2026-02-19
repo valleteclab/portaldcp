@@ -155,6 +155,7 @@ function ContratosOrgaoPageContent() {
   const [resultadoImportacao, setResultadoImportacao] = useState<any>(null)
   const [abaImportacao, setAbaImportacao] = useState<'upload' | 'script'>('upload')
   const [scriptCopiado, setScriptCopiado] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
 
   const scriptExtracao = `// Script de Extração - Portal de Transparência (v4)
 // Cole no Console (F12) na página de contratos do portal
@@ -517,11 +518,17 @@ window._extraindoContratos = true;
 
       {/* Instruções: O que você pode fazer */}
       <Card className="border-blue-200 bg-blue-50/50">
-        <CardContent className="pt-6">
-          <div className="flex gap-3">
-            <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-sm text-gray-700 space-y-1">
-              <p className="font-medium text-gray-900">O que você pode fazer nesta página</p>
+        <CardContent className="pt-4 pb-4">
+          <button
+            onClick={() => setShowHelp(!showHelp)}
+            className="flex items-center gap-2 w-full text-left"
+          >
+            <Info className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="text-sm font-medium text-gray-900 flex-1">O que você pode fazer nesta página</span>
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showHelp ? 'rotate-180' : ''}`} />
+          </button>
+          {showHelp && (
+            <div className="mt-3 text-sm text-gray-700 space-y-1 pl-6">
               <ul className="list-disc list-inside space-y-0.5 text-gray-600">
                 <li><strong>Ver</strong> (ícone de olho) — Abre os detalhes do contrato</li>
                 <li><strong>Editar</strong> (ícone de lápis) — Edita o contrato</li>
@@ -537,7 +544,7 @@ window._extraindoContratos = true;
                 <li><strong>Enviar ao PNCP</strong> (ícone de avião) — Envia o contrato ao Portal Nacional de Contratações Públicas</li>
               </ul>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
