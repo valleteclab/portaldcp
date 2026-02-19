@@ -663,6 +663,7 @@ export class NotificacoesService {
     fornecedorDestinatarios: { id: string; email?: string; telefone?: string }[],
     enviarWhatsapp?: boolean,
     appUrl?: string,
+    fornecedorNome?: string,
   ): Promise<void> {
     if (fornecedorDestinatarios.length === 0) return;
     const [ano, mes] = mesReferencia.split('-');
@@ -693,9 +694,12 @@ export class NotificacoesService {
     }
 
     if (enviarWhatsapp) {
-      const baseUrl = appUrl || process.env.APP_URL || 'https://portaldcp-production.up.railway.app';
+      const baseUrl = appUrl || process.env.APP_URL || 'https://www.portaldcp.com.br';
       const linkPortal = `${baseUrl}/fornecedor/contratos/${contratoId}`;
-      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\n${mensagem}\n\n🔗 Acesse o portal para enviar a medição:\n${linkPortal}`;
+      const [ano, mes] = mesReferencia.split('-');
+      const mesAnoLabel2 = mes && ano ? `${mes}/${ano}` : mesReferencia;
+      const nomeExibicao = fornecedorNome ? fornecedorNome.trim() : 'fornecedor';
+      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\nPrezado(a) *${nomeExibicao}*, solicitamos o envio da medição referente a *${mesAnoLabel2}*.\n\n${mensagemOpcional?.trim() ? `Mensagem do fiscal: ${mensagemOpcional.trim()}\n\n` : ''}🔗 Acesse o portal para enviar a medição:\n${linkPortal}\n\n_Caso já tenha enviado, desconsidere esta mensagem._`;
 
       for (const dest of fornecedorDestinatarios) {
         if (!dest.telefone) continue;

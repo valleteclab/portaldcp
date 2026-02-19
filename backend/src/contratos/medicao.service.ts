@@ -1410,6 +1410,8 @@ export class MedicaoService {
       mensagem?.trim() || undefined,
       destinatariosComOverride,
       enviarWhatsapp,
+      undefined,
+      contrato.fornecedor_razao_social,
     );
 
     this.logger.log(`Solicitação de medição enviada: contrato ${contrato.numero_contrato}, mês ${mesReferencia}`);
