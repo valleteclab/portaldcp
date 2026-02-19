@@ -1363,6 +1363,7 @@ export class MedicaoService {
     solicitadoPorId: string,
     mensagem?: string,
     enviarWhatsapp?: boolean,
+    telefoneOverride?: string,
   ): Promise<{ message: string }> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
@@ -1396,6 +1397,10 @@ export class MedicaoService {
     });
     await this.mensagemSolicitacaoRepository.save(msg);
 
+    const destinatariosComOverride = telefoneOverride?.trim()
+      ? destinatarios.map(d => ({ ...d, telefone: telefoneOverride.trim() }))
+      : destinatarios;
+
     await this.notificacoesService.notificarSolicitacaoMedicao(
       contrato.orgao_id,
       contrato.numero_contrato,
@@ -1403,7 +1408,7 @@ export class MedicaoService {
       mesReferencia,
       fiscalNome,
       mensagem?.trim() || undefined,
-      destinatarios,
+      destinatariosComOverride,
       enviarWhatsapp,
     );
 

@@ -178,6 +178,10 @@ export class ContratosService {
       (contrato as any).itens = itens;
       (contrato as any).saldo_total_em_valor = saldoTotalEmValor;
       (contrato as any).total_itens = itens.length;
+      (contrato as any).fornecedor_telefone =
+        (contrato as any).fornecedor?.representante_telefone ||
+        (contrato as any).fornecedor?.telefone ||
+        null;
     }
 
     return contratos;

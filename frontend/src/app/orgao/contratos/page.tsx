@@ -86,6 +86,7 @@ interface Contrato {
   licitacao?: { id: string; numero_processo: string; modalidade: string }
   modalidade_licitacao?: string
   modalidade_execucao?: string
+  fornecedor_telefone?: string | null
 }
 
 import { API_URL, authFetch } from '@/lib/api'
@@ -150,6 +151,7 @@ function ContratosOrgaoPageContent() {
   const [erroSolicitar, setErroSolicitar] = useState<string | null>(null)
   const [enviarWhatsapp, setEnviarWhatsapp] = useState(false)
   const [whatsappConfigurado, setWhatsappConfigurado] = useState(false)
+  const [telefoneWhatsapp, setTelefoneWhatsapp] = useState('')
 
   // Estados para importação
   const [showImportar, setShowImportar] = useState(false)
@@ -384,6 +386,7 @@ window._extraindoContratos = true;
           mes_referencia: mesReferencia,
           mensagem: mensagemSolicitar.trim() || undefined,
           enviar_whatsapp: enviarWhatsapp,
+          telefone_whatsapp: enviarWhatsapp && telefoneWhatsapp.trim() ? telefoneWhatsapp.trim() : undefined,
         }),
       })
       if (!res.ok) {
@@ -394,6 +397,7 @@ window._extraindoContratos = true;
       setMensagemSolicitar('')
       setMesReferencia(mesAnteriorYYYYMM())
       setEnviarWhatsapp(false)
+      setTelefoneWhatsapp('')
       carregarDados()
     } catch (e) {
       setErroSolicitar(e instanceof Error ? e.message : 'Erro ao enviar')
@@ -712,7 +716,7 @@ window._extraindoContratos = true;
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="min-w-[200px]">
                                 {contrato.modalidade_execucao === 'MEDICAO' && contrato.status === 'VIGENTE' && (
-                                  <DropdownMenuItem onClick={() => { setSolicitarContrato(contrato); setMesReferencia(mesAnteriorYYYYMM()); setMensagemSolicitar(''); setErroSolicitar(null) }}>
+                                  <DropdownMenuItem onClick={() => { setSolicitarContrato(contrato); setMesReferencia(mesAnteriorYYYYMM()); setMensagemSolicitar(''); setErroSolicitar(null); setEnviarWhatsapp(false); setTelefoneWhatsapp(contrato.fornecedor_telefone || '') }}>
                                     <Send className="w-4 h-4 mr-2" />
                                     Solicitar medição
                                   </DropdownMenuItem>
@@ -825,16 +829,39 @@ window._extraindoContratos = true;
                   </label>
 
                   {enviarWhatsapp && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-medium text-green-800">Prévia da mensagem que será enviada:</p>
-                      <div className="bg-white rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap border border-green-100">
-                        {`📋 *Solicitação de Medição – Contrato ${solicitarContrato?.numero_contrato}*\n\nSolicitamos o envio da medição referente a ${formatarMesReferencia(mesReferencia)}.${mensagemSolicitar.trim() ? `\n\nMensagem do fiscal: ${mensagemSolicitar.trim()}` : ''}`}
+                    <div className="space-y-3">
+                      {/* Campo de número */}
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                        <p className="text-xs font-medium text-gray-700">Número que receberá a mensagem:</p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="tel"
+                            value={telefoneWhatsapp}
+                            onChange={(e) => setTelefoneWhatsapp(e.target.value)}
+                            placeholder="Ex: 5577999999999"
+                            className="flex-1 text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          />
+                        </div>
+                        {!telefoneWhatsapp.trim() && (
+                          <p className="text-xs text-amber-600">⚠️ Fornecedor sem telefone cadastrado. Informe o número manualmente.</p>
+                        )}
+                        {telefoneWhatsapp.trim() && (
+                          <p className="text-xs text-gray-500">Formato: código do país + DDD + número (ex: 5577999999999)</p>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 bg-green-600 text-white rounded-lg px-3 py-2 text-xs font-medium w-fit">
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        Acessar Portal de Medições
+
+                      {/* Prévia da mensagem */}
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
+                        <p className="text-xs font-medium text-green-800">Prévia da mensagem que será enviada:</p>
+                        <div className="bg-white rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap border border-green-100">
+                          {`📋 *Solicitação de Medição – Contrato ${solicitarContrato?.numero_contrato}*\n\nSolicitamos o envio da medição referente a ${formatarMesReferencia(mesReferencia)}.${mensagemSolicitar.trim() ? `\n\nMensagem do fiscal: ${mensagemSolicitar.trim()}` : ''}`}
+                        </div>
+                        <div className="flex items-center gap-2 bg-green-600 text-white rounded-lg px-3 py-2 text-xs font-medium w-fit">
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          Acessar Portal de Medições
+                        </div>
+                        <p className="text-xs text-green-700">O botão acima abrirá o link direto para a página de medições do fornecedor.</p>
                       </div>
-                      <p className="text-xs text-green-700">O botão acima abrirá o link direto para a página de medições do fornecedor.</p>
                     </div>
                   )}
                 </div>
