@@ -699,17 +699,25 @@ export class NotificacoesService {
       const [ano, mes] = mesReferencia.split('-');
       const mesAnoLabel2 = mes && ano ? `${mes}/${ano}` : mesReferencia;
       const nomeExibicao = fornecedorNome ? fornecedorNome.trim() : 'fornecedor';
-      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\nPrezado(a) *${nomeExibicao}*, solicitamos o envio da medição referente a *${mesAnoLabel2}*.\n\n${mensagemOpcional?.trim() ? `Mensagem do fiscal: ${mensagemOpcional.trim()}\n\n` : ''}🔗 Acesse o portal para enviar a medição:\n${linkPortal}\n\n_Caso já tenha enviado, desconsidere esta mensagem._`;
+      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\nPrezado(a) *${nomeExibicao}*, solicitamos o envio da medição referente a *${mesAnoLabel2}*.\n\n${mensagemOpcional?.trim() ? `Mensagem do fiscal: ${mensagemOpcional.trim()}\n\n` : ''}_Caso já tenha enviado, desconsidere esta mensagem._`;
 
       for (const dest of fornecedorDestinatarios) {
         if (!dest.telefone) continue;
         try {
-          const enviado = await this.whatsappService.enviar(orgaoId, {
+          const enviado = await this.whatsappService.enviarComBotao(orgaoId, {
             to: dest.telefone,
             mensagem: mensagemWpp,
+            botoes: [
+              {
+                id: '1',
+                type: 'URL',
+                label: 'Acessar Portal de Medições',
+                url: linkPortal,
+              },
+            ],
           });
           if (enviado) {
-            this.logger.log(`WhatsApp enviado para ${dest.telefone}: solicitação medição ${contratoNumero}`);
+            this.logger.log(`WhatsApp (botão) enviado para ${dest.telefone}: solicitação medição ${contratoNumero}`);
           }
         } catch (error: any) {
           this.logger.error(`Erro ao enviar WhatsApp para ${dest.telefone}: ${error.message}`);
