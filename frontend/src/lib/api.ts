@@ -162,7 +162,11 @@ export const TIMEZONE_BRASILIA = 'America/Sao_Paulo';
 export function formatarDataBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
   try {
-    const d = new Date(dataISO);
+    // Se a string tem hora mas não tem timezone (Z ou +HH:mm), força UTC
+    const normalized = /T\d{2}:\d{2}/.test(dataISO) && !/Z$|[+-]\d{2}:?\d{2}$/.test(dataISO)
+      ? dataISO + 'Z'
+      : dataISO;
+    const d = new Date(normalized);
     if (isNaN(d.getTime())) return dataISO;
     return d.toLocaleDateString('pt-BR', { timeZone: TIMEZONE_BRASILIA });
   } catch {
@@ -179,7 +183,11 @@ export function formatarDataBR(dataISO: string | null | undefined): string {
 export function formatarDataHoraBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
   try {
-    const d = new Date(dataISO);
+    // Se a string tem hora mas não tem timezone (Z ou +HH:mm), força UTC
+    const normalized = /T\d{2}:\d{2}/.test(dataISO) && !/Z$|[+-]\d{2}:?\d{2}$/.test(dataISO)
+      ? dataISO + 'Z'
+      : dataISO;
+    const d = new Date(normalized);
     if (isNaN(d.getTime())) return dataISO;
     return d.toLocaleString('pt-BR', {
       timeZone: TIMEZONE_BRASILIA,
