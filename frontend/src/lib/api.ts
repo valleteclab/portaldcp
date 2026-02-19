@@ -177,8 +177,21 @@ export function formatarDataBR(dataISO: string | null | undefined): string {
 }
 
 /**
+ * Converte uma data UTC para Brasília (UTC-3) de forma robusta,
+ * sem depender de Intl.DateTimeFormat com timeZone (que pode falhar em SSR/Node).
+ */
+function utcParaBrasilia(d: Date): Date {
+  // Brasília é UTC-3 fixo (sem horário de verão desde 2019)
+  return new Date(d.getTime() - 3 * 60 * 60 * 1000);
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/**
  * Formata uma data ISO com hora para exibição em horário de Brasília (DD/MM/YYYY, HH:mm:ss)
- * Converte corretamente de UTC para America/Sao_Paulo
+ * Converte corretamente de UTC para America/Sao_Paulo (UTC-3)
  */
 export function formatarDataHoraBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
@@ -187,17 +200,16 @@ export function formatarDataHoraBR(dataISO: string | null | undefined): string {
     const normalized = /T\d{2}:\d{2}/.test(dataISO) && !/Z$|[+-]\d{2}:?\d{2}$/.test(dataISO)
       ? dataISO + 'Z'
       : dataISO;
-    const d = new Date(normalized);
-    if (isNaN(d.getTime())) return dataISO;
-    return d.toLocaleString('pt-BR', {
-      timeZone: TIMEZONE_BRASILIA,
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    const utc = new Date(normalized);
+    if (isNaN(utc.getTime())) return dataISO;
+    const br = utcParaBrasilia(utc);
+    const dia = pad2(br.getUTCDate());
+    const mes = pad2(br.getUTCMonth() + 1);
+    const ano = br.getUTCFullYear();
+    const h = pad2(br.getUTCHours());
+    const m = pad2(br.getUTCMinutes());
+    const s = pad2(br.getUTCSeconds());
+    return `${dia}/${mes}/${ano}, ${h}:${m}:${s}`;
   } catch {
     return dataISO;
   }
