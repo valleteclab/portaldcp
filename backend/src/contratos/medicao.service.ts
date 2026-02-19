@@ -1442,29 +1442,7 @@ export class MedicaoService {
       titulo: m.titulo,
       mensagem: m.mensagem,
       solicitado_por_nome: m.solicitado_por_nome,
-      created_at: m.created_at,
-    }));
-  }
-
-  /**
-   * Lista mensagens recebidas pelo fornecedor (caixa de entrada).
-   */
-  async listarMensagensRecebidas(fornecedorId: string): Promise<any[]> {
-    const list = await this.mensagemSolicitacaoRepository.find({
-      where: { fornecedor_id: fornecedorId },
-      relations: ['contrato', 'contrato.orgao'],
-      order: { created_at: 'DESC' },
-    });
-    return list.map((m) => ({
-      id: m.id,
-      contrato_id: m.contrato_id,
-      numero_contrato: m.contrato?.numero_contrato,
-      orgao_nome: (m.contrato as any)?.orgao?.nome,
-      mes_referencia: m.mes_referencia,
-      titulo: m.titulo,
-      mensagem: m.mensagem,
-      solicitado_por_nome: m.solicitado_por_nome,
-      created_at: m.created_at,
+      created_at: m.created_at instanceof Date ? m.created_at.toISOString() : m.created_at,
       lida: m.lida,
       lida_em: m.lida_em,
     }));
