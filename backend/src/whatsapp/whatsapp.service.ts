@@ -5,7 +5,7 @@ import { Orgao } from '../orgaos/entities/orgao.entity';
 import { createDecipheriv } from 'crypto';
 import { ZApiProvider } from './providers/zapi.provider';
 import { MetaChatwootProvider } from './providers/meta-chatwoot.provider';
-import { WhatsAppConfig } from './whatsapp.interfaces';
+import { IWhatsAppProvider, WhatsAppButtonAction, WhatsAppConfig } from './whatsapp.interfaces';
 import { SystemConfigService } from '../system-config/system-config.service';
 
 @Injectable()
@@ -108,6 +108,32 @@ export class WhatsAppService {
       });
     } catch (error: any) {
       this.logger.error(`Erro ao enviar WhatsApp (orgao ${orgaoId}): ${error.message}`);
+      return false;
+    }
+  }
+
+  async enviarComBotao(orgaoId: string, params: { to: string; mensagem: string; botoes: WhatsAppButtonAction[] }): Promise<boolean> {
+    const config = await this.getConfig(orgaoId);
+    if (!config) {
+      this.logger.warn(`WhatsApp nao configurado para orgao ${orgaoId}, mensagem nao enviada`);
+      return false;
+    }
+
+    const orgao = await this.orgaoRepository.findOne({
+      where: { id: orgaoId },
+      select: ['whatsapp_provider'],
+    });
+    const providerName = orgao?.whatsapp_provider || 'ZAPI';
+    const provider = this.getProvider(providerName);
+
+    try {
+      const p = provider as IWhatsAppProvider;
+      if (p.enviarComBotao) {
+        return await p.enviarComBotao({ ...params, orgaoId, config });
+      }
+      return await p.enviar({ to: params.to, mensagem: params.mensagem, orgaoId, config });
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar WhatsApp com botão (orgao ${orgaoId}): ${error.message}`);
       return false;
     }
   }

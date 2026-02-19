@@ -660,7 +660,9 @@ export class NotificacoesService {
     mesReferencia: string,
     fiscalNome: string,
     mensagemOpcional: string | undefined,
-    fornecedorDestinatarios: { id: string; email?: string }[],
+    fornecedorDestinatarios: { id: string; email?: string; telefone?: string }[],
+    enviarWhatsapp?: boolean,
+    appUrl?: string,
   ): Promise<void> {
     if (fornecedorDestinatarios.length === 0) return;
     const [ano, mes] = mesReferencia.split('-');
@@ -672,19 +674,51 @@ export class NotificacoesService {
 
     this.logger.log(`Notificando solicitação de medição – contrato ${contratoNumero}, mês ${mesReferencia}`);
     try {
-      await this.criarParaMultiplos(fornecedorDestinatarios, {
-        orgao_id: orgaoId,
-        tipo: TipoNotificacao.SOLICITACAO_MEDICAO,
-        titulo: `Solicitação de medição – ${contratoNumero}`,
-        mensagem,
-        prioridade: PrioridadeNotificacao.NORMAL,
-        entidade_tipo: 'contrato',
-        entidade_id: contratoId,
-        link: `/fornecedor/contratos/${contratoId}`,
-        metadata: { mes_referencia: mesReferencia, contrato_numero: contratoNumero, fiscal: fiscalNome },
-      });
+      await this.criarParaMultiplos(
+        fornecedorDestinatarios.map(d => ({ ...d, usuario_telefone: d.telefone })),
+        {
+          orgao_id: orgaoId,
+          tipo: TipoNotificacao.SOLICITACAO_MEDICAO,
+          titulo: `Solicitação de medição – ${contratoNumero}`,
+          mensagem,
+          prioridade: PrioridadeNotificacao.NORMAL,
+          entidade_tipo: 'contrato',
+          entidade_id: contratoId,
+          link: `/fornecedor/contratos/${contratoId}`,
+          metadata: { mes_referencia: mesReferencia, contrato_numero: contratoNumero, fiscal: fiscalNome },
+        },
+      );
     } catch (error) {
       this.logger.error(`Erro ao notificar solicitação de medição: ${(error as Error).message}`, (error as Error).stack);
+    }
+
+    if (enviarWhatsapp) {
+      const baseUrl = appUrl || process.env.APP_URL || 'https://portaldcp-production.up.railway.app';
+      const linkPortal = `${baseUrl}/fornecedor/contratos/${contratoId}`;
+      const mensagemWpp = `📋 *Solicitação de Medição – Contrato ${contratoNumero}*\n\n${mensagem}`;
+
+      for (const dest of fornecedorDestinatarios) {
+        if (!dest.telefone) continue;
+        try {
+          const enviado = await this.whatsappService.enviarComBotao(orgaoId, {
+            to: dest.telefone,
+            mensagem: mensagemWpp,
+            botoes: [
+              {
+                id: '1',
+                type: 'URL',
+                label: 'Acessar Portal de Medições',
+                url: linkPortal,
+              },
+            ],
+          });
+          if (enviado) {
+            this.logger.log(`WhatsApp (botão) enviado para ${dest.telefone}: solicitação medição ${contratoNumero}`);
+          }
+        } catch (error: any) {
+          this.logger.error(`Erro ao enviar WhatsApp para ${dest.telefone}: ${error.message}`);
+        }
+      }
     }
   }
 

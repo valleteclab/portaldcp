@@ -180,7 +180,7 @@ export class ModalidadesContratoController {
   @Post(':contratoId/medicoes/solicitar')
   async solicitarMedicao(
     @Param('contratoId') contratoId: string,
-    @Body() body: { mes_referencia: string; mensagem?: string },
+    @Body() body: { mes_referencia: string; mensagem?: string; enviar_whatsapp?: boolean },
     @Req() request: { user: JwtPayload },
   ) {
     const orgaoId = this.getOrgaoId(request.user);
@@ -205,6 +205,7 @@ export class ModalidadesContratoController {
       fiscalNome,
       request.user.sub,
       body.mensagem,
+      body.enviar_whatsapp,
     );
   }
 

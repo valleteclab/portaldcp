@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { IWhatsAppProvider, WhatsAppConfig } from '../whatsapp.interfaces';
+import { IWhatsAppProvider, WhatsAppButtonAction, WhatsAppConfig } from '../whatsapp.interfaces';
 
 const ZAPI_BASE = 'https://api.z-api.io';
 
@@ -50,6 +50,52 @@ export class ZApiProvider implements IWhatsAppProvider {
     } catch (error: any) {
       this.logger.error(`Erro ao enviar WhatsApp para ${phone}: status=${error.response?.status} body=${JSON.stringify(error.response?.data)} msg=${error.message}`);
       return false;
+    }
+  }
+
+  async enviarComBotao(params: {
+    to: string;
+    mensagem: string;
+    botoes: WhatsAppButtonAction[];
+    orgaoId?: string;
+    config: WhatsAppConfig;
+  }): Promise<boolean> {
+    const { to, mensagem, botoes, config } = params;
+    const phone = this.normalizarTelefone(to);
+    if (phone.length < 12) {
+      this.logger.warn(`Telefone inválido para WhatsApp: ${to}`);
+      return false;
+    }
+
+    try {
+      const url = `${ZAPI_BASE}/instances/${config.instanceId}/token/${config.token}/send-button-actions`;
+      this.logger.log(`Chamando Z-API (botão): POST ${url} | phone=${phone}`);
+      const buttonActions = botoes.map(b => ({
+        id: b.id,
+        type: b.type,
+        label: b.label,
+        ...(b.url ? { url: b.url } : {}),
+        ...(b.phoneNumber ? { phoneNumber: b.phoneNumber } : {}),
+      }));
+      const response = await axios.post(
+        url,
+        { phone, message: mensagem, buttonActions },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(config.clientToken ? { 'Client-Token': config.clientToken } : {}),
+          },
+          timeout: 15000,
+        },
+      );
+      if (response.data?.messageId || response.data?.zaapId) {
+        this.logger.log(`WhatsApp com botão enviado para ${phone}: ${response.data.messageId || response.data.zaapId}`);
+        return true;
+      }
+      return false;
+    } catch (error: any) {
+      this.logger.warn(`Falha ao enviar botão para ${phone} (status=${error.response?.status}), tentando texto simples...`);
+      return this.enviar(params);
     }
   }
 

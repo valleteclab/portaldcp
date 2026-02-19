@@ -1362,6 +1362,7 @@ export class MedicaoService {
     fiscalNome: string,
     solicitadoPorId: string,
     mensagem?: string,
+    enviarWhatsapp?: boolean,
   ): Promise<{ message: string }> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
@@ -1403,6 +1404,7 @@ export class MedicaoService {
       fiscalNome,
       mensagem?.trim() || undefined,
       destinatarios,
+      enviarWhatsapp,
     );
 
     this.logger.log(`Solicitação de medição enviada: contrato ${contrato.numero_contrato}, mês ${mesReferencia}`);
