@@ -1451,16 +1451,27 @@ export default function AdminOrgaosPage() {
                 Obtenha as credenciais em z-api.io. Instance ID, Token e Client Token.
               </p>
             </div>
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm space-y-2">
               <p className="font-medium text-green-800 flex items-center gap-1">
-                <LinkIcon className="w-4 h-4" /> URL do Webhook
+                <LinkIcon className="w-4 h-4" /> URLs dos Webhooks (Z-API)
               </p>
-              <p className="text-green-700 mt-1 text-xs mb-2">
-                Copie esta URL e cole nas configurações da sua instância Z-API:
+              <p className="text-green-700 text-xs">
+                Na aba <strong>"Webhooks e configurações gerais"</strong> da Z-API, cole a URL abaixo nos campos indicados:
               </p>
-              <code className="block bg-white p-2 rounded text-xs break-all border">
-                {API_URL}/api/webhooks/zapi
-              </code>
+              <div className="space-y-1">
+                {[
+                  { campo: 'Ao enviar', url: `${API_URL}/api/webhooks/zapi` },
+                  { campo: 'Ao receber', url: `${API_URL}/api/webhooks/zapi` },
+                  { campo: 'Receber status da mensagem', url: `${API_URL}/api/webhooks/zapi` },
+                  { campo: 'Ao conectar', url: `${API_URL}/api/webhooks/zapi` },
+                  { campo: 'Ao desconectar', url: `${API_URL}/api/webhooks/zapi` },
+                ].map(({ campo, url }) => (
+                  <div key={campo} className="flex items-center gap-2 bg-white border rounded px-2 py-1">
+                    <span className="text-xs text-gray-500 w-44 shrink-0">{campo}:</span>
+                    <code className="text-xs break-all text-gray-800 flex-1">{url}</code>
+                  </div>
+                ))}
+              </div>
             </div>
             <div>
               <Label>Provedor</Label>
