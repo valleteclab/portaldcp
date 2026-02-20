@@ -493,10 +493,14 @@ function RequisicoesList() {
   const handleAutorizar = async () => {
     if (!requisicaoSelecionada) return;
     
+    const isOS = requisicaoSelecionada.tipo === 'ORDEM_SERVICO';
+    const reqId = requisicaoSelecionada.id;
+    const reqNumero = requisicaoSelecionada.numero;
+
     setProcessando(true);
     try {
       const response = await authFetch(
-        `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/autorizar`,
+        `${API_URL}/api/almoxarifado/requisicoes/${reqId}/autorizar`,
         {
           method: 'POST',
           body: JSON.stringify({}),
@@ -504,15 +508,33 @@ function RequisicoesList() {
       );
 
       if (response.ok) {
-        const data = await response.json();
-        const isOS = requisicaoSelecionada.tipo === 'ORDEM_SERVICO';
+        setShowAutorizar(false);
+        await carregarRequisicoes();
+
         if (isOS) {
-          alert(`Ordem de Serviço ${requisicaoSelecionada.numero} autorizada com sucesso!\n\nUm PDF assinado digitalmente foi gerado automaticamente.`);
+          // Baixar o PDF assinado automaticamente
+          try {
+            setGerandoPDF(reqId);
+            const pdfResponse = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${reqId}/pdf-assinado`);
+            if (pdfResponse.ok) {
+              const blob = await pdfResponse.blob();
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `OS_${reqNumero.replace(/\//g, '_')}_assinada.pdf`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+            }
+          } catch (pdfErr) {
+            console.warn('PDF gerado mas não foi possível baixar automaticamente:', pdfErr);
+          } finally {
+            setGerandoPDF(null);
+          }
         } else {
           alert('Requisição autorizada com sucesso! Saldo reservado no contrato.');
         }
-        setShowAutorizar(false);
-        carregarRequisicoes();
       } else {
         const error = await response.json();
         alert(`Erro ao autorizar: ${error.message || 'Erro desconhecido'}`);
@@ -1107,7 +1129,7 @@ function RequisicoesList() {
                       <p className="font-medium text-blue-800">Assinatura Digital Automática</p>
                       <p className="text-blue-700 mt-1">
                         Ao confirmar, esta OS será assinada digitalmente conforme a Lei 14.063/2020.
-                        Um PDF com QR Code de validação será gerado automaticamente.
+                        O <strong>PDF assinado será baixado automaticamente</strong> para o seu computador.
                       </p>
                     </div>
                   </div>
