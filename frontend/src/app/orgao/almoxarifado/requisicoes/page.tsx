@@ -534,7 +534,8 @@ function RequisicoesList() {
       const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/pdf-assinado`);
       
       if (!response.ok) {
-        throw new Error('PDF assinado não disponível');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || 'PDF assinado não disponível');
       }
 
       const blob = await response.blob();
@@ -548,7 +549,9 @@ function RequisicoesList() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Erro ao baixar PDF assinado:', error);
-      alert('Erro ao baixar PDF assinado. Tente novamente.');
+      alert(error instanceof Error && error.message 
+        ? error.message 
+        : 'Erro ao baixar PDF assinado. O PDF pode não ter sido gerado. Entre em contato com o suporte.');
     } finally {
       setGerandoPDF(null);
     }
@@ -813,15 +816,17 @@ function RequisicoesList() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {/* OS aprovada com assinatura digital → badge + download PDF */}
-                        {req.tipo === 'ORDEM_SERVICO' && req.codigo_validacao && (
+                        {/* OS aprovada → botão para baixar PDF assinado (visível para toda OS autorizada) */}
+                        {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && (
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-emerald-600 hover:text-emerald-700"
                             onClick={() => handleDownloadPDFAssinado(req)}
                             disabled={gerandoPDF === req.id}
-                            title={`PDF Assinado Digitalmente - Código: ${req.codigo_validacao}`}
+                            title={req.codigo_validacao 
+                              ? `Baixar PDF Assinado - Código: ${req.codigo_validacao}` 
+                              : 'Baixar PDF Assinado'}
                           >
                             {gerandoPDF === req.id ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
