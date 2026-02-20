@@ -225,7 +225,8 @@ export class OrgaosController {
     FileInterceptor('logo', {
       storage: diskStorage({
         destination: (req, file, cb) => {
-          const uploadPath = path.join(process.cwd(), 'uploads', 'logos');
+          const baseDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+          const uploadPath = path.join(baseDir, 'logos');
           if (!fs.existsSync(uploadPath)) {
             fs.mkdirSync(uploadPath, { recursive: true });
           }

@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAssetUrl } from '@/lib/api'
 
 export default function ConfiguracoesPage() {
   const [orgao, setOrgao] = useState({
@@ -349,16 +349,22 @@ export default function ConfiguracoesPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-6">
-                <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden">
-                  {orgao.logo_url ? (
+                <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden relative">
+                  {orgao.logo_url && (
                     <img
-                      src={`${API_URL}${orgao.logo_url}`}
+                      src={`${getAssetUrl(orgao.logo_url)}?t=${orgao.logo_url.split('/').pop() || Date.now()}`}
                       alt="Logo do órgão"
-                      className="w-full h-full object-contain"
+                      className="w-full h-full object-contain absolute inset-0"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        const ph = e.currentTarget.parentElement?.querySelector('.logo-placeholder');
+                        if (ph) ph.classList.remove('hidden');
+                      }}
                     />
-                  ) : (
-                    <Building2 className="h-12 w-12 text-slate-400" />
                   )}
+                  <div className={`logo-placeholder w-full h-full flex items-center justify-center ${orgao.logo_url ? 'hidden' : ''}`}>
+                    <Building2 className="h-12 w-12 text-slate-400" />
+                  </div>
                 </div>
                 <div>
                   <input

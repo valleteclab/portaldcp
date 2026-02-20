@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 import { NotificacoesBadge } from "@/components/NotificacoesBadge"
-import { API_URL } from "@/lib/api"
+import { API_URL, getAssetUrl } from "@/lib/api"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
@@ -180,7 +180,7 @@ export function Sidebar({ userType }: SidebarProps) {
           <div className="bg-white rounded-lg p-1.5 flex items-center justify-center min-w-[50px] min-h-[50px]">
             {userType === 'orgao' && logoUrl ? (
               <img
-                src={`${API_URL}${logoUrl}`}
+                src={getAssetUrl(logoUrl)}
                 alt="Logo do órgão"
                 className="max-w-[50px] max-h-[50px] object-contain"
               />
@@ -351,7 +351,7 @@ export function Header() {
         <div className="flex items-center gap-3">
           {pathname.startsWith('/orgao') && orgaoLogoUrl && (
             <img
-              src={`${API_URL}${orgaoLogoUrl}`}
+              src={getAssetUrl(orgaoLogoUrl)}
               alt="Logo"
               className="h-10 w-10 object-contain"
             />

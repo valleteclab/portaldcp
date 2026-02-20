@@ -6,6 +6,19 @@
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 /**
+ * Retorna a URL completa para um asset da API (ex: logo do órgão).
+ * Funciona com API_URL vazio (same-origin) ou com URL completa.
+ */
+export function getAssetUrl(path: string): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const base = typeof window !== 'undefined' 
+    ? (API_URL || window.location.origin) 
+    : API_URL;
+  return `${base.replace(/\/$/, '')}${path.startsWith('/') ? path : '/' + path}`;
+}
+
+/**
  * Obtém o token de autenticação do localStorage
  */
 export function getAuthToken(): string | null {
