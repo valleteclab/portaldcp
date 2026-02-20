@@ -24,6 +24,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { EmailModule } from '../email/email.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { AssinaturasModule } from '../assinaturas/assinaturas.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     forwardRef(() => ContratosModule),
     EmailModule,
     WhatsAppModule,
+    AssinaturasModule,
   ],
   controllers: [AlmoxarifadoController, FornecedorOrdensController],
   providers: [

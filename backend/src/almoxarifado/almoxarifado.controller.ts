@@ -341,6 +341,30 @@ export class AlmoxarifadoController {
     return this.requisicaoService.obterInfoExclusao(id);
   }
 
+  @Get('requisicoes/:id/pdf-assinado')
+  async downloadPdfAssinado(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    const requisicao = await this.requisicaoService.findOne(id);
+    if (!requisicao.pdf_assinado_url) {
+      throw new BadRequestException('PDF assinado não disponível para esta requisição');
+    }
+
+    const { createReadStream, existsSync } = await import('fs');
+    const { join } = await import('path');
+
+    const filePath = requisicao.pdf_assinado_url;
+    if (!existsSync(filePath)) {
+      throw new BadRequestException('Arquivo PDF não encontrado no servidor');
+    }
+
+    const filename = `OS_${requisicao.numero.replace(/\//g, '_')}_assinada.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    createReadStream(filePath).pipe(res as any);
+  }
+
   @Post('requisicoes/:id/cancelar')
   async cancelarRequisicao(
     @Param('id', ParseUUIDPipe) id: string,

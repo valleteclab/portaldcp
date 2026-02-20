@@ -244,6 +244,16 @@ export class Requisicao {
   fiscal_contrato_nome: string | null;
 
   // ============================================================================
+  // ASSINATURA DIGITAL
+  // ============================================================================
+
+  @Column({ type: 'varchar', length: 23, nullable: true })
+  codigo_validacao: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  pdf_assinado_url: string | null;
+
+  // ============================================================================
   // AUDITORIA
   // ============================================================================
 

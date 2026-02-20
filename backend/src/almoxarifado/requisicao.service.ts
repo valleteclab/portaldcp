@@ -21,6 +21,10 @@ import {
   NegarRequisicaoDto 
 } from './dto/criar-requisicao.dto';
 
+import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
+import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+
 @Injectable()
 export class RequisicaoService {
   private readonly logger = new Logger(RequisicaoService.name);
@@ -48,6 +52,8 @@ export class RequisicaoService {
     private readonly ordemFornecimentoService: OrdemFornecimentoService,
     @Inject(forwardRef(() => RecebimentoService))
     private readonly recebimentoService: RecebimentoService,
+    private readonly assinaturasService: AssinaturasService,
+    private readonly geradorPdfService: GeradorPdfService,
   ) {}
 
   // ============================================================================
@@ -450,6 +456,39 @@ export class RequisicaoService {
         await queryRunner.commitTransaction();
 
         this.logger.log(`OS ${requisicao.numero} autorizada por ${autorizadorNome}`);
+
+        // =========================================================================
+        // ASSINATURA DIGITAL: Registra assinatura e gera PDF carimbado
+        // =========================================================================
+        try {
+          const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+          const assinatura = await this.assinaturasService.registrarAssinatura({
+            orgao_id: requisicao.orgao_id,
+            entidade_tipo: EntidadeTipo.ORDEM_SERVICO,
+            entidade_id: requisicao.id,
+            papel_assinante: PapelAssinante.GESTOR,
+            usuario_id: autorizadorId,
+            usuario_nome: autorizadorNome,
+            usuario_cpf_cnpj: '',
+            usuario_telefone: undefined,
+            ip_address: undefined,
+            user_agent: undefined,
+          });
+
+          const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+            requisicao,
+            [assinatura],
+            `${urlBase}/validar-documento`,
+          );
+
+          requisicao.pdf_assinado_url = pdfPath;
+          requisicao.codigo_validacao = assinatura.codigo_validacao;
+          await this.requisicaoRepository.save(requisicao);
+
+          this.logger.log(`PDF assinado gerado para OS ${requisicao.numero} - código: ${assinatura.codigo_validacao}`);
+        } catch (assinaturaError) {
+          this.logger.warn(`Erro ao gerar assinatura/PDF da OS ${requisicao.numero}: ${assinaturaError.message}`);
+        }
 
         // Notifica o solicitante
         try {

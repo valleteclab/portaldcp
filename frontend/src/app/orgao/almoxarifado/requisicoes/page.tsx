@@ -20,7 +20,9 @@ import {
   Ban,
   Trash2,
   RotateCcw,
-  BarChart2
+  BarChart2,
+  ShieldCheck,
+  ExternalLink
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -95,6 +97,9 @@ interface Requisicao {
   };
   itens: ItemRequisicao[];
   status_anterior_cancelamento?: string | null;
+  // Assinatura digital
+  codigo_validacao?: string | null;
+  pdf_assinado_url?: string | null;
   // Campos específicos de OS
   descricao_os?: string | null;
   local_execucao?: string | null;
@@ -499,7 +504,13 @@ function RequisicoesList() {
       );
 
       if (response.ok) {
-        alert('Requisição autorizada com sucesso! Saldo reservado no contrato.');
+        const data = await response.json();
+        const isOS = requisicaoSelecionada.tipo === 'ORDEM_SERVICO';
+        if (isOS) {
+          alert(`Ordem de Serviço ${requisicaoSelecionada.numero} autorizada com sucesso!\n\nUm PDF assinado digitalmente foi gerado automaticamente.`);
+        } else {
+          alert('Requisição autorizada com sucesso! Saldo reservado no contrato.');
+        }
         setShowAutorizar(false);
         carregarRequisicoes();
       } else {
@@ -511,6 +522,32 @@ function RequisicoesList() {
       alert('Erro ao autorizar requisição');
     } finally {
       setProcessando(false);
+    }
+  };
+
+  const handleDownloadPDFAssinado = async (req: Requisicao) => {
+    try {
+      setGerandoPDF(req.id);
+      const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/pdf-assinado`);
+      
+      if (!response.ok) {
+        throw new Error('PDF assinado não disponível');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `OS_${req.numero.replace(/\//g, '_')}_assinada.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro ao baixar PDF assinado:', error);
+      alert('Erro ao baixar PDF assinado. Tente novamente.');
+    } finally {
+      setGerandoPDF(null);
     }
   };
 
@@ -773,6 +810,23 @@ function RequisicoesList() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {/* OS aprovada com assinatura digital → badge + download PDF */}
+                        {req.tipo === 'ORDEM_SERVICO' && req.codigo_validacao && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-emerald-600 hover:text-emerald-700"
+                            onClick={() => handleDownloadPDFAssinado(req)}
+                            disabled={gerandoPDF === req.id}
+                            title={`PDF Assinado Digitalmente - Código: ${req.codigo_validacao}`}
+                          >
+                            {gerandoPDF === req.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
                         {/* OS aprovada → link para medições do contrato */}
                         {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && req.contrato_id && (
                           <Button
@@ -1018,9 +1072,13 @@ function RequisicoesList() {
       <Dialog open={showAutorizar} onOpenChange={setShowAutorizar}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-green-600">Autorizar Requisição</DialogTitle>
+            <DialogTitle className="text-green-600">
+              {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' ? 'Autorizar Ordem de Serviço' : 'Autorizar Requisição'}
+            </DialogTitle>
             <DialogDescription>
-              Ao autorizar, o saldo será reservado no contrato.
+              {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO'
+                ? 'Ao autorizar, a OS será assinada digitalmente e um PDF será gerado.'
+                : 'Ao autorizar, o saldo será reservado no contrato.'}
             </DialogDescription>
           </DialogHeader>
           
@@ -1028,21 +1086,41 @@ function RequisicoesList() {
             <div className="space-y-4">
               <div className="bg-green-50 p-4 rounded-lg">
                 <p className="font-medium">{requisicaoSelecionada.numero}</p>
+                {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' && requisicaoSelecionada.descricao_os && (
+                  <p className="text-sm text-gray-700 mt-1">{requisicaoSelecionada.descricao_os}</p>
+                )}
                 <p className="text-sm text-gray-600">
                   Valor: {formatarMoeda(requisicaoSelecionada.valor_total_estimado)}
                 </p>
-                <p className="text-sm text-gray-600">
-                  {requisicaoSelecionada.itens?.length || 0} item(s)
-                </p>
+                {requisicaoSelecionada.tipo !== 'ORDEM_SERVICO' && (
+                  <p className="text-sm text-gray-600">
+                    {requisicaoSelecionada.itens?.length || 0} item(s)
+                  </p>
+                )}
               </div>
 
-              <div className="bg-yellow-50 p-4 rounded-lg text-sm">
-                <p className="font-medium text-yellow-800">⚠️ Atenção</p>
-                <p className="text-yellow-700">
-                  Ao autorizar, o saldo dos itens será reservado no contrato.
-                  Se a requisição for cancelada posteriormente, o saldo será liberado.
-                </p>
-              </div>
+              {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' ? (
+                <div className="bg-blue-50 p-4 rounded-lg text-sm border border-blue-200">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium text-blue-800">Assinatura Digital Automática</p>
+                      <p className="text-blue-700 mt-1">
+                        Ao confirmar, esta OS será assinada digitalmente conforme a Lei 14.063/2020.
+                        Um PDF com QR Code de validação será gerado automaticamente.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 p-4 rounded-lg text-sm">
+                  <p className="font-medium text-yellow-800">⚠️ Atenção</p>
+                  <p className="text-yellow-700">
+                    Ao autorizar, o saldo dos itens será reservado no contrato.
+                    Se a requisição for cancelada posteriormente, o saldo será liberado.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1052,7 +1130,7 @@ function RequisicoesList() {
             </Button>
             <Button onClick={handleAutorizar} disabled={processando} className="bg-green-600 hover:bg-green-700">
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Confirmar Autorização
+              {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' ? 'Autorizar e Assinar' : 'Confirmar Autorização'}
             </Button>
           </DialogFooter>
         </DialogContent>
