@@ -92,7 +92,11 @@ interface Requisicao {
   contrato?: {
     numero_contrato: string;
     fornecedor?: {
+      id?: string;
       razao_social: string;
+      email?: string;
+      telefone?: string;
+      representante_telefone?: string;
     };
   };
   itens: ItemRequisicao[];
@@ -183,6 +187,10 @@ function RequisicoesList() {
     prazo_entrega_dias: '',
     observacoes: '',
   });
+
+  // Overrides para notificação ao fornecedor (OS) - editáveis antes de autorizar
+  const [emailFornecedor, setEmailFornecedor] = useState('');
+  const [telefoneFornecedor, setTelefoneFornecedor] = useState('');
 
   // Carregar info do contrato se filtrado
   useEffect(() => {
@@ -281,6 +289,14 @@ function RequisicoesList() {
 
   const handleAbrirAutorizar = (req: Requisicao) => {
     setRequisicaoSelecionada(req);
+    if (req.tipo === 'ORDEM_SERVICO' && req.contrato?.fornecedor) {
+      const f = req.contrato.fornecedor;
+      setEmailFornecedor(f.email || '');
+      setTelefoneFornecedor(f.representante_telefone || f.telefone || '');
+    } else {
+      setEmailFornecedor('');
+      setTelefoneFornecedor('');
+    }
     setShowAutorizar(true);
   };
 
@@ -495,7 +511,12 @@ function RequisicoesList() {
     
     const isOS = requisicaoSelecionada.tipo === 'ORDEM_SERVICO';
     const reqId = requisicaoSelecionada.id;
-    const reqNumero = requisicaoSelecionada.numero;
+
+    const body: Record<string, unknown> = {};
+    if (isOS) {
+      if (emailFornecedor.trim()) body.email_fornecedor = emailFornecedor.trim();
+      if (telefoneFornecedor.trim()) body.telefone_fornecedor = telefoneFornecedor.trim();
+    }
 
     setProcessando(true);
     try {
@@ -503,7 +524,7 @@ function RequisicoesList() {
         `${API_URL}/api/almoxarifado/requisicoes/${reqId}/autorizar`,
         {
           method: 'POST',
-          body: JSON.stringify({}),
+          body: JSON.stringify(body),
         }
       );
 
@@ -512,7 +533,22 @@ function RequisicoesList() {
         await carregarRequisicoes();
 
         if (isOS) {
-          alert('OS autorizada e assinada digitalmente! O PDF está disponível para download. O fornecedor receberá por email, notificação no sistema e WhatsApp (se configurado).');
+          const data = await response.json();
+          const n = data?.notificacoes_fornecedor;
+          const partes: string[] = ['OS autorizada e assinada digitalmente! PDF disponível para download.'];
+          if (n) {
+            const envios: string[] = [];
+            if (n.email) envios.push('Email enviado');
+            else envios.push('Email não enviado (sem endereço ou erro)');
+            if (n.notificacao) envios.push('Notificação criada no sistema');
+            else envios.push('Notificação não criada');
+            if (n.whatsapp) envios.push('WhatsApp enviado');
+            else envios.push('WhatsApp não enviado (não configurado ou sem telefone)');
+            partes.push(`Fornecedor: ${envios.join(' • ')}`);
+          } else {
+            partes.push('O fornecedor receberá por email, notificação e WhatsApp (se configurado).');
+          }
+          alert(partes.join('\n\n'));
         } else {
           alert('Requisição autorizada com sucesso! Saldo reservado no contrato.');
         }
@@ -1108,19 +1144,45 @@ function RequisicoesList() {
               </div>
 
               {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' ? (
-                <div className="bg-blue-50 p-4 rounded-lg text-sm border border-blue-200">
-                  <div className="flex items-start gap-2">
-                    <ShieldCheck className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="font-medium text-blue-800">Assinatura Digital Automática</p>
-                      <p className="text-blue-700 mt-1">
-                        Ao confirmar, esta OS será assinada digitalmente conforme a Lei 14.063/2020.
-                        O <strong>PDF ficará disponível para download</strong> para você baixar e encaminhar ao fornecedor.
-                        O fornecedor receberá automaticamente por email, notificação no sistema e WhatsApp (se configurado).
-                      </p>
+                <>
+                  <div className="bg-blue-50 p-4 rounded-lg text-sm border border-blue-200">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-blue-800">Assinatura Digital Automática</p>
+                        <p className="text-blue-700 mt-1">
+                          Ao confirmar, esta OS será assinada digitalmente conforme a Lei 14.063/2020.
+                          O <strong>PDF ficará disponível para download</strong>. O fornecedor receberá por email, notificação e WhatsApp (se configurado).
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                  {requisicaoSelecionada.contrato?.fornecedor && (
+                    <div className="space-y-3 p-4 rounded-lg border border-gray-200 bg-gray-50">
+                      <p className="text-sm font-medium text-gray-700">Contato do fornecedor para notificação (pode alterar)</p>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={emailFornecedor}
+                          onChange={(e) => setEmailFornecedor(e.target.value)}
+                          placeholder="email@fornecedor.com"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Telefone (WhatsApp)</label>
+                        <input
+                          type="tel"
+                          value={telefoneFornecedor}
+                          onChange={(e) => setTelefoneFornecedor(e.target.value)}
+                          placeholder="(00) 00000-0000"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="bg-yellow-50 p-4 rounded-lg text-sm">
                   <p className="font-medium text-yellow-800">⚠️ Atenção</p>

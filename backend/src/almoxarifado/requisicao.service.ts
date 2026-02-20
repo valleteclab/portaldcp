@@ -463,6 +463,8 @@ export class RequisicaoService {
 
         this.logger.log(`OS ${requisicao.numero} autorizada por ${autorizadorNome}`);
 
+        const notificacoesFornecedor = { email: false, notificacao: false, whatsapp: false };
+
         // =========================================================================
         // ASSINATURA DIGITAL: Registra assinatura e gera PDF carimbado
         // =========================================================================
@@ -495,9 +497,10 @@ export class RequisicaoService {
 
           // Notifica o fornecedor: email (com PDF), notificação no sistema e WhatsApp
           const fornecedor = requisicao.contrato?.fornecedor;
+
           if (fornecedor) {
-            const emailFornecedor = fornecedor.email;
-            const telefoneFornecedor = fornecedor.representante_telefone || fornecedor.telefone;
+            const emailFornecedor = (dto.email_fornecedor?.trim() || fornecedor.email || '').trim();
+            const telefoneFornecedor = (dto.telefone_fornecedor?.trim() || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
 
             if (emailFornecedor) {
               try {
@@ -510,6 +513,7 @@ export class RequisicaoService {
                   html: `<p>Segue em anexo a Ordem de Serviço <strong>${requisicao.numero}</strong> assinada digitalmente.</p>`,
                   attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
                 });
+                notificacoesFornecedor.email = true;
                 this.logger.log(`Email enviado ao fornecedor ${fornecedor.razao_social} para OS ${requisicao.numero}`);
               } catch (emailErr: any) {
                 this.logger.warn(`Erro ao enviar email para fornecedor OS ${requisicao.numero}: ${emailErr.message}`);
@@ -530,16 +534,18 @@ export class RequisicaoService {
                 link: `/fornecedor/contratos/${requisicao.contrato_id}`,
                 enviar_email: false,
               });
+              notificacoesFornecedor.notificacao = true;
             } catch (notifErr: any) {
               this.logger.warn(`Erro ao criar notificação para fornecedor OS ${requisicao.numero}: ${notifErr.message}`);
             }
 
-            if (telefoneFornecedor) {
+            if (telefoneFornecedor && telefoneFornecedor.length >= 10) {
               try {
                 const configurado = await this.whatsappService.isConfigurado(requisicao.orgao_id);
                 if (configurado) {
                   const mensagem = `Ordem de Serviço ${requisicao.numero} aprovada e assinada digitalmente.\n\nFornecedor: ${fornecedor.razao_social}\n\nVerifique seu email para o documento em anexo.`;
                   await this.whatsappService.enviar(requisicao.orgao_id, { to: telefoneFornecedor, mensagem });
+                  notificacoesFornecedor.whatsapp = true;
                   this.logger.log(`WhatsApp enviado ao fornecedor ${fornecedor.razao_social} para OS ${requisicao.numero}`);
                 }
               } catch (waErr: any) {
@@ -569,7 +575,8 @@ export class RequisicaoService {
           this.logger.warn(`Erro ao enviar notificação de aprovação OS: ${notifError.message}`);
         }
 
-        return this.findOne(id);
+        const requisicaoAtualizada = await this.findOne(id);
+        return { requisicao: requisicaoAtualizada, notificacoes_fornecedor: notificacoesFornecedor } as any;
       }
 
       // =========================================================================

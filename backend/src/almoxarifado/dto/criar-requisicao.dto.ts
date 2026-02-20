@@ -158,6 +158,16 @@ export class AutorizarRequisicaoDto {
    */
   @IsOptional()
   ajustes_quantidade?: Record<string, number>;
+
+  /** Override: email para notificar o fornecedor (OS) - permite corrigir antes de enviar */
+  @IsOptional()
+  @IsString()
+  email_fornecedor?: string;
+
+  /** Override: telefone para WhatsApp ao fornecedor (OS) - permite corrigir antes de enviar */
+  @IsOptional()
+  @IsString()
+  telefone_fornecedor?: string;
 }
 
 export class NegarRequisicaoDto {
