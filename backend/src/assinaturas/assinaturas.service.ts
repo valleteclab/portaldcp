@@ -93,13 +93,21 @@ export class AssinaturasService {
   // 3. Registro da Assinatura no Banco
   // ==========================================
 
+  /** Gera código de 16 caracteres (sem hífens) para caber em varchar(16) */
   private gerarCodigoValidacao(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Sem O/0/1/I para evitar confusão
     let codigo = '';
     for (let i = 0; i < 16; i++) {
       codigo += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    return `${codigo.slice(0,4)}-${codigo.slice(4,8)}-${codigo.slice(8,12)}-${codigo.slice(12,16)}`;
+    return codigo;
+  }
+
+  /** Formata código para exibição: XXXX-XXXX-XXXX-XXXX */
+  formatarCodigoValidacao(codigo: string): string {
+    const limpo = (codigo || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+    if (limpo.length < 16) return codigo;
+    return `${limpo.slice(0,4)}-${limpo.slice(4,8)}-${limpo.slice(8,12)}-${limpo.slice(12,16)}`;
   }
 
   async registrarAssinatura(dados: {
@@ -129,12 +137,11 @@ export class AssinaturasService {
   // ==========================================
 
   async validarDocumentoPublico(codigoValidacao: string): Promise<{ documentoValido: boolean; assinaturas: AssinaturaDigital[] }> {
-    const codigoLimpo = codigoValidacao.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const codigoFormatado = `${codigoLimpo.slice(0,4)}-${codigoLimpo.slice(4,8)}-${codigoLimpo.slice(8,12)}-${codigoLimpo.slice(12,16)}`;
+    const codigoLimpo = codigoValidacao.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
 
-    // Busca a assinatura baseada no código
+    // Busca a assinatura baseada no código (armazenado sem hífens)
     const assinaturaOrigem = await this.assinaturaRepository.findOne({
-      where: { codigo_validacao: codigoFormatado }
+      where: { codigo_validacao: codigoLimpo }
     });
 
     if (!assinaturaOrigem) {
