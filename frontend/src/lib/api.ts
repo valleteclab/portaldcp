@@ -2,8 +2,20 @@
  * Configuração centralizada da API
  */
 
-// Remove barra final da URL para evitar barras duplicadas
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+/**
+ * URL base da API. Em produção, use NEXT_PUBLIC_API_URL=https://www.portaldcp.com.br
+ * Se não definido no browser, usa window.location.origin (same-origin).
+ */
+function getApiUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return 'http://localhost:3000';
+}
+export const API_URL = getApiUrl();
 
 /**
  * Retorna a URL completa para um asset da API (ex: logo do órgão).

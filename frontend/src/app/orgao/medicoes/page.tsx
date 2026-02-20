@@ -19,15 +19,13 @@ import {
   Send, XCircle, Calendar, History, Mail, Eye, Shield, RotateCcw, ChevronDown,
   MessageCircle,
 } from 'lucide-react'
-import { authFetch, formatarDataHoraBR } from '@/lib/api'
+import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
 import dynamic from 'next/dynamic'
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
   loading: () => <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>,
   ssr: false,
 })
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 // ============ INTERFACES ============
 
