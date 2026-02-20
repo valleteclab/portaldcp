@@ -1,5 +1,14 @@
 # Scratchpad
 
+## ✅ Tarefa Concluída: OS Assinada + Notificação ao Fornecedor (2026-02-20)
+
+- [X] Remover download automático do PDF no frontend
+- [X] TipoNotificacao ORDEM_SERVICO_APROVADA
+- [X] Backend: ao aprovar OS, envia email (com PDF), notificação no sistema e WhatsApp ao fornecedor
+- [X] Link da notificação: /fornecedor/contratos/${contratoId} (rota existente)
+- [X] Fornecedor vê notificações via listarPorUsuarioSemOrgao(user.sub) onde user.sub = fornecedor.id
+- [X] Build backend OK
+
 ## ✅ Tarefa Concluída: Configuração de Email (SMTP/IMAP) por Órgão (2026-02-18)
 
 Implementado conforme plano anexo:

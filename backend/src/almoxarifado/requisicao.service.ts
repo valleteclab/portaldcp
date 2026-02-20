@@ -24,6 +24,10 @@ import {
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
 import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import { EmailService } from '../email/email.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import * as fs from 'fs';
 
 @Injectable()
 export class RequisicaoService {
@@ -54,6 +58,8 @@ export class RequisicaoService {
     private readonly recebimentoService: RecebimentoService,
     private readonly assinaturasService: AssinaturasService,
     private readonly geradorPdfService: GeradorPdfService,
+    private readonly emailService: EmailService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   // ============================================================================
@@ -486,6 +492,61 @@ export class RequisicaoService {
           await this.requisicaoRepository.save(requisicao);
 
           this.logger.log(`PDF assinado gerado para OS ${requisicao.numero} - código: ${assinatura.codigo_validacao}`);
+
+          // Notifica o fornecedor: email (com PDF), notificação no sistema e WhatsApp
+          const fornecedor = requisicao.contrato?.fornecedor;
+          if (fornecedor) {
+            const emailFornecedor = fornecedor.email;
+            const telefoneFornecedor = fornecedor.representante_telefone || fornecedor.telefone;
+
+            if (emailFornecedor) {
+              try {
+                const pdfBuffer = fs.readFileSync(pdfPath);
+                const nomeArquivo = `OS_${requisicao.numero.replace(/\//g, '_')}_assinada.pdf`;
+                await this.emailService.enviar(requisicao.orgao_id, {
+                  to: emailFornecedor,
+                  subject: `Ordem de Serviço ${requisicao.numero} - ${fornecedor.razao_social}`,
+                  text: `Segue em anexo a Ordem de Serviço ${requisicao.numero} assinada digitalmente.`,
+                  html: `<p>Segue em anexo a Ordem de Serviço <strong>${requisicao.numero}</strong> assinada digitalmente.</p>`,
+                  attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
+                });
+                this.logger.log(`Email enviado ao fornecedor ${fornecedor.razao_social} para OS ${requisicao.numero}`);
+              } catch (emailErr: any) {
+                this.logger.warn(`Erro ao enviar email para fornecedor OS ${requisicao.numero}: ${emailErr.message}`);
+              }
+            }
+
+            try {
+              await this.notificacoesService.criar({
+                orgao_id: requisicao.orgao_id,
+                usuario_id: fornecedor.id,
+                usuario_email: emailFornecedor || undefined,
+                usuario_telefone: telefoneFornecedor || undefined,
+                tipo: TipoNotificacao.ORDEM_SERVICO_APROVADA,
+                titulo: `Ordem de Serviço ${requisicao.numero} aprovada`,
+                mensagem: `A Ordem de Serviço ${requisicao.numero} foi aprovada e assinada digitalmente. Verifique seu email para o documento em anexo.`,
+                entidade_tipo: 'requisicao',
+                entidade_id: requisicao.id,
+                link: `/fornecedor/contratos/${requisicao.contrato_id}`,
+                enviar_email: false,
+              });
+            } catch (notifErr: any) {
+              this.logger.warn(`Erro ao criar notificação para fornecedor OS ${requisicao.numero}: ${notifErr.message}`);
+            }
+
+            if (telefoneFornecedor) {
+              try {
+                const configurado = await this.whatsappService.isConfigurado(requisicao.orgao_id);
+                if (configurado) {
+                  const mensagem = `Ordem de Serviço ${requisicao.numero} aprovada e assinada digitalmente.\n\nFornecedor: ${fornecedor.razao_social}\n\nVerifique seu email para o documento em anexo.`;
+                  await this.whatsappService.enviar(requisicao.orgao_id, { to: telefoneFornecedor, mensagem });
+                  this.logger.log(`WhatsApp enviado ao fornecedor ${fornecedor.razao_social} para OS ${requisicao.numero}`);
+                }
+              } catch (waErr: any) {
+                this.logger.warn(`Erro ao enviar WhatsApp para fornecedor OS ${requisicao.numero}: ${waErr.message}`);
+              }
+            }
+          }
         } catch (assinaturaError) {
           this.logger.warn(`Erro ao gerar assinatura/PDF da OS ${requisicao.numero}: ${assinaturaError.message}`);
         }

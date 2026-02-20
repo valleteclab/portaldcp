@@ -512,26 +512,7 @@ function RequisicoesList() {
         await carregarRequisicoes();
 
         if (isOS) {
-          // Baixar o PDF assinado automaticamente
-          try {
-            setGerandoPDF(reqId);
-            const pdfResponse = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${reqId}/pdf-assinado`);
-            if (pdfResponse.ok) {
-              const blob = await pdfResponse.blob();
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = `OS_${reqNumero.replace(/\//g, '_')}_assinada.pdf`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              window.URL.revokeObjectURL(url);
-            }
-          } catch (pdfErr) {
-            console.warn('PDF gerado mas não foi possível baixar automaticamente:', pdfErr);
-          } finally {
-            setGerandoPDF(null);
-          }
+          alert('OS autorizada e assinada digitalmente! O PDF está disponível para download. O fornecedor receberá por email, notificação no sistema e WhatsApp (se configurado).');
         } else {
           alert('Requisição autorizada com sucesso! Saldo reservado no contrato.');
         }
@@ -1129,7 +1110,8 @@ function RequisicoesList() {
                       <p className="font-medium text-blue-800">Assinatura Digital Automática</p>
                       <p className="text-blue-700 mt-1">
                         Ao confirmar, esta OS será assinada digitalmente conforme a Lei 14.063/2020.
-                        O <strong>PDF assinado será baixado automaticamente</strong> para o seu computador.
+                        O <strong>PDF ficará disponível para download</strong> para você baixar e encaminhar ao fornecedor.
+                        O fornecedor receberá automaticamente por email, notificação no sistema e WhatsApp (se configurado).
                       </p>
                     </div>
                   </div>
