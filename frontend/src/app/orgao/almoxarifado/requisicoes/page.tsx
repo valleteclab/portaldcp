@@ -22,7 +22,8 @@ import {
   RotateCcw,
   BarChart2,
   ShieldCheck,
-  ExternalLink
+  ExternalLink,
+  Send
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -191,6 +192,13 @@ function RequisicoesList() {
   // Overrides para notificação ao fornecedor (OS) - editáveis antes de autorizar
   const [emailFornecedor, setEmailFornecedor] = useState('');
   const [telefoneFornecedor, setTelefoneFornecedor] = useState('');
+  const [enviarAoFornecedor, setEnviarAoFornecedor] = useState(true);
+
+  // Modal Enviar/Reenviar ao fornecedor (OS já aprovada)
+  const [showEnviarFornecedor, setShowEnviarFornecedor] = useState(false);
+  const [emailEnviarFornecedor, setEmailEnviarFornecedor] = useState('');
+  const [telefoneEnviarFornecedor, setTelefoneEnviarFornecedor] = useState('');
+  const [enviandoFornecedorId, setEnviandoFornecedorId] = useState<string | null>(null);
 
   // Carregar info do contrato se filtrado
   useEffect(() => {
@@ -289,6 +297,7 @@ function RequisicoesList() {
 
   const handleAbrirAutorizar = (req: Requisicao) => {
     setRequisicaoSelecionada(req);
+    setEnviarAoFornecedor(true);
     if (req.tipo === 'ORDEM_SERVICO' && req.contrato?.fornecedor) {
       const f = req.contrato.fornecedor;
       setEmailFornecedor(f.email || '');
@@ -298,6 +307,64 @@ function RequisicoesList() {
       setTelefoneFornecedor('');
     }
     setShowAutorizar(true);
+  };
+
+  const handleAbrirEnviarFornecedor = (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    if (req.contrato?.fornecedor) {
+      const f = req.contrato.fornecedor;
+      setEmailEnviarFornecedor(f.email || '');
+      setTelefoneEnviarFornecedor(f.representante_telefone || f.telefone || '');
+    } else {
+      setEmailEnviarFornecedor('');
+      setTelefoneEnviarFornecedor('');
+    }
+    setShowEnviarFornecedor(true);
+  };
+
+  const handleEnviarAoFornecedor = async () => {
+    if (!requisicaoSelecionada) return;
+    setEnviandoFornecedorId(requisicaoSelecionada.id);
+    try {
+      const body: Record<string, string> = {};
+      if (emailEnviarFornecedor.trim()) body.email_fornecedor = emailEnviarFornecedor.trim();
+      if (telefoneEnviarFornecedor.trim()) body.telefone_fornecedor = telefoneEnviarFornecedor.trim();
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/enviar-ao-fornecedor`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const n = data?.notificacoes_fornecedor;
+        const partes: string[] = [];
+        if (n) {
+          const envios: string[] = [];
+          if (n.email) envios.push('Email enviado');
+          else envios.push('Email não enviado (sem endereço ou erro)');
+          if (n.notificacao) envios.push('Notificação criada');
+          else envios.push('Notificação não criada');
+          if (n.whatsapp) envios.push('WhatsApp enviado');
+          else envios.push('WhatsApp não enviado (não configurado ou sem telefone)');
+          partes.push(envios.join(' • '));
+        } else {
+          partes.push('Envio concluído.');
+        }
+        alert(partes.join('\n'));
+        setShowEnviarFornecedor(false);
+        carregarRequisicoes();
+      } else {
+        const err = await response.json();
+        alert(`Erro: ${err.message || 'Erro ao enviar ao fornecedor'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao enviar ao fornecedor:', error);
+        alert('Erro ao enviar ao fornecedor');
+    } finally {
+      setEnviandoFornecedorId(null);
+    }
   };
 
   const handleAbrirNegar = (req: Requisicao) => {
@@ -514,6 +581,7 @@ function RequisicoesList() {
 
     const body: Record<string, unknown> = {};
     if (isOS) {
+      body.enviar_ao_fornecedor = enviarAoFornecedor;
       if (emailFornecedor.trim()) body.email_fornecedor = emailFornecedor.trim();
       if (telefoneFornecedor.trim()) body.telefone_fornecedor = telefoneFornecedor.trim();
     }
@@ -536,7 +604,7 @@ function RequisicoesList() {
           const data = await response.json();
           const n = data?.notificacoes_fornecedor;
           const partes: string[] = ['OS autorizada e assinada digitalmente! PDF disponível para download.'];
-          if (n) {
+          if (enviarAoFornecedor && n) {
             const envios: string[] = [];
             if (n.email) envios.push('Email enviado');
             else envios.push('Email não enviado (sem endereço ou erro)');
@@ -545,6 +613,8 @@ function RequisicoesList() {
             if (n.whatsapp) envios.push('WhatsApp enviado');
             else envios.push('WhatsApp não enviado (não configurado ou sem telefone)');
             partes.push(`Fornecedor: ${envios.join(' • ')}`);
+          } else if (!enviarAoFornecedor) {
+            partes.push('Você pode enviar ao fornecedor depois usando o botão "Enviar ao fornecedor" nas ações.');
           } else {
             partes.push('O fornecedor receberá por email, notificação e WhatsApp (se configurado).');
           }
@@ -871,6 +941,23 @@ function RequisicoesList() {
                             )}
                           </Button>
                         )}
+                        {/* OS aprovada com PDF → Enviar/Reenviar ao fornecedor */}
+                        {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && req.pdf_assinado_url && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-teal-600 hover:text-teal-700"
+                            onClick={() => handleAbrirEnviarFornecedor(req)}
+                            disabled={!!enviandoFornecedorId}
+                            title="Enviar ou reenviar ao fornecedor"
+                          >
+                            {enviandoFornecedorId === req.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Send className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
                         {/* OS aprovada → link para medições do contrato */}
                         {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && req.contrato_id && (
                           <Button
@@ -1152,12 +1239,24 @@ function RequisicoesList() {
                         <p className="font-medium text-blue-800">Assinatura Digital Automática</p>
                         <p className="text-blue-700 mt-1">
                           Ao confirmar, esta OS será assinada digitalmente conforme a Lei 14.063/2020.
-                          O <strong>PDF ficará disponível para download</strong>. O fornecedor receberá por email, notificação e WhatsApp (se configurado).
+                          O <strong>PDF será gerado automaticamente</strong>. Você pode escolher se deseja enviar ao fornecedor agora ou depois.
                         </p>
                       </div>
                     </div>
                   </div>
-                  {requisicaoSelecionada.contrato?.fornecedor && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 bg-gray-50">
+                    <input
+                      type="checkbox"
+                      id="enviar-fornecedor"
+                      checked={enviarAoFornecedor}
+                      onChange={(e) => setEnviarAoFornecedor(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    <label htmlFor="enviar-fornecedor" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Enviar notificação ao fornecedor agora (email, notificação e WhatsApp)
+                    </label>
+                  </div>
+                  {requisicaoSelecionada.contrato?.fornecedor && enviarAoFornecedor && (
                     <div className="space-y-3 p-4 rounded-lg border border-gray-200 bg-gray-50">
                       <p className="text-sm font-medium text-gray-700">Contato do fornecedor para notificação (pode alterar)</p>
                       <div>
@@ -1249,6 +1348,66 @@ function RequisicoesList() {
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Negativa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Enviar/Reenviar ao Fornecedor */}
+      <Dialog open={showEnviarFornecedor} onOpenChange={setShowEnviarFornecedor}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-teal-600">
+              Enviar ao Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              Envia o PDF assinado da OS ao fornecedor por email, notificação no sistema e WhatsApp (se configurado).
+            </DialogDescription>
+          </DialogHeader>
+          {requisicaoSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-teal-50 p-4 rounded-lg border border-teal-200">
+                <p className="font-medium text-teal-900">{requisicaoSelecionada.numero}</p>
+                {requisicaoSelecionada.contrato?.fornecedor && (
+                  <p className="text-sm text-teal-700 mt-1">
+                    Fornecedor: {requisicaoSelecionada.contrato.fornecedor.razao_social}
+                  </p>
+                )}
+              </div>
+              {requisicaoSelecionada.contrato?.fornecedor && (
+                <div className="space-y-3 p-4 rounded-lg border border-gray-200 bg-gray-50">
+                  <p className="text-sm font-medium text-gray-700">Contato (opcional - usa cadastro se vazio)</p>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={emailEnviarFornecedor}
+                      onChange={(e) => setEmailEnviarFornecedor(e.target.value)}
+                      placeholder="email@fornecedor.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Telefone (WhatsApp)</label>
+                    <input
+                      type="tel"
+                      value={telefoneEnviarFornecedor}
+                      onChange={(e) => setTelefoneEnviarFornecedor(e.target.value)}
+                      placeholder="(00) 00000-0000"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEnviarFornecedor(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEnviarAoFornecedor} disabled={!!enviandoFornecedorId} className="bg-teal-600 hover:bg-teal-700">
+              {enviandoFornecedorId && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Enviar
             </Button>
           </DialogFooter>
         </DialogContent>

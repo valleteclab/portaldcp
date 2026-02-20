@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, ValidateNested, IsUUID, Min, IsDateString } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, ValidateNested, IsUUID, Min, IsDateString, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TipoRequisicao, PrioridadeRequisicao } from '../entities/requisicao.entity';
 
@@ -165,6 +165,21 @@ export class AutorizarRequisicaoDto {
   email_fornecedor?: string;
 
   /** Override: telefone para WhatsApp ao fornecedor (OS) - permite corrigir antes de enviar */
+  @IsOptional()
+  @IsString()
+  telefone_fornecedor?: string;
+
+  /** Enviar notificação ao fornecedor (email, notificação, WhatsApp) no momento da aprovação. Default: true */
+  @IsOptional()
+  @IsBoolean()
+  enviar_ao_fornecedor?: boolean;
+}
+
+export class EnviarAoFornecedorDto {
+  @IsOptional()
+  @IsString()
+  email_fornecedor?: string;
+
   @IsOptional()
   @IsString()
   telefone_fornecedor?: string;

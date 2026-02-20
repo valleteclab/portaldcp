@@ -35,6 +35,7 @@ import {
   AtualizarRequisicaoDto,
   AutorizarRequisicaoDto,
   NegarRequisicaoDto,
+  EnviarAoFornecedorDto,
 } from './dto/criar-requisicao.dto';
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
 import { StatusRequisicao } from './entities/requisicao.entity';
@@ -319,6 +320,17 @@ export class AlmoxarifadoController {
       user.sub,
       user.email || 'Autorizador',
     );
+  }
+
+  @Post('requisicoes/:id/enviar-ao-fornecedor')
+  async enviarAoFornecedor(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe({ whitelist: true })) dto?: EnviarAoFornecedorDto,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
+    return this.requisicaoService.enviarAoFornecedor(id, dto);
   }
 
   @Post('requisicoes/:id/negar')

@@ -1,5 +1,15 @@
 # Scratchpad
 
+## ✅ Tarefa Concluída: Opção Enviar ao Fornecedor na Aprovação (2026-02-20)
+
+- [X] Backend: validarOrgaoRequisicao em RequisicaoService (usado pelo endpoint enviar-ao-fornecedor)
+- [X] Modal autorizar: checkbox "Enviar notificação ao fornecedor agora" (default: marcado)
+- [X] handleAutorizar: inclui enviar_ao_fornecedor no body conforme checkbox
+- [X] Mensagem de sucesso diferenciada quando usuário não envia (pode enviar depois)
+- [X] Botão "Enviar ao fornecedor" (ícone Send) na coluna Ações para OS aprovadas com PDF
+- [X] Modal Enviar/Reenviar ao fornecedor com email/telefone editáveis
+- [X] POST /api/almoxarifado/requisicoes/:id/enviar-ao-fornecedor já existia
+
 ## ✅ Tarefa Concluída: OS Assinada + Notificação ao Fornecedor (2026-02-20)
 
 - [X] Remover download automático do PDF no frontend
@@ -8,6 +18,11 @@
 - [X] Link da notificação: /fornecedor/contratos/${contratoId} (rota existente)
 - [X] Fornecedor vê notificações via listarPorUsuarioSemOrgao(user.sub) onde user.sub = fornecedor.id
 - [X] Build backend OK
+- [X] Correção codigo_validacao varchar(16) - armazenar sem hífens
+- [X] Validação documento: rota alias, decodeURIComponent, getApiBase()
+- [X] Modal autorizar: email e telefone editáveis antes de enviar
+- [X] Retorno notificacoes_fornecedor com resultado de cada envio (email, notificacao, whatsapp)
+- [X] DevContext: docs/DEVCONTEXT-OS-NOTIFICACOES.md
 
 ## ✅ Tarefa Concluída: Configuração de Email (SMTP/IMAP) por Órgão (2026-02-18)
 
