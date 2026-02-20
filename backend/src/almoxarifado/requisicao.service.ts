@@ -560,7 +560,7 @@ export class RequisicaoService {
 
       // Gera ordem de fornecimento automaticamente após aprovação (exceto para ORDEM_SERVICO)
       try {
-        if (requisicao.contrato_id && requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+        if (requisicao.contrato_id && (requisicao.tipo as TipoRequisicao) !== TipoRequisicao.ORDEM_SERVICO) {
           const ordemGerada = await this.ordemFornecimentoService.gerarOrdem(
             {
               requisicao_id: requisicao.id,
