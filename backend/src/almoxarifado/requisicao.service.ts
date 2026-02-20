@@ -1292,7 +1292,7 @@ export class RequisicaoService {
   async findOne(id: string): Promise<Requisicao> {
     const requisicao = await this.requisicaoRepository.findOne({
       where: { id },
-      relations: ['itens', 'itens.item_contrato', 'contrato', 'contrato.fornecedor'],
+      relations: ['itens', 'itens.item_contrato', 'contrato', 'contrato.fornecedor', 'orgao'],
     });
 
     if (!requisicao) {

@@ -1,4 +1,8 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UnauthorizedException, Req, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UnauthorizedException, Req, Logger, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import * as path from 'path';
+import * as fs from 'fs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OrgaosService } from './orgaos.service';
@@ -214,6 +218,48 @@ export class OrgaosController {
   @Get('codigo/:codigo')
   async findByCodigo(@Param('codigo') codigo: string): Promise<Orgao> {
     return await this.orgaosService.findByCodigo(codigo);
+  }
+
+  @Post(':id/logo')
+  @UseInterceptors(
+    FileInterceptor('logo', {
+      storage: diskStorage({
+        destination: (req, file, cb) => {
+          const uploadPath = path.join(process.cwd(), 'uploads', 'logos');
+          if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+          }
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
+          const orgaoId = req.params?.id || 'org';
+          const ext = path.extname(file.originalname || '.png').toLowerCase() || '.png';
+          cb(null, `logo_${orgaoId}_${Date.now()}${ext}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowed = ['image/png', 'image/jpeg', 'image/jpg'];
+        if (allowed.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Apenas PNG ou JPG, máx 2MB'), false);
+        }
+      },
+      limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+    }),
+  )
+  async uploadLogo(
+    @Param('id') id: string,
+    @Req() req: { user: JwtPayload },
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<Orgao> {
+    if (!this.podeAcessarOrgao(req.user, id)) {
+      throw new UnauthorizedException('Sem permissão para alterar este órgão');
+    }
+    if (!file) {
+      throw new BadRequestException('Arquivo de logo é obrigatório');
+    }
+    return await this.orgaosService.uploadLogo(id, file);
   }
 
   @Put(':id')

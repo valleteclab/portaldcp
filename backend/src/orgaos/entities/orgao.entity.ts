@@ -188,6 +188,11 @@ export class Orgao {
   @Column({ default: true })
   anonimizacao_disputa: boolean; // Se anonimização está ativa por padrão nas disputas
 
+  // ============ LOGO DO ÓRGÃO ============
+
+  @Column({ nullable: true })
+  logo_url: string; // Caminho relativo: /api/uploads/logos/{filename}
+
   // ============ MÓDULOS DO SISTEMA ============
   
   @Column({

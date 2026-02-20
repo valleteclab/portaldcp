@@ -5,6 +5,7 @@ import { Orgao } from './entities/orgao.entity';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { ModuloSistema } from './enums/modulos.enum';
 import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
+import { UploadService } from '../upload/upload.service';
 import axios from 'axios';
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
@@ -17,6 +18,7 @@ export class OrgaosService {
     private readonly orgaoRepository: Repository<Orgao>,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    private readonly uploadService: UploadService,
   ) {}
 
   // ============ CRIPTOGRAFIA ============
@@ -383,5 +385,31 @@ export class OrgaosService {
     console.log(`[OrgaosService] Módulos salvos no banco:`, orgaoSalvo.modulos_habilitados);
     
     return orgaoSalvo;
+  }
+
+  /**
+   * Atualiza a logo do órgão. O arquivo já foi salvo pelo Multer em uploads/logos/.
+   */
+  async uploadLogo(orgaoId: string, file: Express.Multer.File): Promise<Orgao> {
+    const orgao = await this.findOne(orgaoId);
+
+    // Remove logo anterior se existir
+    if (orgao.logo_url) {
+      const match = orgao.logo_url.match(/\/api\/uploads\/logos\/(.+)$/);
+      if (match?.[1]) {
+        try {
+          this.uploadService.deleteFile('logos', match[1]);
+        } catch (e) {
+          this.logger.warn(`Erro ao remover logo anterior: ${(e as Error).message}`);
+        }
+      }
+    }
+
+    const logoUrl = this.uploadService.getFileUrl('logos', file.filename);
+    orgao.logo_url = logoUrl;
+    await this.orgaoRepository.save(orgao);
+
+    this.logger.log(`Logo do órgão ${orgaoId} atualizada: ${logoUrl}`);
+    return orgao;
   }
 }

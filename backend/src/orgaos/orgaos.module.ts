@@ -14,6 +14,7 @@ import { AuthModule } from '../auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { ImapModule } from '../imap/imap.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     EmailModule,
     ImapModule,
     WhatsAppModule,
+    UploadModule,
   ],
   controllers: [OrgaosController, SolicitacoesController, UnidadesController],
   providers: [OrgaosService, SolicitacoesService, UnidadesService],

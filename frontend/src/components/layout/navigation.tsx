@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 import { NotificacoesBadge } from "@/components/NotificacoesBadge"
+import { API_URL } from "@/lib/api"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
@@ -48,6 +49,21 @@ export function Sidebar({ userType }: SidebarProps) {
   const router = useRouter()
   const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
   const [podeAprovar, setPodeAprovar] = useState(false)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (userType === 'orgao') {
+      try {
+        const orgaoStr = localStorage.getItem('orgao')
+        if (orgaoStr) {
+          const orgao = JSON.parse(orgaoStr)
+          setLogoUrl(orgao.logo_url || null)
+        }
+      } catch (e) {
+        console.error('Erro ao verificar logo do órgão:', e)
+      }
+    }
+  }, [userType, pathname])
 
   // Verifica se o usuário pode aprovar requisições
   useEffect(() => {
@@ -160,14 +176,22 @@ export function Sidebar({ userType }: SidebarProps) {
   return (
     <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col">
       <div className="p-4 border-b border-slate-700">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="bg-white rounded-lg p-1.5">
-            <Image
-              src="/logo.png"
-              alt="Portal DCP"
-              width={50}
-              height={50}
-            />
+        <Link href={userType === 'orgao' ? '/orgao' : '/'} className="flex items-center gap-3">
+          <div className="bg-white rounded-lg p-1.5 flex items-center justify-center min-w-[50px] min-h-[50px]">
+            {userType === 'orgao' && logoUrl ? (
+              <img
+                src={`${API_URL}${logoUrl}`}
+                alt="Logo do órgão"
+                className="max-w-[50px] max-h-[50px] object-contain"
+              />
+            ) : (
+              <Image
+                src="/logo.png"
+                alt="Portal DCP"
+                width={50}
+                height={50}
+              />
+            )}
           </div>
           <div>
             <h1 className="text-xl font-bold text-blue-400">Portal DCP</h1>
@@ -219,6 +243,23 @@ export function Sidebar({ userType }: SidebarProps) {
 export function Header() {
   const pathname = usePathname()
   const [usuario, setUsuario] = useState<{ email: string; nome?: string; tipo?: string; orgaoNome?: string } | null>(null)
+  const [orgaoLogoUrl, setOrgaoLogoUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (pathname.startsWith('/orgao')) {
+      try {
+        const orgaoStr = localStorage.getItem('orgao')
+        if (orgaoStr) {
+          const orgao = JSON.parse(orgaoStr)
+          setOrgaoLogoUrl(orgao.logo_url || null)
+        }
+      } catch (e) {
+        console.error('Erro ao verificar logo do órgão:', e)
+      }
+    } else {
+      setOrgaoLogoUrl(null)
+    }
+  }, [pathname])
 
   useEffect(() => {
     // Verifica se é área do órgão ou fornecedor
@@ -308,6 +349,13 @@ export function Header() {
         {(pathname.startsWith('/orgao') || pathname.startsWith('/fornecedor')) && <NotificacoesBadge />}
 
         <div className="flex items-center gap-3">
+          {pathname.startsWith('/orgao') && orgaoLogoUrl && (
+            <img
+              src={`${API_URL}${orgaoLogoUrl}`}
+              alt="Logo"
+              className="h-10 w-10 object-contain"
+            />
+          )}
           <div className="text-right">
             <p className="text-sm font-medium">
               {usuario?.orgaoNome || usuario?.nome || 'Usuário'}

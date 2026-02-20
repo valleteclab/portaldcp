@@ -1,5 +1,16 @@
 # Scratchpad
 
+## ✅ Tarefa Concluída: Logo do Órgão (2026-02-20)
+
+- [X] Backend: campo logo_url em Orgao + migration 1768400004000-AddLogoOrgao
+- [X] Backend: POST /api/orgaos/:id/logo com FileInterceptor (PNG/JPG, 2MB)
+- [X] Backend: OrgaosService.uploadLogo, remove logo anterior ao substituir
+- [X] Frontend: botão Enviar Logo funcional em Configurações (input file hidden)
+- [X] Frontend: preview da logo na configurações, carregar orgao de /api/orgaos/me
+- [X] Frontend: logo no Sidebar (área órgão) e no Header
+- [X] Backend: logo nos PDFs (OS e Medição) via GeradorPdfService.escreverCabecalho
+- [X] Requisicao findOne: adicionada relation 'orgao' para PDF
+
 ## ✅ Tarefa Concluída: Opção Enviar ao Fornecedor na Aprovação (2026-02-20)
 
 - [X] Backend: validarOrgaoRequisicao em RequisicaoService (usado pelo endpoint enviar-ao-fornecedor)

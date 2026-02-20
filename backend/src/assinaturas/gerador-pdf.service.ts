@@ -38,8 +38,8 @@ export class GeradorPdfService {
         const writeStream = createWriteStream(filePath);
         doc.pipe(writeStream);
 
-        // Cabeçalho
-        this.escreverCabecalho(doc, 'AUTORIZAÇÃO DE INÍCIO DE OBRA / ORDEM DE SERVIÇO');
+        // Cabeçalho (com logo do órgão se disponível)
+        this.escreverCabecalho(doc, 'AUTORIZAÇÃO DE INÍCIO DE OBRA / ORDEM DE SERVIÇO', dadosOS.orgao);
 
         // Dados da OS
         doc.fontSize(11).font('Helvetica-Bold').text('Número: ', { continued: true })
@@ -103,8 +103,8 @@ export class GeradorPdfService {
         const writeStream = createWriteStream(filePath);
         doc.pipe(writeStream);
 
-        // Cabeçalho
-        this.escreverCabecalho(doc, 'BOLETIM DE MEDIÇÃO');
+        // Cabeçalho (com logo do órgão se disponível)
+        this.escreverCabecalho(doc, 'BOLETIM DE MEDIÇÃO', dadosMedicao.orgao);
 
         // Dados da Medição
         doc.fontSize(11).font('Helvetica-Bold').text(`Medição Nº: `, { continued: true })
@@ -144,8 +144,19 @@ export class GeradorPdfService {
     });
   }
 
-  private escreverCabecalho(doc: any, titulo: string): void {
+  private escreverCabecalho(doc: any, titulo: string, orgao?: { logo_url?: string }): void {
     doc.rect(50, 40, doc.page.width - 100, 60).fillAndStroke('#1e40af', '#1e40af');
+
+    const logoPath = orgao?.logo_url
+      ? join(this.uploadDir, orgao.logo_url.replace(/^\/api\/uploads\//, ''))
+      : null;
+    if (logoPath && existsSync(logoPath)) {
+      try {
+        doc.image(logoPath, 55, 45, { width: 45, height: 45 });
+      } catch (e) {
+        this.logger.warn(`Erro ao incluir logo no PDF: ${(e as Error).message}`);
+      }
+    }
     doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
       .text(titulo, 50, 55, { width: doc.page.width - 100, align: 'center' });
     doc.fillColor('black').moveDown(3);

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { 
   Settings,
   User,
@@ -37,29 +37,102 @@ export default function ConfiguracoesPage() {
     telefone: '',
     email: '',
     site: '',
+    logo_url: '' as string | null,
   })
   const [loading, setLoading] = useState(true)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const carregarOrgao = async () => {
+    try {
+      const response = await authFetch(`${API_URL}/api/orgaos/me`)
+      if (response.ok) {
+        const dados = await response.json()
+        const orgaoAtual = {
+          id: dados.id || '',
+          nome: dados.nome || '',
+          cnpj: dados.cnpj || '',
+          logradouro: dados.logradouro || '',
+          cidade: dados.cidade || '',
+          uf: dados.uf || '',
+          cep: dados.cep || '',
+          telefone: dados.telefone || '',
+          email: dados.email || dados.email_login || '',
+          site: dados.site || '',
+          logo_url: dados.logo_url || null,
+        }
+        setOrgao(orgaoAtual)
+        const atual = localStorage.getItem('orgao') ? JSON.parse(localStorage.getItem('orgao')!) : {}
+        localStorage.setItem('orgao', JSON.stringify({ ...atual, ...dados }))
+      }
+    } catch (e) {
+      console.error('Erro ao carregar órgão:', e)
+      const orgaoSalvo = localStorage.getItem('orgao')
+      if (orgaoSalvo) {
+        const dados = JSON.parse(orgaoSalvo)
+        setOrgao({
+          id: dados.id || '',
+          nome: dados.nome || '',
+          cnpj: dados.cnpj || '',
+          logradouro: dados.logradouro || '',
+          cidade: dados.cidade || '',
+          uf: dados.uf || '',
+          cep: dados.cep || '',
+          telefone: dados.telefone || '',
+          email: dados.email || dados.email_login || '',
+          site: dados.site || '',
+          logo_url: dados.logo_url || null,
+        })
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    // Buscar dados do órgão logado do localStorage
-    const orgaoSalvo = localStorage.getItem('orgao')
-    if (orgaoSalvo) {
-      const dados = JSON.parse(orgaoSalvo)
-      setOrgao({
-        id: dados.id || '',
-        nome: dados.nome || '',
-        cnpj: dados.cnpj || '',
-        logradouro: dados.logradouro || '',
-        cidade: dados.cidade || '',
-        uf: dados.uf || '',
-        cep: dados.cep || '',
-        telefone: dados.telefone || '',
-        email: dados.email || dados.email_login || '',
-        site: dados.site || '',
-      })
-    }
-    setLoading(false)
+    carregarOrgao()
   }, [])
+
+  const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !orgao.id) return
+    if (!['image/png', 'image/jpeg', 'image/jpg'].includes(file.type)) {
+      alert('Use apenas PNG ou JPG')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Arquivo deve ter no máximo 2MB')
+      return
+    }
+    setUploadingLogo(true)
+    try {
+      const formData = new FormData()
+      formData.append('logo', file)
+      const token = localStorage.getItem('access_token') || localStorage.getItem('orgao_token')
+      const response = await fetch(`${API_URL}/api/orgaos/${orgao.id}/logo`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setOrgao(prev => ({ ...prev, logo_url: data.logo_url }))
+        const orgaoAtual = JSON.parse(localStorage.getItem('orgao') || '{}')
+        orgaoAtual.logo_url = data.logo_url
+        localStorage.setItem('orgao', JSON.stringify(orgaoAtual))
+        alert('Logo enviada com sucesso!')
+      } else {
+        const err = await response.json()
+        alert(err.message || 'Erro ao enviar logo')
+      }
+    } catch (error) {
+      console.error('Erro ao enviar logo:', error)
+      alert('Erro ao enviar logo')
+    } finally {
+      setUploadingLogo(false)
+      e.target.value = ''
+    }
+  }
 
   const [notificacoes, setNotificacoes] = useState({
     emailNovaLicitacao: true,
@@ -276,12 +349,36 @@ export default function ConfiguracoesPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-6">
-                <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center">
-                  <Building2 className="h-12 w-12 text-slate-400" />
+                <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden">
+                  {orgao.logo_url ? (
+                    <img
+                      src={`${API_URL}${orgao.logo_url}`}
+                      alt="Logo do órgão"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <Building2 className="h-12 w-12 text-slate-400" />
+                  )}
                 </div>
                 <div>
-                  <Button variant="outline">
-                    <Upload className="mr-2 h-4 w-4" /> Enviar Logo
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg"
+                    className="hidden"
+                    onChange={handleUploadLogo}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingLogo || !orgao.id}
+                  >
+                    {uploadingLogo ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    Enviar Logo
                   </Button>
                   <p className="text-xs text-muted-foreground mt-2">PNG ou JPG, max 2MB</p>
                 </div>
