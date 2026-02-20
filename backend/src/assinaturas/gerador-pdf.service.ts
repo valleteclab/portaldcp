@@ -4,47 +4,25 @@ import { join } from 'path';
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
 import { AssinaturaDigital } from './entities/assinatura-digital.entity';
 
-const PdfPrinter = require('pdfmake');
+const PDFDocument = require('pdfkit');
 
-// Configuração de fontes para o pdfmake
-const fonts = {
-  Roboto: {
-    normal: 'node_modules/roboto-font/fonts/Roboto/roboto-regular-webfont.ttf',
-    bold: 'node_modules/roboto-font/fonts/Roboto/roboto-bold-webfont.ttf',
-    italics: 'node_modules/roboto-font/fonts/Roboto/roboto-italic-webfont.ttf',
-    bolditalics: 'node_modules/roboto-font/fonts/Roboto/roboto-bolditalic-webfont.ttf'
-  }
+const PAPEL_LABELS: Record<string, string> = {
+  GESTOR: 'Gestor / Ordenador de Despesa',
+  FISCAL: 'Fiscal de Contrato',
+  FORNECEDOR: 'Fornecedor / Contratado',
 };
 
 @Injectable()
 export class GeradorPdfService {
   private readonly logger = new Logger(GeradorPdfService.name);
-  private printer: any;
   private readonly uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
   constructor() {
-    // Usar fontes padrão que o sistema ofereça ou injetar via base64, 
-    // mas pdfmake precisa dos arquivos físicos. Para simplificar, 
-    // vamos usar fontes padrão embutidas se não achar Roboto.
-    try {
-      this.printer = new PdfPrinter(fonts);
-    } catch (e) {
-      // Fallback para fontes do sistema operacionais básicas se Roboto falhar (evita crash)
-      // Em produção real, você deve garantir que npm install roboto-font foi rodado.
-      this.printer = new PdfPrinter({
-        Roboto: {
-          normal: 'Helvetica',
-          bold: 'Helvetica-Bold',
-          italics: 'Helvetica-Oblique',
-          bolditalics: 'Helvetica-BoldOblique',
-        }
-      });
-    }
-
     const docDir = join(this.uploadDir, 'documentos_assinados');
     if (!existsSync(docDir)) {
       mkdirSync(docDir, { recursive: true });
     }
+    this.logger.log('GeradorPdfService inicializado (pdfkit)');
   }
 
   /**
@@ -54,17 +32,61 @@ export class GeradorPdfService {
     const filename = `OS_${dadosOS.numero.replace(/\//g, '_')}_${Date.now()}.pdf`;
     const filePath = join(this.uploadDir, 'documentos_assinados', filename);
 
-    const docDefinition = await this.construirDefinicaoOS(dadosOS, assinaturas, urlValidacaoBase);
-    
-    return new Promise((resolve, reject) => {
-      const pdfDoc = this.printer.createPdfKitDocument(docDefinition);
-      const writeStream = createWriteStream(filePath);
-      
-      pdfDoc.pipe(writeStream);
-      pdfDoc.end();
-      
-      writeStream.on('finish', () => resolve(`documentos_assinados/${filename}`));
-      writeStream.on('error', reject);
+    return new Promise(async (resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const writeStream = createWriteStream(filePath);
+        doc.pipe(writeStream);
+
+        // Cabeçalho
+        this.escreverCabecalho(doc, 'AUTORIZAÇÃO DE INÍCIO DE OBRA / ORDEM DE SERVIÇO');
+
+        // Dados da OS
+        doc.fontSize(11).font('Helvetica-Bold').text('Número: ', { continued: true })
+          .font('Helvetica').text(dadosOS.numero || '');
+        doc.moveDown(0.3);
+
+        doc.font('Helvetica-Bold').text('Órgão: ', { continued: true })
+          .font('Helvetica').text(dadosOS.orgao?.nome || dadosOS.setor_solicitante || 'Não informado');
+        doc.moveDown(0.3);
+
+        if (dadosOS.contrato?.numero_contrato) {
+          doc.font('Helvetica-Bold').text('Contrato: ', { continued: true })
+            .font('Helvetica').text(dadosOS.contrato.numero_contrato);
+          doc.moveDown(0.3);
+        }
+
+        if (dadosOS.contrato?.fornecedor?.razao_social) {
+          doc.font('Helvetica-Bold').text('Fornecedor: ', { continued: true })
+            .font('Helvetica').text(dadosOS.contrato.fornecedor.razao_social);
+          doc.moveDown(0.3);
+        }
+
+        if (dadosOS.local_execucao) {
+          doc.font('Helvetica-Bold').text('Local de Execução: ', { continued: true })
+            .font('Helvetica').text(dadosOS.local_execucao);
+          doc.moveDown(0.3);
+        }
+
+        if (dadosOS.data_autorizacao) {
+          doc.font('Helvetica-Bold').text('Data de Autorização: ', { continued: true })
+            .font('Helvetica').text(new Date(dadosOS.data_autorizacao).toLocaleDateString('pt-BR'));
+          doc.moveDown(0.3);
+        }
+
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').text('Descrição / Objeto:');
+        doc.font('Helvetica').text(dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição', { align: 'justify' });
+
+        // Quadro de assinaturas
+        await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
+
+        doc.end();
+        writeStream.on('finish', () => resolve(filePath));
+        writeStream.on('error', reject);
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
@@ -75,145 +97,130 @@ export class GeradorPdfService {
     const filename = `Medicao_${dadosMedicao.numero_medicao}_${Date.now()}.pdf`;
     const filePath = join(this.uploadDir, 'documentos_assinados', filename);
 
-    const docDefinition = await this.construirDefinicaoMedicao(dadosMedicao, assinaturas, urlValidacaoBase);
-    
-    return new Promise((resolve, reject) => {
-      const pdfDoc = this.printer.createPdfKitDocument(docDefinition);
-      const writeStream = createWriteStream(filePath);
-      
-      pdfDoc.pipe(writeStream);
-      pdfDoc.end();
-      
-      writeStream.on('finish', () => resolve(`documentos_assinados/${filename}`));
-      writeStream.on('error', reject);
+    return new Promise(async (resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const writeStream = createWriteStream(filePath);
+        doc.pipe(writeStream);
+
+        // Cabeçalho
+        this.escreverCabecalho(doc, 'BOLETIM DE MEDIÇÃO');
+
+        // Dados da Medição
+        doc.fontSize(11).font('Helvetica-Bold').text(`Medição Nº: `, { continued: true })
+          .font('Helvetica').text(`${dadosMedicao.numero_medicao}ª`);
+        doc.moveDown(0.3);
+
+        if (dadosMedicao.contrato?.numero_contrato) {
+          doc.font('Helvetica-Bold').text('Contrato: ', { continued: true })
+            .font('Helvetica').text(dadosMedicao.contrato.numero_contrato);
+          doc.moveDown(0.3);
+        }
+
+        if (dadosMedicao.periodo_inicio && dadosMedicao.periodo_fim) {
+          doc.font('Helvetica-Bold').text('Período: ', { continued: true })
+            .font('Helvetica').text(
+              `${new Date(dadosMedicao.periodo_inicio).toLocaleDateString('pt-BR')} a ${new Date(dadosMedicao.periodo_fim).toLocaleDateString('pt-BR')}`
+            );
+          doc.moveDown(0.3);
+        }
+
+        doc.font('Helvetica-Bold').text('Valor Medido: ', { continued: true })
+          .font('Helvetica').text(`R$ ${Number(dadosMedicao.valor_medido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+        doc.moveDown(0.3);
+
+        doc.font('Helvetica-Bold').text('Percentual Físico: ', { continued: true })
+          .font('Helvetica').text(`${Number(dadosMedicao.percentual_fisico_medido || 0).toFixed(2)}%`);
+
+        // Quadro de assinaturas
+        await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
+
+        doc.end();
+        writeStream.on('finish', () => resolve(filePath));
+        writeStream.on('error', reject);
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
-  private async gerarQrCodeBase64(url: string): Promise<string> {
+  private escreverCabecalho(doc: any, titulo: string): void {
+    doc.rect(50, 40, doc.page.width - 100, 60).fillAndStroke('#1e40af', '#1e40af');
+    doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
+      .text(titulo, 50, 55, { width: doc.page.width - 100, align: 'center' });
+    doc.fillColor('black').moveDown(3);
+    doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke('#1e40af');
+    doc.moveDown(0.5);
+  }
+
+  private async escreverQuadroAssinaturas(doc: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<void> {
+    if (!assinaturas || assinaturas.length === 0) return;
+
+    const codigoValidacao = assinaturas[0].codigo_validacao;
+    const urlCompleta = `${urlValidacaoBase}/${codigoValidacao}`;
+
+    doc.moveDown(1.5);
+    doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke('#6b7280');
+    doc.moveDown(0.5);
+
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e40af')
+      .text('QUADRO DE ASSINATURAS ELETRÔNICAS', { align: 'center' });
+    doc.moveDown(0.3);
+
+    doc.fontSize(9).font('Helvetica').fillColor('#374151')
+      .text(
+        'Este documento foi assinado eletronicamente em conformidade com a Lei nº 14.063/2020.',
+        { align: 'center' }
+      );
+    doc.moveDown(0.8);
+
+    for (const ass of assinaturas) {
+      const yStart = doc.y;
+      doc.rect(50, yStart, doc.page.width - 100, 60).fillAndStroke('#f3f4f6', '#e5e7eb');
+
+      doc.fillColor('#111827').fontSize(10).font('Helvetica-Bold')
+        .text(`Assinado por: ${ass.usuario_nome}`, 60, yStart + 8);
+      doc.fontSize(9).font('Helvetica').fillColor('#374151')
+        .text(`Papel: ${PAPEL_LABELS[ass.papel_assinante] || ass.papel_assinante}`, 60, yStart + 22);
+      doc.fillColor('#6b7280')
+        .text(`Data/Hora: ${this.formatarDataHora(ass.data_assinatura)}`, 60, yStart + 34);
+      doc.fillColor('#16a34a').font('Helvetica-Bold')
+        .text('✓ Assinatura eletrônica válida', 60, yStart + 46);
+
+      doc.y = yStart + 68;
+      doc.moveDown(0.3);
+    }
+
+    // Rodapé com QR Code
+    doc.moveDown(0.5);
+    doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke('#6b7280');
+    doc.moveDown(0.5);
+
     try {
-      return await QRCode.toDataURL(url);
+      const qrBuffer = await QRCode.toBuffer(urlCompleta, { type: 'png', width: 80 });
+      const qrX = doc.page.width - 130;
+      const qrY = doc.y;
+
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827')
+        .text('VERIFICAR AUTENTICIDADE:', 50, qrY);
+      doc.moveDown(0.3);
+      doc.font('Helvetica').fillColor('#374151')
+        .text(`Acesse: ${urlValidacaoBase}`, 50, doc.y);
+      doc.moveDown(0.2);
+      doc.font('Helvetica-Bold').fillColor('#2563eb')
+        .text(`Código: ${codigoValidacao}`, 50, doc.y);
+
+      doc.image(qrBuffer, qrX, qrY, { width: 70 });
     } catch (err) {
-      this.logger.error('Erro ao gerar QR Code', err);
-      return '';
+      this.logger.warn(`Erro ao gerar QR Code: ${err.message}`);
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827')
+        .text('VERIFICAR AUTENTICIDADE:');
+      doc.font('Helvetica').fillColor('#374151').text(`Acesse: ${urlValidacaoBase}`);
+      doc.font('Helvetica-Bold').fillColor('#2563eb').text(`Código: ${codigoValidacao}`);
     }
   }
 
   private formatarDataHora(data: Date): string {
     return new Date(data).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  }
-
-  private async construirQuadroAssinaturas(assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<any[]> {
-    if (!assinaturas || assinaturas.length === 0) return [];
-
-    // O código de validação principal é do primeiro assinante (que gerou o documento)
-    const codigoValidacao = assinaturas[0].codigo_validacao;
-    const urlValidacaoCompleta = `${urlValidacaoBase}/${codigoValidacao}`;
-    const qrCode = await this.gerarQrCodeBase64(urlValidacaoCompleta);
-
-    const blockAssinaturas = [
-      { text: 'QUADRO DE ASSINATURAS ELETRÔNICAS', style: 'header', margin: [0, 20, 0, 10] },
-      { text: 'Este documento foi assinado eletronicamente com Duplo Fator de Autenticação (WhatsApp), em conformidade com a Lei 14.063/2020.', fontSize: 10, margin: [0, 0, 0, 15] },
-    ];
-
-    assinaturas.forEach((ass) => {
-      blockAssinaturas.push({
-        margin: [0, 5, 0, 5],
-        table: {
-          widths: ['*'],
-          body: [
-            [
-              {
-                fillColor: '#f3f4f6',
-                border: [false, false, false, false],
-                stack: [
-                  { text: `Assinado eletronicamente por: ${ass.usuario_nome}`, bold: true, fontSize: 11 },
-                  { text: `Papel: ${ass.papel_assinante} | CPF/CNPJ: ${this.mascararDocumento(ass.usuario_cpf_cnpj)}`, fontSize: 10 },
-                  { text: `Data/Hora: ${this.formatarDataHora(ass.data_assinatura)} | IP: ${ass.ip_address || 'Não registrado'}`, fontSize: 9, color: 'gray' },
-                  { text: `Validação via 2FA (WhatsApp) concluída com sucesso.`, fontSize: 9, color: '#16a34a', margin: [0, 2, 0, 0] }
-                ]
-              }
-            ]
-          ]
-        }
-      } as any);
-    });
-
-    // Rodapé de Validação (com QR Code)
-    blockAssinaturas.push({
-      margin: [0, 20, 0, 0],
-      columns: [
-        qrCode ? { image: qrCode, width: 80 } : { text: '' },
-        {
-          margin: [15, 10, 0, 0],
-          stack: [
-            { text: 'PARA VERIFICAR A AUTENTICIDADE DESTE DOCUMENTO:', bold: true, fontSize: 10 },
-            { text: `Acesse: ${urlValidacaoBase}`, fontSize: 10, margin: [0, 5, 0, 2] },
-            { text: `E informe o código: ${codigoValidacao}`, bold: true, fontSize: 12, color: '#2563eb' }
-          ]
-        }
-      ]
-    } as any);
-
-    return blockAssinaturas;
-  }
-
-  private mascararDocumento(doc: string): string {
-    if (!doc) return '';
-    const limpo = doc.replace(/\D/g, '');
-    if (limpo.length === 11) {
-      return `***.${limpo.substring(3, 6)}.${limpo.substring(6, 9)}-**`;
-    }
-    if (limpo.length === 14) {
-      return `**.***.${limpo.substring(5, 8)}/****-**`;
-    }
-    return '***';
-  }
-
-  // Definições de layouts específicos (mock básico para expansão)
-  private async construirDefinicaoOS(dadosOS: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<any> {
-    const quadroAssinaturas = await this.construirQuadroAssinaturas(assinaturas, urlValidacaoBase);
-
-    return {
-      content: [
-        { text: 'AUTORIZAÇÃO DE INÍCIO DE OBRA / ORDEM DE SERVIÇO', style: 'title', alignment: 'center', margin: [0, 0, 0, 20] },
-        { text: `Número: ${dadosOS.numero}`, style: 'subheader' },
-        { text: `Órgão: ${dadosOS.orgao?.nome || 'Não informado'}`, margin: [0, 5, 0, 5] },
-        { text: `Fornecedor: ${dadosOS.fornecedor?.razao_social || 'Não informado'}`, margin: [0, 5, 0, 5] },
-        { text: `Contrato Vinculado: ${dadosOS.contrato?.numero_contrato || 'N/A'}`, margin: [0, 5, 0, 5] },
-        { text: `Descrição da OS:`, bold: true, margin: [0, 15, 0, 5] },
-        { text: dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição' },
-        
-        ...quadroAssinaturas
-      ],
-      styles: {
-        title: { fontSize: 16, bold: true },
-        header: { fontSize: 14, bold: true },
-        subheader: { fontSize: 12, bold: true }
-      },
-      defaultStyle: { font: 'Roboto' }
-    };
-  }
-
-  private async construirDefinicaoMedicao(dadosMedicao: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<any> {
-    const quadroAssinaturas = await this.construirQuadroAssinaturas(assinaturas, urlValidacaoBase);
-
-    return {
-      content: [
-        { text: 'BOLETIM DE MEDIÇÃO', style: 'title', alignment: 'center', margin: [0, 0, 0, 20] },
-        { text: `Medição Nº: ${dadosMedicao.numero_medicao}ª`, style: 'subheader' },
-        { text: `Contrato: ${dadosMedicao.contrato?.numero_contrato || 'N/A'}`, margin: [0, 5, 0, 5] },
-        { text: `Período: ${new Date(dadosMedicao.periodo_inicio).toLocaleDateString()} a ${new Date(dadosMedicao.periodo_fim).toLocaleDateString()}`, margin: [0, 5, 0, 5] },
-        { text: `Valor Medido: R$ ${Number(dadosMedicao.valor_medido).toFixed(2)}`, margin: [0, 5, 0, 5] },
-        { text: `Percentual Físico: ${Number(dadosMedicao.percentual_fisico_medido).toFixed(2)}%`, margin: [0, 5, 0, 15] },
-        
-        ...quadroAssinaturas
-      ],
-      styles: {
-        title: { fontSize: 16, bold: true },
-        header: { fontSize: 14, bold: true },
-        subheader: { fontSize: 12, bold: true }
-      },
-      defaultStyle: { font: 'Roboto' }
-    };
   }
 }
