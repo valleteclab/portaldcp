@@ -1707,15 +1707,19 @@ function NovaRequisicaoForm() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Nova Requisição</h1>
-            <p className="text-gray-500">Solicite materiais ou serviços</p>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isOS ? 'Nova Autorização de Início (OS)' : 'Nova Requisição'}
+            </h1>
+            <p className="text-gray-500 mt-1">
+              {isOS 
+                ? 'Emita uma Ordem de Serviço para autorizar o início de obras ou serviços por medição.'
+                : 'Preencha os dados abaixo para solicitar materiais ou serviços do almoxarifado/contrato.'}
+            </p>
           </div>
         </div>
-        
-        {/* Indicador de auto-save */}
         {ultimoSalvamento && (
-          <div className="text-xs text-gray-400 flex items-center gap-1">
-            <Save className="h-3 w-3" />
+          <div className="text-sm text-gray-500 flex items-center">
+            <Save className="h-4 w-4 mr-2" />
             Salvo localmente às {ultimoSalvamento.toLocaleTimeString('pt-BR')}
           </div>
         )}

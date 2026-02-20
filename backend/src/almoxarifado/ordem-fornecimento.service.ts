@@ -107,6 +107,12 @@ export class OrdemFornecimentoService {
       );
     }
 
+    if (requisicao.tipo === TipoRequisicao.ORDEM_SERVICO) {
+      throw new BadRequestException(
+        'Ordens de Serviço não geram Ordem de Fornecimento no Almoxarifado. Elas autorizam o início para medições.'
+      );
+    }
+
     // Busca contrato com fornecedor
     const contrato = requisicao.contrato;
     if (!contrato || !contrato.fornecedor_id) {

@@ -1070,11 +1070,11 @@ export default function DetalheContratoOrgaoPage() {
         </TabsContent>
 
         <TabsContent value="itens" className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center mb-6">
             <div>
-              <h3 className="text-lg font-semibold">Itens do Contrato</h3>
+              <h3 className="text-lg font-medium">Itens do Contrato</h3>
               <p className="text-sm text-gray-500">
-                {contrato.categoria === 'SERVICOS' ? 'Serviços contratados' : 'Materiais/produtos contratados'} - Controle de saldos
+                Gerencie os itens, quantidades e valores deste contrato.
               </p>
             </div>
             <div className="flex gap-2">

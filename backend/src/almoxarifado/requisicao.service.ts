@@ -558,9 +558,9 @@ export class RequisicaoService {
 
       this.logger.log(`Requisição ${requisicao.numero} autorizada por ${autorizadorNome}`);
 
-      // Gera ordem de fornecimento automaticamente após aprovação
+      // Gera ordem de fornecimento automaticamente após aprovação (exceto para ORDEM_SERVICO)
       try {
-        if (requisicao.contrato_id) {
+        if (requisicao.contrato_id && requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
           const ordemGerada = await this.ordemFornecimentoService.gerarOrdem(
             {
               requisicao_id: requisicao.id,

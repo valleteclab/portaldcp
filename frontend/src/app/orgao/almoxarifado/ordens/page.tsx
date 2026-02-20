@@ -587,13 +587,13 @@ function OrdensList() {
         acoes.reenviar = true;
         acoes.editar = true;
         acoes.cancelar = true;
-        acoes.registrarRecebimento = ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
+        acoes.registrarRecebimento = ordem.tipo !== 'SERVICO' && ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
         break;
       case 'ATENDIDA_PARCIAL':
         acoes.reenviar = true;
         acoes.editar = true;
         acoes.cancelar = true;
-        acoes.registrarRecebimento = ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
+        acoes.registrarRecebimento = ordem.tipo !== 'SERVICO' && ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
         break;
       case 'ATENDIDA':
         // Só pode ver detalhes, PDF e histórico
