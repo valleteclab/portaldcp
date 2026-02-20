@@ -16,7 +16,15 @@ import {
   Search
 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { API_URL } from '@/lib/api';
+
+/** URL da API para validação: usa mesma origem se não configurado (frontend e backend no mesmo domínio) */
+function getApiBase(): string {
+  if (typeof window !== 'undefined' && !process.env.NEXT_PUBLIC_API_URL) {
+    return window.location.origin;
+  }
+  return API_URL;
+}
 
 interface AssinaturaInfo {
   id: string;
@@ -92,7 +100,7 @@ export default function ValidarDocumentoPage() {
 
     try {
       const response = await fetch(
-        `${API_URL}/api/assinaturas/validar/${encodeURIComponent(codigoFinal)}`
+        `${getApiBase()}/api/assinaturas/validar/${encodeURIComponent(codigoFinal)}`
       );
 
       if (response.ok) {

@@ -35,6 +35,15 @@ export class AssinaturasController {
   @Public()
   @Get('publica/validar/:codigo')
   async validarDocumentoPublico(@Param('codigo') codigo: string) {
-    return await this.assinaturasService.validarDocumentoPublico(codigo);
+    const codigoDecodificado = decodeURIComponent(codigo || '');
+    return await this.assinaturasService.validarDocumentoPublico(codigoDecodificado);
+  }
+
+  /** Alias: mesma validação em /validar/:codigo (para compatibilidade) */
+  @Public()
+  @Get('validar/:codigo')
+  async validarDocumentoAlias(@Param('codigo') codigo: string) {
+    const codigoDecodificado = decodeURIComponent(codigo || '');
+    return await this.assinaturasService.validarDocumentoPublico(codigoDecodificado);
   }
 }

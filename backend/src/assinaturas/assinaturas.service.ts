@@ -137,7 +137,8 @@ export class AssinaturasService {
   // ==========================================
 
   async validarDocumentoPublico(codigoValidacao: string): Promise<{ documentoValido: boolean; assinaturas: AssinaturaDigital[] }> {
-    const codigoLimpo = codigoValidacao.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    const codigoDecodificado = typeof codigoValidacao === 'string' ? decodeURIComponent(codigoValidacao) : codigoValidacao;
+    const codigoLimpo = codigoDecodificado.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
 
     // Busca a assinatura baseada no código (armazenado sem hífens)
     const assinaturaOrigem = await this.assinaturaRepository.findOne({
