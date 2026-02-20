@@ -650,7 +650,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium">{m.numero_medicao}ª Medição</span>
                     <Badge className={STATUS_MEDICAO[m.status]?.cor}>{STATUS_MEDICAO[m.status]?.label}</Badge>
-                    {m.fornecedor_nome && <span className="text-xs text-gray-500">por {m.fornecedor_nome}</span>}
+                    {m.fornecedor_nome && <span className="text-xs text-gray-500">por {typeof m.fornecedor_nome === 'string' ? m.fornecedor_nome : (m as any).fornecedor?.razao_social}</span>}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-gray-500">
                     <span>{formatarData(m.periodo_inicio)} a {formatarData(m.periodo_fim)}</span>
