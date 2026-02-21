@@ -78,15 +78,19 @@ export class PortalAssinaturasService {
       // 2. Criar os signatários
       if (dados.signatarios && dados.signatarios.length > 0) {
         const signatarios = dados.signatarios.map(sig => {
-          return this.signatarioRepository.create({
-            documento_id: docSalvo.id,
-            nome: sig.nome,
-            cpf_cnpj: sig.cpf_cnpj.replace(/\D/g, ''),
-            email: sig.email,
-            telefone: sig.telefone ? sig.telefone.replace(/\D/g, '') : null,
-            status: StatusAssinaturaSignatario.PENDENTE,
-            token_acesso: crypto.randomBytes(32).toString('hex'),
-          });
+          const entity = new SignatarioDocumento();
+          entity.documento_id = docSalvo.id;
+          entity.nome = sig.nome;
+          entity.cpf_cnpj = sig.cpf_cnpj.replace(/\D/g, '');
+          entity.email = (sig.email ?? '') as string;
+          entity.telefone = sig.telefone ? sig.telefone.replace(/\D/g, '') : null;
+          entity.status = StatusAssinaturaSignatario.PENDENTE;
+          entity.token_acesso = crypto.randomBytes(32).toString('hex');
+          entity.pagina_assinatura = sig.pagina_assinatura as number;
+          entity.pos_x = sig.pos_x as number;
+          entity.pos_y = sig.pos_y as number;
+          entity.is_orgao_user = sig.is_orgao_user ?? false;
+          return entity;
         });
 
         await queryRunner.manager.save(SignatarioDocumento, signatarios);

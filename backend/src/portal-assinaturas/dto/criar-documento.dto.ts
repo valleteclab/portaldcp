@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsEmail } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsEmail, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SignatarioDto {
@@ -17,6 +17,22 @@ export class SignatarioDto {
   @IsString()
   @IsOptional()
   telefone?: string;
+
+  @IsNumber()
+  @IsOptional()
+  pagina_assinatura?: number;
+
+  @IsNumber()
+  @IsOptional()
+  pos_x?: number;
+
+  @IsNumber()
+  @IsOptional()
+  pos_y?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  is_orgao_user?: boolean;
 }
 
 export class CriarDocumentoDto {

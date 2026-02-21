@@ -43,6 +43,18 @@ export class SignatarioDocumento {
   @Column({ type: 'timestamp', nullable: true })
   data_assinatura: Date;
 
+  @Column({ type: 'int', nullable: true })
+  pagina_assinatura: number; // Página onde a assinatura será inserida (1-indexed)
+
+  @Column({ type: 'float', nullable: true })
+  pos_x: number; // Posição X relativa (0-1) na página
+
+  @Column({ type: 'float', nullable: true })
+  pos_y: number; // Posição Y relativa (0-1) na página
+
+  @Column({ type: 'boolean', default: false })
+  is_orgao_user: boolean; // true = signatário é usuário interno do órgão
+
   @Column({ type: 'varchar', length: 45, nullable: true })
   ip_address: string;
 
