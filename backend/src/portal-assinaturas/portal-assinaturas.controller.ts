@@ -45,23 +45,28 @@ const pdfStorage = diskStorage({
 export class PortalAssinaturasController {
   constructor(private readonly portalAssinaturasService: PortalAssinaturasService) {}
 
+  // Para ORGAO: sub = orgao_id. Para USUARIO: orgaoId no JWT.
+  private getOrgaoId(user: any): string {
+    if (user.type === 'ORGAO') return user.sub;
+    return user.orgaoId || user.orgao_id || user.sub;
+  }
+
   @Get()
   async listar(@Request() req: any) {
-    const orgaoId = req.user.orgao_id;
-    return this.portalAssinaturasService.listarDocumentos(orgaoId);
+    return this.portalAssinaturasService.listarDocumentos(this.getOrgaoId(req.user));
   }
 
   @Get('meus/pendentes')
   async listarMeusPendentes(@Request() req: any) {
-    const orgaoId = req.user.orgao_id;
-    const usuarioEmail = req.user.email;
-    return this.portalAssinaturasService.listarPendentesDoUsuario(orgaoId, usuarioEmail);
+    return this.portalAssinaturasService.listarPendentesDoUsuario(
+      this.getOrgaoId(req.user),
+      req.user.email,
+    );
   }
 
   @Get(':id')
   async obter(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
-    const orgaoId = req.user.orgao_id;
-    return this.portalAssinaturasService.obterDocumento(id, orgaoId);
+    return this.portalAssinaturasService.obterDocumento(id, this.getOrgaoId(req.user));
   }
 
   @Post()
@@ -97,7 +102,7 @@ export class PortalAssinaturasController {
       throw new BadRequestException('Formato de dados inválido (deve ser JSON JSON.stringify).');
     }
 
-    const orgaoId = req.user.orgao_id;
+    const orgaoId = this.getOrgaoId(req.user);
     const usuarioId = req.user.sub;
     
     // Caminho relativo a partir da pasta uploads
