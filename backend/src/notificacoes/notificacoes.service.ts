@@ -9,7 +9,7 @@ export interface CriarNotificacaoDto {
   orgao_id: string;
   usuario_id: string;
   usuario_email?: string;
-  usuario_telefone?: string;
+  usuario_telefone?: string | null;
   tipo: TipoNotificacao;
   titulo: string;
   mensagem: string;

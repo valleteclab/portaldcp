@@ -42,6 +42,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
 import { EmailModule } from './email/email.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AssinaturasModule } from './assinaturas/assinaturas.module';
+import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { AssinaturasModule } from './assinaturas/assinaturas.module';
     EmailModule,
     WebhooksModule,
     AssinaturasModule,
+    PortalAssinaturasModule,
   ],
   controllers: [HealthController],
   providers: [

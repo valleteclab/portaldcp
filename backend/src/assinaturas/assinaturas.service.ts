@@ -66,6 +66,42 @@ export class AssinaturasService {
   // 2. Validação do OTP
   // ==========================================
 
+  async solicitarOtpEmail(orgaoId: string, email: string, usuarioNome: string, codigo?: string): Promise<boolean> {
+    const cacheKey = `otp_email_${orgaoId}_${email}`;
+    const otpExistente = this.otpCache.get(cacheKey);
+
+    if (otpExistente && otpExistente.expiracao > Date.now() && otpExistente.tentativas >= 3) {
+      throw new BadRequestException('Muitas tentativas. Aguarde 5 minutos antes de solicitar novo código.');
+    }
+
+    const codigoGerado = codigo || Math.floor(100000 + Math.random() * 900000).toString();
+    const expiracao = Date.now() + 5 * 60 * 1000;
+
+    this.otpCache.set(cacheKey, {
+      codigo: codigoGerado,
+      expiracao,
+      tentativas: otpExistente ? otpExistente.tentativas + 1 : 1,
+    });
+
+    this.logger.log(`OTP email gerado para ${email}: ${codigoGerado}`);
+    return true;
+  }
+
+  async validarOtpEmail(orgaoId: string, email: string, codigo: string): Promise<boolean> {
+    const cacheKey = `otp_email_${orgaoId}_${email}`;
+    const otpData = this.otpCache.get(cacheKey);
+
+    if (!otpData) throw new BadRequestException('Nenhum código ativo. Solicite um novo código.');
+    if (Date.now() > otpData.expiracao) {
+      this.otpCache.delete(cacheKey);
+      throw new BadRequestException('O código expirou. Solicite um novo código.');
+    }
+    if (otpData.codigo !== codigo) throw new BadRequestException('Código incorreto.');
+
+    this.otpCache.delete(cacheKey);
+    return true;
+  }
+
   async validarOtp(orgaoId: string, telefone: string, codigo: string): Promise<boolean> {
     const telefoneLimpo = telefone.replace(/\D/g, '');
     const cacheKey = `otp_${orgaoId}_${telefoneLimpo}`;

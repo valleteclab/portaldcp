@@ -24,6 +24,7 @@ import {
   ClipboardCheck,
   Mail,
   BarChart3,
+  FilePen,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -122,6 +123,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/aprovacoes", label: "Central de Aprovações", icon: CheckCircle, requerAprovador: true },
     { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3 },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
+    { href: "/orgao/portal-assinaturas", label: "Portal de Assinaturas", icon: FilePen, modulo: ModuloSistema.PORTAL_ASSINATURAS },
     { href: "/orgao/emails", label: "Caixa de Entrada", icon: Mail }, // Sempre visível
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
   ]

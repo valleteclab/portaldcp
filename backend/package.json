@@ -44,6 +44,7 @@
     "nodemailer": "^8.0.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-lib": "^1.17.1",
     "pdfkit": "^0.17.2",
     "pdfmake": "^0.3.4",
     "pg": "^8.16.3",

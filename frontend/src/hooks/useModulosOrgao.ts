@@ -13,7 +13,8 @@ export type ModuloSistema =
   | 'USUARIOS'
   | 'DISPUTA'
   | 'CREDENCIAMENTO'
-  | 'ALMOXARIFADO';
+  | 'ALMOXARIFADO'
+  | 'PORTAL_ASSINATURAS';
 
 // Constantes para uso como valores (não apenas tipos)
 export const ModuloSistema = {
@@ -28,6 +29,7 @@ export const ModuloSistema = {
   DISPUTA: 'DISPUTA' as ModuloSistema,
   CREDENCIAMENTO: 'CREDENCIAMENTO' as ModuloSistema,
   ALMOXARIFADO: 'ALMOXARIFADO' as ModuloSistema,
+  PORTAL_ASSINATURAS: 'PORTAL_ASSINATURAS' as ModuloSistema,
 } as const;
 
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
@@ -42,6 +44,7 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
   DISPUTA: { nome: 'Disputa', descricao: 'Sala de Disputa' },
   CREDENCIAMENTO: { nome: 'Credenciamento', descricao: 'Credenciamento' },
   ALMOXARIFADO: { nome: 'Almoxarifado', descricao: 'Almoxarifado e Ordens de Fornecimento' },
+  PORTAL_ASSINATURAS: { nome: 'Portal de Assinaturas', descricao: 'Portal de Assinaturas Eletrônicas' },
 };
 
 export function useModulosOrgao() {
