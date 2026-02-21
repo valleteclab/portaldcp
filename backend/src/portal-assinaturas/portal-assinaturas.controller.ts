@@ -51,6 +51,13 @@ export class PortalAssinaturasController {
     return this.portalAssinaturasService.listarDocumentos(orgaoId);
   }
 
+  @Get('meus/pendentes')
+  async listarMeusPendentes(@Request() req: any) {
+    const orgaoId = req.user.orgao_id;
+    const usuarioEmail = req.user.email;
+    return this.portalAssinaturasService.listarPendentesDoUsuario(orgaoId, usuarioEmail);
+  }
+
   @Get(':id')
   async obter(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
     const orgaoId = req.user.orgao_id;
@@ -109,13 +116,6 @@ export class PortalAssinaturasController {
     );
 
     return documento;
-  }
-
-  @Get('meus/pendentes')
-  async listarMeusPendentes(@Request() req: any) {
-    const orgaoId = req.user.orgao_id;
-    const usuarioEmail = req.user.email;
-    return this.portalAssinaturasService.listarPendentesDoUsuario(orgaoId, usuarioEmail);
   }
 
   @Post(':documentoId/signatarios/:signatarioId/assinar')
