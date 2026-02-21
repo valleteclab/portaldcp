@@ -10,6 +10,8 @@ import {
   UploadedFile,
   BadRequestException,
   ParseUUIDPipe,
+  Ip,
+  Headers,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -107,5 +109,30 @@ export class PortalAssinaturasController {
     );
 
     return documento;
+  }
+
+  @Get('meus/pendentes')
+  async listarMeusPendentes(@Request() req: any) {
+    const orgaoId = req.user.orgao_id;
+    const usuarioEmail = req.user.email;
+    return this.portalAssinaturasService.listarPendentesDoUsuario(orgaoId, usuarioEmail);
+  }
+
+  @Post(':documentoId/signatarios/:signatarioId/assinar')
+  async assinarComoOrgaoUser(
+    @Request() req: any,
+    @Param('documentoId', ParseUUIDPipe) documentoId: string,
+    @Param('signatarioId', ParseUUIDPipe) signatarioId: string,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    const usuarioId = req.user.sub;
+    return this.portalAssinaturasService.assinarComoOrgaoUser(
+      documentoId,
+      signatarioId,
+      usuarioId,
+      ip,
+      userAgent || '',
+    );
   }
 }

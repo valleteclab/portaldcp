@@ -43,14 +43,27 @@ interface Documento {
   created_at: string
 }
 
+type TipoSignatario = 'eu_mesmo' | 'usuario_sistema' | 'externo'
+
+interface UsuarioSistema {
+  id: string
+  nome: string
+  email: string
+  cpf: string
+  cargo?: string
+}
+
 interface NovoSignatario {
+  tipo: TipoSignatario
   nome: string
   cpf_cnpj: string
   email: string
   telefone: string
+  usuario_id?: string
   pagina_assinatura?: number
   pos_x?: number
   pos_y?: number
+  is_orgao_user?: boolean
 }
 
 interface MarcaPosicao {
@@ -87,13 +100,24 @@ export default function PortalAssinaturasPage() {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [signatarios, setSignatarios] = useState<NovoSignatario[]>([
-    { nome: '', cpf_cnpj: '', email: '', telefone: '' },
+    { tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true },
   ])
   const [marcas, setMarcas] = useState<MarcaPosicao[]>([])
   const [sigAtivo, setSigAtivo] = useState(0)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Usuários do sistema
+  const [usuariosSistema, setUsuariosSistema] = useState<UsuarioSistema[]>([])
+  const [buscaUsuario, setBuscaUsuario] = useState<Record<number, string>>({})
+
+  // Pendentes do usuário logado
+  const [pendentesUsuario, setPendentesUsuario] = useState<{
+    signatario_id: string; documento_id: string; titulo: string; descricao?: string
+    arquivo_original_url: string; created_at: string
+  }[]>([])
+  const [assinandoId, setAssinandoId] = useState<string | null>(null)
 
   // Modal detalhes
   const [docSelecionado, setDocSelecionado] = useState<Documento | null>(null)
@@ -103,8 +127,12 @@ export default function PortalAssinaturasPage() {
   const carregar = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/portal-assinaturas`)
-      if (res.ok) setDocumentos(await res.json())
+      const [resDoc, resPend] = await Promise.all([
+        authFetch(`${API_URL}/api/portal-assinaturas`),
+        authFetch(`${API_URL}/api/portal-assinaturas/meus/pendentes`),
+      ])
+      if (resDoc.ok) setDocumentos(await resDoc.json())
+      if (resPend.ok) setPendentesUsuario(await resPend.json())
     } finally {
       setLoading(false)
     }
@@ -114,15 +142,23 @@ export default function PortalAssinaturasPage() {
 
   // ─── Drag & Drop / Seleção de arquivo ────────────────────────────────────
 
-  const iniciarFluxo = useCallback((file: File) => {
+  const iniciarFluxo = useCallback(async (file: File) => {
     setArquivo(file)
     setPdfUrl(URL.createObjectURL(file))
     setTitulo(file.name.replace(/\.pdf$/i, '').replace(/_/g, ' '))
     setMarcas([])
     setSigAtivo(0)
-    setSignatarios([{ nome: '', cpf_cnpj: '', email: '', telefone: '' }])
+    setSignatarios([{ tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true }])
     setErro('')
     setEtapa('posicionar')
+    // Carregar usuários do sistema
+    try {
+      const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+      if (orgao?.id) {
+        const res = await authFetch(`${API_URL}/api/usuarios?orgao_id=${orgao.id}`)
+        if (res.ok) setUsuariosSistema(await res.json())
+      }
+    } catch {}
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -138,10 +174,11 @@ export default function PortalAssinaturasPage() {
     setPdfUrl(null)
     setTitulo('')
     setDescricao('')
-    setSignatarios([{ nome: '', cpf_cnpj: '', email: '', telefone: '' }])
+    setSignatarios([{ tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true }])
     setMarcas([])
     setSigAtivo(0)
     setErro('')
+    setBuscaUsuario({})
     if (fileRef.current) fileRef.current.value = ''
   }, [pdfUrl])
 
@@ -160,8 +197,28 @@ export default function PortalAssinaturasPage() {
   // ─── Signatários ──────────────────────────────────────────────────────────
 
   const addSignatario = () => {
-    setSignatarios(prev => [...prev, { nome: '', cpf_cnpj: '', email: '', telefone: '' }])
+    setSignatarios(prev => [...prev, { tipo: 'externo', nome: '', cpf_cnpj: '', email: '', telefone: '' }])
     setSigAtivo(signatarios.length)
+  }
+
+  const setTipoSignatario = (i: number, tipo: TipoSignatario) => {
+    setSignatarios(prev => prev.map((s, idx) => {
+      if (idx !== i) return s
+      if (tipo === 'eu_mesmo') {
+        const eu = JSON.parse(localStorage.getItem('usuario') || '{}')
+        return { ...s, tipo, nome: eu.nome || '', cpf_cnpj: eu.cpf || '', email: eu.email || '', telefone: eu.telefone || '', is_orgao_user: true, usuario_id: eu.id }
+      }
+      if (tipo === 'usuario_sistema') return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true, usuario_id: undefined }
+      return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false, usuario_id: undefined }
+    }))
+    setBuscaUsuario(prev => ({ ...prev, [i]: '' }))
+  }
+
+  const selecionarUsuarioSistema = (i: number, u: UsuarioSistema) => {
+    setSignatarios(prev => prev.map((s, idx) => idx !== i ? s : {
+      ...s, nome: u.nome, cpf_cnpj: u.cpf || '', email: u.email, telefone: '', is_orgao_user: true, usuario_id: u.id
+    }))
+    setBuscaUsuario(prev => ({ ...prev, [i]: u.nome }))
   }
 
   const removeSignatario = (i: number) => {
@@ -182,12 +239,21 @@ export default function PortalAssinaturasPage() {
     setErro('')
     if (!titulo.trim()) return setErro('Informe o título do documento.')
     if (!arquivo) return setErro('Selecione um arquivo PDF.')
-    const sigsValidos = signatarios.filter(s => s.nome && s.cpf_cnpj && (s.email || s.telefone))
-    if (sigsValidos.length === 0) return setErro('Adicione ao menos um signatário.')
+    const sigsValidos = signatarios.filter(s => s.nome && s.cpf_cnpj && (s.email || s.tipo === 'eu_mesmo'))
+    if (sigsValidos.length === 0) return setErro('Preencha nome, CPF e e-mail de ao menos um signatário.')
 
     const sigsComPosicao = sigsValidos.map((sig, i) => {
       const marca = marcas.find(m => m.signatarioIdx === i)
-      return { ...sig, pagina_assinatura: marca ? 1 : undefined, pos_x: marca?.pos_x, pos_y: marca?.pos_y }
+      return {
+        nome: sig.nome,
+        cpf_cnpj: sig.cpf_cnpj,
+        email: sig.email,
+        telefone: sig.telefone,
+        is_orgao_user: sig.is_orgao_user ?? false,
+        pagina_assinatura: marca ? 1 : undefined,
+        pos_x: marca?.pos_x,
+        pos_y: marca?.pos_y,
+      }
     })
 
     setSalvando(true)
@@ -195,7 +261,7 @@ export default function PortalAssinaturasPage() {
       const formData = new FormData()
       formData.append('arquivo', arquivo)
       formData.append('dados', JSON.stringify({ titulo, descricao, signatarios: sigsComPosicao }))
-      const res = await authFetch(`${API_URL}/portal-assinaturas`, { method: 'POST', body: formData })
+      const res = await authFetch(`${API_URL}/api/portal-assinaturas`, { method: 'POST', body: formData })
       if (!res.ok) { const err = await res.json(); throw new Error(err.message || 'Erro ao criar') }
       resetFluxo()
       carregar()
@@ -203,6 +269,24 @@ export default function PortalAssinaturasPage() {
       setErro(e.message)
     } finally {
       setSalvando(false)
+    }
+  }
+
+  // ─── Assinar diretamente (usuário do órgão) ───────────────────────────────
+
+  const handleAssinarDireto = async (documentoId: string, signatarioId: string) => {
+    setAssinandoId(signatarioId)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/portal-assinaturas/${documentoId}/signatarios/${signatarioId}/assinar`,
+        { method: 'POST' }
+      )
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message || 'Erro ao assinar') }
+      carregar()
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setAssinandoId(null)
     }
   }
 
@@ -337,7 +421,7 @@ export default function PortalAssinaturasPage() {
                   <button onClick={() => setEtapa('posicionar')} className="text-gray-400 hover:text-gray-700">
                     <ChevronLeft className="h-5 w-5" />
                   </button>
-                  <h3 className="font-semibold text-gray-800">Dados dos Signatários</h3>
+                  <h3 className="font-semibold text-gray-800">Signatários</h3>
                 </div>
 
                 {/* Título e descrição */}
@@ -356,13 +440,18 @@ export default function PortalAssinaturasPage() {
                 {signatarios.map((sig, i) => {
                   const cor = CORES[i % CORES.length]
                   const marca = marcas.find(m => m.signatarioIdx === i)
+                  const usuariosFiltrados = usuariosSistema.filter(u =>
+                    u.nome.toLowerCase().includes((buscaUsuario[i] || '').toLowerCase()) ||
+                    u.email.toLowerCase().includes((buscaUsuario[i] || '').toLowerCase())
+                  )
                   return (
                     <div key={i} className="bg-white rounded-xl border p-4 space-y-3">
+                      {/* Cabeçalho */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: cor }}>{i + 1}</div>
                           <span className="font-medium text-gray-800">Signatário {i + 1}</span>
-                          {marca && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Posição marcada</span>}
+                          {marca && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">✓ Posição marcada</span>}
                         </div>
                         {signatarios.length > 1 && (
                           <button onClick={() => removeSignatario(i)} className="text-red-400 hover:text-red-600">
@@ -370,12 +459,89 @@ export default function PortalAssinaturasPage() {
                           </button>
                         )}
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Input placeholder="Nome completo *" value={sig.nome} onChange={e => updateSignatario(i, 'nome', e.target.value)} className="col-span-2" />
-                        <Input placeholder="CPF ou CNPJ *" value={sig.cpf_cnpj} onChange={e => updateSignatario(i, 'cpf_cnpj', e.target.value)} />
-                        <Input placeholder="Telefone (WhatsApp)" value={sig.telefone} onChange={e => updateSignatario(i, 'telefone', e.target.value)} />
-                        <Input placeholder="E-mail" type="email" value={sig.email} onChange={e => updateSignatario(i, 'email', e.target.value)} className="col-span-2" />
+
+                      {/* Seletor de tipo */}
+                      <div className="flex gap-2">
+                        {([
+                          { tipo: 'eu_mesmo' as TipoSignatario, label: 'Eu mesmo', icon: '👤' },
+                          { tipo: 'usuario_sistema' as TipoSignatario, label: 'Usuário do sistema', icon: '🏢' },
+                          { tipo: 'externo' as TipoSignatario, label: 'Externo', icon: '🌐' },
+                        ]).map(opt => (
+                          <button
+                            key={opt.tipo}
+                            onClick={() => setTipoSignatario(i, opt.tipo)}
+                            className={`flex-1 py-2 px-2 rounded-lg border text-xs font-medium transition-all ${sig.tipo === opt.tipo ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                          >
+                            <span className="block text-base mb-0.5">{opt.icon}</span>
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
+
+                      {/* Campos por tipo */}
+                      {sig.tipo === 'eu_mesmo' && (
+                        <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-800 flex items-center gap-2">
+                          <ShieldCheck className="h-4 w-4 shrink-0" />
+                          <div>
+                            <p className="font-medium">{sig.nome || 'Você'}</p>
+                            <p className="text-xs text-blue-600">{sig.email || 'Você assina diretamente pelo portal'}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {sig.tipo === 'usuario_sistema' && (
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <Input
+                              placeholder="Buscar usuário por nome ou e-mail..."
+                              value={buscaUsuario[i] || ''}
+                              onChange={e => setBuscaUsuario(prev => ({ ...prev, [i]: e.target.value }))}
+                              className="pl-9"
+                            />
+                          </div>
+                          {(buscaUsuario[i] || '').length > 0 && (
+                            <div className="border rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+                              {usuariosFiltrados.length === 0 ? (
+                                <p className="text-xs text-gray-400 p-3 text-center">Nenhum usuário encontrado</p>
+                              ) : usuariosFiltrados.map(u => (
+                                <button
+                                  key={u.id}
+                                  onClick={() => selecionarUsuarioSistema(i, u)}
+                                  className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 border-b last:border-0"
+                                >
+                                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
+                                    {u.nome.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-800">{u.nome}</p>
+                                    <p className="text-xs text-gray-400">{u.email}{u.cargo ? ` · ${u.cargo}` : ''}</p>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {sig.nome && (
+                            <div className="bg-green-50 rounded-lg p-2 text-sm text-green-800 flex items-center gap-2">
+                              <CheckCircle className="h-4 w-4 shrink-0" />
+                              <div>
+                                <p className="font-medium">{sig.nome}</p>
+                                <p className="text-xs text-green-600">{sig.email} · Assina pelo portal</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {sig.tipo === 'externo' && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <Input placeholder="Nome completo *" value={sig.nome} onChange={e => updateSignatario(i, 'nome', e.target.value)} className="col-span-2" />
+                          <Input placeholder="CPF ou CNPJ *" value={sig.cpf_cnpj} onChange={e => updateSignatario(i, 'cpf_cnpj', e.target.value)} />
+                          <Input placeholder="Telefone (WhatsApp)" value={sig.telefone} onChange={e => updateSignatario(i, 'telefone', e.target.value)} />
+                          <Input placeholder="E-mail *" type="email" value={sig.email} onChange={e => updateSignatario(i, 'email', e.target.value)} className="col-span-2" />
+                          <p className="col-span-2 text-xs text-gray-400">Receberá um link por e-mail/WhatsApp para assinar.</p>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -488,6 +654,56 @@ export default function PortalAssinaturasPage() {
             </p>
           </div>
         </div>
+
+        {/* ── Aguardando sua assinatura ── */}
+        {pendentesUsuario.length > 0 && (
+          <Card className="border-orange-200 bg-orange-50">
+            <CardContent className="p-0">
+              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-orange-200">
+                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                <span className="font-semibold text-orange-800">Aguardando sua assinatura</span>
+                <Badge className="bg-orange-100 text-orange-700 text-xs">{pendentesUsuario.length}</Badge>
+              </div>
+              <div className="divide-y divide-orange-100">
+                {pendentesUsuario.map(p => (
+                  <div key={p.signatario_id} className="flex items-center gap-4 px-5 py-4">
+                    <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center shrink-0">
+                      <FileText className="h-5 w-5 text-orange-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{p.titulo}</p>
+                      {p.descricao && <p className="text-xs text-gray-500 truncate">{p.descricao}</p>}
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-xs"
+                        onClick={() => window.open(`${API_URL.replace('/api', '')}/uploads/${p.arquivo_original_url}`, '_blank')}
+                      >
+                        <Eye className="h-3 w-3" /> Ver PDF
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="gap-1 text-xs bg-orange-600 hover:bg-orange-700"
+                        disabled={assinandoId === p.signatario_id}
+                        onClick={() => handleAssinarDireto(p.documento_id, p.signatario_id)}
+                      >
+                        {assinandoId === p.signatario_id
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <FilePen className="h-3 w-3" />}
+                        Assinar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── Drop Zone ── */}
         <Card

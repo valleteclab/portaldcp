@@ -123,33 +123,123 @@ export class PortalAssinaturasService {
     for (const signatario of doc.signatarios) {
       if (signatario.status !== StatusAssinaturaSignatario.PENDENTE) continue;
 
-      const link = `${baseUrl}/assinar-documento/${signatario.token_acesso}`;
-      const mensagemTexto = `Olá, ${signatario.nome}. Você foi solicitado a assinar o documento "${doc.titulo}" pelo órgão ${doc.orgao.nome}. Acesse: ${link}`;
-      const mensagemHtml = `
-        <p>Olá, <strong>${signatario.nome}</strong>,</p>
-        <p>Você foi solicitado a assinar eletronicamente o documento <strong>"${doc.titulo}"</strong> emitido pelo órgão <strong>${doc.orgao.nome}</strong>.</p>
-        <p style="text-align:center;margin:30px 0;">
-          <a href="${link}" style="background:#2563eb;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;">Revisar e Assinar Documento</a>
-        </p>
-        <p>Ou acesse: <a href="${link}">${link}</a></p>
-        <hr style="border:1px solid #eee;margin:20px 0;">
-        <p style="font-size:12px;color:#666;">Mensagem automática do Portal DCP.</p>
-      `;
-
-      await this.notificacoesService.criar({
-        orgao_id: doc.orgao_id,
-        usuario_id: 'SYSTEM',
-        usuario_email: signatario.email,
-        usuario_telefone: signatario.telefone ?? undefined,
-        tipo: TipoNotificacao.SISTEMA,
-        titulo: `Assinatura Pendente: ${doc.titulo}`,
-        mensagem: mensagemHtml,
-        enviar_email: !!signatario.email,
-        metadata: { is_external: true, whatsapp_text: mensagemTexto },
-      }).catch(err =>
-        this.logger.error(`Erro ao notificar ${signatario.nome}: ${err.message}`),
-      );
+      if (signatario.is_orgao_user) {
+        // Usuário interno: notificação no portal (sem link externo)
+        const linkPortal = `${baseUrl}/orgao/portal-assinaturas`;
+        const mensagemHtml = `
+          <p>Olá, <strong>${signatario.nome}</strong>,</p>
+          <p>Você foi adicionado como signatário do documento <strong>"${doc.titulo}"</strong>.</p>
+          <p>Acesse o <a href="${linkPortal}">Portal de Assinaturas</a> para assinar diretamente pelo sistema.</p>
+        `;
+        await this.notificacoesService.criar({
+          orgao_id: doc.orgao_id,
+          usuario_id: 'SYSTEM',
+          usuario_email: signatario.email,
+          tipo: TipoNotificacao.SISTEMA,
+          titulo: `Assinatura Pendente: ${doc.titulo}`,
+          mensagem: mensagemHtml,
+          enviar_email: !!signatario.email,
+          metadata: { is_internal: true },
+        }).catch(err =>
+          this.logger.error(`Erro ao notificar interno ${signatario.nome}: ${err.message}`),
+        );
+      } else {
+        // Usuário externo: link de assinatura pública
+        const link = `${baseUrl}/assinar-documento/${signatario.token_acesso}`;
+        const mensagemTexto = `Olá, ${signatario.nome}. Você foi solicitado a assinar o documento "${doc.titulo}" pelo órgão ${doc.orgao.nome}. Acesse: ${link}`;
+        const mensagemHtml = `
+          <p>Olá, <strong>${signatario.nome}</strong>,</p>
+          <p>Você foi solicitado a assinar eletronicamente o documento <strong>"${doc.titulo}"</strong> emitido pelo órgão <strong>${doc.orgao.nome}</strong>.</p>
+          <p style="text-align:center;margin:30px 0;">
+            <a href="${link}" style="background:#2563eb;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;">Revisar e Assinar Documento</a>
+          </p>
+          <p>Ou acesse: <a href="${link}">${link}</a></p>
+          <hr style="border:1px solid #eee;margin:20px 0;">
+          <p style="font-size:12px;color:#666;">Mensagem automática do Portal DCP.</p>
+        `;
+        await this.notificacoesService.criar({
+          orgao_id: doc.orgao_id,
+          usuario_id: 'SYSTEM',
+          usuario_email: signatario.email,
+          usuario_telefone: signatario.telefone ?? undefined,
+          tipo: TipoNotificacao.SISTEMA,
+          titulo: `Assinatura Pendente: ${doc.titulo}`,
+          mensagem: mensagemHtml,
+          enviar_email: !!signatario.email,
+          metadata: { is_external: true, whatsapp_text: mensagemTexto },
+        }).catch(err =>
+          this.logger.error(`Erro ao notificar ${signatario.nome}: ${err.message}`),
+        );
+      }
     }
+  }
+
+  async listarPendentesDoUsuario(orgaoId: string, email: string) {
+    const signatarios = await this.signatarioRepository.find({
+      where: {
+        email,
+        is_orgao_user: true,
+        status: StatusAssinaturaSignatario.PENDENTE,
+      },
+      relations: ['documento'],
+    });
+
+    return signatarios
+      .filter(s => s.documento?.orgao_id === orgaoId)
+      .map(s => ({
+        signatario_id: s.id,
+        documento_id: s.documento.id,
+        titulo: s.documento.titulo,
+        descricao: s.documento.descricao,
+        arquivo_original_url: s.documento.arquivo_original_url,
+        status_documento: s.documento.status,
+        created_at: s.documento.created_at,
+      }));
+  }
+
+  async assinarComoOrgaoUser(
+    documentoId: string,
+    signatarioId: string,
+    usuarioId: string,
+    ip: string,
+    userAgent: string,
+  ): Promise<{ sucesso: boolean; pdf_url?: string }> {
+    const signatario = await this.signatarioRepository.findOne({
+      where: { id: signatarioId, documento_id: documentoId },
+      relations: ['documento', 'documento.orgao', 'documento.signatarios'],
+    });
+    if (!signatario) throw new NotFoundException('Signatário não encontrado');
+    if (signatario.status === StatusAssinaturaSignatario.ASSINADO) {
+      throw new BadRequestException('Você já assinou este documento');
+    }
+
+    const orgaoId = signatario.documento.orgao_id;
+
+    const codigoValidacao = this.gerarCodigoValidacao();
+
+    signatario.status = StatusAssinaturaSignatario.ASSINADO;
+    signatario.data_assinatura = new Date();
+    signatario.ip_address = ip;
+    signatario.user_agent = userAgent;
+    signatario.codigo_validacao = codigoValidacao;
+    await this.signatarioRepository.save(signatario);
+
+    // Verificar se todos assinaram
+    const todosSignatarios = signatario.documento.signatarios;
+    const todosAssinaram = todosSignatarios.every(
+      s => s.id === signatario.id || s.status === StatusAssinaturaSignatario.ASSINADO,
+    );
+
+    let pdfUrl: string | undefined;
+    if (todosAssinaram) {
+      pdfUrl = await this.gerarPdfFinalAssinado(signatario.documento);
+      await this.documentoRepository.update(signatario.documento.id, {
+        status: StatusDocumentoAssinatura.CONCLUIDO,
+        arquivo_assinado_url: pdfUrl,
+      });
+    }
+
+    return { sucesso: true, pdf_url: pdfUrl };
   }
 
   // =============================================
