@@ -33,6 +33,9 @@ export class DocumentoAssinatura {
   @Column({ type: 'varchar', length: 500, nullable: true })
   arquivo_assinado_url: string; // Caminho do PDF final com todas as assinaturas
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  documento_hash: string; // SHA-256 do arquivo original
+
   @Column({ type: 'enum', enum: StatusDocumentoAssinatura, default: StatusDocumentoAssinatura.RASCUNHO })
   status: StatusDocumentoAssinatura;
 

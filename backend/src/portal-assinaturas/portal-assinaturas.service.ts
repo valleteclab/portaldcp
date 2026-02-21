@@ -63,12 +63,25 @@ export class PortalAssinaturasService {
     await queryRunner.startTransaction();
 
     try {
+      // Calcular SHA-256 do arquivo
+      let documentoHash: string | undefined;
+      try {
+        const filePath = join(this.uploadDir, arquivoUrl);
+        if (existsSync(filePath)) {
+          const fileBuffer = readFileSync(filePath);
+          documentoHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        }
+      } catch (e) {
+        this.logger.warn(`Erro ao calcular hash do arquivo: ${e.message}`);
+      }
+
       // 1. Criar o documento principal
       const documento = this.documentoRepository.create({
         orgao_id: orgaoId,
         titulo: dados.titulo,
         descricao: dados.descricao,
         arquivo_original_url: arquivoUrl,
+        documento_hash: documentoHash,
         status: StatusDocumentoAssinatura.AGUARDANDO_ASSINATURAS,
         criado_por_id: usuarioId,
       });
@@ -197,12 +210,34 @@ export class PortalAssinaturasService {
       }));
   }
 
+  async solicitarOtpInterno(
+    documentoId: string,
+    signatarioId: string,
+  ): Promise<{ canal: string }> {
+    const signatario = await this.signatarioRepository.findOne({
+      where: { id: signatarioId, documento_id: documentoId },
+      relations: ['documento'],
+    });
+    if (!signatario) throw new NotFoundException('Signatário não encontrado');
+    if (signatario.status === StatusAssinaturaSignatario.ASSINADO) {
+      throw new BadRequestException('Você já assinou este documento');
+    }
+    if (!signatario.email) {
+      throw new BadRequestException('Signatário sem e-mail cadastrado');
+    }
+
+    const orgaoId = signatario.documento.orgao_id;
+    await this.assinaturasService.solicitarOtpEmail(orgaoId, signatario.email, signatario.nome);
+    return { canal: 'email' };
+  }
+
   async assinarComoOrgaoUser(
     documentoId: string,
     signatarioId: string,
     usuarioId: string,
     ip: string,
     userAgent: string,
+    codigoOtp?: string,
   ): Promise<{ sucesso: boolean; pdf_url?: string }> {
     const signatario = await this.signatarioRepository.findOne({
       where: { id: signatarioId, documento_id: documentoId },
@@ -214,6 +249,11 @@ export class PortalAssinaturasService {
     }
 
     const orgaoId = signatario.documento.orgao_id;
+
+    // Validar OTP se fornecido
+    if (codigoOtp && signatario.email) {
+      await this.assinaturasService.validarOtpEmail(orgaoId, signatario.email, codigoOtp);
+    }
 
     const codigoValidacao = this.gerarCodigoValidacao();
 

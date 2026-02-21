@@ -4,20 +4,21 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   FileText, Send, CheckCircle, Clock, Eye, Loader2, X,
   Upload, Users, Trash2, Download, Search, RefreshCw, FilePen,
-  Plus, MousePointer, ChevronRight, ChevronLeft, ArrowLeft,
-  ShieldCheck, AlertCircle, UserPlus,
+  Plus, ChevronRight, ChevronLeft, ArrowLeft, Hash,
+  ShieldCheck, AlertCircle, UserPlus, Shield, Lock, Mail, Phone,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { API_URL, authFetch } from '@/lib/api'
+import PdfViewer, { type PdfMarker } from '@/components/PdfViewer'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ interface Signatario {
   telefone: string | null
   status: 'PENDENTE' | 'ASSINADO' | 'REJEITADO'
   data_assinatura?: string
-  token_acesso?: string
+  is_orgao_user?: boolean
 }
 
 interface Documento {
@@ -39,6 +40,7 @@ interface Documento {
   status: 'AGUARDANDO_ASSINATURAS' | 'CONCLUIDO' | 'CANCELADO'
   arquivo_original_url: string
   arquivo_assinado_url?: string
+  documento_hash?: string
   signatarios: Signatario[]
   created_at: string
 }
@@ -51,6 +53,7 @@ interface UsuarioSistema {
   email: string
   cpf: string
   cargo?: string
+  orgao_id?: string
 }
 
 interface NovoSignatario {
@@ -60,19 +63,19 @@ interface NovoSignatario {
   email: string
   telefone: string
   usuario_id?: string
-  pagina_assinatura?: number
-  pos_x?: number
-  pos_y?: number
   is_orgao_user?: boolean
 }
 
-interface MarcaPosicao {
-  signatarioIdx: number
-  pos_x: number
-  pos_y: number
+interface PendenciaUsuario {
+  signatario_id: string
+  documento_id: string
+  titulo: string
+  descricao?: string
+  arquivo_original_url: string
+  created_at: string
 }
 
-type Etapa = 'posicionar' | 'signatarios' | 'confirmar'
+type Modo = 'lista' | 'novo' | 'visualizar'
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   AGUARDANDO_ASSINATURAS: { label: 'Aguardando', color: 'bg-yellow-100 text-yellow-800' },
@@ -85,48 +88,56 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 
 const CORES = ['#3b82f6', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6']
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
 
 export default function PortalAssinaturasPage() {
+  // Estado geral
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [loading, setLoading] = useState(true)
-  const [busca, setBusca] = useState('')
-  const [aba, setAba] = useState<'pendentes' | 'assinados'>('pendentes')
-
-  // Fluxo de criação
-  const [etapa, setEtapa] = useState<Etapa | null>(null)
-  const [titulo, setTitulo] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [arquivo, setArquivo] = useState<File | null>(null)
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [signatarios, setSignatarios] = useState<NovoSignatario[]>([
-    { tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true },
-  ])
-  const [marcas, setMarcas] = useState<MarcaPosicao[]>([])
-  const [sigAtivo, setSigAtivo] = useState(0)
-  const [salvando, setSalvando] = useState(false)
-  const [erro, setErro] = useState('')
+  const [modo, setModo] = useState<Modo>('lista')
+  const [errosValidacao, setErrosValidacao] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Usuários do sistema
-  const [usuariosSistema, setUsuariosSistema] = useState<UsuarioSistema[]>([])
-  const [buscaUsuario, setBuscaUsuario] = useState<Record<number, string>>({})
+  // Dados do usuário logado (do banco)
   const [usuarioLogado, setUsuarioLogado] = useState<UsuarioSistema | null>(null)
+  const [usuariosSistema, setUsuariosSistema] = useState<UsuarioSistema[]>([])
 
-  // Erros de validação (checklist)
-  const [errosValidacao, setErrosValidacao] = useState<string[]>([])
+  // Pendentes do usuário
+  const [pendentesUsuario, setPendentesUsuario] = useState<PendenciaUsuario[]>([])
 
-  // Pendentes do usuário logado
-  const [pendentesUsuario, setPendentesUsuario] = useState<{
-    signatario_id: string; documento_id: string; titulo: string; descricao?: string
-    arquivo_original_url: string; created_at: string
-  }[]>([])
-  const [assinandoId, setAssinandoId] = useState<string | null>(null)
+  // Documento ativo (novo upload ou visualização)
+  const [arquivo, setArquivo] = useState<File | null>(null)
+  const [titulo, setTitulo] = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [docAtivo, setDocAtivo] = useState<Documento | null>(null)
+  const [pdfInfo, setPdfInfo] = useState<{ pageCount: number; hash: string; fileSize: number } | null>(null)
 
-  // Modal detalhes
-  const [docSelecionado, setDocSelecionado] = useState<Documento | null>(null)
+  // Signatários para novo documento
+  const [signatarios, setSignatarios] = useState<NovoSignatario[]>([])
+  const [sigAtivo, setSigAtivo] = useState(0)
+  const [markers, setMarkers] = useState<PdfMarker[]>([])
+  const [buscaUsuario, setBuscaUsuario] = useState<Record<number, string>>({})
+  const [salvando, setSalvando] = useState(false)
 
-  // ─── Carregar documentos ──────────────────────────────────────────────────
+  // OTP para assinatura interna
+  const [otpModal, setOtpModal] = useState<{ documentoId: string; signatarioId: string; nome: string } | null>(null)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpEtapa, setOtpEtapa] = useState<'confirmar' | 'codigo'>('confirmar')
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [otpErro, setOtpErro] = useState('')
+
+  // Painel direito (signatários ou info)
+  const [painelDireito, setPainelDireito] = useState<'info' | 'signatarios'>('info')
+
+  const baseUpload = API_URL.replace('/api', '') + '/uploads/'
+
+  // ─── Carregar dados iniciais ────────────────────────────────────────────────
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -142,80 +153,66 @@ export default function PortalAssinaturasPage() {
     }
   }, [])
 
-  useEffect(() => { carregar() }, [carregar])
-
-  // ─── Drag & Drop / Seleção de arquivo ────────────────────────────────────
-
-  const iniciarFluxo = useCallback(async (file: File) => {
-    setArquivo(file)
-    setPdfUrl(URL.createObjectURL(file))
-    setTitulo(file.name.replace(/\.pdf$/i, '').replace(/_/g, ' '))
-    setMarcas([])
-    setSigAtivo(0)
-    setErro('')
-    setEtapa('posicionar')
-    // Buscar dados do usuário logado SEMPRE do banco de dados
+  const carregarUsuario = useCallback(async () => {
     try {
       const resMe = await authFetch(`${API_URL}/api/usuarios/me`)
-      let eu: UsuarioSistema | null = null
       if (resMe.ok) {
-        eu = await resMe.json()
+        const eu = await resMe.json()
         setUsuarioLogado(eu)
-        // Buscar outros usuários do mesmo órgão usando orgao_id do banco
-        if ((eu as any)?.orgao_id) {
-          const resOrgao = await authFetch(`${API_URL}/api/usuarios?orgao_id=${(eu as any).orgao_id}`)
+        if (eu?.orgao_id) {
+          const resOrgao = await authFetch(`${API_URL}/api/usuarios?orgao_id=${eu.orgao_id}`)
           if (resOrgao.ok) setUsuariosSistema(await resOrgao.json())
         }
       }
-      // Pré-preencher signatário inicial com dados reais do banco
-      setSignatarios([{
-        tipo: 'eu_mesmo',
-        nome: eu?.nome || '',
-        cpf_cnpj: eu?.cpf || '',
-        email: eu?.email || '',
-        telefone: '',
-        is_orgao_user: true,
-        usuario_id: eu?.id,
-      }])
-    } catch {
-      setSignatarios([{ tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true }])
-    }
+    } catch { /* silencioso */ }
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    const file = e.dataTransfer.files[0]
-    if (file?.type === 'application/pdf') iniciarFluxo(file)
-  }, [iniciarFluxo])
+  useEffect(() => { carregar(); carregarUsuario() }, [carregar, carregarUsuario])
 
-  const resetFluxo = useCallback(() => {
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl)
-    setEtapa(null)
-    setArquivo(null)
-    setPdfUrl(null)
-    setTitulo('')
+  // ─── Iniciar novo documento ─────────────────────────────────────────────────
+
+  const iniciarNovo = useCallback((file: File) => {
+    setArquivo(file)
+    setTitulo(file.name.replace(/\.pdf$/i, '').replace(/_/g, ' '))
     setDescricao('')
-    setSignatarios([{ tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true }])
-    setMarcas([])
+    setDocAtivo(null)
+    setPdfInfo(null)
+    setMarkers([])
     setSigAtivo(0)
-    setErro('')
+    setErrosValidacao([])
     setBuscaUsuario({})
+    setSignatarios([{
+      tipo: 'eu_mesmo',
+      nome: usuarioLogado?.nome || '',
+      cpf_cnpj: usuarioLogado?.cpf || '',
+      email: usuarioLogado?.email || '',
+      telefone: '',
+      is_orgao_user: true,
+      usuario_id: usuarioLogado?.id,
+    }])
+    setPainelDireito('signatarios')
+    setModo('novo')
+  }, [usuarioLogado])
+
+  const visualizarDoc = useCallback((doc: Documento) => {
+    setDocAtivo(doc)
+    setArquivo(null)
+    setPdfInfo(null)
+    setModo('visualizar')
+    setPainelDireito('info')
+  }, [])
+
+  const voltarLista = useCallback(() => {
+    setModo('lista')
+    setArquivo(null)
+    setDocAtivo(null)
+    setPdfInfo(null)
+    setMarkers([])
+    setErrosValidacao([])
     if (fileRef.current) fileRef.current.value = ''
-  }, [pdfUrl])
+  }, [])
 
-  // ─── Posicionamento ───────────────────────────────────────────────────────
-
-  const handleClickPdf = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const pos_x = (e.clientX - rect.left) / rect.width
-    const pos_y = (e.clientY - rect.top) / rect.height
-    setMarcas(prev => [
-      ...prev.filter(m => m.signatarioIdx !== sigAtivo),
-      { signatarioIdx: sigAtivo, pos_x, pos_y },
-    ])
-  }
-
-  // ─── Signatários ──────────────────────────────────────────────────────────
+  // ─── Signatários ────────────────────────────────────────────────────────────
 
   const addSignatario = () => {
     setSignatarios(prev => [...prev, { tipo: 'externo', nome: '', cpf_cnpj: '', email: '', telefone: '' }])
@@ -243,23 +240,28 @@ export default function PortalAssinaturasPage() {
 
   const removeSignatario = (i: number) => {
     setSignatarios(prev => prev.filter((_, idx) => idx !== i))
-    setMarcas(prev =>
-      prev.filter(m => m.signatarioIdx !== i)
-        .map(m => m.signatarioIdx > i ? { ...m, signatarioIdx: m.signatarioIdx - 1 } : m)
-    )
+    setMarkers(prev => prev.filter(m => m.id !== `sig-${i}`))
     setSigAtivo(v => Math.max(0, v > i ? v - 1 : v))
   }
 
   const updateSignatario = (i: number, field: keyof NovoSignatario, value: string) =>
     setSignatarios(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s))
 
-  // ─── Criar documento ──────────────────────────────────────────────────────
+  // ─── Click no PDF para posicionar ───────────────────────────────────────────
+
+  const handlePageClick = (page: number, x: number, y: number) => {
+    if (modo !== 'novo') return
+    const id = `sig-${sigAtivo}`
+    setMarkers(prev => [
+      ...prev.filter(m => m.id !== id),
+      { id, page, x, y, label: `Sig. ${sigAtivo + 1}`, color: CORES[sigAtivo % CORES.length] },
+    ])
+  }
+
+  // ─── Criar documento ───────────────────────────────────────────────────────
 
   const handleCriar = async () => {
-    setErro('')
     setErrosValidacao([])
-
-    // Checklist de validação local
     const erros: string[] = []
     if (!titulo.trim()) erros.push('Título do documento é obrigatório')
     if (!arquivo) erros.push('Arquivo PDF é obrigatório')
@@ -269,28 +271,23 @@ export default function PortalAssinaturasPage() {
       erros.push('Adicione ao menos um signatário')
     } else {
       sigsValidos.forEach((s, i) => {
-        if (!s.nome.trim()) erros.push(`Signatário ${i + 1}: nome obrigatório`)
         if (s.tipo === 'externo' && !s.email && !s.telefone)
           erros.push(`Signatário ${i + 1} (${s.nome}): informe e-mail ou telefone`)
       })
     }
+    if (erros.length > 0) { setErrosValidacao(erros); return }
 
-    if (erros.length > 0) {
-      setErrosValidacao(erros)
-      return
-    }
-
-    const sigsComPosicao = sigsValidos.map((sig, i) => {
-      const marca = marcas.find(m => m.signatarioIdx === i)
+    const sigsPayload = sigsValidos.map((sig, i) => {
+      const marker = markers.find(m => m.id === `sig-${i}`)
       return {
         nome: sig.nome,
         cpf_cnpj: sig.cpf_cnpj || undefined,
         email: sig.email || undefined,
         telefone: sig.telefone || undefined,
         is_orgao_user: sig.is_orgao_user ?? false,
-        pagina_assinatura: marca ? 1 : undefined,
-        pos_x: marca?.pos_x,
-        pos_y: marca?.pos_y,
+        pagina_assinatura: marker?.page,
+        pos_x: marker?.x,
+        pos_y: marker?.y,
       }
     })
 
@@ -298,677 +295,591 @@ export default function PortalAssinaturasPage() {
     try {
       const formData = new FormData()
       formData.append('arquivo', arquivo!)
-      formData.append('dados', JSON.stringify({ titulo, descricao, signatarios: sigsComPosicao }))
+      formData.append('dados', JSON.stringify({ titulo, descricao, signatarios: sigsPayload }))
       const res = await authFetch(`${API_URL}/api/portal-assinaturas`, { method: 'POST', body: formData })
       if (!res.ok) {
         const err = await res.json()
-        // NestJS retorna message como array em erros de validação
-        const msgs: string[] = Array.isArray(err.message)
-          ? err.message
-          : [err.message || `Erro ${res.status}: não foi possível criar o documento`]
+        const msgs: string[] = Array.isArray(err.message) ? err.message : [err.message || `Erro ${res.status}`]
         setErrosValidacao(msgs)
         return
       }
-      resetFluxo()
+      voltarLista()
       carregar()
     } catch (e: any) {
-      setErrosValidacao([e.message || 'Erro de conexão com o servidor'])
+      setErrosValidacao([e.message || 'Erro de conexão'])
     } finally {
       setSalvando(false)
     }
   }
 
-  // ─── Assinar diretamente (usuário do órgão) ───────────────────────────────
+  // ─── Assinar com OTP ───────────────────────────────────────────────────────
 
-  const handleAssinarDireto = async (documentoId: string, signatarioId: string) => {
-    setAssinandoId(signatarioId)
+  const iniciarAssinatura = (documentoId: string, signatarioId: string, nome: string) => {
+    setOtpModal({ documentoId, signatarioId, nome })
+    setOtpEtapa('confirmar')
+    setOtpCode('')
+    setOtpErro('')
+  }
+
+  const solicitarOtpInterno = async () => {
+    if (!otpModal) return
+    setOtpLoading(true)
+    setOtpErro('')
     try {
       const res = await authFetch(
-        `${API_URL}/api/portal-assinaturas/${documentoId}/signatarios/${signatarioId}/assinar`,
+        `${API_URL}/api/portal-assinaturas/${otpModal.documentoId}/signatarios/${otpModal.signatarioId}/solicitar-otp`,
         { method: 'POST' }
       )
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || 'Erro ao assinar') }
-      carregar()
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || 'Erro ao enviar código')
+      }
+      setOtpEtapa('codigo')
     } catch (e: any) {
-      alert(e.message)
+      setOtpErro(e.message)
     } finally {
-      setAssinandoId(null)
+      setOtpLoading(false)
     }
   }
 
-  // ─── Filtro ───────────────────────────────────────────────────────────────
+  const confirmarAssinatura = async () => {
+    if (!otpModal) return
+    setOtpLoading(true)
+    setOtpErro('')
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/portal-assinaturas/${otpModal.documentoId}/signatarios/${otpModal.signatarioId}/assinar`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo_otp: otpCode }) }
+      )
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || 'Erro ao assinar')
+      }
+      setOtpModal(null)
+      carregar()
+    } catch (e: any) {
+      setOtpErro(e.message)
+    } finally {
+      setOtpLoading(false)
+    }
+  }
 
-  const docsFiltrados = documentos.filter(d =>
-    d.titulo.toLowerCase().includes(busca.toLowerCase()),
-  )
+  // ─── Render: Modo Lista ─────────────────────────────────────────────────────
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-
-  // ── Fluxo de criação (tela cheia) ──────────────────────────────────────────
-  if (etapa) {
+  if (modo === 'lista') {
     return (
       <ModuleGuard modulo={ModuloSistema.PORTAL_ASSINATURAS}>
-        <div className="flex flex-col h-full min-h-screen bg-gray-50">
-          {/* Barra superior do fluxo */}
-          <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={resetFluxo} className="text-gray-400 hover:text-gray-700">
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <h2 className="font-semibold text-gray-800 truncate max-w-xs">{titulo || 'Novo Documento'}</h2>
+        <div className="p-6 space-y-6 max-w-5xl mx-auto">
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <Shield className="h-6 w-6 text-blue-600" />
+                Assinador Digital
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">Assine documentos PDF com validade jurídica · Lei nº 14.063/2020</p>
             </div>
-            {/* Steps */}
-            <div className="flex items-center gap-1 text-sm">
-              {(['posicionar', 'signatarios', 'confirmar'] as Etapa[]).map((e, i) => {
-                const labels = ['Posicionar', 'Signatários', 'Confirmar']
-                const ativo = etapa === e
-                const concluido = ['posicionar', 'signatarios', 'confirmar'].indexOf(etapa) > i
-                return (
-                  <div key={e} className="flex items-center gap-1">
-                    <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${ativo ? 'bg-blue-600 text-white' : concluido ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                      <span>{i + 1}</span>
-                      <span className="hidden sm:inline">{labels[i]}</span>
-                    </div>
-                    {i < 2 && <ChevronRight className="h-3 w-3 text-gray-300" />}
-                  </div>
-                )
-              })}
-            </div>
-            <button onClick={resetFluxo} className="text-gray-400 hover:text-gray-700">
-              <X className="h-5 w-5" />
-            </button>
           </div>
 
-          {/* ── Etapa 1: Posicionar assinatura ── */}
-          {etapa === 'posicionar' && (
-            <div className="flex flex-1 overflow-hidden">
-              {/* Painel lateral esquerdo */}
-              <div className="w-72 bg-white border-r flex flex-col p-4 gap-4 overflow-y-auto">
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Signatários</p>
-                  <div className="space-y-2">
-                    {signatarios.map((sig, i) => {
-                      const cor = CORES[i % CORES.length]
-                      const marca = marcas.find(m => m.signatarioIdx === i)
-                      return (
-                        <button
-                          key={i}
-                          onClick={() => setSigAtivo(i)}
-                          className={`w-full text-left p-3 rounded-lg border-2 transition-all ${sigAtivo === i ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: cor }}>
-                              {i + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-800 truncate">{sig.nome || `Signatário ${i + 1}`}</p>
-                              <p className="text-xs text-gray-400">{marca ? '✓ Posição marcada' : 'Clique no PDF para marcar'}</p>
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <button onClick={addSignatario} className="mt-2 w-full text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 justify-center py-2 border border-dashed border-blue-300 rounded-lg">
-                    <Plus className="h-3 w-3" /> Adicionar signatário
-                  </button>
+          {/* Pendentes do usuário */}
+          {pendentesUsuario.length > 0 && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="p-0">
+                <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-orange-200">
+                  <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                  <span className="font-semibold text-orange-800">Aguardando sua assinatura</span>
+                  <Badge className="bg-orange-100 text-orange-700 text-xs">{pendentesUsuario.length}</Badge>
                 </div>
-
-                <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700">
-                  <MousePointer className="h-4 w-4 mb-1" />
-                  <strong>Como funciona:</strong> Selecione um signatário e clique no PDF para marcar onde a assinatura será inserida.
+                <div className="divide-y divide-orange-100">
+                  {pendentesUsuario.map(p => (
+                    <div key={p.signatario_id} className="flex items-center gap-4 px-5 py-4">
+                      <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-orange-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{p.titulo}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{new Date(p.created_at).toLocaleDateString('pt-BR')}</p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Button size="sm" variant="outline" className="gap-1 text-xs"
+                          onClick={() => window.open(baseUpload + p.arquivo_original_url, '_blank')}>
+                          <Eye className="h-3 w-3" /> Ver
+                        </Button>
+                        <Button size="sm" className="gap-1 text-xs bg-orange-600 hover:bg-orange-700"
+                          onClick={() => iniciarAssinatura(p.documento_id, p.signatario_id, usuarioLogado?.nome || '')}>
+                          <FilePen className="h-3 w-3" /> Assinar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              </CardContent>
+            </Card>
+          )}
 
-                <Button onClick={() => setEtapa('signatarios')} className="gap-2 mt-auto">
-                  Próximo: Dados dos Signatários <ChevronRight className="h-4 w-4" />
-                </Button>
+          {/* Upload */}
+          <Card className="border-2 border-dashed border-gray-200 hover:border-blue-400 transition-colors cursor-pointer"
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type === 'application/pdf') iniciarNovo(f) }}
+            onClick={() => fileRef.current?.click()}>
+            <CardContent className="flex flex-col items-center py-10 text-center">
+              <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mb-3">
+                <Upload className="h-7 w-7 text-blue-600" />
               </div>
+              <p className="text-lg font-semibold text-gray-800">Adicionar documento</p>
+              <p className="text-sm text-gray-400 mt-1">Arraste ou clique para selecionar · PDF até 10MB</p>
+            </CardContent>
+          </Card>
+          <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) iniciarNovo(f) }} />
 
-              {/* Área do PDF */}
-              <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-6">
-                <div
-                  className="relative bg-white shadow-xl"
-                  style={{ width: '100%', maxWidth: 720 }}
-                >
-                  {pdfUrl && (
-                    <embed
-                      src={`${pdfUrl}#toolbar=0&navpanes=0`}
-                      type="application/pdf"
-                      className="w-full"
-                      style={{ height: 'calc(100vh - 140px)', minHeight: 600 }}
-                    />
-                  )}
-                  {/* Overlay transparente para capturar cliques de posicionamento */}
-                  <div
-                    className="absolute inset-0 cursor-crosshair"
-                    style={{ zIndex: 10 }}
-                    onClick={handleClickPdf}
-                  />
-                  {/* Marcas de posição */}
-                  {marcas.map((m, idx) => {
-                    const cor = CORES[m.signatarioIdx % CORES.length]
+          {/* Documentos recentes */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b">
+                <span className="font-semibold text-gray-800 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-gray-500" /> Documentos
+                </span>
+                <button onClick={carregar} className="text-gray-400 hover:text-gray-600 p-1">
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
+              {loading ? (
+                <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-blue-400" /></div>
+              ) : documentos.length === 0 ? (
+                <div className="flex flex-col items-center py-12 text-gray-400">
+                  <FileText className="h-10 w-10 mb-3 text-gray-200" />
+                  <p className="text-sm">Nenhum documento ainda</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {documentos.map(doc => {
+                    const assinados = doc.signatarios.filter(s => s.status === 'ASSINADO').length
+                    const total = doc.signatarios.length
+                    const st = STATUS_LABEL[doc.status]
                     return (
-                      <div
-                        key={idx}
-                        className="absolute flex items-center gap-1"
-                        style={{ left: `${m.pos_x * 100}%`, top: `${m.pos_y * 100}%`, transform: 'translate(-50%, -50%)', zIndex: 20 }}
-                      >
-                        <div className="px-2 py-1 rounded text-white text-xs font-bold shadow-lg whitespace-nowrap" style={{ backgroundColor: cor }}>
-                          ✍ Sig. {m.signatarioIdx + 1}
+                      <div key={doc.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => visualizarDoc(doc)}>
+                        <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center shrink-0">
+                          <FileText className="h-5 w-5 text-red-500" />
                         </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{doc.titulo}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {new Date(doc.created_at).toLocaleDateString('pt-BR')} · {assinados}/{total} assinatura{total !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        <Badge className={`${st?.color} text-xs`}>{st?.label}</Badge>
+                        {doc.status === 'CONCLUIDO' && doc.arquivo_assinado_url && (
+                          <Button size="sm" variant="outline" className="gap-1 text-xs"
+                            onClick={e => { e.stopPropagation(); window.open(baseUpload + doc.arquivo_assinado_url, '_blank') }}>
+                            <Download className="h-3 w-3" /> Baixar
+                          </Button>
+                        )}
                       </div>
                     )
                   })}
                 </div>
-              </div>
-            </div>
-          )}
+              )}
+            </CardContent>
+          </Card>
 
-          {/* ── Etapa 2: Dados dos signatários ── */}
-          {etapa === 'signatarios' && (
-            <div className="flex-1 overflow-auto p-6">
-              <div className="max-w-2xl mx-auto space-y-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <button onClick={() => setEtapa('posicionar')} className="text-gray-400 hover:text-gray-700">
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <h3 className="font-semibold text-gray-800">Signatários</h3>
-                </div>
-
-                {/* Título e descrição */}
-                <div className="bg-white rounded-xl border p-4 space-y-3">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">Título do documento *</label>
-                    <Input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex: Contrato de Prestação de Serviços" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">Descrição (opcional)</label>
-                    <Textarea value={descricao} onChange={e => setDescricao(e.target.value)} rows={2} placeholder="Descreva brevemente..." />
-                  </div>
-                </div>
-
-                {/* Signatários */}
-                {signatarios.map((sig, i) => {
-                  const cor = CORES[i % CORES.length]
-                  const marca = marcas.find(m => m.signatarioIdx === i)
-                  const usuariosFiltrados = usuariosSistema.filter(u =>
-                    u.nome.toLowerCase().includes((buscaUsuario[i] || '').toLowerCase()) ||
-                    u.email.toLowerCase().includes((buscaUsuario[i] || '').toLowerCase())
-                  )
-                  return (
-                    <div key={i} className="bg-white rounded-xl border p-4 space-y-3">
-                      {/* Cabeçalho */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: cor }}>{i + 1}</div>
-                          <span className="font-medium text-gray-800">Signatário {i + 1}</span>
-                          {marca && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">✓ Posição marcada</span>}
+          {/* OTP Modal */}
+          {otpModal && (
+            <Dialog open onOpenChange={() => setOtpModal(null)}>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <ShieldCheck className="h-5 w-5 text-blue-600" /> Confirmar Assinatura
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {otpEtapa === 'confirmar' && (
+                    <>
+                      <p className="text-sm text-gray-600">
+                        Você está prestes a assinar este documento como <strong>{otpModal.nome}</strong>.
+                        Um código de verificação será enviado para seu e-mail.
+                      </p>
+                      {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+                      <Button onClick={solicitarOtpInterno} disabled={otpLoading} className="w-full gap-2">
+                        {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                        Enviar código por e-mail
+                      </Button>
+                    </>
+                  )}
+                  {otpEtapa === 'codigo' && (
+                    <>
+                      <div className="text-center">
+                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                          <Mail className="h-6 w-6 text-green-600" />
                         </div>
-                        {signatarios.length > 1 && (
-                          <button onClick={() => removeSignatario(i)} className="text-red-400 hover:text-red-600">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
+                        <p className="text-sm text-gray-600">Código enviado para seu e-mail</p>
                       </div>
-
-                      {/* Seletor de tipo */}
-                      <div className="flex gap-2">
-                        {([
-                          { tipo: 'eu_mesmo' as TipoSignatario, label: 'Eu mesmo', icon: '👤' },
-                          { tipo: 'usuario_sistema' as TipoSignatario, label: 'Usuário do sistema', icon: '🏢' },
-                          { tipo: 'externo' as TipoSignatario, label: 'Externo', icon: '🌐' },
-                        ]).map(opt => (
-                          <button
-                            key={opt.tipo}
-                            onClick={() => setTipoSignatario(i, opt.tipo)}
-                            className={`flex-1 py-2 px-2 rounded-lg border text-xs font-medium transition-all ${sig.tipo === opt.tipo ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
-                          >
-                            <span className="block text-base mb-0.5">{opt.icon}</span>
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Campos por tipo */}
-                      {sig.tipo === 'eu_mesmo' && (
-                        <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-800 flex items-center gap-2">
-                          <ShieldCheck className="h-4 w-4 shrink-0" />
-                          <div>
-                            <p className="font-medium">{sig.nome || 'Você'}</p>
-                            <p className="text-xs text-blue-600">{sig.email || 'Você assina diretamente pelo portal'}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {sig.tipo === 'usuario_sistema' && (
-                        <div className="space-y-2">
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                            <Input
-                              placeholder="Buscar usuário por nome ou e-mail..."
-                              value={buscaUsuario[i] || ''}
-                              onChange={e => setBuscaUsuario(prev => ({ ...prev, [i]: e.target.value }))}
-                              className="pl-9"
-                            />
-                          </div>
-                          {(buscaUsuario[i] || '').length > 0 && (
-                            <div className="border rounded-lg overflow-hidden max-h-40 overflow-y-auto">
-                              {usuariosFiltrados.length === 0 ? (
-                                <p className="text-xs text-gray-400 p-3 text-center">Nenhum usuário encontrado</p>
-                              ) : usuariosFiltrados.map(u => (
-                                <button
-                                  key={u.id}
-                                  onClick={() => selecionarUsuarioSistema(i, u)}
-                                  className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 border-b last:border-0"
-                                >
-                                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
-                                    {u.nome.charAt(0).toUpperCase()}
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-medium text-gray-800">{u.nome}</p>
-                                    <p className="text-xs text-gray-400">{u.email}{u.cargo ? ` · ${u.cargo}` : ''}</p>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          {sig.nome && (
-                            <div className="bg-green-50 rounded-lg p-2 text-sm text-green-800 flex items-center gap-2">
-                              <CheckCircle className="h-4 w-4 shrink-0" />
-                              <div>
-                                <p className="font-medium">{sig.nome}</p>
-                                <p className="text-xs text-green-600">{sig.email} · Assina pelo portal</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {sig.tipo === 'externo' && (
-                        <div className="grid grid-cols-2 gap-3">
-                          <Input placeholder="Nome completo *" value={sig.nome} onChange={e => updateSignatario(i, 'nome', e.target.value)} className="col-span-2" />
-                          <Input placeholder="CPF ou CNPJ *" value={sig.cpf_cnpj} onChange={e => updateSignatario(i, 'cpf_cnpj', e.target.value)} />
-                          <Input placeholder="Telefone (WhatsApp)" value={sig.telefone} onChange={e => updateSignatario(i, 'telefone', e.target.value)} />
-                          <Input placeholder="E-mail *" type="email" value={sig.email} onChange={e => updateSignatario(i, 'email', e.target.value)} className="col-span-2" />
-                          <p className="col-span-2 text-xs text-gray-400">Receberá um link por e-mail/WhatsApp para assinar.</p>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-
-                <button onClick={addSignatario} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-2 transition-colors">
-                  <UserPlus className="h-4 w-4" /> Adicionar outro signatário
-                </button>
-
-                <div className="flex gap-3 pt-2">
-                  <Button variant="outline" onClick={() => setEtapa('posicionar')} className="gap-2">
-                    <ChevronLeft className="h-4 w-4" /> Voltar
-                  </Button>
-                  <Button onClick={() => setEtapa('confirmar')} className="flex-1 gap-2">
-                    Revisar e Enviar <ChevronRight className="h-4 w-4" />
-                  </Button>
+                      <Input placeholder="000000" value={otpCode} maxLength={6}
+                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && confirmarAssinatura()}
+                        className="text-center text-2xl tracking-widest font-mono" />
+                      {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+                      <Button onClick={confirmarAssinatura} disabled={otpLoading || otpCode.length < 6} className="w-full gap-2">
+                        {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                        Confirmar e Assinar
+                      </Button>
+                      <button className="w-full text-xs text-gray-400 hover:text-gray-600 underline"
+                        onClick={() => { setOtpEtapa('confirmar'); setOtpCode(''); setOtpErro('') }}>
+                        Reenviar código
+                      </button>
+                    </>
+                  )}
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Etapa 3: Confirmar e enviar ── */}
-          {etapa === 'confirmar' && (
-            <div className="flex-1 overflow-auto p-6">
-              <div className="max-w-xl mx-auto space-y-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <button onClick={() => setEtapa('signatarios')} className="text-gray-400 hover:text-gray-700">
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <h3 className="font-semibold text-gray-800">Confirmar Envio</h3>
-                </div>
-
-                <div className="bg-white rounded-xl border p-4 space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
-                      <FileText className="h-5 w-5 text-red-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900">{titulo}</p>
-                      {descricao && <p className="text-sm text-gray-500 mt-0.5">{descricao}</p>}
-                      <p className="text-xs text-gray-400 mt-1">{arquivo?.name} · {((arquivo?.size || 0) / 1024 / 1024).toFixed(1)} MB</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl border p-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                    <Users className="h-4 w-4" /> {signatarios.filter(s => s.nome).length} signatário(s)
-                  </p>
-                  <div className="space-y-2">
-                    {signatarios.filter(s => s.nome).map((sig, i) => {
-                      const cor = CORES[i % CORES.length]
-                      const marca = marcas.find(m => m.signatarioIdx === i)
-                      return (
-                        <div key={i} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                          <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: cor }}>{i + 1}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800">{sig.nome}</p>
-                            <p className="text-xs text-gray-400">{sig.email || sig.telefone}</p>
-                          </div>
-                          {marca
-                            ? <span className="text-xs text-green-600">✓ Posição marcada</span>
-                            : <span className="text-xs text-gray-400">Quadro de assinaturas</span>}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {signatarios.some(s => s.tipo !== 'eu_mesmo' && s.tipo !== 'usuario_sistema') && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-                    <ShieldCheck className="h-4 w-4 inline mr-1" />
-                    Signatários <strong>externos</strong> receberão um link por <strong>e-mail/WhatsApp</strong> para assinar com validação OTP.
-                  </div>
-                )}
-                {signatarios.some(s => s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') && (
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800">
-                    <ShieldCheck className="h-4 w-4 inline mr-1" />
-                    Usuários <strong>internos</strong> assinarão diretamente pelo portal após o envio.
-                  </div>
-                )}
-
-                {errosValidacao.length > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-                      <p className="text-sm font-semibold text-red-700">Corrija os itens abaixo antes de enviar:</p>
-                    </div>
-                    <ul className="space-y-1">
-                      {errosValidacao.map((msg, i) => (
-                        <li key={i} className="flex items-start gap-2 text-sm text-red-700">
-                          <span className="mt-0.5 shrink-0">✗</span>
-                          <span>{msg}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <div className="flex gap-3">
-                  <Button variant="outline" onClick={() => setEtapa('signatarios')} className="gap-2">
-                    <ChevronLeft className="h-4 w-4" /> Voltar
-                  </Button>
-                  <Button onClick={handleCriar} disabled={salvando} className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700">
-                    {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    {salvando ? 'Enviando...' : 'Enviar para Assinatura'}
-                  </Button>
-                </div>
-              </div>
-            </div>
+              </DialogContent>
+            </Dialog>
           )}
         </div>
       </ModuleGuard>
     )
   }
 
-  // ── Tela principal ─────────────────────────────────────────────────────────
+  // ─── Render: Modo Novo / Visualizar (layout 3 painéis) ──────────────────────
+
+  const pdfSrc = modo === 'novo' && arquivo
+    ? arquivo
+    : docAtivo ? baseUpload + docAtivo.arquivo_original_url : null
+
   return (
     <ModuleGuard modulo={ModuloSistema.PORTAL_ASSINATURAS}>
-      <div className="p-6 space-y-6">
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <FilePen className="h-6 w-6 text-blue-600" />
-              Assinador Digital
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Envie documentos PDF para assinar com validade jurídica.
-            </p>
+      <div className="flex flex-col h-screen bg-gray-900">
+        {/* Barra superior */}
+        <div className="bg-gray-900 border-b border-gray-700 px-4 py-2 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={voltarLista} className="text-gray-400 hover:text-white p-1">
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <h2 className="font-semibold text-white text-sm truncate max-w-md">
+                {modo === 'novo' ? titulo || 'Novo Documento' : docAtivo?.titulo}
+              </h2>
+              {pdfInfo && (
+                <p className="text-xs text-gray-500 font-mono">
+                  SHA-256: {pdfInfo.hash.slice(0, 12)}...{pdfInfo.hash.slice(-4)}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {modo === 'novo' && (
+              <Button onClick={handleCriar} disabled={salvando} size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700">
+                {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                {salvando ? 'Enviando...' : 'Enviar para Assinatura'}
+              </Button>
+            )}
+            {modo === 'visualizar' && docAtivo?.arquivo_assinado_url && (
+              <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700"
+                onClick={() => window.open(baseUpload + docAtivo.arquivo_assinado_url, '_blank')}>
+                <Download className="h-3.5 w-3.5" /> Baixar Assinado
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* ── Aguardando sua assinatura ── */}
-        {pendentesUsuario.length > 0 && (
-          <Card className="border-orange-200 bg-orange-50">
-            <CardContent className="p-0">
-              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-orange-200">
-                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                <span className="font-semibold text-orange-800">Aguardando sua assinatura</span>
-                <Badge className="bg-orange-100 text-orange-700 text-xs">{pendentesUsuario.length}</Badge>
+        <div className="flex flex-1 overflow-hidden">
+          {/* ── Painel Central: PDF Viewer ── */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {pdfSrc ? (
+              <PdfViewer
+                src={pdfSrc}
+                markers={markers}
+                onPageClick={modo === 'novo' ? handlePageClick : undefined}
+                onDocumentLoad={setPdfInfo}
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center bg-gray-800 text-gray-500">
+                <p>Nenhum documento selecionado</p>
               </div>
-              <div className="divide-y divide-orange-100">
-                {pendentesUsuario.map(p => (
-                  <div key={p.signatario_id} className="flex items-center gap-4 px-5 py-4">
-                    <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center shrink-0">
-                      <FileText className="h-5 w-5 text-orange-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 truncate">{p.titulo}</p>
-                      {p.descricao && <p className="text-xs text-gray-500 truncate">{p.descricao}</p>}
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {new Date(p.created_at).toLocaleDateString('pt-BR')}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1 text-xs"
-                        onClick={() => window.open(`${API_URL.replace('/api', '')}/uploads/${p.arquivo_original_url}`, '_blank')}
-                      >
-                        <Eye className="h-3 w-3" /> Ver PDF
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="gap-1 text-xs bg-orange-600 hover:bg-orange-700"
-                        disabled={assinandoId === p.signatario_id}
-                        onClick={() => handleAssinarDireto(p.documento_id, p.signatario_id)}
-                      >
-                        {assinandoId === p.signatario_id
-                          ? <Loader2 className="h-3 w-3 animate-spin" />
-                          : <FilePen className="h-3 w-3" />}
-                        Assinar
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </div>
 
-        {/* ── Drop Zone ── */}
-        <Card
-          className="border-2 border-dashed border-gray-200 hover:border-blue-400 transition-colors cursor-pointer"
-          onDragOver={e => e.preventDefault()}
-          onDrop={handleDrop}
-          onClick={() => fileRef.current?.click()}
-        >
-          <CardContent className="flex flex-col items-center py-12 text-center">
-            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
-              <Upload className="h-8 w-8 text-blue-600" />
-            </div>
-            <p className="text-lg font-semibold text-gray-800">Arraste e solte seu documento aqui</p>
-            <p className="text-sm text-gray-400 mt-1">Ou clique para selecionar do seu computador.</p>
-            <p className="text-xs text-gray-300 mt-2 border border-gray-200 rounded-full px-3 py-1">Apenas arquivos PDF até 20MB</p>
-            <Button className="mt-5 gap-2" onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>
-              <Upload className="h-4 w-4" /> Selecionar Arquivo
-            </Button>
-          </CardContent>
-        </Card>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) iniciarFluxo(f) }}
-        />
-
-        {/* ── Documentos Recentes ── */}
-        <Card>
-          <CardContent className="p-0">
-            {/* Cabeçalho com abas */}
-            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-gray-500" />
-                <span className="font-semibold text-gray-800">Documentos Recentes</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex rounded-lg border overflow-hidden">
-                  <button
-                    onClick={() => setAba('pendentes')}
-                    className={`px-3 py-1 text-sm font-medium transition-colors ${aba === 'pendentes' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    Pendentes
-                  </button>
-                  <button
-                    onClick={() => setAba('assinados')}
-                    className={`px-3 py-1 text-sm font-medium transition-colors ${aba === 'assinados' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    Assinados
-                  </button>
-                </div>
-                <button onClick={carregar} className="text-gray-400 hover:text-gray-600 p-1">
-                  <RefreshCw className="h-4 w-4" />
+          {/* ── Painel Direito ── */}
+          <div className="w-80 bg-white border-l flex flex-col overflow-hidden shrink-0">
+            {/* Tabs do painel */}
+            {modo === 'novo' && (
+              <div className="flex border-b shrink-0">
+                <button onClick={() => setPainelDireito('info')}
+                  className={`flex-1 py-2.5 text-xs font-medium transition-colors ${painelDireito === 'info' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                  Integridade
+                </button>
+                <button onClick={() => setPainelDireito('signatarios')}
+                  className={`flex-1 py-2.5 text-xs font-medium transition-colors ${painelDireito === 'signatarios' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                  Signatários
                 </button>
               </div>
-            </div>
+            )}
 
-            {/* Busca */}
-            <div className="px-5 py-3 border-b">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Buscar por título..." value={busca} onChange={e => setBusca(e.target.value)} className="pl-9 h-8 text-sm" />
-              </div>
-            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* ── Info / Integridade ── */}
+              {(painelDireito === 'info' || modo === 'visualizar') && (
+                <>
+                  {/* Título e descrição (editável no modo novo) */}
+                  {modo === 'novo' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-gray-500 uppercase">Título</label>
+                      <Input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título do documento" className="text-sm" />
+                      <label className="text-xs font-semibold text-gray-500 uppercase">Descrição</label>
+                      <Textarea value={descricao} onChange={e => setDescricao(e.target.value)} rows={2} placeholder="Opcional..." className="text-sm" />
+                    </div>
+                  )}
 
-            {/* Lista */}
-            {loading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-7 w-7 animate-spin text-blue-400" />
-              </div>
-            ) : (() => {
-              const filtrados = docsFiltrados.filter(d =>
-                aba === 'pendentes' ? d.status === 'AGUARDANDO_ASSINATURAS' : d.status === 'CONCLUIDO'
-              )
-              if (filtrados.length === 0) return (
-                <div className="flex flex-col items-center py-12 text-center text-gray-400">
-                  <FileText className="h-10 w-10 mb-3 text-gray-200" />
-                  <p className="text-sm">Nenhum documento {aba === 'pendentes' ? 'pendente' : 'assinado'}</p>
-                </div>
-              )
-              return (
-                <div className="divide-y">
-                  {filtrados.slice(0, 5).map(doc => {
-                    const assinados = doc.signatarios.filter(s => s.status === 'ASSINADO').length
-                    const total = doc.signatarios.length
-                    return (
-                      <div key={doc.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors">
-                        <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
-                          <FileText className="h-5 w-5 text-red-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{doc.titulo}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            Enviado em {new Date(doc.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} · {((0) / 1024).toFixed(0)} KB
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <Badge className={`${STATUS_LABEL[doc.status]?.color} text-xs`}>
-                            {assinados}/{total} assinatura{total !== 1 ? 's' : ''}
-                          </Badge>
-                          {doc.status === 'CONCLUIDO' && doc.arquivo_assinado_url ? (
-                            <Button
-                              size="sm"
-                              className="gap-1 bg-green-600 hover:bg-green-700 text-xs"
-                              onClick={() => window.open(`${API_URL.replace('/api', '')}/uploads/${doc.arquivo_assinado_url}`, '_blank')}
-                            >
-                              <Download className="h-3 w-3" /> Baixar
-                            </Button>
-                          ) : (
-                            <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => setDocSelecionado(doc)}>
-                              <Eye className="h-3 w-3" /> Detalhes
-                            </Button>
-                          )}
-                        </div>
+                  {/* Integridade do arquivo */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                      <Shield className="h-3.5 w-3.5" /> Integridade do Arquivo
+                    </p>
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">SHA-256</span>
+                        <span className="font-mono text-xs text-blue-600 truncate ml-2 max-w-[140px]" title={pdfInfo?.hash}>
+                          {pdfInfo?.hash ? `${pdfInfo.hash.slice(0, 8)}...${pdfInfo.hash.slice(-4)}` : '—'}
+                        </span>
                       </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Tamanho</span>
+                        <span className="font-medium">{pdfInfo ? formatBytes(pdfInfo.fileSize) : '—'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Páginas</span>
+                        <span className="font-medium">{pdfInfo?.pageCount ?? '—'}</span>
+                      </div>
+                    </div>
+                    {pdfInfo && (
+                      <div className="flex items-center gap-1.5 mt-2 text-xs text-green-700 bg-green-50 rounded-lg p-2">
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        Documento íntegro. Hash verificado.
+                      </div>
+                    )}
+                  </div>
 
-            {/* Ver histórico */}
-            <div className="border-t px-5 py-3 text-center">
-              <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                Ver histórico completo de documentos →
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ─── Modal Detalhes ───────────────────────────────────────────────── */}
-        {docSelecionado && (
-          <Dialog open={!!docSelecionado} onOpenChange={() => setDocSelecionado(null)}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-blue-600" />
-                  {docSelecionado.titulo}
-                </DialogTitle>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                {docSelecionado.descricao && (
-                  <p className="text-sm text-gray-600">{docSelecionado.descricao}</p>
-                )}
-
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                    <Users className="h-4 w-4" /> Signatários
-                  </h4>
-                  <div className="space-y-2">
-                    {docSelecionado.signatarios.map((sig, i) => {
-                      const st = STATUS_LABEL[sig.status]
-                      const cor = CORES[i % CORES.length]
-                      return (
-                        <div key={sig.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: cor }}>{i + 1}</div>
-                            <div>
-                              <p className="text-sm font-medium text-gray-800">{sig.nome}</p>
-                              <p className="text-xs text-gray-400">{sig.email || sig.telefone}</p>
+                  {/* Signatários do documento existente */}
+                  {modo === 'visualizar' && docAtivo && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                        <Users className="h-3.5 w-3.5" /> Signatários ({docAtivo.signatarios.length})
+                      </p>
+                      <div className="space-y-2">
+                        {docAtivo.signatarios.map((sig, i) => {
+                          const st = STATUS_LABEL[sig.status]
+                          return (
+                            <div key={sig.id} className="bg-gray-50 rounded-lg p-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                                    style={{ backgroundColor: CORES[i % CORES.length] }}>{i + 1}</div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-800">{sig.nome}</p>
+                                    <p className="text-xs text-gray-400">{sig.email}</p>
+                                  </div>
+                                </div>
+                                <Badge className={`${st?.color} text-xs`}>{st?.label}</Badge>
+                              </div>
                               {sig.data_assinatura && (
-                                <p className="text-xs text-green-600 mt-0.5">
+                                <p className="text-xs text-green-600 mt-1 ml-8">
                                   Assinado em {new Date(sig.data_assinatura).toLocaleString('pt-BR')}
                                 </p>
                               )}
+                              {sig.status === 'PENDENTE' && sig.is_orgao_user && (
+                                <Button size="sm" className="mt-2 ml-8 gap-1 text-xs bg-blue-600 hover:bg-blue-700"
+                                  onClick={() => iniciarAssinatura(docAtivo.id, sig.id, sig.nome)}>
+                                  <FilePen className="h-3 w-3" /> Assinar agora
+                                </Button>
+                              )}
                             </div>
-                          </div>
-                          <Badge className={`${st.color} text-xs`}>{st.label}</Badge>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1 flex-1"
-                    onClick={() => window.open(`${API_URL.replace('/api', '')}/uploads/${docSelecionado.arquivo_original_url}`, '_blank')}
-                  >
-                    <Eye className="h-3 w-3" /> Ver PDF Original
-                  </Button>
-                  {docSelecionado.arquivo_assinado_url && (
-                    <Button
-                      size="sm"
-                      className="gap-1 flex-1 bg-green-600 hover:bg-green-700"
-                      onClick={() => window.open(`${API_URL.replace('/api', '')}/uploads/${docSelecionado.arquivo_assinado_url}`, '_blank')}
-                    >
-                      <Download className="h-3 w-3" /> PDF Assinado
-                    </Button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )}
-                </div>
+                </>
+              )}
+
+              {/* ── Signatários (modo novo) ── */}
+              {painelDireito === 'signatarios' && modo === 'novo' && (
+                <>
+                  <p className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5" /> Signatários
+                  </p>
+
+                  {signatarios.map((sig, i) => {
+                    const cor = CORES[i % CORES.length]
+                    const marker = markers.find(m => m.id === `sig-${i}`)
+                    const usuariosFiltrados = usuariosSistema.filter(u =>
+                      u.nome.toLowerCase().includes((buscaUsuario[i] || '').toLowerCase()) ||
+                      u.email.toLowerCase().includes((buscaUsuario[i] || '').toLowerCase())
+                    )
+                    return (
+                      <div key={i} className={`rounded-lg border p-3 space-y-2 transition-all ${sigAtivo === i ? 'border-blue-400 bg-blue-50/50' : 'border-gray-200'}`}
+                        onClick={() => setSigAtivo(i)}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ backgroundColor: cor }}>{i + 1}</div>
+                            <span className="text-sm font-medium text-gray-800">{sig.nome || `Signatário ${i + 1}`}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {marker && <span className="text-[10px] text-green-600">✓ Pos.</span>}
+                            {signatarios.length > 1 && (
+                              <button onClick={e => { e.stopPropagation(); removeSignatario(i) }} className="text-red-400 hover:text-red-600 p-0.5">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Tipo */}
+                        <div className="flex gap-1">
+                          {([
+                            { tipo: 'eu_mesmo' as TipoSignatario, label: 'Eu mesmo' },
+                            { tipo: 'usuario_sistema' as TipoSignatario, label: 'Interno' },
+                            { tipo: 'externo' as TipoSignatario, label: 'Externo' },
+                          ]).map(opt => (
+                            <button key={opt.tipo}
+                              onClick={e => { e.stopPropagation(); setTipoSignatario(i, opt.tipo) }}
+                              className={`flex-1 py-1 rounded text-[10px] font-medium transition-all ${sig.tipo === opt.tipo ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Campos */}
+                        {sig.tipo === 'eu_mesmo' && sig.nome && (
+                          <div className="text-xs text-blue-700 bg-blue-50 rounded p-2">
+                            <p className="font-medium">{sig.nome}</p>
+                            <p className="text-blue-500">{sig.email}</p>
+                          </div>
+                        )}
+
+                        {sig.tipo === 'usuario_sistema' && (
+                          <div className="space-y-1">
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                              <Input placeholder="Buscar usuário..." value={buscaUsuario[i] || ''}
+                                onChange={e => setBuscaUsuario(prev => ({ ...prev, [i]: e.target.value }))}
+                                className="pl-7 h-7 text-xs" onClick={e => e.stopPropagation()} />
+                            </div>
+                            {(buscaUsuario[i] || '').length > 0 && (
+                              <div className="border rounded max-h-28 overflow-y-auto">
+                                {usuariosFiltrados.length === 0 ? (
+                                  <p className="text-[10px] text-gray-400 p-2 text-center">Nenhum encontrado</p>
+                                ) : usuariosFiltrados.map(u => (
+                                  <button key={u.id} onClick={e => { e.stopPropagation(); selecionarUsuarioSistema(i, u) }}
+                                    className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-xs border-b last:border-0">
+                                    <p className="font-medium text-gray-800">{u.nome}</p>
+                                    <p className="text-[10px] text-gray-400">{u.email}</p>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {sig.nome && (
+                              <div className="text-xs text-green-700 bg-green-50 rounded p-2 flex items-center gap-1">
+                                <CheckCircle className="h-3 w-3" /> {sig.nome}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {sig.tipo === 'externo' && (
+                          <div className="space-y-1" onClick={e => e.stopPropagation()}>
+                            <Input placeholder="Nome completo *" value={sig.nome} onChange={e => updateSignatario(i, 'nome', e.target.value)} className="h-7 text-xs" />
+                            <div className="flex gap-1">
+                              <Input placeholder="CPF/CNPJ" value={sig.cpf_cnpj} onChange={e => updateSignatario(i, 'cpf_cnpj', e.target.value)} className="h-7 text-xs" />
+                              <Input placeholder="Telefone" value={sig.telefone} onChange={e => updateSignatario(i, 'telefone', e.target.value)} className="h-7 text-xs" />
+                            </div>
+                            <Input placeholder="E-mail *" type="email" value={sig.email} onChange={e => updateSignatario(i, 'email', e.target.value)} className="h-7 text-xs" />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  <button onClick={addSignatario}
+                    className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-1">
+                    <Plus className="h-3 w-3" /> Adicionar signatário
+                  </button>
+
+                  {/* Erros */}
+                  {errosValidacao.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-red-700 mb-1 flex items-center gap-1">
+                        <AlertCircle className="h-3.5 w-3.5" /> Corrija antes de enviar:
+                      </p>
+                      <ul className="space-y-0.5">
+                        {errosValidacao.map((msg, i) => (
+                          <li key={i} className="text-xs text-red-600 flex items-start gap-1">
+                            <span className="shrink-0">✗</span> {msg}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Info sobre tipos */}
+                  {signatarios.some(s => s.tipo === 'externo') && (
+                    <div className="text-[10px] text-blue-600 bg-blue-50 rounded p-2">
+                      Externos receberão link por e-mail/WhatsApp com validação OTP.
+                    </div>
+                  )}
+                  {signatarios.some(s => s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') && (
+                    <div className="text-[10px] text-green-600 bg-green-50 rounded p-2">
+                      Internos assinarão pelo portal com verificação OTP por e-mail.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* OTP Modal (no modo visualizar/novo) */}
+        {otpModal && (
+          <Dialog open onOpenChange={() => setOtpModal(null)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-blue-600" /> Confirmar Assinatura
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {otpEtapa === 'confirmar' && (
+                  <>
+                    <p className="text-sm text-gray-600">
+                      Assinar como <strong>{otpModal.nome}</strong>. Um código será enviado para seu e-mail.
+                    </p>
+                    {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+                    <Button onClick={solicitarOtpInterno} disabled={otpLoading} className="w-full gap-2">
+                      {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                      Enviar código por e-mail
+                    </Button>
+                  </>
+                )}
+                {otpEtapa === 'codigo' && (
+                  <>
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <Mail className="h-6 w-6 text-green-600" />
+                      </div>
+                      <p className="text-sm text-gray-600">Código enviado para seu e-mail</p>
+                    </div>
+                    <Input placeholder="000000" value={otpCode} maxLength={6}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && confirmarAssinatura()}
+                      className="text-center text-2xl tracking-widest font-mono" />
+                    {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+                    <Button onClick={confirmarAssinatura} disabled={otpLoading || otpCode.length < 6} className="w-full gap-2">
+                      {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                      Confirmar e Assinar
+                    </Button>
+                    <button className="w-full text-xs text-gray-400 hover:text-gray-600 underline"
+                      onClick={() => { setOtpEtapa('confirmar'); setOtpCode(''); setOtpErro('') }}>
+                      Reenviar código
+                    </button>
+                  </>
+                )}
               </div>
             </DialogContent>
           </Dialog>
