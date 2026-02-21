@@ -113,6 +113,9 @@ export default function PortalAssinaturasPage() {
   const [buscaUsuario, setBuscaUsuario] = useState<Record<number, string>>({})
   const [usuarioLogado, setUsuarioLogado] = useState<UsuarioSistema | null>(null)
 
+  // Erros de validação (checklist)
+  const [errosValidacao, setErrosValidacao] = useState<string[]>([])
+
   // Pendentes do usuário logado
   const [pendentesUsuario, setPendentesUsuario] = useState<{
     signatario_id: string; documento_id: string; titulo: string; descricao?: string
@@ -151,23 +154,20 @@ export default function PortalAssinaturasPage() {
     setSigAtivo(0)
     setErro('')
     setEtapa('posicionar')
-    // Carregar dados do usuário logado e usuários do sistema
+    // Buscar dados do usuário logado SEMPRE do banco de dados
     try {
-      const [resMe, resOrgao] = await Promise.all([
-        authFetch(`${API_URL}/api/usuarios/me`),
-        (async () => {
-          const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
-          if (orgao?.id) return authFetch(`${API_URL}/api/usuarios?orgao_id=${orgao.id}`)
-          return null
-        })(),
-      ])
+      const resMe = await authFetch(`${API_URL}/api/usuarios/me`)
       let eu: UsuarioSistema | null = null
-      if (resMe?.ok) {
+      if (resMe.ok) {
         eu = await resMe.json()
         setUsuarioLogado(eu)
+        // Buscar outros usuários do mesmo órgão usando orgao_id do banco
+        if ((eu as any)?.orgao_id) {
+          const resOrgao = await authFetch(`${API_URL}/api/usuarios?orgao_id=${(eu as any).orgao_id}`)
+          if (resOrgao.ok) setUsuariosSistema(await resOrgao.json())
+        }
       }
-      if (resOrgao?.ok) setUsuariosSistema(await resOrgao.json())
-      // Pré-preencher signatário inicial com dados reais do usuário
+      // Pré-preencher signatário inicial com dados reais do banco
       setSignatarios([{
         tipo: 'eu_mesmo',
         nome: eu?.nome || '',
@@ -257,22 +257,36 @@ export default function PortalAssinaturasPage() {
 
   const handleCriar = async () => {
     setErro('')
-    if (!titulo.trim()) return setErro('Informe o título do documento.')
-    if (!arquivo) return setErro('Selecione um arquivo PDF.')
-    const sigsValidos = signatarios.filter(s => {
-      if (!s.nome) return false
-      if (s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') return true
-      return !!(s.email || s.telefone)
-    })
-    if (sigsValidos.length === 0) return setErro('Adicione ao menos um signatário válido.')
+    setErrosValidacao([])
+
+    // Checklist de validação local
+    const erros: string[] = []
+    if (!titulo.trim()) erros.push('Título do documento é obrigatório')
+    if (!arquivo) erros.push('Arquivo PDF é obrigatório')
+
+    const sigsValidos = signatarios.filter(s => s.nome.trim())
+    if (sigsValidos.length === 0) {
+      erros.push('Adicione ao menos um signatário')
+    } else {
+      sigsValidos.forEach((s, i) => {
+        if (!s.nome.trim()) erros.push(`Signatário ${i + 1}: nome obrigatório`)
+        if (s.tipo === 'externo' && !s.email && !s.telefone)
+          erros.push(`Signatário ${i + 1} (${s.nome}): informe e-mail ou telefone`)
+      })
+    }
+
+    if (erros.length > 0) {
+      setErrosValidacao(erros)
+      return
+    }
 
     const sigsComPosicao = sigsValidos.map((sig, i) => {
       const marca = marcas.find(m => m.signatarioIdx === i)
       return {
         nome: sig.nome,
-        cpf_cnpj: sig.cpf_cnpj,
-        email: sig.email,
-        telefone: sig.telefone,
+        cpf_cnpj: sig.cpf_cnpj || undefined,
+        email: sig.email || undefined,
+        telefone: sig.telefone || undefined,
         is_orgao_user: sig.is_orgao_user ?? false,
         pagina_assinatura: marca ? 1 : undefined,
         pos_x: marca?.pos_x,
@@ -283,14 +297,22 @@ export default function PortalAssinaturasPage() {
     setSalvando(true)
     try {
       const formData = new FormData()
-      formData.append('arquivo', arquivo)
+      formData.append('arquivo', arquivo!)
       formData.append('dados', JSON.stringify({ titulo, descricao, signatarios: sigsComPosicao }))
       const res = await authFetch(`${API_URL}/api/portal-assinaturas`, { method: 'POST', body: formData })
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || 'Erro ao criar') }
+      if (!res.ok) {
+        const err = await res.json()
+        // NestJS retorna message como array em erros de validação
+        const msgs: string[] = Array.isArray(err.message)
+          ? err.message
+          : [err.message || `Erro ${res.status}: não foi possível criar o documento`]
+        setErrosValidacao(msgs)
+        return
+      }
       resetFluxo()
       carregar()
     } catch (e: any) {
-      setErro(e.message)
+      setErrosValidacao([e.message || 'Erro de conexão com o servidor'])
     } finally {
       setSalvando(false)
     }
@@ -647,9 +669,20 @@ export default function PortalAssinaturasPage() {
                   </div>
                 )}
 
-                {erro && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" /> {erro}
+                {errosValidacao.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                      <p className="text-sm font-semibold text-red-700">Corrija os itens abaixo antes de enviar:</p>
+                    </div>
+                    <ul className="space-y-1">
+                      {errosValidacao.map((msg, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-red-700">
+                          <span className="mt-0.5 shrink-0">✗</span>
+                          <span>{msg}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 
