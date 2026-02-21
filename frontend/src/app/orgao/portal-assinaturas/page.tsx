@@ -427,26 +427,31 @@ export default function PortalAssinaturasPage() {
               {/* Área do PDF */}
               <div className="flex-1 overflow-auto bg-gray-200 flex items-start justify-center p-6">
                 <div
-                  className="relative bg-white shadow-xl cursor-crosshair"
-                  style={{ width: '100%', maxWidth: 700 }}
-                  onClick={handleClickPdf}
+                  className="relative bg-white shadow-xl"
+                  style={{ width: '100%', maxWidth: 720 }}
                 >
                   {pdfUrl && (
-                    <iframe
-                      src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                      className="w-full pointer-events-none"
-                      style={{ height: 900, border: 'none' }}
-                      title="PDF"
+                    <embed
+                      src={`${pdfUrl}#toolbar=0&navpanes=0`}
+                      type="application/pdf"
+                      className="w-full"
+                      style={{ height: 'calc(100vh - 140px)', minHeight: 600 }}
                     />
                   )}
+                  {/* Overlay transparente para capturar cliques de posicionamento */}
+                  <div
+                    className="absolute inset-0 cursor-crosshair"
+                    style={{ zIndex: 10 }}
+                    onClick={handleClickPdf}
+                  />
                   {/* Marcas de posição */}
                   {marcas.map((m, idx) => {
                     const cor = CORES[m.signatarioIdx % CORES.length]
                     return (
                       <div
                         key={idx}
-                        className="absolute flex items-center gap-1 pointer-events-none"
-                        style={{ left: `${m.pos_x * 100}%`, top: `${m.pos_y * 100}%`, transform: 'translate(-50%, -50%)' }}
+                        className="absolute flex items-center gap-1"
+                        style={{ left: `${m.pos_x * 100}%`, top: `${m.pos_y * 100}%`, transform: 'translate(-50%, -50%)', zIndex: 20 }}
                       >
                         <div className="px-2 py-1 rounded text-white text-xs font-bold shadow-lg whitespace-nowrap" style={{ backgroundColor: cor }}>
                           ✍ Sig. {m.signatarioIdx + 1}
