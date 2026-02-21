@@ -81,7 +81,7 @@ export class PortalAssinaturasService {
           const entity = new SignatarioDocumento();
           entity.documento_id = docSalvo.id;
           entity.nome = sig.nome;
-          entity.cpf_cnpj = sig.cpf_cnpj.replace(/\D/g, '');
+          entity.cpf_cnpj = (sig.cpf_cnpj ?? '').replace(/\D/g, '');
           entity.email = (sig.email ?? '') as string;
           entity.telefone = sig.telefone ? sig.telefone.replace(/\D/g, '') : null;
           entity.status = StatusAssinaturaSignatario.PENDENTE;

@@ -7,8 +7,8 @@ export class SignatarioDto {
   nome: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'CPF/CNPJ do signatário é obrigatório' })
-  cpf_cnpj: string;
+  @IsOptional()
+  cpf_cnpj?: string;
 
   @IsEmail({}, { message: 'E-mail inválido' })
   @IsOptional()

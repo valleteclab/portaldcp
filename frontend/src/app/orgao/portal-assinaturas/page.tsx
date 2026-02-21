@@ -111,6 +111,7 @@ export default function PortalAssinaturasPage() {
   // Usuários do sistema
   const [usuariosSistema, setUsuariosSistema] = useState<UsuarioSistema[]>([])
   const [buscaUsuario, setBuscaUsuario] = useState<Record<number, string>>({})
+  const [usuarioLogado, setUsuarioLogado] = useState<UsuarioSistema | null>(null)
 
   // Pendentes do usuário logado
   const [pendentesUsuario, setPendentesUsuario] = useState<{
@@ -148,17 +149,37 @@ export default function PortalAssinaturasPage() {
     setTitulo(file.name.replace(/\.pdf$/i, '').replace(/_/g, ' '))
     setMarcas([])
     setSigAtivo(0)
-    setSignatarios([{ tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true }])
     setErro('')
     setEtapa('posicionar')
-    // Carregar usuários do sistema
+    // Carregar dados do usuário logado e usuários do sistema
     try {
-      const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
-      if (orgao?.id) {
-        const res = await authFetch(`${API_URL}/api/usuarios?orgao_id=${orgao.id}`)
-        if (res.ok) setUsuariosSistema(await res.json())
+      const [resMe, resOrgao] = await Promise.all([
+        authFetch(`${API_URL}/api/usuarios/me`),
+        (async () => {
+          const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+          if (orgao?.id) return authFetch(`${API_URL}/api/usuarios?orgao_id=${orgao.id}`)
+          return null
+        })(),
+      ])
+      let eu: UsuarioSistema | null = null
+      if (resMe?.ok) {
+        eu = await resMe.json()
+        setUsuarioLogado(eu)
       }
-    } catch {}
+      if (resOrgao?.ok) setUsuariosSistema(await resOrgao.json())
+      // Pré-preencher signatário inicial com dados reais do usuário
+      setSignatarios([{
+        tipo: 'eu_mesmo',
+        nome: eu?.nome || '',
+        cpf_cnpj: eu?.cpf || '',
+        email: eu?.email || '',
+        telefone: '',
+        is_orgao_user: true,
+        usuario_id: eu?.id,
+      }])
+    } catch {
+      setSignatarios([{ tipo: 'eu_mesmo', nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true }])
+    }
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -205,8 +226,7 @@ export default function PortalAssinaturasPage() {
     setSignatarios(prev => prev.map((s, idx) => {
       if (idx !== i) return s
       if (tipo === 'eu_mesmo') {
-        const eu = JSON.parse(localStorage.getItem('usuario') || '{}')
-        return { ...s, tipo, nome: eu.nome || '', cpf_cnpj: eu.cpf || '', email: eu.email || '', telefone: eu.telefone || '', is_orgao_user: true, usuario_id: eu.id }
+        return { ...s, tipo, nome: usuarioLogado?.nome || '', cpf_cnpj: usuarioLogado?.cpf || '', email: usuarioLogado?.email || '', telefone: '', is_orgao_user: true, usuario_id: usuarioLogado?.id }
       }
       if (tipo === 'usuario_sistema') return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true, usuario_id: undefined }
       return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false, usuario_id: undefined }
@@ -239,8 +259,12 @@ export default function PortalAssinaturasPage() {
     setErro('')
     if (!titulo.trim()) return setErro('Informe o título do documento.')
     if (!arquivo) return setErro('Selecione um arquivo PDF.')
-    const sigsValidos = signatarios.filter(s => s.nome && s.cpf_cnpj && (s.email || s.tipo === 'eu_mesmo'))
-    if (sigsValidos.length === 0) return setErro('Preencha nome, CPF e e-mail de ao menos um signatário.')
+    const sigsValidos = signatarios.filter(s => {
+      if (!s.nome) return false
+      if (s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') return true
+      return !!(s.email || s.telefone)
+    })
+    if (sigsValidos.length === 0) return setErro('Adicione ao menos um signatário válido.')
 
     const sigsComPosicao = sigsValidos.map((sig, i) => {
       const marca = marcas.find(m => m.signatarioIdx === i)
@@ -610,10 +634,18 @@ export default function PortalAssinaturasPage() {
                   </div>
                 </div>
 
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-                  <ShieldCheck className="h-4 w-4 inline mr-1" />
-                  Cada signatário receberá um link por <strong>e-mail/WhatsApp</strong> para assinar eletronicamente com validação por código OTP.
-                </div>
+                {signatarios.some(s => s.tipo !== 'eu_mesmo' && s.tipo !== 'usuario_sistema') && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+                    <ShieldCheck className="h-4 w-4 inline mr-1" />
+                    Signatários <strong>externos</strong> receberão um link por <strong>e-mail/WhatsApp</strong> para assinar com validação OTP.
+                  </div>
+                )}
+                {signatarios.some(s => s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800">
+                    <ShieldCheck className="h-4 w-4 inline mr-1" />
+                    Usuários <strong>internos</strong> assinarão diretamente pelo portal após o envio.
+                  </div>
+                )}
 
                 {erro && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-start gap-2">
