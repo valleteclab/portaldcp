@@ -6,9 +6,9 @@ import { ZoomIn, ZoomOut, RotateCw } from 'lucide-react'
 // pdfjs-dist v5
 import * as pdfjsLib from 'pdfjs-dist'
 
-// Worker via CDN (compatível com v5)
+// Worker local (copiado de node_modules/pdfjs-dist/build/ para public/)
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 }
 
 export interface PdfMarker {
