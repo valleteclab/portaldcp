@@ -237,7 +237,7 @@ export default function EditarContratoPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 w-full max-w-full">
       <div className="flex items-center gap-4">
         <Button variant="ghost" asChild>
           <Link href={`/orgao/contratos/${id}`}><ArrowLeft className="mr-2 h-4 w-4" />Voltar</Link>
