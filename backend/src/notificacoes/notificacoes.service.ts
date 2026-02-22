@@ -293,11 +293,15 @@ export class NotificacoesService {
 
     if (notificacao.usuario_email) {
       try {
+        const isHtml = /<[a-z][\s\S]*>/i.test(notificacao.mensagem);
+        const htmlContent = isHtml
+          ? notificacao.mensagem
+          : `<p>${notificacao.mensagem.replace(/\n/g, '<br>')}</p>`;
         const enviado = await this.emailService.enviar(notificacao.orgao_id, {
           to: notificacao.usuario_email,
           subject: notificacao.titulo,
-          text: notificacao.mensagem,
-          html: `<p>${notificacao.mensagem.replace(/\n/g, '<br>')}</p>${notificacao.link ? `<p><a href="${notificacao.link}">Acessar no sistema</a></p>` : ''}`,
+          text: notificacao.mensagem.replace(/<[^>]*>/g, '').trim(),
+          html: `${htmlContent}${notificacao.link ? `<p><a href="${notificacao.link}">Acessar no sistema</a></p>` : ''}`,
         });
         if (enviado) {
           this.logger.log(`Email enviado para ${notificacao.usuario_email}: ${notificacao.titulo}`);
@@ -313,11 +317,30 @@ export class NotificacoesService {
       try {
         const configurado = await this.whatsappService.isConfigurado(notificacao.orgao_id);
         if (configurado) {
-          const mensagem = `${notificacao.titulo}\n\n${notificacao.mensagem}${notificacao.link ? `\n\n${notificacao.link}` : ''}`;
-          const enviado = await this.whatsappService.enviar(notificacao.orgao_id, {
-            to: notificacao.usuario_telefone,
-            mensagem,
-          });
+          // Usar whatsapp_text do metadata se disponível (texto limpo sem HTML)
+          const meta = notificacao.metadata as Record<string, any> | null;
+          const whatsappText = meta?.whatsapp_text as string | undefined;
+          const mensagemTexto = whatsappText
+            || `${notificacao.titulo}\n\n${notificacao.mensagem.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()}${notificacao.link ? `\n\n${notificacao.link}` : ''}`;
+
+          // Extrair URL do link para botão (do metadata ou do campo link)
+          const whatsappUrl = meta?.whatsapp_url as string | undefined;
+          const linkUrl = whatsappUrl || notificacao.link;
+
+          let enviado = false;
+          if (linkUrl) {
+            enviado = await this.whatsappService.enviarComBotao(notificacao.orgao_id, {
+              to: notificacao.usuario_telefone,
+              mensagem: mensagemTexto,
+              botoes: [{ id: 'abrir_link', type: 'URL', label: 'Abrir no Portal', url: linkUrl }],
+            });
+          } else {
+            enviado = await this.whatsappService.enviar(notificacao.orgao_id, {
+              to: notificacao.usuario_telefone,
+              mensagem: mensagemTexto,
+            });
+          }
+
           if (enviado) {
             this.logger.log(`WhatsApp enviado para ${notificacao.usuario_telefone}: ${notificacao.titulo}`);
           }

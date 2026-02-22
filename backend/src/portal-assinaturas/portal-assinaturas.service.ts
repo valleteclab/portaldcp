@@ -179,7 +179,7 @@ export class PortalAssinaturasService {
           titulo: `Assinatura Pendente: ${doc.titulo}`,
           mensagem: mensagemHtml,
           enviar_email: !!signatario.email,
-          metadata: { is_external: true, whatsapp_text: mensagemTexto },
+          metadata: { is_external: true, whatsapp_text: mensagemTexto, whatsapp_url: link },
         }).catch(err =>
           this.logger.error(`Erro ao notificar ${signatario.nome}: ${err.message}`),
         );
@@ -491,8 +491,7 @@ export class PortalAssinaturasService {
   }
 
   private getFrontendUrl(): string {
-    if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL;
-    if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+    if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL.replace(/\/$/, '');
     return 'https://www.portaldcp.com.br';
   }
 }
