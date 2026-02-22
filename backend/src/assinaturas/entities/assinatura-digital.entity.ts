@@ -4,12 +4,14 @@ import { Orgao } from '../../orgaos/entities/orgao.entity';
 export enum EntidadeTipo {
   ORDEM_SERVICO = 'ORDEM_SERVICO',
   MEDICAO = 'MEDICAO',
+  DOCUMENTO_AVULSO = 'DOCUMENTO_AVULSO',
 }
 
 export enum PapelAssinante {
   FORNECEDOR = 'FORNECEDOR',
   FISCAL = 'FISCAL',
   GESTOR = 'GESTOR',
+  SIGNATARIO = 'SIGNATARIO',
 }
 
 @Entity('assinaturas_digitais')

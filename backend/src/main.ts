@@ -57,6 +57,30 @@ async function bootstrap() {
     console.log('ℹ️ Migração de colunas de data:', error?.message || 'já aplicada');
   }
   
+  // Migração: Adicionar novos valores aos enums de assinaturas_digitais
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'DOCUMENTO_AVULSO' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'assinaturas_digitais_entidade_tipo_enum')) THEN
+          ALTER TYPE assinaturas_digitais_entidade_tipo_enum ADD VALUE 'DOCUMENTO_AVULSO';
+        END IF;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    await dataSource.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'SIGNATARIO' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'assinaturas_digitais_papel_assinante_enum')) THEN
+          ALTER TYPE assinaturas_digitais_papel_assinante_enum ADD VALUE 'SIGNATARIO';
+        END IF;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    console.log('✅ Enums de assinaturas_digitais atualizados');
+  } catch (error: any) {
+    console.log('ℹ️ Migração enums assinaturas_digitais:', error?.message || 'já aplicada');
+  }
+
   // Aumenta limite de payload para 50MB
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ extended: true, limit: '50mb' }));

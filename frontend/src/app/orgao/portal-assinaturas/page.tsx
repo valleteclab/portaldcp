@@ -401,6 +401,37 @@ export default function PortalAssinaturasPage() {
     }
   }
 
+  const handleCancelar = async (docId: string) => {
+    if (!confirm('Tem certeza que deseja cancelar este documento? Esta ação não pode ser desfeita.')) return
+    try {
+      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}/cancelar`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.message || 'Erro ao cancelar')
+        return
+      }
+      voltarLista()
+      carregar()
+    } catch (e: any) {
+      alert(e.message || 'Erro ao cancelar documento')
+    }
+  }
+
+  const handleReenviar = async (docId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}/reenviar`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.message || 'Erro ao reenviar')
+        return
+      }
+      const data = await res.json()
+      alert(`Notificações reenviadas para ${data.enviados} signatário(s) pendente(s).`)
+    } catch (e: any) {
+      alert(e.message || 'Erro ao reenviar notificações')
+    }
+  }
+
   // ─── Render: Modo Lista ─────────────────────────────────────────────────────
 
   if (modo === 'lista') {
@@ -614,6 +645,18 @@ export default function PortalAssinaturasPage() {
                 onClick={() => window.open(baseUpload + docAtivo.arquivo_assinado_url, '_blank')}>
                 <Download className="h-3.5 w-3.5" /> Baixar Assinado
               </Button>
+            )}
+            {modo === 'visualizar' && docAtivo?.status === 'AGUARDANDO_ASSINATURAS' && (
+              <>
+                <Button size="sm" variant="outline" className="gap-1.5"
+                  onClick={() => handleReenviar(docAtivo.id)}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Reenviar
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => handleCancelar(docAtivo.id)}>
+                  <X className="h-3.5 w-3.5" /> Cancelar
+                </Button>
+              </>
             )}
           </div>
         </div>

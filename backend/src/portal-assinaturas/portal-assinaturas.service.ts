@@ -7,6 +7,7 @@ import { CriarDocumentoDto } from './dto/criar-documento.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import * as crypto from 'crypto';
@@ -264,6 +265,25 @@ export class PortalAssinaturasService {
     signatario.codigo_validacao = codigoValidacao;
     await this.signatarioRepository.save(signatario);
 
+    // Salvar na tabela assinaturas_digitais para validação pública
+    try {
+      await this.assinaturasService.registrarAssinatura({
+        orgao_id: orgaoId,
+        entidade_tipo: EntidadeTipo.DOCUMENTO_AVULSO,
+        entidade_id: signatario.documento.id,
+        usuario_nome: signatario.nome,
+        usuario_cpf_cnpj: signatario.cpf_cnpj,
+        usuario_telefone: signatario.telefone || undefined,
+        papel_assinante: PapelAssinante.SIGNATARIO,
+        ip_address: ip,
+        user_agent: userAgent,
+        documento_hash: signatario.documento.documento_hash || undefined,
+        codigo_validacao_override: codigoValidacao,
+      });
+    } catch (e) {
+      this.logger.error(`Erro ao registrar assinatura digital: ${e.message}`);
+    }
+
     // Verificar se todos assinaram
     const todosSignatarios = signatario.documento.signatarios;
     const todosAssinaram = todosSignatarios.every(
@@ -381,6 +401,25 @@ export class PortalAssinaturasService {
     signatario.codigo_validacao = codigoValidacao;
     await this.signatarioRepository.save(signatario);
 
+    // Salvar na tabela assinaturas_digitais para validação pública
+    try {
+      await this.assinaturasService.registrarAssinatura({
+        orgao_id: orgaoId,
+        entidade_tipo: EntidadeTipo.DOCUMENTO_AVULSO,
+        entidade_id: signatario.documento.id,
+        usuario_nome: signatario.nome,
+        usuario_cpf_cnpj: signatario.cpf_cnpj,
+        usuario_telefone: signatario.telefone || undefined,
+        papel_assinante: PapelAssinante.SIGNATARIO,
+        ip_address: ip,
+        user_agent: userAgent,
+        documento_hash: signatario.documento.documento_hash || undefined,
+        codigo_validacao_override: codigoValidacao,
+      });
+    } catch (e) {
+      this.logger.error(`Erro ao registrar assinatura digital: ${e.message}`);
+    }
+
     // Verificar se todos assinaram
     const todosSignatarios = signatario.documento.signatarios;
     const todosAssinaram = todosSignatarios.every(
@@ -400,6 +439,43 @@ export class PortalAssinaturasService {
   }
 
   // =============================================
+  // CANCELAR / REENVIAR
+  // =============================================
+
+  async cancelarDocumento(documentoId: string, orgaoId: string): Promise<{ sucesso: boolean }> {
+    const doc = await this.documentoRepository.findOne({
+      where: { id: documentoId, orgao_id: orgaoId },
+    });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    if (doc.status === StatusDocumentoAssinatura.CONCLUIDO) {
+      throw new BadRequestException('Documento já concluído, não pode ser cancelado.');
+    }
+    await this.documentoRepository.update(documentoId, {
+      status: StatusDocumentoAssinatura.CANCELADO,
+    });
+    return { sucesso: true };
+  }
+
+  async reenviarNotificacoes(documentoId: string, orgaoId: string): Promise<{ enviados: number }> {
+    const doc = await this.documentoRepository.findOne({
+      where: { id: documentoId, orgao_id: orgaoId },
+      relations: ['signatarios'],
+    });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    if (doc.status !== StatusDocumentoAssinatura.AGUARDANDO_ASSINATURAS) {
+      throw new BadRequestException('Documento não está aguardando assinaturas.');
+    }
+
+    const pendentes = doc.signatarios.filter(s => s.status === StatusAssinaturaSignatario.PENDENTE);
+    if (pendentes.length === 0) {
+      throw new BadRequestException('Não há signatários pendentes.');
+    }
+
+    await this.dispararNotificacoesAssinatura(documentoId);
+    return { enviados: pendentes.length };
+  }
+
+  // =============================================
   // GERAÇÃO DO PDF FINAL (pdf-lib)
   // =============================================
 
@@ -416,32 +492,70 @@ export class PortalAssinaturasService {
     const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    const page = pdfDoc.addPage([595, 842]); // A4
-    const { width, height } = page.getSize();
-
-    // Cabeçalho azul
-    page.drawRectangle({ x: 30, y: height - 90, width: width - 60, height: 60, color: rgb(0.12, 0.25, 0.69) });
-    page.drawText('QUADRO DE ASSINATURAS ELETRÔNICAS', {
-      x: 50, y: height - 58, size: 13, font: helveticaBold, color: rgb(1, 1, 1),
-    });
-    page.drawText('Documento assinado eletronicamente conforme Lei n 14.063/2020', {
-      x: 50, y: height - 74, size: 9, font: helvetica, color: rgb(0.9, 0.9, 0.9),
-    });
-
     const signatarios = await this.signatarioRepository.find({
       where: { documento_id: documento.id, status: StatusAssinaturaSignatario.ASSINADO },
       order: { data_assinatura: 'ASC' },
     });
 
-    let yPos = height - 110;
     const baseUrl = this.getFrontendUrl();
+    const pages = pdfDoc.getPages();
 
+    // ── 1. Inserir assinatura na posição marcada de cada signatário ──
     for (const sig of signatarios) {
-      page.drawRectangle({ x: 30, y: yPos - 70, width: width - 60, height: 68, color: rgb(0.96, 0.97, 0.98), borderColor: rgb(0.88, 0.88, 0.88), borderWidth: 1 });
-      page.drawText(`Assinado por: ${sig.nome}`, { x: 45, y: yPos - 18, size: 11, font: helveticaBold, color: rgb(0.07, 0.07, 0.07) });
-      page.drawText(`CPF/CNPJ: ${this.mascararDoc(sig.cpf_cnpj)}`, { x: 45, y: yPos - 33, size: 9, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
-      page.drawText(`Data/Hora: ${new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, { x: 45, y: yPos - 46, size: 9, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
-      page.drawText(`Codigo: ${sig.codigo_validacao}  |  IP: ${this.mascararIP(sig.ip_address)}`, { x: 45, y: yPos - 59, size: 8, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
+      const pageIndex = (sig.pagina_assinatura || 1) - 1; // 1-indexed → 0-indexed
+      const targetPage = pages[pageIndex] || pages[pages.length - 1];
+      const { width: pw, height: ph } = targetPage.getSize();
+
+      // pos_x e pos_y são relativos (0-1); pos_y vem do topo no frontend
+      const boxW = 220;
+      const boxH = 60;
+      const x = (sig.pos_x ?? 0.05) * pw;
+      const y = ph - ((sig.pos_y ?? 0.9) * ph) - boxH; // converter de top-based para bottom-based
+
+      // Fundo semi-transparente
+      targetPage.drawRectangle({
+        x, y, width: boxW, height: boxH,
+        color: rgb(0.96, 0.97, 0.98),
+        borderColor: rgb(0.7, 0.7, 0.7),
+        borderWidth: 0.5,
+      });
+
+      targetPage.drawText(`Assinado: ${sig.nome}`, {
+        x: x + 5, y: y + boxH - 14, size: 8, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
+      });
+      targetPage.drawText(`CPF/CNPJ: ${this.mascararDoc(sig.cpf_cnpj)}`, {
+        x: x + 5, y: y + boxH - 26, size: 7, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+      });
+      targetPage.drawText(`Data: ${new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, {
+        x: x + 5, y: y + boxH - 37, size: 7, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+      });
+      targetPage.drawText(`Cod: ${sig.codigo_validacao}`, {
+        x: x + 5, y: y + boxH - 48, size: 6, font: helvetica, color: rgb(0.5, 0.5, 0.5),
+      });
+      targetPage.drawText(`IP: ${this.mascararIP(sig.ip_address)}`, {
+        x: x + 5, y: y + boxH - 57, size: 6, font: helvetica, color: rgb(0.5, 0.5, 0.5),
+      });
+    }
+
+    // ── 2. Página resumo (quadro de assinaturas) no final ──
+    const summaryPage = pdfDoc.addPage([595, 842]);
+    const { width, height } = summaryPage.getSize();
+
+    summaryPage.drawRectangle({ x: 30, y: height - 90, width: width - 60, height: 60, color: rgb(0.12, 0.25, 0.69) });
+    summaryPage.drawText('QUADRO DE ASSINATURAS ELETRÔNICAS', {
+      x: 50, y: height - 58, size: 13, font: helveticaBold, color: rgb(1, 1, 1),
+    });
+    summaryPage.drawText('Documento assinado eletronicamente conforme Lei nº 14.063/2020', {
+      x: 50, y: height - 74, size: 9, font: helvetica, color: rgb(0.9, 0.9, 0.9),
+    });
+
+    let yPos = height - 110;
+    for (const sig of signatarios) {
+      summaryPage.drawRectangle({ x: 30, y: yPos - 70, width: width - 60, height: 68, color: rgb(0.96, 0.97, 0.98), borderColor: rgb(0.88, 0.88, 0.88), borderWidth: 1 });
+      summaryPage.drawText(`Assinado por: ${sig.nome}`, { x: 45, y: yPos - 18, size: 11, font: helveticaBold, color: rgb(0.07, 0.07, 0.07) });
+      summaryPage.drawText(`CPF/CNPJ: ${this.mascararDoc(sig.cpf_cnpj)}`, { x: 45, y: yPos - 33, size: 9, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
+      summaryPage.drawText(`Data/Hora: ${new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, { x: 45, y: yPos - 46, size: 9, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
+      summaryPage.drawText(`Codigo: ${sig.codigo_validacao}  |  IP: ${this.mascararIP(sig.ip_address)}`, { x: 45, y: yPos - 59, size: 8, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
       yPos -= 82;
     }
 
@@ -451,12 +565,12 @@ export class PortalAssinaturasService {
       try {
         const qrBuffer: Buffer = await QRCode.toBuffer(urlValidacao, { type: 'png', width: 80 });
         const qrImage = await pdfDoc.embedPng(qrBuffer);
-        page.drawImage(qrImage, { x: width - 110, y: 30, width: 70, height: 70 });
+        summaryPage.drawImage(qrImage, { x: width - 110, y: 30, width: 70, height: 70 });
       } catch (e) {
         this.logger.warn('Erro ao gerar QR Code: ' + e.message);
       }
-      page.drawText('Verifique a autenticidade em:', { x: 30, y: 90, size: 9, font: helveticaBold, color: rgb(0.2, 0.2, 0.2) });
-      page.drawText(`${baseUrl}/validar-documento`, { x: 30, y: 78, size: 9, font: helvetica, color: rgb(0.15, 0.39, 0.93) });
+      summaryPage.drawText('Verifique a autenticidade em:', { x: 30, y: 90, size: 9, font: helveticaBold, color: rgb(0.2, 0.2, 0.2) });
+      summaryPage.drawText(`${baseUrl}/validar-documento`, { x: 30, y: 78, size: 9, font: helvetica, color: rgb(0.15, 0.39, 0.93) });
     }
 
     const signedBytes = await pdfDoc.save();

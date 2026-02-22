@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -149,5 +150,15 @@ export class PortalAssinaturasController {
       userAgent || '',
       body?.codigo_otp,
     );
+  }
+
+  @Delete(':id/cancelar')
+  async cancelar(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.portalAssinaturasService.cancelarDocumento(id, this.getOrgaoId(req.user));
+  }
+
+  @Post(':id/reenviar')
+  async reenviar(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.portalAssinaturasService.reenviarNotificacoes(id, this.getOrgaoId(req.user));
   }
 }

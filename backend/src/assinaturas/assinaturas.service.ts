@@ -158,11 +158,12 @@ export class AssinaturasService {
     ip_address?: string;
     user_agent?: string;
     documento_hash?: string;
+    codigo_validacao_override?: string;
   }): Promise<AssinaturaDigital> {
-    
+    const { codigo_validacao_override, ...rest } = dados;
     const assinatura = this.assinaturaRepository.create({
-      ...dados,
-      codigo_validacao: this.gerarCodigoValidacao(),
+      ...rest,
+      codigo_validacao: codigo_validacao_override || this.gerarCodigoValidacao(),
     });
 
     return await this.assinaturaRepository.save(assinatura);
