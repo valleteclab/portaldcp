@@ -9,15 +9,22 @@ import {
   Body,
   Query,
   Req,
+  Res,
   ForbiddenException,
   BadRequestException,
   NotFoundException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
+import { TipoDocumentoContrato } from './entities/documento-contrato.entity';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
 import { Medicao } from './entities/medicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
@@ -272,6 +279,71 @@ export class ContratosController {
   @Get('termos/:id')
   async findTermoAditivo(@Param('id') id: string) {
     return this.contratosService.findTermoAditivo(id);
+  }
+
+  // ============ DOCUMENTOS DO CONTRATO ============
+
+  @Post(':contratoId/documentos')
+  @UseInterceptors(FileInterceptor('arquivo'))
+  async uploadDocumento(
+    @Param('contratoId') contratoId: string,
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Body() body: { titulo: string; tipo?: TipoDocumentoContrato; descricao?: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.uploadDocumentoContrato(contratoId, arquivo, {
+      titulo: body.titulo,
+      tipo: body.tipo,
+      descricao: body.descricao,
+    });
+  }
+
+  @Get(':contratoId/documentos')
+  async listarDocumentos(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.listarDocumentosContrato(contratoId);
+  }
+
+  @Get(':contratoId/documentos/:docId/download')
+  async downloadDocumento(
+    @Param('contratoId') contratoId: string,
+    @Param('docId') docId: string,
+    @Res() res: Response,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    const { buffer, documento } = await this.contratosService.getDocumentoContratoArquivo(docId);
+    if (documento.contrato_id !== contratoId) {
+      throw new NotFoundException('Documento não pertence a este contrato');
+    }
+    res.set({
+      'Content-Type': documento.mime_type,
+      'Content-Disposition': `attachment; filename="${documento.nome_original}"`,
+      'Content-Length': buffer.length,
+    });
+    res.status(HttpStatus.OK).send(buffer);
+  }
+
+  @Delete(':contratoId/documentos/:docId')
+  async excluirDocumento(
+    @Param('contratoId') contratoId: string,
+    @Param('docId') docId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    const docs = await this.contratosService.listarDocumentosContrato(contratoId);
+    const doc = docs.find((d) => d.id === docId);
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    await this.contratosService.deleteDocumentoContrato(docId);
+    return { message: 'Documento excluído com sucesso' };
   }
 
   // ============ HELPERS ============

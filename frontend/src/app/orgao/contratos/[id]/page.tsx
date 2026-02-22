@@ -47,7 +47,8 @@ import {
   FileSpreadsheet,
   DownloadCloud,
   Lock,
-  Unlock
+  Unlock,
+  X
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
@@ -142,6 +143,17 @@ interface Contrato {
   total_itens?: number
 }
 
+interface DocumentoContrato {
+  id: string
+  contrato_id: string
+  tipo: string
+  titulo: string
+  descricao?: string
+  nome_original: string
+  tamanho_bytes: number
+  created_at: string
+}
+
 interface HistoricoContrato {
   id: string
   contrato_id: string
@@ -211,6 +223,7 @@ export default function DetalheContratoOrgaoPage() {
 
   const [contrato, setContrato] = useState<Contrato | null>(null)
   const [termos, setTermos] = useState<TermoAditivo[]>([])
+  const [documentos, setDocumentos] = useState<DocumentoContrato[]>([])
   const [historico, setHistorico] = useState<HistoricoContrato[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingAction, setLoadingAction] = useState(false)
@@ -256,6 +269,11 @@ export default function DetalheContratoOrgaoPage() {
   const [editandoObservacoes, setEditandoObservacoes] = useState(false)
   const [textoObservacoesEdit, setTextoObservacoesEdit] = useState('')
 
+  const [modalDocumento, setModalDocumento] = useState(false)
+  const [novoDocumento, setNovoDocumento] = useState({ tipo: 'OUTROS', titulo: '', descricao: '' })
+  const [arquivoDocumento, setArquivoDocumento] = useState<File | null>(null)
+  const [uploadingDoc, setUploadingDoc] = useState(false)
+
   const UNIDADES_MEDIDA = [
     { value: 'UNIDADE', label: 'Unidade' },
     { value: 'PECA', label: 'Peça' },
@@ -280,14 +298,17 @@ export default function DetalheContratoOrgaoPage() {
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const [contratoRes, termosRes, historicoRes] = await Promise.all([
+      const [contratoRes, termosRes, historicoRes, documentosRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/${id}`),
         authFetch(`${API_URL}/api/contratos/${id}/termos`),
-        authFetch(`${API_URL}/api/contratos/${id}/historico`)
+        authFetch(`${API_URL}/api/contratos/${id}/historico`),
+        authFetch(`${API_URL}/api/contratos/${id}/documentos`)
       ])
       if (contratoRes.ok) setContrato(await contratoRes.json())
       if (termosRes.ok) setTermos(await termosRes.json())
       if (historicoRes.ok) setHistorico(await historicoRes.json())
+      if (documentosRes.ok) setDocumentos(await documentosRes.json())
+      else setDocumentos([])
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -341,6 +362,70 @@ export default function DetalheContratoOrgaoPage() {
     } catch (error) {
       console.error('Erro ao criar termo:', error)
       alert('Erro ao criar termo aditivo')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleUploadDocumento = async () => {
+    if (!arquivoDocumento || !novoDocumento.titulo.trim()) {
+      alert('Selecione um arquivo e preencha o título')
+      return
+    }
+    setUploadingDoc(true)
+    try {
+      const formData = new FormData()
+      formData.append('arquivo', arquivoDocumento)
+      formData.append('titulo', novoDocumento.titulo)
+      formData.append('tipo', novoDocumento.tipo)
+      if (novoDocumento.descricao) formData.append('descricao', novoDocumento.descricao)
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/documentos`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (res.ok) {
+        setModalDocumento(false)
+        setArquivoDocumento(null)
+        setNovoDocumento({ tipo: 'OUTROS', titulo: '', descricao: '' })
+        carregarDados()
+      } else {
+        const err = await res.json()
+        alert(err.message || 'Erro ao enviar documento')
+      }
+    } catch (e) {
+      console.error('Erro ao enviar documento:', e)
+      alert('Erro ao enviar documento')
+    } finally {
+      setUploadingDoc(false)
+    }
+  }
+
+  const handleDownloadDocumento = async (docId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/documentos/${docId}/download`)
+      if (!res.ok) throw new Error('Erro ao baixar')
+      const blob = await res.blob()
+      const doc = documentos.find((d) => d.id === docId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = doc?.nome_original || 'documento'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('Erro ao baixar documento')
+    }
+  }
+
+  const handleExcluirDocumento = async (docId: string) => {
+    if (!confirm('Excluir este documento?')) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/documentos/${docId}`, { method: 'DELETE' })
+      if (res.ok) carregarDados()
+      else alert('Erro ao excluir')
+    } catch (e) {
+      alert('Erro ao excluir documento')
     } finally {
       setLoadingAction(false)
     }
@@ -1238,15 +1323,41 @@ export default function DetalheContratoOrgaoPage() {
         <TabsContent value="documentos" className="space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Documentos do Contrato</h3>
-            <Button><FileUp className="w-4 h-4 mr-2" />Upload de Documento</Button>
+            <Button onClick={() => setModalDocumento(true)}><FileUp className="w-4 h-4 mr-2" />Upload de Documento</Button>
           </div>
-          <Card>
-            <CardContent className="text-center py-12">
-              <FileText className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500">Nenhum documento anexado.</p>
-              <Button className="mt-4" variant="outline"><FileUp className="w-4 h-4 mr-2" />Anexar Documento</Button>
-            </CardContent>
-          </Card>
+          {documentos.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-12">
+                <FileText className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+                <p className="text-gray-500">Nenhum documento anexado.</p>
+                <Button className="mt-4" variant="outline" onClick={() => setModalDocumento(true)}><FileUp className="w-4 h-4 mr-2" />Anexar Documento</Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {documentos.map((doc) => (
+                <Card key={doc.id}>
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-8 h-8 text-blue-500 shrink-0" />
+                      <div>
+                        <p className="font-medium">{doc.titulo}</p>
+                        <p className="text-sm text-muted-foreground">{doc.nome_original} • {(doc.tamanho_bytes / 1024).toFixed(1)} KB</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleDownloadDocumento(doc.id)}>
+                        <Download className="w-4 h-4 mr-1" />Baixar
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleExcluirDocumento(doc.id)} className="text-red-600 hover:text-red-700">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="historico" className="space-y-6">
@@ -1395,6 +1506,67 @@ export default function DetalheContratoOrgaoPage() {
             <Button variant="outline" onClick={() => setModalTermo(false)}>Cancelar</Button>
             <Button onClick={handleCriarTermo} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Criar Termo Aditivo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modalDocumento} onOpenChange={setModalDocumento}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Upload de Documento</DialogTitle>
+            <DialogDescription>Anexe um documento ao contrato (PDF, DOC, DOCX, JPG ou PNG)</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Tipo</Label>
+              <Select value={novoDocumento.tipo} onValueChange={(v) => setNovoDocumento({ ...novoDocumento, tipo: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CONTRATO">Contrato</SelectItem>
+                  <SelectItem value="TERMO_ADITIVO">Termo Aditivo</SelectItem>
+                  <SelectItem value="APOSTILAMENTO">Apostilamento</SelectItem>
+                  <SelectItem value="ANEXO">Anexo</SelectItem>
+                  <SelectItem value="ATA">Ata</SelectItem>
+                  <SelectItem value="OUTROS">Outros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Título *</Label>
+              <Input placeholder="Ex: Contrato assinado" value={novoDocumento.titulo} onChange={(e) => setNovoDocumento({ ...novoDocumento, titulo: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Textarea placeholder="Opcional" value={novoDocumento.descricao} onChange={(e) => setNovoDocumento({ ...novoDocumento, descricao: e.target.value })} rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>Arquivo *</Label>
+              <div className="border-2 border-dashed rounded-lg p-4 text-center">
+                {arquivoDocumento ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                      <span className="text-sm">{arquivoDocumento.name}</span>
+                      <span className="text-xs text-muted-foreground">({(arquivoDocumento.size / 1024).toFixed(1)} KB)</span>
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={() => setArquivoDocumento(null)}><X className="w-4 h-4" /></Button>
+                  </div>
+                ) : (
+                  <label className="cursor-pointer block">
+                    <input type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setArquivoDocumento(e.target.files?.[0] || null)} />
+                    <Upload className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-muted-foreground">Clique para selecionar o arquivo</p>
+                    <p className="text-xs mt-1">PDF, DOC, DOCX, JPG, PNG (máx. 10MB)</p>
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalDocumento(false)}>Cancelar</Button>
+            <Button onClick={handleUploadDocumento} disabled={uploadingDoc || !arquivoDocumento || !novoDocumento.titulo.trim()}>
+              {uploadingDoc ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Enviando...</> : <><Upload className="mr-2 h-4 w-4" />Enviar</>}
             </Button>
           </DialogFooter>
         </DialogContent>

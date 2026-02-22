@@ -26,14 +26,19 @@ import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { ModalidadesContratoController } from './modalidades-contrato.controller';
 import { FornecedorMedicaoController } from './fornecedor-medicao.controller';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
+import { DocumentoContrato } from './entities/documento-contrato.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { UploadModule } from '../upload/upload.module';
+import { MulterModule } from '@nestjs/platform-express';
 
 @Module({
   imports: [
+    MulterModule.register({
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
     TypeOrmModule.forFeature([
-      Contrato, TermoAditivo, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
+      Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
       EtapaCronograma, Medicao, ItemMedicao, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao,
     ]),
     NotificacoesModule,

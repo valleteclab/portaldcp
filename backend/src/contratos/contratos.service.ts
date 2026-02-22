@@ -1,8 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Contrato, StatusContrato, TipoContrato, CategoriaContrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { TermoAditivo, TipoTermoAditivo, StatusTermoAditivo } from './entities/termo-aditivo.entity';
+import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { Fornecedor, TipoPessoa } from '../fornecedores/entities/fornecedor.entity';
@@ -15,10 +18,13 @@ import { Medicao } from './entities/medicao.entity';
 @Injectable()
 export class ContratosService {
   private readonly logger = new Logger(ContratosService.name);
+  private readonly uploadPath = path.join(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), 'contratos');
 
   constructor(
     @InjectRepository(Contrato)
     private contratoRepository: Repository<Contrato>,
+    @InjectRepository(DocumentoContrato)
+    private documentoContratoRepository: Repository<DocumentoContrato>,
     @InjectRepository(TermoAditivo)
     private termoAditivoRepository: Repository<TermoAditivo>,
     @InjectRepository(Licitacao)
@@ -36,7 +42,11 @@ export class ContratosService {
     @InjectRepository(Medicao)
     private medicaoRepository: Repository<Medicao>,
     private notificacoesService: NotificacoesService,
-  ) {}
+  ) {
+    if (!fs.existsSync(this.uploadPath)) {
+      fs.mkdirSync(this.uploadPath, { recursive: true });
+    }
+  }
 
   // ============ CONTRATOS ============
 
@@ -478,6 +488,78 @@ export class ContratosService {
     }
 
     return termo;
+  }
+
+  // ============ DOCUMENTOS DO CONTRATO ============
+
+  async uploadDocumentoContrato(
+    contratoId: string,
+    arquivo: Express.Multer.File,
+    dados: { titulo: string; tipo?: TipoDocumentoContrato; descricao?: string }
+  ): Promise<DocumentoContrato> {
+    const contrato = await this.findOne(contratoId);
+    if (!arquivo?.buffer) {
+      throw new BadRequestException('Nenhum arquivo enviado');
+    }
+    const tiposPermitidos = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png'];
+    if (!tiposPermitidos.includes(arquivo.mimetype)) {
+      throw new BadRequestException('Tipo de arquivo não permitido. Use PDF, DOC, DOCX, JPG ou PNG.');
+    }
+    const dirContrato = path.join(this.uploadPath, contratoId);
+    if (!fs.existsSync(dirContrato)) {
+      fs.mkdirSync(dirContrato, { recursive: true });
+    }
+    const ext = path.extname(arquivo.originalname);
+    const nomeArquivo = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    const caminhoCompleto = path.join(dirContrato, nomeArquivo);
+    fs.writeFileSync(caminhoCompleto, arquivo.buffer);
+
+    const doc = this.documentoContratoRepository.create({
+      contrato_id: contratoId,
+      tipo: dados.tipo || TipoDocumentoContrato.OUTROS,
+      titulo: dados.titulo,
+      descricao: dados.descricao,
+      nome_arquivo: nomeArquivo,
+      nome_original: arquivo.originalname,
+      caminho_arquivo: caminhoCompleto,
+      mime_type: arquivo.mimetype,
+      tamanho_bytes: arquivo.size,
+    });
+    return this.documentoContratoRepository.save(doc);
+  }
+
+  async listarDocumentosContrato(contratoId: string): Promise<DocumentoContrato[]> {
+    await this.findOne(contratoId);
+    return this.documentoContratoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async getDocumentoContratoArquivo(docId: string): Promise<{ buffer: Buffer; documento: DocumentoContrato }> {
+    const documento = await this.documentoContratoRepository.findOne({ where: { id: docId } });
+    if (!documento) throw new NotFoundException('Documento não encontrado');
+    let caminhoFinal = documento.caminho_arquivo;
+    if (!fs.existsSync(caminhoFinal)) {
+      caminhoFinal = path.join(this.uploadPath, documento.contrato_id, documento.nome_arquivo);
+    }
+    if (!fs.existsSync(caminhoFinal)) {
+      throw new NotFoundException('Arquivo não encontrado no servidor');
+    }
+    const buffer = fs.readFileSync(caminhoFinal);
+    return { buffer, documento };
+  }
+
+  async deleteDocumentoContrato(docId: string): Promise<void> {
+    const documento = await this.documentoContratoRepository.findOne({ where: { id: docId } });
+    if (!documento) throw new NotFoundException('Documento não encontrado');
+    if (fs.existsSync(documento.caminho_arquivo)) {
+      fs.unlinkSync(documento.caminho_arquivo);
+    } else {
+      const altPath = path.join(this.uploadPath, documento.contrato_id, documento.nome_arquivo);
+      if (fs.existsSync(altPath)) fs.unlinkSync(altPath);
+    }
+    await this.documentoContratoRepository.delete(docId);
   }
 
   private async atualizarValoresContrato(contrato: Contrato, termo: TermoAditivo): Promise<void> {
