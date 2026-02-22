@@ -75,6 +75,9 @@ export default function EditarContratoPage() {
   const [novoFornecedorRazao, setNovoFornecedorRazao] = useState('')
   const [salvandoFornecedor, setSalvandoFornecedor] = useState(false)
   const [erroNovoFornecedor, setErroNovoFornecedor] = useState<string | null>(null)
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false)
+  const [fornecedorExistente, setFornecedorExistente] = useState<Fornecedor | null>(null)
+  const [buscaFornecedor, setBuscaFornecedor] = useState('')
   
   const [formData, setFormData] = useState({
     numero_contrato: '', tipo: 'CONTRATO', categoria: 'COMPRAS', modalidade_execucao: 'ITEM_QUANTIDADE', fornecedor_id: '', fornecedor_cnpj: '', fornecedor_razao_social: '',
@@ -167,7 +170,33 @@ export default function EditarContratoPage() {
     }
   }
 
+  const consultarCnpjModal = async () => {
+    const cnpj = novoFornecedorCnpj.replace(/\D/g, '')
+    if (cnpj.length !== 14) return
+    setConsultandoCnpj(true)
+    setFornecedorExistente(null)
+    setErroNovoFornecedor(null)
+    try {
+      const resVerif = await authFetch(`${API_URL}/api/fornecedores/verificar-cnpj/${cnpj}`)
+      const verif = await resVerif.json()
+      if (verif.existe && verif.fornecedor) {
+        setFornecedorExistente({ id: verif.fornecedor.id, razao_social: verif.fornecedor.razao_social, cnpj: verif.fornecedor.cpf_cnpj, cpf_cnpj: verif.fornecedor.cpf_cnpj })
+        return
+      }
+      const resConsulta = await authFetch(`${API_URL}/api/fornecedores/consultar-cnpj/${cnpj}`)
+      if (resConsulta.ok) {
+        const dados = await resConsulta.json()
+        setNovoFornecedorRazao(dados.razao_social || '')
+      }
+    } catch {
+      // Ignora erro - usuário pode digitar manualmente
+    } finally {
+      setConsultandoCnpj(false)
+    }
+  }
+
   const cadastrarNovoFornecedor = async () => {
+    if (fornecedorExistente) return
     const cnpj = novoFornecedorCnpj.replace(/\D/g, '')
     const razao = novoFornecedorRazao.trim()
     if (cnpj.length !== 14) {
@@ -334,12 +363,17 @@ export default function EditarContratoPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Fornecedor *</Label>
+              <Input placeholder="Buscar fornecedor (nome ou CNPJ)..." value={buscaFornecedor} onChange={(e) => setBuscaFornecedor(e.target.value)} className="mb-2" />
               <div className="flex gap-2">
                 <Select value={formData.fornecedor_id} onValueChange={handleFornecedorChange}>
                   <SelectTrigger className="flex-1"><SelectValue placeholder={loadingFornecedores ? "Carregando..." : "Selecione o fornecedor"} /></SelectTrigger>
-                  <SelectContent>{fornecedores.map(f => <SelectItem key={f.id} value={f.id}>{f.razao_social} - {f.cnpj || f.cpf_cnpj}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {fornecedores.filter(f => !buscaFornecedor.trim() || (f.razao_social?.toLowerCase().includes(buscaFornecedor.toLowerCase())) || (f.cnpj || f.cpf_cnpj || '').includes(buscaFornecedor.replace(/\D/g, ''))).map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.razao_social} - {f.cnpj || f.cpf_cnpj}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-                <Button type="button" variant="outline" onClick={() => { setShowNovoFornecedor(true); setErroNovoFornecedor(null); }} title="Cadastrar novo fornecedor">
+                <Button type="button" variant="outline" onClick={() => { setShowNovoFornecedor(true); setErroNovoFornecedor(null); setFornecedorExistente(null); setNovoFornecedorCnpj(''); setNovoFornecedorRazao(''); }} title="Cadastrar novo fornecedor">
                   <Plus className="h-4 w-4 mr-2" />Novo
                 </Button>
               </div>
@@ -352,19 +386,33 @@ export default function EditarContratoPage() {
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   {erroNovoFornecedor && <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{erroNovoFornecedor}</div>}
+                  {fornecedorExistente && (
+                    <div className="p-3 rounded-lg bg-amber-50 text-amber-800 text-sm border border-amber-200">
+                      <p className="font-medium">Fornecedor já cadastrado</p>
+                      <p className="mt-1">{fornecedorExistente.razao_social} — {fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj}</p>
+                      <Button type="button" size="sm" className="mt-2" onClick={() => { handleFornecedorChange(fornecedorExistente.id); setShowNovoFornecedor(false); setFornecedorExistente(null); setNovoFornecedorCnpj(''); setNovoFornecedorRazao(''); }}>Usar este fornecedor</Button>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="novo-cnpj">CNPJ *</Label>
-                    <Input id="novo-cnpj" placeholder="00.000.000/0001-00" value={novoFornecedorCnpj}
-                      onChange={(e) => { const v = e.target.value.replace(/\D/g, ''); if (v.length <= 14) setNovoFornecedorCnpj(v.length >= 14 ? v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : v); }} />
+                    <div className="flex gap-2">
+                      <Input id="novo-cnpj" placeholder="00.000.000/0001-00" value={novoFornecedorCnpj}
+                        onChange={(e) => { const v = e.target.value.replace(/\D/g, ''); if (v.length <= 14) { setNovoFornecedorCnpj(v.length >= 14 ? v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : v); setFornecedorExistente(null); } }}
+                        onBlur={() => { if (novoFornecedorCnpj.replace(/\D/g, '').length === 14) consultarCnpjModal(); }} />
+                      <Button type="button" variant="outline" onClick={() => consultarCnpjModal()} disabled={consultandoCnpj || novoFornecedorCnpj.replace(/\D/g, '').length !== 14}>
+                        {consultandoCnpj ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
+                      </Button>
+                    </div>
+                    {consultandoCnpj && <p className="text-xs text-muted-foreground">Buscando na Receita Federal...</p>}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="novo-razao">Razão Social *</Label>
-                    <Input id="novo-razao" placeholder="Nome da empresa" value={novoFornecedorRazao} onChange={(e) => setNovoFornecedorRazao(e.target.value)} />
+                    <Input id="novo-razao" placeholder="Nome da empresa (preenchido ao buscar CNPJ)" value={novoFornecedorRazao} onChange={(e) => setNovoFornecedorRazao(e.target.value)} />
                   </div>
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setShowNovoFornecedor(false)} disabled={salvandoFornecedor}>Cancelar</Button>
-                  <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor}>
+                  <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor || !!fornecedorExistente}>
                     {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cadastrando...</> : <>Cadastrar</>}
                   </Button>
                 </DialogFooter>
