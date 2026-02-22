@@ -179,14 +179,6 @@ export default function OrgaoLoginPage() {
                 )}
               </Button>
             </form>
-
-            <div className="mt-6 p-4 bg-slate-50 rounded-lg">
-              <p className="text-sm text-muted-foreground text-center">
-                <strong>Credenciais de teste:</strong><br />
-                Email: prefeitura@teste.gov.br<br />
-                Senha: prefeitura123
-              </p>
-            </div>
           </CardContent>
         </Card>
       </main>
