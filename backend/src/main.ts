@@ -23,7 +23,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'express';
 import { DataSource } from 'typeorm';
-import { createProxyMiddleware } from 'http-proxy-middleware';
 
 async function bootstrap() {
   // Log de variáveis PNCP no startup (para debug no Railway)
@@ -65,31 +64,6 @@ async function bootstrap() {
   app.enableCors(); // Habilita requisições do Frontend
   app.setGlobalPrefix('api'); // Padroniza rotas como /api/licitacoes
   
-  // Proxy: encaminhar rotas não-API para o frontend (Next.js)
-  const frontendUrl = process.env.FRONTEND_INTERNAL_URL || 'http://frontend.railway.internal:3000';
-  console.log(`🔗 Frontend proxy target: ${frontendUrl}`);
-  const frontendProxy = createProxyMiddleware({
-    target: frontendUrl,
-    changeOrigin: true,
-    ws: true,
-    on: {
-      error: (err: any, _req: any, res: any) => {
-        console.error(`Proxy error: ${err.message}`);
-        if (res && !res.headersSent) {
-          res.writeHead(502, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ message: 'Frontend service unavailable' }));
-        }
-      },
-    },
-  });
-  app.use((req: any, res: any, next: any) => {
-    // Rotas /api são tratadas pelo NestJS, todo o resto vai para o frontend
-    if (req.originalUrl.startsWith('/api')) {
-      return next();
-    }
-    frontendProxy(req, res, next);
-  });
-
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
   console.log(`🚀 Backend rodando na porta ${port}`);
