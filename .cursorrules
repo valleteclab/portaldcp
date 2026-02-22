@@ -1,5 +1,12 @@
 # Scratchpad
 
+## ✅ Tarefa Concluída: Combobox Fornecedor com Busca em Tempo Real (2026-02-17)
+
+- [X] Novo Contrato: Popover + Command (cmdk) — digitar filtra fornecedores em tempo real
+- [X] Editar Contrato: mesmo combobox aplicado
+- [X] Fechar popover ao selecionar; limpar busca ao fechar
+- [X] Botão "Novo" mantido para cadastro rápido
+
 ## ✅ Tarefa Concluída: Logo do Órgão (2026-02-20)
 
 - [X] Backend: campo logo_url em Orgao + migration 1768400004000-AddLogoOrgao

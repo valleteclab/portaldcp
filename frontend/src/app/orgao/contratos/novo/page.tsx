@@ -23,6 +23,9 @@ import {
   Plus
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Check, ChevronsUpDown } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
 
@@ -88,6 +91,7 @@ export default function NovoContratoPage() {
   const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   const [fornecedorExistente, setFornecedorExistente] = useState<Fornecedor | null>(null)
   const [buscaFornecedor, setBuscaFornecedor] = useState('')
+  const [fornecedorComboboxOpen, setFornecedorComboboxOpen] = useState(false)
   
   const [usarLicitacao, setUsarLicitacao] = useState(fromLicitacao)
   const [licitacaoId, setLicitacaoId] = useState('')
@@ -214,6 +218,7 @@ export default function NovoContratoPage() {
         fornecedor_cnpj: fornecedor.cnpj || fornecedor.cpf_cnpj || '',
         fornecedor_razao_social: fornecedor.razao_social,
       }))
+      setFornecedorComboboxOpen(false)
     }
   }
 
@@ -453,29 +458,48 @@ export default function NovoContratoPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Fornecedor *</Label>
-              <Input
-                placeholder="Buscar fornecedor (nome ou CNPJ)..."
-                value={buscaFornecedor}
-                onChange={(e) => setBuscaFornecedor(e.target.value)}
-                className="mb-2"
-              />
               <div className="flex gap-2">
-                <Select value={formData.fornecedor_id} onValueChange={handleFornecedorChange}>
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder={loadingFornecedores ? "Carregando..." : "Selecione o fornecedor"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fornecedores
-                      .filter(f => !buscaFornecedor.trim() || 
-                        (f.razao_social?.toLowerCase().includes(buscaFornecedor.toLowerCase())) ||
-                        (f.cnpj || f.cpf_cnpj || '').includes(buscaFornecedor.replace(/\D/g, '')))
-                      .map(f => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.razao_social} - {f.cnpj || f.cpf_cnpj}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={fornecedorComboboxOpen} onOpenChange={(open) => { setFornecedorComboboxOpen(open); if (!open) setBuscaFornecedor(''); }}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={fornecedorComboboxOpen}
+                      className="flex-1 justify-between font-normal h-10"
+                    >
+                      {formData.fornecedor_id ? (
+                        <span className="truncate">{formData.fornecedor_razao_social} — {formData.fornecedor_cnpj}</span>
+                      ) : (
+                        <span className="text-muted-foreground">Digite para buscar fornecedor...</span>
+                      )}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandInput
+                        placeholder="Buscar por nome ou CNPJ..."
+                        value={buscaFornecedor}
+                        onValueChange={setBuscaFornecedor}
+                      />
+                      <CommandList>
+                        <CommandEmpty>Nenhum fornecedor encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {fornecedores.map(f => (
+                              <CommandItem
+                                key={f.id}
+                                value={`${f.razao_social} ${f.cnpj || f.cpf_cnpj}`}
+                                onSelect={() => { handleFornecedorChange(f.id); setFornecedorComboboxOpen(false); }}
+                              >
+                                <Check className={formData.fornecedor_id === f.id ? "mr-2 h-4 w-4 opacity-100" : "mr-2 h-4 w-4 opacity-0"} />
+                                <span className="truncate">{f.razao_social} — {f.cnpj || f.cpf_cnpj}</span>
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 <Button type="button" variant="outline" onClick={() => { setShowNovoFornecedor(true); setErroNovoFornecedor(null); setFornecedorExistente(null); setNovoFornecedorCnpj(''); setNovoFornecedorRazao(''); }} title="Cadastrar novo fornecedor">
                   <Plus className="h-4 w-4 mr-2" />
                   Novo
