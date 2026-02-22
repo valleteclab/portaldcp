@@ -533,8 +533,8 @@ export class PortalAssinaturasService {
       const targetPage = pages[pageIndex] || pages[pages.length - 1];
       const { width: pw, height: ph } = targetPage.getSize();
 
-      const boxW = 200;
-      const boxH = 38;
+      const boxW = 220;
+      const boxH = 55;
       const x = (sig.pos_x ?? 0.05) * pw;
       const y = ph - ((sig.pos_y ?? 0.9) * ph) - boxH;
 
@@ -558,21 +558,21 @@ export class PortalAssinaturasService {
 
       // Texto: "Documento assinado digitalmente"
       targetPage.drawText('Documento assinado digitalmente', {
-        x: textX, y: y + boxH - 9, size: 5.5, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+        x: textX, y: y + boxH - 10, size: 6, font: helvetica, color: rgb(0.3, 0.3, 0.3),
       });
       // Nome em negrito
-      const nomeDisplay = sig.nome.length > 35 ? sig.nome.substring(0, 35) + '...' : sig.nome;
+      const nomeDisplay = sig.nome.length > 40 ? sig.nome.substring(0, 40) + '...' : sig.nome;
       targetPage.drawText(nomeDisplay.toUpperCase(), {
-        x: textX, y: y + boxH - 18, size: 6, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
+        x: textX, y: y + boxH - 20, size: 7, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
       });
       // Data
       const dataStr = new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       targetPage.drawText(`Data: ${dataStr}`, {
-        x: textX, y: y + boxH - 26, size: 5, font: helvetica, color: rgb(0.35, 0.35, 0.35),
+        x: textX, y: y + boxH - 30, size: 6, font: helvetica, color: rgb(0.35, 0.35, 0.35),
       });
       // Verificação
       targetPage.drawText(`Verifique em ${urlValidacao}`, {
-        x: textX, y: y + boxH - 34, size: 4.5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
+        x: textX, y: y + boxH - 40, size: 5.5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
       });
     }
 

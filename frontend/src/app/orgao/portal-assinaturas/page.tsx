@@ -316,6 +316,10 @@ export default function PortalAssinaturasPage() {
       sigsValidos.forEach((s, i) => {
         if (s.tipo === 'externo' && !s.email && !s.telefone)
           erros.push(`Signatário ${i + 1} (${s.nome}): informe e-mail ou telefone`)
+        // Verificar se marcou posição no PDF
+        const marker = markers.find(m => m.id === `sig-${i}`)
+        if (!marker)
+          erros.push(`Signatário ${i + 1} (${s.nome}): marque a posição da assinatura no PDF`)
       })
     }
     if (erros.length > 0) { setErrosValidacao(erros); return }
@@ -518,6 +522,17 @@ export default function PortalAssinaturasPage() {
     for (const s of validos) {
       if (s.tipo === 'externo' && !s.email && !s.telefone) {
         alert(`Signatário "${s.nome}": informe e-mail ou telefone.`)
+        return
+      }
+    }
+
+    // Verificar se todos têm posição marcada no PDF
+    for (let i = 0; i < novosSigs.length; i++) {
+      const sig = novosSigs[i]
+      if (!sig.nome.trim()) continue
+      const marker = novoSigMarkers.find(m => m.id === `newsig-${i}`)
+      if (!marker) {
+        alert(`Signatário "${sig.nome}": marque a posição da assinatura no PDF (clique na página).`)
         return
       }
     }
