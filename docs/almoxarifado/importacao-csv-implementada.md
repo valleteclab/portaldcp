@@ -1,5 +1,12 @@
 # Importação de Contratos via CSV - IMPLEMENTADO
 
+## Listagem Empenhado e Não Pago → Excel
+
+Para converter o PDF "Listagem de Empenhado e Não Pago" em Excel:
+1. Instale: `pip install pypdf openpyxl`
+2. Execute: `python docs/almoxarifado/pdf_empenho_to_excel.py`
+3. O Excel será gerado no mesmo diretório do PDF
+
 ## ✅ Status: Implementado e Pronto para Uso
 
 ## Formato CSV Aceito

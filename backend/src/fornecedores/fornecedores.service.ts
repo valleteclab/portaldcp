@@ -478,6 +478,51 @@ export class FornecedoresService {
   }
 
   /**
+   * Cadastro rápido de fornecedor pelo órgão (ao criar contrato).
+   * Consulta CNPJ na API e cria com dados completos. Se CNPJ não for encontrado, cria com dados mínimos.
+   */
+  async cadastroRapidoOrgao(cnpj: string, razao_social: string): Promise<Fornecedor> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    if (cnpjLimpo.length !== 14) {
+      throw new BadRequestException('CNPJ deve ter 14 dígitos');
+    }
+
+    const existing = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
+    if (existing) {
+      return existing;
+    }
+
+    try {
+      const dadosCnpj = await this.cnpjService.consultarCnpj(cnpjLimpo);
+      const primeiroSocio = dadosCnpj.socios?.[0];
+      return await this.createFromCnpj(dadosCnpj, {
+        representante_nome: primeiroSocio?.nome || razao_social,
+        representante_cpf: primeiroSocio?.cpf_cnpj?.replace(/\D/g, '').slice(0, 11) || '00000000000',
+      });
+    } catch {
+      // CNPJ não encontrado ou API indisponível: criar com dados mínimos (como na migração)
+      const { TipoPessoa } = await import('./entities/enums');
+      const fornecedor = await this.fornecedorRepository.save({
+        cpf_cnpj: cnpjLimpo,
+        razao_social: razao_social.trim() || 'A informar',
+        tipo_pessoa: TipoPessoa.JURIDICA,
+        status: StatusCadastro.APROVADO,
+        logradouro: 'A informar',
+        bairro: 'A informar',
+        cidade: 'A informar',
+        uf: 'BA',
+        cep: '00000-000',
+        telefone: '0000000000',
+        email: 'a.informar@email.com',
+        representante_nome: razao_social.trim() || 'A informar',
+        representante_cpf: '00000000000',
+        ativo: true,
+      } as any);
+      return fornecedor;
+    }
+  }
+
+  /**
    * Busca fornecedor com todos os relacionamentos
    */
   async findOneCompleto(id: string): Promise<Fornecedor> {

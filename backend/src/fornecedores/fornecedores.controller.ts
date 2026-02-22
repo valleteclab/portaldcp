@@ -43,6 +43,13 @@ export class FornecedoresController {
     return await this.fornecedoresService.verificarCnpjExistente(cnpj, email);
   }
 
+  @Post('orgao/cadastro-rapido')
+  async cadastroRapidoOrgao(
+    @Body() body: { cnpj: string; razao_social: string }
+  ): Promise<Fornecedor> {
+    return await this.fornecedoresService.cadastroRapidoOrgao(body.cnpj, body.razao_social);
+  }
+
   @Post('cadastrar-cnpj')
   async createFromCnpj(
     @Body() body: {
