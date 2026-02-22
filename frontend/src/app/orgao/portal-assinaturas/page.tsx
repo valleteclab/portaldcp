@@ -45,7 +45,7 @@ interface Documento {
   created_at: string
 }
 
-type TipoSignatario = 'eu_mesmo' | 'usuario_sistema' | 'externo'
+type TipoSignatario = 'eu_mesmo' | 'usuario_sistema' | 'fornecedor' | 'externo'
 
 interface UsuarioSistema {
   id: string
@@ -54,6 +54,18 @@ interface UsuarioSistema {
   cpf: string
   cargo?: string
   orgao_id?: string
+}
+
+interface FornecedorCadastrado {
+  id: string
+  razao_social: string
+  nome_fantasia?: string
+  cpf_cnpj: string
+  email: string
+  telefone: string
+  representante_nome?: string
+  representante_email?: string
+  representante_telefone?: string
 }
 
 interface NovoSignatario {
@@ -118,6 +130,10 @@ export default function PortalAssinaturasPage() {
   const [docAtivo, setDocAtivo] = useState<Documento | null>(null)
   const [pdfInfo, setPdfInfo] = useState<{ pageCount: number; hash: string; fileSize: number } | null>(null)
 
+  // Fornecedores cadastrados
+  const [fornecedores, setFornecedores] = useState<FornecedorCadastrado[]>([])
+  const [buscaFornecedor, setBuscaFornecedor] = useState<Record<number, string>>({})
+
   // Signatários para novo documento
   const [signatarios, setSignatarios] = useState<NovoSignatario[]>([])
   const [sigAtivo, setSigAtivo] = useState(0)
@@ -135,7 +151,7 @@ export default function PortalAssinaturasPage() {
   // Painel direito (signatários ou info)
   const [painelDireito, setPainelDireito] = useState<'info' | 'signatarios'>('info')
 
-  const baseUpload = API_URL.replace('/api', '') + '/uploads/'
+  const baseUpload = API_URL + '/api/uploads/'
 
   // ─── Carregar dados iniciais ────────────────────────────────────────────────
 
@@ -164,6 +180,12 @@ export default function PortalAssinaturasPage() {
           if (resOrgao.ok) setUsuariosSistema(await resOrgao.json())
         }
       }
+      // Carregar fornecedores cadastrados
+      const resForn = await authFetch(`${API_URL}/api/fornecedores`)
+      if (resForn.ok) {
+        const lista = await resForn.json()
+        setFornecedores(Array.isArray(lista) ? lista : [])
+      }
     } catch { /* silencioso */ }
   }, [])
 
@@ -181,6 +203,7 @@ export default function PortalAssinaturasPage() {
     setSigAtivo(0)
     setErrosValidacao([])
     setBuscaUsuario({})
+    setBuscaFornecedor({})
     setSignatarios([{
       tipo: 'eu_mesmo',
       nome: usuarioLogado?.nome || '',
@@ -226,9 +249,11 @@ export default function PortalAssinaturasPage() {
         return { ...s, tipo, nome: usuarioLogado?.nome || '', cpf_cnpj: usuarioLogado?.cpf || '', email: usuarioLogado?.email || '', telefone: '', is_orgao_user: true, usuario_id: usuarioLogado?.id }
       }
       if (tipo === 'usuario_sistema') return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true, usuario_id: undefined }
+      if (tipo === 'fornecedor') return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false, usuario_id: undefined }
       return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false, usuario_id: undefined }
     }))
     setBuscaUsuario(prev => ({ ...prev, [i]: '' }))
+    setBuscaFornecedor(prev => ({ ...prev, [i]: '' }))
   }
 
   const selecionarUsuarioSistema = (i: number, u: UsuarioSistema) => {
@@ -236,6 +261,18 @@ export default function PortalAssinaturasPage() {
       ...s, nome: u.nome, cpf_cnpj: u.cpf || '', email: u.email, telefone: '', is_orgao_user: true, usuario_id: u.id
     }))
     setBuscaUsuario(prev => ({ ...prev, [i]: u.nome }))
+  }
+
+  const selecionarFornecedor = (i: number, f: FornecedorCadastrado) => {
+    setSignatarios(prev => prev.map((s, idx) => idx !== i ? s : {
+      ...s,
+      nome: f.representante_nome || f.razao_social,
+      cpf_cnpj: f.cpf_cnpj || '',
+      email: f.representante_email || f.email || '',
+      telefone: f.representante_telefone || f.telefone || '',
+      is_orgao_user: false,
+    }))
+    setBuscaFornecedor(prev => ({ ...prev, [i]: f.razao_social }))
   }
 
   const removeSignatario = (i: number) => {
@@ -736,6 +773,7 @@ export default function PortalAssinaturasPage() {
                           {([
                             { tipo: 'eu_mesmo' as TipoSignatario, label: 'Eu mesmo' },
                             { tipo: 'usuario_sistema' as TipoSignatario, label: 'Interno' },
+                            { tipo: 'fornecedor' as TipoSignatario, label: 'Fornecedor' },
                             { tipo: 'externo' as TipoSignatario, label: 'Externo' },
                           ]).map(opt => (
                             <button key={opt.tipo}
@@ -783,6 +821,54 @@ export default function PortalAssinaturasPage() {
                           </div>
                         )}
 
+                        {sig.tipo === 'fornecedor' && (() => {
+                          const termoBusca = (buscaFornecedor[i] || '').toLowerCase()
+                          const fornFiltrados = fornecedores.filter(f =>
+                            f.razao_social?.toLowerCase().includes(termoBusca) ||
+                            f.nome_fantasia?.toLowerCase().includes(termoBusca) ||
+                            f.cpf_cnpj?.includes(termoBusca)
+                          )
+                          return (
+                            <div className="space-y-1">
+                              <div className="relative">
+                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                                <Input placeholder="Buscar fornecedor (nome, CNPJ)..." value={buscaFornecedor[i] || ''}
+                                  onChange={e => setBuscaFornecedor(prev => ({ ...prev, [i]: e.target.value }))}
+                                  className="pl-7 h-7 text-xs" onClick={e => e.stopPropagation()} />
+                              </div>
+                              {termoBusca.length > 0 && !sig.nome && (
+                                <div className="border rounded max-h-36 overflow-y-auto">
+                                  {fornFiltrados.length === 0 ? (
+                                    <p className="text-[10px] text-gray-400 p-2 text-center">Nenhum fornecedor encontrado</p>
+                                  ) : fornFiltrados.slice(0, 10).map(f => (
+                                    <button key={f.id} onClick={e => { e.stopPropagation(); selecionarFornecedor(i, f) }}
+                                      className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-xs border-b last:border-0">
+                                      <p className="font-medium text-gray-800">{f.razao_social}</p>
+                                      <p className="text-[10px] text-gray-400">{f.cpf_cnpj} · {f.email}</p>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {sig.nome && (
+                                <div className="bg-green-50 border border-green-200 rounded-lg p-2 space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-medium text-green-800 flex items-center gap-1">
+                                      <CheckCircle className="h-3 w-3" /> {sig.nome}
+                                    </p>
+                                    <button onClick={e => { e.stopPropagation(); updateSignatario(i, 'nome', ''); setBuscaFornecedor(prev => ({ ...prev, [i]: '' })) }}
+                                      className="text-gray-400 hover:text-red-500"><X className="h-3 w-3" /></button>
+                                  </div>
+                                  <div className="text-[10px] text-gray-600 space-y-0.5 pl-4">
+                                    <p><Mail className="h-2.5 w-2.5 inline mr-1" />{sig.email || 'Sem e-mail'}</p>
+                                    <p><Phone className="h-2.5 w-2.5 inline mr-1" />{sig.telefone || 'Sem telefone'}</p>
+                                    {sig.cpf_cnpj && <p className="font-mono">{sig.cpf_cnpj}</p>}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
+
                         {sig.tipo === 'externo' && (
                           <div className="space-y-1" onClick={e => e.stopPropagation()}>
                             <Input placeholder="Nome completo *" value={sig.nome} onChange={e => updateSignatario(i, 'nome', e.target.value)} className="h-7 text-xs" />
@@ -819,9 +905,9 @@ export default function PortalAssinaturasPage() {
                   )}
 
                   {/* Info sobre tipos */}
-                  {signatarios.some(s => s.tipo === 'externo') && (
+                  {signatarios.some(s => s.tipo === 'externo' || s.tipo === 'fornecedor') && (
                     <div className="text-[10px] text-blue-600 bg-blue-50 rounded p-2">
-                      Externos receberão link por e-mail/WhatsApp com validação OTP.
+                      Externos e fornecedores receberão link por e-mail/WhatsApp com validação OTP.
                     </div>
                   )}
                   {signatarios.some(s => s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') && (

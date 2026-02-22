@@ -131,7 +131,7 @@ export class PortalAssinaturasService {
 
     if (!doc) return;
 
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = this.getFrontendUrl();
 
     for (const signatario of doc.signatarios) {
       if (signatario.status !== StatusAssinaturaSignatario.PENDENTE) continue;
@@ -434,7 +434,7 @@ export class PortalAssinaturasService {
     });
 
     let yPos = height - 110;
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = this.getFrontendUrl();
 
     for (const sig of signatarios) {
       page.drawRectangle({ x: 30, y: yPos - 70, width: width - 60, height: 68, color: rgb(0.96, 0.97, 0.98), borderColor: rgb(0.88, 0.88, 0.88), borderWidth: 1 });
@@ -488,5 +488,11 @@ export class PortalAssinaturasService {
     if (!ip) return '';
     const p = ip.split('.');
     return p.length === 4 ? `${p[0]}.${p[1]}.***.***` : '***.***.***.***';
+  }
+
+  private getFrontendUrl(): string {
+    if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL;
+    if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+    return 'https://www.portaldcp.com.br';
   }
 }

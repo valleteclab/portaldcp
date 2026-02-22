@@ -118,7 +118,7 @@ export default function AssinarDocumentoPage() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
-  const baseUpload = API_URL.replace('/api', '') + '/uploads/'
+  const baseUpload = API_URL + '/api/uploads/'
 
   // ── Estados de carregando / erro / já assinado (tela simples centralizada) ──
   if (etapa === 'carregando' || etapa === 'erro' || etapa === 'ja_assinado' || etapa === 'sucesso') {

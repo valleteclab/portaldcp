@@ -94,18 +94,24 @@ export default function PdfViewer({
 
     const renderPages = async () => {
       const pdf = pdfDocRef.current
+      const dpr = window.devicePixelRatio || 1
       for (let i = 1; i <= pdf.numPages; i++) {
         const canvas = canvasRefs.current.get(i)
         if (!canvas) continue
 
         const page = await pdf.getPage(i)
         const viewport = page.getViewport({ scale })
-        canvas.width = viewport.width
-        canvas.height = viewport.height
+
+        // Renderizar em resolução nativa do display para nitidez
+        canvas.width = Math.floor(viewport.width * dpr)
+        canvas.height = Math.floor(viewport.height * dpr)
+        canvas.style.width = Math.floor(viewport.width) + 'px'
+        canvas.style.height = Math.floor(viewport.height) + 'px'
 
         const ctx = canvas.getContext('2d')
         if (!ctx) continue
 
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
         await page.render({ canvasContext: ctx, viewport }).promise
       }
     }
