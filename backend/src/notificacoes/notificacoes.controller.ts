@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Query, Req, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Req, ParseUUIDPipe } from '@nestjs/common';
 import { NotificacoesService } from './notificacoes.service';
 
 interface JwtPayload {
@@ -132,5 +132,29 @@ export class NotificacoesController {
 
     await this.notificacoesService.marcarTodasComoLidas(user.sub, orgaoId);
     return { success: true };
+  }
+
+  /**
+   * Limpa (deleta) todas as notificações do usuário logado
+   */
+  @Delete('limpar-todas')
+  async limparTodas(@Req() request: { user: JwtPayload }) {
+    const user = request.user;
+
+    if (this.isFornecedor(user)) {
+      const deleted = await this.notificacoesService.limparTodasSemOrgao(user.sub);
+      return { success: true, deleted };
+    }
+
+    const orgaoId = this.getOrgaoId(user);
+
+    // Login direto como órgão: limpa TODAS do órgão
+    if (this.isOrgao(user)) {
+      const deleted = await this.notificacoesService.limparTodasPorOrgao(orgaoId);
+      return { success: true, deleted };
+    }
+
+    const deleted = await this.notificacoesService.limparTodas(user.sub, orgaoId);
+    return { success: true, deleted };
   }
 }

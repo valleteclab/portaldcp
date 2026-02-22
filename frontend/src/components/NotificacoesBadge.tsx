@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Bell, Check, CheckCheck, Loader2, X } from 'lucide-react';
+import { Bell, Check, CheckCheck, Loader2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -127,6 +127,25 @@ export function NotificacoesBadge() {
     }
   };
 
+  const limparTodas = async () => {
+    if (!confirm('Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      const response = await authFetch(`${API_URL}/api/notificacoes/limpar-todas`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        setNotificacoes([]);
+        setCount(0);
+      }
+    } catch (error) {
+      console.error('Erro ao limpar notificações:', error);
+    }
+  };
+
   const handleClick = (notificacao: Notificacao) => {
     if (!notificacao.lida) {
       marcarComoLida(notificacao.id);
@@ -175,17 +194,30 @@ export function NotificacoesBadge() {
       <PopoverContent className="w-96 p-0" align="end">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h3 className="font-semibold">Notificações</h3>
-          {count > 0 && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="text-xs"
-              onClick={marcarTodasComoLidas}
-            >
-              <CheckCheck className="h-4 w-4 mr-1" />
-              Marcar todas como lidas
-            </Button>
-          )}
+          <div className="flex items-center gap-1">
+            {count > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs"
+                onClick={marcarTodasComoLidas}
+              >
+                <CheckCheck className="h-4 w-4 mr-1" />
+                Marcar todas como lidas
+              </Button>
+            )}
+            {notificacoes.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                onClick={limparTodas}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Limpar todas
+              </Button>
+            )}
+          </div>
         </div>
 
         <ScrollArea className="h-[400px]">

@@ -280,6 +280,41 @@ export class NotificacoesService {
     );
   }
 
+  // ============================================================================
+  // MÉTODOS PARA LIMPAR TODAS AS NOTIFICAÇÕES (DELETE)
+  // ============================================================================
+
+  /**
+   * Limpa (deleta) todas as notificações de um usuário
+   */
+  async limparTodas(usuarioId: string, orgaoId: string): Promise<number> {
+    const result = await this.notificacaoRepository.delete({
+      usuario_id: usuarioId,
+      orgao_id: orgaoId,
+    });
+    return result.affected || 0;
+  }
+
+  /**
+   * Limpa (deleta) todas as notificações de um fornecedor (sem filtro por órgão)
+   */
+  async limparTodasSemOrgao(usuarioId: string): Promise<number> {
+    const result = await this.notificacaoRepository.delete({
+      usuario_id: usuarioId,
+    });
+    return result.affected || 0;
+  }
+
+  /**
+   * Limpa (deleta) todas as notificações de um órgão (login direto como órgão)
+   */
+  async limparTodasPorOrgao(orgaoId: string): Promise<number> {
+    const result = await this.notificacaoRepository.delete({
+      orgao_id: orgaoId,
+    });
+    return result.affected || 0;
+  }
+
   /**
    * Envia notificação por email usando SMTP configurado do órgão
    */
