@@ -53,7 +53,7 @@ export default function AssinarDocumentoPage() {
 
   useEffect(() => {
     if (!token) return
-    fetch(`${API_URL}/public/assinaturas/documento/${token}`)
+    fetch(`${API_URL}/api/public/assinaturas/documento/${token}`)
       .then(r => r.json())
       .then(data => {
         if (data.statusCode && data.statusCode >= 400) {
@@ -77,7 +77,7 @@ export default function AssinarDocumentoPage() {
     if (!cpfCnpj.replace(/\D/g, '')) return setErro('Informe seu CPF ou CNPJ.')
     setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/public/assinaturas/solicitar-codigo`, {
+      const res = await fetch(`${API_URL}/api/public/assinaturas/solicitar-codigo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token_acesso: token, cpf_cnpj: cpfCnpj }),
@@ -100,7 +100,7 @@ export default function AssinarDocumentoPage() {
     if (otp.length < 6) return setErro('Informe o código de 6 dígitos.')
     setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/public/assinaturas/assinar`, {
+      const res = await fetch(`${API_URL}/api/public/assinaturas/assinar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token_acesso: token, cpf_cnpj: cpfCnpj, codigo_otp: otp }),

@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const BACKEND_URL = process.env.BACKEND_URL || 'https://portaldcp-production.up.railway.app';
+
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
@@ -11,6 +13,14 @@ const nextConfig: NextConfig = {
         hostname: '**',
       },
     ],
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${BACKEND_URL}/api/:path*`,
+      },
+    ];
   },
 };
 
