@@ -148,6 +148,11 @@ export default function PortalAssinaturasPage() {
   const [otpLoading, setOtpLoading] = useState(false)
   const [otpErro, setOtpErro] = useState('')
 
+  // Modal adicionar signatário a documento existente
+  const [addSigModal, setAddSigModal] = useState(false)
+  const [addSigDados, setAddSigDados] = useState({ nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false })
+  const [addSigLoading, setAddSigLoading] = useState(false)
+
   // Painel direito (signatários ou info)
   const [painelDireito, setPainelDireito] = useState<'info' | 'signatarios'>('info')
 
@@ -432,6 +437,36 @@ export default function PortalAssinaturasPage() {
     }
   }
 
+  const handleAdicionarSignatario = async () => {
+    if (!docAtivo || !addSigDados.nome || !addSigDados.cpf_cnpj) {
+      alert('Nome e CPF/CNPJ são obrigatórios.')
+      return
+    }
+    setAddSigLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docAtivo.id}/signatarios`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(addSigDados),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.message || 'Erro ao adicionar signatário')
+        return
+      }
+      setAddSigModal(false)
+      setAddSigDados({ nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false })
+      carregar()
+      // Recarregar o documento ativo
+      const resDoc = await authFetch(`${API_URL}/api/portal-assinaturas/${docAtivo.id}`)
+      if (resDoc.ok) setDocAtivo(await resDoc.json())
+    } catch (e: any) {
+      alert(e.message || 'Erro ao adicionar signatário')
+    } finally {
+      setAddSigLoading(false)
+    }
+  }
+
   // ─── Render: Modo Lista ─────────────────────────────────────────────────────
 
   if (modo === 'lista') {
@@ -644,6 +679,12 @@ export default function PortalAssinaturasPage() {
               <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700"
                 onClick={() => window.open(baseUpload + docAtivo.arquivo_assinado_url, '_blank')}>
                 <Download className="h-3.5 w-3.5" /> Baixar Assinado
+              </Button>
+            )}
+            {modo === 'visualizar' && docAtivo && docAtivo.status !== 'CANCELADO' && (
+              <Button size="sm" variant="outline" className="gap-1.5"
+                onClick={() => setAddSigModal(true)}>
+                <UserPlus className="h-3.5 w-3.5" /> Adicionar Signatário
               </Button>
             )}
             {modo === 'visualizar' && docAtivo?.status === 'AGUARDANDO_ASSINATURAS' && (
@@ -1009,6 +1050,51 @@ export default function PortalAssinaturasPage() {
                     </button>
                   </>
                 )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+        {/* Modal Adicionar Signatário */}
+        {addSigModal && docAtivo && (
+          <Dialog open onOpenChange={() => setAddSigModal(false)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <UserPlus className="h-5 w-5 text-blue-600" />
+                  Adicionar Signatário
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-gray-500">
+                  Adicione um novo signatário ao documento <strong>"{docAtivo.titulo}"</strong>.
+                  As assinaturas já realizadas serão mantidas.
+                </p>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Nome *</label>
+                  <Input value={addSigDados.nome} onChange={e => setAddSigDados(p => ({ ...p, nome: e.target.value }))} placeholder="Nome completo" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">CPF/CNPJ *</label>
+                  <Input value={addSigDados.cpf_cnpj} onChange={e => setAddSigDados(p => ({ ...p, cpf_cnpj: e.target.value }))} placeholder="000.000.000-00" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">E-mail</label>
+                  <Input value={addSigDados.email} onChange={e => setAddSigDados(p => ({ ...p, email: e.target.value }))} placeholder="email@exemplo.com" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Telefone (WhatsApp)</label>
+                  <Input value={addSigDados.telefone} onChange={e => setAddSigDados(p => ({ ...p, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={addSigDados.is_orgao_user}
+                    onChange={e => setAddSigDados(p => ({ ...p, is_orgao_user: e.target.checked }))}
+                    className="rounded border-gray-300" />
+                  Usuário interno do órgão
+                </label>
+                <Button onClick={handleAdicionarSignatario} disabled={addSigLoading} className="w-full gap-2">
+                  {addSigLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                  Adicionar e Notificar
+                </Button>
               </div>
             </DialogContent>
           </Dialog>

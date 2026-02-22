@@ -161,4 +161,22 @@ export class PortalAssinaturasController {
   async reenviar(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
     return this.portalAssinaturasService.reenviarNotificacoes(id, this.getOrgaoId(req.user));
   }
+
+  @Post(':id/signatarios')
+  async adicionarSignatario(
+    @Request() req: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: {
+      nome: string;
+      cpf_cnpj: string;
+      email?: string;
+      telefone?: string;
+      is_orgao_user?: boolean;
+      pagina_assinatura?: number;
+      pos_x?: number;
+      pos_y?: number;
+    },
+  ) {
+    return this.portalAssinaturasService.adicionarSignatario(id, this.getOrgaoId(req.user), body);
+  }
 }

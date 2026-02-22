@@ -299,12 +299,13 @@ export class PortalAssinaturasService {
       });
     }
 
+    // Notificar após assinatura (assíncrono)
+    this.notificarAssinatura(signatario, signatario.documento, todosAssinaram).catch((err: any) =>
+      this.logger.error(`Erro ao notificar assinatura: ${err.message}`),
+    );
+
     return { sucesso: true, pdf_url: pdfUrl };
   }
-
-  // =============================================
-  // FLUXO PÚBLICO (Signatário)
-  // =============================================
 
   async obterDocumentoPorToken(token: string) {
     const signatario = await this.signatarioRepository.findOne({
@@ -435,6 +436,11 @@ export class PortalAssinaturasService {
       });
     }
 
+    // Notificar após assinatura (assíncrono)
+    this.notificarAssinatura(signatario, signatario.documento, todosAssinaram).catch((err: any) =>
+      this.logger.error(`Erro ao notificar assinatura: ${err.message}`),
+    );
+
     return { sucesso: true, pdf_url: pdfUrl };
   }
 
@@ -498,42 +504,75 @@ export class PortalAssinaturasService {
     });
 
     const baseUrl = this.getFrontendUrl();
+    const urlValidacao = `${baseUrl}/validar-documento`;
     const pages = pdfDoc.getPages();
 
-    // ── 1. Inserir assinatura na posição marcada de cada signatário ──
+    // ── Tentar carregar logo do órgão ──
+    let logoImage: any = null;
+    try {
+      const logoUrl = documento.orgao?.logo_url;
+      if (logoUrl) {
+        const logoPath = join(this.uploadDir, logoUrl);
+        if (existsSync(logoPath)) {
+          const logoBytes = readFileSync(logoPath);
+          const ext = logoUrl.toLowerCase();
+          if (ext.endsWith('.png')) {
+            logoImage = await pdfDoc.embedPng(logoBytes);
+          } else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg')) {
+            logoImage = await pdfDoc.embedJpg(logoBytes);
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.warn('Erro ao carregar logo do órgão: ' + e.message);
+    }
+
+    // ── 1. Inserir assinatura compacta (estilo gov.br) na posição marcada ──
     for (const sig of signatarios) {
-      const pageIndex = (sig.pagina_assinatura || 1) - 1; // 1-indexed → 0-indexed
+      const pageIndex = (sig.pagina_assinatura || 1) - 1;
       const targetPage = pages[pageIndex] || pages[pages.length - 1];
       const { width: pw, height: ph } = targetPage.getSize();
 
-      // pos_x e pos_y são relativos (0-1); pos_y vem do topo no frontend
-      const boxW = 220;
-      const boxH = 60;
+      const boxW = 200;
+      const boxH = 38;
       const x = (sig.pos_x ?? 0.05) * pw;
-      const y = ph - ((sig.pos_y ?? 0.9) * ph) - boxH; // converter de top-based para bottom-based
+      const y = ph - ((sig.pos_y ?? 0.9) * ph) - boxH;
 
-      // Fundo semi-transparente
+      // Borda fina cinza
       targetPage.drawRectangle({
         x, y, width: boxW, height: boxH,
-        color: rgb(0.96, 0.97, 0.98),
-        borderColor: rgb(0.7, 0.7, 0.7),
+        borderColor: rgb(0.75, 0.75, 0.75),
         borderWidth: 0.5,
       });
 
-      targetPage.drawText(`Assinado: ${sig.nome}`, {
-        x: x + 5, y: y + boxH - 14, size: 8, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
+      // Logo do órgão (lado esquerdo)
+      const logoW = logoImage ? 28 : 0;
+      const textX = x + (logoImage ? logoW + 4 : 4);
+      if (logoImage) {
+        const dims = logoImage.scale(1);
+        const ratio = Math.min(26 / dims.width, 30 / dims.height);
+        const lw = dims.width * ratio;
+        const lh = dims.height * ratio;
+        targetPage.drawImage(logoImage, { x: x + 3, y: y + (boxH - lh) / 2, width: lw, height: lh });
+      }
+
+      // Texto: "Documento assinado digitalmente"
+      targetPage.drawText('Documento assinado digitalmente', {
+        x: textX, y: y + boxH - 9, size: 5.5, font: helvetica, color: rgb(0.3, 0.3, 0.3),
       });
-      targetPage.drawText(`CPF/CNPJ: ${this.mascararDoc(sig.cpf_cnpj)}`, {
-        x: x + 5, y: y + boxH - 26, size: 7, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+      // Nome em negrito
+      const nomeDisplay = sig.nome.length > 35 ? sig.nome.substring(0, 35) + '...' : sig.nome;
+      targetPage.drawText(nomeDisplay.toUpperCase(), {
+        x: textX, y: y + boxH - 18, size: 6, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
       });
-      targetPage.drawText(`Data: ${new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, {
-        x: x + 5, y: y + boxH - 37, size: 7, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+      // Data
+      const dataStr = new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      targetPage.drawText(`Data: ${dataStr}`, {
+        x: textX, y: y + boxH - 26, size: 5, font: helvetica, color: rgb(0.35, 0.35, 0.35),
       });
-      targetPage.drawText(`Cod: ${sig.codigo_validacao}`, {
-        x: x + 5, y: y + boxH - 48, size: 6, font: helvetica, color: rgb(0.5, 0.5, 0.5),
-      });
-      targetPage.drawText(`IP: ${this.mascararIP(sig.ip_address)}`, {
-        x: x + 5, y: y + boxH - 57, size: 6, font: helvetica, color: rgb(0.5, 0.5, 0.5),
+      // Verificação
+      targetPage.drawText(`Verifique em ${urlValidacao}`, {
+        x: textX, y: y + boxH - 34, size: 4.5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
       });
     }
 
@@ -541,36 +580,83 @@ export class PortalAssinaturasService {
     const summaryPage = pdfDoc.addPage([595, 842]);
     const { width, height } = summaryPage.getSize();
 
-    summaryPage.drawRectangle({ x: 30, y: height - 90, width: width - 60, height: 60, color: rgb(0.12, 0.25, 0.69) });
+    // Cabeçalho com logo
+    let headerTextX = 50;
+    if (logoImage) {
+      const dims = logoImage.scale(1);
+      const ratio = Math.min(40 / dims.width, 40 / dims.height);
+      const lw = dims.width * ratio;
+      const lh = dims.height * ratio;
+      summaryPage.drawImage(logoImage, { x: 35, y: height - 75, width: lw, height: lh });
+      headerTextX = 35 + lw + 10;
+    }
+
     summaryPage.drawText('QUADRO DE ASSINATURAS ELETRÔNICAS', {
-      x: 50, y: height - 58, size: 13, font: helveticaBold, color: rgb(1, 1, 1),
+      x: headerTextX, y: height - 50, size: 13, font: helveticaBold, color: rgb(0.12, 0.25, 0.69),
     });
     summaryPage.drawText('Documento assinado eletronicamente conforme Lei nº 14.063/2020', {
-      x: 50, y: height - 74, size: 9, font: helvetica, color: rgb(0.9, 0.9, 0.9),
+      x: headerTextX, y: height - 64, size: 8, font: helvetica, color: rgb(0.4, 0.4, 0.4),
     });
+    if (documento.orgao?.nome) {
+      summaryPage.drawText(`Órgão: ${documento.orgao.nome}`, {
+        x: headerTextX, y: height - 76, size: 8, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+      });
+    }
 
-    let yPos = height - 110;
+    // Linha separadora
+    summaryPage.drawRectangle({ x: 30, y: height - 90, width: width - 60, height: 1, color: rgb(0.8, 0.8, 0.8) });
+
+    let yPos = height - 105;
     for (const sig of signatarios) {
-      summaryPage.drawRectangle({ x: 30, y: yPos - 70, width: width - 60, height: 68, color: rgb(0.96, 0.97, 0.98), borderColor: rgb(0.88, 0.88, 0.88), borderWidth: 1 });
-      summaryPage.drawText(`Assinado por: ${sig.nome}`, { x: 45, y: yPos - 18, size: 11, font: helveticaBold, color: rgb(0.07, 0.07, 0.07) });
-      summaryPage.drawText(`CPF/CNPJ: ${this.mascararDoc(sig.cpf_cnpj)}`, { x: 45, y: yPos - 33, size: 9, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
-      summaryPage.drawText(`Data/Hora: ${new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, { x: 45, y: yPos - 46, size: 9, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
-      summaryPage.drawText(`Codigo: ${sig.codigo_validacao}  |  IP: ${this.mascararIP(sig.ip_address)}`, { x: 45, y: yPos - 59, size: 8, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
-      yPos -= 82;
+      const cardH = 52;
+      summaryPage.drawRectangle({
+        x: 30, y: yPos - cardH, width: width - 60, height: cardH,
+        color: rgb(0.97, 0.97, 0.98), borderColor: rgb(0.88, 0.88, 0.88), borderWidth: 0.5,
+      });
+
+      let sigTextX = 45;
+      if (logoImage) {
+        const dims = logoImage.scale(1);
+        const ratio = Math.min(22 / dims.width, 22 / dims.height);
+        const lw = dims.width * ratio;
+        const lh = dims.height * ratio;
+        summaryPage.drawImage(logoImage, { x: 38, y: yPos - cardH + (cardH - lh) / 2, width: lw, height: lh });
+        sigTextX = 38 + lw + 8;
+      }
+
+      summaryPage.drawText('Documento assinado digitalmente', {
+        x: sigTextX, y: yPos - 12, size: 7, font: helvetica, color: rgb(0.4, 0.4, 0.4),
+      });
+      summaryPage.drawText(sig.nome.toUpperCase(), {
+        x: sigTextX, y: yPos - 23, size: 9, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
+      });
+      const dataFmt = new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      summaryPage.drawText(`Data: ${dataFmt}`, {
+        x: sigTextX, y: yPos - 34, size: 7.5, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+      });
+      summaryPage.drawText(`Verifique em ${urlValidacao}/${sig.codigo_validacao}`, {
+        x: sigTextX, y: yPos - 45, size: 6.5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
+      });
+
+      yPos -= cardH + 8;
     }
 
     // Rodapé com QR Code
     if (signatarios.length > 0) {
-      const urlValidacao = `${baseUrl}/validar-documento/${signatarios[0].codigo_validacao}`;
+      const qrUrl = `${urlValidacao}/${signatarios[0].codigo_validacao}`;
       try {
-        const qrBuffer: Buffer = await QRCode.toBuffer(urlValidacao, { type: 'png', width: 80 });
+        const qrBuffer: Buffer = await QRCode.toBuffer(qrUrl, { type: 'png', width: 80 });
         const qrImage = await pdfDoc.embedPng(qrBuffer);
-        summaryPage.drawImage(qrImage, { x: width - 110, y: 30, width: 70, height: 70 });
+        summaryPage.drawImage(qrImage, { x: width - 100, y: 25, width: 60, height: 60 });
       } catch (e) {
         this.logger.warn('Erro ao gerar QR Code: ' + e.message);
       }
-      summaryPage.drawText('Verifique a autenticidade em:', { x: 30, y: 90, size: 9, font: helveticaBold, color: rgb(0.2, 0.2, 0.2) });
-      summaryPage.drawText(`${baseUrl}/validar-documento`, { x: 30, y: 78, size: 9, font: helvetica, color: rgb(0.15, 0.39, 0.93) });
+      summaryPage.drawText('Verifique a autenticidade em:', { x: 30, y: 70, size: 8, font: helveticaBold, color: rgb(0.2, 0.2, 0.2) });
+      summaryPage.drawText(urlValidacao, { x: 30, y: 58, size: 8, font: helvetica, color: rgb(0.15, 0.39, 0.93) });
+      summaryPage.drawText(`Documento: ${documento.titulo}`, { x: 30, y: 44, size: 7, font: helvetica, color: rgb(0.4, 0.4, 0.4) });
+      if (documento.documento_hash) {
+        summaryPage.drawText(`Hash SHA-256: ${documento.documento_hash}`, { x: 30, y: 32, size: 6, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
+      }
     }
 
     const signedBytes = await pdfDoc.save();
@@ -582,6 +668,124 @@ export class PortalAssinaturasService {
 
     return `documentos_assinatura_avulsos/${filename}`;
   }
+
+  // =============================================
+  // NOTIFICAÇÃO PÓS-ASSINATURA
+  // =============================================
+
+  private async notificarAssinatura(
+    signatario: SignatarioDocumento,
+    documento: DocumentoAssinatura,
+    todosAssinaram: boolean,
+  ): Promise<void> {
+    const baseUrl = this.getFrontendUrl();
+    const orgaoNome = documento.orgao?.nome || 'Órgão';
+
+    // 1. Notificar o signatário que acabou de assinar (confirmação)
+    if (signatario.email) {
+      const mensagemHtml = `
+        <p>Olá, <strong>${signatario.nome}</strong>,</p>
+        <p>Sua assinatura no documento <strong>"${documento.titulo}"</strong> foi registrada com sucesso.</p>
+        <p>Código de validação: <strong>${signatario.codigo_validacao}</strong></p>
+        <p>Verifique em: <a href="${baseUrl}/validar-documento/${signatario.codigo_validacao}">${baseUrl}/validar-documento/${signatario.codigo_validacao}</a></p>
+        <hr style="border:1px solid #eee;margin:20px 0;">
+        <p style="font-size:12px;color:#666;">Mensagem automática do Portal DCP.</p>
+      `;
+      await this.notificacoesService.criar({
+        orgao_id: documento.orgao_id,
+        usuario_id: 'SYSTEM',
+        usuario_email: signatario.email,
+        usuario_telefone: signatario.telefone ?? undefined,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: `Assinatura Confirmada: ${documento.titulo}`,
+        mensagem: mensagemHtml,
+        enviar_email: true,
+        metadata: {
+          whatsapp_text: `Olá ${signatario.nome}, sua assinatura no documento "${documento.titulo}" foi registrada. Código: ${signatario.codigo_validacao}. Verifique em: ${baseUrl}/validar-documento/${signatario.codigo_validacao}`,
+        },
+      }).catch((err: any) => this.logger.error(`Erro notificação confirmação: ${err.message}`));
+    }
+
+    // 2. Notificar o criador do documento (via sistema)
+    if (documento.criado_por_id) {
+      const mensagemCriador = `
+        <p>O signatário <strong>${signatario.nome}</strong> assinou o documento <strong>"${documento.titulo}"</strong>.</p>
+        ${todosAssinaram ? '<p style="color:#16a34a;font-weight:bold;">✅ Todos os signatários assinaram! O documento está concluído.</p>' : '<p>Ainda há signatários pendentes.</p>'}
+        <p><a href="${baseUrl}/orgao/portal-assinaturas">Ver no Portal de Assinaturas</a></p>
+      `;
+      await this.notificacoesService.criar({
+        orgao_id: documento.orgao_id,
+        usuario_id: documento.criado_por_id,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: todosAssinaram
+          ? `Documento Concluído: ${documento.titulo}`
+          : `Assinatura Recebida: ${documento.titulo}`,
+        mensagem: mensagemCriador,
+        enviar_email: false,
+        metadata: { documento_id: documento.id },
+      }).catch((err: any) => this.logger.error(`Erro notificação criador: ${err.message}`));
+    }
+  }
+
+  // =============================================
+  // ADICIONAR SIGNATÁRIO A DOCUMENTO EXISTENTE
+  // =============================================
+
+  async adicionarSignatario(
+    documentoId: string,
+    orgaoId: string,
+    dados: {
+      nome: string;
+      cpf_cnpj: string;
+      email?: string;
+      telefone?: string;
+      is_orgao_user?: boolean;
+      pagina_assinatura?: number;
+      pos_x?: number;
+      pos_y?: number;
+    },
+  ): Promise<SignatarioDocumento> {
+    const doc = await this.documentoRepository.findOne({
+      where: { id: documentoId, orgao_id: orgaoId },
+    });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    if (doc.status === StatusDocumentoAssinatura.CANCELADO) {
+      throw new BadRequestException('Documento cancelado, não é possível adicionar signatários.');
+    }
+
+    // Se o documento já estava CONCLUIDO, voltar para AGUARDANDO_ASSINATURAS
+    if (doc.status === StatusDocumentoAssinatura.CONCLUIDO) {
+      await this.documentoRepository.update(documentoId, {
+        status: StatusDocumentoAssinatura.AGUARDANDO_ASSINATURAS,
+      });
+    }
+
+    const entity = new SignatarioDocumento();
+    entity.documento_id = documentoId;
+    entity.nome = dados.nome;
+    entity.cpf_cnpj = (dados.cpf_cnpj ?? '').replace(/\D/g, '');
+    entity.email = (dados.email ?? '') as string;
+    entity.telefone = dados.telefone ? dados.telefone.replace(/\D/g, '') : null;
+    entity.status = StatusAssinaturaSignatario.PENDENTE;
+    entity.token_acesso = crypto.randomBytes(32).toString('hex');
+    entity.pagina_assinatura = dados.pagina_assinatura as number;
+    entity.pos_x = dados.pos_x as number;
+    entity.pos_y = dados.pos_y as number;
+    entity.is_orgao_user = dados.is_orgao_user ?? false;
+
+    const saved = await this.signatarioRepository.save(entity);
+
+    // Disparar notificação para o novo signatário
+    this.dispararNotificacoesAssinatura(documentoId).catch((err: any) =>
+      this.logger.error(`Erro ao notificar novo signatário: ${err.message}`),
+    );
+
+    return saved;
+  }
+
+  // =============================================
+  // HELPERS
+  // =============================================
 
   private gerarCodigoValidacao(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
