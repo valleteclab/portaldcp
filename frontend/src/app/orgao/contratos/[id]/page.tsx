@@ -219,6 +219,7 @@ export default function DetalheContratoOrgaoPage() {
   const [novoTermo, setNovoTermo] = useState({
     tipo: 'ADITIVO_PRAZO',
     objeto: '',
+    justificativa: '',
     valor_acrescimo: '',
     valor_supressao: '',
     nova_data_vigencia_fim: '',
@@ -319,6 +320,7 @@ export default function DetalheContratoOrgaoPage() {
       const payload = {
         tipo: novoTermo.tipo,
         objeto: novoTermo.objeto,
+        justificativa: novoTermo.justificativa || novoTermo.objeto,
         valor_acrescimo: novoTermo.valor_acrescimo ? parseFloat(novoTermo.valor_acrescimo) : null,
         valor_supressao: novoTermo.valor_supressao ? parseFloat(novoTermo.valor_supressao) : null,
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
@@ -330,7 +332,7 @@ export default function DetalheContratoOrgaoPage() {
       })
       if (res.ok) {
         setModalTermo(false)
-        setNovoTermo({ tipo: 'ADITIVO_PRAZO', objeto: '', valor_acrescimo: '', valor_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
+        setNovoTermo({ tipo: 'ADITIVO_PRAZO', objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
         carregarDados()
       } else {
         const error = await res.json()
@@ -1368,6 +1370,10 @@ export default function DetalheContratoOrgaoPage() {
             <div className="space-y-2">
               <Label>Objeto do Termo *</Label>
               <Textarea placeholder="Descreva o objeto do termo aditivo" value={novoTermo.objeto} onChange={(e) => setNovoTermo({...novoTermo, objeto: e.target.value})} rows={3} />
+            </div>
+            <div className="space-y-2">
+              <Label>Justificativa *</Label>
+              <Textarea placeholder="Justifique a necessidade do termo aditivo (ex.: necessidade de prorrogação para conclusão dos serviços)" value={novoTermo.justificativa} onChange={(e) => setNovoTermo({...novoTermo, justificativa: e.target.value})} rows={2} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

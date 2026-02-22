@@ -441,7 +441,8 @@ export class ContratosService {
       ...dados,
       contrato_id: contratoId,
       sequencial,
-      numero_termo: numeroTermo
+      numero_termo: numeroTermo,
+      justificativa: dados.justificativa ?? dados.objeto ?? '',
     });
 
     const termoSalvo = await this.termoAditivoRepository.save(termo);
