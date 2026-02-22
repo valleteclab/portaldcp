@@ -2,7 +2,7 @@ import { Injectable, ConflictException, NotFoundException, BadRequestException, 
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Fornecedor, NivelCadastro, StatusCadastro, PorteEmpresa } from './entities/fornecedor.entity';
+import { Fornecedor, NivelCadastro, StatusCadastro, PorteEmpresa, TipoPessoa } from './entities/fornecedor.entity';
 import { FornecedorDocumento, StatusDocumento } from './entities/fornecedor-documento.entity';
 import { FornecedorSocio } from './entities/fornecedor-socio.entity';
 import { FornecedorAtividade } from './entities/fornecedor-atividade.entity';
@@ -501,7 +501,6 @@ export class FornecedoresService {
       });
     } catch {
       // CNPJ não encontrado ou API indisponível: criar com dados mínimos (como na migração)
-      const { TipoPessoa } = await import('./entities/enums');
       const fornecedor = await this.fornecedorRepository.save({
         cpf_cnpj: cnpjLimpo,
         razao_social: razao_social.trim() || 'A informar',
