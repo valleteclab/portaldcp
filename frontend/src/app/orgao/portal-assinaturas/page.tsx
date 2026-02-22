@@ -87,7 +87,7 @@ interface PendenciaUsuario {
   created_at: string
 }
 
-type Modo = 'lista' | 'novo' | 'visualizar'
+type Modo = 'lista' | 'novo' | 'visualizar' | 'adicionando'
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   AGUARDANDO_ASSINATURAS: { label: 'Aguardando', color: 'bg-yellow-100 text-yellow-800' },
@@ -132,13 +132,13 @@ export default function PortalAssinaturasPage() {
 
   // Fornecedores cadastrados
   const [fornecedores, setFornecedores] = useState<FornecedorCadastrado[]>([])
-  const [buscaFornecedor, setBuscaFornecedor] = useState<Record<number, string>>({})
+  const [buscaFornecedor, setBuscaFornecedor] = useState<Record<string, string>>({})
 
   // Signatários para novo documento
   const [signatarios, setSignatarios] = useState<NovoSignatario[]>([])
   const [sigAtivo, setSigAtivo] = useState(0)
   const [markers, setMarkers] = useState<PdfMarker[]>([])
-  const [buscaUsuario, setBuscaUsuario] = useState<Record<number, string>>({})
+  const [buscaUsuario, setBuscaUsuario] = useState<Record<string, string>>({})
   const [salvando, setSalvando] = useState(false)
 
   // OTP para assinatura interna
@@ -148,10 +148,11 @@ export default function PortalAssinaturasPage() {
   const [otpLoading, setOtpLoading] = useState(false)
   const [otpErro, setOtpErro] = useState('')
 
-  // Modal adicionar signatário a documento existente
-  const [addSigModal, setAddSigModal] = useState(false)
-  const [addSigDados, setAddSigDados] = useState({ nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false })
+  // Adicionar signatários a documento existente
   const [addSigLoading, setAddSigLoading] = useState(false)
+  const [novosSigs, setNovosSigs] = useState<NovoSignatario[]>([])
+  const [novoSigAtivo, setNovoSigAtivo] = useState(0)
+  const [novoSigMarkers, setNovoSigMarkers] = useState<PdfMarker[]>([])
 
   // Painel direito (signatários ou info)
   const [painelDireito, setPainelDireito] = useState<'info' | 'signatarios'>('info')
@@ -437,31 +438,124 @@ export default function PortalAssinaturasPage() {
     }
   }
 
-  const handleAdicionarSignatario = async () => {
-    if (!docAtivo || !addSigDados.nome || !addSigDados.cpf_cnpj) {
-      alert('Nome e CPF/CNPJ são obrigatórios.')
-      return
-    }
-    setAddSigLoading(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docAtivo.id}/signatarios`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(addSigDados),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        alert(err.message || 'Erro ao adicionar signatário')
+  // ─── Adicionar signatários a documento existente ────────────────────────────
+
+  const iniciarAdicionarSignatarios = () => {
+    setNovosSigs([{ tipo: 'externo', nome: '', cpf_cnpj: '', email: '', telefone: '' }])
+    setNovoSigAtivo(0)
+    setNovoSigMarkers([])
+    setPainelDireito('signatarios')
+    setModo('adicionando')
+  }
+
+  const addNovoSig = () => {
+    setNovosSigs(prev => [...prev, { tipo: 'externo', nome: '', cpf_cnpj: '', email: '', telefone: '' }])
+    setNovoSigAtivo(novosSigs.length)
+  }
+
+  const removeNovoSig = (i: number) => {
+    setNovosSigs(prev => prev.filter((_, idx) => idx !== i))
+    setNovoSigMarkers(prev => prev.filter(m => m.id !== `newsig-${i}`))
+    setNovoSigAtivo(v => Math.max(0, v > i ? v - 1 : v))
+  }
+
+  const updateNovoSig = (i: number, field: keyof NovoSignatario, value: string) =>
+    setNovosSigs(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s))
+
+  const setTipoNovoSig = (i: number, tipo: TipoSignatario) => {
+    setNovosSigs(prev => prev.map((s, idx) => {
+      if (idx !== i) return s
+      if (tipo === 'usuario_sistema') return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: true, usuario_id: undefined }
+      if (tipo === 'fornecedor') return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false, usuario_id: undefined }
+      return { ...s, tipo, nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false, usuario_id: undefined }
+    }))
+    setBuscaUsuario(prev => ({ ...prev, [`new-${i}`]: '' }))
+    setBuscaFornecedor(prev => ({ ...prev, [`new-${i}`]: '' }))
+  }
+
+  const selecionarUsuarioNovoSig = (i: number, u: UsuarioSistema) => {
+    setNovosSigs(prev => prev.map((s, idx) => idx !== i ? s : {
+      ...s, nome: u.nome, cpf_cnpj: u.cpf || '', email: u.email, telefone: '', is_orgao_user: true, usuario_id: u.id
+    }))
+    setBuscaUsuario(prev => ({ ...prev, [`new-${i}`]: u.nome }))
+  }
+
+  const selecionarFornecedorNovoSig = (i: number, f: FornecedorCadastrado) => {
+    setNovosSigs(prev => prev.map((s, idx) => idx !== i ? s : {
+      ...s,
+      nome: f.representante_nome || f.razao_social,
+      cpf_cnpj: f.cpf_cnpj || '',
+      email: f.representante_email || f.email || '',
+      telefone: f.representante_telefone || f.telefone || '',
+      is_orgao_user: false,
+    }))
+    setBuscaFornecedor(prev => ({ ...prev, [`new-${i}`]: f.razao_social }))
+  }
+
+  const handleNovoSigPageClick = (page: number, x: number, y: number) => {
+    if (modo !== 'adicionando') return
+    const id = `newsig-${novoSigAtivo}`
+    const existingSigs = docAtivo?.signatarios?.length || 0
+    setNovoSigMarkers(prev => [
+      ...prev.filter(m => m.id !== id),
+      { id, page, x, y, label: `Sig. ${existingSigs + novoSigAtivo + 1}`, color: CORES[(existingSigs + novoSigAtivo) % CORES.length] },
+    ])
+  }
+
+  const cancelarAdicionando = () => {
+    setNovosSigs([])
+    setNovoSigMarkers([])
+    setNovoSigAtivo(0)
+    setModo('visualizar')
+    setPainelDireito('info')
+  }
+
+  const salvarNovosSigs = async () => {
+    if (!docAtivo) return
+    const validos = novosSigs.filter(s => s.nome.trim())
+    if (validos.length === 0) { alert('Adicione ao menos um signatário com nome.'); return }
+
+    for (const s of validos) {
+      if (s.tipo === 'externo' && !s.email && !s.telefone) {
+        alert(`Signatário "${s.nome}": informe e-mail ou telefone.`)
         return
       }
-      setAddSigModal(false)
-      setAddSigDados({ nome: '', cpf_cnpj: '', email: '', telefone: '', is_orgao_user: false })
-      carregar()
-      // Recarregar o documento ativo
+    }
+
+    setAddSigLoading(true)
+    try {
+      for (let i = 0; i < novosSigs.length; i++) {
+        const sig = novosSigs[i]
+        if (!sig.nome.trim()) continue
+        const marker = novoSigMarkers.find(m => m.id === `newsig-${i}`)
+        const payload = {
+          nome: sig.nome,
+          cpf_cnpj: sig.cpf_cnpj || undefined,
+          email: sig.email || undefined,
+          telefone: sig.telefone || undefined,
+          is_orgao_user: sig.is_orgao_user ?? false,
+          pagina_assinatura: marker?.page,
+          pos_x: marker?.x,
+          pos_y: marker?.y,
+        }
+        const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docAtivo.id}/signatarios`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) {
+          const err = await res.json()
+          alert(err.message || `Erro ao adicionar signatário "${sig.nome}"`)
+          return
+        }
+      }
+      // Recarregar
       const resDoc = await authFetch(`${API_URL}/api/portal-assinaturas/${docAtivo.id}`)
       if (resDoc.ok) setDocAtivo(await resDoc.json())
+      carregar()
+      cancelarAdicionando()
     } catch (e: any) {
-      alert(e.message || 'Erro ao adicionar signatário')
+      alert(e.message || 'Erro ao adicionar signatários')
     } finally {
       setAddSigLoading(false)
     }
@@ -654,12 +748,12 @@ export default function PortalAssinaturasPage() {
         {/* Barra superior */}
         <div className="bg-gray-900 border-b border-gray-700 px-4 py-2 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <button onClick={voltarLista} className="text-gray-400 hover:text-white p-1">
+            <button onClick={modo === 'adicionando' ? cancelarAdicionando : voltarLista} className="text-gray-400 hover:text-white p-1">
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
               <h2 className="font-semibold text-white text-sm truncate max-w-md">
-                {modo === 'novo' ? titulo || 'Novo Documento' : docAtivo?.titulo}
+                {modo === 'novo' ? titulo || 'Novo Documento' : modo === 'adicionando' ? `Adicionando signatários — ${docAtivo?.titulo}` : docAtivo?.titulo}
               </h2>
               {pdfInfo && (
                 <p className="text-xs text-gray-500 font-mono">
@@ -683,9 +777,20 @@ export default function PortalAssinaturasPage() {
             )}
             {modo === 'visualizar' && docAtivo && docAtivo.status !== 'CANCELADO' && (
               <Button size="sm" variant="outline" className="gap-1.5"
-                onClick={() => setAddSigModal(true)}>
+                onClick={iniciarAdicionarSignatarios}>
                 <UserPlus className="h-3.5 w-3.5" /> Adicionar Signatário
               </Button>
+            )}
+            {modo === 'adicionando' && (
+              <>
+                <Button onClick={salvarNovosSigs} disabled={addSigLoading} size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700">
+                  {addSigLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {addSigLoading ? 'Salvando...' : 'Salvar Signatários'}
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={cancelarAdicionando}>
+                  <X className="h-3.5 w-3.5" /> Cancelar
+                </Button>
+              </>
             )}
             {modo === 'visualizar' && docAtivo?.status === 'AGUARDANDO_ASSINATURAS' && (
               <>
@@ -708,8 +813,8 @@ export default function PortalAssinaturasPage() {
             {pdfSrc ? (
               <PdfViewer
                 src={pdfSrc}
-                markers={markers}
-                onPageClick={modo === 'novo' ? handlePageClick : undefined}
+                markers={modo === 'adicionando' ? novoSigMarkers : markers}
+                onPageClick={modo === 'novo' ? handlePageClick : modo === 'adicionando' ? handleNovoSigPageClick : undefined}
                 onDocumentLoad={setPdfInfo}
               />
             ) : (
@@ -722,22 +827,22 @@ export default function PortalAssinaturasPage() {
           {/* ── Painel Direito ── */}
           <div className="w-80 bg-white border-l flex flex-col overflow-hidden shrink-0">
             {/* Tabs do painel */}
-            {modo === 'novo' && (
+            {(modo === 'novo' || modo === 'adicionando') && (
               <div className="flex border-b shrink-0">
                 <button onClick={() => setPainelDireito('info')}
                   className={`flex-1 py-2.5 text-xs font-medium transition-colors ${painelDireito === 'info' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
-                  Integridade
+                  {modo === 'adicionando' ? 'Existentes' : 'Integridade'}
                 </button>
                 <button onClick={() => setPainelDireito('signatarios')}
                   className={`flex-1 py-2.5 text-xs font-medium transition-colors ${painelDireito === 'signatarios' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
-                  Signatários
+                  {modo === 'adicionando' ? 'Novos Signatários' : 'Signatários'}
                 </button>
               </div>
             )}
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* ── Info / Integridade ── */}
-              {(painelDireito === 'info' || modo === 'visualizar') && (
+              {(painelDireito === 'info' || (modo === 'visualizar')) && (
                 <>
                   {/* Título e descrição (editável no modo novo) */}
                   {modo === 'novo' && (
@@ -779,7 +884,7 @@ export default function PortalAssinaturasPage() {
                   </div>
 
                   {/* Signatários do documento existente */}
-                  {modo === 'visualizar' && docAtivo && (
+                  {(modo === 'visualizar' || (modo === 'adicionando' && painelDireito === 'info')) && docAtivo && (
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
                         <Users className="h-3.5 w-3.5" /> Signatários ({docAtivo.signatarios.length})
@@ -1001,6 +1106,168 @@ export default function PortalAssinaturasPage() {
                   )}
                 </>
               )}
+
+              {/* ── Novos Signatários (modo adicionando) ── */}
+              {painelDireito === 'signatarios' && modo === 'adicionando' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1">
+                      <UserPlus className="h-3.5 w-3.5" /> Novos Signatários
+                    </p>
+                    <span className="text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
+                      Clique no PDF para posicionar
+                    </span>
+                  </div>
+
+                  {novosSigs.map((sig, i) => {
+                    const existingSigs = docAtivo?.signatarios?.length || 0
+                    const cor = CORES[(existingSigs + i) % CORES.length]
+                    const marker = novoSigMarkers.find(m => m.id === `newsig-${i}`)
+                    const buscaKey = `new-${i}`
+                    const usuariosFiltrados = usuariosSistema.filter(u =>
+                      u.nome.toLowerCase().includes((buscaUsuario[buscaKey] || '').toLowerCase()) ||
+                      u.email.toLowerCase().includes((buscaUsuario[buscaKey] || '').toLowerCase())
+                    )
+                    const termoBuscaForn = (buscaFornecedor[buscaKey] || '').toLowerCase()
+                    const fornFiltrados = fornecedores.filter(f =>
+                      f.razao_social?.toLowerCase().includes(termoBuscaForn) ||
+                      f.nome_fantasia?.toLowerCase().includes(termoBuscaForn) ||
+                      f.cpf_cnpj?.includes(termoBuscaForn)
+                    )
+                    return (
+                      <div key={i} className={`rounded-lg border p-3 space-y-2 transition-all ${novoSigAtivo === i ? 'border-blue-400 bg-blue-50/50' : 'border-gray-200'}`}
+                        onClick={() => setNovoSigAtivo(i)}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ backgroundColor: cor }}>{existingSigs + i + 1}</div>
+                            <span className="text-sm font-medium text-gray-800">{sig.nome || `Novo Sig. ${i + 1}`}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {marker && <span className="text-[10px] text-green-600">✓ Pos.</span>}
+                            {novosSigs.length > 1 && (
+                              <button onClick={e => { e.stopPropagation(); removeNovoSig(i) }} className="text-red-400 hover:text-red-600 p-0.5">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Tipo */}
+                        <div className="flex gap-1">
+                          {([
+                            { tipo: 'usuario_sistema' as TipoSignatario, label: 'Interno' },
+                            { tipo: 'fornecedor' as TipoSignatario, label: 'Fornecedor' },
+                            { tipo: 'externo' as TipoSignatario, label: 'Externo' },
+                          ]).map(opt => (
+                            <button key={opt.tipo}
+                              onClick={e => { e.stopPropagation(); setTipoNovoSig(i, opt.tipo) }}
+                              className={`flex-1 py-1 rounded text-[10px] font-medium transition-all ${sig.tipo === opt.tipo ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Campos por tipo */}
+                        {sig.tipo === 'usuario_sistema' && (
+                          <div className="space-y-1">
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                              <Input placeholder="Buscar usuário..." value={buscaUsuario[buscaKey] || ''}
+                                onChange={e => setBuscaUsuario(prev => ({ ...prev, [buscaKey]: e.target.value }))}
+                                className="pl-7 h-7 text-xs" onClick={e => e.stopPropagation()} />
+                            </div>
+                            {(buscaUsuario[buscaKey] || '').length > 0 && !sig.nome && (
+                              <div className="border rounded max-h-28 overflow-y-auto">
+                                {usuariosFiltrados.length === 0 ? (
+                                  <p className="text-[10px] text-gray-400 p-2 text-center">Nenhum encontrado</p>
+                                ) : usuariosFiltrados.map(u => (
+                                  <button key={u.id} onClick={e => { e.stopPropagation(); selecionarUsuarioNovoSig(i, u) }}
+                                    className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-xs border-b last:border-0">
+                                    <p className="font-medium text-gray-800">{u.nome}</p>
+                                    <p className="text-[10px] text-gray-400">{u.email}</p>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {sig.nome && (
+                              <div className="text-xs text-green-700 bg-green-50 rounded p-2 flex items-center gap-1">
+                                <CheckCircle className="h-3 w-3" /> {sig.nome}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {sig.tipo === 'fornecedor' && (
+                          <div className="space-y-1">
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                              <Input placeholder="Buscar fornecedor (nome, CNPJ)..." value={buscaFornecedor[buscaKey] || ''}
+                                onChange={e => setBuscaFornecedor(prev => ({ ...prev, [buscaKey]: e.target.value }))}
+                                className="pl-7 h-7 text-xs" onClick={e => e.stopPropagation()} />
+                            </div>
+                            {termoBuscaForn.length > 0 && !sig.nome && (
+                              <div className="border rounded max-h-36 overflow-y-auto">
+                                {fornFiltrados.length === 0 ? (
+                                  <p className="text-[10px] text-gray-400 p-2 text-center">Nenhum fornecedor encontrado</p>
+                                ) : fornFiltrados.slice(0, 10).map(f => (
+                                  <button key={f.id} onClick={e => { e.stopPropagation(); selecionarFornecedorNovoSig(i, f) }}
+                                    className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-xs border-b last:border-0">
+                                    <p className="font-medium text-gray-800">{f.razao_social}</p>
+                                    <p className="text-[10px] text-gray-400">{f.cpf_cnpj} · {f.email}</p>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {sig.nome && (
+                              <div className="bg-green-50 border border-green-200 rounded-lg p-2 space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-medium text-green-800 flex items-center gap-1">
+                                    <CheckCircle className="h-3 w-3" /> {sig.nome}
+                                  </p>
+                                  <button onClick={e => { e.stopPropagation(); updateNovoSig(i, 'nome', ''); setBuscaFornecedor(prev => ({ ...prev, [buscaKey]: '' })) }}
+                                    className="text-gray-400 hover:text-red-500"><X className="h-3 w-3" /></button>
+                                </div>
+                                <div className="text-[10px] text-gray-600 space-y-0.5 pl-4">
+                                  <p><Mail className="h-2.5 w-2.5 inline mr-1" />{sig.email || 'Sem e-mail'}</p>
+                                  <p><Phone className="h-2.5 w-2.5 inline mr-1" />{sig.telefone || 'Sem telefone'}</p>
+                                  {sig.cpf_cnpj && <p className="font-mono">{sig.cpf_cnpj}</p>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {sig.tipo === 'externo' && (
+                          <div className="space-y-1" onClick={e => e.stopPropagation()}>
+                            <Input placeholder="Nome completo *" value={sig.nome} onChange={e => updateNovoSig(i, 'nome', e.target.value)} className="h-7 text-xs" />
+                            <div className="flex gap-1">
+                              <Input placeholder="CPF/CNPJ" value={sig.cpf_cnpj} onChange={e => updateNovoSig(i, 'cpf_cnpj', e.target.value)} className="h-7 text-xs" />
+                              <Input placeholder="Telefone" value={sig.telefone} onChange={e => updateNovoSig(i, 'telefone', e.target.value)} className="h-7 text-xs" />
+                            </div>
+                            <Input placeholder="E-mail *" type="email" value={sig.email} onChange={e => updateNovoSig(i, 'email', e.target.value)} className="h-7 text-xs" />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  <button onClick={addNovoSig}
+                    className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-1">
+                    <Plus className="h-3 w-3" /> Adicionar mais um signatário
+                  </button>
+
+                  {novosSigs.some(s => s.tipo === 'externo' || s.tipo === 'fornecedor') && (
+                    <div className="text-[10px] text-blue-600 bg-blue-50 rounded p-2">
+                      Externos e fornecedores receberão link por e-mail/WhatsApp com validação OTP.
+                    </div>
+                  )}
+                  {novosSigs.some(s => s.tipo === 'usuario_sistema') && (
+                    <div className="text-[10px] text-green-600 bg-green-50 rounded p-2">
+                      Internos assinarão pelo portal com verificação OTP por e-mail.
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1050,51 +1317,6 @@ export default function PortalAssinaturasPage() {
                     </button>
                   </>
                 )}
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
-        {/* Modal Adicionar Signatário */}
-        {addSigModal && docAtivo && (
-          <Dialog open onOpenChange={() => setAddSigModal(false)}>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <UserPlus className="h-5 w-5 text-blue-600" />
-                  Adicionar Signatário
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <p className="text-sm text-gray-500">
-                  Adicione um novo signatário ao documento <strong>"{docAtivo.titulo}"</strong>.
-                  As assinaturas já realizadas serão mantidas.
-                </p>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Nome *</label>
-                  <Input value={addSigDados.nome} onChange={e => setAddSigDados(p => ({ ...p, nome: e.target.value }))} placeholder="Nome completo" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">CPF/CNPJ *</label>
-                  <Input value={addSigDados.cpf_cnpj} onChange={e => setAddSigDados(p => ({ ...p, cpf_cnpj: e.target.value }))} placeholder="000.000.000-00" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">E-mail</label>
-                  <Input value={addSigDados.email} onChange={e => setAddSigDados(p => ({ ...p, email: e.target.value }))} placeholder="email@exemplo.com" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Telefone (WhatsApp)</label>
-                  <Input value={addSigDados.telefone} onChange={e => setAddSigDados(p => ({ ...p, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={addSigDados.is_orgao_user}
-                    onChange={e => setAddSigDados(p => ({ ...p, is_orgao_user: e.target.checked }))}
-                    className="rounded border-gray-300" />
-                  Usuário interno do órgão
-                </label>
-                <Button onClick={handleAdicionarSignatario} disabled={addSigLoading} className="w-full gap-2">
-                  {addSigLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                  Adicionar e Notificar
-                </Button>
               </div>
             </DialogContent>
           </Dialog>
