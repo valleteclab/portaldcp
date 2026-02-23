@@ -1,0 +1,8 @@
+[Cursor] feat: WhatsApp via Z-API - envio junto com email
+
+- Migration: campos whatsapp_* em orgaos, usuario_telefone em notificacoes
+- WhatsAppModule com ZApiProvider e MetaChatwootProvider (stub)
+- Config por orgao e config global (fallback) no Admin
+- Integracao em NotificacoesService e OrdemFornecimentoService
+- Callers atualizados para passar telefone (aprovadores, liberadores, medicões)
+- UI Admin: modais Configurar WhatsApp e WhatsApp Global

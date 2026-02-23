@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Medições - Câmara Municipal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Public+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            font-family: 'Public Sans', sans-serif;
+        }
+        
+        .serif {
+            font-family: 'DM Serif Display', serif;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .animate-slide-in {
+            animation: slideIn 0.4s ease-out forwards;
+        }
+        
+        .status-badge {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .status-badge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.5s;
+        }
+        
+        .status-badge:hover::before {
+            left: 100%;
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px -10px rgba(0,0,0,0.15);
+        }
+        
+        .timeline-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            position: relative;
+        }
+        
+        .timeline-dot::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            top: -4px;
+            left: -4px;
+            background: inherit;
+            opacity: 0.2;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.2; }
+            50% { transform: scale(1.3); opacity: 0; }
+        }
+        
+        .badge-pulse {
+            animation: badge-pulse 2s infinite;
+        }
+        
+        @keyframes badge-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900 serif">Painel de Medições</h1>
+                    <p class="text-sm text-gray-600 mt-1">Controle mensal de contratos e notas fiscais</p>
+                </div>
+                <button class="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    <span class="text-sm font-medium">Atualizar</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-7xl mx-auto px-6 py-8">
+        <!-- Seletor de Competência -->
+        <div class="mb-8 animate-slide-in">
+            <label class="block text-sm font-medium text-gray-700 mb-3">Competência (Mês de Referência)</label>
+            <div class="flex gap-3 items-center">
+                <button class="p-2 hover:bg-gray-200 rounded-lg transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </button>
+                <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <div class="text-center">
+                        <div class="text-4xl font-bold text-gray-900 serif">Janeiro</div>
+                        <div class="text-xl text-gray-600 mt-1">2026</div>
+                    </div>
+                </div>
+                <button class="p-2 hover:bg-gray-200 rounded-lg transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Cards de Status -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8" style="animation-delay: 0.1s">
+            <!-- Aguardando Fornecedor -->
+            <div class="bg-white rounded-xl p-6 border-l-4 border-amber-500 shadow-sm card-hover">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <span class="status-badge px-3 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full">PENDENTE</span>
+                </div>
+                <div class="text-3xl font-bold text-gray-900 mb-1">2</div>
+                <div class="text-sm text-gray-600">Aguardando Fornecedor</div>
+                <div class="text-xs text-gray-500 mt-2">Medições solicitadas</div>
+            </div>
+
+            <!-- Aguardando Seu Ateste -->
+            <div class="bg-white rounded-xl p-6 border-l-4 border-blue-500 shadow-sm card-hover">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center badge-pulse">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <span class="status-badge px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">AÇÃO NECESSÁRIA</span>
+                </div>
+                <div class="text-3xl font-bold text-gray-900 mb-1">1</div>
+                <div class="text-sm text-gray-600">Aguardando Seu Ateste</div>
+                <div class="text-xs text-gray-500 mt-2">Submetidas pelos fornecedores</div>
+            </div>
+
+            <!-- Aguardando Aprovação -->
+            <div class="bg-white rounded-xl p-6 border-l-4 border-purple-500 shadow-sm card-hover">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <span class="status-badge px-3 py-1 bg-purple-100 text-purple-800 text-xs font-semibold rounded-full">EM APROVAÇÃO</span>
+                </div>
+                <div class="text-3xl font-bold text-gray-900 mb-1">0</div>
+                <div class="text-sm text-gray-600">Aguardando Aprovação</div>
+                <div class="text-xs text-gray-500 mt-2">Atestadas no Central de Aprovações</div>
+            </div>
+
+            <!-- Aprovadas -->
+            <div class="bg-white rounded-xl p-6 border-l-4 border-green-500 shadow-sm card-hover">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    <span class="status-badge px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">CONCLUÍDO</span>
+                </div>
+                <div class="text-3xl font-bold text-gray-900 mb-1">0</div>
+                <div class="text-sm text-gray-600">Aprovadas</div>
+                <div class="text-xs text-gray-500 mt-2">Finalizadas no mês</div>
+            </div>
+        </div>
+
+        <!-- Medições Pendentes -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6 animate-slide-in" style="animation-delay: 0.2s">
+            <div class="px-6 py-4 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-100">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+                    <h3 class="font-semibold text-gray-900">Medições Pendentes (2)</h3>
+                    <span class="text-xs text-amber-700 ml-auto">Aguardando envio dos fornecedores</span>
+                </div>
+            </div>
+            
+            <div class="divide-y divide-gray-100">
+                <!-- Medição 1 -->
+                <div class="p-6 hover:bg-gray-50 transition">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-mono rounded">Med. #001</span>
+                                <span class="text-xs text-gray-500">•</span>
+                                <span class="text-sm font-medium text-gray-900">Contrato 001/2026</span>
+                            </div>
+                            <h4 class="text-lg font-semibold text-gray-900 mb-1">VALITECLAS EMPREENDIMENTOS LTDA</h4>
+                            <p class="text-sm text-gray-600 mb-3">Competência: <span class="font-semibold">Janeiro/2026</span></p>
+                            
+                            <!-- Timeline de Status -->
+                            <div class="flex items-center gap-2 mb-3">
+                                <div class="flex items-center gap-2">
+                                    <div class="timeline-dot bg-amber-500"></div>
+                                    <span class="text-xs text-gray-700 font-medium">Solicitada</span>
+                                </div>
+                                <div class="flex-1 h-0.5 bg-gray-200"></div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                                    <span class="text-xs text-gray-400">Submetida</span>
+                                </div>
+                                <div class="flex-1 h-0.5 bg-gray-200"></div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                                    <span class="text-xs text-gray-400">Atestada</span>
+                                </div>
+                                <div class="flex-1 h-0.5 bg-gray-200"></div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                                    <span class="text-xs text-gray-400">Aprovada</span>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-4 text-sm">
+                                <div class="flex items-center gap-1 text-gray-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <span>Solicitada: 04/02/2026</span>
+                                </div>
+                                <div class="flex items-center gap-1 text-gray-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    <span>23 itens atestados</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-right ml-4">
+                            <div class="text-2xl font-bold text-gray-900">R$ 75.000,00</div>
+                            <div class="text-xs text-gray-500 mt-1">Valor da medição</div>
+                            <button class="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition shadow-sm">
+                                Continuar Ateste
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100">
+                        <span class="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full">PARCIALMENTE ATESTADA</span>
+                        <span class="text-xs text-gray-500">• Aguardando conclusão do ateste</span>
+                    </div>
+                </div>
+
+                <!-- Medição 2 -->
+                <div class="p-6 hover:bg-gray-50 transition">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-mono rounded">Med. #003</span>
+                                <span class="text-xs text-gray-500">•</span>
+                                <span class="text-sm font-medium text-gray-900">Contrato 001/2026</span>
+                            </div>
+                            <h4 class="text-lg font-semibold text-gray-900 mb-1">VALITECLAS EMPREENDIMENTOS LTDA</h4>
+                            <p class="text-sm text-gray-600 mb-3">Competência: <span class="font-semibold">Janeiro/2026</span></p>
+                            
+                            <!-- Timeline de Status -->
+                            <div class="flex items-center gap-2 mb-3">
+                                <div class="flex items-center gap-2">
+                                    <div class="timeline-dot bg-green-500"></div>
+                                    <span class="text-xs text-gray-700 font-medium">Solicitada</span>
+                                </div>
+                                <div class="flex-1 h-0.5 bg-gray-200"></div>
+                                <div class="flex items-center gap-2">
+                                    <div class="timeline-dot bg-amber-500"></div>
+                                    <span class="text-xs text-gray-700 font-medium">Submetida</span>
+                                </div>
+                                <div class="flex-1 h-0.5 bg-gray-200"></div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                                    <span class="text-xs text-gray-400">Atestada</span>
+                                </div>
+                                <div class="flex-1 h-0.5 bg-gray-200"></div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                                    <span class="text-xs text-gray-400">Aprovada</span>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-4 text-sm">
+                                <div class="flex items-center gap-1 text-gray-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <span>Solicitada: 01/02/2026</span>
+                                </div>
+                                <div class="flex items-center gap-1 text-gray-600">
+                                    <span>•</span>
+                                    <span>Submetida: 08/02/2026</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="text-right ml-4">
+                            <div class="text-2xl font-bold text-gray-900">R$ 15.000,00</div>
+                            <div class="text-xs text-gray-500 mt-1">Valor da medição</div>
+                            <button class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition shadow-sm">
+                                Atestar Medição
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100">
+                        <span class="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">SUBMETIDA</span>
+                        <span class="text-xs text-gray-500">• Enviada pelo fornecedor, aguardando seu ateste</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Solicitar Nova Medição -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-slide-in" style="animation-delay: 0.3s">
+            <div class="flex items-center gap-2 mb-4">
+                <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                </svg>
+                <h3 class="font-semibold text-gray-900">Solicitar Nova Medição — Janeiro/2026</h3>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Selecionar Contrato</label>
+                <select class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option>009/2025 - EME ENERGIA SOLAR LTDA</option>
+                    <option>008/2025 - CONSTRUTORA ABC LTDA</option>
+                    <option>007/2025 - SERVIÇOS XYZ S.A.</option>
+                </select>
+            </div>
+            
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div class="flex gap-3">
+                    <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <div class="text-sm text-blue-900">
+                        <p class="font-medium mb-1">Sobre a solicitação de medição</p>
+                        <p class="text-blue-800">Ao solicitar, você está pedindo que o fornecedor envie a planilha de medições e notas fiscais referentes aos serviços executados em <strong>Janeiro/2026</strong>.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Mensagem ao fornecedor (opcional)</label>
+                <textarea class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" rows="3" placeholder="Ex: Prezados, solicito a medição referente aos serviços prestados em Janeiro/2026..."></textarea>
+            </div>
+            
+            <div class="flex gap-3">
+                <button class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition shadow-sm flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                    </svg>
+                    Solicitar Medição
+                </button>
+                <button class="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition">
+                    Solicitar para Todos os Contratos
+                </button>
+            </div>
+        </div>
+
+        <!-- Contratos do Mês -->
+        <div class="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 animate-slide-in" style="animation-delay: 0.4s">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="font-semibold text-gray-900">Contratos Ativos — Janeiro/2026</h3>
+                <p class="text-sm text-gray-600 mt-1">Visualização completa por contrato</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Contrato</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Fornecedor</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Nº Med.</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Valor</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 text-sm font-mono text-gray-900">001/2026</td>
+                                <td class="px-4 py-3 text-sm text-gray-900">Valiteclas Empreendimentos</td>
+                                <td class="px-4 py-3 text-sm text-gray-600">#001, #003</td>
+                                <td class="px-4 py-3">
+                                    <span class="px-2 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded">2 pendentes</span>
+                                </td>
+                                <td class="px-4 py-3 text-sm font-semibold text-gray-900">R$ 90.000,00</td>
+                                <td class="px-4 py-3">
+                                    <button class="text-blue-600 hover:text-blue-700 text-sm font-medium">Ver detalhes</button>
+                                </td>
+                            </tr>
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 text-sm font-mono text-gray-900">009/2025</td>
+                                <td class="px-4 py-3 text-sm text-gray-900">EME Energia Solar LTDA</td>
+                                <td class="px-4 py-3 text-sm text-gray-600">—</td>
+                                <td class="px-4 py-3">
+                                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded">Não solicitada</span>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-600">—</td>
+                                <td class="px-4 py-3">
+                                    <button class="text-blue-600 hover:text-blue-700 text-sm font-medium">Solicitar</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Info -->
+    <div class="max-w-7xl mx-auto px-6 py-8">
+        <div class="bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl p-6 border border-gray-200">
+            <h4 class="font-semibold text-gray-900 mb-3">📋 Como funciona o fluxo?</h4>
+            <div class="grid md:grid-cols-4 gap-4 text-sm">
+                <div>
+                    <div class="font-medium text-amber-700 mb-1">1. Solicitada</div>
+                    <p class="text-gray-600">Você solicita a medição ao fornecedor para a competência do mês</p>
+                </div>
+                <div>
+                    <div class="font-medium text-blue-700 mb-1">2. Submetida</div>
+                    <p class="text-gray-600">Fornecedor envia planilha de medições e notas fiscais</p>
+                </div>
+                <div>
+                    <div class="font-medium text-purple-700 mb-1">3. Atestada</div>
+                    <p class="text-gray-600">Você verifica e atesta os itens executados</p>
+                </div>
+                <div>
+                    <div class="font-medium text-green-700 mb-1">4. Aprovada</div>
+                    <p class="text-gray-600">Central de Aprovações finaliza o processo</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
