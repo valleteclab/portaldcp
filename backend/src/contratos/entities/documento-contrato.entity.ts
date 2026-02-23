@@ -24,7 +24,7 @@ export class DocumentoContrato {
   contrato_id: string;
 
   @Column({ nullable: true })
-  termo_aditivo_id: string;
+  termo_aditivo_id: string | null;
 
   @ManyToOne(() => TermoAditivo, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'termo_aditivo_id' })
