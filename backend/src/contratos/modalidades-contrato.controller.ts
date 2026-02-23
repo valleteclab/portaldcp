@@ -189,8 +189,9 @@ export class ModalidadesContratoController {
     if (contrato.orgao_id !== orgaoId) {
       throw new ForbiddenException('Você não tem permissão para acessar este contrato');
     }
-    if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
-      throw new BadRequestException('Contrato não é da modalidade MEDICAO');
+    const modalidadesComMedicao = [ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA];
+    if (!modalidadesComMedicao.includes(contrato.modalidade_execucao)) {
+      throw new BadRequestException('Contrato não suporta medições');
     }
     if (!body.mes_referencia?.trim()) {
       throw new BadRequestException('mes_referencia é obrigatório (formato YYYY-MM)');
@@ -242,8 +243,9 @@ export class ModalidadesContratoController {
           resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Sem permissão' });
           continue;
         }
-        if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
-          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Não é modalidade medição' });
+        const modalidadesComMedicao = [ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA];
+        if (!modalidadesComMedicao.includes(contrato.modalidade_execucao)) {
+          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Não é modalidade com medição' });
           continue;
         }
         const telefoneOverride = body.telefone_overrides?.[contratoId];

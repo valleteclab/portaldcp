@@ -195,6 +195,8 @@ export default function FornecedorContratoDetalhePage() {
   const [loading, setLoading] = useState(true);
   const [fornecedor, setFornecedor] = useState<any>(null);
 
+  const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(contrato?.modalidade_execucao || '');
+
   // Modal Nova Medição
   const [modalNovaMedicao, setModalNovaMedicao] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -205,6 +207,7 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_numero: '',
     nota_fiscal_valor: '',
     nota_fiscal_data: '',
+    valor_medido: '',
     itens: [] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }[],
   });
   // Discriminação de Despesas
@@ -364,112 +367,70 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
-      // Validar campos obrigatórios
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
         alert('Informe o período de início e fim da medição');
         setSubmitting(false);
         return;
       }
 
-      const itensComValor = novaMedicao.itens
-        .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
-        .map(i => ({
-          etapa_id: i.etapa_id,
-          percentual_executado_atual: i.percentual_executado_atual || 0,
-          valor_executado_atual: i.valor_executado_atual || undefined,
-        }));
+      const payload: any = {
+        periodo_inicio: novaMedicao.periodo_inicio || undefined,
+        periodo_fim: novaMedicao.periodo_fim || undefined,
+        observacoes: novaMedicao.observacoes || undefined,
+        nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
+        nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+        nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
+        fornecedor_id: fornecedor.id,
+        fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
+      };
 
-      if (itensComValor.length === 0) {
-        alert('Informe o percentual ou valor executado em pelo menos uma etapa');
-        setSubmitting(false);
-        return;
-      }
-
-      // Validar saldo disponível
-      if (resumo) {
-        const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
-          const etapa = etapas[idx];
-          if (!etapa) return acc;
-          if (item.modo_input === 'valor' && item.valor_executado_atual) {
-            return acc + item.valor_executado_atual;
-          }
-          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-        }, 0);
-
-        if (totalMedicao > resumo.saldo_disponivel + 0.01) {
-          alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`);
-          setSubmitting(false);
-          return;
+      if (isServicoContinuado) {
+        const valor = parseFloat(novaMedicao.valor_medido) || 0;
+        if (valor <= 0) { alert('Informe o valor medido'); setSubmitting(false); return; }
+        if (resumo && valor > resumo.saldo_disponivel + 0.01) {
+          alert(`O valor da medição (${formatarMoeda(valor)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`);
+          setSubmitting(false); return;
         }
-      }
+        payload.valor_medido = valor;
+      } else {
+        const itensComValor = novaMedicao.itens
+          .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
+          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
+        if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
-      // Validar que nenhum item excede o restante da etapa
-      // Considera percentual aprovado + percentual em trânsito (de medições submetidas/em análise)
-      const etapasCompr = resumo?.etapas_comprometidas || {};
-      for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
-        const item = novaMedicao.itens[idx];
-        const etapa = etapas[idx];
-        if (!etapa || !item) continue;
-        const percAprovado = Number(etapa.percentual_executado);
-        const percEmTransito = etapasCompr[etapa.id] || 0;
-        const restante = 100 - percAprovado - percEmTransito;
-        const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0
-          ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100
-          : item.percentual_executado_atual;
-        if (percUsado > restante + 0.01) {
-          const msg = percEmTransito > 0
-            ? `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponivel (aprovado: ${percAprovado.toFixed(1)}%, em analise: ${percEmTransito.toFixed(1)}%), mas voce informou ${percUsado.toFixed(1)}%.`
-            : `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas voce informou ${percUsado.toFixed(1)}%.`;
-          alert(msg);
-          setSubmitting(false);
-          return;
+        if (resumo) {
+          const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
+            const etapa = etapas[idx]; if (!etapa) return acc;
+            return item.modo_input === 'valor' && item.valor_executado_atual ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+          }, 0);
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
+
+        const etapasCompr = resumo?.etapas_comprometidas || {};
+        for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
+          const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item) continue;
+          const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasCompr[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
+          const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
+          if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
+        }
+        payload.itens = itensComValor;
       }
 
       const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          periodo_inicio: novaMedicao.periodo_inicio || undefined,
-          periodo_fim: novaMedicao.periodo_fim || undefined,
-          observacoes: novaMedicao.observacoes || undefined,
-          nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
-          nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
-          nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
-          fornecedor_id: fornecedor.id,
-          fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
-          itens: itensComValor,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         const medicaoCriada = await res.json();
-        // Salvar discriminações de despesas
         if (discriminacoes.length > 0 && medicaoCriada?.id) {
-          try {
-            await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }),
-            });
-          } catch { /* silently ignore */ }
+          try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
         }
-        // Upload de arquivos pendentes (fotos/documentos)
-        if (arquivosPendentes.length > 0 && medicaoCriada?.id) {
-          await uploadArquivosPendentes(medicaoCriada.id);
-        }
+        if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
         setModalNovaMedicao(false);
-        setNovaMedicao({
-          periodo_inicio: '', periodo_fim: '', observacoes: '',
-          nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
-          itens: [],
-        });
-        setDiscriminacoes([]);
-        setArquivosPendentes([]);
-        carregarDados();
+        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
       } else {
-        const err = await res.json();
-        alert(err.message || 'Erro ao criar medição');
+        const err = await res.json(); alert(err.message || 'Erro ao criar medição');
       }
     } catch (error) {
       alert('Erro ao criar medição');
@@ -483,139 +444,79 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
-      // Validar campos obrigatórios
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
         alert('Informe o período de início e fim da medição');
         setSubmitting(false);
         return;
       }
 
-      const itensComValor = novaMedicao.itens
-        .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
-        .map(i => ({
-          etapa_id: i.etapa_id,
-          percentual_executado_atual: i.percentual_executado_atual || 0,
-          valor_executado_atual: i.valor_executado_atual || undefined,
-        }));
+      const payload: any = {
+        periodo_inicio: novaMedicao.periodo_inicio || undefined,
+        periodo_fim: novaMedicao.periodo_fim || undefined,
+        observacoes: novaMedicao.observacoes || undefined,
+        nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
+        nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+        nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
+        fornecedor_id: fornecedor.id,
+        fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
+      };
 
-      if (itensComValor.length === 0) {
-        alert('Informe o percentual ou valor executado em pelo menos uma etapa');
-        setSubmitting(false);
-        return;
-      }
-
-      // Validar saldo disponível
-      if (resumo) {
-        const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
-          const etapa = etapas[idx];
-          if (!etapa) return acc;
-          if (item.modo_input === 'valor' && item.valor_executado_atual) {
-            return acc + item.valor_executado_atual;
-          }
-          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-        }, 0);
-
-        if (totalMedicao > resumo.saldo_disponivel + 0.01) {
-          alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`);
-          setSubmitting(false);
-          return;
+      if (isServicoContinuado) {
+        const valor = parseFloat(novaMedicao.valor_medido) || 0;
+        if (valor <= 0) { alert('Informe o valor medido'); setSubmitting(false); return; }
+        if (resumo && valor > resumo.saldo_disponivel + 0.01) {
+          alert(`O valor da medição (${formatarMoeda(valor)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`);
+          setSubmitting(false); return;
         }
-      }
+        payload.valor_medido = valor;
+      } else {
+        const itensComValor = novaMedicao.itens
+          .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
+          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
+        if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
-      // Validar que nenhum item excede o restante da etapa (considerando em trânsito)
-      const etapasComprCS = resumo?.etapas_comprometidas || {};
-      for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
-        const item = novaMedicao.itens[idx];
-        const etapa = etapas[idx];
-        if (!etapa || !item) continue;
-        const percAprovado = Number(etapa.percentual_executado);
-        const percEmTransito = etapasComprCS[etapa.id] || 0;
-        const restante = 100 - percAprovado - percEmTransito;
-        const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0
-          ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100
-          : item.percentual_executado_atual;
-        if (percUsado > restante + 0.01) {
-          const msg = percEmTransito > 0
-            ? `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponivel (aprovado: ${percAprovado.toFixed(1)}%, em analise: ${percEmTransito.toFixed(1)}%), mas voce informou ${percUsado.toFixed(1)}%.`
-            : `A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% restante, mas voce informou ${percUsado.toFixed(1)}%.`;
-          alert(msg);
-          setSubmitting(false);
-          return;
+        if (resumo) {
+          const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
+            const etapa = etapas[idx]; if (!etapa) return acc;
+            return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+          }, 0);
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
+
+        const etapasComprCS = resumo?.etapas_comprometidas || {};
+        for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
+          const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item) continue;
+          const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasComprCS[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
+          const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
+          if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
+        }
+        payload.itens = itensComValor;
       }
 
-      // Passo 1: Criar medição como RASCUNHO
       const resCriar = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          periodo_inicio: novaMedicao.periodo_inicio || undefined,
-          periodo_fim: novaMedicao.periodo_fim || undefined,
-          observacoes: novaMedicao.observacoes || undefined,
-          nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
-          nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
-          nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
-          fornecedor_id: fornecedor.id,
-          fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
-          itens: itensComValor,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
 
-      if (!resCriar.ok) {
-        const err = await resCriar.json();
-        alert(err.message || 'Erro ao criar medição');
-        setSubmitting(false);
-        return;
-      }
-
+      if (!resCriar.ok) { const err = await resCriar.json(); alert(err.message || 'Erro ao criar medição'); setSubmitting(false); return; }
       const medicaoCriada = await resCriar.json();
 
-      // Salvar discriminações de despesas
       if (discriminacoes.length > 0 && medicaoCriada?.id) {
-        try {
-          await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }),
-          });
-        } catch { /* silently ignore */ }
+        try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
       }
+      if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
 
-      // Upload de arquivos pendentes (fotos/documentos) antes de submeter
-      if (arquivosPendentes.length > 0 && medicaoCriada?.id) {
-        await uploadArquivosPendentes(medicaoCriada.id);
-      }
-
-      // Passo 2: Submeter automaticamente (RASCUNHO → SUBMETIDA)
       const resSubmeter = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/submeter`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fornecedor_id: fornecedor.id,
-          fornecedor_observacoes: novaMedicao.observacoes || undefined,
-          nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
-          nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
-          nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
-        }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fornecedor_id: fornecedor.id, fornecedor_observacoes: novaMedicao.observacoes || undefined, nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined, nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined, nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined }),
       });
 
       if (resSubmeter.ok) {
         setModalNovaMedicao(false);
-        setNovaMedicao({
-          periodo_inicio: '', periodo_fim: '', observacoes: '',
-          nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
-          itens: [],
-        });
-        setDiscriminacoes([]);
-        setArquivosPendentes([]);
-        carregarDados();
+        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
       } else {
-        // Medição foi criada mas falhou ao submeter - informa o usuário
         alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
-        setModalNovaMedicao(false);
-        setDiscriminacoes([]);
-        setArquivosPendentes([]);
-        carregarDados();
+        setModalNovaMedicao(false); setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
       }
     } catch (error) {
       alert('Erro ao criar medição');
@@ -677,7 +578,8 @@ export default function FornecedorContratoDetalhePage() {
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
-      itens: etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
+      valor_medido: '',
+      itens: isServicoContinuado ? [] : etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
     setArquivosPendentes([]);
     setDiscriminacoes([]);
@@ -686,17 +588,15 @@ export default function FornecedorContratoDetalhePage() {
 
   // Reaproveitar despesas do último mês: usa apenas % da última medição aprovada e recalcula valores pela medição atual
   const reaproveitarDespesasUltimoMes = async () => {
-    const valorMedidoAtual = novaMedicao.itens.reduce((acc, item, idx) => {
-      const etapa = etapas[idx];
-      if (!etapa) return acc;
-      if (item.modo_input === 'valor' && item.valor_executado_atual) {
-        return acc + item.valor_executado_atual;
-      }
-      return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-    }, 0);
+    const valorMedidoAtual = isServicoContinuado
+      ? (parseFloat(novaMedicao.valor_medido) || 0)
+      : novaMedicao.itens.reduce((acc, item, idx) => {
+          const etapa = etapas[idx]; if (!etapa) return acc;
+          return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+        }, 0);
 
     if (valorMedidoAtual <= 0) {
-      alert('Preencha os itens da planilha de medição do serviço antes de reaproveitar.');
+      alert(isServicoContinuado ? 'Informe o valor medido antes de reaproveitar.' : 'Preencha os itens da planilha de medição do serviço antes de reaproveitar.');
       return;
     }
     if (medicoes.length === 0) {
@@ -863,6 +763,7 @@ export default function FornecedorContratoDetalhePage() {
             </div>
           </CardContent>
         </Card>
+        {!isServicoContinuado && (
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -874,6 +775,7 @@ export default function FornecedorContratoDetalhePage() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Resumo de Medição */}
@@ -892,15 +794,19 @@ export default function FornecedorContratoDetalhePage() {
                   <p className="text-xs text-amber-600">Em analise: {formatarMoeda(resumo.valor_em_analise || 0)}</p>
                 )}
               </div>
+              {!isServicoContinuado && (
               <div className="text-center p-3 bg-purple-50 rounded-lg">
                 <p className="text-xs text-gray-500">Avanço Físico</p>
                 <p className="text-lg font-bold text-purple-700">{Number(resumo.percentual_fisico_total || 0).toFixed(1)}%</p>
                 <Progress value={resumo.percentual_fisico_total} className="mt-1 h-2" />
               </div>
+              )}
+              {!isServicoContinuado && (
               <div className="text-center p-3 bg-orange-50 rounded-lg">
                 <p className="text-xs text-gray-500">Etapas</p>
                 <p className="text-lg font-bold text-orange-700">{resumo.etapas_concluidas}/{resumo.total_etapas}</p>
               </div>
+              )}
               <div className="text-center p-3 bg-gray-50 rounded-lg">
                 <p className="text-xs text-gray-500">Medições Aprovadas</p>
                 <p className="text-lg font-bold">{resumo.medicoes_aprovadas}/{resumo.total_medicoes}</p>
@@ -916,9 +822,11 @@ export default function FornecedorContratoDetalhePage() {
           <TabsTrigger value="medicoes" className="gap-2">
             <FileText className="w-4 h-4" />Medições ({medicoes.length})
           </TabsTrigger>
+          {!isServicoContinuado && (
           <TabsTrigger value="cronograma" className="gap-2">
             <TrendingUp className="w-4 h-4" />Cronograma ({etapas.length})
           </TabsTrigger>
+          )}
           <TabsTrigger value="detalhes" className="gap-2">
             <Eye className="w-4 h-4" />Detalhes
           </TabsTrigger>
@@ -1256,14 +1164,14 @@ export default function FornecedorContratoDetalhePage() {
               <div className="text-right">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
                 {(() => {
-                  const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
-                    const etapa = etapas[idx];
-                    if (!etapa) return acc;
-                    if (item.modo_input === 'valor' && item.valor_executado_atual) {
-                      return acc + item.valor_executado_atual;
-                    }
-                    return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-                  }, 0);
+                  const totalMedicao = isServicoContinuado
+                    ? (parseFloat(novaMedicao.valor_medido) || 0)
+                    : novaMedicao.itens.reduce((acc, item, idx) => {
+                        const etapa = etapas[idx];
+                        if (!etapa) return acc;
+                        if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
+                        return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                      }, 0);
                   const saldoDisp = resumo ? resumo.saldo_disponivel : Infinity;
                   const excedeSaldo = totalMedicao > saldoDisp + 0.01;
                   return (
@@ -1296,7 +1204,27 @@ export default function FornecedorContratoDetalhePage() {
               </div>
             </div>
 
-            {/* Planilha Orçamentária */}
+            {/* Valor Medido (serviços continuados) */}
+            {isServicoContinuado && (
+              <div className="border rounded-lg p-4 bg-blue-50/30">
+                <Label className="text-sm font-bold text-gray-700 mb-2 block">Valor Medido no Período (R$) *</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={novaMedicao.valor_medido}
+                  onChange={(e) => setNovaMedicao({ ...novaMedicao, valor_medido: e.target.value })}
+                  placeholder="0,00"
+                  className="max-w-xs text-lg font-medium"
+                />
+                {resumo && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)} de {formatarMoeda(Number(contrato?.valor_global || 0))}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Planilha Orçamentária (apenas obras) */}
+            {!isServicoContinuado && (
             <div className="border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
@@ -1415,6 +1343,7 @@ export default function FornecedorContratoDetalhePage() {
                 </TableBody>
               </Table>
             </div>
+            )}
 
             {/* Observações e NF lado a lado */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1448,15 +1377,12 @@ export default function FornecedorContratoDetalhePage() {
 
             {/* Discriminação das Despesas */}
             {(() => {
-              // Calcular o valor medido atual para o cálculo bidirecional %/R$
-              const valorMedidoAtual = novaMedicao.itens.reduce((acc, item, idx) => {
-                const etapa = etapas[idx];
-                if (!etapa) return acc;
-                if (item.modo_input === 'valor' && item.valor_executado_atual) {
-                  return acc + item.valor_executado_atual;
-                }
-                return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-              }, 0);
+              const valorMedidoAtual = isServicoContinuado
+                ? (parseFloat(novaMedicao.valor_medido) || 0)
+                : novaMedicao.itens.reduce((acc, item, idx) => {
+                    const etapa = etapas[idx]; if (!etapa) return acc;
+                    return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                  }, 0);
 
               const totalDiscValor = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);

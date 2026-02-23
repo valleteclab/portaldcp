@@ -953,7 +953,7 @@ export default function DetalheContratoOrgaoPage() {
           {(!contrato.modalidade_execucao || contrato.modalidade_execucao === 'ITEM_QUANTIDADE') && (
             <TabsTrigger value="itens">Itens ({contrato.itens?.length || 0})</TabsTrigger>
           )}
-          {contrato.modalidade_execucao === 'MEDICAO' && (
+          {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(contrato.modalidade_execucao || '') && (
             <TabsTrigger value="medicao">Medição</TabsTrigger>
           )}
           {contrato.modalidade_execucao === 'CONTINUADO' && (
@@ -1560,9 +1560,9 @@ export default function DetalheContratoOrgaoPage() {
           </Card>
         </TabsContent>
 
-        {contrato.modalidade_execucao === 'MEDICAO' && (
+        {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(contrato.modalidade_execucao || '') && (
           <TabsContent value="medicao">
-            <TabMedicao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
+            <TabMedicao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} modalidade={contrato.modalidade_execucao} />
           </TabsContent>
         )}
 

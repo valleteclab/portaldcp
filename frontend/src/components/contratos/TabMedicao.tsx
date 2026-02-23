@@ -143,7 +143,8 @@ function formatarData(d: string | null | undefined) {
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
-export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: string; valorGlobal: number }) {
+export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { contratoId: string; valorGlobal: number; modalidade?: string }) {
+  const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [medicoes, setMedicoes] = useState<Medicao[]>([])
   const [resumo, setResumo] = useState<Resumo | null>(null)
@@ -177,7 +178,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
     data_inicio_prevista: '', data_fim_prevista: '', observacoes: '',
   })
   const [formMedicao, setFormMedicao] = useState({
-    periodo_inicio: '', periodo_fim: '', observacoes: '',
+    periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
     itens: [] as { etapa_id: string; percentual_executado_atual: number }[],
   })
   const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
@@ -269,7 +270,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   useEffect(() => { carregarDados() }, [carregarDados])
 
   const osAtiva = resumo?.os_ativa
-  const temOSAutorizada = osAtiva && ['AUTORIZADA', 'ORDEM_GERADA'].includes(osAtiva.status)
+  const temOSAutorizada = isServicoContinuado || (osAtiva && ['AUTORIZADA', 'ORDEM_GERADA'].includes(osAtiva.status))
 
   // Medições separadas por status
   const medicoesPendentesAteste = medicoes.filter(m => m.status === 'SUBMETIDA' || m.status === 'PARCIALMENTE_ATESTADA')
@@ -358,8 +359,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   const abrirModalMedicao = () => {
     setFormMedicao({
-      periodo_inicio: '', periodo_fim: '', observacoes: '',
-      itens: etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({
+      periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
+      itens: isServicoContinuado ? [] : etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({
         etapa_id: e.id, percentual_executado_atual: 0,
       })),
     })
@@ -369,11 +370,15 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
   const salvarMedicao = async () => {
     setActionLoading(true)
     try {
-      const payload = {
+      const payload: any = {
         periodo_inicio: formMedicao.periodo_inicio,
         periodo_fim: formMedicao.periodo_fim,
         observacoes: formMedicao.observacoes || null,
-        itens: formMedicao.itens.filter(i => i.percentual_executado_atual > 0),
+      }
+      if (isServicoContinuado) {
+        payload.valor_medido = parseFloat(formMedicao.valor_medido) || 0
+      } else {
+        payload.itens = formMedicao.itens.filter(i => i.percentual_executado_atual > 0)
       }
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes`, {
         method: 'POST', body: JSON.stringify(payload),
@@ -534,7 +539,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
 
   return (
     <div className="space-y-6">
-      {/* Ordem de Serviço */}
+      {/* Ordem de Serviço (apenas para obras/MEDICAO) */}
+      {!isServicoContinuado && (
       <Card className={!osAtiva ? 'border-amber-300 bg-amber-50/30' : osAtiva.status === 'ORDEM_GERADA' ? 'border-indigo-300' : ''}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Ordem de Serviço</CardTitle>
@@ -576,10 +582,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Resumo */}
       {resumo && temOSAutorizada && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className={`grid grid-cols-2 ${isServicoContinuado ? 'md:grid-cols-4' : 'md:grid-cols-5'} gap-4`}>
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-gray-500">Valor Medido</p>
@@ -589,13 +596,14 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <p className="text-sm text-gray-500">Saldo Disponivel</p>
+              <p className="text-sm text-gray-500">Saldo Disponível</p>
               <p className={`text-xl font-bold ${resumo.saldo_disponivel > 0 ? 'text-green-600' : 'text-red-600'}`}>{formatarMoeda(resumo.saldo_disponivel)}</p>
               {(resumo.valor_em_analise || 0) > 0 && (
-                <p className="text-xs text-amber-600">Em analise: {formatarMoeda(resumo.valor_em_analise || 0)}</p>
+                <p className="text-xs text-amber-600">Em análise: {formatarMoeda(resumo.valor_em_analise || 0)}</p>
               )}
             </CardContent>
           </Card>
+          {!isServicoContinuado && (
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-gray-500">Avanço Físico</p>
@@ -603,10 +611,11 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
               <Progress value={resumo.percentual_fisico_total} className="mt-2" />
             </CardContent>
           </Card>
+          )}
           <Card>
             <CardContent className="pt-6">
-              <p className="text-sm text-gray-500">Etapas</p>
-              <p className="text-xl font-bold">{resumo.etapas_concluidas}/{resumo.total_etapas}</p>
+              <p className="text-sm text-gray-500">{isServicoContinuado ? 'Medições' : 'Etapas'}</p>
+              <p className="text-xl font-bold">{isServicoContinuado ? resumo.medicoes_aprovadas : `${resumo.etapas_concluidas}/${resumo.total_etapas}`}</p>
               <p className="text-xs text-gray-400">{resumo.medicoes_aprovadas} medições aprovadas</p>
             </CardContent>
           </Card>
@@ -684,7 +693,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         </Card>
       )}
 
-      {/* Etapas do Cronograma */}
+      {/* Etapas do Cronograma (apenas para obras) */}
+      {!isServicoContinuado && (
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -755,6 +765,7 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Boletins de Medição — Todos */}
       <Card>
@@ -767,8 +778,8 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 A aprovação final é feita na Central de Aprovações.
               </CardDescription>
             </div>
-            <Button onClick={abrirModalMedicao} size="sm" disabled={etapas.length === 0 || !temOSAutorizada}>
-              <Plus className="w-4 h-4 mr-1" />Nova Medição (Fiscal)
+            <Button onClick={abrirModalMedicao} size="sm" disabled={!isServicoContinuado && (etapas.length === 0 || !temOSAutorizada)}>
+              <Plus className="w-4 h-4 mr-1" />Nova Medição {isServicoContinuado ? '' : '(Fiscal)'}
             </Button>
           </div>
         </CardHeader>
@@ -986,12 +997,16 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
         </DialogContent>
       </Dialog>
 
-      {/* Modal Nova Medição (criação interna pelo fiscal) */}
+      {/* Modal Nova Medição */}
       <Dialog open={modalMedicao} onOpenChange={setModalMedicao}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Nova Medição (Fiscal)</DialogTitle>
-            <DialogDescription>Crie uma medição internamente. Ela será enviada diretamente para aprovação do gestor.</DialogDescription>
+            <DialogTitle>Nova Medição {isServicoContinuado ? '' : '(Fiscal)'}</DialogTitle>
+            <DialogDescription>
+              {isServicoContinuado
+                ? 'Crie uma medição mensal informando o período e o valor dos serviços prestados.'
+                : 'Crie uma medição internamente. Ela será enviada diretamente para aprovação do gestor.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -1004,38 +1019,58 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
                 <Input type="date" value={formMedicao.periodo_fim} onChange={e => setFormMedicao({ ...formMedicao, periodo_fim: e.target.value })} />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Etapas — Informe o % executado neste período</Label>
-              <div className="border rounded-lg divide-y">
-                {formMedicao.itens.map((item, idx) => {
-                  const etapa = etapas.find(e => e.id === item.etapa_id)
-                  if (!etapa) return null
-                  return (
-                    <div key={item.etapa_id} className="flex items-center gap-4 p-3">
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{etapa.numero_etapa}. {etapa.descricao}</p>
-                        <p className="text-xs text-gray-400">
-                          Executado: {Number(etapa.percentual_executado).toFixed(1)}% | Valor: {formatarMoeda(etapa.valor_previsto)}
-                        </p>
-                      </div>
-                      <div className="w-28">
-                        <Input
-                          type="number" step="0.01" min="0" max={100 - Number(etapa.percentual_executado)}
-                          placeholder="0" className="text-center"
-                          value={item.percentual_executado_atual || ''}
-                          onChange={e => {
-                            const itens = [...formMedicao.itens]
-                            itens[idx] = { ...itens[idx], percentual_executado_atual: parseFloat(e.target.value) || 0 }
-                            setFormMedicao({ ...formMedicao, itens })
-                          }}
-                        />
-                      </div>
-                      <span className="text-xs text-gray-400 w-6">%</span>
-                    </div>
-                  )
-                })}
+
+            {isServicoContinuado ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Valor Medido (R$) *</Label>
+                  <Input
+                    type="number" step="0.01" min="0" placeholder="0,00"
+                    value={formMedicao.valor_medido}
+                    onChange={e => setFormMedicao({ ...formMedicao, valor_medido: e.target.value })}
+                  />
+                  {resumo && (
+                    <p className="text-xs text-gray-500">
+                      Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Etapas — Informe o % executado neste período</Label>
+                <div className="border rounded-lg divide-y">
+                  {formMedicao.itens.map((item, idx) => {
+                    const etapa = etapas.find(e => e.id === item.etapa_id)
+                    if (!etapa) return null
+                    return (
+                      <div key={item.etapa_id} className="flex items-center gap-4 p-3">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{etapa.numero_etapa}. {etapa.descricao}</p>
+                          <p className="text-xs text-gray-400">
+                            Executado: {Number(etapa.percentual_executado).toFixed(1)}% | Valor: {formatarMoeda(etapa.valor_previsto)}
+                          </p>
+                        </div>
+                        <div className="w-28">
+                          <Input
+                            type="number" step="0.01" min="0" max={100 - Number(etapa.percentual_executado)}
+                            placeholder="0" className="text-center"
+                            value={item.percentual_executado_atual || ''}
+                            onChange={e => {
+                              const itens = [...formMedicao.itens]
+                              itens[idx] = { ...itens[idx], percentual_executado_atual: parseFloat(e.target.value) || 0 }
+                              setFormMedicao({ ...formMedicao, itens })
+                            }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-400 w-6">%</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Observações</Label>
               <Textarea placeholder="Observações da medição" value={formMedicao.observacoes} onChange={e => setFormMedicao({ ...formMedicao, observacoes: e.target.value })} rows={2} />
@@ -1043,7 +1078,10 @@ export default function TabMedicao({ contratoId, valorGlobal }: { contratoId: st
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalMedicao(false)}>Cancelar</Button>
-            <Button onClick={salvarMedicao} disabled={actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim}>
+            <Button onClick={salvarMedicao} disabled={
+              actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
+              (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0))
+            }>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Criar Medição
             </Button>

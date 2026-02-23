@@ -24,8 +24,8 @@ import { MedicaoService } from './medicao.service';
 import { ContratosService } from './contratos.service';
 import { UploadService } from '../upload/upload.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Contrato } from './entities/contrato.entity';
+import { In, Repository } from 'typeorm';
+import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { AnexoMedicao, TipoAnexoMedicao } from './entities/anexo-medicao.entity';
 import { Medicao } from './entities/medicao.entity';
 
@@ -413,7 +413,7 @@ export class FornecedorMedicaoController {
     const contratos = await this.contratoRepository.find({
       where: {
         fornecedor_id: fornecedorId,
-        modalidade_execucao: 'MEDICAO' as any,
+        modalidade_execucao: In([ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA]),
       },
       relations: ['orgao'],
       order: { created_at: 'DESC' },

@@ -195,6 +195,7 @@ export class MedicaoService {
   async criarMedicao(contratoId: string, dados: {
     periodo_inicio: string;
     periodo_fim: string;
+    valor_medido?: number;
     fornecedor_id?: string;
     fornecedor_nome?: string;
     fornecedor_observacoes?: string;
@@ -206,20 +207,14 @@ export class MedicaoService {
     observacoes?: string;
     usuario_cadastro_id?: string;
     usuario_cadastro_nome?: string;
-    itens: {
+    itens?: {
       etapa_id: string;
       percentual_executado_atual?: number;
       valor_executado_atual?: number;
     }[];
   }, opcoes?: { skipOSCheck?: boolean }): Promise<Medicao> {
-    // Validar campos obrigatórios
     if (!dados.periodo_inicio || !dados.periodo_fim) {
       throw new BadRequestException('Período de início e fim são obrigatórios');
-    }
-
-    // Validar que itens foram informados
-    if (!dados.itens || !Array.isArray(dados.itens) || dados.itens.length === 0) {
-      throw new BadRequestException('Informe pelo menos um item de medição');
     }
 
     // Sanitizar campos opcionais: strings vazias viram undefined para evitar erro em colunas date/numeric
@@ -235,22 +230,30 @@ export class MedicaoService {
     }
 
     const contrato = await this.validarContratoMedicao(contratoId);
+    const servicoContinuado = this.isServicoContinuado(contrato);
 
-    // REGRA: Exigir OS autorizada para criar medição (pode ser pulado pelo portal do fornecedor)
-    if (!opcoes?.skipOSCheck) {
-      const osAtiva = await this.getOSAtiva(contratoId);
-      if (!osAtiva) {
-        throw new BadRequestException(
-          'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
-          'Crie e autorize uma OS na página de Requisições antes de registrar medições.'
-        );
+    // Para serviços continuados: valor direto, sem etapas/OS
+    // Para obras (MEDICAO): exige itens com etapas e OS autorizada
+    if (!servicoContinuado) {
+      if (!dados.itens || !Array.isArray(dados.itens) || dados.itens.length === 0) {
+        throw new BadRequestException('Informe pelo menos um item de medição');
       }
 
-      // Se OS está AUTORIZADA, mover para ORDEM_GERADA
-      if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
-        osAtiva.status = StatusRequisicao.ORDEM_GERADA;
-        await this.requisicaoRepository.save(osAtiva);
-        this.logger.log(`OS ${osAtiva.numero} movida para ORDEM_GERADA ao criar medição`);
+      // REGRA: Exigir OS autorizada para criar medição (pode ser pulado pelo portal do fornecedor)
+      if (!opcoes?.skipOSCheck) {
+        const osAtiva = await this.getOSAtiva(contratoId);
+        if (!osAtiva) {
+          throw new BadRequestException(
+            'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
+            'Crie e autorize uma OS na página de Requisições antes de registrar medições.'
+          );
+        }
+
+        if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
+          osAtiva.status = StatusRequisicao.ORDEM_GERADA;
+          await this.requisicaoRepository.save(osAtiva);
+          this.logger.log(`OS ${osAtiva.numero} movida para ORDEM_GERADA ao criar medição`);
+        }
       }
     }
 
@@ -272,62 +275,76 @@ export class MedicaoService {
       (sum, m) => sum + Number(m.percentual_fisico_medido), 0
     );
 
-    // Buscar percentuais comprometidos por etapa (medições em trânsito que ainda não
-    // atualizaram etapa.percentual_executado, pois este só é atualizado na aprovação)
-    const percentuaisEmTransito = await this.calcularPercentualComprometidoPorEtapa(contratoId);
-
-    // Calcular valores da medição a partir dos itens
     let valorMedido = 0;
     let percentualFisicoMedido = 0;
     const itensParaSalvar: Partial<ItemMedicao>[] = [];
 
-    for (const item of dados.itens) {
-      const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-      if (!etapa) throw new NotFoundException(`Etapa ${item.etapa_id} não encontrada`);
-
-      // Suporta entrada por percentual OU por valor
-      let percentualExecAtual = item.percentual_executado_atual || 0;
-      if (!percentualExecAtual && item.valor_executado_atual && Number(etapa.valor_previsto) > 0) {
-        // Converter valor para percentual
-        percentualExecAtual = (item.valor_executado_atual / Number(etapa.valor_previsto)) * 100;
+    if (servicoContinuado) {
+      // Fluxo simplificado: valor direto informado pelo usuário
+      valorMedido = Number(dados.valor_medido) || 0;
+      if (valorMedido <= 0) {
+        throw new BadRequestException('Informe o valor medido');
       }
 
-      if (percentualExecAtual <= 0) continue;
-
-      // percentual_executado da etapa = aprovadas (já consolidado)
-      // percentuaisEmTransito = submetidas + aguardando ateste/aprovação (não consolidado)
-      const percentualAprovado = Number(etapa.percentual_executado);
-      const percentualEmTransito = percentuaisEmTransito.get(item.etapa_id) || 0;
-      const percentualTotalComprometido = percentualAprovado + percentualEmTransito;
-      const percentualAcumuladoComNovo = percentualTotalComprometido + percentualExecAtual;
-
-      if (percentualAcumuladoComNovo > 100.01) { // tolerância de arredondamento
+      // Validar saldo
+      const valorComprometido = await this.somarValorMedicoesComprometidas(contratoId);
+      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      const saldoDisponivel = valorContrato - valorComprometido;
+      if (valorMedido > saldoDisponivel + 0.01) {
         throw new BadRequestException(
-          `Etapa "${etapa.descricao}": percentual acumulado (${percentualAcumuladoComNovo.toFixed(1)}%) excede 100%. ` +
-          `Aprovado: ${percentualAprovado.toFixed(1)}%, em análise: ${percentualEmTransito.toFixed(1)}%, ` +
-          `novo: ${percentualExecAtual.toFixed(1)}%.`
+          `O valor da medição (R$ ${valorMedido.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
+          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido: R$ ${valorComprometido.toFixed(2)}.`
         );
       }
 
-      const valorItem = (percentualExecAtual / 100) * Number(etapa.valor_previsto);
-      valorMedido += valorItem;
-      percentualFisicoMedido += (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
+      // Calcular percentual proporcional ao valor global
+      const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 1;
+      percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
+    } else {
+      // Fluxo completo com etapas (obras/engenharia)
+      const percentuaisEmTransito = await this.calcularPercentualComprometidoPorEtapa(contratoId);
 
-      // O percentualAnterior para registro considera aprovado + em trânsito
-      itensParaSalvar.push({
-        etapa_id: item.etapa_id,
-        percentual_executado_anterior: percentualAprovado,
-        percentual_executado_atual: percentualExecAtual,
-        percentual_executado_acumulado: percentualAprovado + percentualExecAtual,
-        valor_medido: valorItem,
-      });
+      for (const item of (dados.itens || [])) {
+        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+        if (!etapa) throw new NotFoundException(`Etapa ${item.etapa_id} não encontrada`);
+
+        let percentualExecAtual = item.percentual_executado_atual || 0;
+        if (!percentualExecAtual && item.valor_executado_atual && Number(etapa.valor_previsto) > 0) {
+          percentualExecAtual = (item.valor_executado_atual / Number(etapa.valor_previsto)) * 100;
+        }
+
+        if (percentualExecAtual <= 0) continue;
+
+        const percentualAprovado = Number(etapa.percentual_executado);
+        const percentualEmTransito = percentuaisEmTransito.get(item.etapa_id) || 0;
+        const percentualAcumuladoComNovo = percentualAprovado + percentualEmTransito + percentualExecAtual;
+
+        if (percentualAcumuladoComNovo > 100.01) {
+          throw new BadRequestException(
+            `Etapa "${etapa.descricao}": percentual acumulado (${percentualAcumuladoComNovo.toFixed(1)}%) excede 100%. ` +
+            `Aprovado: ${percentualAprovado.toFixed(1)}%, em análise: ${percentualEmTransito.toFixed(1)}%, ` +
+            `novo: ${percentualExecAtual.toFixed(1)}%.`
+          );
+        }
+
+        const valorItem = (percentualExecAtual / 100) * Number(etapa.valor_previsto);
+        valorMedido += valorItem;
+        percentualFisicoMedido += (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
+
+        itensParaSalvar.push({
+          etapa_id: item.etapa_id,
+          percentual_executado_anterior: percentualAprovado,
+          percentual_executado_atual: percentualExecAtual,
+          percentual_executado_acumulado: percentualAprovado + percentualExecAtual,
+          valor_medido: valorItem,
+        });
+      }
+
+      if (valorMedido <= 0) {
+        throw new BadRequestException('A medição deve ter pelo menos um item com valor > 0');
+      }
     }
 
-    if (valorMedido <= 0) {
-      throw new BadRequestException('A medição deve ter pelo menos um item com valor > 0');
-    }
-
-    // Criar medição
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
       numero_medicao: numeroMedicao,
@@ -354,7 +371,7 @@ export class MedicaoService {
 
     const medicaoSalva = await this.medicaoRepository.save(medicao) as unknown as Medicao;
 
-    // Salvar itens da medição
+    // Salvar itens da medição (obras)
     for (const item of itensParaSalvar) {
       const itemMedicao = this.itemMedicaoRepository.create({
         ...item,
@@ -476,37 +493,39 @@ export class MedicaoService {
       throw new BadRequestException('Apenas medições em rascunho ou devolvidas podem ser submetidas');
     }
 
-    // VALIDAÇÃO DE SALDO POR ETAPA: verificar se cada etapa desta medição não excede o 
-    // percentual disponível, considerando medições já comprometidas (em trânsito + aprovadas).
-    // Exclui esta própria medição (ainda em RASCUNHO/DEVOLVIDA) do cálculo.
     if (contrato) {
-      const itensMedicao = await this.itemMedicaoRepository.find({
-        where: { medicao_id: medicao.id },
-      });
-      const percentuaisEmTransito = await this.calcularPercentualComprometidoPorEtapa(
-        medicao.contrato_id,
-        medicao.id,
-      );
+      const servicoContinuado = this.isServicoContinuado(contrato);
 
-      for (const itemMed of itensMedicao) {
-        const etapa = await this.etapaRepository.findOne({ where: { id: itemMed.etapa_id } });
-        if (!etapa) continue;
+      // Validação por etapa (apenas para obras com etapas)
+      if (!servicoContinuado) {
+        const itensMedicao = await this.itemMedicaoRepository.find({
+          where: { medicao_id: medicao.id },
+        });
+        const percentuaisEmTransito = await this.calcularPercentualComprometidoPorEtapa(
+          medicao.contrato_id,
+          medicao.id,
+        );
 
-        const percentualAprovado = Number(etapa.percentual_executado);
-        const percentualEmTransito = percentuaisEmTransito.get(itemMed.etapa_id) || 0;
-        const percentualAtual = Number(itemMed.percentual_executado_atual);
-        const totalAcumulado = percentualAprovado + percentualEmTransito + percentualAtual;
+        for (const itemMed of itensMedicao) {
+          const etapa = await this.etapaRepository.findOne({ where: { id: itemMed.etapa_id } });
+          if (!etapa) continue;
 
-        if (totalAcumulado > 100.01) {
-          throw new BadRequestException(
-            `Não é possível submeter: a etapa "${etapa.descricao}" excede 100%. ` +
-            `Aprovado: ${percentualAprovado.toFixed(1)}%, em análise: ${percentualEmTransito.toFixed(1)}%, ` +
-            `esta medição: ${percentualAtual.toFixed(1)}%, total: ${totalAcumulado.toFixed(1)}%.`
-          );
+          const percentualAprovado = Number(etapa.percentual_executado);
+          const percentualEmTransito = percentuaisEmTransito.get(itemMed.etapa_id) || 0;
+          const percentualAtual = Number(itemMed.percentual_executado_atual);
+          const totalAcumulado = percentualAprovado + percentualEmTransito + percentualAtual;
+
+          if (totalAcumulado > 100.01) {
+            throw new BadRequestException(
+              `Não é possível submeter: a etapa "${etapa.descricao}" excede 100%. ` +
+              `Aprovado: ${percentualAprovado.toFixed(1)}%, em análise: ${percentualEmTransito.toFixed(1)}%, ` +
+              `esta medição: ${percentualAtual.toFixed(1)}%, total: ${totalAcumulado.toFixed(1)}%.`
+            );
+          }
         }
       }
 
-      // Validação global complementar (soma dos valores)
+      // Validação global de saldo (para todas as modalidades)
       const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
       const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
       const saldoDisponivel = valorContrato - valorComprometido;
@@ -884,31 +903,32 @@ export class MedicaoService {
       throw new BadRequestException('Apenas medições aguardando aprovação podem ser aprovadas');
     }
 
-    // Buscar itens da medição para atualizar etapas
-    const itensMedicao = await this.itemMedicaoRepository.find({
-      where: { medicao_id: medicaoId },
-    });
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    const servicoContinuado = contrato ? this.isServicoContinuado(contrato) : false;
 
-    // Atualizar percentual executado de cada etapa
-    for (const item of itensMedicao) {
-      const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-      if (etapa) {
-        etapa.percentual_executado = Number(item.percentual_executado_acumulado);
-        etapa.valor_executado = Number(etapa.valor_executado) + Number(item.valor_medido);
+    // Atualizar etapas do cronograma (apenas para obras, serviços continuados não têm etapas)
+    if (!servicoContinuado) {
+      const itensMedicao = await this.itemMedicaoRepository.find({
+        where: { medicao_id: medicaoId },
+      });
 
-        if (Number(etapa.percentual_executado) >= 100) {
-          etapa.status = StatusEtapaCronograma.CONCLUIDA;
-          etapa.data_fim_real = new Date() as any;
-        } else if (Number(etapa.percentual_executado) > 0) {
-          etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+      for (const item of itensMedicao) {
+        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+        if (etapa) {
+          etapa.percentual_executado = Number(item.percentual_executado_acumulado);
+          etapa.valor_executado = Number(etapa.valor_executado) + Number(item.valor_medido);
+
+          if (Number(etapa.percentual_executado) >= 100) {
+            etapa.status = StatusEtapaCronograma.CONCLUIDA;
+            etapa.data_fim_real = new Date() as any;
+          } else if (Number(etapa.percentual_executado) > 0) {
+            etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+          }
+
+          await this.etapaRepository.save(etapa);
         }
-
-        await this.etapaRepository.save(etapa);
       }
     }
-
-    // Log consumo de saldo
-    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
     if (contrato) {
       this.logger.log(
         `Medição #${medicao.numero_medicao} aprovada: R$ ${medicao.valor_medido} consumido do contrato ${contrato.numero_contrato}`
@@ -1210,17 +1230,16 @@ export class MedicaoService {
   // ============================================================================
 
   /**
-   * Retorna contratos com modalidade MEDICAO do órgão,
+   * Retorna contratos com modalidades que suportam medição do órgão,
    * com contagem de medições por status para o painel do fiscal.
    */
   async resumoFiscalPorContrato(orgaoId: string): Promise<any[]> {
-    const contratos = await this.contratoRepository.find({
-      where: {
-        orgao_id: orgaoId,
-        modalidade_execucao: ModalidadeExecucao.MEDICAO,
-      },
-      order: { created_at: 'DESC' },
-    });
+    const contratos = await this.contratoRepository
+      .createQueryBuilder('c')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('c.modalidade_execucao IN (:...modalidades)', { modalidades: this.MODALIDADES_COM_MEDICAO })
+      .orderBy('c.created_at', 'DESC')
+      .getMany();
 
     const resultado = [];
     for (const contrato of contratos) {
@@ -1238,6 +1257,7 @@ export class MedicaoService {
         id: contrato.id,
         numero_contrato: contrato.numero_contrato,
         objeto: contrato.objeto,
+        modalidade_execucao: contrato.modalidade_execucao,
         fornecedor_nome: contrato.fornecedor_razao_social,
         fornecedor_cnpj: contrato.fornecedor_cnpj,
         valor_global: Number(contrato.valor_global),
@@ -1278,14 +1298,13 @@ export class MedicaoService {
     });
     const contratosSolicitados = new Set(solicitacoesMes.map(s => s.contrato_id));
 
-    const contratos = await this.contratoRepository.find({
-      where: {
-        orgao_id: orgaoId,
-        modalidade_execucao: ModalidadeExecucao.MEDICAO,
-      },
-      relations: ['fornecedor'],
-      order: { created_at: 'DESC' },
-    });
+    const contratos = await this.contratoRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.fornecedor', 'f')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('c.modalidade_execucao IN (:...modalidades)', { modalidades: this.MODALIDADES_COM_MEDICAO })
+      .orderBy('c.created_at', 'DESC')
+      .getMany();
 
     const resultado = [];
     for (const contrato of contratos) {
@@ -1333,6 +1352,7 @@ export class MedicaoService {
         id: contrato.id,
         numero_contrato: contrato.numero_contrato,
         objeto: contrato.objeto,
+        modalidade_execucao: contrato.modalidade_execucao,
         fornecedor_nome: contrato.fornecedor_razao_social,
         fornecedor_cnpj: contrato.fornecedor_cnpj,
         fornecedor_telefone,
@@ -1372,8 +1392,8 @@ export class MedicaoService {
   ): Promise<{ message: string; whatsapp_tentado?: boolean; whatsapp_telefone?: string | null }> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
-    if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
-      throw new BadRequestException('Contrato não é da modalidade MEDICAO');
+    if (!this.MODALIDADES_COM_MEDICAO.includes(contrato.modalidade_execucao)) {
+      throw new BadRequestException('Contrato não suporta medições');
     }
 
     const destinatarios = await this.getFornecedorDestinatario(contrato);
@@ -1587,13 +1607,23 @@ export class MedicaoService {
     return mapa;
   }
 
+  private readonly MODALIDADES_COM_MEDICAO = [
+    ModalidadeExecucao.MEDICAO,
+    ModalidadeExecucao.CONTINUADO,
+    ModalidadeExecucao.LICENCA,
+  ];
+
+  isServicoContinuado(contrato: Contrato): boolean {
+    return [ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA].includes(contrato.modalidade_execucao);
+  }
+
   private async validarContratoMedicao(contratoId: string): Promise<Contrato> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
-    if (contrato.modalidade_execucao !== ModalidadeExecucao.MEDICAO) {
+    if (!this.MODALIDADES_COM_MEDICAO.includes(contrato.modalidade_execucao)) {
       throw new BadRequestException(
-        `Contrato ${contrato.numero_contrato} não é da modalidade MEDICAO (atual: ${contrato.modalidade_execucao})`
+        `Contrato ${contrato.numero_contrato} não suporta medições (modalidade: ${contrato.modalidade_execucao})`
       );
     }
 
