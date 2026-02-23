@@ -1386,8 +1386,8 @@ export default function DetalheContratoOrgaoPage() {
                         <p className="text-gray-600 mb-4">{termo.objeto}</p>
                         <div className="flex gap-6 text-sm">
                           <div><span className="text-gray-500">Data de Assinatura:</span> <span className="font-medium">{formatarData(termo.data_assinatura)}</span></div>
-                          {Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
-                          {Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
+                          {termo.valor_acrescimo != null && Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
+                          {termo.valor_supressao != null && Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
                           {termo.nova_data_vigencia_fim && <div><span className="text-gray-500">Nova Vigência:</span> <span className="font-medium">{formatarData(termo.nova_data_vigencia_fim)}</span></div>}
                         </div>
                         {documentos.filter(d => d.termo_aditivo_id === termo.id).length > 0 && (
