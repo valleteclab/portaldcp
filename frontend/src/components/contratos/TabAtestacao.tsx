@@ -15,7 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
-  Plus, Loader2, CheckCircle, XCircle, ClipboardCheck, Star, AlertTriangle,
+  Plus, Loader2, CheckCircle, XCircle, ClipboardCheck, Star, AlertTriangle, Layers,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -35,6 +35,9 @@ interface Atestacao {
   status: string
   observacoes: string
   justificativa_glosa: string
+  empenho?: string
+  data_empenho?: string
+  tipo_empenho?: string
 }
 
 interface Resumo {
@@ -61,17 +64,26 @@ function formatarMoeda(v: number | string) {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-export default function TabAtestacao({ contratoId, valorGlobal }: { contratoId: string; valorGlobal: number }) {
+export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInicio, dataVigenciaFim }: { contratoId: string; valorGlobal: number; dataVigenciaInicio?: string; dataVigenciaFim?: string }) {
   const [atestacoes, setAtestacoes] = useState<Atestacao[]>([])
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 
   const [modalCriar, setModalCriar] = useState(false)
+  const [modalPreCriar, setModalPreCriar] = useState(false)
   const [modalAtestar, setModalAtestar] = useState<Atestacao | null>(null)
   const [modalRejeitar, setModalRejeitar] = useState<Atestacao | null>(null)
 
-  const [formCriar, setFormCriar] = useState({ mes_referencia: '', valor_mensal_contratado: '' })
+  const [formCriar, setFormCriar] = useState({ mes_referencia: '', valor_mensal_contratado: '', empenho: '', data_empenho: '', tipo_empenho: '' })
+  const [formPreCriar, setFormPreCriar] = useState({
+    valor_mensal: '',
+    data_inicio: dataVigenciaInicio?.split('T')[0] || '',
+    data_fim: dataVigenciaFim?.split('T')[0] || '',
+    empenho: '',
+    data_empenho: '',
+    tipo_empenho: '' as '' | 'GLOBAL' | 'ESTIMATIVO',
+  })
   const [formAtestar, setFormAtestar] = useState({
     valor_atestado: '', valor_glosa: '', nota_imr: '',
     justificativa_glosa: '', observacoes: '',
@@ -99,19 +111,50 @@ export default function TabAtestacao({ contratoId, valorGlobal }: { contratoId: 
 
   useEffect(() => { carregarDados() }, [carregarDados])
 
-  const criarAtestacao = async () => {
+  const preCriarAtestacoes = async () => {
+    const valor = parseFloat(formPreCriar.valor_mensal)
+    if (!valor || valor <= 0) { alert('Informe o valor mensal'); return }
+    if (!formPreCriar.data_inicio || !formPreCriar.data_fim) { alert('Informe as datas de início e fim'); return }
     setActionLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/atestacoes`, {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/atestacoes/pre-criar`, {
         method: 'POST',
         body: JSON.stringify({
-          mes_referencia: formCriar.mes_referencia,
-          valor_mensal_contratado: parseFloat(formCriar.valor_mensal_contratado),
+          valor_mensal: valor,
+          data_inicio: formPreCriar.data_inicio,
+          data_fim: formPreCriar.data_fim,
+          empenho: formPreCriar.empenho || undefined,
+          data_empenho: formPreCriar.data_empenho || undefined,
+          tipo_empenho: formPreCriar.tipo_empenho || undefined,
         }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      const result = await res.json()
+      alert(`${result.criadas} atestação(ões) criada(s). ${result.ignoradas > 0 ? `${result.ignoradas} mês(es) já existiam.` : ''}`)
+      setModalPreCriar(false)
+      setFormPreCriar({ ...formPreCriar, valor_mensal: '' })
+      carregarDados()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const criarAtestacao = async () => {
+    setActionLoading(true)
+    try {
+      const payload: Record<string, unknown> = {
+        mes_referencia: formCriar.mes_referencia,
+        valor_mensal_contratado: parseFloat(formCriar.valor_mensal_contratado),
+      }
+      if (formCriar.empenho) payload.empenho = formCriar.empenho
+      if (formCriar.data_empenho) payload.data_empenho = formCriar.data_empenho
+      if (formCriar.tipo_empenho) payload.tipo_empenho = formCriar.tipo_empenho
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/atestacoes`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
       setModalCriar(false)
-      setFormCriar({ mes_referencia: '', valor_mensal_contratado: '' })
+      setFormCriar({ mes_referencia: '', valor_mensal_contratado: '', empenho: '', data_empenho: '', tipo_empenho: '' })
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -227,7 +270,12 @@ export default function TabAtestacao({ contratoId, valorGlobal }: { contratoId: 
               <CardTitle className="flex items-center gap-2"><ClipboardCheck className="w-5 h-5" />Atestações Mensais</CardTitle>
               <CardDescription>Controle mensal de execução do serviço pelo fiscal</CardDescription>
             </div>
-            <Button onClick={() => setModalCriar(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Atestação</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setFormPreCriar(f => ({ ...f, data_inicio: dataVigenciaInicio?.split('T')[0] || '', data_fim: dataVigenciaFim?.split('T')[0] || '' })); setModalPreCriar(true) }} size="sm">
+                <Layers className="w-4 h-4 mr-1" />Pré-criar em lote
+              </Button>
+              <Button onClick={() => setModalCriar(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Atestação</Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -301,6 +349,59 @@ export default function TabAtestacao({ contratoId, valorGlobal }: { contratoId: 
         </CardContent>
       </Card>
 
+      {/* Modal Pré-criar Atestações em Lote */}
+      <Dialog open={modalPreCriar} onOpenChange={setModalPreCriar}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Pré-criar Atestações em Lote</DialogTitle>
+            <DialogDescription>Crie atestações para todos os meses do período. Ideal para contratos com valor mensal fixo.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Valor Mensal (R$) *</Label>
+              <Input type="number" step="0.01" min="0" placeholder="Ex: 680,00" value={formPreCriar.valor_mensal} onChange={e => setFormPreCriar({ ...formPreCriar, valor_mensal: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Data Início *</Label>
+                <Input type="date" value={formPreCriar.data_inicio} onChange={e => setFormPreCriar({ ...formPreCriar, data_inicio: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Data Fim *</Label>
+                <Input type="date" value={formPreCriar.data_fim} onChange={e => setFormPreCriar({ ...formPreCriar, data_fim: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Número do Empenho</Label>
+              <Input placeholder="Ex: 2024NE001234" value={formPreCriar.empenho} onChange={e => setFormPreCriar({ ...formPreCriar, empenho: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Data do Empenho</Label>
+              <Input type="date" value={formPreCriar.data_empenho} onChange={e => setFormPreCriar({ ...formPreCriar, data_empenho: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Tipo de Empenho</Label>
+              <select
+                className="w-full border rounded-md px-3 py-2 h-10"
+                value={formPreCriar.tipo_empenho}
+                onChange={e => setFormPreCriar({ ...formPreCriar, tipo_empenho: e.target.value as 'GLOBAL' | 'ESTIMATIVO' })}
+              >
+                <option value="">— Selecione</option>
+                <option value="GLOBAL">Global</option>
+                <option value="ESTIMATIVO">Estimativo</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalPreCriar(false)}>Cancelar</Button>
+            <Button onClick={preCriarAtestacoes} disabled={actionLoading || !formPreCriar.valor_mensal || !formPreCriar.data_inicio || !formPreCriar.data_fim}>
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Pré-criar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal Criar Atestação */}
       <Dialog open={modalCriar} onOpenChange={setModalCriar}>
         <DialogContent>
@@ -316,6 +417,24 @@ export default function TabAtestacao({ contratoId, valorGlobal }: { contratoId: 
             <div className="space-y-2">
               <Label>Valor Mensal Contratado (R$) *</Label>
               <Input type="number" step="0.01" min="0" placeholder="0,00" value={formCriar.valor_mensal_contratado} onChange={e => setFormCriar({ ...formCriar, valor_mensal_contratado: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Número do Empenho</Label>
+              <Input placeholder="Ex: 2024NE001234" value={formCriar.empenho} onChange={e => setFormCriar({ ...formCriar, empenho: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Data do Empenho</Label>
+                <Input type="date" value={formCriar.data_empenho} onChange={e => setFormCriar({ ...formCriar, data_empenho: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo de Empenho</Label>
+                <select className="w-full border rounded-md px-3 py-2 h-10" value={formCriar.tipo_empenho} onChange={e => setFormCriar({ ...formCriar, tipo_empenho: e.target.value })}>
+                  <option value="">— Selecione</option>
+                  <option value="GLOBAL">Global</option>
+                  <option value="ESTIMATIVO">Estimativo</option>
+                </select>
+              </div>
             </div>
           </div>
           <DialogFooter>

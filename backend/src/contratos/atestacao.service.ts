@@ -40,11 +40,15 @@ export class AtestacaoService {
     const [ano, mes] = dados.mes_referencia.split('-').map(Number);
 
     const atestacao = this.atestacaoRepository.create({
-      ...dados,
       contrato_id: contratoId,
+      mes_referencia: dados.mes_referencia,
       ano,
       mes,
+      valor_mensal_contratado: dados.valor_mensal_contratado,
       status: StatusAtestacao.PENDENTE,
+      empenho: (dados as any).empenho || undefined,
+      data_empenho: (dados as any).data_empenho ? new Date((dados as any).data_empenho) : undefined,
+      tipo_empenho: (dados as any).tipo_empenho || undefined,
     });
 
     return this.atestacaoRepository.save(atestacao);
@@ -140,6 +144,92 @@ export class AtestacaoService {
     atestacao.observacoes = dados.observacoes;
 
     return this.atestacaoRepository.save(atestacao);
+  }
+
+  /**
+   * Pré-cria atestações em lote para contratos com valor mensal fixo.
+   * Cria uma atestação para cada mês entre data_inicio e data_fim.
+   * Meses que já possuem atestação são ignorados.
+   */
+  async preCriarAtestacoesEmLote(
+    contratoId: string,
+    dados: {
+      valor_mensal: number;
+      data_inicio: string; // YYYY-MM-DD
+      data_fim: string;    // YYYY-MM-DD
+      empenho?: string;
+      data_empenho?: string;
+      tipo_empenho?: 'GLOBAL' | 'ESTIMATIVO';
+    },
+  ): Promise<{ criadas: number; ignoradas: number; meses: string[] }> {
+    const contrato = await this.validarContratoContinuado(contratoId);
+
+    const valorMensal = Number(dados.valor_mensal);
+    if (valorMensal <= 0) {
+      throw new BadRequestException('Valor mensal deve ser maior que zero');
+    }
+
+    const inicio = new Date(dados.data_inicio);
+    const fim = new Date(dados.data_fim);
+    if (isNaN(inicio.getTime()) || isNaN(fim.getTime())) {
+      throw new BadRequestException('Datas de início e fim devem ser válidas');
+    }
+    if (inicio > fim) {
+      throw new BadRequestException('Data de início deve ser anterior à data de fim');
+    }
+
+    const valorGlobal = Number(contrato.valor_global);
+    const meses: string[] = [];
+    let dataAtual = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+    const fimMes = new Date(fim.getFullYear(), fim.getMonth(), 1);
+
+    while (dataAtual <= fimMes) {
+      const mesRef = `${dataAtual.getFullYear()}-${String(dataAtual.getMonth() + 1).padStart(2, '0')}`;
+      meses.push(mesRef);
+      dataAtual.setMonth(dataAtual.getMonth() + 1);
+    }
+
+    const totalValor = meses.length * valorMensal;
+    if (totalValor > valorGlobal + 0.01) {
+      throw new BadRequestException(
+        `Soma dos valores (${meses.length} x R$ ${valorMensal.toFixed(2)} = R$ ${totalValor.toFixed(2)}) ` +
+        `excede o valor global do contrato (R$ ${valorGlobal.toFixed(2)})`,
+      );
+    }
+
+    let criadas = 0;
+    let ignoradas = 0;
+
+    for (const mesRef of meses) {
+      const existente = await this.atestacaoRepository.findOne({
+        where: { contrato_id: contratoId, mes_referencia: mesRef },
+      });
+      if (existente) {
+        ignoradas++;
+        continue;
+      }
+
+      const [ano, mes] = mesRef.split('-').map(Number);
+      const atestacao = this.atestacaoRepository.create({
+        contrato_id: contratoId,
+        mes_referencia: mesRef,
+        ano,
+        mes,
+        valor_mensal_contratado: valorMensal,
+        status: StatusAtestacao.PENDENTE,
+        ...(dados.empenho && { empenho: dados.empenho }),
+        ...(dados.data_empenho && { data_empenho: new Date(dados.data_empenho) }),
+        ...(dados.tipo_empenho && { tipo_empenho: dados.tipo_empenho }),
+      });
+      await this.atestacaoRepository.save(atestacao);
+      criadas++;
+    }
+
+    this.logger.log(
+      `Pré-criação em lote contrato ${contratoId}: ${criadas} atestações criadas, ${ignoradas} ignoradas (já existiam)`,
+    );
+
+    return { criadas, ignoradas, meses };
   }
 
   async resumoAtestacoes(contratoId: string) {

@@ -483,6 +483,21 @@ export class ModalidadesContratoController {
   // ATESTAÇÃO MENSAL (Serviços Continuados)
   // ============================================================================
 
+  @Post(':contratoId/atestacoes/pre-criar')
+  async preCriarAtestacoes(
+    @Param('contratoId') contratoId: string,
+    @Body() body: {
+      valor_mensal: number;
+      data_inicio: string;
+      data_fim: string;
+      empenho?: string;
+      data_empenho?: string;
+      tipo_empenho?: 'GLOBAL' | 'ESTIMATIVO';
+    },
+  ) {
+    return this.atestacaoService.preCriarAtestacoesEmLote(contratoId, body);
+  }
+
   @Post(':contratoId/atestacoes')
   async criarAtestacao(
     @Param('contratoId') contratoId: string,

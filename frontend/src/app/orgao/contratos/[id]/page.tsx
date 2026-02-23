@@ -1439,7 +1439,7 @@ export default function DetalheContratoOrgaoPage() {
 
         {contrato.modalidade_execucao === 'CONTINUADO' && (
           <TabsContent value="atestacao">
-            <TabAtestacao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
+            <TabAtestacao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} dataVigenciaInicio={contrato.data_vigencia_inicio} dataVigenciaFim={contrato.data_vigencia_fim} />
           </TabsContent>
         )}
 

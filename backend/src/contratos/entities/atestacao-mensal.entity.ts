@@ -112,6 +112,16 @@ export class AtestacaoMensal {
   @Column({ type: 'text', nullable: true })
   documentos: string; // JSON array de URLs
 
+  // Empenho
+  @Column({ nullable: true, length: 100 })
+  empenho: string; // Número do empenho
+
+  @Column({ type: 'date', nullable: true })
+  data_empenho: Date;
+
+  @Column({ nullable: true, length: 20 })
+  tipo_empenho: string; // GLOBAL ou ESTIMATIVO
+
   // Auditoria
   @Column({ nullable: true })
   usuario_cadastro_id: string;
