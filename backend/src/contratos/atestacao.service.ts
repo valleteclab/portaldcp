@@ -180,13 +180,15 @@ export class AtestacaoService {
 
     const valorGlobal = Number(contrato.valor_global);
     const meses: string[] = [];
-    let dataAtual = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
-    const fimMes = new Date(fim.getFullYear(), fim.getMonth(), 1);
-
-    while (dataAtual <= fimMes) {
+    // Número de meses entre início e fim (exclusive do mês da data fim).
+    // Ex: 15/01/2026 a 15/01/2027 = 12 meses (Jan/2026 até Dez/2026).
+    const numMeses = (fim.getFullYear() - inicio.getFullYear()) * 12 + (fim.getMonth() - inicio.getMonth());
+    for (let i = 0; i < numMeses; i++) {
+      const ano = inicio.getFullYear();
+      const mes = inicio.getMonth() + i;
+      const dataAtual = new Date(ano, mes, 1);
       const mesRef = `${dataAtual.getFullYear()}-${String(dataAtual.getMonth() + 1).padStart(2, '0')}`;
       meses.push(mesRef);
-      dataAtual.setMonth(dataAtual.getMonth() + 1);
     }
 
     const totalValor = meses.length * valorMensal;

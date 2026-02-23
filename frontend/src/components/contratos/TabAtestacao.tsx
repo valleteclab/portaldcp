@@ -128,14 +128,22 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
           tipo_empenho: formPreCriar.tipo_empenho || undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao pré-criar atestações')
+        return
+      }
       const result = await res.json()
       alert(`${result.criadas} atestação(ões) criada(s). ${result.ignoradas > 0 ? `${result.ignoradas} mês(es) já existiam.` : ''}`)
       setModalPreCriar(false)
       setFormPreCriar({ ...formPreCriar, valor_mensal: '' })
       carregarDados()
-    } catch (e) { console.error(e) }
-    setActionLoading(false)
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao pré-criar atestações. Tente novamente.')
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const criarAtestacao = async () => {
@@ -157,7 +165,7 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
       setFormCriar({ mes_referencia: '', valor_mensal_contratado: '', empenho: '', data_empenho: '', tipo_empenho: '' })
       carregarDados()
     } catch (e) { console.error(e) }
-    setActionLoading(false)
+    finally { setActionLoading(false) }
   }
 
   const abrirModalAtestar = (atestacao: Atestacao) => {
@@ -204,7 +212,7 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
       setModalAtestar(null)
       carregarDados()
     } catch (e) { console.error(e) }
-    setActionLoading(false)
+    finally { setActionLoading(false) }
   }
 
   const rejeitar = async () => {
@@ -219,7 +227,7 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
       setObservacaoRejeicao('')
       carregarDados()
     } catch (e) { console.error(e) }
-    setActionLoading(false)
+    finally { setActionLoading(false) }
   }
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>
