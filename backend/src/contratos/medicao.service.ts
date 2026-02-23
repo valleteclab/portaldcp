@@ -289,11 +289,12 @@ export class MedicaoService {
       // Validar saldo
       const valorComprometido = await this.somarValorMedicoesComprometidas(contratoId);
       const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
-      const saldoDisponivel = valorContrato - valorComprometido;
+      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+      const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
       if (valorMedido > saldoDisponivel + 0.01) {
         throw new BadRequestException(
           `O valor da medição (R$ ${valorMedido.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
-          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido: R$ ${valorComprometido.toFixed(2)}.`
+          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido: R$ ${valorComprometido.toFixed(2)}${valorExecAnterior > 0 ? `, ajuste migração: R$ ${valorExecAnterior.toFixed(2)}` : ''}.`
         );
       }
 
@@ -528,13 +529,14 @@ export class MedicaoService {
       // Validação global de saldo (para todas as modalidades)
       const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
       const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
-      const saldoDisponivel = valorContrato - valorComprometido;
+      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+      const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
       const valorMedicao = Number(medicao.valor_medido) || 0;
 
       if (valorMedicao > saldoDisponivel + 0.01) {
         throw new BadRequestException(
           `Não é possível submeter: o valor desta medição (R$ ${valorMedicao.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
-          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido (aprovadas + em análise): R$ ${valorComprometido.toFixed(2)}.`
+          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido (aprovadas + em análise): R$ ${valorComprometido.toFixed(2)}${valorExecAnterior > 0 ? `, ajuste migração: R$ ${valorExecAnterior.toFixed(2)}` : ''}.`
         );
       }
     }
@@ -1204,14 +1206,16 @@ export class MedicaoService {
     const todasOS = await this.listarOS(contratoId);
 
     const valorGlobal = Number(contrato.valor_global);
+    const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
 
     return {
       contrato_id: contratoId,
       valor_global: valorGlobal,
+      valor_executado_anterior: valorExecAnterior,
       valor_medido_total: valorMedidoTotal,
       valor_comprometido_total: valorComprometido,
       valor_em_analise: valorEmAnalise,
-      saldo_disponivel: Math.max(0, valorGlobal - valorComprometido),
+      saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido),
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       etapas_comprometidas: etapasComprometidas,
       total_etapas: etapas.length,

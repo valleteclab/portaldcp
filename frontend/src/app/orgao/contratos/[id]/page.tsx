@@ -48,7 +48,8 @@ import {
   DownloadCloud,
   Lock,
   Unlock,
-  X
+  X,
+  Settings
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
@@ -140,6 +141,8 @@ interface Contrato {
   valor_medido_total?: number
   valor_comprometido_total?: number
   valor_em_analise?: number
+  valor_executado_anterior?: number
+  observacao_ajuste?: string
   itens?: ItemContrato[]
   total_itens?: number
 }
@@ -285,6 +288,16 @@ export default function DetalheContratoOrgaoPage() {
   const [arquivoDocumento, setArquivoDocumento] = useState<File | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
 
+  const [modalAjuste, setModalAjuste] = useState(false)
+  const [ajusteForm, setAjusteForm] = useState({ valor_executado_anterior: '', observacao_ajuste: '' })
+  const [podeFazerAjuste, setPodeFazerAjuste] = useState(false)
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('usuario') || '{}')
+      setPodeFazerAjuste(u.pode_liberar_contratos === true)
+    } catch { setPodeFazerAjuste(false) }
+  }, [])
+
   const UNIDADES_MEDIDA = [
     { value: 'UNIDADE', label: 'Unidade' },
     { value: 'PECA', label: 'Peça' },
@@ -325,6 +338,26 @@ export default function DetalheContratoOrgaoPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSalvarAjuste = async () => {
+    setLoadingAction(true)
+    try {
+      const valor = parseFloat(ajusteForm.valor_executado_anterior) || 0
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/ajuste-migracao`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valor_executado_anterior: valor, observacao_ajuste: ajusteForm.observacao_ajuste })
+      })
+      if (res.ok) {
+        setModalAjuste(false)
+        carregarDados()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar ajuste')
+      }
+    } catch { alert('Erro ao salvar ajuste') }
+    finally { setLoadingAction(false) }
   }
 
   const formatarMoeda = (valor: number | string) => {
@@ -944,6 +977,17 @@ export default function DetalheContratoOrgaoPage() {
               Enviar ao PNCP
             </Button>
           )}
+          {podeFazerAjuste && (
+            <Button variant="outline" onClick={() => {
+              setAjusteForm({
+                valor_executado_anterior: String(Number(contrato.valor_executado_anterior || 0) || ''),
+                observacao_ajuste: contrato.observacao_ajuste || ''
+              })
+              setModalAjuste(true)
+            }}>
+              <Settings className="w-4 h-4 mr-2" />Ajuste Migração
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1021,10 +1065,19 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                     {contrato.saldo_total_em_valor !== undefined && (
                       <div className="p-4 bg-purple-50 rounded-lg">
-                        <p className="text-sm text-purple-600">Saldo Disponivel</p>
+                        <p className="text-sm text-purple-600">Saldo Disponível</p>
                         <p className={`text-xl font-bold ${contrato.saldo_total_em_valor > 0 ? 'text-purple-600' : 'text-red-600'}`}>{formatarMoeda(contrato.saldo_total_em_valor)}</p>
                         {(contrato.valor_em_analise || 0) > 0 && (
-                          <p className="text-xs text-amber-600 mt-1">Em analise: {formatarMoeda(contrato.valor_em_analise || 0)}</p>
+                          <p className="text-xs text-amber-600 mt-1">Em análise: {formatarMoeda(contrato.valor_em_analise || 0)}</p>
+                        )}
+                      </div>
+                    )}
+                    {Number(contrato.valor_executado_anterior || 0) > 0 && (
+                      <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                        <p className="text-sm text-amber-700">Ajuste Migração</p>
+                        <p className="text-xl font-bold text-amber-700">{formatarMoeda(contrato.valor_executado_anterior || 0)}</p>
+                        {contrato.observacao_ajuste && (
+                          <p className="text-xs text-amber-600 mt-1">{contrato.observacao_ajuste}</p>
                         )}
                       </div>
                     )}
@@ -2012,6 +2065,51 @@ export default function DetalheContratoOrgaoPage() {
                 {importandoCSV ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</> : `Importar ${csvItens.length} Itens`}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Ajuste de Migração */}
+      <Dialog open={modalAjuste} onOpenChange={setModalAjuste}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajuste de Migração</DialogTitle>
+            <DialogDescription>
+              Registre o valor já executado antes do sistema para ajustar o saldo disponível do contrato.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Valor já executado anteriormente (R$)</Label>
+              <Input
+                type="number" step="0.01" min="0"
+                max={Number(contrato?.valor_global || 0)}
+                value={ajusteForm.valor_executado_anterior}
+                onChange={(e) => setAjusteForm({ ...ajusteForm, valor_executado_anterior: e.target.value })}
+                placeholder="0,00"
+              />
+              {contrato && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Valor global do contrato: {formatarMoeda(contrato.valor_global)}
+                </p>
+              )}
+            </div>
+            <div>
+              <Label>Observação</Label>
+              <Textarea
+                value={ajusteForm.observacao_ajuste}
+                onChange={(e) => setAjusteForm({ ...ajusteForm, observacao_ajuste: e.target.value })}
+                placeholder="Ex: Ajuste migração - valor executado antes da implantação do sistema"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalAjuste(false)}>Cancelar</Button>
+            <Button onClick={handleSalvarAjuste} disabled={loadingAction}>
+              {loadingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Salvar Ajuste
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

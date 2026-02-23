@@ -134,6 +134,12 @@ export class Contrato {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valor_supressoes: number;
 
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  valor_executado_anterior: number;
+
+  @Column({ type: 'text', nullable: true })
+  observacao_ajuste: string;
+
   // Datas
   @Column({ type: 'date' })
   data_assinatura: Date;

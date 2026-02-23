@@ -27,6 +27,9 @@ export enum TipoAcaoContrato {
   // Requisições / Pedidos
   REQUISICAO_CRIADA = 'REQUISICAO_CRIADA',
 
+  // Ajuste de migração
+  AJUSTE_MIGRACAO = 'AJUSTE_MIGRACAO',
+
   // PNCP
   ENVIADO_PNCP = 'ENVIADO_PNCP',
 

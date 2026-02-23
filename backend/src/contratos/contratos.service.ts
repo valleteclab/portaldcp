@@ -168,21 +168,19 @@ export class ContratosService {
       const itens = itensPorContrato.get(contrato.id) || [];
       let saldoTotalEmValor: number;
 
+      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
       if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
         const { aprovado, comprometido } = medicoesPorContrato.get(contrato.id) || { aprovado: 0, comprometido: 0 };
         const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
-        saldoTotalEmValor = Math.max(0, valorGlobal - comprometido);
+        saldoTotalEmValor = Math.max(0, valorGlobal - valorExecAnterior - comprometido);
         (contrato as any).valor_medido_total = aprovado;
         (contrato as any).valor_comprometido_total = comprometido;
         (contrato as any).valor_em_analise = Math.max(0, comprometido - aprovado);
       } else {
-        saldoTotalEmValor =
-          itens.length > 0
-            ? itens.reduce((total, item) => {
-                const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-                return total + saldoValor;
-              }, 0)
-            : Number(contrato.valor_global || contrato.valor_inicial || 0);
+        const base = itens.length > 0
+          ? itens.reduce((total, item) => total + Number(item.saldo_disponivel) * Number(item.valor_unitario), 0)
+          : Number(contrato.valor_global || contrato.valor_inicial || 0);
+        saldoTotalEmValor = Math.max(0, base - valorExecAnterior);
       }
 
       (contrato as any).itens = itens;
@@ -214,21 +212,20 @@ export class ContratosService {
     });
 
     let saldoTotalEmValor: number;
+    const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
 
     if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
       const { aprovado, comprometido } = await this.somarValorMedicoes(contrato.id);
       const valorGlobal = Number(contrato.valor_global || contrato.valor_inicial || 0);
-      saldoTotalEmValor = Math.max(0, valorGlobal - comprometido);
+      saldoTotalEmValor = Math.max(0, valorGlobal - valorExecAnterior - comprometido);
       (contrato as any).valor_medido_total = aprovado;
       (contrato as any).valor_comprometido_total = comprometido;
       (contrato as any).valor_em_analise = Math.max(0, comprometido - aprovado);
     } else {
-      saldoTotalEmValor = itens.length > 0
-        ? itens.reduce((total, item) => {
-            const saldoValor = Number(item.saldo_disponivel) * Number(item.valor_unitario);
-            return total + saldoValor;
-          }, 0)
+      const base = itens.length > 0
+        ? itens.reduce((total, item) => total + Number(item.saldo_disponivel) * Number(item.valor_unitario), 0)
         : Number(contrato.valor_global || contrato.valor_inicial || 0);
+      saldoTotalEmValor = Math.max(0, base - valorExecAnterior);
     }
 
     // Adiciona campos calculados ao contrato
@@ -1248,6 +1245,25 @@ export class ContratosService {
       where: { contrato_id: contratoId },
       order: { created_at: 'DESC' },
     });
+  }
+
+  // ============ AJUSTE DE MIGRAÇÃO ============
+
+  async ajusteMigracao(contratoId: string, valor: number, observacao: string, usuarioId: string): Promise<Contrato> {
+    const contrato = await this.findOne(contratoId);
+    contrato.valor_executado_anterior = valor;
+    contrato.observacao_ajuste = observacao || '';
+    const salvo = await this.contratoRepository.save(contrato);
+
+    await this.registrarHistorico({
+      contrato_id: contratoId,
+      tipo_acao: TipoAcaoContrato.AJUSTE_MIGRACAO,
+      descricao: `Ajuste de migração: R$ ${valor.toFixed(2)} registrado como valor já executado antes do sistema. ${observacao ? 'Obs: ' + observacao : ''}`,
+      usuario_id: usuarioId,
+      usuario_nome: 'Administrador',
+    });
+
+    return salvo;
   }
 
   // ============ NOTIFICAÇÕES ============

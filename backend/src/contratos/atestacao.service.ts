@@ -307,12 +307,15 @@ export class AtestacaoService {
       ? notasImr.reduce((sum, n) => sum + n, 0) / notasImr.length
       : null;
 
+    const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+
     return {
       contrato_id: contratoId,
       valor_global: Number(contrato.valor_global),
+      valor_executado_anterior: valorExecAnterior,
       valor_atestado_total: valorAtestadoTotal,
       valor_glosa_total: valorGlosaTotal,
-      saldo_disponivel: Number(contrato.valor_global) - valorAtestadoTotal,
+      saldo_disponivel: Number(contrato.valor_global) - valorExecAnterior - valorAtestadoTotal,
       total_meses: atestacoes.length,
       meses_atestados: atestadas.length,
       meses_pendentes: atestacoes.filter(a => a.status === StatusAtestacao.PENDENTE).length,
@@ -349,6 +352,7 @@ export class AtestacaoService {
     });
 
     const valorConsumido = atestadas.reduce((sum, a) => sum + Number(a.valor_liquido || 0), 0);
-    return Number(contrato.valor_global) - valorConsumido;
+    const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+    return Number(contrato.valor_global) - valorExecAnterior - valorConsumido;
   }
 }
