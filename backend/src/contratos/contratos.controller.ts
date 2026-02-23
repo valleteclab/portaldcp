@@ -304,6 +304,17 @@ export class ContratosController {
     return this.contratosService.cancelarTermoAditivo(contratoId, termoId);
   }
 
+  @Delete(':contratoId/termos/:termoId')
+  async excluirTermoAditivo(
+    @Param('contratoId') contratoId: string,
+    @Param('termoId') termoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.excluirTermoAditivo(contratoId, termoId);
+  }
+
   // ============ DOCUMENTOS DO CONTRATO ============
 
   @Post(':contratoId/documentos')

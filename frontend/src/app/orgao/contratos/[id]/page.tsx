@@ -446,6 +446,27 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  const handleExcluirTermo = async (termo: TermoAditivo) => {
+    if (!confirm(`Excluir o termo aditivo "${termo.numero_termo}"? O número ficará disponível para um novo termo. Os documentos vinculados permanecerão no contrato.`)) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/termos/${termo.id}`, {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        carregarDados()
+      } else {
+        const error = await res.json()
+        alert(error.message || 'Erro ao excluir termo')
+      }
+    } catch (error) {
+      console.error('Erro ao excluir termo:', error)
+      alert('Erro ao excluir termo aditivo')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
   const handleUploadDocumento = async () => {
     if (!arquivoDocumento || !novoDocumento.titulo.trim()) {
       alert('Selecione um arquivo e preencha o título')
@@ -1397,11 +1418,17 @@ export default function DetalheContratoOrgaoPage() {
                           </div>
                         )}
                       </div>
-                      {termo.status !== 'CANCELADO' && (
+                      {termo.status !== 'CANCELADO' ? (
                         <div className="flex gap-1">
                           <Button variant="outline" size="sm" onClick={() => { setNovoDocumento(d => ({ ...d, termo_aditivo_id: termo.id, tipo: 'TERMO_ADITIVO' })); setModalDocumento(true) }}><FileUp className="w-4 h-4 mr-1" />Doc</Button>
                           <Button variant="outline" size="sm" onClick={() => setModalEditTermo({ ...termo })}><Pencil className="w-4 h-4 mr-1" />Editar</Button>
                           <Button variant="outline" size="sm" className="text-red-600" onClick={() => setModalCancelarTermo(termo)}><X className="w-4 h-4 mr-1" />Cancelar</Button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1">
+                          <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleExcluirTermo(termo)} disabled={loadingAction}>
+                            <Trash2 className="w-4 h-4 mr-1" />Excluir
+                          </Button>
                         </div>
                       )}
                     </div>

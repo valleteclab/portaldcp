@@ -444,13 +444,14 @@ export class ContratosService {
   async criarTermoAditivo(contratoId: string, dados: Partial<TermoAditivo>): Promise<TermoAditivo> {
     const contrato = await this.findOne(contratoId);
 
-    // Gerar número do termo
-    const ultimoTermo = await this.termoAditivoRepository.findOne({
+    // Gerar número do termo: usar primeiro "gap" disponível para permitir reutilizar números de termos excluídos
+    const todosTermos = await this.termoAditivoRepository.find({
       where: { contrato_id: contratoId },
-      order: { sequencial: 'DESC' }
+      select: ['sequencial']
     });
-
-    const sequencial = ultimoTermo ? ultimoTermo.sequencial + 1 : 1;
+    const sequenciaisUsados = new Set(todosTermos.map(t => t.sequencial));
+    let sequencial = 1;
+    while (sequenciaisUsados.has(sequencial)) sequencial++;
     const numeroTermo = `${sequencial}º ${dados.tipo === TipoTermoAditivo.APOSTILAMENTO ? 'Apostilamento' : 'Termo Aditivo'}`;
 
     const termo = this.termoAditivoRepository.create({
@@ -474,6 +475,34 @@ export class ContratosService {
     });
 
     return termoSalvo;
+  }
+
+  async excluirTermoAditivo(contratoId: string, termoId: string): Promise<{ message: string }> {
+    const contrato = await this.findOne(contratoId);
+    const termo = await this.findTermoAditivo(termoId);
+    if (termo.contrato_id !== contratoId) {
+      throw new NotFoundException('Termo aditivo não pertence a este contrato');
+    }
+    if (termo.status !== StatusTermoAditivo.CANCELADO) {
+      throw new BadRequestException('Apenas termos aditivos cancelados podem ser excluídos. Cancele o termo antes de excluir.');
+    }
+
+    // Desvincular documentos do termo (preservar como documentos do contrato)
+    await this.documentoContratoRepository.update(
+      { termo_aditivo_id: termoId },
+      { termo_aditivo_id: null }
+    );
+
+    await this.termoAditivoRepository.delete(termoId);
+
+    await this.registrarHistorico({
+      contrato_id: contratoId,
+      tipo_acao: TipoAcaoContrato.STATUS_ALTERADO,
+      descricao: `Termo aditivo ${termo.numero_termo} excluído`,
+      detalhes: JSON.stringify({ termo_id: termoId, numero_termo: termo.numero_termo }),
+    });
+
+    return { message: 'Termo aditivo excluído. O número ficará disponível para um novo termo.' };
   }
 
   async findTermosAditivos(contratoId: string): Promise<TermoAditivo[]> {
