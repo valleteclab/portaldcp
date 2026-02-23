@@ -386,7 +386,13 @@ export class ContratosService {
       );
     }
 
-    contrato.status = StatusContrato.VIGENTE;
+    // Se vigência já expirou, liberar como ENCERRADO; caso contrário, VIGENTE
+    const dataFim = contrato.data_vigencia_fim ? new Date(contrato.data_vigencia_fim) : null;
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const fimNormalizado = dataFim ? new Date(dataFim) : null;
+    if (fimNormalizado) fimNormalizado.setHours(0, 0, 0, 0);
+    contrato.status = !fimNormalizado || fimNormalizado >= hoje ? StatusContrato.VIGENTE : StatusContrato.ENCERRADO;
     contrato.liberado_por_id = usuarioId;
     contrato.liberado_por_nome = usuarioNome;
     contrato.liberado_em = new Date();
@@ -395,9 +401,9 @@ export class ContratosService {
     await this.registrarHistorico({
       contrato_id: id,
       tipo_acao: TipoAcaoContrato.LIBERADO,
-      descricao: `Contrato liberado por ${usuarioNome}`,
+      descricao: `Contrato liberado por ${usuarioNome}${contrato.status === StatusContrato.ENCERRADO ? ' (vigência já expirada)' : ''}`,
       status_anterior: StatusContrato.AGUARDANDO_LIBERACAO,
-      status_novo: StatusContrato.VIGENTE,
+      status_novo: contrato.status,
       usuario_id: usuarioId,
       usuario_nome: usuarioNome,
     });
