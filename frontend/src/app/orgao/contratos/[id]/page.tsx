@@ -63,6 +63,7 @@ interface TermoAditivo {
   sequencial: number
   tipo: string
   objeto: string
+  justificativa?: string | null
   valor_acrescimo: number
   valor_supressao: number
   nova_data_vigencia_fim: string
