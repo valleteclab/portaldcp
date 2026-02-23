@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Contrato } from './contrato.entity';
+import { TermoAditivo } from './termo-aditivo.entity';
 
 export enum TipoDocumentoContrato {
   CONTRATO = 'CONTRATO',
@@ -21,6 +22,13 @@ export class DocumentoContrato {
 
   @Column()
   contrato_id: string;
+
+  @Column({ nullable: true })
+  termo_aditivo_id: string;
+
+  @ManyToOne(() => TermoAditivo, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'termo_aditivo_id' })
+  termo_aditivo: TermoAditivo;
 
   @Column({
     type: 'enum',

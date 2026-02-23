@@ -55,7 +55,7 @@ export class TermoAditivo {
   @Column({ type: 'text' })
   objeto: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   justificativa: string;
 
   // Alterações de Valor

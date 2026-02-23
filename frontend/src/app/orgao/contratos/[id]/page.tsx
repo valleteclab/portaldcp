@@ -146,6 +146,7 @@ interface Contrato {
 interface DocumentoContrato {
   id: string
   contrato_id: string
+  termo_aditivo_id?: string
   tipo: string
   titulo: string
   descricao?: string
@@ -229,12 +230,20 @@ export default function DetalheContratoOrgaoPage() {
   const [loadingAction, setLoadingAction] = useState(false)
   
   const [modalTermo, setModalTermo] = useState(false)
+  const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
+  const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
   const [novoTermo, setNovoTermo] = useState({
     tipo: 'ADITIVO_PRAZO',
     objeto: '',
     justificativa: '',
     valor_acrescimo: '',
     valor_supressao: '',
+    modo_acrescimo: 'incremento' as 'incremento' | 'novo_global' | 'percentual',
+    modo_supressao: 'incremento' as 'incremento' | 'novo_global' | 'percentual',
+    novo_valor_global_acrescimo: '',
+    novo_valor_global_supressao: '',
+    percentual_acrescimo: '',
+    percentual_supressao: '',
     nova_data_vigencia_fim: '',
     data_assinatura: '',
   })
@@ -270,7 +279,7 @@ export default function DetalheContratoOrgaoPage() {
   const [textoObservacoesEdit, setTextoObservacoesEdit] = useState('')
 
   const [modalDocumento, setModalDocumento] = useState(false)
-  const [novoDocumento, setNovoDocumento] = useState({ tipo: 'OUTROS', titulo: '', descricao: '' })
+  const [novoDocumento, setNovoDocumento] = useState({ tipo: 'OUTROS', titulo: '', descricao: '', termo_aditivo_id: '' as string })
   const [arquivoDocumento, setArquivoDocumento] = useState<File | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
 
@@ -338,12 +347,27 @@ export default function DetalheContratoOrgaoPage() {
   const handleCriarTermo = async () => {
     setLoadingAction(true)
     try {
+      let valorAcrescimo: number | null = novoTermo.valor_acrescimo ? parseFloat(novoTermo.valor_acrescimo) : null
+      let valorSupressao: number | null = novoTermo.valor_supressao ? parseFloat(novoTermo.valor_supressao) : null
+      const valorGlobalAtual = Number(contrato?.valor_global) || 0
+      if (novoTermo.modo_acrescimo === 'novo_global' && novoTermo.novo_valor_global_acrescimo) {
+        const novoValor = parseFloat(novoTermo.novo_valor_global_acrescimo)
+        valorAcrescimo = Math.max(0, novoValor - valorGlobalAtual)
+      } else if (novoTermo.modo_acrescimo === 'percentual' && novoTermo.percentual_acrescimo) {
+        valorAcrescimo = valorGlobalAtual * (parseFloat(novoTermo.percentual_acrescimo) / 100)
+      }
+      if (novoTermo.modo_supressao === 'novo_global' && novoTermo.novo_valor_global_supressao) {
+        const novoValor = parseFloat(novoTermo.novo_valor_global_supressao)
+        valorSupressao = Math.max(0, valorGlobalAtual - novoValor)
+      } else if (novoTermo.modo_supressao === 'percentual' && novoTermo.percentual_supressao) {
+        valorSupressao = valorGlobalAtual * (parseFloat(novoTermo.percentual_supressao) / 100)
+      }
       const payload = {
         tipo: novoTermo.tipo,
         objeto: novoTermo.objeto,
         justificativa: novoTermo.justificativa || novoTermo.objeto,
-        valor_acrescimo: novoTermo.valor_acrescimo ? parseFloat(novoTermo.valor_acrescimo) : null,
-        valor_supressao: novoTermo.valor_supressao ? parseFloat(novoTermo.valor_supressao) : null,
+        valor_acrescimo: valorAcrescimo,
+        valor_supressao: valorSupressao,
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
         data_assinatura: novoTermo.data_assinatura,
       }
@@ -353,7 +377,7 @@ export default function DetalheContratoOrgaoPage() {
       })
       if (res.ok) {
         setModalTermo(false)
-        setNovoTermo({ tipo: 'ADITIVO_PRAZO', objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
+        setNovoTermo({ tipo: 'ADITIVO_PRAZO', objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', modo_acrescimo: 'incremento', modo_supressao: 'incremento', novo_valor_global_acrescimo: '', novo_valor_global_supressao: '', percentual_acrescimo: '', percentual_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
         carregarDados()
       } else {
         const error = await res.json()
@@ -362,6 +386,59 @@ export default function DetalheContratoOrgaoPage() {
     } catch (error) {
       console.error('Erro ao criar termo:', error)
       alert('Erro ao criar termo aditivo')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleEditarTermo = async () => {
+    if (!modalEditTermo || !contrato) return
+    setLoadingAction(true)
+    try {
+      const payload = {
+        objeto: modalEditTermo.objeto,
+        justificativa: modalEditTermo.justificativa || null,
+        valor_acrescimo: modalEditTermo.valor_acrescimo ? parseFloat(String(modalEditTermo.valor_acrescimo)) : null,
+        valor_supressao: modalEditTermo.valor_supressao ? parseFloat(String(modalEditTermo.valor_supressao)) : null,
+        nova_data_vigencia_fim: modalEditTermo.nova_data_vigencia_fim || null,
+        data_assinatura: modalEditTermo.data_assinatura?.toString().split('T')[0],
+      }
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/termos/${modalEditTermo.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+      if (res.ok) {
+        setModalEditTermo(null)
+        carregarDados()
+      } else {
+        const error = await res.json()
+        alert(error.message || 'Erro ao editar termo')
+      }
+    } catch (error) {
+      console.error('Erro ao editar termo:', error)
+      alert('Erro ao editar termo aditivo')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleCancelarTermo = async () => {
+    if (!modalCancelarTermo || !confirm('Cancelar este termo aditivo? Os valores do contrato serão revertidos.')) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/termos/${modalCancelarTermo.id}/cancelar`, {
+        method: 'PATCH',
+      })
+      if (res.ok) {
+        setModalCancelarTermo(null)
+        carregarDados()
+      } else {
+        const error = await res.json()
+        alert(error.message || 'Erro ao cancelar termo')
+      }
+    } catch (error) {
+      console.error('Erro ao cancelar termo:', error)
+      alert('Erro ao cancelar termo aditivo')
     } finally {
       setLoadingAction(false)
     }
@@ -379,6 +456,7 @@ export default function DetalheContratoOrgaoPage() {
       formData.append('titulo', novoDocumento.titulo)
       formData.append('tipo', novoDocumento.tipo)
       if (novoDocumento.descricao) formData.append('descricao', novoDocumento.descricao)
+      if (novoDocumento.termo_aditivo_id) formData.append('termo_aditivo_id', novoDocumento.termo_aditivo_id)
       const res = await authFetch(`${API_URL}/api/contratos/${id}/documentos`, {
         method: 'POST',
         body: formData,
@@ -386,7 +464,7 @@ export default function DetalheContratoOrgaoPage() {
       if (res.ok) {
         setModalDocumento(false)
         setArquivoDocumento(null)
-        setNovoDocumento({ tipo: 'OUTROS', titulo: '', descricao: '' })
+        setNovoDocumento({ tipo: 'OUTROS', titulo: '', descricao: '', termo_aditivo_id: '' })
         carregarDados()
       } else {
         const err = await res.json()
@@ -1294,7 +1372,7 @@ export default function DetalheContratoOrgaoPage() {
           ) : (
             <div className="space-y-4">
               {termos.map((termo) => (
-                <Card key={termo.id}>
+                <Card key={termo.id} className={termo.status === 'CANCELADO' ? 'opacity-60' : ''}>
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -1302,16 +1380,28 @@ export default function DetalheContratoOrgaoPage() {
                           <FileText className="w-5 h-5 text-blue-500" />
                           <span className="font-medium">{termo.numero_termo}</span>
                           <Badge variant="outline">{getTipoTermoLabel(termo.tipo)}</Badge>
+                          {termo.status === 'CANCELADO' && <Badge variant="destructive">Cancelado</Badge>}
                         </div>
                         <p className="text-gray-600 mb-4">{termo.objeto}</p>
                         <div className="flex gap-6 text-sm">
                           <div><span className="text-gray-500">Data de Assinatura:</span> <span className="font-medium">{formatarData(termo.data_assinatura)}</span></div>
-                          {termo.valor_acrescimo > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
-                          {termo.valor_supressao > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
+                          {Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
+                          {Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
                           {termo.nova_data_vigencia_fim && <div><span className="text-gray-500">Nova Vigência:</span> <span className="font-medium">{formatarData(termo.nova_data_vigencia_fim)}</span></div>}
                         </div>
+                        {documentos.filter(d => d.termo_aditivo_id === termo.id).length > 0 && (
+                          <div className="mt-2 text-xs text-gray-500">
+                            {documentos.filter(d => d.termo_aditivo_id === termo.id).length} documento(s) anexado(s)
+                          </div>
+                        )}
                       </div>
-                      <Button variant="ghost" size="sm"><Download className="w-4 h-4" /></Button>
+                      {termo.status !== 'CANCELADO' && (
+                        <div className="flex gap-1">
+                          <Button variant="outline" size="sm" onClick={() => { setNovoDocumento(d => ({ ...d, termo_aditivo_id: termo.id, tipo: 'TERMO_ADITIVO' })); setModalDocumento(true) }}><FileUp className="w-4 h-4 mr-1" />Doc</Button>
+                          <Button variant="outline" size="sm" onClick={() => setModalEditTermo({ ...termo })}><Pencil className="w-4 h-4 mr-1" />Editar</Button>
+                          <Button variant="outline" size="sm" className="text-red-600" onClick={() => setModalCancelarTermo(termo)}><X className="w-4 h-4 mr-1" />Cancelar</Button>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1335,14 +1425,23 @@ export default function DetalheContratoOrgaoPage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {documentos.map((doc) => (
+              {documentos.map((doc) => {
+                const termoVinculado = doc.termo_aditivo_id ? termos.find(t => t.id === doc.termo_aditivo_id) : null
+                return (
                 <Card key={doc.id}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <FileText className="w-8 h-8 text-blue-500 shrink-0" />
                       <div>
                         <p className="font-medium">{doc.titulo}</p>
-                        <p className="text-sm text-muted-foreground">{doc.nome_original} • {(doc.tamanho_bytes / 1024).toFixed(1)} KB</p>
+                        <p className="text-sm text-muted-foreground">
+                          {doc.nome_original} • {(doc.tamanho_bytes / 1024).toFixed(1)} KB
+                          {termoVinculado && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              Termo {termoVinculado.numero_termo}
+                            </Badge>
+                          )}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1355,7 +1454,8 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              )
+            }))}
             </div>
           )}
         </TabsContent>
@@ -1486,14 +1586,28 @@ export default function DetalheContratoOrgaoPage() {
               <Label>Justificativa *</Label>
               <Textarea placeholder="Justifique a necessidade do termo aditivo (ex.: necessidade de prorrogação para conclusão dos serviços)" value={novoTermo.justificativa} onChange={(e) => setNovoTermo({...novoTermo, justificativa: e.target.value})} rows={2} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Valor de Acréscimo (R$)</Label>
-                <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})} />
+            <div className="space-y-4">
+              <div>
+                <Label className="mb-2 block">Acréscimo</Label>
+                <div className="flex gap-4 mb-2">
+                  <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'incremento'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'incremento'})} /> Incremento (R$)</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'novo_global'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'novo_global'})} /> Novo valor global (R$)</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'percentual'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'percentual'})} /> Percentual (%)</label>
+                </div>
+                {novoTermo.modo_acrescimo === 'incremento' && <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})} />}
+                {novoTermo.modo_acrescimo === 'novo_global' && <Input type="number" step="0.01" min="0" placeholder="Novo valor total" value={novoTermo.novo_valor_global_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, novo_valor_global_acrescimo: e.target.value})} />}
+                {novoTermo.modo_acrescimo === 'percentual' && <Input type="number" step="0.01" min="0" placeholder="Ex: 8,44" value={novoTermo.percentual_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, percentual_acrescimo: e.target.value})} />}
               </div>
-              <div className="space-y-2">
-                <Label>Valor de Supressão (R$)</Label>
-                <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_supressao} onChange={(e) => setNovoTermo({...novoTermo, valor_supressao: e.target.value})} />
+              <div>
+                <Label className="mb-2 block">Supressão</Label>
+                <div className="flex gap-4 mb-2">
+                  <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'incremento'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'incremento'})} /> Valor (R$)</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'novo_global'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'novo_global'})} /> Novo valor global (R$)</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'percentual'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'percentual'})} /> Percentual (%)</label>
+                </div>
+                {novoTermo.modo_supressao === 'incremento' && <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_supressao} onChange={(e) => setNovoTermo({...novoTermo, valor_supressao: e.target.value})} />}
+                {novoTermo.modo_supressao === 'novo_global' && <Input type="number" step="0.01" min="0" placeholder="Novo valor apos supressao" value={novoTermo.novo_valor_global_supressao} onChange={(e) => setNovoTermo({...novoTermo, novo_valor_global_supressao: e.target.value})} />}
+                {novoTermo.modo_supressao === 'percentual' && <Input type="number" step="0.01" min="0" placeholder="Ex: 5" value={novoTermo.percentual_supressao} onChange={(e) => setNovoTermo({...novoTermo, percentual_supressao: e.target.value})} />}
               </div>
             </div>
             <div className="space-y-2">
@@ -1511,6 +1625,66 @@ export default function DetalheContratoOrgaoPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!modalEditTermo} onOpenChange={() => setModalEditTermo(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar Termo Aditivo — {modalEditTermo?.numero_termo}</DialogTitle>
+            <DialogDescription>Altere os dados do termo aditivo</DialogDescription>
+          </DialogHeader>
+          {modalEditTermo && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Objeto do Termo *</Label>
+                <Textarea placeholder="Descreva o objeto do termo aditivo" value={modalEditTermo.objeto || ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, objeto: e.target.value })} rows={3} />
+              </div>
+              <div className="space-y-2">
+                <Label>Justificativa</Label>
+                <Textarea placeholder="Justifique a necessidade do termo aditivo" value={modalEditTermo.justificativa || ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, justificativa: e.target.value })} rows={2} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Valor de Acréscimo (R$)</Label>
+                  <Input type="number" step="0.01" min="0" placeholder="0,00" value={modalEditTermo.valor_acrescimo ?? ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, valor_acrescimo: e.target.value ? parseFloat(e.target.value) : null })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Valor de Supressão (R$)</Label>
+                  <Input type="number" step="0.01" min="0" placeholder="0,00" value={modalEditTermo.valor_supressao ?? ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, valor_supressao: e.target.value ? parseFloat(e.target.value) : null })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Data de Assinatura *</Label>
+                <Input type="date" value={modalEditTermo.data_assinatura?.toString().split('T')[0] || ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, data_assinatura: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Nova Data de Vigência</Label>
+                <Input type="date" value={modalEditTermo.nova_data_vigencia_fim?.toString().split('T')[0] || ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, nova_data_vigencia_fim: e.target.value || null })} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalEditTermo(null)}>Cancelar</Button>
+            <Button onClick={handleEditarTermo} disabled={loadingAction || !modalEditTermo?.objeto}>
+              {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Salvar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!modalCancelarTermo} onOpenChange={() => setModalCancelarTermo(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar Termo Aditivo — {modalCancelarTermo?.numero_termo}</DialogTitle>
+            <DialogDescription>Ao cancelar, os valores do contrato serão revertidos (acréscimos e supressões deste termo).</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalCancelarTermo(null)}>Voltar</Button>
+            <Button variant="destructive" onClick={handleCancelarTermo} disabled={loadingAction}>
+              {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cancelando...</> : 'Confirmar Cancelamento'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={modalDocumento} onOpenChange={setModalDocumento}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -1518,6 +1692,18 @@ export default function DetalheContratoOrgaoPage() {
             <DialogDescription>Anexe um documento ao contrato (PDF, DOC, DOCX, JPG ou PNG)</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Vincular a Termo Aditivo</Label>
+              <Select value={novoDocumento.termo_aditivo_id || 'none'} onValueChange={(v) => setNovoDocumento({ ...novoDocumento, termo_aditivo_id: v === 'none' ? '' : v, tipo: v === 'none' ? novoDocumento.tipo : 'TERMO_ADITIVO' })}>
+                <SelectTrigger><SelectValue placeholder="Contrato (geral)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Contrato (geral)</SelectItem>
+                  {termos.filter(t => t.status !== 'CANCELADO').map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.numero_termo}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label>Tipo</Label>
               <Select value={novoDocumento.tipo} onValueChange={(v) => setNovoDocumento({ ...novoDocumento, tipo: v })}>

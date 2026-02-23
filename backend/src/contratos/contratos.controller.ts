@@ -281,6 +281,29 @@ export class ContratosController {
     return this.contratosService.findTermoAditivo(id);
   }
 
+  @Patch(':contratoId/termos/:termoId')
+  async atualizarTermoAditivo(
+    @Param('contratoId') contratoId: string,
+    @Param('termoId') termoId: string,
+    @Body() dados: Partial<TermoAditivo>,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.atualizarTermoAditivo(contratoId, termoId, dados);
+  }
+
+  @Patch(':contratoId/termos/:termoId/cancelar')
+  async cancelarTermoAditivo(
+    @Param('contratoId') contratoId: string,
+    @Param('termoId') termoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.cancelarTermoAditivo(contratoId, termoId);
+  }
+
   // ============ DOCUMENTOS DO CONTRATO ============
 
   @Post(':contratoId/documentos')
@@ -288,7 +311,7 @@ export class ContratosController {
   async uploadDocumento(
     @Param('contratoId') contratoId: string,
     @UploadedFile() arquivo: Express.Multer.File,
-    @Body() body: { titulo: string; tipo?: TipoDocumentoContrato; descricao?: string },
+    @Body() body: { titulo: string; tipo?: TipoDocumentoContrato; descricao?: string; termo_aditivo_id?: string },
     @Req() request: { user: JwtPayload },
   ) {
     const contrato = await this.contratosService.findOne(contratoId);
@@ -297,6 +320,7 @@ export class ContratosController {
       titulo: body.titulo,
       tipo: body.tipo,
       descricao: body.descricao,
+      termo_aditivo_id: body.termo_aditivo_id,
     });
   }
 

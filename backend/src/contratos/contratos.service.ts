@@ -458,7 +458,7 @@ export class ContratosService {
       contrato_id: contratoId,
       sequencial,
       numero_termo: numeroTermo,
-      justificativa: dados.justificativa ?? dados.objeto ?? '',
+      justificativa: dados.justificativa ?? dados.objeto ?? null,
     });
 
     const termoSalvo = await this.termoAditivoRepository.save(termo);
@@ -496,12 +496,104 @@ export class ContratosService {
     return termo;
   }
 
+  async atualizarTermoAditivo(contratoId: string, termoId: string, dados: Partial<TermoAditivo>): Promise<TermoAditivo> {
+    const contrato = await this.findOne(contratoId);
+    const termo = await this.findTermoAditivo(termoId);
+    if (termo.contrato_id !== contratoId) {
+      throw new NotFoundException('Termo aditivo não pertence a este contrato');
+    }
+    if (termo.status === StatusTermoAditivo.CANCELADO) {
+      throw new BadRequestException('Não é possível editar termo aditivo cancelado');
+    }
+
+    // Reverter efeitos antigos do termo no contrato
+    await this.reverterEfeitosTermo(contrato, termo);
+
+    // Atualizar campos do termo
+    if (dados.objeto != null) termo.objeto = dados.objeto;
+    if (dados.justificativa !== undefined) termo.justificativa = dados.justificativa;
+    if (dados.valor_acrescimo !== undefined) termo.valor_acrescimo = dados.valor_acrescimo;
+    if (dados.valor_supressao !== undefined) termo.valor_supressao = dados.valor_supressao;
+    if (dados.percentual_acrescimo !== undefined) termo.percentual_acrescimo = dados.percentual_acrescimo;
+    if (dados.percentual_supressao !== undefined) termo.percentual_supressao = dados.percentual_supressao;
+    if (dados.nova_data_vigencia_fim !== undefined) termo.nova_data_vigencia_fim = dados.nova_data_vigencia_fim as any;
+    if (dados.data_assinatura != null) termo.data_assinatura = dados.data_assinatura as any;
+
+    const termoSalvo = await this.termoAditivoRepository.save(termo);
+
+    // Reaplicar efeitos com os novos valores
+    await this.atualizarValoresContrato(contrato, termoSalvo);
+
+    await this.registrarHistorico({
+      contrato_id: contratoId,
+      tipo_acao: TipoAcaoContrato.EDITADO,
+      descricao: `Termo aditivo ${termo.numero_termo} editado`,
+      detalhes: JSON.stringify({ termo_id: termoId }),
+    });
+
+    return termoSalvo;
+  }
+
+  async cancelarTermoAditivo(contratoId: string, termoId: string): Promise<TermoAditivo> {
+    const contrato = await this.findOne(contratoId);
+    const termo = await this.findTermoAditivo(termoId);
+    if (termo.contrato_id !== contratoId) {
+      throw new NotFoundException('Termo aditivo não pertence a este contrato');
+    }
+    if (termo.status === StatusTermoAditivo.CANCELADO) {
+      throw new BadRequestException('Termo aditivo já está cancelado');
+    }
+
+    // Reverter efeitos do termo no contrato
+    await this.reverterEfeitosTermo(contrato, termo);
+
+    termo.status = StatusTermoAditivo.CANCELADO;
+    const termoSalvo = await this.termoAditivoRepository.save(termo);
+
+    const statusAnterior = termo.status;
+    await this.registrarHistorico({
+      contrato_id: contratoId,
+      tipo_acao: TipoAcaoContrato.STATUS_ALTERADO,
+      descricao: `Termo aditivo ${termo.numero_termo} cancelado`,
+      status_anterior: statusAnterior,
+      status_novo: StatusTermoAditivo.CANCELADO,
+      detalhes: JSON.stringify({ termo_id: termoId }),
+    });
+
+    return termoSalvo;
+  }
+
+  private async reverterEfeitosTermo(contrato: Contrato, termo: TermoAditivo): Promise<void> {
+    if (termo.valor_acrescimo) {
+      contrato.valor_acrescimos = Math.max(0, Number(contrato.valor_acrescimos) - Number(termo.valor_acrescimo));
+      contrato.valor_global = Math.max(0, Number(contrato.valor_global) - Number(termo.valor_acrescimo));
+    }
+    if (termo.valor_supressao) {
+      contrato.valor_supressoes = Math.max(0, Number(contrato.valor_supressoes) - Number(termo.valor_supressao));
+      contrato.valor_global = Number(contrato.valor_global) + Number(termo.valor_supressao);
+    }
+    if (termo.nova_data_vigencia_fim) {
+      const termosAnteriores = await this.termoAditivoRepository.find({
+        where: { contrato_id: contrato.id },
+        order: { sequencial: 'DESC' },
+      });
+      const anteriorComVigencia = termosAnteriores.find(
+        (t) => t.sequencial < termo.sequencial && t.status !== StatusTermoAditivo.CANCELADO && t.id !== termo.id && t.nova_data_vigencia_fim
+      );
+      if (anteriorComVigencia) {
+        contrato.data_vigencia_fim = anteriorComVigencia.nova_data_vigencia_fim as any;
+      }
+      // Se não houver termo anterior com vigência, mantém o atual (usuário pode ajustar manualmente)
+    }
+    await this.contratoRepository.save(contrato);
+  }
+
   // ============ DOCUMENTOS DO CONTRATO ============
 
   async uploadDocumentoContrato(
     contratoId: string,
     arquivo: Express.Multer.File,
-    dados: { titulo: string; tipo?: TipoDocumentoContrato; descricao?: string }
+    dados: { titulo: string; tipo?: TipoDocumentoContrato; descricao?: string; termo_aditivo_id?: string }
   ): Promise<DocumentoContrato> {
     const contrato = await this.findOne(contratoId);
     if (!arquivo?.buffer) {
@@ -522,6 +614,7 @@ export class ContratosService {
 
     const doc = this.documentoContratoRepository.create({
       contrato_id: contratoId,
+      termo_aditivo_id: dados.termo_aditivo_id || null,
       tipo: dados.tipo || TipoDocumentoContrato.OUTROS,
       titulo: dados.titulo,
       descricao: dados.descricao,
