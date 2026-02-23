@@ -57,7 +57,7 @@ export class AtestacaoService {
   async listarAtestacoes(contratoId: string): Promise<AtestacaoMensal[]> {
     return this.atestacaoRepository.find({
       where: { contrato_id: contratoId },
-      order: { mes_referencia: 'DESC' },
+      order: { mes_referencia: 'ASC' },
     });
   }
 
@@ -143,6 +143,31 @@ export class AtestacaoService {
     atestacao.data_atestacao = new Date() as any;
     atestacao.observacoes = dados.observacoes;
 
+    return this.atestacaoRepository.save(atestacao);
+  }
+
+  /**
+   * Reabre uma atestação rejeitada, voltando-a para PENDENTE para permitir novo ateste.
+   */
+  async reabrirAtestacao(atestacaoId: string): Promise<AtestacaoMensal> {
+    const atestacao = await this.buscarAtestacao(atestacaoId);
+
+    if (atestacao.status !== StatusAtestacao.REJEITADA) {
+      throw new BadRequestException('Apenas atestações rejeitadas podem ser reabertas');
+    }
+
+    atestacao.status = StatusAtestacao.PENDENTE;
+    atestacao.valor_atestado = null as any;
+    atestacao.valor_glosa = 0 as any;
+    atestacao.valor_liquido = null as any;
+    atestacao.nota_imr = null as any;
+    atestacao.criterios_imr = null as any;
+    atestacao.fiscal_id = null as any;
+    atestacao.fiscal_nome = null as any;
+    atestacao.data_atestacao = null as any;
+    atestacao.observacoes = null as any;
+
+    this.logger.log(`Atestação ${atestacao.mes_referencia} do contrato ${atestacao.contrato_id}: reaberta para PENDENTE`);
     return this.atestacaoRepository.save(atestacao);
   }
 

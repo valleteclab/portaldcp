@@ -15,7 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
-  Plus, Loader2, CheckCircle, XCircle, ClipboardCheck, Star, AlertTriangle, Layers,
+  Plus, Loader2, CheckCircle, XCircle, ClipboardCheck, Star, AlertTriangle, Layers, RotateCcw,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -230,6 +230,26 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
     finally { setActionLoading(false) }
   }
 
+  const reabrirAtestacao = async (atestacao: Atestacao) => {
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/atestacoes/${atestacao.id}/reabrir`, {
+        method: 'PATCH',
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao reabrir atestação')
+        return
+      }
+      carregarDados()
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao reabrir atestação')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>
 
   return (
@@ -347,6 +367,12 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
                             <XCircle className="w-3.5 h-3.5" />
                           </Button>
                         </div>
+                      )}
+                      {a.status === 'REJEITADA' && (
+                        <Button variant="outline" size="sm" className="text-blue-600" onClick={() => reabrirAtestacao(a)} disabled={actionLoading}>
+                          {actionLoading ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
+                          Reabrir
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>
