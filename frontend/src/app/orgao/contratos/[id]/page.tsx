@@ -64,9 +64,9 @@ interface TermoAditivo {
   tipo: string
   objeto: string
   justificativa?: string | null
-  valor_acrescimo: number
-  valor_supressao: number
-  nova_data_vigencia_fim: string
+  valor_acrescimo?: number | null
+  valor_supressao?: number | null
+  nova_data_vigencia_fim?: string | null
   data_assinatura: string
   status: string
   created_at: string
