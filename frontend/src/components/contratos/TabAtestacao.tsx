@@ -74,6 +74,7 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
   const [modalPreCriar, setModalPreCriar] = useState(false)
   const [modalAtestar, setModalAtestar] = useState<Atestacao | null>(null)
   const [modalRejeitar, setModalRejeitar] = useState<Atestacao | null>(null)
+  const [modalCancelar, setModalCancelar] = useState<Atestacao | null>(null)
 
   const [formCriar, setFormCriar] = useState({ mes_referencia: '', valor_mensal_contratado: '', empenho: '', data_empenho: '', tipo_empenho: '' })
   const [formPreCriar, setFormPreCriar] = useState({
@@ -250,6 +251,28 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
     }
   }
 
+  const cancelarAtestacao = async () => {
+    if (!modalCancelar) return
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/atestacoes/${modalCancelar.id}/cancelar`, {
+        method: 'PATCH',
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao cancelar atestação')
+        return
+      }
+      setModalCancelar(null)
+      carregarDados()
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao cancelar atestação')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>
 
   return (
@@ -372,6 +395,11 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
                         <Button variant="outline" size="sm" className="text-blue-600" onClick={() => reabrirAtestacao(a)} disabled={actionLoading}>
                           {actionLoading ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
                           Reabrir
+                        </Button>
+                      )}
+                      {(a.status === 'ATESTADA' || a.status === 'ATESTADA_COM_GLOSA') && (
+                        <Button variant="outline" size="sm" className="text-amber-600" onClick={() => setModalCancelar(a)}>
+                          <XCircle className="w-3.5 h-3.5 mr-1" />Cancelar
                         </Button>
                       )}
                     </TableCell>
@@ -585,6 +613,26 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
             <Button variant="destructive" onClick={rejeitar} disabled={actionLoading || !observacaoRejeicao}>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Rejeitar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Cancelar Atestação */}
+      <Dialog open={!!modalCancelar} onOpenChange={() => setModalCancelar(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar Atestação — {modalCancelar && `${MESES[(modalCancelar.mes || 1) - 1]} ${modalCancelar.ano}`}</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg">
+            <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+            <p className="text-sm text-amber-800">Ao cancelar, a atestação voltará para pendente e poderá ser reatestada ou rejeitada novamente.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalCancelar(null)}>Voltar</Button>
+            <Button variant="outline" className="text-amber-600 border-amber-600 hover:bg-amber-50" onClick={cancelarAtestacao} disabled={actionLoading}>
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirmar Cancelamento
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -147,6 +147,39 @@ export class AtestacaoService {
   }
 
   /**
+   * Cancela uma atestação já atestada, voltando-a para PENDENTE para permitir novo ateste.
+   */
+  async cancelarAtestacao(atestacaoId: string): Promise<AtestacaoMensal> {
+    const atestacao = await this.buscarAtestacao(atestacaoId);
+
+    if (
+      atestacao.status !== StatusAtestacao.ATESTADA &&
+      atestacao.status !== StatusAtestacao.ATESTADA_COM_GLOSA
+    ) {
+      throw new BadRequestException(
+        'Apenas atestações atestadas (ou com glosa) podem ser canceladas'
+      );
+    }
+
+    atestacao.status = StatusAtestacao.PENDENTE;
+    atestacao.valor_atestado = null as any;
+    atestacao.valor_glosa = 0 as any;
+    atestacao.valor_liquido = null as any;
+    atestacao.nota_imr = null as any;
+    atestacao.criterios_imr = null as any;
+    atestacao.fiscal_id = null as any;
+    atestacao.fiscal_nome = null as any;
+    atestacao.data_atestacao = null as any;
+    atestacao.observacoes = null as any;
+    atestacao.justificativa_glosa = null as any;
+
+    this.logger.log(
+      `Atestação ${atestacao.mes_referencia} do contrato ${atestacao.contrato_id}: cancelada, voltou para PENDENTE`
+    );
+    return this.atestacaoRepository.save(atestacao);
+  }
+
+  /**
    * Reabre uma atestação rejeitada, voltando-a para PENDENTE para permitir novo ateste.
    */
   async reabrirAtestacao(atestacaoId: string): Promise<AtestacaoMensal> {

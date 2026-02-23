@@ -537,6 +537,11 @@ export class ModalidadesContratoController {
     return this.atestacaoService.reabrirAtestacao(atestacaoId);
   }
 
+  @Patch('atestacoes/:atestacaoId/cancelar')
+  async cancelarAtestacao(@Param('atestacaoId') atestacaoId: string) {
+    return this.atestacaoService.cancelarAtestacao(atestacaoId);
+  }
+
   @Get(':contratoId/atestacoes/resumo')
   async resumoAtestacoes(@Param('contratoId') contratoId: string) {
     return this.atestacaoService.resumoAtestacoes(contratoId);
