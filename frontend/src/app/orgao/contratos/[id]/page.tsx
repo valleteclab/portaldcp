@@ -1454,8 +1454,8 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                   </CardContent>
                 </Card>
-              )
-            }))}
+                )
+              })}
             </div>
           )}
         </TabsContent>
