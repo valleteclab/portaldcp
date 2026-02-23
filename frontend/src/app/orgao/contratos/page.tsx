@@ -97,8 +97,10 @@ const STATUS_CONTRATO = {
   'AGUARDANDO_LIBERACAO': { label: 'Aguardando Liberação', cor: 'bg-amber-100 text-amber-800', icon: Lock },
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800', icon: Clock },
+  'VENCIDO': { label: 'Vencido', cor: 'bg-orange-100 text-orange-800', icon: Clock },
   'RESCINDIDO': { label: 'Rescindido', cor: 'bg-red-100 text-red-800', icon: AlertTriangle },
-  'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800', icon: AlertTriangle }
+  'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800', icon: AlertTriangle },
+  'CANCELADO': { label: 'Cancelado', cor: 'bg-red-100 text-red-800', icon: AlertTriangle }
 }
 
 function mesAnteriorYYYYMM(): string {

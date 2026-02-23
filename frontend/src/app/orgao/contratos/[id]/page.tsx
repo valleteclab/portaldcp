@@ -191,6 +191,7 @@ const STATUS_CONTRATO = {
   'AGUARDANDO_LIBERACAO': { label: 'Aguardando Liberação', cor: 'bg-amber-100 text-amber-800', icon: Lock },
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800', icon: Clock },
+  'VENCIDO': { label: 'Vencido', cor: 'bg-orange-100 text-orange-800', icon: Clock },
   'RESCINDIDO': { label: 'Rescindido', cor: 'bg-red-100 text-red-800', icon: AlertCircle },
   'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800', icon: AlertCircle },
   'CANCELADO': { label: 'Cancelado', cor: 'bg-red-100 text-red-800', icon: AlertCircle }
@@ -906,7 +907,7 @@ export default function DetalheContratoOrgaoPage() {
               </Button>
             </>
           )}
-          {contrato.status === 'VIGENTE' && (
+          {(contrato.status === 'VIGENTE' || contrato.status === 'ENCERRADO' || contrato.status === 'VENCIDO' || contrato.status === 'RESCINDIDO' || contrato.status === 'SUSPENSO') && (
             <Button variant="outline" onClick={() => { setNovoStatus(contrato.status); setModalStatus(true) }}>
               <Shield className="w-4 h-4 mr-2" />Alterar Status
             </Button>
