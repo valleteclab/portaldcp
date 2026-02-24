@@ -86,6 +86,17 @@ interface Etapa {
   data_fim_prevista?: string;
 }
 
+interface ItemCronograma {
+  id: string;
+  numero_item: number;
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+  quantidade_medida: number;
+}
+
 interface Medicao {
   id: string;
   numero_medicao: number;
@@ -121,6 +132,7 @@ interface Resumo {
   saldo_disponivel: number;
   percentual_fisico_total: number;
   etapas_comprometidas?: Record<string, number>;
+  itens_comprometidos?: Record<string, number>;
   total_etapas: number;
   etapas_concluidas: number;
   total_medicoes: number;
@@ -190,12 +202,15 @@ export default function FornecedorContratoDetalhePage() {
 
   const [contrato, setContrato] = useState<Contrato | null>(null);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
+  const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
   const [medicoes, setMedicoes] = useState<Medicao[]>([]);
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [loading, setLoading] = useState(true);
   const [fornecedor, setFornecedor] = useState<any>(null);
 
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(contrato?.modalidade_execucao || '');
+  const usarItensCronograma = itensCronograma.length > 0;
+  const temCronograma = etapas.length > 0 || itensCronograma.length > 0;
 
   // Modal Nova Medição
   const [modalNovaMedicao, setModalNovaMedicao] = useState(false);
@@ -208,7 +223,7 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_valor: '',
     nota_fiscal_data: '',
     valor_medido: '',
-    itens: [] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }[],
+    itens: [] as ({ etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | { item_cronograma_id: string; quantidade_medida: number })[],
   });
   // Discriminação de Despesas
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
@@ -252,15 +267,17 @@ export default function FornecedorContratoDetalhePage() {
       const fId = fornecedorData ? JSON.parse(fornecedorData).id : '';
       const qp = fId ? `?fornecedorId=${fId}` : '';
 
-      const [contratoRes, etapasRes, medicoesRes, resumoRes] = await Promise.all([
+      const [contratoRes, etapasRes, itensRes, medicoesRes, resumoRes] = await Promise.all([
         authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/detalhe${qp}`),
         authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/etapas${qp}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/itens-cronograma${qp}`),
         authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`),
         authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes/resumo`),
       ]);
 
       if (contratoRes.ok) setContrato(await contratoRes.json());
       if (etapasRes.ok) setEtapas(await etapasRes.json());
+      if (itensRes.ok) setItensCronograma(await itensRes.json());
       if (medicoesRes.ok) {
         const medicoesData = await medicoesRes.json();
         setMedicoes(medicoesData);
@@ -392,15 +409,28 @@ export default function FornecedorContratoDetalhePage() {
           setSubmitting(false); return;
         }
         payload.valor_medido = valor;
+      } else if (usarItensCronograma) {
+        const itensComQtd = novaMedicao.itens
+          .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+          .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
+        if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        if (resumo) {
+          const totalMedicao = itensComQtd.reduce((acc, item) => {
+            const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+            return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+          }, 0);
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
+        }
+        payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
-          .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
+          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: string } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0)))
           .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
         if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
-            const etapa = etapas[idx]; if (!etapa) return acc;
+            const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
             return item.modo_input === 'valor' && item.valor_executado_atual ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
           }, 0);
           if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
@@ -408,7 +438,7 @@ export default function FornecedorContratoDetalhePage() {
 
         const etapasCompr = resumo?.etapas_comprometidas || {};
         for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
-          const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item) continue;
+          const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item || !('etapa_id' in item)) continue;
           const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasCompr[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
           const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
           if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
@@ -469,15 +499,28 @@ export default function FornecedorContratoDetalhePage() {
           setSubmitting(false); return;
         }
         payload.valor_medido = valor;
+      } else if (usarItensCronograma) {
+        const itensComQtd = novaMedicao.itens
+          .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+          .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
+        if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        if (resumo) {
+          const totalMedicao = itensComQtd.reduce((acc, item) => {
+            const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+            return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+          }, 0);
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
+        }
+        payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
-          .filter(i => i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0))
+          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: string } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0)))
           .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
         if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
-            const etapa = etapas[idx]; if (!etapa) return acc;
+            const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
             return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
           }, 0);
           if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
@@ -485,7 +528,7 @@ export default function FornecedorContratoDetalhePage() {
 
         const etapasComprCS = resumo?.etapas_comprometidas || {};
         for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
-          const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item) continue;
+          const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item || !('etapa_id' in item)) continue;
           const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasComprCS[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
           const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
           if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
@@ -579,7 +622,9 @@ export default function FornecedorContratoDetalhePage() {
       periodo_inicio: '', periodo_fim: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       valor_medido: '',
-      itens: isServicoContinuado ? [] : etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
+      itens: isServicoContinuado ? [] : usarItensCronograma
+        ? itensCronograma.map(i => ({ item_cronograma_id: i.id, quantidade_medida: 0 }))
+        : etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
     setArquivosPendentes([]);
     setDiscriminacoes([]);
@@ -590,10 +635,16 @@ export default function FornecedorContratoDetalhePage() {
   const reaproveitarDespesasUltimoMes = async () => {
     const valorMedidoAtual = isServicoContinuado
       ? (parseFloat(novaMedicao.valor_medido) || 0)
-      : novaMedicao.itens.reduce((acc, item, idx) => {
-          const etapa = etapas[idx]; if (!etapa) return acc;
-          return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-        }, 0);
+      : usarItensCronograma
+        ? novaMedicao.itens.reduce((acc, item) => {
+            if (!('item_cronograma_id' in item)) return acc;
+            const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+            return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+          }, 0)
+        : novaMedicao.itens.reduce((acc, item, idx) => {
+            const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
+            return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+          }, 0);
 
     if (valorMedidoAtual <= 0) {
       alert(isServicoContinuado ? 'Informe o valor medido antes de reaproveitar.' : 'Preencha os itens da planilha de medição do serviço antes de reaproveitar.');
@@ -824,7 +875,7 @@ export default function FornecedorContratoDetalhePage() {
           </TabsTrigger>
           {!isServicoContinuado && (
           <TabsTrigger value="cronograma" className="gap-2">
-            <TrendingUp className="w-4 h-4" />Cronograma ({etapas.length})
+            <TrendingUp className="w-4 h-4" />Cronograma ({usarItensCronograma ? itensCronograma.length : etapas.length})
           </TabsTrigger>
           )}
           <TabsTrigger value="detalhes" className="gap-2">
@@ -839,7 +890,7 @@ export default function FornecedorContratoDetalhePage() {
               <h3 className="text-lg font-semibold">Boletins de Medição</h3>
               <p className="text-sm text-gray-500">Crie e submeta medições para análise do fiscal do contrato</p>
             </div>
-            <Button onClick={abrirModalNovaMedicao} className="gap-2 bg-blue-600 hover:bg-blue-700">
+            <Button onClick={abrirModalNovaMedicao} className="gap-2 bg-blue-600 hover:bg-blue-700" disabled={!isServicoContinuado && !temCronograma}>
               <Plus className="w-4 h-4" />Abrir Medição do Mês
             </Button>
           </div>
@@ -1066,10 +1117,41 @@ export default function FornecedorContratoDetalhePage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Cronograma Físico-Financeiro</CardTitle>
-              <CardDescription>Etapas da obra/serviço com percentual e valor previsto</CardDescription>
+              <CardDescription>{usarItensCronograma ? 'Itens do cronograma com quantidade e valor unitário' : 'Etapas da obra/serviço com percentual e valor previsto'}</CardDescription>
             </CardHeader>
             <CardContent>
-              {etapas.length === 0 ? (
+              {usarItensCronograma ? (
+                itensCronograma.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">Nenhum item cadastrado pelo órgão</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">#</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-center">Unidade</TableHead>
+                        <TableHead className="text-right">Quantidade</TableHead>
+                        <TableHead className="text-right">Valor Unit.</TableHead>
+                        <TableHead className="text-right">Valor Total</TableHead>
+                        <TableHead className="text-center">Medido</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {itensCronograma.map((ic) => (
+                        <TableRow key={ic.id}>
+                          <TableCell className="font-medium">{ic.numero_item}</TableCell>
+                          <TableCell>{ic.descricao}</TableCell>
+                          <TableCell className="text-center">{ic.unidade_medida}</TableCell>
+                          <TableCell className="text-right">{Number(ic.quantidade).toLocaleString('pt-BR')}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(ic.valor_unitario)}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(ic.valor_total)}</TableCell>
+                          <TableCell className="text-center text-blue-600 font-medium">{Number(ic.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )
+              ) : etapas.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">Nenhuma etapa cadastrada pelo órgão</p>
               ) : (
                 <Table>
@@ -1166,12 +1248,18 @@ export default function FornecedorContratoDetalhePage() {
                 {(() => {
                   const totalMedicao = isServicoContinuado
                     ? (parseFloat(novaMedicao.valor_medido) || 0)
-                    : novaMedicao.itens.reduce((acc, item, idx) => {
-                        const etapa = etapas[idx];
-                        if (!etapa) return acc;
-                        if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
-                        return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-                      }, 0);
+                    : usarItensCronograma
+                      ? novaMedicao.itens.reduce((acc, item, idx) => {
+                          if (!('item_cronograma_id' in item)) return acc;
+                          const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+                          return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+                        }, 0)
+                      : novaMedicao.itens.reduce((acc, item, idx) => {
+                          const etapa = etapas[idx];
+                          if (!etapa || !('etapa_id' in item)) return acc;
+                          if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
+                          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                        }, 0);
                   const saldoDisp = resumo ? resumo.saldo_disponivel : Infinity;
                   const excedeSaldo = totalMedicao > saldoDisp + 0.01;
                   return (
@@ -1223,8 +1311,63 @@ export default function FornecedorContratoDetalhePage() {
               </div>
             )}
 
-            {/* Planilha Orçamentária (apenas obras) */}
-            {!isServicoContinuado && (
+            {/* Planilha por Itens (quantidade medida) */}
+            {!isServicoContinuado && usarItensCronograma && (
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="w-16 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24">Quant. Total</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24">Med. Acum.</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-blue-50">Qtd. Mês</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28 bg-blue-50">Subtotal</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {itensCronograma.map((ic, idx) => {
+                    const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number } | undefined;
+                    const qtdMedida = itemState?.quantidade_medida || 0;
+                    const qtdTotal = Number(ic.quantidade);
+                    const qtdAprovada = Number(ic.quantidade_medida);
+                    const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
+                    const saldo = qtdTotal - qtdAprovada - emTransito;
+                    const subtotal = qtdMedida * Number(ic.valor_unitario);
+                    return (
+                      <TableRow key={ic.id} className="hover:bg-gray-50">
+                        <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
+                        <TableCell><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
+                        <TableCell className="text-center">{ic.unidade_medida}</TableCell>
+                        <TableCell className="text-right">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className="text-right text-blue-600">{qtdAprovada.toLocaleString('pt-BR')}{emTransito > 0 && <span className="text-amber-500 text-xs ml-0.5">+{emTransito.toLocaleString('pt-BR')}</span>}</TableCell>
+                        <TableCell className="text-right text-sm">{formatarMoeda(ic.valor_unitario)}</TableCell>
+                        <TableCell className="bg-blue-50/50">
+                          <Input
+                            type="number" step="0.001" min="0" max={saldo}
+                            placeholder="0" value={qtdMedida || ''}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              const itens = [...novaMedicao.itens];
+                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val };
+                              setNovaMedicao({ ...novaMedicao, itens });
+                            }}
+                            className="text-center"
+                          />
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(subtotal)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            )}
+
+            {/* Planilha Orçamentária (etapas/obras) */}
+            {!isServicoContinuado && !usarItensCronograma && (
             <div className="border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>

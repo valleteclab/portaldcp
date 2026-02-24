@@ -475,6 +475,21 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Lista itens do cronograma de um contrato (serviços por quantidade).
+   * GET /api/fornecedor/contratos/:contratoId/itens-cronograma?fornecedorId=X
+   */
+  @Get(':contratoId/itens-cronograma')
+  async listarItensCronograma(
+    @Param('contratoId') contratoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (fornecedorId) {
+      await this.validarAcessoFornecedor(contratoId, fornecedorId);
+    }
+    return this.medicaoService.listarItensCronograma(contratoId);
+  }
+
+  /**
    * Lista medições de um contrato (filtrado pelo fornecedor).
    * GET /api/fornecedor/contratos/:contratoId/medicoes?fornecedorId=X
    */

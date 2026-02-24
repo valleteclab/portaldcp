@@ -12,6 +12,8 @@ import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { EtapaCronograma } from './entities/etapa-cronograma.entity';
+import { ItemCronograma } from './entities/item-cronograma.entity';
+import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao } from './entities/medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
@@ -40,7 +42,7 @@ import { MulterModule } from '@nestjs/platform-express';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, Medicao, ItemMedicao, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao,
+      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao,
     ]),
     NotificacoesModule,
     UploadModule,

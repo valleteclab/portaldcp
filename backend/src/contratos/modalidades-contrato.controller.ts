@@ -103,6 +103,43 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
+  // MEDIÇÃO — Itens do Cronograma (Serviços por quantidade)
+  // ============================================================================
+
+  @Get('unidades-cronograma')
+  getUnidadesCronograma() {
+    const { UNIDADES_CRONOGRAMA } = require('./entities/item-cronograma.entity');
+    return { unidades: UNIDADES_CRONOGRAMA };
+  }
+
+  @Post(':contratoId/itens-cronograma')
+  async criarItemCronograma(
+    @Param('contratoId') contratoId: string,
+    @Body() dados: any,
+  ) {
+    return this.medicaoService.criarItemCronograma(contratoId, dados);
+  }
+
+  @Get(':contratoId/itens-cronograma')
+  async listarItensCronograma(@Param('contratoId') contratoId: string) {
+    return this.medicaoService.listarItensCronograma(contratoId);
+  }
+
+  @Put('itens-cronograma/:itemId')
+  async atualizarItemCronograma(
+    @Param('itemId') itemId: string,
+    @Body() dados: any,
+  ) {
+    return this.medicaoService.atualizarItemCronograma(itemId, dados);
+  }
+
+  @Delete('itens-cronograma/:itemId')
+  async excluirItemCronograma(@Param('itemId') itemId: string) {
+    await this.medicaoService.excluirItemCronograma(itemId);
+    return { success: true };
+  }
+
+  // ============================================================================
   // MEDIÇÃO — Rotas estáticas DEVEM vir ANTES das rotas com :parametro
   //           para evitar que NestJS interprete "resumo-fiscal" como :medicaoId
   // ============================================================================

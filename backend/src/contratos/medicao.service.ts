@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
+import { ItemCronograma } from './entities/item-cronograma.entity';
+import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
@@ -28,6 +30,10 @@ export class MedicaoService {
     private orgaoRepository: Repository<Orgao>,
     @InjectRepository(EtapaCronograma)
     private etapaRepository: Repository<EtapaCronograma>,
+    @InjectRepository(ItemCronograma)
+    private itemCronogramaRepository: Repository<ItemCronograma>,
+    @InjectRepository(ItemMedicaoItem)
+    private itemMedicaoItemRepository: Repository<ItemMedicaoItem>,
     @InjectRepository(Medicao)
     private medicaoRepository: Repository<Medicao>,
     @InjectRepository(ItemMedicao)
@@ -243,6 +249,106 @@ export class MedicaoService {
   }
 
   // ============================================================================
+  // ITENS DO CRONOGRAMA (Serviços por quantidade)
+  // ============================================================================
+
+  /** Retorna true se o contrato usa itens do cronograma (não etapas) */
+  async usarItensCronograma(contratoId: string): Promise<boolean> {
+    const count = await this.itemCronogramaRepository.count({ where: { contrato_id: contratoId } });
+    return count > 0;
+  }
+
+  async listarItensCronograma(contratoId: string): Promise<ItemCronograma[]> {
+    await this.validarContratoMedicao(contratoId);
+    return this.itemCronogramaRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_item: 'ASC' },
+    });
+  }
+
+  async criarItemCronograma(contratoId: string, dados: Partial<ItemCronograma>): Promise<ItemCronograma> {
+    const contrato = await this.validarContratoMedicao(contratoId);
+
+    // Contrato deve ter só etapas OU só itens
+    const etapasExistentes = await this.etapaRepository.count({ where: { contrato_id: contratoId } });
+    if (etapasExistentes > 0) {
+      throw new BadRequestException('Contrato já possui etapas. Use etapas ou itens, não ambos.');
+    }
+
+    const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+    const itensExistentes = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
+    const somaValorExistente = itensExistentes.reduce((sum, i) => sum + Number(i.valor_total), 0);
+    const quantidade = Number(dados.quantidade) || 0;
+    const valorUnitario = Number(dados.valor_unitario) || 0;
+    const valorTotal = quantidade * valorUnitario;
+
+    if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
+      const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
+      throw new BadRequestException(
+        `O valor total do item (R$ ${valorTotal.toFixed(2)}) excede o saldo disponível. ` +
+        `Valor do contrato: R$ ${valorGlobal.toFixed(2)}, já alocado: R$ ${somaValorExistente.toFixed(2)}, ` +
+        `disponível: R$ ${saldoDisponivel.toFixed(2)}.`
+      );
+    }
+
+    const numeroItem = itensExistentes.length > 0
+      ? Math.max(...itensExistentes.map(i => i.numero_item)) + 1
+      : 1;
+
+    const item = this.itemCronogramaRepository.create({
+      contrato_id: contratoId,
+      numero_item: numeroItem,
+      descricao: dados.descricao || '',
+      unidade_medida: dados.unidade_medida || 'UNIDADE',
+      quantidade,
+      valor_unitario: valorUnitario,
+      valor_total: valorTotal,
+      observacoes: dados.observacoes,
+    } as any);
+    return this.itemCronogramaRepository.save(item);
+  }
+
+  async atualizarItemCronograma(itemId: string, dados: Partial<ItemCronograma>): Promise<ItemCronograma> {
+    const item = await this.itemCronogramaRepository.findOne({ where: { id: itemId }, relations: ['contrato'] });
+    if (!item) throw new NotFoundException('Item do cronograma não encontrado');
+
+    const quantidadeMedida = Number(item.quantidade_medida) || 0;
+    const quantidade = dados.quantidade !== undefined ? Number(dados.quantidade) : Number(item.quantidade);
+    const valorUnitario = dados.valor_unitario !== undefined ? Number(dados.valor_unitario) : Number(item.valor_unitario);
+
+    if (quantidade < quantidadeMedida - 0.0001) {
+      throw new BadRequestException(
+        `Quantidade (${quantidade}) não pode ser menor que a já medida (${quantidadeMedida.toFixed(2)})`
+      );
+    }
+
+    const valorTotal = quantidade * valorUnitario;
+    Object.assign(item, {
+      ...dados,
+      quantidade,
+      valor_unitario: valorUnitario,
+      valor_total: valorTotal,
+    });
+    return this.itemCronogramaRepository.save(item);
+  }
+
+  async excluirItemCronograma(itemId: string): Promise<void> {
+    const item = await this.itemCronogramaRepository.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Item do cronograma não encontrado');
+
+    const quantidadeMedida = Number(item.quantidade_medida) || 0;
+    if (quantidadeMedida > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir item com quantidade já medida (${quantidadeMedida}). ` +
+        'Exclua as medições aprovadas primeiro.'
+      );
+    }
+
+    await this.itemMedicaoItemRepository.delete({ item_cronograma_id: itemId });
+    await this.itemCronogramaRepository.remove(item);
+  }
+
+  // ============================================================================
   // MEDIÇÕES — Criação (pelo fornecedor ou fiscal)
   // ============================================================================
 
@@ -265,11 +371,10 @@ export class MedicaoService {
     observacoes?: string;
     usuario_cadastro_id?: string;
     usuario_cadastro_nome?: string;
-    itens?: {
-      etapa_id: string;
-      percentual_executado_atual?: number;
-      valor_executado_atual?: number;
-    }[];
+    itens?: Array<
+      | { etapa_id: string; percentual_executado_atual?: number; valor_executado_atual?: number }
+      | { item_cronograma_id: string; quantidade_medida: number }
+    >;
   }, opcoes?: { skipOSCheck?: boolean }): Promise<Medicao> {
     if (!dados.periodo_inicio || !dados.periodo_fim) {
       throw new BadRequestException('Período de início e fim são obrigatórios');
@@ -336,6 +441,7 @@ export class MedicaoService {
     let valorMedido = 0;
     let percentualFisicoMedido = 0;
     const itensParaSalvar: Partial<ItemMedicao>[] = [];
+    const itensItemParaSalvar: Array<{ item_cronograma_id: string; quantidade_medida: number; valor_medido: number }> = [];
 
     if (servicoContinuado) {
       // Fluxo simplificado: valor direto informado pelo usuário
@@ -359,23 +465,72 @@ export class MedicaoService {
       // Calcular percentual proporcional ao valor global
       const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 1;
       percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
+    } else if (await this.usarItensCronograma(contratoId)) {
+      // Fluxo por itens do cronograma (quantidade medida)
+      const itensPayload = (dados.itens || []) as Array<{ item_cronograma_id?: string; quantidade_medida?: number }>;
+      const itensComItemCronograma = itensPayload.filter((i) => i.item_cronograma_id);
+
+      if (itensComItemCronograma.length === 0) {
+        throw new BadRequestException('Informe pelo menos um item com quantidade medida');
+      }
+
+      const quantidadeEmTransitoPorItem = await this.calcularQuantidadeComprometidaPorItem(contratoId);
+
+      for (const item of itensComItemCronograma) {
+        const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: item.item_cronograma_id! } });
+        if (!itemCron) throw new NotFoundException(`Item do cronograma ${item.item_cronograma_id} não encontrado`);
+
+        const qtdMedida = Number(item.quantidade_medida) || 0;
+        if (qtdMedida <= 0) continue;
+
+        const quantidadeTotal = Number(itemCron.quantidade);
+        const quantidadeAprovada = Number(itemCron.quantidade_medida) || 0;
+        const quantidadeEmTransito = quantidadeEmTransitoPorItem.get(item.item_cronograma_id!) || 0;
+        const saldoDisponivel = quantidadeTotal - quantidadeAprovada - quantidadeEmTransito;
+
+        if (qtdMedida > saldoDisponivel + 0.0001) {
+          throw new BadRequestException(
+            `Item "${itemCron.descricao}": quantidade medida (${qtdMedida}) excede o saldo disponível (${saldoDisponivel.toFixed(2)}). ` +
+            `Total: ${quantidadeTotal}, já aprovado: ${quantidadeAprovada}, em análise: ${quantidadeEmTransito}.`
+          );
+        }
+
+        const valorUnitario = Number(itemCron.valor_unitario);
+        const valorItem = qtdMedida * valorUnitario;
+        valorMedido += valorItem;
+
+        const valorTotalItem = Number(itemCron.valor_total) || 1;
+        const percentualItem = (valorItem / valorTotalItem) * 100;
+        percentualFisicoMedido += percentualItem;
+
+        itensItemParaSalvar.push({
+          item_cronograma_id: item.item_cronograma_id!,
+          quantidade_medida: qtdMedida,
+          valor_medido: valorItem,
+        });
+      }
+
+      if (valorMedido <= 0) {
+        throw new BadRequestException('A medição deve ter pelo menos um item com quantidade > 0');
+      }
     } else {
       // Fluxo completo com etapas (obras/engenharia)
       const percentuaisEmTransito = await this.calcularPercentualComprometidoPorEtapa(contratoId);
 
       for (const item of (dados.itens || [])) {
-        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-        if (!etapa) throw new NotFoundException(`Etapa ${item.etapa_id} não encontrada`);
+        const itemEtapa = item as { etapa_id: string; percentual_executado_atual?: number; valor_executado_atual?: number };
+        const etapa = await this.etapaRepository.findOne({ where: { id: itemEtapa.etapa_id } });
+        if (!etapa) throw new NotFoundException(`Etapa ${itemEtapa.etapa_id} não encontrada`);
 
-        let percentualExecAtual = item.percentual_executado_atual || 0;
-        if (!percentualExecAtual && item.valor_executado_atual && Number(etapa.valor_previsto) > 0) {
-          percentualExecAtual = (item.valor_executado_atual / Number(etapa.valor_previsto)) * 100;
+        let percentualExecAtual = itemEtapa.percentual_executado_atual || 0;
+        if (!percentualExecAtual && itemEtapa.valor_executado_atual && Number(etapa.valor_previsto) > 0) {
+          percentualExecAtual = (itemEtapa.valor_executado_atual / Number(etapa.valor_previsto)) * 100;
         }
 
         if (percentualExecAtual <= 0) continue;
 
         const percentualAprovado = Number(etapa.percentual_executado);
-        const percentualEmTransito = percentuaisEmTransito.get(item.etapa_id) || 0;
+        const percentualEmTransito = percentuaisEmTransito.get(itemEtapa.etapa_id) || 0;
         const percentualAcumuladoComNovo = percentualAprovado + percentualEmTransito + percentualExecAtual;
 
         if (percentualAcumuladoComNovo > 100.01) {
@@ -391,7 +546,7 @@ export class MedicaoService {
         percentualFisicoMedido += (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
 
         itensParaSalvar.push({
-          etapa_id: item.etapa_id,
+          etapa_id: itemEtapa.etapa_id,
           percentual_executado_anterior: percentualAprovado,
           percentual_executado_atual: percentualExecAtual,
           percentual_executado_acumulado: percentualAprovado + percentualExecAtual,
@@ -1267,6 +1422,13 @@ export class MedicaoService {
     const valorGlobal = Number(contrato.valor_global);
     const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
 
+    const usarItens = await this.usarItensCronograma(contratoId);
+    let itensComprometidos: Record<string, number> = {};
+    if (usarItens) {
+      const mapa = await this.calcularQuantidadeComprometidaPorItem(contratoId);
+      mapa.forEach((qtd, itemId) => { itensComprometidos[itemId] = qtd; });
+    }
+
     return {
       contrato_id: contratoId,
       fluxo_os: fluxoOs,
@@ -1278,6 +1440,7 @@ export class MedicaoService {
       saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido),
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       etapas_comprometidas: etapasComprometidas,
+      itens_comprometidos: itensComprometidos,
       total_etapas: etapas.length,
       etapas_concluidas: etapas.filter(e => e.status === StatusEtapaCronograma.CONCLUIDA).length,
       total_medicoes: medicoes.length,
@@ -1667,6 +1830,40 @@ export class MedicaoService {
     const mapa = new Map<string, number>();
     for (const row of results) {
       mapa.set(row.etapa_id, Number(row.total_percentual));
+    }
+    return mapa;
+  }
+
+  /** Quantidade comprometida por item do cronograma (medições em trânsito) */
+  private async calcularQuantidadeComprometidaPorItem(
+    contratoId: string,
+    excludeMedicaoId?: string,
+  ): Promise<Map<string, number>> {
+    const statusEmTransito = [
+      StatusMedicao.SUBMETIDA,
+      StatusMedicao.AGUARDANDO_ATESTE,
+      StatusMedicao.PARCIALMENTE_ATESTADA,
+      StatusMedicao.AGUARDANDO_APROVACAO,
+    ];
+
+    const qb = this.itemMedicaoItemRepository
+      .createQueryBuilder('imi')
+      .select('imi.item_cronograma_id', 'item_cronograma_id')
+      .addSelect('COALESCE(SUM(imi.quantidade_medida), 0)', 'total_quantidade')
+      .innerJoin('imi.medicao', 'm')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusEmTransito })
+      .groupBy('imi.item_cronograma_id');
+
+    if (excludeMedicaoId) {
+      qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
+    }
+
+    const results = await qb.getRawMany<{ item_cronograma_id: string; total_quantidade: string }>();
+
+    const mapa = new Map<string, number>();
+    for (const row of results) {
+      mapa.set(row.item_cronograma_id, Number(row.total_quantidade));
     }
     return mapa;
   }
