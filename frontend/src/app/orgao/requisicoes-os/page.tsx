@@ -320,14 +320,14 @@ export default function RequisicoesOSPage() {
               <Link href={linkNovaRequisicao}>
                 <Plus className="mr-2 h-4 w-4" /> Nova Requisição
               </Link>
-            />
+            </Button>
           )}
           {temOrdensServico && (
             <Button asChild variant={temAlmoxarifado ? 'outline' : 'default'}>
               <Link href={linkNovaOS}>
                 <Plus className="mr-2 h-4 w-4" /> Nova OS
               </Link>
-            />
+            </Button>
           )}
         </div>
       </div>
