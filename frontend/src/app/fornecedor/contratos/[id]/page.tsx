@@ -424,7 +424,7 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
-          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0)))
+          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
           .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
         if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
@@ -514,7 +514,7 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
-          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual && i.valor_executado_atual > 0)))
+          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
           .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
         if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
