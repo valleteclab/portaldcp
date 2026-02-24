@@ -347,7 +347,7 @@ export class MedicaoService {
 
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
-      ordem_servico_id: osVinculada?.id || dados.ordem_servico_id || null,
+      ordem_servico_id: osVinculada?.id || null,
       numero_medicao: numeroMedicao,
       periodo_inicio: dados.periodo_inicio,
       periodo_fim: dados.periodo_fim,
