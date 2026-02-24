@@ -106,6 +106,9 @@ export class Usuario {
   @Column({ default: false })
   eh_fiscal_contrato: boolean;
 
+  @Column({ default: false })
+  pode_gerenciar_os: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -29,6 +29,9 @@ export class UsuariosService {
     pode_aprovar_requisicoes?: boolean;
     pode_cancelar_estornar?: boolean;
     pode_liberar_contratos?: boolean;
+    pode_excluir_medicao?: boolean;
+    eh_fiscal_contrato?: boolean;
+    pode_gerenciar_os?: boolean;
   }): Promise<Usuario> {
     const existente = await this.usuarioRepository.findOneBy({ email: data.email });
     if (existente) {
@@ -50,6 +53,9 @@ export class UsuariosService {
       pode_aprovar_requisicoes: data.pode_aprovar_requisicoes || false,
       pode_cancelar_estornar: data.pode_cancelar_estornar || false,
       pode_liberar_contratos: data.pode_liberar_contratos || false,
+      pode_excluir_medicao: data.pode_excluir_medicao || false,
+      eh_fiscal_contrato: data.eh_fiscal_contrato || false,
+      pode_gerenciar_os: data.pode_gerenciar_os || false,
     });
 
     return await this.usuarioRepository.save(usuario);
@@ -108,6 +114,9 @@ export class UsuariosService {
     pode_aprovar_requisicoes: boolean;
     pode_cancelar_estornar: boolean;
     pode_liberar_contratos: boolean;
+    pode_excluir_medicao: boolean;
+    eh_fiscal_contrato: boolean;
+    pode_gerenciar_os: boolean;
   }>): Promise<Usuario> {
     const usuario = await this.findById(id);
 

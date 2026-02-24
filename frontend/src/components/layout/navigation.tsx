@@ -41,8 +41,9 @@ interface MenuLink {
   href: string
   label: string
   icon: any
-  modulo?: ModuloSistema // Módulo necessário para exibir este link
-  requerAprovador?: boolean // Requer permissão de aprovar requisições
+  modulo?: ModuloSistema
+  requerAprovador?: boolean
+  requerPermissao?: string
 }
 
 export function Sidebar({ userType }: SidebarProps) {
@@ -50,6 +51,7 @@ export function Sidebar({ userType }: SidebarProps) {
   const router = useRouter()
   const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
   const [podeAprovar, setPodeAprovar] = useState(false)
+  const [permissoesUsuario, setPermissoesUsuario] = useState<Record<string, boolean>>({})
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -66,7 +68,6 @@ export function Sidebar({ userType }: SidebarProps) {
     }
   }, [userType, pathname])
 
-  // Verifica se o usuário pode aprovar requisições
   useEffect(() => {
     if (userType === 'orgao') {
       try {
@@ -74,9 +75,17 @@ export function Sidebar({ userType }: SidebarProps) {
         if (usuarioStr) {
           const usuario = JSON.parse(usuarioStr)
           setPodeAprovar(usuario.pode_aprovar_requisicoes === true || usuario.pode_liberar_contratos === true)
+          setPermissoesUsuario({
+            pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes === true,
+            pode_liberar_contratos: usuario.pode_liberar_contratos === true,
+            pode_cancelar_estornar: usuario.pode_cancelar_estornar === true,
+            pode_excluir_medicao: usuario.pode_excluir_medicao === true,
+            eh_fiscal_contrato: usuario.eh_fiscal_contrato === true,
+            pode_gerenciar_os: usuario.pode_gerenciar_os === true,
+          })
         }
       } catch (e) {
-        console.error('Erro ao verificar permissão de aprovação:', e)
+        console.error('Erro ao verificar permissões:', e)
       }
     }
   }, [userType])
@@ -115,7 +124,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/medicoes", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/ordens-servico", label: "Ordens de Serviço", icon: FileText, modulo: ModuloSistema.ORDENS_SERVICO },
+    { href: "/orgao/ordens-servico", label: "Ordens de Serviço", icon: FileText, modulo: ModuloSistema.ORDENS_SERVICO, requerPermissao: 'pode_gerenciar_os' },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/ordens", label: "Ordens de Fornecimento", icon: Send, modulo: ModuloSistema.ALMOXARIFADO },
@@ -164,9 +173,11 @@ export function Sidebar({ userType }: SidebarProps) {
         return false
       }
 
-      // Verifica se requer permissão de aprovador
       if (link.requerAprovador && !podeAprovar) {
-        console.log(`[Sidebar] Link ${link.label}: requer aprovador, usuário não tem permissão`);
+        return false
+      }
+
+      if (link.requerPermissao && !permissoesUsuario[link.requerPermissao]) {
         return false
       }
 

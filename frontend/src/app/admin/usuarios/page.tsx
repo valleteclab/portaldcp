@@ -85,6 +85,7 @@ interface Usuario {
   pode_liberar_contratos?: boolean
   pode_excluir_medicao?: boolean
   eh_fiscal_contrato?: boolean
+  pode_gerenciar_os?: boolean
 }
 
 // Lista de módulos disponíveis
@@ -146,6 +147,7 @@ export default function AdminUsuariosPage() {
     pode_liberar_contratos: false,
     pode_excluir_medicao: false,
     eh_fiscal_contrato: false,
+    pode_gerenciar_os: false,
   })
 
   useEffect(() => {
@@ -193,6 +195,7 @@ export default function AdminUsuariosPage() {
       pode_liberar_contratos: false,
       pode_excluir_medicao: false,
       eh_fiscal_contrato: false,
+      pode_gerenciar_os: false,
     })
     setShowNovoUsuario(true)
   }
@@ -213,6 +216,7 @@ export default function AdminUsuariosPage() {
       pode_liberar_contratos: usuario.pode_liberar_contratos || false,
       pode_excluir_medicao: usuario.pode_excluir_medicao || false,
       eh_fiscal_contrato: usuario.eh_fiscal_contrato || false,
+      pode_gerenciar_os: usuario.pode_gerenciar_os || false,
     })
     setShowEditarUsuario(true)
   }
@@ -256,6 +260,7 @@ export default function AdminUsuariosPage() {
         pode_liberar_contratos: formUsuario.pode_liberar_contratos,
         pode_excluir_medicao: formUsuario.pode_excluir_medicao,
         eh_fiscal_contrato: formUsuario.eh_fiscal_contrato,
+        pode_gerenciar_os: formUsuario.pode_gerenciar_os,
       }
 
       if (formUsuario.senha) {
@@ -550,7 +555,12 @@ export default function AdminUsuariosPage() {
                               Fiscal
                             </Badge>
                           )}
-                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && (
+                          {usuario.pode_gerenciar_os && (
+                            <Badge className="bg-indigo-100 text-indigo-800 text-xs" title="Gerenciar Ordens de Serviço">
+                              Ordens de Serviço
+                            </Badge>
+                          )}
+                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && !usuario.pode_gerenciar_os && (
                             <span className="text-gray-400 text-xs">-</span>
                           )}
                         </div>
@@ -823,6 +833,20 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-fiscal" className="cursor-pointer">
                       <p className="text-sm font-medium text-teal-800">Fiscal de contrato</p>
                       <p className="text-xs text-teal-600">Atestar medições, devolver ao fornecedor e acessar o painel de medições</p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                    <Checkbox
+                      id="perm-os"
+                      checked={formUsuario.pode_gerenciar_os}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_gerenciar_os: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-os" className="cursor-pointer">
+                      <p className="text-sm font-medium text-indigo-800">Ordens de Serviço</p>
+                      <p className="text-xs text-indigo-600">Criar e gerenciar ordens de serviço de contratos</p>
                     </label>
                   </div>
                 </div>
