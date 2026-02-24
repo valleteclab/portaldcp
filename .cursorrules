@@ -202,6 +202,7 @@ Implementar sistema completo de autenticação JWT para proteger todas as APIs d
 
 ## User Specified Lessons
 
+- Sempre fazer git commit e push após alterações no código.
 - You have a python venv in ./venv. Use it.
 - Include info useful for debugging in the program output.
 - Read the file before you try to edit it.
