@@ -14,6 +14,7 @@ import { HistoricoContrato, TipoAcaoContrato } from './entities/historico-contra
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Medicao } from './entities/medicao.entity';
+import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
 
 @Injectable()
 export class ContratosService {
@@ -41,6 +42,8 @@ export class ContratosService {
     private usuarioRepository: Repository<Usuario>,
     @InjectRepository(Medicao)
     private medicaoRepository: Repository<Medicao>,
+    @InjectRepository(AtestacaoMensal)
+    private atestacaoRepository: Repository<AtestacaoMensal>,
     private notificacoesService: NotificacoesService,
   ) {
     if (!fs.existsSync(this.uploadPath)) {
@@ -1249,10 +1252,44 @@ export class ContratosService {
 
   // ============ AJUSTE DE MIGRAÇÃO ============
 
-  async ajusteMigracao(contratoId: string, valor: number, observacao: string, usuarioId: string): Promise<Contrato> {
+  private async obterValorComprometido(contratoId: string, modalidade: ModalidadeExecucao): Promise<number> {
+    let total = 0;
+    if (modalidade === ModalidadeExecucao.MEDICAO || modalidade === ModalidadeExecucao.CONTINUADO || modalidade === ModalidadeExecucao.LICENCA) {
+      const { comprometido } = await this.somarValorMedicoes(contratoId);
+      total += comprometido;
+    }
+    if (modalidade === ModalidadeExecucao.CONTINUADO) {
+      const result = await this.atestacaoRepository
+        .createQueryBuilder('a')
+        .select('COALESCE(SUM(a.valor_liquido), 0)', 'total')
+        .where('a.contrato_id = :contratoId', { contratoId })
+        .andWhere('a.status IN (:...status)', { status: ['ATESTADA', 'ATESTADA_COM_GLOSA'] })
+        .getRawOne<{ total: string }>();
+      total += Number(result?.total ?? 0);
+    }
+    return total;
+  }
+
+  async ajusteMigracao(contratoId: string, body: { valor_executado_anterior?: number; valor_empenhado?: number; observacao_ajuste?: string }, usuarioId: string, usuarioNome: string): Promise<Contrato> {
     const contrato = await this.findOne(contratoId);
+    const observacao = body.observacao_ajuste || '';
+    const valorGlobal = Number(contrato.valor_global) || 0;
+
+    let valor: number;
+    if (body.valor_empenhado !== undefined && body.valor_empenhado !== null) {
+      const valorEmpenhado = Number(body.valor_empenhado) || 0;
+      if (valorEmpenhado < 0) throw new BadRequestException('Valor empenhado não pode ser negativo');
+      if (valorEmpenhado > valorGlobal) throw new BadRequestException(`Valor empenhado (R$ ${valorEmpenhado.toFixed(2)}) não pode exceder o valor global (R$ ${valorGlobal.toFixed(2)})`);
+      const comprometido = await this.obterValorComprometido(contratoId, contrato.modalidade_execucao);
+      valor = Math.max(0, valorGlobal - valorEmpenhado - comprometido);
+    } else {
+      valor = Number(body.valor_executado_anterior) || 0;
+      if (valor < 0) throw new BadRequestException('Valor não pode ser negativo');
+      if (valor > valorGlobal) throw new BadRequestException(`Valor executado anterior (R$ ${valor.toFixed(2)}) não pode exceder o valor global (R$ ${valorGlobal.toFixed(2)})`);
+    }
+
     contrato.valor_executado_anterior = valor;
-    contrato.observacao_ajuste = observacao || '';
+    contrato.observacao_ajuste = observacao;
     const salvo = await this.contratoRepository.save(contrato);
 
     await this.registrarHistorico({
@@ -1260,7 +1297,7 @@ export class ContratosService {
       tipo_acao: TipoAcaoContrato.AJUSTE_MIGRACAO,
       descricao: `Ajuste de migração: R$ ${valor.toFixed(2)} registrado como valor já executado antes do sistema. ${observacao ? 'Obs: ' + observacao : ''}`,
       usuario_id: usuarioId,
-      usuario_nome: 'Administrador',
+      usuario_nome: usuarioNome,
     });
 
     return salvo;

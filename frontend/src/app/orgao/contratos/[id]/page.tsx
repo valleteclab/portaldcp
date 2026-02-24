@@ -289,7 +289,7 @@ export default function DetalheContratoOrgaoPage() {
   const [uploadingDoc, setUploadingDoc] = useState(false)
 
   const [modalAjuste, setModalAjuste] = useState(false)
-  const [ajusteForm, setAjusteForm] = useState({ valor_executado_anterior: '', observacao_ajuste: '' })
+  const [ajusteForm, setAjusteForm] = useState({ modo: 'executado' as 'executado' | 'empenhado', valor_executado_anterior: '', valor_empenhado: '', observacao_ajuste: '' })
   const [podeFazerAjuste, setPodeFazerAjuste] = useState(false)
   useEffect(() => {
     try {
@@ -343,11 +343,18 @@ export default function DetalheContratoOrgaoPage() {
   const handleSalvarAjuste = async () => {
     setLoadingAction(true)
     try {
-      const valor = parseFloat(ajusteForm.valor_executado_anterior) || 0
+      const payload: { valor_executado_anterior?: number; valor_empenhado?: number; observacao_ajuste: string } = {
+        observacao_ajuste: ajusteForm.observacao_ajuste
+      }
+      if (ajusteForm.modo === 'empenhado') {
+        payload.valor_empenhado = parseFloat(ajusteForm.valor_empenhado) || 0
+      } else {
+        payload.valor_executado_anterior = parseFloat(ajusteForm.valor_executado_anterior) || 0
+      }
       const res = await authFetch(`${API_URL}/api/contratos/${id}/ajuste-migracao`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ valor_executado_anterior: valor, observacao_ajuste: ajusteForm.observacao_ajuste })
+        body: JSON.stringify(payload)
       })
       if (res.ok) {
         setModalAjuste(false)
@@ -979,8 +986,13 @@ export default function DetalheContratoOrgaoPage() {
           )}
           {podeFazerAjuste && (
             <Button variant="outline" onClick={() => {
+              const vExec = Number(contrato.valor_executado_anterior || 0)
+              const vGlobal = Number(contrato.valor_global || 0)
+              const saldo = contrato.saldo_total_em_valor ?? (vGlobal - vExec)
               setAjusteForm({
-                valor_executado_anterior: String(Number(contrato.valor_executado_anterior || 0) || ''),
+                modo: 'executado',
+                valor_executado_anterior: vExec ? String(vExec) : '',
+                valor_empenhado: saldo > 0 ? String(saldo) : '',
                 observacao_ajuste: contrato.observacao_ajuste || ''
               })
               setModalAjuste(true)
@@ -2075,25 +2087,52 @@ export default function DetalheContratoOrgaoPage() {
           <DialogHeader>
             <DialogTitle>Ajuste de Migração</DialogTitle>
             <DialogDescription>
-              Registre o valor já executado antes do sistema para ajustar o saldo disponível do contrato.
+              Registre o valor já executado ou o saldo disponível (valor empenhado) para ajustar o contrato.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Valor já executado anteriormente (R$)</Label>
-              <Input
-                type="number" step="0.01" min="0"
-                max={Number(contrato?.valor_global || 0)}
-                value={ajusteForm.valor_executado_anterior}
-                onChange={(e) => setAjusteForm({ ...ajusteForm, valor_executado_anterior: e.target.value })}
-                placeholder="0,00"
-              />
-              {contrato && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Valor global do contrato: {formatarMoeda(contrato.valor_global)}
-                </p>
-              )}
+              <Label className="mb-2 block">Informar por</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="modo_ajuste" checked={ajusteForm.modo === 'executado'} onChange={() => setAjusteForm({ ...ajusteForm, modo: 'executado' })} />
+                  <span>Valor já executado</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="modo_ajuste" checked={ajusteForm.modo === 'empenhado'} onChange={() => setAjusteForm({ ...ajusteForm, modo: 'empenhado' })} />
+                  <span>Valor empenhado (saldo disponível)</span>
+                </label>
+              </div>
             </div>
+            {ajusteForm.modo === 'executado' ? (
+              <div>
+                <Label>Valor já executado anteriormente (R$)</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  max={Number(contrato?.valor_global || 0)}
+                  value={ajusteForm.valor_executado_anterior}
+                  onChange={(e) => setAjusteForm({ ...ajusteForm, valor_executado_anterior: e.target.value })}
+                  placeholder="0,00"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label>Valor empenhado / Saldo disponível (R$)</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  max={Number(contrato?.valor_global || 0)}
+                  value={ajusteForm.valor_empenhado}
+                  onChange={(e) => setAjusteForm({ ...ajusteForm, valor_empenhado: e.target.value })}
+                  placeholder="0,00"
+                />
+                <p className="text-xs text-gray-500 mt-1">Valor que permanece disponível para execução no sistema.</p>
+              </div>
+            )}
+            {contrato && (
+              <p className="text-xs text-gray-500">
+                Valor global do contrato: {formatarMoeda(contrato.valor_global)}
+              </p>
+            )}
             <div>
               <Label>Observação</Label>
               <Textarea

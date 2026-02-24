@@ -258,7 +258,7 @@ export class ContratosController {
   @Patch(':id/ajuste-migracao')
   async ajusteMigracao(
     @Param('id') id: string,
-    @Body() body: { valor_executado_anterior: number; observacao_ajuste: string },
+    @Body() body: { valor_executado_anterior?: number; valor_empenhado?: number; observacao_ajuste: string },
     @Req() request: { user: JwtPayload },
   ) {
     if (request.user.type === UserType.USUARIO) {
@@ -271,13 +271,9 @@ export class ContratosController {
     }
     const contrato = await this.contratosService.findOne(id);
     this.validarPropriedade(request.user, contrato.orgao_id);
-    const valor = Number(body.valor_executado_anterior) || 0;
-    if (valor < 0) throw new BadRequestException('Valor não pode ser negativo');
-    if (valor > Number(contrato.valor_global)) {
-      throw new BadRequestException(`Valor executado anterior (R$ ${valor.toFixed(2)}) não pode exceder o valor global do contrato (R$ ${Number(contrato.valor_global).toFixed(2)})`);
-    }
-    const nome = request.user.type === UserType.ADMIN ? 'Administrador' : request.user.email || request.user.sub;
-    return this.contratosService.ajusteMigracao(id, valor, body.observacao_ajuste || '', nome);
+    const usuarioId = request.user.sub;
+    const usuarioNome = request.user.type === UserType.ADMIN ? 'Administrador' : request.user.email || request.user.sub;
+    return this.contratosService.ajusteMigracao(id, body, usuarioId, usuarioNome);
   }
 
   // ============ TERMOS ADITIVOS ============
