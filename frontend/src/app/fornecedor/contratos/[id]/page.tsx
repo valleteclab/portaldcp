@@ -1386,10 +1386,10 @@ export default function FornecedorContratoDetalhePage() {
                     const jaExecutado = Number(etapa.percentual_executado);
                     const etapasComprT = resumo?.etapas_comprometidas || {};
                     const emTransito = etapasComprT[etapa.id] || 0;
-                    const itemState = novaMedicao.itens[idx];
-                    const modoInput = itemState?.modo_input || 'percentual';
-                    const execPerc = itemState?.percentual_executado_atual || 0;
-                    const execValor = itemState?.valor_executado_atual || 0;
+                    const itemState = novaMedicao.itens[idx] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | undefined;
+                    const modoInput = itemState?.modo_input ?? 'percentual';
+                    const execPerc = itemState?.percentual_executado_atual ?? 0;
+                    const execValor = itemState?.valor_executado_atual ?? 0;
                     const valorPrevisto = Number(etapa.valor_previsto);
                     const restante = 100 - jaExecutado - emTransito;
                     const valorRestante = (restante / 100) * valorPrevisto;
@@ -1522,10 +1522,16 @@ export default function FornecedorContratoDetalhePage() {
             {(() => {
               const valorMedidoAtual = isServicoContinuado
                 ? (parseFloat(novaMedicao.valor_medido) || 0)
-                : novaMedicao.itens.reduce((acc, item, idx) => {
-                    const etapa = etapas[idx]; if (!etapa) return acc;
-                    return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
-                  }, 0);
+                : usarItensCronograma
+                  ? novaMedicao.itens.reduce((acc, item) => {
+                      if (!('item_cronograma_id' in item)) return acc;
+                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+                    }, 0)
+                  : novaMedicao.itens.reduce((acc, item, idx) => {
+                      const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
+                      return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                    }, 0);
 
               const totalDiscValor = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);
