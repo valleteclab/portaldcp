@@ -1339,7 +1339,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                     const qtdMedida = Number(ic.quantidade_medida)
                     const saldo = qtdTotal - qtdMedida
                     return (
-                      <div key={item.item_cronograma_id} className="flex items-center gap-4 p-3">
+                      <div key={ic.id} className="flex items-center gap-4 p-3">
                         <div className="flex-1">
                           <p className="font-medium text-sm">{ic.numero_item}. {ic.descricao}</p>
                           <p className="text-xs text-gray-400">
