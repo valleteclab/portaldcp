@@ -53,7 +53,6 @@ import {
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
-import { InputMoeda } from '@/components/ui/input-moeda'
 import TabMedicao from '@/components/contratos/TabMedicao'
 import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
@@ -2108,17 +2107,23 @@ export default function DetalheContratoOrgaoPage() {
             {ajusteForm.modo === 'executado' ? (
               <div>
                 <Label>Valor já executado anteriormente (R$)</Label>
-                <InputMoeda
-                  value={parseFloat(ajusteForm.valor_executado_anterior) || 0}
-                  onChange={(n) => setAjusteForm({ ...ajusteForm, valor_executado_anterior: String(n) })}
+                <Input
+                  type="number" step="0.01" min="0"
+                  max={Number(contrato?.valor_global || 0)}
+                  value={ajusteForm.valor_executado_anterior}
+                  onChange={(e) => setAjusteForm({ ...ajusteForm, valor_executado_anterior: e.target.value })}
+                  placeholder="0,00"
                 />
               </div>
             ) : (
               <div>
                 <Label>Valor empenhado / Saldo disponível (R$)</Label>
-                <InputMoeda
-                  value={parseFloat(ajusteForm.valor_empenhado) || 0}
-                  onChange={(n) => setAjusteForm({ ...ajusteForm, valor_empenhado: String(n) })}
+                <Input
+                  type="number" step="0.01" min="0"
+                  max={Number(contrato?.valor_global || 0)}
+                  value={ajusteForm.valor_empenhado}
+                  onChange={(e) => setAjusteForm({ ...ajusteForm, valor_empenhado: e.target.value })}
+                  placeholder="0,00"
                 />
                 <p className="text-xs text-gray-500 mt-1">Valor que permanece disponível para execução no sistema.</p>
               </div>
