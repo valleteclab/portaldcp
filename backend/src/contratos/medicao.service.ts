@@ -304,8 +304,9 @@ export class MedicaoService {
       valor_unitario: valorUnitario,
       valor_total: valorTotal,
       observacoes: dados.observacoes,
-    } as any);
-    return this.itemCronogramaRepository.save(item);
+    });
+    const saved = await this.itemCronogramaRepository.save(item);
+    return Array.isArray(saved) ? saved[0] : saved;
   }
 
   async atualizarItemCronograma(itemId: string, dados: Partial<ItemCronograma>): Promise<ItemCronograma> {
