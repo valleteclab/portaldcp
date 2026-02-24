@@ -200,13 +200,13 @@ function OrdensServicoPage() {
         </CardContent></Card>
       </div>
 
-      <Dialog open={showNew} onOpenChange={setShowNew}><DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={showNew} onOpenChange={setShowNew}><DialogContent className="max-w-6xl w-[95vw] max-h-[95vh] overflow-y-auto">
         <DialogHeader><DialogTitle className="flex items-center gap-3"><FileText className="h-5 w-5" />Nova Ordem de Servico {step === 0 && <Badge variant="outline">1/2 - Selecionar Contrato</Badge>}{step === 1 && <Badge variant="outline">2/2 - Dados da OS</Badge>}</DialogTitle></DialogHeader>
         {step === 0 && <div className="space-y-4 py-2">
           <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Buscar contrato por numero, objeto ou fornecedor..." value={buscaC} onChange={e => setBuscaC(e.target.value)} className="pl-9" /></div>
           {loadingC ? <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
           : cF.length === 0 ? <div className="py-12 text-center text-muted-foreground"><Building2 className="mx-auto h-12 w-12 mb-3 opacity-30" /><p>Nenhum contrato elegivel encontrado.</p><p className="text-xs mt-1">Apenas contratos vigentes com modalidade de servico sao exibidos.</p></div>
-          : <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[55vh] overflow-y-auto pr-1">
+          : <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[65vh] overflow-y-auto pr-1">
             {cF.map(c => { const d = diasRest(c.data_vigencia_fim); const s = c.valor_global - (c.valor_executado_anterior || 0); const pc = c.valor_global > 0 ? ((c.valor_executado_anterior || 0) / c.valor_global) * 100 : 0; const is = cSel?.id === c.id;
               return (<Card key={c.id} className={`cursor-pointer transition-all hover:shadow-md ${is ? 'ring-2 ring-blue-500 bg-blue-50/50' : 'hover:bg-gray-50'}`} onClick={() => { setCSel(c); setStep(1); }}>
                 <CardContent className="p-4">
@@ -227,11 +227,16 @@ function OrdensServicoPage() {
           </div>}
         </div>}
         {step === 1 && cSel && <div className="space-y-4 py-2">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
             <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><Badge variant="outline" className="font-mono">{cSel.numero_contrato}</Badge><Badge className="bg-blue-100 text-blue-700 text-xs">{ML[cSel.modalidade_execucao] || cSel.modalidade_execucao}</Badge></div><Button variant="ghost" size="sm" onClick={() => setStep(0)}><ArrowLeft className="h-4 w-4 mr-1" />Trocar</Button></div>
-            <p className="text-sm text-gray-700 line-clamp-1">{cSel.objeto}</p>
-            <div className="flex items-center gap-2 text-sm text-gray-600 mt-1"><Building2 className="h-3.5 w-3.5" /><span className="font-medium">{cSel.fornecedor_razao_social}</span></div>
-            <div className="flex gap-4 mt-2 text-sm"><span className="text-gray-500">Valor Global: <strong className="text-gray-800">{formatarMoeda(cSel.valor_global)}</strong></span></div>
+            <p className="text-sm text-gray-700 line-clamp-2 mb-2">{cSel.objeto}</p>
+            <div className="flex items-center gap-2 text-sm text-gray-600 mb-3"><Building2 className="h-3.5 w-3.5" /><span className="font-medium">{cSel.fornecedor_razao_social}</span></div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3 pt-3 border-t border-blue-200">
+              <div className="bg-white/60 rounded-md p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p><p className="text-sm font-bold text-gray-800">{formatarMoeda(cSel.valor_global)}</p></div>
+              <div className="bg-green-100/80 rounded-md p-3"><p className="text-[10px] text-green-700 uppercase tracking-wide">Valor Disponivel</p><p className="text-sm font-bold text-green-800">{formatarMoeda(Math.max(0, cSel.valor_global - (cSel.valor_executado_anterior || 0)))}</p></div>
+              <div className="bg-white/60 rounded-md p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wide">Vigencia</p><p className="text-sm font-medium text-gray-800">{formatarData(cSel.data_vigencia_inicio)} a {formatarData(cSel.data_vigencia_fim)}</p></div>
+              <div className="bg-white/60 rounded-md p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wide">Dias Restantes</p><p className={`text-sm font-bold ${(() => { const dr = diasRest(cSel.data_vigencia_fim); return dr === null ? 'text-gray-600' : dr <= 30 ? 'text-red-600' : dr <= 90 ? 'text-yellow-700' : 'text-green-600'; })()}`}>{(() => { const dr = diasRest(cSel.data_vigencia_fim); return dr !== null ? (dr > 0 ? `${dr}d restantes` : 'Vencido') : '-'; })()}</p></div>
+            </div>
           </div>
           <div className="grid gap-4">
             <div><Label>Descricao da OS <span className="text-red-500">*</span></Label><Textarea value={nOS.desc} onChange={e => setNOS(p => ({ ...p, desc: e.target.value }))} placeholder="Descreva o servico a ser executado..." rows={3} /></div>
