@@ -412,9 +412,8 @@ export default function RequisicoesOSPage() {
               </TableHeader>
               <TableBody>
                 {itensFiltrados.map((item) => {
-                  const isOS = item.origem === 'os';
-                  const statusMap = isOS ? STATUS_OS : STATUS_REQ;
-                  const statusColors = isOS ? STATUS_OS_COLORS : STATUS_REQ_COLORS;
+                  const statusMap = STATUS_REQ;
+                  const statusColors = STATUS_REQ_COLORS;
                   const linkDetalhe = `/orgao/almoxarifado/requisicoes?detalhe=${item.id}`;
                   return (
                     <TableRow key={`${item.origem}-${item.id}`} className="cursor-pointer hover:bg-muted/50">
@@ -470,9 +469,8 @@ export default function RequisicoesOSPage() {
                     </h3>
                     <div className="space-y-3 max-h-[500px] overflow-y-auto">
                       {itens.map((item) => {
-                        const isOS = item.origem === 'os';
-                        const statusMap = isOS ? STATUS_OS : STATUS_REQ;
-                        const statusColors = isOS ? STATUS_OS_COLORS : STATUS_REQ_COLORS;
+                        const statusMap = STATUS_REQ;
+                        const statusColors = STATUS_REQ_COLORS;
                         const linkDetalhe = `/orgao/almoxarifado/requisicoes?detalhe=${item.id}`;
                         return (
                           <Link key={`${item.origem}-${item.id}`} href={linkDetalhe}>
@@ -493,29 +491,8 @@ export default function RequisicoesOSPage() {
                                     Contrato {item.contrato}
                                   </p>
                                 )}
-                                {/* Barra de progresso (OS) */}
-                                {isOS && 'pctConsumido' in item && (
-                                  <div className="mb-3">
-                                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                                      <span>Utilizado</span>
-                                      <span className="font-medium">{Math.min(item.pctConsumido, 100).toFixed(0)}%</span>
-                                    </div>
-                                    <div className="w-full bg-slate-200 rounded-full h-2">
-                                      <div
-                                        className={`h-2 rounded-full transition-all ${
-                                          item.pctConsumido > 90 ? 'bg-red-500' : item.pctConsumido > 70 ? 'bg-amber-500' : 'bg-blue-500'
-                                        }`}
-                                        style={{ width: `${Math.min(item.pctConsumido, 100)}%` }}
-                                      />
-                                    </div>
-                                    <div className="flex justify-between text-xs mt-1 text-muted-foreground">
-                                      <span>Consumido: {formatarMoeda(item.consumido)}</span>
-                                      <span>Saldo: {formatarMoeda(item.saldo)}</span>
-                                    </div>
-                                  </div>
-                                )}
                                 {/* Requisição: atendida e aprovador */}
-                                {!isOS && 'atendida' in item && (
+                                {'atendida' in item && (
                                   <div className="flex flex-wrap gap-2 mb-2">
                                     <Badge variant={item.atendida ? 'default' : 'secondary'} className={item.atendida ? 'bg-emerald-100 text-emerald-800' : ''}>
                                       Atendida: {item.atendida ? 'Sim' : 'Não'}
