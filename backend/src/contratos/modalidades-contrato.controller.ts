@@ -621,10 +621,10 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // ORDENS DE SERVIÇO (Demanda)
+  // ORDENS DE SERVIÇO — Módulo Unificado
   // ============================================================================
 
-  // Banco de Métricas
+  // Banco de Métricas (apenas ORDEM_SERVICO)
   @Post(':contratoId/banco-metricas')
   async criarBancoMetricas(
     @Param('contratoId') contratoId: string,
@@ -646,13 +646,42 @@ export class ModalidadesContratoController {
     return this.osService.atualizarBancoMetricas(bancoId, dados);
   }
 
-  // Ordens de Serviço
+  // --- Listagem geral de OS (por órgão) ---
+
+  @Get('ordens-servico/pendentes-aprovacao')
+  async listarOSPendentesAprovacao(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.osService.listarPendentesAprovacao(orgaoId);
+  }
+
+  @Get('ordens-servico/listar')
+  async listarOSPorOrgao(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+    @Query('status') status?: StatusOrdemServico,
+    @Query('contratoId') contratoId?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.osService.listarOSPorOrgao(orgaoId, { status, contratoId });
+  }
+
+  // --- CRUD por contrato ---
+
   @Post(':contratoId/ordens-servico')
   async criarOS(
     @Param('contratoId') contratoId: string,
     @Body() dados: any,
+    @Req() request: { user: JwtPayload },
   ) {
-    return this.osService.criarOS(contratoId, dados);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    return this.osService.criarOS(contratoId, {
+      ...dados,
+      usuario_cadastro_id: request.user.sub,
+      usuario_cadastro_nome: usuario?.nome || 'Usuário',
+    });
   }
 
   @Get(':contratoId/ordens-servico')
@@ -661,6 +690,11 @@ export class ModalidadesContratoController {
     @Query('status') status?: StatusOrdemServico,
   ) {
     return this.osService.listarOS(contratoId, status);
+  }
+
+  @Get(':contratoId/ordens-servico/resumo')
+  async resumoOS(@Param('contratoId') contratoId: string) {
+    return this.osService.resumoOS(contratoId);
   }
 
   @Get('ordens-servico/:osId')
@@ -675,6 +709,35 @@ export class ModalidadesContratoController {
   ) {
     return this.osService.atualizarOS(osId, dados);
   }
+
+  // --- Fluxo de aprovação ---
+
+  @Patch('ordens-servico/:osId/submeter')
+  async submeterAprovacaoOS(@Param('osId') osId: string) {
+    return this.osService.submeterAprovacao(osId);
+  }
+
+  @Patch('ordens-servico/:osId/aprovar')
+  async aprovarOS(
+    @Param('osId') osId: string,
+    @Body() body: { observacao?: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    return this.osService.aprovarOS(osId, request.user.sub, usuario?.nome || 'Aprovador', body.observacao);
+  }
+
+  @Patch('ordens-servico/:osId/rejeitar-aprovacao')
+  async rejeitarAprovacaoOS(
+    @Param('osId') osId: string,
+    @Body() body: { observacao: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    return this.osService.rejeitarAprovacaoOS(osId, request.user.sub, usuario?.nome || 'Aprovador', body.observacao);
+  }
+
+  // --- Fluxo de execução ---
 
   @Patch('ordens-servico/:osId/iniciar')
   async iniciarExecucao(@Param('osId') osId: string) {
@@ -705,6 +768,11 @@ export class ModalidadesContratoController {
     return this.osService.rejeitarOS(osId, dados);
   }
 
+  @Patch('ordens-servico/:osId/concluir')
+  async concluirOS(@Param('osId') osId: string) {
+    return this.osService.concluirOS(osId);
+  }
+
   @Patch('ordens-servico/:osId/cancelar')
   async cancelarOS(
     @Param('osId') osId: string,
@@ -713,8 +781,9 @@ export class ModalidadesContratoController {
     return this.osService.cancelarOS(osId, observacao);
   }
 
-  @Get(':contratoId/ordens-servico/resumo')
-  async resumoOS(@Param('contratoId') contratoId: string) {
-    return this.osService.resumoOS(contratoId);
+  @Get('ordens-servico/:osId/saldo')
+  async saldoOS(@Param('osId') osId: string) {
+    const saldo = await this.osService.calcularSaldoOS(osId);
+    return { saldo };
   }
 }

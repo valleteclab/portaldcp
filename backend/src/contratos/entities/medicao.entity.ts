@@ -38,6 +38,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Contrato } from './contrato.entity';
+import { OrdemServicoContrato } from './ordem-servico-contrato.entity';
 
 export enum StatusMedicao {
   RASCUNHO = 'RASCUNHO',                         // Fornecedor ainda editando
@@ -63,6 +64,13 @@ export class Medicao {
 
   @Column()
   contrato_id: string;
+
+  @ManyToOne(() => OrdemServicoContrato, { nullable: true })
+  @JoinColumn({ name: 'ordem_servico_id' })
+  ordem_servico: OrdemServicoContrato;
+
+  @Column({ type: 'varchar', nullable: true })
+  ordem_servico_id: string;
 
   // ============ IDENTIFICAÇÃO ============
 

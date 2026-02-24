@@ -30,7 +30,8 @@ import {
   Send,
   Shield,
   Warehouse,
-  FilePen
+  FilePen,
+  ClipboardList
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -57,6 +58,7 @@ const MODULOS = [
   { codigo: 'CREDENCIAMENTO', nome: 'Credenciamento', descricao: 'Sistema de credenciamento', icon: Shield },
   { codigo: 'ALMOXARIFADO', nome: 'Almoxarifado', descricao: 'Gestão de almoxarifado e ordens de fornecimento', icon: Warehouse },
   { codigo: 'PORTAL_ASSINATURAS', nome: 'Portal de Assinaturas', descricao: 'Assinaturas eletrônicas de documentos avulsos', icon: FilePen },
+  { codigo: 'ORDENS_SERVICO', nome: 'Ordens de Serviço', descricao: 'Gestão de Ordens de Serviço para contratos', icon: ClipboardList },
 ]
 
 export default function AdminModulosPage() {

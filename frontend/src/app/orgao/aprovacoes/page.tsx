@@ -114,6 +114,24 @@ interface Contrato {
   created_at: string;
 }
 
+interface OSPendente {
+  id: string;
+  numero_os: string;
+  descricao: string;
+  valor_total: number;
+  data_abertura: string;
+  data_prazo: string;
+  metrica: string;
+  quantidade_metrica?: number;
+  status: string;
+  usuario_cadastro_nome?: string;
+  created_at: string;
+  numero_contrato?: string;
+  objeto_contrato?: string;
+  fornecedor_nome?: string;
+  modalidade_execucao?: string;
+}
+
 interface MedicaoPendente {
   id: string;
   numero_medicao: number;
@@ -207,11 +225,13 @@ export default function CentralAprovacoesPage() {
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [medicoes, setMedicoes] = useState<MedicaoPendente[]>([]);
+  const [ordensServico, setOrdensServico] = useState<OSPendente[]>([]);
 
   // UI State
   const [loadingContratos, setLoadingContratos] = useState(false);
   const [loadingRequisicoes, setLoadingRequisicoes] = useState(false);
   const [loadingMedicoes, setLoadingMedicoes] = useState(false);
+  const [loadingOS, setLoadingOS] = useState(false);
   const [processando, setProcessando] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -249,6 +269,13 @@ export default function CentralAprovacoesPage() {
   const [showLiberarContrato, setShowLiberarContrato] = useState(false);
   const [showRejeitarContrato, setShowRejeitarContrato] = useState(false);
   const [motivoRejeicaoContrato, setMotivoRejeicaoContrato] = useState('');
+
+  // Modais OS
+  const [osSelecionada, setOsSelecionada] = useState<OSPendente | null>(null);
+  const [showAprovarOS, setShowAprovarOS] = useState(false);
+  const [showRejeitarOS, setShowRejeitarOS] = useState(false);
+  const [observacaoOS, setObservacaoOS] = useState('');
+  const [motivoRejeicaoOS, setMotivoRejeicaoOS] = useState('');
 
   // Modais Medição
   const [medicaoSelecionada, setMedicaoSelecionada] = useState<MedicaoPendente | null>(null);
@@ -290,6 +317,7 @@ export default function CentralAprovacoesPage() {
       if (podeLiberarContratos) carregarContratos();
       if (podeAprovarRequisicoes) carregarRequisicoes();
       carregarMedicoes();
+      carregarOrdensServico();
     }
   }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
 
@@ -337,10 +365,25 @@ export default function CentralAprovacoesPage() {
     }
   };
 
+  const carregarOrdensServico = async () => {
+    setLoadingOS(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/ordens-servico/pendentes-aprovacao?orgaoId=${orgaoId}`);
+      if (res.ok) {
+        setOrdensServico(await res.json());
+      }
+    } catch (error) {
+      console.error('Erro ao carregar OS:', error);
+    } finally {
+      setLoadingOS(false);
+    }
+  };
+
   const recarregarTudo = () => {
     if (podeLiberarContratos) carregarContratos();
     if (podeAprovarRequisicoes) carregarRequisicoes();
     carregarMedicoes();
+    carregarOrdensServico();
   };
 
   // ============ AÇÕES CONTRATOS ============
@@ -433,6 +476,56 @@ export default function CentralAprovacoesPage() {
     } catch (error) {
       console.error('Erro:', error);
       alert('Erro ao negar requisição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  // ============ AÇÕES ORDENS DE SERVIÇO ============
+
+  const aprovarOrdemServico = async () => {
+    if (!osSelecionada) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/ordens-servico/${osSelecionada.id}/aprovar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observacao: observacaoOS || undefined }),
+      });
+      if (res.ok) {
+        setShowAprovarOS(false);
+        setObservacaoOS('');
+        await carregarOrdensServico();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao aprovar OS');
+      }
+    } catch (error) {
+      alert('Erro ao aprovar OS');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const rejeitarOrdemServico = async () => {
+    if (!osSelecionada || !motivoRejeicaoOS.trim()) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/ordens-servico/${osSelecionada.id}/rejeitar-aprovacao`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observacao: motivoRejeicaoOS }),
+      });
+      if (res.ok) {
+        setShowRejeitarOS(false);
+        setMotivoRejeicaoOS('');
+        await carregarOrdensServico();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao rejeitar OS');
+      }
+    } catch (error) {
+      alert('Erro ao rejeitar OS');
     } finally {
       setProcessando(false);
     }
@@ -544,10 +637,11 @@ export default function CentralAprovacoesPage() {
     );
   }
 
-  const totalPendentes = contratos.length + requisicoes.length + medicoes.length;
+  const totalPendentes = contratos.length + requisicoes.length + medicoes.length + ordensServico.length;
   const valorTotalContratos = contratos.reduce((acc, c) => acc + Number(c.valor_global || 0), 0);
   const valorTotalRequisicoes = requisicoes.reduce((acc, r) => acc + Number(r.valor_total_estimado || 0), 0);
   const valorTotalMedicoes = medicoes.reduce((acc, m) => acc + Number(m.valor_medido || 0), 0);
+  const valorTotalOS = ordensServico.reduce((acc, os) => acc + Number(os.valor_total || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -625,6 +719,19 @@ export default function CentralAprovacoesPage() {
           </CardContent>
         </Card>
 
+        <Card className={ordensServico.length > 0 ? 'border-indigo-200 bg-indigo-50' : ''}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-indigo-500" />
+              Ordens de Serviço
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-indigo-600">{ordensServico.length}</div>
+            <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorTotalOS)}</p>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-gray-500">
@@ -633,7 +740,7 @@ export default function CentralAprovacoesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-700">
-              {formatarMoeda(valorTotalContratos + valorTotalRequisicoes + valorTotalMedicoes)}
+              {formatarMoeda(valorTotalContratos + valorTotalRequisicoes + valorTotalMedicoes + valorTotalOS)}
             </div>
           </CardContent>
         </Card>
@@ -665,6 +772,13 @@ export default function CentralAprovacoesPage() {
             Medições
             {medicoes.length > 0 && (
               <Badge className="ml-1 bg-emerald-600 text-white text-xs px-1.5 py-0">{medicoes.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="ordens-servico" className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4" />
+            Ordens de Serviço
+            {ordensServico.length > 0 && (
+              <Badge className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0">{ordensServico.length}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -1290,7 +1404,129 @@ export default function CentralAprovacoesPage() {
             </div>
           )}
         </TabsContent>
+        {/* ============ TAB ORDENS DE SERVIÇO ============ */}
+        <TabsContent value="ordens-servico" className="space-y-4">
+          {loadingOS ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : ordensServico.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma OS pendente de aprovação</h3>
+                <p className="text-gray-500">Todas as Ordens de Serviço foram processadas</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {ordensServico.map((os) => (
+                <Card key={os.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-lg">{os.numero_os}</span>
+                          <Badge className="bg-yellow-100 text-yellow-700">Aguardando Aprovação</Badge>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1">{os.numero_contrato} — {os.fornecedor_nome}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-blue-600">{formatarMoeda(os.valor_total)}</p>
+                        <p className="text-xs text-gray-500">Valor da OS</p>
+                      </div>
+                    </div>
+
+                    <p className="text-sm mb-3">{os.descricao}</p>
+
+                    <div className="flex gap-6 text-sm text-gray-500 mb-3">
+                      <span><Calendar className="w-3 h-3 inline mr-1" />Abertura: {formatarData(os.data_abertura)}</span>
+                      <span><Clock className="w-3 h-3 inline mr-1" />Prazo: {formatarData(os.data_prazo)}</span>
+                      {os.usuario_cadastro_nome && <span><User className="w-3 h-3 inline mr-1" />Criado por: {os.usuario_cadastro_nome}</span>}
+                    </div>
+
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:bg-red-50"
+                        onClick={() => { setOsSelecionada(os); setShowRejeitarOS(true); }}
+                      >
+                        <XCircle className="w-4 h-4 mr-1" /> Rejeitar
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => { setOsSelecionada(os); setShowAprovarOS(true); }}
+                      >
+                        <CheckCircle className="w-4 h-4 mr-1" /> Aprovar
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
+
+      {/* ============ MODAIS OS ============ */}
+
+      <Dialog open={showAprovarOS} onOpenChange={setShowAprovarOS}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aprovar Ordem de Serviço</DialogTitle>
+          </DialogHeader>
+          {osSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-3 rounded">
+                <p className="font-medium">{osSelecionada.numero_os}</p>
+                <p className="text-sm text-gray-500">{osSelecionada.descricao}</p>
+                <p className="text-sm mt-1 font-bold">{formatarMoeda(osSelecionada.valor_total)}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Observação (opcional)</Label>
+                <Textarea value={observacaoOS} onChange={(e) => setObservacaoOS(e.target.value)} placeholder="Observação sobre a aprovação..." />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAprovarOS(false)}>Cancelar</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={aprovarOrdemServico} disabled={processando}>
+              {processando && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Aprovar OS
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRejeitarOS} onOpenChange={setShowRejeitarOS}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rejeitar Ordem de Serviço</DialogTitle>
+          </DialogHeader>
+          {osSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-3 rounded">
+                <p className="font-medium">{osSelecionada.numero_os}</p>
+                <p className="text-sm text-gray-500">{osSelecionada.descricao}</p>
+                <p className="text-sm mt-1 font-bold">{formatarMoeda(osSelecionada.valor_total)}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Motivo da rejeição *</Label>
+                <Textarea value={motivoRejeicaoOS} onChange={(e) => setMotivoRejeicaoOS(e.target.value)} placeholder="Informe o motivo da rejeição..." />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRejeitarOS(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={rejeitarOrdemServico} disabled={processando || !motivoRejeicaoOS.trim()}>
+              {processando && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Rejeitar OS
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ============ MODAIS CONTRATOS ============ */}
 

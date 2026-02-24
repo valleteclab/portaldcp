@@ -9,6 +9,7 @@ import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medi
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
+import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -35,6 +36,8 @@ export class MedicaoService {
     private itemContratoRepository: Repository<ItemContrato>,
     @InjectRepository(Requisicao)
     private requisicaoRepository: Repository<Requisicao>,
+    @InjectRepository(OrdemServicoContrato)
+    private ordemServicoRepository: Repository<OrdemServicoContrato>,
     @InjectRepository(Usuario)
     private usuarioRepository: Repository<Usuario>,
     @InjectRepository(Fornecedor)
@@ -43,25 +46,21 @@ export class MedicaoService {
   ) { }
 
   // ============================================================================
-  // ORDEM DE SERVIÇO — Consulta centralizada (criação/aprovação via módulo de Requisições)
+  // ORDEM DE SERVIÇO — Consulta usando modelo unificado OrdemServicoContrato
   // ============================================================================
 
-  async getOSAtiva(contratoId: string): Promise<Requisicao | null> {
-    return this.requisicaoRepository.findOne({
+  async getOSAtiva(contratoId: string): Promise<OrdemServicoContrato | null> {
+    return this.ordemServicoRepository.findOne({
       where: {
         contrato_id: contratoId,
-        tipo: TipoRequisicao.ORDEM_SERVICO,
-        status: In([StatusRequisicao.AUTORIZADA, StatusRequisicao.ORDEM_GERADA]),
+        status: In([StatusOrdemServico.AUTORIZADA, StatusOrdemServico.EM_EXECUCAO]),
       },
     });
   }
 
-  async listarOS(contratoId: string): Promise<Requisicao[]> {
-    return this.requisicaoRepository.find({
-      where: {
-        contrato_id: contratoId,
-        tipo: TipoRequisicao.ORDEM_SERVICO,
-      },
+  async listarOS(contratoId: string): Promise<OrdemServicoContrato[]> {
+    return this.ordemServicoRepository.find({
+      where: { contrato_id: contratoId },
       order: { sequencial: 'DESC' },
     });
   }
@@ -232,28 +231,28 @@ export class MedicaoService {
     const contrato = await this.validarContratoMedicao(contratoId);
     const servicoContinuado = this.isServicoContinuado(contrato);
 
-    // Para serviços continuados: valor direto, sem etapas/OS
-    // Para obras (MEDICAO): exige itens com etapas e OS autorizada
+    let osVinculada: OrdemServicoContrato | null = null;
+
     if (!servicoContinuado) {
       if (!dados.itens || !Array.isArray(dados.itens) || dados.itens.length === 0) {
         throw new BadRequestException('Informe pelo menos um item de medição');
       }
+    }
 
-      // REGRA: Exigir OS autorizada para criar medição (pode ser pulado pelo portal do fornecedor)
-      if (!opcoes?.skipOSCheck) {
-        const osAtiva = await this.getOSAtiva(contratoId);
-        if (!osAtiva) {
-          throw new BadRequestException(
-            'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
-            'Crie e autorize uma OS na página de Requisições antes de registrar medições.'
-          );
-        }
+    // Verificar OS autorizada (para todos os tipos de contrato, a menos que skipOSCheck)
+    if (!opcoes?.skipOSCheck) {
+      osVinculada = await this.getOSAtiva(contratoId);
+      if (!osVinculada) {
+        throw new BadRequestException(
+          'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
+          'Crie e autorize uma OS no módulo de Ordens de Serviço antes de registrar medições.'
+        );
+      }
 
-        if (osAtiva.status === StatusRequisicao.AUTORIZADA) {
-          osAtiva.status = StatusRequisicao.ORDEM_GERADA;
-          await this.requisicaoRepository.save(osAtiva);
-          this.logger.log(`OS ${osAtiva.numero} movida para ORDEM_GERADA ao criar medição`);
-        }
+      if (osVinculada.status === StatusOrdemServico.AUTORIZADA) {
+        osVinculada.status = StatusOrdemServico.EM_EXECUCAO;
+        await this.ordemServicoRepository.save(osVinculada);
+        this.logger.log(`OS ${osVinculada.numero_os} movida para EM_EXECUCAO ao criar medição`);
       }
     }
 
@@ -348,6 +347,7 @@ export class MedicaoService {
 
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
+      ordem_servico_id: osVinculada?.id || dados.ordem_servico_id || null,
       numero_medicao: numeroMedicao,
       periodo_inicio: dados.periodo_inicio,
       periodo_fim: dados.periodo_fim,

@@ -24,20 +24,28 @@ import { API_URL, authFetch } from '@/lib/api'
 
 interface OSRequisicao {
   id: string
-  numero: string
+  numero?: string
+  numero_os?: string
   status: string
-  descricao_os: string
-  local_execucao: string
-  data_solicitacao: string
-  data_autorizacao: string
-  data_inicio_prevista: string
-  data_fim_prevista: string
-  prazo_execucao_dias: number
-  responsavel_tecnico: string
-  fiscal_contrato_nome: string
-  usuario_solicitante_nome: string
-  usuario_autorizador_nome: string
-  justificativa: string
+  descricao?: string
+  descricao_os?: string
+  local_execucao?: string
+  data_solicitacao?: string
+  data_autorizacao?: string
+  data_abertura?: string
+  data_aprovacao?: string
+  data_inicio_prevista?: string
+  data_fim_prevista?: string
+  prazo_execucao_dias?: number
+  responsavel_tecnico?: string
+  fiscal_contrato_nome?: string
+  fiscal_nome?: string
+  usuario_solicitante_nome?: string
+  usuario_autorizador_nome?: string
+  aprovador_nome?: string
+  justificativa?: string
+  sla_dias?: number
+  sla_excedido?: boolean
 }
 
 interface Etapa {
@@ -102,12 +110,20 @@ interface Resumo {
 
 const STATUS_OS: Record<string, { label: string; cor: string }> = {
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800' },
+  AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-amber-100 text-amber-800' },
   AGUARDANDO_AUTORIZACAO: { label: 'Aguardando Autorização', cor: 'bg-amber-100 text-amber-800' },
   AUTORIZADA: { label: 'Autorizada', cor: 'bg-blue-100 text-blue-800' },
+  ABERTA: { label: 'Aberta', cor: 'bg-blue-100 text-blue-800' },
+  EM_EXECUCAO: { label: 'Em Execução', cor: 'bg-indigo-100 text-indigo-800' },
   ORDEM_GERADA: { label: 'Em Execução', cor: 'bg-indigo-100 text-indigo-800' },
+  ENTREGUE: { label: 'Entregue', cor: 'bg-purple-100 text-purple-800' },
+  EM_ACEITE: { label: 'Em Aceite', cor: 'bg-orange-100 text-orange-800' },
+  ACEITA: { label: 'Aceita', cor: 'bg-green-100 text-green-800' },
+  REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-800' },
+  CANCELADA: { label: 'Cancelada', cor: 'bg-red-100 text-red-800' },
+  CONCLUIDA: { label: 'Concluída', cor: 'bg-green-100 text-green-800' },
   ATENDIDA: { label: 'Concluída', cor: 'bg-green-100 text-green-800' },
   NEGADA: { label: 'Negada', cor: 'bg-red-100 text-red-800' },
-  CANCELADA: { label: 'Cancelada', cor: 'bg-red-100 text-red-800' },
 }
 
 const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
@@ -270,7 +286,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
   useEffect(() => { carregarDados() }, [carregarDados])
 
   const osAtiva = resumo?.os_ativa
-  const temOSAutorizada = isServicoContinuado || (osAtiva && ['AUTORIZADA', 'ORDEM_GERADA'].includes(osAtiva.status))
+  const temOSAutorizada = isServicoContinuado || (osAtiva && ['AUTORIZADA', 'EM_EXECUCAO', 'ORDEM_GERADA'].includes(osAtiva.status))
 
   // Medições separadas por status
   const medicoesPendentesAteste = medicoes.filter(m => m.status === 'SUBMETIDA' || m.status === 'PARCIALMENTE_ATESTADA')
@@ -539,22 +555,22 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
 
   return (
     <div className="space-y-6">
-      {/* Ordem de Serviço (apenas para obras/MEDICAO) */}
+      {/* Ordem de Serviço (para todos os contratos, exceto serviços continuados que são opcionais) */}
       {!isServicoContinuado && (
-      <Card className={!osAtiva ? 'border-amber-300 bg-amber-50/30' : osAtiva.status === 'ORDEM_GERADA' ? 'border-indigo-300' : ''}>
+      <Card className={!osAtiva ? 'border-amber-300 bg-amber-50/30' : osAtiva.status === 'EM_EXECUCAO' ? 'border-indigo-300' : ''}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Ordem de Serviço</CardTitle>
-          <CardDescription>A OS autoriza o início da execução da obra. Sem OS, não é possível registrar medições.</CardDescription>
+          <CardDescription>A OS autoriza o início da execução. Sem OS aprovada, não é possível registrar medições.</CardDescription>
         </CardHeader>
         <CardContent>
           {!osAtiva ? (
-            <Link href="/orgao/almoxarifado/requisicoes/nova" className="block">
+            <Link href="/orgao/ordens-servico" className="block">
               <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 hover:border-amber-300 transition-colors cursor-pointer">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                 <div className="flex-1">
                   <p className="font-medium text-amber-700">Nenhuma Ordem de Serviço ativa</p>
                   <p className="text-sm text-amber-600">
-                    Clique aqui para criar uma OS na página de Requisições e liberar o cadastro de etapas e medições.
+                    Clique aqui para criar uma OS no módulo de Ordens de Serviço e liberar o cadastro de medições.
                   </p>
                 </div>
                 <ExternalLink className="w-4 h-4 text-amber-500 shrink-0" />
@@ -566,17 +582,16 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                 <Badge className={STATUS_OS[osAtiva.status]?.cor || 'bg-gray-100'}>
                   {STATUS_OS[osAtiva.status]?.label || osAtiva.status}
                 </Badge>
-                <span className="font-bold text-lg">{osAtiva.numero}</span>
+                <span className="font-bold text-lg">{osAtiva.numero_os || osAtiva.numero}</span>
               </div>
-              <p className="text-sm text-gray-700">{osAtiva.descricao_os || osAtiva.justificativa}</p>
+              <p className="text-sm text-gray-700">{osAtiva.descricao || osAtiva.descricao_os || osAtiva.justificativa}</p>
               <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                {osAtiva.data_solicitacao && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Solicitação: {osAtiva.data_solicitacao.split('T')[0]}</span>}
-                {osAtiva.data_autorizacao && <span>Autorizada: {osAtiva.data_autorizacao.split('T')[0]}</span>}
-                {osAtiva.usuario_autorizador_nome && <span>Por: {osAtiva.usuario_autorizador_nome}</span>}
-                {osAtiva.local_execucao && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{osAtiva.local_execucao}</span>}
+                {osAtiva.data_abertura && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Abertura: {String(osAtiva.data_abertura).split('T')[0]}</span>}
+                {osAtiva.data_aprovacao && <span>Aprovada: {String(osAtiva.data_aprovacao).split('T')[0]}</span>}
+                {osAtiva.aprovador_nome && <span>Por: {osAtiva.aprovador_nome}</span>}
                 {osAtiva.responsavel_tecnico && <span>Resp. Técnico: {osAtiva.responsavel_tecnico}</span>}
-                {osAtiva.fiscal_contrato_nome && <span>Fiscal: {osAtiva.fiscal_contrato_nome}</span>}
-                {osAtiva.prazo_execucao_dias && <span>Prazo: {osAtiva.prazo_execucao_dias} dias</span>}
+                {osAtiva.fiscal_nome && <span>Fiscal: {osAtiva.fiscal_nome}</span>}
+                {osAtiva.sla_dias && <span>SLA: {osAtiva.sla_dias} dias</span>}
               </div>
             </div>
           )}

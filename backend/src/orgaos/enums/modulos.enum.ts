@@ -11,6 +11,7 @@ export enum ModuloSistema {
   CREDENCIAMENTO = 'CREDENCIAMENTO',
   ALMOXARIFADO = 'ALMOXARIFADO',
   PORTAL_ASSINATURAS = 'PORTAL_ASSINATURAS',
+  ORDENS_SERVICO = 'ORDENS_SERVICO',
 }
 
 export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
@@ -26,5 +27,6 @@ export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
   [ModuloSistema.CREDENCIAMENTO]: 'Credenciamento',
   [ModuloSistema.ALMOXARIFADO]: 'Almoxarifado e Ordens de Fornecimento',
   [ModuloSistema.PORTAL_ASSINATURAS]: 'Portal de Assinaturas (Doc Avulso)',
+  [ModuloSistema.ORDENS_SERVICO]: 'Gestão de Ordens de Serviço',
 };
 

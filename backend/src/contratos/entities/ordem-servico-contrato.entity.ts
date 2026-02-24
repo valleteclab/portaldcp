@@ -1,19 +1,24 @@
 /**
  * ============================================================================
- * ENTIDADE: ORDEM DE SERVIÇO (Contratos por Demanda)
+ * ENTIDADE: ORDEM DE SERVIÇO (Modelo Unificado)
  * ============================================================================
  * 
- * Representa uma Ordem de Serviço dentro de um contrato por demanda.
- * Cada OS tem escopo, prazo, métricas e valor definidos.
+ * Modelo único de OS para todos os tipos de contrato de serviço:
+ * - ORDEM_SERVICO (consultoria, fábrica de software)
+ * - CONTINUADO (limpeza, vigilância, mão de obra)
+ * - LICENCA (software/SaaS)
+ * - MEDICAO (obras/engenharia)
  * 
- * Fluxo:
- * ABERTA → EM_EXECUCAO → ENTREGUE → EM_ACEITE → ACEITA → PAGA
- *                                              ↘ REJEITADA → EM_EXECUCAO
+ * Fluxo com aprovação:
+ * RASCUNHO → AGUARDANDO_APROVACAO → AUTORIZADA → EM_EXECUCAO → CONCLUIDA
+ *                                 ↘ REJEITADA (pode resubmeter)
+ *                                   EM_EXECUCAO → ENTREGUE → ACEITA/REJEITADA
  *                                                          ↘ CANCELADA
  * 
  * Fundamentação Legal:
  * - IN SGD/ME nº 94/2022: Contratação de TIC
  * - Lei 14.133/2021, Art. 75, IV, "h": Serviços de TI
+ * - Lei 14.133/2021, Art. 117: Fiscalização do contrato
  * 
  * ============================================================================
  */
@@ -30,21 +35,26 @@ import {
 import { Contrato } from './contrato.entity';
 
 export enum MetricaOS {
-  UST = 'UST',                     // Unidade de Serviço Técnico
-  HORA = 'HORA',                   // Hora técnica
-  PONTO_FUNCAO = 'PONTO_FUNCAO',   // Ponto de Função
-  DEMANDA_FIXA = 'DEMANDA_FIXA',   // Valor fixo por demanda
-  UNIDADE = 'UNIDADE',             // Unidade genérica
+  UST = 'UST',
+  HORA = 'HORA',
+  PONTO_FUNCAO = 'PONTO_FUNCAO',
+  DEMANDA_FIXA = 'DEMANDA_FIXA',
+  UNIDADE = 'UNIDADE',
+  VALOR_FIXO = 'VALOR_FIXO',
 }
 
 export enum StatusOrdemServico {
-  ABERTA = 'ABERTA',                    // OS criada, aguardando início
-  EM_EXECUCAO = 'EM_EXECUCAO',          // Fornecedor executando
-  ENTREGUE = 'ENTREGUE',                // Fornecedor entregou, aguardando aceite
-  EM_ACEITE = 'EM_ACEITE',              // Fiscal analisando entrega
-  ACEITA = 'ACEITA',                    // Fiscal aceitou, saldo consumido
-  REJEITADA = 'REJEITADA',              // Fiscal rejeitou, devolver para execução
-  CANCELADA = 'CANCELADA',              // OS cancelada
+  RASCUNHO = 'RASCUNHO',
+  AGUARDANDO_APROVACAO = 'AGUARDANDO_APROVACAO',
+  AUTORIZADA = 'AUTORIZADA',
+  ABERTA = 'ABERTA',
+  EM_EXECUCAO = 'EM_EXECUCAO',
+  ENTREGUE = 'ENTREGUE',
+  EM_ACEITE = 'EM_ACEITE',
+  ACEITA = 'ACEITA',
+  REJEITADA = 'REJEITADA',
+  CANCELADA = 'CANCELADA',
+  CONCLUIDA = 'CONCLUIDA',
 }
 
 @Entity('ordens_servico_contrato')
@@ -52,7 +62,6 @@ export class OrdemServicoContrato {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Relacionamento
   @ManyToOne(() => Contrato, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'contrato_id' })
   contrato: Contrato;
@@ -60,9 +69,8 @@ export class OrdemServicoContrato {
   @Column()
   contrato_id: string;
 
-  // Identificação
   @Column()
-  numero_os: string; // Ex: "OS-001/2026"
+  numero_os: string;
 
   @Column({ type: 'int' })
   sequencial: number;
@@ -73,39 +81,39 @@ export class OrdemServicoContrato {
   @Column({ type: 'text', nullable: true })
   escopo_detalhado: string;
 
-  // Métricas
+  // Métricas (opcionais para contratos de valor fixo)
   @Column({
     type: 'enum',
     enum: MetricaOS,
-    default: MetricaOS.UST,
+    default: MetricaOS.VALOR_FIXO,
   })
   metrica: MetricaOS;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
-  quantidade_metrica: number; // Ex: 200 UST
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  quantidade_metrica: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 4 })
-  valor_unitario_metrica: number; // Ex: R$ 150,00 por UST
+  @Column({ type: 'decimal', precision: 15, scale: 4, nullable: true })
+  valor_unitario_metrica: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
-  valor_total: number; // quantidade × valor_unitario
+  valor_total: number;
 
   // Datas
   @Column({ type: 'date' })
   data_abertura: Date;
 
   @Column({ type: 'date' })
-  data_prazo: Date; // Prazo para entrega
+  data_prazo: Date;
 
   @Column({ type: 'date', nullable: true })
-  data_entrega: Date; // Data real de entrega
+  data_entrega: Date;
 
   @Column({ type: 'date', nullable: true })
-  data_aceite: Date; // Data do aceite pelo fiscal
+  data_aceite: Date;
 
   // Responsáveis
   @Column({ nullable: true })
-  responsavel_tecnico: string; // Nome do responsável técnico no fornecedor
+  responsavel_tecnico: string;
 
   @Column({ nullable: true })
   fiscal_id: string;
@@ -115,17 +123,17 @@ export class OrdemServicoContrato {
 
   // Qualidade
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
-  nota_qualidade: number; // Nota de 0 a 100
+  nota_qualidade: number;
 
   @Column({ type: 'text', nullable: true })
-  criterios_aceite: string; // Critérios de aceite definidos na abertura
+  criterios_aceite: string;
 
   @Column({ type: 'text', nullable: true })
-  parecer_aceite: string; // Parecer do fiscal no aceite
+  parecer_aceite: string;
 
   // SLA
   @Column({ type: 'int', nullable: true })
-  sla_dias: number; // Prazo em dias úteis para execução
+  sla_dias: number;
 
   @Column({ default: false })
   sla_excedido: boolean;
@@ -134,7 +142,7 @@ export class OrdemServicoContrato {
   @Column({
     type: 'enum',
     enum: StatusOrdemServico,
-    default: StatusOrdemServico.ABERTA,
+    default: StatusOrdemServico.RASCUNHO,
   })
   status: StatusOrdemServico;
 
@@ -143,7 +151,20 @@ export class OrdemServicoContrato {
   observacoes: string;
 
   @Column({ type: 'text', nullable: true })
-  documentos: string; // JSON array de URLs
+  documentos: string;
+
+  // Aprovação
+  @Column({ nullable: true })
+  aprovador_id: string;
+
+  @Column({ nullable: true })
+  aprovador_nome: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_aprovacao: Date;
+
+  @Column({ type: 'text', nullable: true })
+  observacao_aprovador: string;
 
   // Auditoria
   @Column({ nullable: true })
