@@ -154,17 +154,15 @@ export default function RequisicoesOSPage() {
   const router = useRouter();
   const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao();
   const temAlmoxarifado = temAcesso(ModuloSistema.ALMOXARIFADO);
-  const temOrdensServico = temAcesso(ModuloSistema.ORDENS_SERVICO);
 
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
-  const [ordens, setOrdens] = useState<OrdemServico[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'lista' | 'cards'>('cards');
-  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'requisicao' | 'os'>('todos');
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'requisicao'>('todos');
   const [filtroStatus, setFiltroStatus] = useState<string>('__all__');
   const [busca, setBusca] = useState('');
 
-  const temAcessoPagina = temAlmoxarifado || temOrdensServico;
+  const temAcessoPagina = temAlmoxarifado;
 
   const carregarRequisicoes = useCallback(async () => {
     if (!temAlmoxarifado) return;
@@ -181,26 +179,11 @@ export default function RequisicoesOSPage() {
     }
   }, [temAlmoxarifado, filtroStatus]);
 
-  const carregarOS = useCallback(async () => {
-    if (!temOrdensServico) return;
-    try {
-      const params = new URLSearchParams();
-      if (filtroStatus && filtroStatus !== '__all__') params.append('status', filtroStatus);
-      const r = await authFetch(`${API_URL}/api/contratos/ordens-servico/listar?${params}`);
-      if (r.ok) {
-        const data = await r.json();
-        setOrdens(Array.isArray(data) ? data : []);
-      }
-    } catch {
-      setOrdens([]);
-    }
-  }, [temOrdensServico, filtroStatus]);
-
   useEffect(() => {
     if (!temAcessoPagina) return;
     setLoading(true);
-    Promise.all([carregarRequisicoes(), carregarOS()]).finally(() => setLoading(false));
-  }, [temAcessoPagina, carregarRequisicoes, carregarOS]);
+    carregarRequisicoes().finally(() => setLoading(false));
+  }, [temAcessoPagina, carregarRequisicoes]);
 
   // Itens unificados para exibição
   const itensRequisicao = useMemo(() => {
@@ -223,42 +206,13 @@ export default function RequisicoesOSPage() {
     }));
   }, [requisicoes]);
 
-  const itensOS = useMemo(() => {
-    return ordens.map((o) => {
-      const consumido = Number(o.valor_total) - Number(o.saldo_os);
-      const pctConsumido = Number(o.valor_total) > 0 ? (consumido / Number(o.valor_total)) * 100 : 0;
-      return {
-        tipo: 'os' as const,
-        id: o.id,
-        numero: o.numero_os,
-        tipoLabel: 'OS',
-        setor: '-',
-        solicitante: (o as any).usuario_cadastro_nome || '-',
-        aprovador: o.aprovador_nome,
-        data: o.data_abertura,
-        valor: o.valor_total,
-        saldo: o.saldo_os,
-        consumido,
-        pctConsumido,
-        status: o.status,
-        contrato: o.numero_contrato,
-        empresa: o.fornecedor_nome,
-        dataAprovacao: o.data_aprovacao,
-        categoria: categoriaOS(o.status),
-      };
-    });
-  }, [ordens]);
-
   const todosItens = useMemo(() => {
-    const req = itensRequisicao.map((i) => ({ ...i, origem: 'requisicao' as const }));
-    const os = itensOS.map((i) => ({ ...i, origem: 'os' as const }));
-    return [...req, ...os];
-  }, [itensRequisicao, itensOS]);
+    return itensRequisicao.map((i) => ({ ...i, origem: 'requisicao' as const }));
+  }, [itensRequisicao]);
 
   const itensFiltrados = useMemo(() => {
     let list = todosItens;
     if (filtroTipo === 'requisicao') list = list.filter((i) => i.origem === 'requisicao');
-    if (filtroTipo === 'os') list = list.filter((i) => i.origem === 'os');
     if (busca.trim()) {
       const b = busca.toLowerCase();
       list = list.filter(
@@ -299,7 +253,6 @@ export default function RequisicoesOSPage() {
   }
 
   const linkNovaRequisicao = '/orgao/almoxarifado/requisicoes/nova';
-  const linkNovaOS = '/orgao/ordens-servico';
 
   return (
     <div className="space-y-6 p-6">
@@ -319,13 +272,6 @@ export default function RequisicoesOSPage() {
             <Button asChild>
               <Link href={linkNovaRequisicao}>
                 <Plus className="mr-2 h-4 w-4" /> Nova Requisição
-              </Link>
-            </Button>
-          )}
-          {temOrdensServico && (
-            <Button asChild variant={temAlmoxarifado ? 'outline' : 'default'}>
-              <Link href={linkNovaOS}>
-                <Plus className="mr-2 h-4 w-4" /> Nova OS
               </Link>
             </Button>
           )}
@@ -392,7 +338,6 @@ export default function RequisicoesOSPage() {
               <SelectContent>
                 <SelectItem value="todos">Todos os tipos</SelectItem>
                 {temAlmoxarifado && <SelectItem value="requisicao">Requisições</SelectItem>}
-                {temOrdensServico && <SelectItem value="os">Ordens de Serviço</SelectItem>}
               </SelectContent>
             </Select>
             <Select value={filtroStatus} onValueChange={setFiltroStatus}>
@@ -456,8 +401,7 @@ export default function RequisicoesOSPage() {
                   <TableHead>Solicitante</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead>Valor</TableHead>
-                  {filtroTipo !== 'requisicao' && <TableHead>Consumido / Saldo</TableHead>}
-                  {filtroTipo !== 'os' && <TableHead>Atendida</TableHead>}
+                  <TableHead>Atendida</TableHead>
                   <TableHead>Contrato</TableHead>
                   <TableHead>Empresa</TableHead>
                   <TableHead>Aprovador</TableHead>
@@ -471,9 +415,7 @@ export default function RequisicoesOSPage() {
                   const isOS = item.origem === 'os';
                   const statusMap = isOS ? STATUS_OS : STATUS_REQ;
                   const statusColors = isOS ? STATUS_OS_COLORS : STATUS_REQ_COLORS;
-                  const linkDetalhe = isOS
-                    ? `/orgao/ordens-servico`
-                    : `/orgao/almoxarifado/requisicoes?detalhe=${item.id}`;
+                  const linkDetalhe = `/orgao/almoxarifado/requisicoes?detalhe=${item.id}`;
                   return (
                     <TableRow key={`${item.origem}-${item.id}`} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-medium">{item.numero}</TableCell>
@@ -484,28 +426,13 @@ export default function RequisicoesOSPage() {
                       <TableCell>{item.solicitante}</TableCell>
                       <TableCell>{formatarData(item.data)}</TableCell>
                       <TableCell>{formatarMoeda(item.valor)}</TableCell>
-                      {filtroTipo !== 'requisicao' && (
-                        <TableCell>
-                          {isOS && 'consumido' in item && 'saldo' in item ? (
-                            <span className="text-sm">
-                              {formatarMoeda(item.consumido)} / {formatarMoeda(item.saldo)}
-                            </span>
-                          ) : (
-                            '-'
-                          )}
-                        </TableCell>
-                      )}
-                      {filtroTipo !== 'os' && (
-                        <TableCell>
+                      <TableCell>
                           {'atendida' in item && item.atendida ? (
                             <Badge className="bg-green-100 text-green-800">Sim</Badge>
-                          ) : item.origem === 'requisicao' ? (
-                            <Badge variant="secondary">Não</Badge>
                           ) : (
-                            '-'
+                            <Badge variant="secondary">Não</Badge>
                           )}
                         </TableCell>
-                      )}
                       <TableCell>{item.contrato || '-'}</TableCell>
                       <TableCell>{item.empresa || '-'}</TableCell>
                       <TableCell>{'aprovador' in item ? item.aprovador : (item as any).aprovador_nome || '-'}</TableCell>
@@ -546,7 +473,7 @@ export default function RequisicoesOSPage() {
                         const isOS = item.origem === 'os';
                         const statusMap = isOS ? STATUS_OS : STATUS_REQ;
                         const statusColors = isOS ? STATUS_OS_COLORS : STATUS_REQ_COLORS;
-                        const linkDetalhe = isOS ? `/orgao/ordens-servico` : `/orgao/almoxarifado/requisicoes?detalhe=${item.id}`;
+                        const linkDetalhe = `/orgao/almoxarifado/requisicoes?detalhe=${item.id}`;
                         return (
                           <Link key={`${item.origem}-${item.id}`} href={linkDetalhe}>
                             <Card className="hover:shadow-md transition-shadow cursor-pointer border-slate-200">
