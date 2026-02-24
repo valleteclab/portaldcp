@@ -42,6 +42,8 @@ interface MenuLink {
   label: string
   icon: any
   modulo?: ModuloSistema
+  /** Se definido, link visível quando QUALQUER um dos módulos estiver ativo */
+  modulos?: ModuloSistema[]
   requerAprovador?: boolean
   requerPermissao?: string
 }
@@ -126,6 +128,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/medicoes", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/ordens-servico", label: "Ordens de Serviço", icon: FileText, modulo: ModuloSistema.ORDENS_SERVICO, requerPermissao: 'pode_gerenciar_os' },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
+    { href: "/orgao/requisicoes-os", label: "Requisições e OS", icon: ClipboardList, modulos: [ModuloSistema.ALMOXARIFADO, ModuloSistema.ORDENS_SERVICO] },
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/ordens", label: "Ordens de Fornecimento", icon: Send, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/recebimentos", label: "Recebimentos", icon: Package, modulo: ModuloSistema.ALMOXARIFADO },
@@ -153,7 +156,7 @@ export function Sidebar({ userType }: SidebarProps) {
     // Isso evita mostrar links que o usuário pode não ter acesso
     if (modulosLoading) {
       console.log('[Sidebar] Carregando módulos, mostrando apenas links básicos');
-      return links.filter(link => !link.modulo)
+      return links.filter(link => !link.modulo && !link.modulos)
     }
 
     // SEMPRE filtra baseado nos módulos habilitados
@@ -161,13 +164,18 @@ export function Sidebar({ userType }: SidebarProps) {
     // Isso é mais seguro que mostrar tudo
     return links.filter(link => {
       // Se não tem módulo definido, sempre mostra (Dashboard, Configurações)
-      if (!link.modulo) {
+      if (!link.modulo && !link.modulos) {
         return true
       }
 
-      // Verifica se o órgão tem acesso ao módulo
-      const hasAccess = temAcesso(link.modulo)
-      console.log(`[Sidebar] Módulo ${link.modulo}: ${hasAccess ? 'permitido' : 'bloqueado'}`);
+      // modulos: visível quando QUALQUER um estiver ativo
+      const hasAccess = link.modulos
+        ? link.modulos.some(m => temAcesso(m))
+        : link.modulo
+          ? temAcesso(link.modulo)
+          : false
+      const modLabel = link.modulos ? link.modulos.join(',') : link.modulo;
+      console.log(`[Sidebar] Módulo ${modLabel}: ${hasAccess ? 'permitido' : 'bloqueado'}`);
 
       if (!hasAccess) {
         return false

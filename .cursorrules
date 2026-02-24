@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: Requisições e OS - Tela Unificada (2026-02-17)
+
+- [X] Link "Requisições e OS" no menu lateral (visível quando ALMOXARIFADO ou ORDENS_SERVICO)
+- [X] Suporte a `modulos?: ModuloSistema[]` no MenuLink para link visível quando QUALQUER módulo ativo
+- [X] Cards aprimorados: empresa em destaque, contrato em azul, barra progresso (laranja >70%, vermelho >90%), data aprovação em evidência
+- [X] Requisições: badge Atendida Sim/Não, aprovador
+- [X] OS: consumido, saldo, % utilizado com cores
+
 ## Tarefa Concluída: Fluxo de OS Configurável pelo Admin (2026-02-24)
 
 - [X] Backend: Campo fluxo_os (REQUISICAO | MODULO_OS) na entity Orgao + migration
