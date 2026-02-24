@@ -39,8 +39,20 @@ import {
   Loader2,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
-import { formatarMoeda, formatarData } from '@/lib/utils';
 import { ModuleGuard } from '@/components/ModuleGuard';
+
+function formatarMoeda(v: number | string | null | undefined): string {
+  const n = Number(v);
+  if (isNaN(n)) return 'R$ 0,00';
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatarData(d: string | null | undefined): string {
+  if (!d) return '-';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '-';
+  return dt.toLocaleDateString('pt-BR');
+}
 
 interface OrdemServico {
   id: string;
