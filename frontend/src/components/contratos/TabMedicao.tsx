@@ -1371,8 +1371,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                   {formMedicao.itens.map((item, idx) => {
                     const etapa = 'etapa_id' in item ? etapas.find(e => e.id === item.etapa_id) : null
                     if (!etapa) return null
+                    const itemEtapa = item as { etapa_id: string; percentual_executado_atual: number }
                     return (
-                      <div key={item.etapa_id} className="flex items-center gap-4 p-3">
+                      <div key={etapa.id} className="flex items-center gap-4 p-3">
                         <div className="flex-1">
                           <p className="font-medium text-sm">{etapa.numero_etapa}. {etapa.descricao}</p>
                           <p className="text-xs text-gray-400">
@@ -1383,7 +1384,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                           <Input
                             type="number" step="0.01" min="0" max={100 - Number(etapa.percentual_executado)}
                             placeholder="0" className="text-center"
-                            value={item.percentual_executado_atual || ''}
+                            value={itemEtapa.percentual_executado_atual || ''}
                             onChange={e => {
                               const itens = [...formMedicao.itens]
                               itens[idx] = { ...itens[idx], percentual_executado_atual: parseFloat(e.target.value) || 0 }
