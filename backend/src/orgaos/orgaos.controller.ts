@@ -122,12 +122,12 @@ export class OrgaosController {
     // Mapeia modulos_habilitados para modulos_ativos para compatibilidade com frontend
     return orgaos.map(orgao => {
       const { senha_hash, ...orgaoSemSenha } = orgao;
-      // Busca módulos atualizados do banco para garantir consistência
       const modulos = orgao.modulos_habilitados || [];
       return {
         ...orgaoSemSenha,
         modulos_ativos: modulos,
-        modulos_habilitados: modulos, // Compatibilidade
+        modulos_habilitados: modulos,
+        fluxo_os: orgao.fluxo_os || 'REQUISICAO',
       };
     });
   }
@@ -203,10 +203,11 @@ export class OrgaosController {
     
     return {
       ...orgaoSemSenha,
-      modulos_ativos: modulosEfetivos, // Módulos efetivos para o usuário
-      modulos_habilitados: modulosEfetivos, // Compatibilidade
-      modulos_orgao: modulosOrgao, // Todos os módulos do órgão (para referência)
-      herda_modulos_orgao: herdaDoOrgao, // Indica se está herdando ou tem personalização
+      modulos_ativos: modulosEfetivos,
+      modulos_habilitados: modulosEfetivos,
+      modulos_orgao: modulosOrgao,
+      herda_modulos_orgao: herdaDoOrgao,
+      fluxo_os: orgao.fluxo_os || 'REQUISICAO',
     };
   }
 
@@ -312,25 +313,19 @@ export class OrgaosController {
   @Put(':id/modulos')
   async atualizarModulos(
     @Param('id') id: string,
-    @Body() body: { modulos: string[] }
+    @Body() body: { modulos: string[]; fluxo_os?: 'REQUISICAO' | 'MODULO_OS' },
   ) {
     const { ModuloSistema } = require('./enums/modulos.enum');
     const modulos = body.modulos.map(m => m as typeof ModuloSistema[keyof typeof ModuloSistema]);
-    
-    // Debug: log dos módulos recebidos
-    console.log(`[OrgaosController] Atualizando módulos para órgão ${id}:`, modulos);
-    
-    const orgao = await this.orgaosService.atualizarModulos(id, modulos);
-    
-    // Debug: log dos módulos salvos
-    console.log(`[OrgaosController] Módulos salvos no banco:`, orgao.modulos_habilitados);
-    
+    const orgao = await this.orgaosService.atualizarModulos(id, modulos, body.fluxo_os);
+
     return {
       success: true,
       orgao: {
         ...orgao,
-        modulos_ativos: orgao.modulos_habilitados || [], // Compatibilidade com frontend
-        modulos_habilitados: orgao.modulos_habilitados || [], // Garantir que sempre retorna array
+        modulos_ativos: orgao.modulos_habilitados || [],
+        modulos_habilitados: orgao.modulos_habilitados || [],
+        fluxo_os: orgao.fluxo_os || 'REQUISICAO',
       },
     };
   }

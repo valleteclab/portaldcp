@@ -19,6 +19,7 @@ import { LicencaControle } from './entities/licenca-controle.entity';
 import { OrdemServicoContrato } from './entities/ordem-servico-contrato.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
 import { Requisicao } from '../almoxarifado/entities/requisicao.entity';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 import { MedicaoService } from './medicao.service';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
@@ -39,7 +40,7 @@ import { MulterModule } from '@nestjs/platform-express';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, Medicao, ItemMedicao, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao,
+      EtapaCronograma, Medicao, ItemMedicao, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao,
     ]),
     NotificacoesModule,
     UploadModule,

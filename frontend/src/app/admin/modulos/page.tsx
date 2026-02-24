@@ -43,6 +43,7 @@ interface Orgao {
   uf: string
   modulos_ativos: string[]
   status: string
+  fluxo_os?: 'REQUISICAO' | 'MODULO_OS'
 }
 
 const MODULOS = [
@@ -69,6 +70,7 @@ export default function AdminModulosPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [modulosTemp, setModulosTemp] = useState<string[]>([])
+  const [fluxoOsTemp, setFluxoOsTemp] = useState<'REQUISICAO' | 'MODULO_OS'>('REQUISICAO')
 
   useEffect(() => {
     carregarOrgaos()
@@ -95,6 +97,7 @@ export default function AdminModulosPage() {
   const handleOpenConfig = (orgao: Orgao) => {
     setSelectedOrgao(orgao)
     setModulosTemp(orgao.modulos_ativos || [])
+    setFluxoOsTemp(orgao.fluxo_os === 'MODULO_OS' ? 'MODULO_OS' : 'REQUISICAO')
     setModalOpen(true)
   }
 
@@ -112,15 +115,16 @@ export default function AdminModulosPage() {
     try {
       const res = await adminFetch(`${API_URL}/api/orgaos/${selectedOrgao.id}/modulos`, {
         method: 'PUT',
-        body: JSON.stringify({ modulos: modulosTemp }),
+        body: JSON.stringify({ modulos: modulosTemp, fluxo_os: fluxoOsTemp }),
       })
       if (res.ok) {
         const data = await res.json()
         const modulosAtualizados = data.orgao?.modulos_habilitados || modulosTemp
-        
+        const fluxoOsAtualizado = data.orgao?.fluxo_os || fluxoOsTemp
+
         setOrgaos(prev => prev.map(o => 
           o.id === selectedOrgao.id 
-            ? { ...o, modulos_ativos: modulosAtualizados }
+            ? { ...o, modulos_ativos: modulosAtualizados, fluxo_os: fluxoOsAtualizado }
             : o
         ))
         
@@ -280,6 +284,41 @@ export default function AdminModulosPage() {
               )
             })}
           </div>
+
+          {modulosTemp.includes('ORDENS_SERVICO') && (
+            <div className="border-t pt-4 mt-4 space-y-3">
+              <Label className="text-base font-medium">Fluxo de Ordem de Serviço</Label>
+              <p className="text-sm text-gray-500">
+                Quando o contrato exige OS para medição: criar via Requisição (almoxarifado) ou no módulo dedicado?
+              </p>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fluxo_os"
+                    value="REQUISICAO"
+                    checked={fluxoOsTemp === 'REQUISICAO'}
+                    onChange={() => setFluxoOsTemp('REQUISICAO')}
+                    className="w-4 h-4"
+                  />
+                  <span>Requisição</span>
+                  <span className="text-xs text-gray-500">(criar via almoxarifado)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fluxo_os"
+                    value="MODULO_OS"
+                    checked={fluxoOsTemp === 'MODULO_OS'}
+                    onChange={() => setFluxoOsTemp('MODULO_OS')}
+                    className="w-4 h-4"
+                  />
+                  <span>Módulo OS</span>
+                  <span className="text-xs text-gray-500">(página dedicada)</span>
+                </label>
+              </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>

@@ -14,6 +14,8 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { Orgao } from '../orgaos/entities/orgao.entity';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 @Injectable()
 export class MedicaoService {
@@ -22,6 +24,8 @@ export class MedicaoService {
   constructor(
     @InjectRepository(Contrato)
     private contratoRepository: Repository<Contrato>,
+    @InjectRepository(Orgao)
+    private orgaoRepository: Repository<Orgao>,
     @InjectRepository(EtapaCronograma)
     private etapaRepository: Repository<EtapaCronograma>,
     @InjectRepository(Medicao)
@@ -46,19 +50,74 @@ export class MedicaoService {
   ) { }
 
   // ============================================================================
-  // ORDEM DE SERVIÇO — Consulta usando modelo unificado OrdemServicoContrato
+  // ORDEM DE SERVIÇO — Dual source: Requisicao ou OrdemServicoContrato conforme fluxo_os
   // ============================================================================
 
-  async getOSAtiva(contratoId: string): Promise<OrdemServicoContrato | null> {
-    return this.ordemServicoRepository.findOne({
+  /**
+   * Retorna o fluxo efetivo de OS para o contrato.
+   * Se ORDENS_SERVICO não está habilitado no órgão → REQUISICAO.
+   * Caso contrário → fluxo_os do órgão (REQUISICAO ou MODULO_OS).
+   */
+  private async getFluxoOsEfetivo(contratoId: string): Promise<'REQUISICAO' | 'MODULO_OS'> {
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato?.orgao_id) return 'REQUISICAO';
+
+    const orgao = await this.orgaoRepository.findOne({ where: { id: contrato.orgao_id } });
+    if (!orgao) return 'REQUISICAO';
+
+    const modulos = orgao.modulos_habilitados || [];
+    if (!modulos.includes(ModuloSistema.ORDENS_SERVICO)) return 'REQUISICAO';
+
+    return (orgao.fluxo_os === 'MODULO_OS' ? 'MODULO_OS' : 'REQUISICAO') as 'REQUISICAO' | 'MODULO_OS';
+  }
+
+  /**
+   * Normaliza Requisicao para formato compatível com o frontend (numero_os, data_aprovacao, aprovador_nome).
+   */
+  private normalizarOSRequisicao(req: Requisicao): any {
+    return {
+      ...req,
+      numero_os: req.numero,
+      descricao: req.descricao_os,
+      data_aprovacao: req.data_autorizacao,
+      aprovador_nome: req.usuario_autorizador_nome,
+    };
+  }
+
+  async getOSAtiva(contratoId: string): Promise<any | null> {
+    const fluxo = await this.getFluxoOsEfetivo(contratoId);
+
+    if (fluxo === 'REQUISICAO') {
+      const req = await this.requisicaoRepository.findOne({
+        where: {
+          contrato_id: contratoId,
+          tipo: TipoRequisicao.ORDEM_SERVICO,
+          status: In([StatusRequisicao.AUTORIZADA, StatusRequisicao.ORDEM_GERADA]),
+        },
+      });
+      return req ? this.normalizarOSRequisicao(req) : null;
+    }
+
+    const os = await this.ordemServicoRepository.findOne({
       where: {
         contrato_id: contratoId,
         status: In([StatusOrdemServico.AUTORIZADA, StatusOrdemServico.EM_EXECUCAO]),
       },
     });
+    return os;
   }
 
-  async listarOS(contratoId: string): Promise<OrdemServicoContrato[]> {
+  async listarOS(contratoId: string): Promise<any[]> {
+    const fluxo = await this.getFluxoOsEfetivo(contratoId);
+
+    if (fluxo === 'REQUISICAO') {
+      const list = await this.requisicaoRepository.find({
+        where: { contrato_id: contratoId, tipo: TipoRequisicao.ORDEM_SERVICO },
+        order: { sequencial: 'DESC' },
+      });
+      return list.map(r => this.normalizarOSRequisicao(r));
+    }
+
     return this.ordemServicoRepository.find({
       where: { contrato_id: contratoId },
       order: { sequencial: 'DESC' },
@@ -1201,7 +1260,7 @@ export class MedicaoService {
     const pendentesAteste = medicoes.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
     const pendentesAprovacao = medicoes.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
 
-    // Buscar OS ativa
+    const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
     const osAtiva = await this.getOSAtiva(contratoId);
     const todasOS = await this.listarOS(contratoId);
 
@@ -1210,6 +1269,7 @@ export class MedicaoService {
 
     return {
       contrato_id: contratoId,
+      fluxo_os: fluxoOs,
       valor_global: valorGlobal,
       valor_executado_anterior: valorExecAnterior,
       valor_medido_total: valorMedidoTotal,

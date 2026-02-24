@@ -364,27 +364,24 @@ export class OrgaosService {
   }
 
   /**
-   * Atualiza os módulos habilitados de um órgão
-   * Permite que qualquer módulo seja habilitado/desabilitado, incluindo LICITACOES
+   * Atualiza os módulos habilitados e fluxo_os de um órgão
+   * fluxo_os: REQUISICAO (OS via almoxarifado) ou MODULO_OS (módulo dedicado)
    */
-  async atualizarModulos(id: string, modulos: ModuloSistema[]): Promise<Orgao> {
+  async atualizarModulos(
+    id: string,
+    modulos: ModuloSistema[],
+    fluxoOs?: 'REQUISICAO' | 'MODULO_OS',
+  ): Promise<Orgao> {
     const orgao = await this.findOne(id);
-    
-    // Remove duplicatas e salva exatamente como enviado pelo frontend
+
     const modulosAtualizados = [...new Set(modulos)];
-    
-    // Debug: log antes de salvar
-    console.log(`[OrgaosService] Salvando módulos para órgão ${id}:`, modulosAtualizados);
-    
-    // Se não houver módulos, salva array vazio ao invés de null
     orgao.modulos_habilitados = modulosAtualizados.length > 0 ? modulosAtualizados : [];
-    
-    const orgaoSalvo = await this.orgaoRepository.save(orgao);
-    
-    // Debug: log após salvar
-    console.log(`[OrgaosService] Módulos salvos no banco:`, orgaoSalvo.modulos_habilitados);
-    
-    return orgaoSalvo;
+
+    if (fluxoOs !== undefined) {
+      orgao.fluxo_os = fluxoOs;
+    }
+
+    return await this.orgaoRepository.save(orgao);
   }
 
   /**

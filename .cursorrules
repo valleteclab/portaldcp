@@ -1,28 +1,14 @@
 # Scratchpad
 
-## 🔧 Tarefa Atual: Medição para Contratos de Serviços Continuados
+## Tarefa Concluída: Fluxo de OS Configurável pelo Admin (2026-02-24)
 
-### Objetivo
-Habilitar o sistema de Medição (com fluxo fornecedor-driven) para contratos CONTINUADO e LICENCA, com fluxo simplificado (sem cronograma/etapas/OS obrigatória).
-
-### Plano
-[X] Backend: Flexibilizar medicao.service.ts para aceitar CONTINUADO/LICENCA
-[ ] Backend: Ajustar fornecedor-medicao.controller.ts para CONTINUADO/LICENCA
-[ ] Backend: Ajustar modalidades-contrato.controller.ts para medicao de servicos continuados
-[ ] Frontend: Mostrar aba Medicao para CONTINUADO e LICENCA no detalhe do contrato
-[ ] Frontend: Modo simplificado no TabMedicao.tsx (sem cronograma/etapas/OS)
-[ ] Frontend: Formulario simplificado de medicao para fornecedor em CONTINUADO/LICENCA
-
-### Mudanças chave:
-- validarContratoMedicao: aceitar CONTINUADO/LICENCA 
-- criarMedicao: quando isServicoContinuado, skip OS check, aceitar valor direto sem itens/etapas
-- solicitarMedicao: remover restrição MEDICAO-only
-- aprovarMedicao: quando isServicoContinuado, skip atualização de etapas
-- submeterMedicao: quando isServicoContinuado, skip validação por etapa (só validar saldo global)
-- resumoFiscalPorContrato: incluir CONTINUADO/LICENCA nas queries
-- fornecedor listarContratosMedicao: incluir CONTINUADO/LICENCA
-- Frontend: TabMedicao recebe prop modalidade e oculta OS/Cronograma para serviços
-- Frontend: Fornecedor page simplificada sem etapas para serviços
+- [X] Backend: Campo fluxo_os (REQUISICAO | MODULO_OS) na entity Orgao + migration
+- [X] Backend: PUT /orgaos/:id/modulos aceita fluxo_os; GET /orgaos e /me retornam fluxo_os
+- [X] Backend: MedicaoService getOSAtiva/listarOS dual-source (Requisicao ou OrdemServicoContrato conforme fluxo)
+- [X] Backend: resumoMedicoes inclui fluxo_os no retorno
+- [X] Admin: Seletor "Fluxo de OS" no modal de módulos (quando ORDENS_SERVICO ativo)
+- [X] TabMedicao: Link dinâmico - REQUISICAO → /requisicoes/nova?contrato=X&tipo=ORDEM_SERVICO; MODULO_OS → /ordens-servico
+- Regra: ORDENS_SERVICO desativado → sempre fluxo REQUISICAO
 
 ## ✅ Tarefa Concluída: Combobox Fornecedor com Busca em Tempo Real (2026-02-17)
 

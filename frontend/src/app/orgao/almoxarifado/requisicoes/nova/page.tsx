@@ -227,6 +227,7 @@ function NovaRequisicaoForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const contratoIdUrl = searchParams.get('contrato');
+  const tipoUrl = searchParams.get('tipo');
   
   // Etapa atual (0 = Contrato, 1 = Itens, 2 = Dados, 3 = Resumo)
   const [etapa, setEtapa] = useState(0);
@@ -382,8 +383,10 @@ function NovaRequisicaoForm() {
       const contrato = contratos.find(c => c.id === contratoIdUrl);
       if (contrato) {
         setContratoSelecionado(contrato);
-        // Aplica a mesma lógica de tipo que handleSelecionarContrato
-        if (contrato.modalidade_execucao === 'MEDICAO' || contrato.categoria === 'OBRAS') {
+        // Tipo da URL tem prioridade; senão deriva da modalidade/categoria
+        if (tipoUrl === 'ORDEM_SERVICO' || tipoUrl === 'MATERIAL' || tipoUrl === 'SERVICO') {
+          setTipo(tipoUrl);
+        } else if (contrato.modalidade_execucao === 'MEDICAO' || contrato.modalidade_execucao === 'ORDEM_SERVICO' || contrato.categoria === 'OBRAS') {
           setTipo('ORDEM_SERVICO');
         } else if (contrato.categoria === 'SERVICOS') {
           setTipo('SERVICO');
@@ -394,7 +397,7 @@ function NovaRequisicaoForm() {
         limparRascunhoLocal(); // Limpa rascunho se veio da URL
       }
     }
-  }, [contratoIdUrl, contratos]);
+  }, [contratoIdUrl, tipoUrl, contratos]);
 
   // Carrega itens quando seleciona contrato
   useEffect(() => {

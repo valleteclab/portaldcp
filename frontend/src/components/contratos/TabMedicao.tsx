@@ -106,6 +106,7 @@ interface Resumo {
   pendentes_aprovacao: number
   os_ativa: OSRequisicao | null
   total_os: number
+  fluxo_os?: 'REQUISICAO' | 'MODULO_OS'
 }
 
 const STATUS_OS: Record<string, { label: string; cor: string }> = {
@@ -564,13 +565,20 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         </CardHeader>
         <CardContent>
           {!osAtiva ? (
-            <Link href="/orgao/ordens-servico" className="block">
+            <Link
+              href={resumo?.fluxo_os === 'MODULO_OS'
+                ? '/orgao/ordens-servico'
+                : `/orgao/almoxarifado/requisicoes/nova?contrato=${contratoId}&tipo=ORDEM_SERVICO`}
+              className="block"
+            >
               <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 hover:border-amber-300 transition-colors cursor-pointer">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                 <div className="flex-1">
                   <p className="font-medium text-amber-700">Nenhuma Ordem de Serviço ativa</p>
                   <p className="text-sm text-amber-600">
-                    Clique aqui para criar uma OS no módulo de Ordens de Serviço e liberar o cadastro de medições.
+                    {resumo?.fluxo_os === 'MODULO_OS'
+                      ? 'Clique aqui para criar uma OS no módulo de Ordens de Serviço e liberar o cadastro de medições.'
+                      : 'Clique aqui para criar uma OS na página de Requisições e liberar o cadastro de medições.'}
                   </p>
                 </div>
                 <ExternalLink className="w-4 h-4 text-amber-500 shrink-0" />

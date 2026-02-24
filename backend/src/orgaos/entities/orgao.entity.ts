@@ -202,6 +202,13 @@ export class Orgao {
   })
   modulos_habilitados: ModuloSistema[]; // Módulos habilitados para este órgão
 
+  /**
+   * Fluxo de Ordem de Serviço: REQUISICAO (criar via almoxarifado) ou MODULO_OS (módulo dedicado).
+   * Quando ORDENS_SERVICO está desativado, o sistema usa sempre REQUISICAO.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true, default: 'REQUISICAO' })
+  fluxo_os: 'REQUISICAO' | 'MODULO_OS';
+
   @CreateDateColumn()
   created_at: Date;
 
