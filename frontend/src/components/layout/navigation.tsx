@@ -127,7 +127,6 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/medicoes", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
-    { href: "/orgao/requisicoes-os", label: "Requisições e OS", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/ordens", label: "Ordens de Fornecimento", icon: Send, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/recebimentos", label: "Recebimentos", icon: Package, modulo: ModuloSistema.ALMOXARIFADO },

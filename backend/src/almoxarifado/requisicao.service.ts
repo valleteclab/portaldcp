@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
+import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
@@ -47,6 +48,8 @@ export class RequisicaoService {
     private readonly recebimentoRepository: Repository<Recebimento>,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
+    @InjectRepository(RequisicaoItemOS)
+    private readonly requisicaoItemOSRepository: Repository<RequisicaoItemOS>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -206,8 +209,8 @@ export class RequisicaoService {
       if (!dto.contrato_id) {
         throw new BadRequestException('Ordem de Serviço deve estar vinculada a um contrato');
       }
-      if (!dto.descricao_os) {
-        throw new BadRequestException('Descrição da OS é obrigatória');
+      if (!dto.descricao_os && !(dto.modo_os && dto.itens_os?.length)) {
+        throw new BadRequestException('Descrição da OS ou itens da OS são obrigatórios');
       }
 
       const contrato = await this.contratoRepository.findOne({ where: { id: dto.contrato_id } });
@@ -242,8 +245,22 @@ export class RequisicaoService {
       novaOS.responsavel_tecnico = dto.responsavel_tecnico || null;
       novaOS.fiscal_contrato_id = dto.fiscal_contrato_id || null;
       novaOS.fiscal_contrato_nome = dto.fiscal_contrato_nome || null;
+      novaOS.modo_os = dto.modo_os || null;
 
       const osSalva = await this.requisicaoRepository.save(novaOS);
+
+      if (dto.itens_os?.length) {
+        const itensOS = dto.itens_os.map(io => {
+          const item = new RequisicaoItemOS();
+          item.requisicao_id = osSalva.id;
+          item.item_cronograma_id = io.item_cronograma_id;
+          item.quantidade_solicitada = Number(io.quantidade_solicitada);
+          return item;
+        });
+        await this.requisicaoItemOSRepository.save(itensOS);
+        this.logger.log(`OS ${numero}: ${itensOS.length} itens do cronograma vinculados`);
+      }
+
       this.logger.log(`OS ${numero} criada para contrato ${contrato?.numero_contrato}`);
       return this.findOne(osSalva.id);
     }
@@ -1292,7 +1309,7 @@ export class RequisicaoService {
   async findOne(id: string): Promise<Requisicao> {
     const requisicao = await this.requisicaoRepository.findOne({
       where: { id },
-      relations: ['itens', 'itens.item_contrato', 'contrato', 'contrato.fornecedor', 'orgao'],
+      relations: ['itens', 'itens.item_contrato', 'contrato', 'contrato.fornecedor', 'orgao', 'itensOS', 'itensOS.itemCronograma'],
     });
 
     if (!requisicao) {

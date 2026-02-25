@@ -78,6 +78,13 @@ export class GeradorPdfService {
         doc.font('Helvetica-Bold').text('Descrição / Objeto:');
         doc.font('Helvetica').text(dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição', { align: 'justify' });
 
+        if (dadosOS.itensOS?.length > 0) {
+          doc.moveDown(0.8);
+          doc.font('Helvetica-Bold').text('Itens do Cronograma:');
+          doc.moveDown(0.3);
+          this.escreverTabelaItensOS(doc, dadosOS.itensOS);
+        }
+
         // Quadro de assinaturas
         await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
 
@@ -233,5 +240,47 @@ export class GeradorPdfService {
 
   private formatarDataHora(data: Date): string {
     return new Date(data).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number } }>): void {
+    const pageWidth = doc.page.width - 100;
+    const colDesc = pageWidth * 0.55;
+    const colUnid = pageWidth * 0.15;
+    const colQtd = pageWidth * 0.15;
+    const colValor = pageWidth * 0.15;
+
+    doc.fontSize(9).font('Helvetica-Bold');
+    doc.rect(50, doc.y, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
+    doc.fillColor('#111827').text('Descrição', 55, doc.y + 5, { width: colDesc - 10 });
+    doc.text('Unidade', 55 + colDesc, doc.y - 13 + 5, { width: colUnid });
+    doc.text('Qtd.', 55 + colDesc + colUnid, doc.y - 13 + 5, { width: colQtd });
+    doc.text('Valor Unit.', 55 + colDesc + colUnid + colQtd, doc.y - 13 + 5, { width: colValor });
+    doc.y += 20;
+
+    doc.font('Helvetica').fillColor('#374151');
+    for (let i = 0; i < itensOS.length; i++) {
+      const item = itensOS[i];
+      const ic = item.itemCronograma || {};
+      const desc = (ic.descricao || '-').substring(0, 80);
+      const unid = ic.unidade_medida || '-';
+      const qtd = Number(item.quantidade_solicitada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+      const valor = ic.valor_unitario != null
+        ? `R$ ${Number(ic.valor_unitario).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        : '-';
+
+      const yStart = doc.y;
+      if (yStart > doc.page.height - 80) {
+        doc.addPage();
+        doc.y = 50;
+      }
+
+      const rowY = yStart + 2;
+      doc.fontSize(8).text(desc, 55, rowY, { width: colDesc - 10 });
+      doc.text(unid, 55 + colDesc, rowY, { width: colUnid });
+      doc.text(qtd, 55 + colDesc + colUnid, rowY, { width: colQtd });
+      doc.text(valor, 55 + colDesc + colUnid + colQtd, rowY, { width: colValor });
+      doc.y = yStart + 14;
+    }
+    doc.moveDown(0.5);
   }
 }

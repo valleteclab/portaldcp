@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, ValidateNested, IsUUID, Min, IsDateString, IsBoolean } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, ValidateNested, IsUUID, Min, IsDateString, IsBoolean, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TipoRequisicao, PrioridadeRequisicao } from '../entities/requisicao.entity';
 
@@ -37,6 +37,16 @@ export class ItemRequisicaoDto {
   @IsOptional()
   @IsString()
   observacoes?: string;
+}
+
+export class ItemOSDto {
+  @IsUUID()
+  item_cronograma_id: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  quantidade_solicitada: number;
 }
 
 export class CriarRequisicaoDto {
@@ -115,6 +125,18 @@ export class CriarRequisicaoDto {
   @IsOptional()
   @IsString()
   fiscal_contrato_nome?: string;
+
+  /** ORDEM_GLOBAL | ORDEM_DEMANDA (quando contrato usa ItemCronograma) */
+  @IsOptional()
+  @IsIn(['ORDEM_GLOBAL', 'ORDEM_DEMANDA'])
+  modo_os?: 'ORDEM_GLOBAL' | 'ORDEM_DEMANDA';
+
+  /** Itens da OS (ItemCronograma) quando modo_os = ORDEM_GLOBAL ou ORDEM_DEMANDA */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ItemOSDto)
+  itens_os?: ItemOSDto[];
 }
 
 export class AtualizarRequisicaoDto {

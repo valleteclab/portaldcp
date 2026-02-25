@@ -16,7 +16,9 @@ import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { Recebimento } from './entities/recebimento.entity';
 import { ConfiguracaoAprovacao } from './entities/configuracao-aprovacao.entity';
 import { HistoricoOrdemFornecimento } from './entities/historico-ordem.entity';
+import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
+import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
@@ -36,6 +38,8 @@ import { AssinaturasModule } from '../assinaturas/assinaturas.module';
       Recebimento,
       ConfiguracaoAprovacao,
       HistoricoOrdemFornecimento,
+      RequisicaoItemOS,
+      ItemCronograma,
       Contrato,
       Orgao,
       Fornecedor,

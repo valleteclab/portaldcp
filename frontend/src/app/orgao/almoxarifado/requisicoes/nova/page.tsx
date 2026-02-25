@@ -119,6 +119,19 @@ interface ItemRequisicao {
   saldo_disponivel: number;
 }
 
+/** Item do cronograma (medição por itens) - usado em contratos MEDICAO/SERVICOS */
+interface ItemCronograma {
+  id: string;
+  numero_item: number;
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+  quantidade_medida: number;
+  observacoes?: string;
+}
+
 interface RascunhoRequisicao {
   etapa: number;
   contratoId: string | null;
@@ -272,11 +285,19 @@ function NovaRequisicaoForm() {
   const [responsavelTecnico, setResponsavelTecnico] = useState('');
   const [fiscalNome, setFiscalNome] = useState('');
 
+  // OS com ItemCronograma (medição por itens): Ordem Global vs Ordem por Demanda
+  const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
+  const [etapasOS, setEtapasOS] = useState<any[]>([]);
+  const [carregandoCronograma, setCarregandoCronograma] = useState(false);
+  const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
+  const [itensOSDemanda, setItensOSDemanda] = useState<{ item_cronograma_id: string; quantidade_solicitada: number }[]>([]);
+
   // Ref para controlar auto-save
   const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
   const [ultimoSalvamento, setUltimoSalvamento] = useState<Date | null>(null);
 
   const isOS = tipo === 'ORDEM_SERVICO';
+  const usarItensCronograma = isOS && itensCronograma.length > 0;
   const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
 
   // =========================================================================
@@ -405,6 +426,48 @@ function NovaRequisicaoForm() {
       carregarItensContrato();
     }
   }, [contratoSelecionado]);
+
+  // Carrega itens-cronograma e etapas quando OS + contrato selecionado (para detectar medição por itens vs obras)
+  useEffect(() => {
+    if (!contratoSelecionado || tipo !== 'ORDEM_SERVICO') {
+      setItensCronograma([]);
+      setEtapasOS([]);
+      setModoOS(null);
+      setItensOSDemanda([]);
+      return;
+    }
+    const carregarCronograma = async () => {
+      setCarregandoCronograma(true);
+      try {
+        const [resItens, resEtapas] = await Promise.all([
+          authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/itens-cronograma`),
+          authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/etapas`),
+        ]);
+        const itens: ItemCronograma[] = resItens.ok ? await resItens.json() : [];
+        const etapas: any[] = resEtapas.ok ? await resEtapas.json() : [];
+        setItensCronograma(itens);
+        setEtapasOS(etapas);
+        if (itens.length > 0) {
+          setModoOS('ORDEM_GLOBAL');
+          setItensOSDemanda(itens.map(i => ({
+            item_cronograma_id: i.id,
+            quantidade_solicitada: Number(i.quantidade) - Number(i.quantidade_medida),
+          })));
+        } else {
+          setModoOS(null);
+          setItensOSDemanda([]);
+        }
+      } catch (e) {
+        console.error('Erro ao carregar cronograma:', e);
+        setItensCronograma([]);
+        setEtapasOS([]);
+        setModoOS(null);
+      } finally {
+        setCarregandoCronograma(false);
+      }
+    };
+    carregarCronograma();
+  }, [contratoSelecionado?.id, tipo]);
 
   // Aplicar contrato do rascunho após carregar contratos
   useEffect(() => {
@@ -581,6 +644,18 @@ function NovaRequisicaoForm() {
     }));
   };
 
+  const handleAlterarQuantidadeOSDemanda = (itemCronogramaId: string, quantidade: number) => {
+    setItensOSDemanda(prev => prev.map(item => {
+      if (item.item_cronograma_id === itemCronogramaId) {
+        const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
+        const saldo = itemCron ? Number(itemCron.quantidade) - Number(itemCron.quantidade_medida) : 0;
+        const qtd = Math.max(0, Math.min(quantidade, saldo));
+        return { ...item, quantidade_solicitada: qtd };
+      }
+      return item;
+    }));
+  };
+
   const calcularTotal = () => {
     return itensRequisicao.reduce((total, item) => total + item.valor_total, 0);
   };
@@ -595,7 +670,15 @@ function NovaRequisicaoForm() {
         case 1:
           if (!setorSolicitante.trim()) return 'Informe o setor solicitante';
           if (!justificativa.trim()) return 'Informe a justificativa';
-          if (!descricaoOS.trim()) return 'Informe a descrição/objeto da OS';
+          if (usarItensCronograma) {
+            if (!modoOS) return 'Selecione o tipo de ordem (Global ou por Demanda)';
+            if (modoOS === 'ORDEM_DEMANDA') {
+              const temAlgum = itensOSDemanda.some(d => d.quantidade_solicitada > 0);
+              if (!temAlgum) return 'Informe a quantidade de pelo menos um item na Ordem por Demanda';
+            }
+          } else {
+            if (!descricaoOS.trim()) return 'Informe a descrição/objeto da OS';
+          }
           break;
       }
     } else {
@@ -651,13 +734,29 @@ function NovaRequisicaoForm() {
 
       if (isOS) {
         // Campos específicos de OS
-        dados.descricao_os = descricaoOS;
-        dados.local_execucao = localExecucao || undefined;
-        dados.data_inicio_prevista = dataInicioPrevista || undefined;
-        dados.data_fim_prevista = dataFimPrevista || undefined;
-        dados.prazo_execucao_dias = prazoExecucaoDias ? parseInt(prazoExecucaoDias) : undefined;
-        dados.responsavel_tecnico = responsavelTecnico || undefined;
-        dados.fiscal_contrato_nome = fiscalNome || undefined;
+        if (usarItensCronograma && modoOS) {
+          dados.modo_os = modoOS;
+          dados.itens_os = modoOS === 'ORDEM_GLOBAL'
+            ? itensCronograma.map(i => ({
+                item_cronograma_id: i.id,
+                quantidade_solicitada: Number(i.quantidade) - Number(i.quantidade_medida),
+              }))
+            : itensOSDemanda.filter(d => d.quantidade_solicitada > 0).map(d => ({
+                item_cronograma_id: d.item_cronograma_id,
+                quantidade_solicitada: d.quantidade_solicitada,
+              }));
+          dados.descricao_os = modoOS === 'ORDEM_GLOBAL'
+            ? 'Ordem Global - todos os itens do cronograma'
+            : 'Ordem por Demanda - itens selecionados';
+        } else {
+          dados.descricao_os = descricaoOS;
+          dados.local_execucao = localExecucao || undefined;
+          dados.data_inicio_prevista = dataInicioPrevista || undefined;
+          dados.data_fim_prevista = dataFimPrevista || undefined;
+          dados.prazo_execucao_dias = prazoExecucaoDias ? parseInt(prazoExecucaoDias) : undefined;
+          dados.responsavel_tecnico = responsavelTecnico || undefined;
+          dados.fiscal_contrato_nome = fiscalNome || undefined;
+        }
       } else {
         // Itens da requisição normal
         dados.itens = itensRequisicao.map((item, index) => ({
@@ -1325,137 +1424,291 @@ function NovaRequisicaoForm() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Dados da Ordem de Serviço</CardTitle>
-          <CardDescription>
-            Preencha as informações da OS que autoriza o início da execução da obra/serviço
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Descrição / Objeto da OS *</Label>
-            <Textarea
-              value={descricaoOS}
-              onChange={(e) => setDescricaoOS(e.target.value)}
-              placeholder="Ex: Execução da obra de reforma do prédio sede conforme projeto básico"
-              rows={3}
-            />
-          </div>
+      {carregandoCronograma ? (
+        <Card>
+          <CardContent className="p-8 flex items-center justify-center gap-2">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Carregando itens do cronograma...</span>
+          </CardContent>
+        </Card>
+      ) : usarItensCronograma ? (
+        /* Fluxo com ItemCronograma: Ordem Global vs Ordem por Demanda */
+        <Card>
+          <CardHeader>
+            <CardTitle>Dados da Ordem de Serviço</CardTitle>
+            <CardDescription>
+              Contrato com medição por itens. Escolha o tipo de ordem e confira os itens.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Tipo de Ordem *</Label>
+              <div className="flex gap-6 mt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modoOS"
+                    checked={modoOS === 'ORDEM_GLOBAL'}
+                    onChange={() => setModoOS('ORDEM_GLOBAL')}
+                    className="h-4 w-4"
+                  />
+                  <span>Ordem Global</span>
+                  <span className="text-sm text-gray-500">— Autoriza todos os itens conforme contrato</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modoOS"
+                    checked={modoOS === 'ORDEM_DEMANDA'}
+                    onChange={() => setModoOS('ORDEM_DEMANDA')}
+                    className="h-4 w-4"
+                  />
+                  <span>Ordem por Demanda</span>
+                  <span className="text-sm text-gray-500">— Define quantidades específicas para este período</span>
+                </label>
+              </div>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Setor Solicitante *</Label>
-              <Input
-                value={setorSolicitante}
-                onChange={(e) => setSetorSolicitante(e.target.value)}
-                placeholder="Ex: Departamento de Engenharia"
-              />
+              <Label>Itens do Contrato</Label>
+              <div className="border rounded-lg overflow-hidden mt-2">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Unidade</TableHead>
+                      <TableHead className="text-right">Qtd contratada</TableHead>
+                      <TableHead className="text-right">Qtd medida</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead className="text-right">Valor unit.</TableHead>
+                      {modoOS === 'ORDEM_DEMANDA' && (
+                        <TableHead className="text-right">Qtd solicitada</TableHead>
+                      )}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {itensCronograma.map((item) => {
+                      const saldo = Number(item.quantidade) - Number(item.quantidade_medida);
+                      const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
+                      const qtdSolicitada = demanda?.quantidade_solicitada ?? saldo;
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.numero_item}</TableCell>
+                          <TableCell className="max-w-[280px]">{item.descricao}</TableCell>
+                          <TableCell className="text-right">{item.unidade_medida}</TableCell>
+                          <TableCell className="text-right">{Number(item.quantidade)}</TableCell>
+                          <TableCell className="text-right">{Number(item.quantidade_medida)}</TableCell>
+                          <TableCell className="text-right font-medium">{saldo}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(Number(item.valor_unitario))}</TableCell>
+                          {modoOS === 'ORDEM_DEMANDA' ? (
+                            <TableCell className="text-right">
+                              <QuantidadeInput
+                                value={qtdSolicitada}
+                                max={saldo}
+                                onChange={(v) => handleAlterarQuantidadeOSDemanda(item.id, v)}
+                              />
+                            </TableCell>
+                          ) : null}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
-            <div>
-              <Label>Código do Setor</Label>
-              <Input
-                value={codigoSetor}
-                onChange={(e) => setCodigoSetor(e.target.value)}
-                placeholder="Ex: DENG-001"
-              />
-            </div>
-          </div>
 
-          <div>
-            <Label>Justificativa *</Label>
-            <Textarea
-              value={justificativa}
-              onChange={(e) => setJustificativa(e.target.value)}
-              placeholder="Justificativa para emissão da OS..."
-              rows={2}
-            />
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Setor Solicitante *</Label>
+                <Input
+                  value={setorSolicitante}
+                  onChange={(e) => setSetorSolicitante(e.target.value)}
+                  placeholder="Ex: Departamento de Engenharia"
+                />
+              </div>
+              <div>
+                <Label>Código do Setor</Label>
+                <Input
+                  value={codigoSetor}
+                  onChange={(e) => setCodigoSetor(e.target.value)}
+                  placeholder="Ex: DENG-001"
+                />
+              </div>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Local de Execução</Label>
-              <Input
-                value={localExecucao}
-                onChange={(e) => setLocalExecucao(e.target.value)}
-                placeholder="Endereço ou local da obra"
+              <Label>Justificativa *</Label>
+              <Textarea
+                value={justificativa}
+                onChange={(e) => setJustificativa(e.target.value)}
+                placeholder="Justificativa para emissão da OS..."
+                rows={2}
               />
             </div>
-            <div>
-              <Label>Prioridade</Label>
-              <Select value={prioridade} onValueChange={setPrioridade}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="BAIXA">Baixa</SelectItem>
-                  <SelectItem value="NORMAL">Normal</SelectItem>
-                  <SelectItem value="ALTA">Alta</SelectItem>
-                  <SelectItem value="URGENTE">Urgente</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label>Início Previsto</Label>
-              <Input
-                type="date"
-                value={dataInicioPrevista}
-                onChange={(e) => setDataInicioPrevista(e.target.value)}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Prioridade</Label>
+                <Select value={prioridade} onValueChange={setPrioridade}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BAIXA">Baixa</SelectItem>
+                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="ALTA">Alta</SelectItem>
+                    <SelectItem value="URGENTE">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label>Fim Previsto</Label>
-              <Input
-                type="date"
-                value={dataFimPrevista}
-                onChange={(e) => setDataFimPrevista(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label>Prazo (dias)</Label>
-              <Input
-                type="number"
-                min="1"
-                placeholder="Ex: 180"
-                value={prazoExecucaoDias}
-                onChange={(e) => setPrazoExecucaoDias(e.target.value)}
-              />
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Responsável Técnico</Label>
-              <Input
-                value={responsavelTecnico}
-                onChange={(e) => setResponsavelTecnico(e.target.value)}
-                placeholder="Engenheiro responsável"
+              <Label>Observações</Label>
+              <Textarea
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Observações adicionais (opcional)"
+                rows={2}
               />
             </div>
+          </CardContent>
+        </Card>
+      ) : (
+        /* Fluxo obras/EtapaCronograma: formulário tradicional */
+        <Card>
+          <CardHeader>
+            <CardTitle>Dados da Ordem de Serviço</CardTitle>
+            <CardDescription>
+              Preencha as informações da OS que autoriza o início da execução da obra/serviço
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div>
-              <Label>Fiscal do Contrato</Label>
-              <Input
-                value={fiscalNome}
-                onChange={(e) => setFiscalNome(e.target.value)}
-                placeholder="Nome do fiscal"
+              <Label>Descrição / Objeto da OS *</Label>
+              <Textarea
+                value={descricaoOS}
+                onChange={(e) => setDescricaoOS(e.target.value)}
+                placeholder="Ex: Execução da obra de reforma do prédio sede conforme projeto básico"
+                rows={3}
               />
             </div>
-          </div>
 
-          <div>
-            <Label>Observações</Label>
-            <Textarea
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              placeholder="Observações adicionais (opcional)"
-              rows={2}
-            />
-          </div>
-        </CardContent>
-      </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Setor Solicitante *</Label>
+                <Input
+                  value={setorSolicitante}
+                  onChange={(e) => setSetorSolicitante(e.target.value)}
+                  placeholder="Ex: Departamento de Engenharia"
+                />
+              </div>
+              <div>
+                <Label>Código do Setor</Label>
+                <Input
+                  value={codigoSetor}
+                  onChange={(e) => setCodigoSetor(e.target.value)}
+                  placeholder="Ex: DENG-001"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Justificativa *</Label>
+              <Textarea
+                value={justificativa}
+                onChange={(e) => setJustificativa(e.target.value)}
+                placeholder="Justificativa para emissão da OS..."
+                rows={2}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Local de Execução</Label>
+                <Input
+                  value={localExecucao}
+                  onChange={(e) => setLocalExecucao(e.target.value)}
+                  placeholder="Endereço ou local da obra"
+                />
+              </div>
+              <div>
+                <Label>Prioridade</Label>
+                <Select value={prioridade} onValueChange={setPrioridade}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BAIXA">Baixa</SelectItem>
+                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="ALTA">Alta</SelectItem>
+                    <SelectItem value="URGENTE">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>Início Previsto</Label>
+                <Input
+                  type="date"
+                  value={dataInicioPrevista}
+                  onChange={(e) => setDataInicioPrevista(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Fim Previsto</Label>
+                <Input
+                  type="date"
+                  value={dataFimPrevista}
+                  onChange={(e) => setDataFimPrevista(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Prazo (dias)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder="Ex: 180"
+                  value={prazoExecucaoDias}
+                  onChange={(e) => setPrazoExecucaoDias(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Responsável Técnico</Label>
+                <Input
+                  value={responsavelTecnico}
+                  onChange={(e) => setResponsavelTecnico(e.target.value)}
+                  placeholder="Engenheiro responsável"
+                />
+              </div>
+              <div>
+                <Label>Fiscal do Contrato</Label>
+                <Input
+                  value={fiscalNome}
+                  onChange={(e) => setFiscalNome(e.target.value)}
+                  placeholder="Nome do fiscal"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Observações</Label>
+              <Textarea
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Observações adicionais (opcional)"
+                rows={2}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 
@@ -1520,7 +1773,13 @@ function NovaRequisicaoForm() {
                   {prioridade}
                 </Badge>
               </div>
-              {isOS && descricaoOS && (
+              {isOS && usarItensCronograma && modoOS && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">Tipo de Ordem:</span>{' '}
+                  <strong>{modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global' : 'Ordem por Demanda'}</strong>
+                </div>
+              )}
+              {isOS && !usarItensCronograma && descricaoOS && (
                 <div className="col-span-2">
                   <span className="text-gray-500">Objeto da OS:</span>{' '}
                   <strong>{descricaoOS}</strong>
@@ -1557,6 +1816,52 @@ function NovaRequisicaoForm() {
               </div>
             </div>
           </div>
+
+          {/* Itens da OS (quando usarItensCronograma) */}
+          {isOS && usarItensCronograma && itensCronograma.length > 0 && (
+            <div>
+              <h4 className="font-medium mb-2">Itens da OS ({itensCronograma.length})</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right">Unidade</TableHead>
+                    <TableHead className="text-right">Qtd solicitada</TableHead>
+                    <TableHead className="text-right">Valor unit.</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {itensCronograma.map((item) => {
+                    const saldo = Number(item.quantidade) - Number(item.quantidade_medida);
+                    const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
+                    const qtd = modoOS === 'ORDEM_GLOBAL' ? saldo : (demanda?.quantidade_solicitada ?? 0);
+                    const total = qtd * Number(item.valor_unitario);
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.numero_item}</TableCell>
+                        <TableCell className="max-w-[300px] truncate">{item.descricao}</TableCell>
+                        <TableCell className="text-right">{item.unidade_medida}</TableCell>
+                        <TableCell className="text-right">{qtd}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(Number(item.valor_unitario))}</TableCell>
+                        <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              <div className="mt-2 p-3 bg-indigo-50 rounded-lg text-sm text-indigo-800">
+                <strong>Total estimado:</strong>{' '}
+                {formatarMoeda(itensCronograma.reduce((s, i) => {
+                  const saldo = Number(i.quantidade) - Number(i.quantidade_medida);
+                  const d = itensOSDemanda.find(x => x.item_cronograma_id === i.id);
+                  const q = modoOS === 'ORDEM_GLOBAL' ? saldo : (d?.quantidade_solicitada ?? 0);
+                  return s + q * Number(i.valor_unitario);
+                }, 0))}
+              </div>
+            </div>
+          )}
 
           {/* Itens (apenas para requisição normal) */}
           {!isOS && (

@@ -878,6 +878,7 @@ function RequisicoesList() {
                 <TableHead>Data</TableHead>
                 <TableHead>Prioridade</TableHead>
                 <TableHead>Valor</TableHead>
+                <TableHead>Empresa</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
@@ -885,7 +886,7 @@ function RequisicoesList() {
             <TableBody>
               {requisicoesFiltradas.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={10} className="text-center py-8 text-gray-500">
                     Nenhuma requisição encontrada
                   </TableCell>
                 </TableRow>
@@ -907,6 +908,9 @@ function RequisicoesList() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatarMoeda(req.valor_total_estimado)}</TableCell>
+                    <TableCell className="max-w-[180px] truncate" title={req.contrato?.fornecedor?.razao_social}>
+                      {req.contrato?.fornecedor?.razao_social || '-'}
+                    </TableCell>
                     <TableCell>
                       <Badge className={STATUS_COLORS[req.status]}>
                         {STATUS_LABELS[req.status]}

@@ -31,6 +31,7 @@ import {
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { Contrato } from '../../contratos/entities/contrato.entity';
 import { ItemRequisicao } from './item-requisicao.entity';
+import { RequisicaoItemOS } from './requisicao-item-os.entity';
 
 export enum StatusRequisicao {
   RASCUNHO = 'RASCUNHO',                           // Ainda não enviada para aprovação
@@ -89,6 +90,10 @@ export class Requisicao {
    */
   @OneToMany(() => ItemRequisicao, item => item.requisicao, { cascade: true })
   itens: ItemRequisicao[];
+
+  /** Itens da OS (ItemCronograma) quando modo_os = ORDEM_GLOBAL ou ORDEM_DEMANDA */
+  @OneToMany(() => RequisicaoItemOS, rio => rio.requisicao, { cascade: true })
+  itensOS: RequisicaoItemOS[];
 
   // ============================================================================
   // IDENTIFICAÇÃO
@@ -218,6 +223,9 @@ export class Requisicao {
   // ============================================================================
   // CAMPOS ESPECÍFICOS DE ORDEM DE SERVIÇO (tipo = ORDEM_SERVICO)
   // ============================================================================
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  modo_os: string | null; // ORDEM_GLOBAL | ORDEM_DEMANDA (quando usa ItemCronograma)
 
   @Column({ type: 'text', nullable: true })
   descricao_os: string | null; // Objeto/descrição da OS
