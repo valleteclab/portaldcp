@@ -1043,11 +1043,11 @@ export default function CentralAprovacoesPage() {
                                     <span><span className="text-gray-500">Fiscal:</span> <strong>{(requisicao as any).fiscal_contrato_nome}</strong></span>
                                   )}
                                 </div>
-                                {requisicao.contrato?.fornecedor && (
+                                {(requisicao as any).contrato?.fornecedor && (
                                   <div className="flex flex-wrap gap-4 pt-1 border-t">
-                                    <span><span className="text-gray-500">Fornecedor:</span> <strong>{requisicao.contrato.fornecedor.razao_social}</strong></span>
-                                    {requisicao.contrato.fornecedor.cpf_cnpj && (
-                                      <span><span className="text-gray-500">CNPJ/CPF:</span> <strong>{requisicao.contrato.fornecedor.cpf_cnpj}</strong></span>
+                                    <span><span className="text-gray-500">Fornecedor:</span> <strong>{(requisicao as any).contrato.fornecedor.razao_social}</strong></span>
+                                    {(requisicao as any).contrato.fornecedor.cpf_cnpj && (
+                                      <span><span className="text-gray-500">CNPJ/CPF:</span> <strong>{(requisicao as any).contrato.fornecedor.cpf_cnpj}</strong></span>
                                     )}
                                   </div>
                                 )}
