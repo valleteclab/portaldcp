@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useModulosOrgao, MODULOS } from '@/hooks/useModulosOrgao'
+import { useModulosOrgao, ModuloSistema } from '@/hooks/useModulosOrgao'
 import { 
   Plus, 
   Bot,
@@ -46,7 +46,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useModulosOrgao } from '@/hooks/useModulosOrgao'
 
 interface ItemContrato {
   id: string
@@ -135,7 +134,7 @@ function opcoesMesesReferencia(): { value: string; label: string }[] {
 
 function ContratosOrgaoPageContent() {
   const { temModulo } = useModulosOrgao()
-  const temIaContratos = temModulo(MODULOS.IA_CONTRATOS)
+  const temIaContratos = temModulo(ModuloSistema.IA_CONTRATOS)
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
