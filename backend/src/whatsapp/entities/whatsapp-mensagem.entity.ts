@@ -2,7 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, Jo
 import { WhatsappConversa } from './whatsapp-conversa.entity';
 
 export type DirecaoMensagem = 'ENVIADA' | 'RECEBIDA';
-export type StatusMensagem  = 'PENDENTE' | 'ENVIADA' | 'ENTREGUE' | 'LIDA' | 'FALHA';
+export type StatusMensagem  = 'PENDENTE' | 'ENVIADA' | 'ENTREGUE' | 'LIDA' | 'FALHA' | 'RECEBIDA';
 
 @Entity('whatsapp_mensagens')
 export class WhatsappMensagem {

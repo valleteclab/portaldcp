@@ -110,7 +110,7 @@ export class WhatsappChatService {
         conversa_id: conversa.id,
         direcao: 'RECEBIDA',
         conteudo,
-        status: 'RECEBIDA' as any,
+        status: 'RECEBIDA',
         zapi_message_id: zapiMessageId,
       }),
     );
@@ -118,9 +118,9 @@ export class WhatsappChatService {
     await this.conversaRepo.update(conversa.id, {
       ultima_mensagem: conteudo,
       ultima_mensagem_em: new Date(),
-      mensagens_nao_lidas: () => '"mensagens_nao_lidas" + 1',
       updated_at: new Date(),
     });
+    await this.conversaRepo.increment({ id: conversa.id }, 'mensagens_nao_lidas', 1);
 
     this.novaMensagem$.next({ orgaoId, conversaId: conversa.id, mensagem });
     this.logger.log(`Mensagem recebida de ${phone} → conversa ${conversa.id}`);
