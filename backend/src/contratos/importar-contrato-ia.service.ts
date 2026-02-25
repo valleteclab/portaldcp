@@ -6,9 +6,15 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
+// pdf-parse exporta a função diretamente no CJS — sem .default
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const _pdfParseModule = require('pdf-parse');
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = _pdfParseModule.default ?? _pdfParseModule;
+let pdfParse: (buffer: Buffer) => Promise<{ text: string }>;
+try {
+  const mod = require('pdf-parse');
+  pdfParse = typeof mod === 'function' ? mod : (mod.default ?? mod);
+} catch {
+  pdfParse = async () => ({ text: '' });
+}
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
 Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.
@@ -69,10 +75,12 @@ export class ImportarContratoIaService {
     if (file.mimetype === 'application/pdf') {
       let textoExtraido = '';
       try {
+        this.logger.log(`Tentando pdf-parse, tipo da funcao: ${typeof pdfParse}`);
         const pdfData = await pdfParse(file.buffer);
         textoExtraido = pdfData.text || '';
+        this.logger.log(`pdf-parse OK: ${textoExtraido.length} chars extraidos`);
       } catch (err: any) {
-        this.logger.warn(`pdf-parse falhou, tentando via base64: ${err.message}`);
+        this.logger.warn(`pdf-parse falhou: ${err.message}`);
       }
 
       if (textoExtraido.trim().length >= 200) {
