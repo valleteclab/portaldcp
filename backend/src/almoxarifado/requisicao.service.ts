@@ -237,7 +237,7 @@ export class RequisicaoService {
       novaOS.saldo_reservado = false;
       novaOS.observacoes = dto.observacoes || null;
       // Campos específicos de OS
-      novaOS.descricao_os = dto.descricao_os;
+      novaOS.descricao_os = dto.descricao_os ?? null;
       novaOS.local_execucao = dto.local_execucao || null;
       novaOS.data_inicio_prevista = dto.data_inicio_prevista ? new Date(dto.data_inicio_prevista) as any : null;
       novaOS.data_fim_prevista = dto.data_fim_prevista ? new Date(dto.data_fim_prevista) as any : null;
