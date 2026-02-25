@@ -6,9 +6,8 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
-// Importar diretamente o arquivo interno para evitar erro de test fixtures no Docker
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse/lib/pdf-parse.js');
+const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
 Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.
@@ -67,22 +66,23 @@ export class ImportarContratoIaService {
     let respostaIA: string;
 
     if (file.mimetype === 'application/pdf') {
-      let textoExtraido: string;
+      let textoExtraido = '';
       try {
         const pdfData = await pdfParse(file.buffer);
-        textoExtraido = pdfData.text;
+        textoExtraido = pdfData.text || '';
       } catch (err: any) {
-        this.logger.error(`Erro ao processar PDF: ${err.message}`, err.stack);
-        throw new BadRequestException(`Erro ao processar PDF: ${err.message}. Tente enviar como imagem JPG/PNG.`);
+        this.logger.warn(`pdf-parse falhou, tentando via base64: ${err.message}`);
       }
 
-      if (textoExtraido.trim().length < 100) {
-        throw new BadRequestException(
-          'PDF escaneado sem texto legível. Por favor, envie o contrato como imagem JPG ou PNG.',
-        );
+      if (textoExtraido.trim().length >= 200) {
+        // PDF com texto nativo — envia o texto para o modelo
+        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
+      } else {
+        // PDF scaneado ou sem texto — envia como imagem base64 para Vision
+        this.logger.log('PDF sem texto suficiente, usando Vision (base64)');
+        const pdfBase64 = file.buffer.toString('base64');
+        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, pdfBase64, 'application/pdf');
       }
-
-      respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
     } else {
       const imagemBase64 = file.buffer.toString('base64');
       respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
