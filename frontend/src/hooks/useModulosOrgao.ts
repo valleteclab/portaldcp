@@ -15,7 +15,8 @@ export type ModuloSistema =
   | 'CREDENCIAMENTO'
   | 'ALMOXARIFADO'
   | 'PORTAL_ASSINATURAS'
-  | 'ORDENS_SERVICO';
+  | 'ORDENS_SERVICO'
+  | 'IA_CONTRATOS';
 
 // Constantes para uso como valores (não apenas tipos)
 export const ModuloSistema = {
@@ -32,6 +33,7 @@ export const ModuloSistema = {
   ALMOXARIFADO: 'ALMOXARIFADO' as ModuloSistema,
   PORTAL_ASSINATURAS: 'PORTAL_ASSINATURAS' as ModuloSistema,
   ORDENS_SERVICO: 'ORDENS_SERVICO' as ModuloSistema,
+  IA_CONTRATOS: 'IA_CONTRATOS' as ModuloSistema,
 } as const;
 
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
@@ -48,6 +50,7 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
   ALMOXARIFADO: { nome: 'Almoxarifado', descricao: 'Almoxarifado e Ordens de Fornecimento' },
   PORTAL_ASSINATURAS: { nome: 'Portal de Assinaturas', descricao: 'Portal de Assinaturas Eletrônicas' },
   ORDENS_SERVICO: { nome: 'Ordens de Serviço', descricao: 'Gestão de Ordens de Serviço' },
+  IA_CONTRATOS: { nome: 'IA — Importar Contratos', descricao: 'Importação de contratos via IA (PDF/imagem)' },
 };
 
 export function useModulosOrgao() {

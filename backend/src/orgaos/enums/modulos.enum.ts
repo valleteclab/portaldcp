@@ -12,6 +12,7 @@ export enum ModuloSistema {
   ALMOXARIFADO = 'ALMOXARIFADO',
   PORTAL_ASSINATURAS = 'PORTAL_ASSINATURAS',
   ORDENS_SERVICO = 'ORDENS_SERVICO',
+  IA_CONTRATOS = 'IA_CONTRATOS',
 }
 
 export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
@@ -28,5 +29,6 @@ export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
   [ModuloSistema.ALMOXARIFADO]: 'Almoxarifado e Ordens de Fornecimento',
   [ModuloSistema.PORTAL_ASSINATURAS]: 'Portal de Assinaturas (Doc Avulso)',
   [ModuloSistema.ORDENS_SERVICO]: 'Gestão de Ordens de Serviço',
+  [ModuloSistema.IA_CONTRATOS]: 'IA — Importação de Contratos',
 };
 

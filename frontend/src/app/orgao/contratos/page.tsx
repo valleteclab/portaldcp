@@ -8,8 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ModuleGuard } from '@/components/ModuleGuard'
-import { ModuloSistema } from '@/hooks/useModulosOrgao'
+import { useModulosOrgao, MODULOS } from '@/hooks/useModulosOrgao'
 import { 
   Plus, 
   Bot,
@@ -135,6 +134,8 @@ function opcoesMesesReferencia(): { value: string; label: string }[] {
 }
 
 function ContratosOrgaoPageContent() {
+  const { temModulo } = useModulosOrgao()
+  const temIaContratos = temModulo(MODULOS.IA_CONTRATOS)
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
@@ -452,12 +453,14 @@ window._extraindoContratos = true;
               Novo a partir de Licitação
             </Link>
           </Button>
-          <Button variant="outline" asChild>
-            <Link href="/orgao/contratos/importar-ia">
-              <Bot className="w-4 h-4 mr-2" />
-              Importar com IA
-            </Link>
-          </Button>
+          {temIaContratos && (
+            <Button variant="outline" asChild>
+              <Link href="/orgao/contratos/importar-ia">
+                <Bot className="w-4 h-4 mr-2" />
+                Importar com IA
+              </Link>
+            </Button>
+          )}
           <Button asChild>
             <Link href="/orgao/contratos/novo">
               <Plus className="w-4 h-4 mr-2" />
