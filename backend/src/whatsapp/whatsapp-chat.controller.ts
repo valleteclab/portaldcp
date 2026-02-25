@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WhatsappChatService } from './whatsapp-chat.service';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/whatsapp/chat')
+@Controller('whatsapp/chat')
 export class WhatsappChatController {
   private readonly logger = new Logger(WhatsappChatController.name);
 

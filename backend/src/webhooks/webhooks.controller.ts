@@ -24,7 +24,7 @@ interface ZApiWebhookPayload {
   };
 }
 
-@Controller('api/webhooks')
+@Controller('webhooks')
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);
 
