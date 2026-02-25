@@ -12,6 +12,7 @@ import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { 
   Plus, 
+  Bot,
   FileText, 
   Calendar, 
   DollarSign,
@@ -449,6 +450,12 @@ window._extraindoContratos = true;
             <Link href="/orgao/contratos/novo?from=licitacao">
               <FileText className="w-4 h-4 mr-2" />
               Novo a partir de Licitação
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/orgao/contratos/importar-ia">
+              <Bot className="w-4 h-4 mr-2" />
+              Importar com IA
             </Link>
           </Button>
           <Button asChild>

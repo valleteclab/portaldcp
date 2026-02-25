@@ -1,0 +1,10 @@
+[Cursor] feat: Fluxo de OS configurável pelo admin (Requisição ou Módulo OS)
+
+- Backend: Campo fluxo_os (REQUISICAO | MODULO_OS) na entity Orgao + migration
+- Backend: PUT /orgaos/:id/modulos aceita fluxo_os; GET retornam fluxo_os
+- Backend: MedicaoService getOSAtiva/listarOS dual-source conforme fluxo
+- Backend: resumoMedicoes inclui fluxo_os no retorno
+- Admin: Seletor Fluxo de OS no modal de módulos quando ORDENS_SERVICO ativo
+- TabMedicao: Link dinâmico - REQUISICAO → requisicoes/nova; MODULO_OS → ordens-servico
+- Nova Requisição: aceita tipo na URL e modalidade ORDEM_SERVICO
+- Regra: ORDENS_SERVICO desativado → sempre fluxo REQUISICAO

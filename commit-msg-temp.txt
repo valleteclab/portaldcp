@@ -1,0 +1,7 @@
+[Cursor] Fluxo OS: remover requisicoes-os, Ordem Global/Demanda, coluna Empresa
+
+- Remove tela /orgao/requisicoes-os e link do menu
+- Nova Requisição OS: Ordem Global vs Ordem por Demanda para contratos com ItemCronograma
+- Backend: RequisicaoItemOS, modo_os, itens_os
+- Listagem requisições: coluna Empresa (fornecedor)
+- Atualiza navigation e gerador PDF

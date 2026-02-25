@@ -69,7 +69,7 @@ export class ContratosService {
       ano,
       sequencial,
       numero_contrato: numeroContrato,
-      valor_global: dados.valor_inicial,
+      valor_global: dados.valor_global ?? dados.valor_inicial,
       status: StatusContrato.AGUARDANDO_LIBERACAO,
     });
 

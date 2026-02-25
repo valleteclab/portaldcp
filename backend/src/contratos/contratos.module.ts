@@ -34,6 +34,9 @@ import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medi
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { UploadModule } from '../upload/upload.module';
 import { MulterModule } from '@nestjs/platform-express';
+import { IaModule } from '../ia/ia.module';
+import { ImportarContratoIaController } from './importar-contrato-ia.controller';
+import { ImportarContratoIaService } from './importar-contrato-ia.service';
 
 @Module({
   imports: [
@@ -46,9 +49,10 @@ import { MulterModule } from '@nestjs/platform-express';
     ]),
     NotificacoesModule,
     UploadModule,
+    IaModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController],
-  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController],
+  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService]
 })
 export class ContratosModule {}

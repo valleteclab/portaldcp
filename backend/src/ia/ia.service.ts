@@ -411,4 +411,56 @@ Gere a versão revisada e melhorada:`;
       throw error;
     }
   }
+
+  async chatComArquivo(
+    systemPrompt: string,
+    imagemBase64?: string,
+    mimeType?: string,
+    textoExtraido?: string,
+  ): Promise<string> {
+    const apiKey = this.getApiKey();
+
+    let userContent: string | Array<any>;
+
+    if (imagemBase64 && mimeType) {
+      userContent = [
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imagemBase64}` } },
+        { type: 'text', text: systemPrompt },
+      ];
+    } else {
+      userContent = systemPrompt + (textoExtraido ? '\n\nCONTEÚDO DO CONTRATO:\n' + textoExtraido : '');
+    }
+
+    try {
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://portaldcp.com.br',
+          'X-Title': 'Portal DCP',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: 'user', content: userContent },
+          ],
+          temperature: 0.2,
+          max_tokens: 4000,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('Erro OpenRouter (chatComArquivo):', error);
+        throw new Error(`Erro na API: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0]?.message?.content || '';
+    } catch (error) {
+      console.error('Erro ao chamar OpenRouter (chatComArquivo):', error);
+      throw error;
+    }
+  }
 }

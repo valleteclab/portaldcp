@@ -1,0 +1,7 @@
+[Cursor] Requisições e OS: tela unificada com cards aprimorados
+
+- Link "Requisições e OS" no menu (visível com ALMOXARIFADO ou ORDENS_SERVICO)
+- Suporte modulos[] no MenuLink para links multi-módulo
+- Cards: empresa em destaque, contrato em azul, barra progresso colorida
+- OS: consumido, saldo, % utilizado (laranja >70%, vermelho >90%)
+- Requisições: badge Atendida, aprovador, data aprovação em evidência

@@ -1,6 +1,4 @@
-[Cursor] Opção de enviar ao fornecedor na aprovação e ação posterior
+[Cursor] fix: remove invalid dados.ordem_servico_id reference in criarMedicao
 
-- Backend: validarOrgaoRequisicao em RequisicaoService
-- Modal autorizar: checkbox para enviar ou não ao fornecedor (default: sim)
-- Botão Enviar/Reenviar ao fornecedor na coluna Ações (OS aprovadas)
-- Modal para enviar ao fornecedor com email/telefone editáveis
+The typed dados parameter does not include ordem_servico_id. Only use
+osVinculada from the getOSAtiva() lookup.
