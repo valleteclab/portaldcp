@@ -6,63 +6,93 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
-// Extração robusta de texto PDF: tenta múltiplas abordagens
+// Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
 async function extrairTextoPdf(buffer: Buffer): Promise<string> {
-  const tentativas = [
-    () => { const m = require('pdf-parse'); return typeof m === 'function' ? m : null; },
-    () => { const m = require('pdf-parse'); return typeof m?.default === 'function' ? m.default : null; },
-    () => { const m = require('pdf-parse/lib/pdf-parse'); return typeof m === 'function' ? m : null; },
-  ];
-  for (const tentativa of tentativas) {
-    try {
-      const fn = tentativa();
-      if (fn) {
-        const result = await fn(buffer);
-        if (result?.text && result.text.trim().length > 0) return result.text;
-      }
-    } catch { /* tenta próximo */ }
+  // Tentativa 1: pdfjs-dist (mais robusto, suporta PDFs complexos)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+    const pdfDoc = await loadingTask.promise;
+    let text = '';
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((item: any) => item.str || '').join(' ');
+      text += pageText + '\n';
+    }
+    if (text.trim().length > 0) return text;
+  } catch (e: any) {
+    // fallback para pdf-parse
   }
+
+  // Tentativa 2: pdf-parse
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('pdf-parse');
+    const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
+    if (fn) {
+      const result = await fn(buffer);
+      if (result?.text?.trim().length > 0) return result.text;
+    }
+  } catch { /* ignora */ }
+
   return '';
 }
 
-const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
-Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.
+const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021 e 8.666/93).
+Sua tarefa é extrair dados de um contrato administrativo público e retornar APENAS JSON válido, sem markdown, sem explicações, sem texto extra.
 
-Schema obrigatório (retorne exatamente este formato):
+REGRAS CRÍTICAS — NUNCA INVENTE DADOS:
+- Use SOMENTE informações explicitamente escritas no documento
+- Se um campo não aparecer no documento, use null
+- JAMAIS complete ou deduza valores não escritos
+- CNPJ: extraia apenas os dígitos (14 números), sem pontuação
+- Valores: use números decimais (ex: 324000.00), sem R$, sem pontos de milhar
+- Datas: formato YYYY-MM-DD obrigatório
+- Se não encontrar a data, use null (nunca invente)
+
+COMO IDENTIFICAR OS CAMPOS:
+- "objeto": trecho que começa com "tem por objeto" ou "cujo objeto é" ou "objeto:" no contrato
+- "fornecedor_cnpj": CNPJ da empresa contratada (não do órgão contratante)
+- "fornecedor_razao_social": razão social da empresa contratada
+- "valor_global": valor total do contrato (soma de todos os meses/parcelas)
+- "valor_inicial": mesmo que valor_global se não especificado separadamente
+- "tipo": analise o cabeçalho do documento (CONTRATO, NOTA_EMPENHO, ORDEM_SERVICO, ORDEM_FORNECIMENTO, CARTA_CONTRATO, TERMO_ADESAO, ATA_REGISTRO_PRECO)
+- "categoria": COMPRAS=produtos físicos, SERVICOS=serviços gerais, OBRAS=construção, SERVICOS_ENGENHARIA=eng, LOCACAO=aluguel/locação, ALIENACAO=venda
+- "modalidade_execucao": ITEM_QUANTIDADE=compra de itens, MEDICAO=por medição, CONTINUADO=serviço contínuo mensal, LICENCA=licença de software, ORDEM_SERVICO=por OS
+- "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
+- "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
+- "itens": lista de produtos/serviços com quantidades e valores unitários
+
+Schema de retorno (JSON puro):
 {
-  "objeto": "descrição do objeto do contrato",
-  "fornecedor_cnpj": "apenas dígitos, sem pontuação",
-  "fornecedor_razao_social": "nome completo da empresa",
-  "tipo": "CONTRATO|NOTA_EMPENHO|ORDEM_SERVICO|ORDEM_FORNECIMENTO|CARTA_CONTRATO|TERMO_ADESAO|ATA_REGISTRO_PRECO",
-  "categoria": "COMPRAS|SERVICOS|OBRAS|SERVICOS_ENGENHARIA|LOCACAO|ALIENACAO",
-  "modalidade_execucao": "ITEM_QUANTIDADE|MEDICAO|CONTINUADO|LICENCA|ORDEM_SERVICO",
-  "valor_inicial": 0.00,
-  "valor_global": 0.00,
-  "data_assinatura": "YYYY-MM-DD",
-  "data_vigencia_inicio": "YYYY-MM-DD",
-  "data_vigencia_fim": "YYYY-MM-DD",
-  "prazo_vigencia_meses": null,
-  "numero_processo": null,
-  "amparo_legal": null,
+  "objeto": "texto exato do objeto do contrato",
+  "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
+  "fornecedor_razao_social": "nome completo ou null",
+  "tipo": "CONTRATO",
+  "categoria": "LOCACAO",
+  "modalidade_execucao": "CONTINUADO",
+  "valor_inicial": 324000.00,
+  "valor_global": 324000.00,
+  "data_assinatura": "2023-03-18",
+  "data_vigencia_inicio": "2023-03-17",
+  "data_vigencia_fim": "2024-03-17",
+  "prazo_vigencia_meses": 12,
+  "numero_processo": "027/2023",
+  "amparo_legal": "Lei 14.133/2021",
   "itens": [
     {
-      "descricao": "descrição do item",
-      "unidade_medida": "UNIDADE|MES|HORA|M2|M3|KG|LITRO|SERVICO",
-      "quantidade": 1,
-      "valor_unitario": 0.00,
+      "descricao": "descrição exata do item",
+      "unidade_medida": "UNIDADE",
+      "quantidade": 12,
+      "valor_unitario": 2250.00,
       "quantidade_meses": null,
-      "valor_total": 0.00
+      "valor_total": 27000.00
     }
   ],
-  "pendencias": ["lista de campos obrigatórios não encontrados no documento"]
-}
-
-REGRAS:
-- Para modalidade CONTINUADO ou LICENCA, itens pode ser array vazio []
-- Se não encontrar CNPJ, coloque null em fornecedor_cnpj
-- Datas OBRIGATORIAMENTE no formato YYYY-MM-DD
-- Valores numéricos sem formatação (sem R$, pontos ou vírgulas como separadores de milhar)
-- pendencias deve listar APENAS campos que são obrigatórios e não foram encontrados`;
+  "pendencias": ["campos obrigatorios nao encontrados no documento"]
+}`;
 
 @Injectable()
 export class ImportarContratoIaService {
