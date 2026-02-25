@@ -7,7 +7,8 @@ import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
+const _pdfParseModule = require('pdf-parse');
+const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = _pdfParseModule.default ?? _pdfParseModule;
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
 Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.
@@ -78,10 +79,21 @@ export class ImportarContratoIaService {
         // PDF com texto nativo — envia o texto para o modelo
         respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
       } else {
-        // PDF scaneado ou sem texto — envia como imagem base64 para Vision
+        // PDF scaneado ou sem texto — tenta via Vision
         this.logger.log('PDF sem texto suficiente, usando Vision (base64)');
         const pdfBase64 = file.buffer.toString('base64');
-        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, pdfBase64, 'application/pdf');
+        try {
+          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, pdfBase64, 'application/pdf');
+        } catch (visionErr: any) {
+          const msg = visionErr?.message || '';
+          if (msg.includes('404') || msg.includes('image') || msg.includes('vision')) {
+            throw new BadRequestException(
+              'Este PDF é escaneado (sem texto) e o modelo de IA configurado não suporta visão. ' +
+              'Troque para "Claude 3.5 Sonnet" ou "GPT-4o" em Admin → Configuração de IA, ou envie o contrato como imagem JPG/PNG.'
+            );
+          }
+          throw visionErr;
+        }
       }
     } else {
       const imagemBase64 = file.buffer.toString('base64');
