@@ -832,11 +832,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
               </CardDescription>
             </div>
             {etapas.length > 0 ? (
-              <Button onClick={() => abrirModalEtapa()} size="sm" disabled={!temOSAutorizada}><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
+              <Button onClick={() => abrirModalEtapa()} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
             ) : itensCronograma.length > 0 ? (
-              <Button onClick={() => abrirModalItemCronograma()} size="sm" disabled={!temOSAutorizada}><Plus className="w-4 h-4 mr-1" />Novo Item</Button>
+              <Button onClick={() => abrirModalItemCronograma()} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Item</Button>
             ) : (
-              <Button onClick={() => setModalTipoCronograma(true)} size="sm" disabled={!temOSAutorizada}><Plus className="w-4 h-4 mr-1" />Adicionar</Button>
+              <Button onClick={() => setModalTipoCronograma(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Adicionar</Button>
             )}
           </div>
         </CardHeader>
@@ -846,7 +846,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
               <BarChart3 className="w-10 h-10 mx-auto text-gray-300 mb-3" />
               <p className="text-gray-500">Nenhum item cadastrado no cronograma.</p>
               <p className="text-sm text-gray-400">Adicione etapas (obras) ou itens (serviços) para iniciar as medições.</p>
-              <Button onClick={() => setModalTipoCronograma(true)} size="sm" className="mt-3" disabled={!temOSAutorizada}>
+              <Button onClick={() => setModalTipoCronograma(true)} size="sm" className="mt-3">
                 <Plus className="w-4 h-4 mr-1" />Adicionar
               </Button>
             </div>
