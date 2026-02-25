@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { authFetch, getAuthToken } from '@/lib/api'
 
 interface Conversa {
   id: string
@@ -68,7 +69,7 @@ export default function WhatsappChatPage() {
 
   // ── Carregar conversas ─────────────────────────────────────────────────────
   const carregarConversas = useCallback(async () => {
-    const res = await fetch('/api/whatsapp/chat/conversas')
+    const res = await authFetch('/api/whatsapp/chat/conversas')
     if (res.ok) setConversas(await res.json())
   }, [])
 
@@ -78,9 +79,9 @@ export default function WhatsappChatPage() {
   const abrirConversa = useCallback(async (c: Conversa) => {
     setAtiva(c)
     setMensagens([])
-    const res = await fetch(`/api/whatsapp/chat/conversas/${c.id}/mensagens`)
+    const res = await authFetch(`/api/whatsapp/chat/conversas/${c.id}/mensagens`)
     if (res.ok) setMensagens(await res.json())
-    await fetch(`/api/whatsapp/chat/conversas/${c.id}/lida`, { method: 'PATCH' })
+    await authFetch(`/api/whatsapp/chat/conversas/${c.id}/lida`, { method: 'PATCH' })
     setConversas(prev => prev.map(x => x.id === c.id ? { ...x, mensagens_nao_lidas: 0 } : x))
     setTimeout(() => inputRef.current?.focus(), 100)
   }, [])
@@ -90,31 +91,23 @@ export default function WhatsappChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [mensagens])
 
-  // ── SSE – mensagens em tempo real ──────────────────────────────────────────
+  // ── Polling – mensagens em tempo real (fallback sem SSE) ─────────────────
   useEffect(() => {
-    const es = new EventSource('/api/whatsapp/chat/eventos')
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data) as { conversaId: string; mensagem: Mensagem }
-        setMensagens(prev => {
-          if (prev.find(m => m.id === data.mensagem.id)) return prev
-          return [...prev, data.mensagem]
-        })
-        setConversas(prev => prev.map(c => {
-          if (c.id !== data.conversaId) return c
-          return {
-            ...c,
-            ultima_mensagem: data.mensagem.conteudo,
-            ultima_mensagem_em: data.mensagem.created_at,
-            mensagens_nao_lidas: data.mensagem.direcao === 'RECEBIDA'
-              ? c.mensagens_nao_lidas + 1
-              : c.mensagens_nao_lidas,
-          }
-        }))
-      } catch { /* ignore */ }
-    }
-    return () => es.close()
-  }, [])
+    const interval = setInterval(async () => {
+      await carregarConversas()
+      if (ativa) {
+        const res = await authFetch(`/api/whatsapp/chat/conversas/${ativa.id}/mensagens`)
+        if (res.ok) {
+          const novasMsgs: Mensagem[] = await res.json()
+          setMensagens(prev => {
+            if (novasMsgs.length !== prev.length) return novasMsgs
+            return prev
+          })
+        }
+      }
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [carregarConversas, ativa])
 
   // ── Enviar mensagem ────────────────────────────────────────────────────────
   const enviar = async () => {
@@ -122,7 +115,7 @@ export default function WhatsappChatPage() {
     setEnviando(true)
     const conteudo = texto.trim()
     setTexto('')
-    const res = await fetch(`/api/whatsapp/chat/conversas/${ativa.id}/mensagens`, {
+    const res = await authFetch(`/api/whatsapp/chat/conversas/${ativa.id}/mensagens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conteudo }),
@@ -141,7 +134,7 @@ export default function WhatsappChatPage() {
   // ── Iniciar nova conversa ──────────────────────────────────────────────────
   const iniciarConversa = async () => {
     if (!novoPhone.trim()) return
-    const res = await fetch('/api/whatsapp/chat/conversas/iniciar', {
+    const res = await authFetch('/api/whatsapp/chat/conversas/iniciar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone: novoPhone, nomeContato: novoNome || undefined }),
