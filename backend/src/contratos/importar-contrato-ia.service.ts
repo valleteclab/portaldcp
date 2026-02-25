@@ -6,8 +6,9 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
+// Importar diretamente o arquivo interno para evitar erro de test fixtures no Docker
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
+const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse/lib/pdf-parse.js');
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
 Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.
@@ -70,8 +71,9 @@ export class ImportarContratoIaService {
       try {
         const pdfData = await pdfParse(file.buffer);
         textoExtraido = pdfData.text;
-      } catch (err) {
-        throw new BadRequestException('Não foi possível processar o PDF. Verifique se o arquivo não está corrompido.');
+      } catch (err: any) {
+        this.logger.error(`Erro ao processar PDF: ${err.message}`, err.stack);
+        throw new BadRequestException(`Erro ao processar PDF: ${err.message}. Tente enviar como imagem JPG/PNG.`);
       }
 
       if (textoExtraido.trim().length < 100) {
