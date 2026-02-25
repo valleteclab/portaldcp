@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 // Prompts especializados para cada tipo de documento da Lei 14.133/2021
 const PROMPTS_DOCUMENTOS: Record<string, string> = {
@@ -223,21 +224,29 @@ Lembre-se: você está ajudando a garantir que o processo licitatório seja lega
 @Injectable()
 export class IaService {
   private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-  private readonly model = 'anthropic/claude-3.5-sonnet';
+  private readonly defaultModel = 'anthropic/claude-3.5-sonnet';
 
-  constructor(private configService: ConfigService) {}
+  constructor(
+    private configService: ConfigService,
+    private systemConfigService: SystemConfigService,
+  ) {}
 
-  private getApiKey(): string {
+  private async getApiKey(): Promise<string> {
+    const iaConfig = await this.systemConfigService.getIaConfig();
+    if (iaConfig.apiKey) return iaConfig.apiKey;
     const key = this.configService.get<string>('OPENROUTER_API_KEY');
-    if (!key) {
-      throw new Error('OPENROUTER_API_KEY não configurada. Configure a variável de ambiente.');
-    }
+    if (!key) throw new Error('API Key de IA não configurada. Configure em Admin → Configurações de IA.');
     return key;
+  }
+
+  private async getModel(): Promise<string> {
+    const iaConfig = await this.systemConfigService.getIaConfig();
+    return iaConfig.modelo || this.defaultModel;
   }
 
   async testarConexao(): Promise<{ configurado: boolean; chave: string; mensagem: string }> {
     try {
-      const key = this.getApiKey();
+      const key = await this.getApiKey();
       return {
         configurado: true,
         chave: `${key.substring(0, 15)}...`,
@@ -253,7 +262,8 @@ export class IaService {
   }
 
   async gerarConteudo(tipoDocumento: string, contexto: string, objeto?: string): Promise<string> {
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
     
     // Prompt específico para GERAÇÃO de documento (botão "Gerar com IA")
     const promptGeracao = `Você é um especialista em documentos de licitação conforme a Lei 14.133/2021.
@@ -286,7 +296,7 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
       : contexto;
 
     try {
-      console.log('Chamando OpenRouter com modelo:', this.model);
+      console.log('Chamando OpenRouter com modelo:', model);
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
@@ -296,7 +306,7 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
           'X-Title': 'LicitaFácil',
         },
         body: JSON.stringify({
-          model: this.model,
+          model,
           messages: [
             { role: 'system', content: promptGeracao },
             { role: 'user', content: mensagemUsuario },
@@ -321,7 +331,8 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
   }
 
   async chat(mensagens: Array<{ role: string; content: string }>, tipoDocumento?: string): Promise<string> {
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
     
     const systemPrompt = tipoDocumento && PROMPTS_DOCUMENTOS[tipoDocumento] 
       ? PROMPTS_DOCUMENTOS[tipoDocumento] 
@@ -337,7 +348,7 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
           'X-Title': 'LicitaFácil',
         },
         body: JSON.stringify({
-          model: this.model,
+          model,
           messages: [
             { role: 'system', content: systemPrompt },
             ...mensagens,
@@ -362,7 +373,8 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
   }
 
   async sugerirMelhorias(tipoDocumento: string, conteudoAtual: string): Promise<string> {
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
     
     const promptRevisao = `Você é um revisor especializado em documentos de licitação conforme a Lei 14.133/2021.
 
@@ -391,7 +403,7 @@ Gere a versão revisada e melhorada:`;
           'X-Title': 'LicitaFácil',
         },
         body: JSON.stringify({
-          model: this.model,
+          model,
           messages: [
             { role: 'user', content: promptRevisao },
           ],
@@ -418,7 +430,8 @@ Gere a versão revisada e melhorada:`;
     mimeType?: string,
     textoExtraido?: string,
   ): Promise<string> {
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
 
     let userContent: string | Array<any>;
 
@@ -441,7 +454,7 @@ Gere a versão revisada e melhorada:`;
           'X-Title': 'Portal DCP',
         },
         body: JSON.stringify({
-          model: this.model,
+          model,
           messages: [
             { role: 'user', content: userContent },
           ],

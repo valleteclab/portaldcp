@@ -6,8 +6,8 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
-import * as pdfParseLib from 'pdf-parse';
-const pdfParse = (pdfParseLib as any).default ?? pdfParseLib;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
 Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.

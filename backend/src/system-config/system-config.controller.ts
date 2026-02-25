@@ -14,7 +14,7 @@ export class SystemConfigController {
       const credentials = await this.systemConfigService.getPncpCredentials();
       return {
         ...credentials,
-        senha: undefined, // Não retornar a senha por segurança
+        senha: undefined,
         configured: !!(credentials.apiUrl && credentials.login && credentials.senha && credentials.cnpjOrgao)
       };
     } catch (error: any) {
@@ -66,6 +66,28 @@ export class SystemConfigController {
     try {
       await this.systemConfigService.setWhatsAppGlobalConfig(body);
       return { success: true, message: 'Config WhatsApp global atualizada com sucesso!' };
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // ============ CONFIGURAÇÃO DE IA ============
+
+  @Get('ia')
+  async getIaConfig() {
+    try {
+      const config = await this.systemConfigService.getIaConfig();
+      return { modelo: config.modelo, configurado: config.configurado };
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Put('ia')
+  async setIaConfig(@Body() body: { modelo?: string; api_key?: string }) {
+    try {
+      await this.systemConfigService.setIaConfig(body);
+      return { success: true, message: 'Configuração de IA atualizada com sucesso!' };
     } catch (error: any) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }

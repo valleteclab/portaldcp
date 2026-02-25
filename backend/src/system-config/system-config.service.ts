@@ -165,6 +165,32 @@ export class SystemConfigService {
     });
   }
 
+  // ============ CONFIGURAÇÃO DE IA ============
+
+  async getIaConfig(): Promise<{
+    modelo: string;
+    apiKey: string | null;
+    configurado: boolean;
+  }> {
+    const modelo = await this.getValue('IA_MODELO') || 'anthropic/claude-3.5-sonnet';
+    const apiKeyEncrypted = await this.getValue('IA_API_KEY');
+    return {
+      modelo,
+      apiKey: apiKeyEncrypted ? this.decryptText(apiKeyEncrypted) : null,
+      configurado: !!apiKeyEncrypted,
+    };
+  }
+
+  async setIaConfig(config: { modelo?: string; api_key?: string }): Promise<void> {
+    if (config.modelo !== undefined) {
+      await this.setValue('IA_MODELO', config.modelo, 'Modelo de IA (ex: anthropic/claude-3.5-sonnet, openai/gpt-4o)');
+    }
+    if (config.api_key !== undefined && config.api_key !== '') {
+      const encrypted = this.encryptText(config.api_key);
+      await this.setValue('IA_API_KEY', encrypted, 'API Key OpenRouter (criptografada)');
+    }
+  }
+
   // ============ WHATSAPP GLOBAL (FALLBACK) ============
 
   async getWhatsAppGlobalConfig(): Promise<{

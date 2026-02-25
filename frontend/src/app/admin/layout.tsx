@@ -15,12 +15,14 @@ import {
   X,
   Package,
   Settings,
-  Database
+  Database,
+  Bot
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const menuItems = [
   { href: "/admin/pncp", label: "Integração PNCP", icon: Globe },
+  { href: "/admin/ia", label: "Configuração de IA", icon: Bot },
   { href: "/admin/orgaos", label: "Órgãos", icon: Building2 },
   { href: "/admin/catalogo", label: "Catálogo de Itens", icon: Database },
   { href: "/admin/modulos", label: "Módulos", icon: Package },
