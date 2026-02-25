@@ -436,10 +436,29 @@ Gere a versão revisada e melhorada:`;
     let userContent: string | Array<any>;
 
     if (imagemBase64 && mimeType) {
-      userContent = [
-        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imagemBase64}` } },
-        { type: 'text', text: systemPrompt },
-      ];
+      if (mimeType === 'application/pdf') {
+        // Claude/OpenRouter aceita PDF como tipo "document"
+        userContent = [
+          {
+            type: 'text',
+            text: systemPrompt,
+          },
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: imagemBase64,
+            },
+          },
+        ];
+      } else {
+        // Imagem (JPG, PNG, etc.)
+        userContent = [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imagemBase64}` } },
+          { type: 'text', text: systemPrompt },
+        ];
+      }
     } else {
       userContent = systemPrompt + (textoExtraido ? '\n\nCONTEÚDO DO CONTRATO:\n' + textoExtraido : '');
     }
