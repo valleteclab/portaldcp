@@ -261,65 +261,65 @@ export class GeradorPdfService {
 
     const codigoValidacao = assinaturas[0].codigo_validacao;
     const urlCompleta = `${urlValidacaoBase}/${codigoValidacao}`;
+    const marginL = 50;
+    const pageW = doc.page.width;
+    const contentW = pageW - marginL * 2;
 
-    doc.moveDown(1.5);
-    doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke('#6b7280');
+    doc.moveDown(1);
+    doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.8).stroke('#6b7280');
     doc.moveDown(0.5);
 
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e40af')
-      .text('QUADRO DE ASSINATURAS ELETRÔNICAS', { align: 'center' });
-    doc.moveDown(0.3);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
+      .text('QUADRO DE ASSINATURAS ELETRÔNICAS', marginL, doc.y, { width: contentW, align: 'center' });
+    doc.moveDown(0.25);
 
-    doc.fontSize(9).font('Helvetica').fillColor('#374151')
+    doc.fontSize(7.5).font('Helvetica').fillColor('#374151')
       .text(
         'Este documento foi assinado eletronicamente em conformidade com a Lei nº 14.063/2020.',
-        { align: 'center' }
+        marginL, doc.y, { width: contentW, align: 'center' }
       );
-    doc.moveDown(0.8);
+    doc.moveDown(0.6);
 
     for (const ass of assinaturas) {
+      if (doc.y > doc.page.height - 80) { doc.addPage(); doc.y = 50; }
       const yStart = doc.y;
-      doc.rect(50, yStart, doc.page.width - 100, 60).fillAndStroke('#f3f4f6', '#e5e7eb');
+      const boxH = 52;
+      doc.rect(marginL, yStart, contentW, boxH).fillAndStroke('#f9fafb', '#e5e7eb');
 
-      doc.fillColor('#111827').fontSize(10).font('Helvetica-Bold')
-        .text(`Assinado por: ${ass.usuario_nome}`, 60, yStart + 8);
-      doc.fontSize(9).font('Helvetica').fillColor('#374151')
-        .text(`Papel: ${PAPEL_LABELS[ass.papel_assinante] || ass.papel_assinante}`, 60, yStart + 22);
+      doc.fillColor('#111827').fontSize(8.5).font('Helvetica-Bold')
+        .text(`Assinado por: ${ass.usuario_nome}`, marginL + 8, yStart + 7, { width: contentW - 16 });
+      doc.fontSize(8).font('Helvetica').fillColor('#374151')
+        .text(`Papel: ${PAPEL_LABELS[ass.papel_assinante] || ass.papel_assinante}`, marginL + 8, yStart + 19, { width: contentW - 16 });
       doc.fillColor('#6b7280')
-        .text(`Data/Hora: ${this.formatarDataHora(ass.data_assinatura)}`, 60, yStart + 34);
-      doc.fillColor('#16a34a').font('Helvetica-Bold')
-        .text('✓ Assinatura eletrônica válida', 60, yStart + 46);
+        .text(`Data/Hora: ${this.formatarDataHora(ass.data_assinatura)}`, marginL + 8, yStart + 30, { width: contentW - 16 });
+      doc.fillColor('#16a34a').font('Helvetica-Bold').fontSize(7.5)
+        .text('✓  Assinatura eletrônica válida', marginL + 8, yStart + 41, { width: contentW - 16 });
 
-      doc.y = yStart + 68;
-      doc.moveDown(0.3);
+      doc.y = yStart + boxH + 5;
     }
 
-    // Rodapé com QR Code
+    // ── Rodapé: QR Code + verificação ─────────────────────────────────────────
     doc.moveDown(0.5);
-    doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke('#6b7280');
-    doc.moveDown(0.5);
+    doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
+    doc.moveDown(0.4);
+
+    const rodapeY = doc.y;
+    const qrSize  = 65;
+    const qrX     = pageW - marginL - qrSize;
+
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827')
+      .text('VERIFICAR AUTENTICIDADE:', marginL, rodapeY, { width: contentW - qrSize - 10 });
+    doc.fontSize(7.5).font('Helvetica').fillColor('#374151')
+      .text(`Acesse: ${urlValidacaoBase}`, marginL, doc.y, { width: contentW - qrSize - 10 });
+    doc.moveDown(0.2);
+    doc.font('Helvetica-Bold').fillColor('#2563eb').fontSize(7.5)
+      .text(`Código: ${codigoValidacao}`, marginL, doc.y, { width: contentW - qrSize - 10 });
 
     try {
       const qrBuffer = await QRCode.toBuffer(urlCompleta, { type: 'png', width: 80 });
-      const qrX = doc.page.width - 130;
-      const qrY = doc.y;
-
-      doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827')
-        .text('VERIFICAR AUTENTICIDADE:', 50, qrY);
-      doc.moveDown(0.3);
-      doc.font('Helvetica').fillColor('#374151')
-        .text(`Acesse: ${urlValidacaoBase}`, 50, doc.y);
-      doc.moveDown(0.2);
-      doc.font('Helvetica-Bold').fillColor('#2563eb')
-        .text(`Código: ${codigoValidacao}`, 50, doc.y);
-
-      doc.image(qrBuffer, qrX, qrY, { width: 70 });
+      doc.image(qrBuffer, qrX, rodapeY, { width: qrSize });
     } catch (err) {
-      this.logger.warn(`Erro ao gerar QR Code: ${err.message}`);
-      doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827')
-        .text('VERIFICAR AUTENTICIDADE:');
-      doc.font('Helvetica').fillColor('#374151').text(`Acesse: ${urlValidacaoBase}`);
-      doc.font('Helvetica-Bold').fillColor('#2563eb').text(`Código: ${codigoValidacao}`);
+      this.logger.warn(`Erro ao gerar QR Code: ${(err as Error).message}`);
     }
   }
 
