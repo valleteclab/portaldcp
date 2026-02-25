@@ -38,54 +38,131 @@ export class GeradorPdfService {
         const writeStream = createWriteStream(filePath);
         doc.pipe(writeStream);
 
-        // Cabeçalho (com logo do órgão se disponível)
-        this.escreverCabecalho(doc, 'AUTORIZAÇÃO DE INÍCIO DE OBRA / ORDEM DE SERVIÇO', dadosOS.orgao);
+        const orgao = dadosOS.orgao || {};
+        const pageW = doc.page.width;
+        const marginL = 50;
+        const contentW = pageW - marginL * 2;
 
-        // Dados da OS
-        doc.fontSize(11).font('Helvetica-Bold').text('Número: ', { continued: true })
-          .font('Helvetica').text(dadosOS.numero || '');
-        doc.moveDown(0.3);
+        // ── CABEÇALHO: logo + dados do órgão ──────────────────────────────────
+        let logoWidth = 0;
+        const logoPath = orgao.logo_url
+          ? join(this.uploadDir, orgao.logo_url.replace(/^\/api\/uploads\//, ''))
+          : null;
+        if (logoPath && existsSync(logoPath)) {
+          try {
+            doc.image(logoPath, marginL, 40, { width: 60, height: 60 });
+            logoWidth = 70;
+          } catch (e) {
+            this.logger.warn(`Erro ao incluir logo no PDF: ${(e as Error).message}`);
+          }
+        }
 
-        doc.font('Helvetica-Bold').text('Órgão: ', { continued: true })
-          .font('Helvetica').text(dadosOS.orgao?.nome || dadosOS.setor_solicitante || 'Não informado');
+        const textX = marginL + logoWidth;
+        const textW = contentW - logoWidth;
+        let lineY = 40;
+
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#111827')
+          .text((orgao.nome || 'ÓRGÃO').toUpperCase(), textX, lineY, { width: textW });
+        lineY += 17;
+
+        if (orgao.logradouro && orgao.logradouro !== 'A definir') {
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(orgao.logradouro.toUpperCase(), textX, lineY, { width: textW });
+          lineY += 13;
+        }
+        if (orgao.bairro && orgao.bairro !== 'Centro') {
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(orgao.bairro.toUpperCase(), textX, lineY, { width: textW });
+          lineY += 13;
+        }
+        if (orgao.cidade) {
+          const cidadeUF = `${orgao.cidade.toUpperCase()} - ${(orgao.uf || '').toUpperCase()}`;
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(cidadeUF, textX, lineY, { width: textW });
+          lineY += 13;
+        }
+
+        const headerBottom = Math.max(lineY + 5, 110);
+        doc.y = headerBottom;
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(1).stroke('#374151');
+        doc.moveDown(0.5);
+
+        // ── TÍTULO + NÚMERO DA OS ──────────────────────────────────────────────
+        const tituloY = doc.y;
+        doc.fontSize(14).font('Helvetica-Bold').fillColor('#111827')
+          .text('ORDEM DE SERVIÇO', marginL, tituloY, { width: contentW - 80, align: 'center' });
+
+        const numOS = dadosOS.numero || '';
+        doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e40af')
+          .text(numOS, pageW - marginL - 80, tituloY, { width: 80, align: 'right' });
+
         doc.moveDown(0.3);
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(1).stroke('#374151');
+        doc.moveDown(0.6);
+
+        // ── CAMPOS INFORMATIVOS ────────────────────────────────────────────────
+        const labelW = 100;
+        const valueW = contentW / 2 - labelW - 10;
+        const col2X = marginL + contentW / 2;
+
+        const campo = (label: string, valor: string, x: number, y: number, w: number) => {
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151').text(label, x, y, { width: labelW, continued: false });
+          doc.fontSize(9).font('Helvetica').fillColor('#111827').text(valor || '-', x + labelW, y, { width: w });
+        };
+
+        let rowY = doc.y;
+
+        campo('Número da OS:', numOS, marginL, rowY, valueW);
+        campo('Data Autorização:', dadosOS.data_autorizacao ? new Date(dadosOS.data_autorizacao).toLocaleDateString('pt-BR') : '-', col2X, rowY, valueW);
+        rowY += 16;
+
+        campo('Órgão:', (orgao.nome || '-').toUpperCase(), marginL, rowY, contentW - labelW);
+        rowY += 16;
 
         if (dadosOS.contrato?.numero_contrato) {
-          doc.font('Helvetica-Bold').text('Contrato: ', { continued: true })
-            .font('Helvetica').text(dadosOS.contrato.numero_contrato);
-          doc.moveDown(0.3);
+          campo('Contrato:', dadosOS.contrato.numero_contrato, marginL, rowY, valueW);
+          if (dadosOS.contrato?.fornecedor?.cpf_cnpj) {
+            campo('CNPJ/CPF:', dadosOS.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
+          }
+          rowY += 16;
         }
 
         if (dadosOS.contrato?.fornecedor?.razao_social) {
-          doc.font('Helvetica-Bold').text('Fornecedor: ', { continued: true })
-            .font('Helvetica').text(dadosOS.contrato.fornecedor.razao_social);
-          doc.moveDown(0.3);
+          campo('Fornecedor:', (dadosOS.contrato.fornecedor.razao_social || '-').toUpperCase(), marginL, rowY, contentW - labelW);
+          rowY += 16;
+        }
+
+        if (dadosOS.setor_solicitante) {
+          campo('Setor:', dadosOS.setor_solicitante, marginL, rowY, valueW);
+          if (dadosOS.prioridade) {
+            campo('Prioridade:', dadosOS.prioridade, col2X, rowY, valueW);
+          }
+          rowY += 16;
         }
 
         if (dadosOS.local_execucao) {
-          doc.font('Helvetica-Bold').text('Local de Execução: ', { continued: true })
-            .font('Helvetica').text(dadosOS.local_execucao);
-          doc.moveDown(0.3);
+          campo('Local de Execução:', dadosOS.local_execucao, marginL, rowY, contentW - labelW);
+          rowY += 16;
         }
 
-        if (dadosOS.data_autorizacao) {
-          doc.font('Helvetica-Bold').text('Data de Autorização: ', { continued: true })
-            .font('Helvetica').text(new Date(dadosOS.data_autorizacao).toLocaleDateString('pt-BR'));
-          doc.moveDown(0.3);
-        }
-
+        doc.y = rowY + 4;
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
         doc.moveDown(0.5);
-        doc.font('Helvetica-Bold').text('Descrição / Objeto:');
-        doc.font('Helvetica').text(dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição', { align: 'justify' });
 
+        // ── OBJETO / JUSTIFICATIVA ─────────────────────────────────────────────
+        doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text('Objeto / Justificativa:');
+        doc.fontSize(9).font('Helvetica').fillColor('#111827')
+          .text(dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição', { align: 'justify' });
+
+        // ── TABELA DE ITENS ────────────────────────────────────────────────────
         if (dadosOS.itensOS?.length > 0) {
           doc.moveDown(0.8);
-          doc.font('Helvetica-Bold').text('Itens do Cronograma:');
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text('Itens da Ordem de Serviço:');
           doc.moveDown(0.3);
           this.escreverTabelaItensOS(doc, dadosOS.itensOS);
         }
 
-        // Quadro de assinaturas
+        // ── ASSINATURAS ────────────────────────────────────────────────────────
         await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
 
         doc.end();
