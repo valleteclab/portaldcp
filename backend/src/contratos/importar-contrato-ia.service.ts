@@ -6,14 +6,23 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
-// pdf-parse exporta a função diretamente no CJS — sem .default
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-let pdfParse: (buffer: Buffer) => Promise<{ text: string }>;
-try {
-  const mod = require('pdf-parse');
-  pdfParse = typeof mod === 'function' ? mod : (mod.default ?? mod);
-} catch {
-  pdfParse = async () => ({ text: '' });
+// Extração robusta de texto PDF: tenta múltiplas abordagens
+async function extrairTextoPdf(buffer: Buffer): Promise<string> {
+  const tentativas = [
+    () => { const m = require('pdf-parse'); return typeof m === 'function' ? m : null; },
+    () => { const m = require('pdf-parse'); return typeof m?.default === 'function' ? m.default : null; },
+    () => { const m = require('pdf-parse/lib/pdf-parse'); return typeof m === 'function' ? m : null; },
+  ];
+  for (const tentativa of tentativas) {
+    try {
+      const fn = tentativa();
+      if (fn) {
+        const result = await fn(buffer);
+        if (result?.text && result.text.trim().length > 0) return result.text;
+      }
+    } catch { /* tenta próximo */ }
+  }
+  return '';
 }
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
@@ -73,34 +82,23 @@ export class ImportarContratoIaService {
     let respostaIA: string;
 
     if (file.mimetype === 'application/pdf') {
-      let textoExtraido = '';
-      try {
-        this.logger.log(`Tentando pdf-parse, tipo da funcao: ${typeof pdfParse}`);
-        const pdfData = await pdfParse(file.buffer);
-        textoExtraido = pdfData.text || '';
-        this.logger.log(`pdf-parse OK: ${textoExtraido.length} chars extraidos`);
-      } catch (err: any) {
-        this.logger.warn(`pdf-parse falhou: ${err.message}`);
-      }
+      const textoExtraido = await extrairTextoPdf(file.buffer);
+      this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
       if (textoExtraido.trim().length >= 200) {
-        // PDF com texto nativo — envia o texto para o modelo
+        // PDF digital com texto — envia apenas o texto (sem visão)
         respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
       } else {
-        // PDF scaneado ou sem texto — tenta via Vision
-        this.logger.log('PDF sem texto suficiente, usando Vision (base64)');
+        // PDF escaneado sem texto — tenta via image_url base64
+        this.logger.log('PDF escaneado: tentando via Vision base64');
         const pdfBase64 = file.buffer.toString('base64');
         try {
           respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, pdfBase64, 'application/pdf');
         } catch (visionErr: any) {
-          const msg = visionErr?.message || '';
-          if (msg.includes('404') || msg.includes('image') || msg.includes('vision')) {
-            throw new BadRequestException(
-              'Este PDF é escaneado (sem texto) e o modelo de IA configurado não suporta visão. ' +
-              'Troque para "Claude 3.5 Sonnet" ou "GPT-4o" em Admin → Configuração de IA, ou envie o contrato como imagem JPG/PNG.'
-            );
-          }
-          throw visionErr;
+          throw new BadRequestException(
+            'Este PDF parece ser escaneado (sem texto digital). ' +
+            'Tire uma foto/screenshot do contrato e envie como imagem JPG ou PNG.',
+          );
         }
       }
     } else {

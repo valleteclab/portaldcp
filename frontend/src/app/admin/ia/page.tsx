@@ -12,13 +12,42 @@ import { Bot, Key, Cpu, CheckCircle, AlertTriangle, Save, Eye, EyeOff } from 'lu
 import { adminFetch } from '@/lib/api'
 
 const MODELOS_DISPONIVEIS = [
-  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet (Anthropic) — Recomendado', descricao: 'Melhor equilíbrio entre custo e qualidade. Excelente para extração de contratos.' },
-  { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku (Anthropic) — Mais rápido', descricao: 'Mais rápido e econômico. Bom para tarefas simples.' },
-  { value: 'anthropic/claude-3-opus', label: 'Claude 3 Opus (Anthropic) — Mais poderoso', descricao: 'Maior precisão, ideal para documentos complexos. Custo mais elevado.' },
-  { value: 'openai/gpt-4o', label: 'GPT-4o (OpenAI)', descricao: 'Modelo GPT-4o com visão. Boa alternativa ao Claude.' },
-  { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (OpenAI) — Econômico', descricao: 'Versão econômica do GPT-4o. Bom custo-benefício.' },
-  { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash (Google)', descricao: 'Modelo Google mais recente. Suporte a PDF nativo.' },
-  { value: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (Meta) — Open Source', descricao: 'Modelo open source potente. Custo muito baixo.' },
+  // Anthropic
+  { value: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (Anthropic) ⭐ Recomendado', descricao: 'Melhor equilíbrio custo/qualidade. Excelente para extração de contratos e documentos.' },
+  { value: 'anthropic/claude-opus-4', label: 'Claude Opus 4 (Anthropic) — Mais poderoso', descricao: 'Maior precisão. Ideal para contratos complexos. Custo mais elevado.' },
+  { value: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5 (Anthropic) — Mais rápido', descricao: 'Muito rápido e econômico. Bom para tarefas simples.' },
+  { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet (Anthropic)', descricao: 'Versão anterior do Sonnet. Boa opção de custo-benefício.' },
+  // OpenAI
+  { value: 'openai/gpt-5', label: 'GPT-5 (OpenAI)', descricao: 'Modelo mais recente da OpenAI.' },
+  { value: 'openai/gpt-5.1', label: 'GPT-5.1 (OpenAI)', descricao: 'Versão 5.1 do GPT.' },
+  { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini (OpenAI) — Econômico', descricao: 'Versão compacta do GPT-5. Bom custo-benefício.' },
+  { value: 'openai/gpt-5-nano', label: 'GPT-5 Nano (OpenAI) — Ultra econômico', descricao: 'Versão mais leve do GPT-5. Custo muito baixo.' },
+  { value: 'openai/gpt-4o', label: 'GPT-4o (OpenAI)', descricao: 'Modelo clássico com visão. Boa alternativa.' },
+  // Google
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Google)', descricao: 'Modelo Google rápido e eficiente. Suporte nativo a PDF.' },
+  { value: 'google/gemini-2.5-flash-lite-preview-09-2025', label: 'Gemini 2.5 Flash Lite (Google) — Econômico', descricao: 'Versão econômica do Gemini 2.5 Flash.' },
+  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Google)', descricao: 'Próxima geração do Gemini. Preview.' },
+  { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview (Google)', descricao: 'Versão Pro do Gemini 3. Alta capacidade.' },
+  // DeepSeek
+  { value: 'deepseek/deepseek-r1', label: 'DeepSeek R1 — Raciocínio avançado', descricao: 'Modelo de raciocínio em cadeia. Excelente para análise detalhada de contratos.' },
+  // Meta
+  { value: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (Meta) — Open Source', descricao: 'Modelo open source potente. Não suporta visão/imagens.' },
+  // Mistral
+  { value: 'mistralai/mistral-large', label: 'Mistral Large (Mistral AI)', descricao: 'Modelo premium da Mistral. Alta capacidade de compreensão.' },
+  { value: 'mistralai/mistral-medium-3', label: 'Mistral Medium 3 (Mistral AI)', descricao: 'Equilíbrio entre capacidade e custo.' },
+  { value: 'mistralai/mistral-small-3.2-24b-instruct:2506', label: 'Mistral Small 3.2 24B (Mistral AI)', descricao: 'Versão compacta e econômica da Mistral.' },
+  { value: 'mistralai/codestral-2508', label: 'Codestral 2508 (Mistral AI)', descricao: 'Especializado em código. Útil para automações.' },
+  // Moonshot / Kimi
+  { value: 'moonshotai/kimi-k2', label: 'Kimi K2 (Moonshot AI)', descricao: 'Modelo chinês de alto desempenho.' },
+  { value: 'moonshotai/kimi-k2:thinking', label: 'Kimi K2 Thinking (Moonshot AI)', descricao: 'Versão com raciocínio avançado do Kimi K2.' },
+  // Perplexity
+  { value: 'perplexity/sonar', label: 'Sonar (Perplexity)', descricao: 'Modelo com busca em tempo real integrada.' },
+  // Qwen
+  { value: 'qwen/qwen3-235b-a22b', label: 'Qwen3 235B (Alibaba)', descricao: 'Modelo open source gigante da Alibaba. Altíssima capacidade.' },
+  // xAI
+  { value: 'x-ai/grok-3', label: 'Grok 3 (xAI)', descricao: 'Modelo da xAI. Alto desempenho em raciocínio.' },
+  { value: 'x-ai/grok-3-mini', label: 'Grok 3 Mini (xAI) — Econômico', descricao: 'Versão compacta do Grok 3.' },
+  { value: 'x-ai/grok-4', label: 'Grok 4 (xAI)', descricao: 'Próxima geração do Grok.' },
 ]
 
 export default function IaConfigPage() {
