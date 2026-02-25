@@ -280,7 +280,9 @@ export class MedicaoService {
     const somaValorExistente = itensExistentes.reduce((sum, i) => sum + Number(i.valor_total), 0);
     const quantidade = Number(dados.quantidade) || 0;
     const valorUnitario = Number(dados.valor_unitario) || 0;
-    const valorTotal = quantidade * valorUnitario;
+    const quantidadeMeses = dados.quantidade_meses ? Number(dados.quantidade_meses) : null;
+    const valorMensal = quantidade * valorUnitario;
+    const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
@@ -302,6 +304,8 @@ export class MedicaoService {
       unidade_medida: dados.unidade_medida || 'UNIDADE',
       quantidade,
       valor_unitario: valorUnitario,
+      quantidade_meses: quantidadeMeses,
+      valor_mensal: valorMensal,
       valor_total: valorTotal,
       observacoes: dados.observacoes,
     });
@@ -323,11 +327,17 @@ export class MedicaoService {
       );
     }
 
-    const valorTotal = quantidade * valorUnitario;
+    const quantidadeMeses = dados.quantidade_meses !== undefined
+      ? (dados.quantidade_meses ? Number(dados.quantidade_meses) : null)
+      : item.quantidade_meses;
+    const valorMensal = quantidade * valorUnitario;
+    const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
     Object.assign(item, {
       ...dados,
       quantidade,
       valor_unitario: valorUnitario,
+      quantidade_meses: quantidadeMeses,
+      valor_mensal: valorMensal,
       valor_total: valorTotal,
     });
     return this.itemCronogramaRepository.save(item);

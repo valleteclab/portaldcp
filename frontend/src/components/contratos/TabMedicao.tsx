@@ -69,6 +69,8 @@ interface ItemCronograma {
   unidade_medida: string
   quantidade: number
   valor_unitario: number
+  quantidade_meses?: number | null
+  valor_mensal?: number
   valor_total: number
   quantidade_medida: number
   observacoes?: string
@@ -213,7 +215,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
     data_inicio_prevista: '', data_fim_prevista: '', observacoes: '',
   })
   const [formItemCronograma, setFormItemCronograma] = useState({
-    descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', valor_total: '', observacoes: '',
+    descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
   })
   const [formMedicao, setFormMedicao] = useState({
     periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
@@ -412,12 +414,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         unidade_medida: item.unidade_medida,
         quantidade: String(item.quantidade),
         valor_unitario: String(item.valor_unitario),
+        quantidade_meses: item.quantidade_meses != null ? String(item.quantidade_meses) : '',
+        valor_mensal: String(item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario))),
         valor_total: String(item.valor_total),
         observacoes: item.observacoes || '',
       })
     } else {
       setEditandoItemCronograma(null)
-      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', valor_total: '', observacoes: '' })
+      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '' })
     }
     setModalItemCronograma(true)
   }
@@ -428,7 +432,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
   const salvarItemCronograma = async () => {
     const qtd = parseFloat(formItemCronograma.quantidade) || 0
     const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
-    const novoValorTotal = qtd * vlUnit
+    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
+    const vlMensal = qtd * vlUnit
+    const novoValorTotal = meses ? vlMensal * meses : vlMensal
 
     const somaOutras = editandoItemCronograma
       ? itensCronograma.filter(i => i.id !== editandoItemCronograma.id).reduce((a, b) => a + Number(b.valor_total), 0)
@@ -446,6 +452,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         unidade_medida: formItemCronograma.unidade_medida,
         quantidade: qtd,
         valor_unitario: vlUnit,
+        quantidade_meses: meses,
         observacoes: formItemCronograma.observacoes || null,
       }
       if (editandoItemCronograma) {
@@ -909,6 +916,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                   <TableHead className="text-center">Unidade</TableHead>
                   <TableHead className="text-right">Quantidade</TableHead>
                   <TableHead className="text-right">Valor Unit.</TableHead>
+                  <TableHead className="text-right">Meses</TableHead>
+                  <TableHead className="text-right">Val. Mensal</TableHead>
                   <TableHead className="text-right">Valor Total</TableHead>
                   <TableHead className="text-center">Medido</TableHead>
                   <TableHead className="w-20"></TableHead>
@@ -922,7 +931,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                     <TableCell className="text-center">{i.unidade_medida}</TableCell>
                     <TableCell className="text-right">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right">{formatarMoeda(i.valor_unitario)}</TableCell>
-                    <TableCell className="text-right">{formatarMoeda(i.valor_total)}</TableCell>
+                    <TableCell className="text-right">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
+                    <TableCell className="text-right">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
+                    <TableCell className="text-right font-medium">{formatarMoeda(i.valor_total)}</TableCell>
                     <TableCell className="text-center text-blue-600 font-medium">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -1208,7 +1219,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editandoItemCronograma ? 'Editar Item' : 'Novo Item do Cronograma'}</DialogTitle>
-            <DialogDescription>Descrição, unidade, quantidade e valor unitário</DialogDescription>
+            <DialogDescription>Descrição, unidade, quantidade, meses e valor unitário</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
@@ -1249,8 +1260,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                   onChange={e => {
                     const q = e.target.value
                     const vl = parseFloat(formItemCronograma.valor_unitario) || 0
-                    const total = q && vl ? (parseFloat(q) * vl).toFixed(2) : ''
-                    setFormItemCronograma({ ...formItemCronograma, quantidade: q, valor_total: total })
+                    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
+                    const mensal = q && vl ? (parseFloat(q) * vl).toFixed(2) : ''
+                    const total = mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal
+                    setFormItemCronograma({ ...formItemCronograma, quantidade: q, valor_mensal: mensal, valor_total: total })
                   }}
                 />
               </div>
@@ -1264,14 +1277,35 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                   onChange={e => {
                     const v = e.target.value
                     const q = parseFloat(formItemCronograma.quantidade) || 0
-                    const total = v && q ? (parseFloat(v) * q).toFixed(2) : ''
-                    setFormItemCronograma({ ...formItemCronograma, valor_unitario: v, valor_total: total })
+                    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
+                    const mensal = v && q ? (parseFloat(v) * q).toFixed(2) : ''
+                    const total = mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal
+                    setFormItemCronograma({ ...formItemCronograma, valor_unitario: v, valor_mensal: mensal, valor_total: total })
                   }}
                 />
               </div>
               <div className="space-y-2">
+                <Label>Qtd. Meses</Label>
+                <Input
+                  type="number" step="1" min="1" placeholder="Ex: 12"
+                  value={formItemCronograma.quantidade_meses}
+                  onChange={e => {
+                    const m = e.target.value
+                    const mensal = parseFloat(formItemCronograma.valor_mensal) || 0
+                    const total = m && mensal ? (parseInt(m) * mensal).toFixed(2) : formItemCronograma.valor_mensal
+                    setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
+                  }}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Valor Mensal (R$)</Label>
+                <Input type="text" readOnly className="bg-gray-50 font-medium" value={formItemCronograma.valor_mensal ? formatarMoeda(parseFloat(formItemCronograma.valor_mensal)) : '0,00'} />
+              </div>
+              <div className="space-y-2">
                 <Label>Valor Total (R$)</Label>
-                <Input type="text" readOnly className="bg-gray-50 font-medium" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
+                <Input type="text" readOnly className="bg-gray-50 font-medium text-blue-700" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
               </div>
             </div>
             <div className="space-y-2">

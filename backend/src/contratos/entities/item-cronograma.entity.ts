@@ -49,8 +49,14 @@ export class ItemCronograma {
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   valor_unitario: number;
 
+  @Column({ type: 'int', nullable: true, default: null })
+  quantidade_meses: number | null; // null = não aplicável; preenchido para serviços mensais
+
   @Column({ type: 'decimal', precision: 15, scale: 2 })
-  valor_total: number; // quantidade * valor_unitario
+  valor_mensal: number; // quantidade * valor_unitario (valor por mês)
+
+  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  valor_total: number; // valor_mensal * quantidade_meses (ou quantidade * valor_unitario se meses nulo)
 
   /** Quantidade já medida em medições aprovadas (acumulado) */
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
