@@ -52,7 +52,7 @@ export class ItemCronograma {
   @Column({ type: 'int', nullable: true, default: null })
   quantidade_meses: number | null; // null = não aplicável; preenchido para serviços mensais
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valor_mensal: number; // quantidade * valor_unitario (valor por mês)
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
