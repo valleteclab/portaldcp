@@ -11,14 +11,23 @@ interface ZApiWebhookPayload {
   messageId?: string;
   type?: string;
   phone?: string;
+  chatName?: string;
   senderName?: string;
+  fromMe?: boolean;
+  isGroup?: boolean;
+  isStatusReply?: boolean;
+  text?: {
+    message?: string;
+  };
   message?: {
     type?: string;
     text?: string;
     conversation?: string;
   };
+  image?: { imageUrl?: string; caption?: string };
+  audio?: { audioUrl?: string };
+  document?: { documentUrl?: string; fileName?: string };
   status?: string;
-  isStatusReply?: boolean;
   metadata?: {
     notificationType?: string;
   };
@@ -56,22 +65,28 @@ export class WebhooksController {
     }
 
     // ── Mensagem recebida de contato ─────────────────────────────────────────
-    const texto = payload.message?.text || payload.message?.conversation;
-    const fromPhone = payload.from || payload.phone;
+    // Z-API envia texto em text.message OU message.text OU message.conversation
+    const texto = payload.text?.message
+      || payload.message?.text
+      || payload.message?.conversation
+      || payload.image?.caption;
+    const fromPhone = payload.phone || payload.from;
 
-    if (texto && fromPhone && !payload.isStatusReply) {
+    this.logger.log(`Webhook Z-API parsed: fromPhone=${fromPhone}, texto=${texto ? texto.substring(0, 50) : 'null'}, fromMe=${payload.fromMe}, isGroup=${payload.isGroup}, isStatusReply=${payload.isStatusReply}`);
+
+    if (texto && fromPhone && !payload.isStatusReply && !payload.fromMe && !payload.isGroup) {
       const orgao = instanceId
         ? await this.orgaoRepository.findOne({ where: { whatsapp_instance_id: instanceId } })
         : null;
 
       if (orgao) {
-        const phone = fromPhone.replace(/\D/g, '');
+        const phone = fromPhone.replace(/@.*$/, '').replace(/\D/g, '');
         await this.whatsappChatService.receberMensagemWebhook(
           orgao.id,
           phone,
           texto,
           messageId,
-          payload.senderName,
+          payload.senderName || payload.chatName,
         );
       } else {
         this.logger.warn(`Webhook Z-API: nenhum órgão encontrado para instanceId=${instanceId}`);
