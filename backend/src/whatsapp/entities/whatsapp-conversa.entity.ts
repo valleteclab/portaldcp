@@ -6,7 +6,7 @@ export class WhatsappConversa {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ length: 36 })
+  @Column({ type: 'uuid' })
   orgao_id: string;
 
   @Column({ length: 30 })

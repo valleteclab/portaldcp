@@ -9,7 +9,7 @@ export class WhatsappMensagem {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ length: 36 })
+  @Column({ type: 'uuid' })
   conversa_id: string;
 
   @ManyToOne(() => WhatsappConversa, c => c.mensagens)
