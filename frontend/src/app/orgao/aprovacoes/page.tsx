@@ -1011,35 +1011,110 @@ export default function CentralAprovacoesPage() {
                         </div>
 
                         {requisicao.tipo === 'ORDEM_SERVICO' ? (
-                          <div className="mt-4 space-y-3">
-                            <h4 className="font-medium mb-2">Dados da Ordem de Serviço</h4>
-                            <div className="bg-white p-4 rounded-md space-y-2 text-sm">
-                              {(requisicao as any).descricao_os && (
-                                <div><span className="text-gray-500">Objeto da OS:</span> <strong>{(requisicao as any).descricao_os}</strong></div>
-                              )}
-                              {(requisicao as any).local_execucao && (
-                                <div><span className="text-gray-500">Local de Execução:</span> <strong>{(requisicao as any).local_execucao}</strong></div>
-                              )}
-                              <div className="flex flex-wrap gap-4">
-                                {(requisicao as any).data_inicio_prevista && (
-                                  <span><span className="text-gray-500">Início:</span> <strong>{formatarData((requisicao as any).data_inicio_prevista)}</strong></span>
+                          <div className="mt-4 space-y-4">
+                            <div>
+                              <h4 className="font-medium mb-2">Dados da Ordem de Serviço</h4>
+                              <div className="bg-white p-4 rounded-md space-y-2 text-sm">
+                                {(requisicao as any).descricao_os && (
+                                  <div><span className="text-gray-500">Objeto da OS:</span> <strong>{(requisicao as any).descricao_os}</strong></div>
                                 )}
-                                {(requisicao as any).data_fim_prevista && (
-                                  <span><span className="text-gray-500">Fim:</span> <strong>{formatarData((requisicao as any).data_fim_prevista)}</strong></span>
+                                {(requisicao as any).local_execucao && (
+                                  <div><span className="text-gray-500">Local de Execução:</span> <strong>{(requisicao as any).local_execucao}</strong></div>
                                 )}
-                                {(requisicao as any).prazo_execucao_dias && (
-                                  <span><span className="text-gray-500">Prazo:</span> <strong>{(requisicao as any).prazo_execucao_dias} dias</strong></span>
+                                {(requisicao as any).modo_os && (
+                                  <div><span className="text-gray-500">Modalidade:</span> <strong>{(requisicao as any).modo_os === 'ORDEM_GLOBAL' ? 'Ordem Global (todos os itens)' : 'Ordem por Demanda'}</strong></div>
                                 )}
-                              </div>
-                              <div className="flex flex-wrap gap-4">
-                                {(requisicao as any).responsavel_tecnico && (
-                                  <span><span className="text-gray-500">Resp. Técnico:</span> <strong>{(requisicao as any).responsavel_tecnico}</strong></span>
-                                )}
-                                {(requisicao as any).fiscal_contrato_nome && (
-                                  <span><span className="text-gray-500">Fiscal:</span> <strong>{(requisicao as any).fiscal_contrato_nome}</strong></span>
+                                <div className="flex flex-wrap gap-4">
+                                  {(requisicao as any).data_inicio_prevista && (
+                                    <span><span className="text-gray-500">Início:</span> <strong>{formatarData((requisicao as any).data_inicio_prevista)}</strong></span>
+                                  )}
+                                  {(requisicao as any).data_fim_prevista && (
+                                    <span><span className="text-gray-500">Fim:</span> <strong>{formatarData((requisicao as any).data_fim_prevista)}</strong></span>
+                                  )}
+                                  {(requisicao as any).prazo_execucao_dias && (
+                                    <span><span className="text-gray-500">Prazo:</span> <strong>{(requisicao as any).prazo_execucao_dias} dias</strong></span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-4">
+                                  {(requisicao as any).responsavel_tecnico && (
+                                    <span><span className="text-gray-500">Resp. Técnico:</span> <strong>{(requisicao as any).responsavel_tecnico}</strong></span>
+                                  )}
+                                  {(requisicao as any).fiscal_contrato_nome && (
+                                    <span><span className="text-gray-500">Fiscal:</span> <strong>{(requisicao as any).fiscal_contrato_nome}</strong></span>
+                                  )}
+                                </div>
+                                {requisicao.contrato?.fornecedor && (
+                                  <div className="flex flex-wrap gap-4 pt-1 border-t">
+                                    <span><span className="text-gray-500">Fornecedor:</span> <strong>{requisicao.contrato.fornecedor.razao_social}</strong></span>
+                                    {requisicao.contrato.fornecedor.cpf_cnpj && (
+                                      <span><span className="text-gray-500">CNPJ/CPF:</span> <strong>{requisicao.contrato.fornecedor.cpf_cnpj}</strong></span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
+
+                            {(requisicao as any).itensOS?.length > 0 && (
+                              <div>
+                                <h4 className="font-medium mb-2">Itens da OS ({(requisicao as any).itensOS.length})</h4>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Descrição</TableHead>
+                                      <TableHead className="text-center">Unidade</TableHead>
+                                      <TableHead className="text-right">Qtd.</TableHead>
+                                      <TableHead className="text-right">Meses</TableHead>
+                                      <TableHead className="text-right">Val. Mensal</TableHead>
+                                      <TableHead className="text-right">Total</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {(requisicao as any).itensOS.map((item: any) => {
+                                      const ic = item.itemCronograma || {}
+                                      const qtd = Number(item.quantidade_solicitada)
+                                      const vlUnit = Number(ic.valor_unitario ?? 0)
+                                      const meses = ic.quantidade_meses ? Number(ic.quantidade_meses) : null
+                                      const vlMensal = ic.valor_mensal ?? (qtd * vlUnit)
+                                      const total = meses ? vlMensal * meses : qtd * vlUnit
+                                      return (
+                                        <TableRow key={item.id}>
+                                          <TableCell>{ic.descricao || '-'}</TableCell>
+                                          <TableCell className="text-center">{ic.unidade_medida || '-'}</TableCell>
+                                          <TableCell className="text-right">{qtd.toLocaleString('pt-BR')}</TableCell>
+                                          <TableCell className="text-right">{meses ?? '-'}</TableCell>
+                                          <TableCell className="text-right">{formatarMoeda(vlMensal)}</TableCell>
+                                          <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
+                                        </TableRow>
+                                      )
+                                    })}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
+
+                            {(requisicao as any).etapasOS?.length > 0 && (
+                              <div>
+                                <h4 className="font-medium mb-2">Etapas da OS ({(requisicao as any).etapasOS.length})</h4>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Etapa</TableHead>
+                                      <TableHead className="text-right">% Solicitado</TableHead>
+                                      <TableHead className="text-right">Valor</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {(requisicao as any).etapasOS.map((e: any) => (
+                                      <TableRow key={e.id}>
+                                        <TableCell>{e.etapa?.descricao || '-'}</TableCell>
+                                        <TableCell className="text-right">{e.percentual_solicitado ?? '-'}%</TableCell>
+                                        <TableCell className="text-right font-medium">{formatarMoeda(e.valor_solicitado ?? 0)}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="mt-4">

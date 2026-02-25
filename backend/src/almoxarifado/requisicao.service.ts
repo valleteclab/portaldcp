@@ -1481,7 +1481,16 @@ export class RequisicaoService {
         orgao_id: orgaoId, 
         status: StatusRequisicao.AGUARDANDO_AUTORIZACAO 
       },
-      relations: ['itens', 'contrato'],
+      relations: [
+        'itens',
+        'contrato',
+        'contrato.fornecedor',
+        'orgao',
+        'itensOS',
+        'itensOS.itemCronograma',
+        'etapasOS',
+        'etapasOS.etapa',
+      ],
       order: { prioridade: 'DESC', created_at: 'ASC' },
     });
   }

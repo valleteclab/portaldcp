@@ -1026,26 +1026,9 @@ function RequisicoesList() {
                           </Button>
                         )}
                         {req.status === 'AGUARDANDO_AUTORIZACAO' && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-green-600 hover:text-green-700"
-                              onClick={() => handleAbrirAutorizar(req)}
-                              title="Autorizar requisição"
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:text-red-700"
-                              onClick={() => handleAbrirNegar(req)}
-                              title="Negar requisição"
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </>
+                          <span className="text-xs text-amber-600 font-medium px-2 py-1 bg-amber-50 rounded-md border border-amber-200">
+                            Pendente na Central de Aprovações
+                          </span>
                         )}
                         {/* Botão de cancelar */}
                         {/* Qualquer usuário pode cancelar: RASCUNHO, AGUARDANDO_AUTORIZACAO, NEGADA */}
