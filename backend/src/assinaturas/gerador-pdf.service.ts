@@ -147,22 +147,30 @@ export class GeradorPdfService {
 
         doc.y = rowY + 4;
         doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
-        doc.moveDown(0.5);
+        doc.moveDown(0.6);
 
-        // ── OBJETO / JUSTIFICATIVA ─────────────────────────────────────────────
-        doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text('Objeto / Justificativa:');
+        // ── OBJETO / JUSTIFICATIVA (largura total) ─────────────────────────────
+        doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151')
+          .text('Objeto / Justificativa:', marginL, doc.y, { width: contentW });
+        doc.moveDown(0.2);
         doc.fontSize(9).font('Helvetica').fillColor('#111827')
-          .text(dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição', { align: 'justify' });
+          .text(dadosOS.descricao_os || dadosOS.justificativa || 'Sem descrição', marginL, doc.y, { width: contentW, align: 'justify' });
+        doc.moveDown(0.5);
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
+        doc.moveDown(0.6);
 
         // ── TABELA DE ITENS ────────────────────────────────────────────────────
         if (dadosOS.itensOS?.length > 0) {
-          doc.moveDown(0.8);
-          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text('Itens da Ordem de Serviço:');
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
+            .text('Itens da Ordem de Serviço:', marginL, doc.y, { width: contentW });
           doc.moveDown(0.3);
           this.escreverTabelaItensOS(doc, dadosOS.itensOS);
         }
 
-        // ── ASSINATURAS ────────────────────────────────────────────────────────
+        // ── ASSINATURAS (nova página se restar menos de 180pt) ────────────────
+        if (doc.y > doc.page.height - 200) {
+          doc.addPage();
+        }
         await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
 
         doc.end();
@@ -319,45 +327,82 @@ export class GeradorPdfService {
     return new Date(data).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number } }>): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>): void {
     const pageWidth = doc.page.width - 100;
-    const colDesc = pageWidth * 0.55;
-    const colUnid = pageWidth * 0.15;
-    const colQtd = pageWidth * 0.15;
-    const colValor = pageWidth * 0.15;
+    const colDesc  = pageWidth * 0.44;
+    const colUnid  = pageWidth * 0.10;
+    const colQtd   = pageWidth * 0.11;
+    const colValor = pageWidth * 0.17;
+    const colTotal = pageWidth * 0.18;
 
-    doc.fontSize(9).font('Helvetica-Bold');
-    doc.rect(50, doc.y, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
-    doc.fillColor('#111827').text('Descrição', 55, doc.y + 5, { width: colDesc - 10 });
-    doc.text('Unidade', 55 + colDesc, doc.y - 13 + 5, { width: colUnid });
-    doc.text('Qtd.', 55 + colDesc + colUnid, doc.y - 13 + 5, { width: colQtd });
-    doc.text('Valor Unit.', 55 + colDesc + colUnid + colQtd, doc.y - 13 + 5, { width: colValor });
-    doc.y += 20;
+    const x0 = 50;
+    const x1 = x0 + colDesc;
+    const x2 = x1 + colUnid;
+    const x3 = x2 + colQtd;
+    const x4 = x3 + colValor;
 
+    // ── Cabeçalho da tabela
+    const headerY = doc.y;
+    doc.rect(x0, headerY, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
+    doc.text('Descrição',   x0 + 3, headerY + 5, { width: colDesc - 6 });
+    doc.text('Unidade',     x1,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
+    doc.text('Qtd.',        x2,     headerY - 13 + 5, { width: colQtd,   align: 'right' });
+    doc.text('Valor Unit.', x3,     headerY - 13 + 5, { width: colValor, align: 'right' });
+    doc.text('Total',       x4,     headerY - 13 + 5, { width: colTotal, align: 'right' });
+    doc.y = headerY + 20;
+
+    // ── Linhas
     doc.font('Helvetica').fillColor('#374151');
-    for (let i = 0; i < itensOS.length; i++) {
-      const item = itensOS[i];
-      const ic = item.itemCronograma || {};
-      const desc = (ic.descricao || '-').substring(0, 80);
-      const unid = ic.unidade_medida || '-';
-      const qtd = Number(item.quantidade_solicitada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-      const valor = ic.valor_unitario != null
-        ? `R$ ${Number(ic.valor_unitario).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-        : '-';
+    let totalGeral = 0;
 
-      const yStart = doc.y;
-      if (yStart > doc.page.height - 80) {
-        doc.addPage();
-        doc.y = 50;
+    for (const item of itensOS) {
+      const ic  = item.itemCronograma || {};
+      const desc = (ic.descricao || '-').substring(0, 90);
+      const unid = ic.unidade_medida || '-';
+      const qtd  = Number(item.quantidade_solicitada);
+      const vlUnit = Number(ic.valor_unitario ?? 0);
+      const meses  = ic.quantidade_meses ? Number(ic.quantidade_meses) : null;
+      const vlMensal = ic.valor_mensal ?? (qtd * vlUnit);
+      const total  = meses ? vlMensal * meses : qtd * vlUnit;
+      totalGeral  += total;
+
+      const rowStart = doc.y;
+      if (rowStart > doc.page.height - 80) {
+        doc.addPage(); doc.y = 50;
       }
 
-      const rowY = yStart + 2;
-      doc.fontSize(8).text(desc, 55, rowY, { width: colDesc - 10 });
-      doc.text(unid, 55 + colDesc, rowY, { width: colUnid });
-      doc.text(qtd, 55 + colDesc + colUnid, rowY, { width: colQtd });
-      doc.text(valor, 55 + colDesc + colUnid + colQtd, rowY, { width: colValor });
-      doc.y = yStart + 14;
+      const rowY = doc.y + 2;
+      doc.fontSize(8);
+      doc.text(desc,  x0 + 3, rowY, { width: colDesc - 6 });
+      doc.text(unid,  x1, rowY, { width: colUnid,  align: 'center' });
+      doc.text(
+        qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
+        x2, rowY, { width: colQtd, align: 'right' }
+      );
+      doc.text(
+        vlUnit > 0 ? `R$ ${vlUnit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-',
+        x3, rowY, { width: colValor, align: 'right' }
+      );
+      doc.text(
+        `R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        x4, rowY, { width: colTotal, align: 'right' }
+      );
+      doc.y = rowY + 14;
+      doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
+      doc.y += 1;
     }
+
+    // ── Linha de total geral
+    doc.moveDown(0.2);
+    doc.rect(x0, doc.y, pageWidth, 18).fillAndStroke('#f3f4f6', '#9ca3af');
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827');
+    doc.text('TOTAL GERAL', x0 + 3, doc.y + 5, { width: colDesc + colUnid + colQtd + colValor - 6 });
+    doc.text(
+      `R$ ${totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+      x4, doc.y - 14 + 5, { width: colTotal, align: 'right' }
+    );
+    doc.y += 20;
     doc.moveDown(0.5);
   }
 }
