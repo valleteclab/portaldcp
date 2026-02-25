@@ -158,7 +158,7 @@ interface MedicaoPendente {
     numero_contrato: string;
     objeto: string;
     fornecedor_razao_social?: string;
-    fornecedor?: { razao_social: string };
+    fornecedor?: { razao_social: string; cpf_cnpj?: string; nome_fantasia?: string };
   };
 }
 
