@@ -13,15 +13,20 @@ export class WhatsappChatController {
 
   constructor(private readonly chatService: WhatsappChatService) {}
 
+  private getOrgaoId(req: any): string {
+    const user = req.user;
+    return user?.orgaoId || user?.sub;
+  }
+
   @Get('conversas')
   async listarConversas(@Req() req: any) {
-    const orgaoId = req.user?.orgao_id;
+    const orgaoId = this.getOrgaoId(req);
     return this.chatService.listarConversas(orgaoId);
   }
 
   @Get('conversas/:id/mensagens')
   async listarMensagens(@Req() req: any, @Param('id') id: string) {
-    const orgaoId = req.user?.orgao_id;
+    const orgaoId = this.getOrgaoId(req);
     return this.chatService.listarMensagens(orgaoId, id);
   }
 
@@ -31,13 +36,13 @@ export class WhatsappChatController {
     @Param('id') id: string,
     @Body('conteudo') conteudo: string,
   ) {
-    const orgaoId = req.user?.orgao_id;
+    const orgaoId = this.getOrgaoId(req);
     return this.chatService.enviarMensagem(orgaoId, id, conteudo);
   }
 
   @Patch('conversas/:id/lida')
   async marcarComoLida(@Req() req: any, @Param('id') id: string) {
-    const orgaoId = req.user?.orgao_id;
+    const orgaoId = this.getOrgaoId(req);
     await this.chatService.marcarComoLida(orgaoId, id);
     return { ok: true };
   }
@@ -48,13 +53,13 @@ export class WhatsappChatController {
     @Body('phone') phone: string,
     @Body('nomeContato') nomeContato?: string,
   ) {
-    const orgaoId = req.user?.orgao_id;
+    const orgaoId = this.getOrgaoId(req);
     return this.chatService.obterOuCriarConversa(orgaoId, phone.replace(/\D/g, ''), nomeContato);
   }
 
   @Sse('eventos')
   eventos(@Req() req: any): Observable<MessageEvent> {
-    const orgaoId = req.user?.orgao_id;
+    const orgaoId = this.getOrgaoId(req);
     return this.chatService.novaMensagem$.pipe(
       filter(evt => evt.orgaoId === orgaoId),
       map(evt => ({
