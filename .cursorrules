@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: OS com Medição por Etapas (2026-02-17)
+
+- [X] Backend: RequisicaoEtapaOS, DTO etapas_os, validação Global vs Demanda, saldo por etapa
+- [X] Backend: atualizar() com itens_os/etapas_os (edição em rascunho)
+- [X] Frontend: UI etapas + Ordem Global/Demanda, objeto espelho do contrato
+- [X] Frontend: Edição de OS em rascunho (link Editar → /nova?editar=id, carrega itens/etapas)
+- [X] Frontend: Cancelar/Excluir já visíveis para OS (não restritos por tipo)
+
 ## Tarefa Concluída: Requisições e OS - Tela Unificada (2026-02-17)
 
 - [X] Link "Requisições e OS" no menu lateral (visível quando ALMOXARIFADO ou ORDENS_SERVICO)

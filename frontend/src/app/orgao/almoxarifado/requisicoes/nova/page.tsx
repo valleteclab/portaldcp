@@ -236,11 +236,58 @@ function QuantidadeInput({
   );
 }
 
+// Input de valor monetário para etapas (min=0, aceita decimais)
+function ValorInput({
+  value,
+  max,
+  onChange,
+  disabled = false,
+}: {
+  value: number;
+  max: number;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const [inputValue, setInputValue] = useState(String(value));
+  useEffect(() => {
+    setInputValue(String(value));
+  }, [value]);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === '' || /^\d*\.?\d*$/.test(val)) setInputValue(val);
+  };
+  const handleBlur = () => {
+    let numValue = parseFloat(inputValue) || 0;
+    numValue = Math.max(0, Math.min(numValue, max));
+    setInputValue(String(numValue));
+    onChange(numValue);
+  };
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={inputValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={(e) => e.key === 'Enter' && handleBlur()}
+      disabled={disabled}
+      className="w-28 text-right"
+    />
+  );
+}
+
 function NovaRequisicaoForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const contratoIdUrl = searchParams.get('contrato');
   const tipoUrl = searchParams.get('tipo');
+  const editarId = searchParams.get('editar');
+  
+  // Dados da OS carregada para edição (itens/etapas aplicados após cronograma carregar)
+  const [requisicaoEdicao, setRequisicaoEdicao] = useState<{
+    itensOS?: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
+    etapasOS?: Array<{ etapa_id: string; valor_solicitado?: number; percentual_solicitado?: number }>;
+  } | null>(null);
   
   // Etapa atual (0 = Contrato, 1 = Itens, 2 = Dados, 3 = Resumo)
   const [etapa, setEtapa] = useState(0);
@@ -291,6 +338,7 @@ function NovaRequisicaoForm() {
   const [carregandoCronograma, setCarregandoCronograma] = useState(false);
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
   const [itensOSDemanda, setItensOSDemanda] = useState<{ item_cronograma_id: string; quantidade_solicitada: number }[]>([]);
+  const [etapasOSDemanda, setEtapasOSDemanda] = useState<{ etapa_id: string; percentual_solicitado?: number; valor_solicitado?: number }[]>([]);
 
   // Ref para controlar auto-save
   const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -298,6 +346,7 @@ function NovaRequisicaoForm() {
 
   const isOS = tipo === 'ORDEM_SERVICO';
   const usarItensCronograma = isOS && itensCronograma.length > 0;
+  const usarEtapasCronograma = isOS && etapasOS.length > 0 && itensCronograma.length === 0;
   const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
 
   // =========================================================================
@@ -381,14 +430,14 @@ function NovaRequisicaoForm() {
     };
   }, [salvarRascunhoLocal]);
 
-  // Verificar rascunho ao carregar
+  // Verificar rascunho ao carregar (não mostrar se estiver editando)
   useEffect(() => {
     const rascunho = carregarRascunhoLocal();
-    if (rascunho && !contratoIdUrl) {
+    if (rascunho && !contratoIdUrl && !editarId) {
       setRascunhoSalvo(rascunho);
       setShowRecuperarRascunho(true);
     }
-  }, [contratoIdUrl]);
+  }, [contratoIdUrl, editarId]);
 
   // =========================================================================
   // CARREGAR DADOS
@@ -397,6 +446,100 @@ function NovaRequisicaoForm() {
   useEffect(() => {
     carregarContratos();
   }, []);
+
+  // Carregar OS para edição (rascunho)
+  useEffect(() => {
+    if (!editarId || contratos.length === 0) return;
+    setLoading(true);
+    const carregarParaEdicao = async () => {
+      try {
+        const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${editarId}`);
+        if (!res.ok) {
+          alert('Requisição não encontrada ou sem permissão.');
+          router.push('/orgao/almoxarifado/requisicoes');
+          return;
+        }
+        const req = await res.json();
+        if (req.status !== 'RASCUNHO' || req.tipo !== 'ORDEM_SERVICO') {
+          alert('Apenas OS em rascunho podem ser editadas.');
+          router.push('/orgao/almoxarifado/requisicoes');
+          return;
+        }
+        const contrato = req.contrato;
+        if (!contrato) {
+          alert('Contrato da OS não encontrado.');
+          router.push('/orgao/almoxarifado/requisicoes');
+          return;
+        }
+        setContratoSelecionado(contrato);
+        setTipo('ORDEM_SERVICO');
+        setSetorSolicitante(req.setor_solicitante || '');
+        setCodigoSetor(req.codigo_setor || '');
+        setLocalEntrega(req.local_entrega || '');
+        setJustificativa(req.justificativa || '');
+        setPrioridade(req.prioridade || 'NORMAL');
+        setDataNecessidade(req.data_necessidade ? req.data_necessidade.split('T')[0] : '');
+        setObservacoes(req.observacoes || '');
+        setDescricaoOS(req.descricao_os || '');
+        setLocalExecucao(req.local_execucao || '');
+        setDataInicioPrevista(req.data_inicio_prevista ? req.data_inicio_prevista.split('T')[0] : '');
+        setDataFimPrevista(req.data_fim_prevista ? req.data_fim_prevista.split('T')[0] : '');
+        setPrazoExecucaoDias(req.prazo_execucao_dias ? String(req.prazo_execucao_dias) : '');
+        setResponsavelTecnico(req.responsavel_tecnico || '');
+        setFiscalNome(req.fiscal_contrato_nome || '');
+        setModoOS(req.modo_os || 'ORDEM_GLOBAL');
+        if (req.itensOS?.length) {
+          setRequisicaoEdicao({
+            itensOS: req.itensOS.map((io: any) => ({
+              item_cronograma_id: io.item_cronograma_id || io.itemCronograma?.id,
+              quantidade_solicitada: Number(io.quantidade_solicitada || 0),
+            })),
+          });
+        } else if (req.etapasOS?.length) {
+          setRequisicaoEdicao({
+            etapasOS: req.etapasOS.map((eo: any) => ({
+              etapa_id: eo.etapa_id || eo.etapa?.id,
+              valor_solicitado: Number(eo.valor_solicitado || 0),
+              percentual_solicitado: Number(eo.percentual_solicitado || 0),
+            })),
+          });
+        }
+        setEtapa(1);
+        limparRascunhoLocal();
+      } catch (e) {
+        console.error('Erro ao carregar OS para edição:', e);
+        alert('Erro ao carregar OS para edição.');
+        router.push('/orgao/almoxarifado/requisicoes');
+      } finally {
+        setLoading(false);
+      }
+    };
+    carregarParaEdicao();
+  }, [editarId, contratos.length]);
+
+  // Aplicar itens/etapas da OS carregada para edição após cronograma estar pronto
+  useEffect(() => {
+    if (!requisicaoEdicao || carregandoCronograma) return;
+    if (requisicaoEdicao.itensOS?.length) {
+      setItensOSDemanda(prev => {
+        const byId = new Map(requisicaoEdicao.itensOS!.map(i => [i.item_cronograma_id, i.quantidade_solicitada]));
+        return prev.map(p => ({
+          ...p,
+          quantidade_solicitada: byId.get(p.item_cronograma_id) ?? p.quantidade_solicitada,
+        }));
+      });
+    }
+    if (requisicaoEdicao.etapasOS?.length) {
+      setEtapasOSDemanda(prev => {
+        const byId = new Map(requisicaoEdicao.etapasOS!.map(e => [e.etapa_id, e.valor_solicitado ?? 0]));
+        return prev.map(p => ({
+          ...p,
+          valor_solicitado: byId.get(p.etapa_id) ?? p.valor_solicitado,
+        }));
+      });
+    }
+    setRequisicaoEdicao(null);
+  }, [requisicaoEdicao, carregandoCronograma]);
 
   // Se veio com contrato na URL, pula para etapa 2
   useEffect(() => {
@@ -453,21 +596,38 @@ function NovaRequisicaoForm() {
             item_cronograma_id: i.id,
             quantidade_solicitada: Number(i.quantidade) - Number(i.quantidade_medida),
           })));
+          setEtapasOSDemanda([]);
+        } else if (etapas.length > 0) {
+          setModoOS('ORDEM_GLOBAL');
+          setEtapasOSDemanda(etapas.map((e: any) => ({
+            etapa_id: e.id,
+            valor_solicitado: Number(e.valor_previsto || 0) - Number(e.valor_executado || 0),
+          })));
         } else {
           setModoOS(null);
           setItensOSDemanda([]);
+          setEtapasOSDemanda([]);
         }
       } catch (e) {
         console.error('Erro ao carregar cronograma:', e);
         setItensCronograma([]);
         setEtapasOS([]);
         setModoOS(null);
+        setItensOSDemanda([]);
+        setEtapasOSDemanda([]);
       } finally {
         setCarregandoCronograma(false);
       }
     };
     carregarCronograma();
   }, [contratoSelecionado?.id, tipo]);
+
+  // Preencher descricaoOS com objeto do contrato quando usarEtapasCronograma
+  useEffect(() => {
+    if (usarEtapasCronograma && contratoSelecionado?.objeto && !descricaoOS) {
+      setDescricaoOS(contratoSelecionado.objeto);
+    }
+  }, [usarEtapasCronograma, contratoSelecionado?.objeto]);
 
   // Aplicar contrato do rascunho após carregar contratos
   useEffect(() => {
@@ -656,6 +816,18 @@ function NovaRequisicaoForm() {
     }));
   };
 
+  const handleAlterarValorEtapaOSDemanda = (etapaId: string, valor: number) => {
+    setEtapasOSDemanda(prev => prev.map(item => {
+      if (item.etapa_id === etapaId) {
+        const etapa = etapasOS.find((e: any) => e.id === etapaId);
+        const saldo = etapa ? Number(etapa.valor_previsto || 0) - Number(etapa.valor_executado || 0) : 0;
+        const v = Math.max(0, Math.min(valor, saldo));
+        return { ...item, valor_solicitado: v };
+      }
+      return item;
+    }));
+  };
+
   const calcularTotal = () => {
     return itensRequisicao.reduce((total, item) => total + item.valor_total, 0);
   };
@@ -675,6 +847,12 @@ function NovaRequisicaoForm() {
             if (modoOS === 'ORDEM_DEMANDA') {
               const temAlgum = itensOSDemanda.some(d => d.quantidade_solicitada > 0);
               if (!temAlgum) return 'Informe a quantidade de pelo menos um item na Ordem por Demanda';
+            }
+          } else if (usarEtapasCronograma) {
+            if (!modoOS) return 'Selecione o tipo de ordem (Global ou por Demanda)';
+            if (modoOS === 'ORDEM_DEMANDA') {
+              const temAlgum = etapasOSDemanda.some(d => (d.valor_solicitado ?? 0) > 0);
+              if (!temAlgum) return 'Informe o valor de pelo menos uma etapa na Ordem por Demanda';
             }
           } else {
             if (!descricaoOS.trim()) return 'Informe a descrição/objeto da OS';
@@ -748,6 +926,18 @@ function NovaRequisicaoForm() {
           dados.descricao_os = modoOS === 'ORDEM_GLOBAL'
             ? 'Ordem Global - todos os itens do cronograma'
             : 'Ordem por Demanda - itens selecionados';
+        } else if (usarEtapasCronograma && modoOS) {
+          dados.modo_os = modoOS;
+          dados.etapas_os = modoOS === 'ORDEM_GLOBAL'
+            ? etapasOS.map((e: any) => ({
+                etapa_id: e.id,
+                valor_solicitado: Number(e.valor_previsto || 0) - Number(e.valor_executado || 0),
+              }))
+            : etapasOSDemanda.filter(d => (d.valor_solicitado ?? 0) > 0).map(d => ({
+                etapa_id: d.etapa_id,
+                valor_solicitado: d.valor_solicitado ?? 0,
+              }));
+          dados.descricao_os = descricaoOS || contratoSelecionado?.objeto || (modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global - todas as etapas' : 'Ordem por Demanda - etapas selecionadas');
         } else {
           dados.descricao_os = descricaoOS;
           dados.local_execucao = localExecucao || undefined;
@@ -769,24 +959,29 @@ function NovaRequisicaoForm() {
         }));
       }
 
-      const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes`, {
-        method: 'POST',
-        body: JSON.stringify(dados),
+      const isEdicao = !!editarId;
+      const url = isEdicao
+        ? `${API_URL}/api/almoxarifado/requisicoes/${editarId}`
+        : `${API_URL}/api/almoxarifado/requisicoes`;
+      const response = await authFetch(url, {
+        method: isEdicao ? 'PUT' : 'POST',
+        body: JSON.stringify(isEdicao ? { ...dados, contrato_id: undefined, tipo: undefined } : dados),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || 'Erro ao criar requisição');
+        throw new Error(error.message || (isEdicao ? 'Erro ao atualizar requisição' : 'Erro ao criar requisição'));
       }
 
       const requisicao = await response.json();
+      const reqId = requisicao.id || editarId;
 
       // Limpa rascunho local após salvar com sucesso
       limparRascunhoLocal();
 
       if (enviarParaAutorizacao) {
         const responseEnviar = await authFetch(
-          `${API_URL}/api/almoxarifado/requisicoes/${requisicao.id}/enviar`,
+          `${API_URL}/api/almoxarifado/requisicoes/${reqId}/enviar`,
           { method: 'POST' }
         );
 
@@ -1575,8 +1770,158 @@ function NovaRequisicaoForm() {
             </div>
           </CardContent>
         </Card>
+      ) : usarEtapasCronograma ? (
+        /* Fluxo EtapaCronograma: Ordem Global vs Ordem por Demanda */
+        <Card>
+          <CardHeader>
+            <CardTitle>Dados da Ordem de Serviço</CardTitle>
+            <CardDescription>
+              Contrato com medição por etapas. Escolha o tipo de ordem e confira as etapas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Descrição / Objeto da OS *</Label>
+              <Textarea
+                value={descricaoOS}
+                onChange={(e) => setDescricaoOS(e.target.value)}
+                placeholder="Objeto do contrato (preenchido automaticamente)"
+                rows={2}
+              />
+            </div>
+            <div>
+              <Label>Tipo de Ordem *</Label>
+              <div className="flex gap-6 mt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modoOSEtapas"
+                    checked={modoOS === 'ORDEM_GLOBAL'}
+                    onChange={() => setModoOS('ORDEM_GLOBAL')}
+                    className="h-4 w-4"
+                  />
+                  <span>Ordem Global</span>
+                  <span className="text-sm text-gray-500">— Autoriza todas as etapas conforme contrato</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modoOSEtapas"
+                    checked={modoOS === 'ORDEM_DEMANDA'}
+                    onChange={() => setModoOS('ORDEM_DEMANDA')}
+                    className="h-4 w-4"
+                  />
+                  <span>Ordem por Demanda</span>
+                  <span className="text-sm text-gray-500">— Define valores específicos por etapa</span>
+                </label>
+              </div>
+            </div>
+            <div>
+              <Label>Etapas do Contrato</Label>
+              <div className="border rounded-lg overflow-hidden mt-2">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Valor previsto</TableHead>
+                      <TableHead className="text-right">Valor executado</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
+                      {modoOS === 'ORDEM_DEMANDA' && (
+                        <TableHead className="text-right">Valor solicitado</TableHead>
+                      )}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {etapasOS.map((etapa: any) => {
+                      const valorPrevisto = Number(etapa.valor_previsto || 0);
+                      const valorExecutado = Number(etapa.valor_executado || 0);
+                      const saldo = valorPrevisto - valorExecutado;
+                      const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
+                      const valorSolicitado = demanda?.valor_solicitado ?? saldo;
+                      return (
+                        <TableRow key={etapa.id}>
+                          <TableCell>{etapa.numero_etapa ?? etapa.ordem ?? '-'}</TableCell>
+                          <TableCell className="max-w-[280px]">{etapa.descricao}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(valorPrevisto)}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(valorExecutado)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatarMoeda(saldo)}</TableCell>
+                          {modoOS === 'ORDEM_DEMANDA' ? (
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={saldo}
+                                step={0.01}
+                                value={valorSolicitado}
+                                onChange={(e) => handleAlterarValorEtapaOSDemanda(etapa.id, parseFloat(e.target.value) || 0)}
+                                className="w-28 text-right"
+                              />
+                            </TableCell>
+                          ) : null}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Setor Solicitante *</Label>
+                <Input
+                  value={setorSolicitante}
+                  onChange={(e) => setSetorSolicitante(e.target.value)}
+                  placeholder="Ex: Departamento de Engenharia"
+                />
+              </div>
+              <div>
+                <Label>Código do Setor</Label>
+                <Input
+                  value={codigoSetor}
+                  onChange={(e) => setCodigoSetor(e.target.value)}
+                  placeholder="Ex: DENG-001"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Justificativa *</Label>
+              <Textarea
+                value={justificativa}
+                onChange={(e) => setJustificativa(e.target.value)}
+                placeholder="Justificativa para emissão da OS..."
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Prioridade</Label>
+                <Select value={prioridade} onValueChange={setPrioridade}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BAIXA">Baixa</SelectItem>
+                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="ALTA">Alta</SelectItem>
+                    <SelectItem value="URGENTE">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Observações</Label>
+              <Textarea
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Observações adicionais (opcional)"
+                rows={2}
+              />
+            </div>
+          </CardContent>
+        </Card>
       ) : (
-        /* Fluxo obras/EtapaCronograma: formulário tradicional */
+        /* Fluxo obras: formulário tradicional */
         <Card>
           <CardHeader>
             <CardTitle>Dados da Ordem de Serviço</CardTitle>

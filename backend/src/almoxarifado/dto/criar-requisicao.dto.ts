@@ -49,6 +49,23 @@ export class ItemOSDto {
   quantidade_solicitada: number;
 }
 
+export class EtapaOSDto {
+  @IsUUID()
+  etapa_id: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  percentual_solicitado?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  valor_solicitado?: number;
+}
+
 export class CriarRequisicaoDto {
   @IsOptional()
   @IsUUID()
@@ -137,6 +154,13 @@ export class CriarRequisicaoDto {
   @ValidateNested({ each: true })
   @Type(() => ItemOSDto)
   itens_os?: ItemOSDto[];
+
+  /** Etapas da OS (EtapaCronograma) quando modo_os = ORDEM_DEMANDA e contrato usa etapas */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EtapaOSDto)
+  etapas_os?: EtapaOSDto[];
 }
 
 export class AtualizarRequisicaoDto {
@@ -167,6 +191,52 @@ export class AtualizarRequisicaoDto {
   @IsOptional()
   @IsString()
   observacoes?: string;
+
+  // Campos OS (para edição em rascunho)
+  @IsOptional()
+  @IsString()
+  descricao_os?: string;
+
+  @IsOptional()
+  @IsString()
+  local_execucao?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data_inicio_prevista?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data_fim_prevista?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  prazo_execucao_dias?: number;
+
+  @IsOptional()
+  @IsString()
+  responsavel_tecnico?: string;
+
+  @IsOptional()
+  @IsString()
+  fiscal_contrato_nome?: string;
+
+  @IsOptional()
+  @IsIn(['ORDEM_GLOBAL', 'ORDEM_DEMANDA'])
+  modo_os?: 'ORDEM_GLOBAL' | 'ORDEM_DEMANDA';
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ItemOSDto)
+  itens_os?: ItemOSDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EtapaOSDto)
+  etapas_os?: EtapaOSDto[];
 }
 
 export class AutorizarRequisicaoDto {

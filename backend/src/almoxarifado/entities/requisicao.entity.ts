@@ -32,6 +32,7 @@ import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { Contrato } from '../../contratos/entities/contrato.entity';
 import { ItemRequisicao } from './item-requisicao.entity';
 import { RequisicaoItemOS } from './requisicao-item-os.entity';
+import { RequisicaoEtapaOS } from './requisicao-etapa-os.entity';
 
 export enum StatusRequisicao {
   RASCUNHO = 'RASCUNHO',                           // Ainda não enviada para aprovação
@@ -94,6 +95,10 @@ export class Requisicao {
   /** Itens da OS (ItemCronograma) quando modo_os = ORDEM_GLOBAL ou ORDEM_DEMANDA */
   @OneToMany(() => RequisicaoItemOS, rio => rio.requisicao, { cascade: true })
   itensOS: RequisicaoItemOS[];
+
+  /** Etapas da OS (EtapaCronograma) quando modo_os = ORDEM_DEMANDA e contrato usa etapas */
+  @OneToMany(() => RequisicaoEtapaOS, reo => reo.requisicao, { cascade: true })
+  etapasOS: RequisicaoEtapaOS[];
 
   // ============================================================================
   // IDENTIFICAÇÃO

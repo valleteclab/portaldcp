@@ -3,10 +3,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
+import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
+import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
+import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
 import { ItemContratoService } from './item-contrato.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -50,6 +53,12 @@ export class RequisicaoService {
     private readonly contratoRepository: Repository<Contrato>,
     @InjectRepository(RequisicaoItemOS)
     private readonly requisicaoItemOSRepository: Repository<RequisicaoItemOS>,
+    @InjectRepository(RequisicaoEtapaOS)
+    private readonly requisicaoEtapaOSRepository: Repository<RequisicaoEtapaOS>,
+    @InjectRepository(ItemCronograma)
+    private readonly itemCronogramaRepository: Repository<ItemCronograma>,
+    @InjectRepository(EtapaCronograma)
+    private readonly etapaCronogramaRepository: Repository<EtapaCronograma>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -65,6 +74,54 @@ export class RequisicaoService {
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
   ) {}
+
+  /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
+  private async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const qb = this.requisicaoItemOSRepository
+      .createQueryBuilder('rio')
+      .select('rio.item_cronograma_id', 'id')
+      .addSelect('COALESCE(SUM(rio.quantidade_solicitada), 0)', 'total')
+      .innerJoin('rio.requisicao', 'r')
+      .where('r.contrato_id = :cid', { cid: contratoId })
+      .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
+      .andWhere('r.status IN (:...status)', {
+        status: [
+          StatusRequisicao.RASCUNHO,
+          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+          StatusRequisicao.AUTORIZADA,
+          StatusRequisicao.ORDEM_GERADA,
+        ],
+      });
+    if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
+    const rows = await qb.groupBy('rio.item_cronograma_id').getRawMany<{ id: string; total: string }>();
+    const mapa = new Map<string, number>();
+    for (const r of rows) mapa.set(r.id, Number(r.total));
+    return mapa;
+  }
+
+  /** Soma valor_solicitado por etapa_id de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
+  private async somarValorComprometidoPorEtapaOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const qb = this.requisicaoEtapaOSRepository
+      .createQueryBuilder('reo')
+      .select('reo.etapa_id', 'id')
+      .addSelect('COALESCE(SUM(reo.valor_solicitado), 0)', 'total')
+      .innerJoin('reo.requisicao', 'r')
+      .where('r.contrato_id = :cid', { cid: contratoId })
+      .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
+      .andWhere('r.status IN (:...status)', {
+        status: [
+          StatusRequisicao.RASCUNHO,
+          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+          StatusRequisicao.AUTORIZADA,
+          StatusRequisicao.ORDEM_GERADA,
+        ],
+      });
+    if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
+    const rows = await qb.groupBy('reo.etapa_id').getRawMany<{ id: string; total: string }>();
+    const mapa = new Map<string, number>();
+    for (const r of rows) mapa.set(r.id, Number(r.total));
+    return mapa;
+  }
 
   /**
    * Envia email (com PDF), notificação no sistema e WhatsApp ao fornecedor da OS.
@@ -179,23 +236,26 @@ export class RequisicaoService {
         );
       }
 
-      // Para OS: verificar se já existe OS ativa para este contrato
+      // Para OS: regras Global vs Demanda
       if (dto.tipo === TipoRequisicao.ORDEM_SERVICO) {
-        const osAtiva = await this.requisicaoRepository.findOne({
+        const statusAtivos = [
+          StatusRequisicao.RASCUNHO,
+          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+          StatusRequisicao.AUTORIZADA,
+          StatusRequisicao.ORDEM_GERADA,
+        ];
+        const osAtivas = await this.requisicaoRepository.find({
           where: {
             contrato_id: dto.contrato_id,
             tipo: TipoRequisicao.ORDEM_SERVICO,
-            status: In([
-              StatusRequisicao.RASCUNHO,
-              StatusRequisicao.AGUARDANDO_AUTORIZACAO,
-              StatusRequisicao.AUTORIZADA,
-              StatusRequisicao.ORDEM_GERADA,
-            ]),
+            status: In(statusAtivos),
           },
+          relations: ['itensOS', 'etapasOS'],
         });
-        if (osAtiva) {
+        const osGlobalAtiva = osAtivas.find(o => o.modo_os === 'ORDEM_GLOBAL');
+        if (osGlobalAtiva) {
           throw new BadRequestException(
-            `Já existe uma OS ativa para este contrato (${osAtiva.numero}). ` +
+            `Já existe uma OS Global ativa para este contrato (${osGlobalAtiva.numero}). ` +
             `Conclua ou cancele a OS atual antes de criar uma nova.`
           );
         }
@@ -209,11 +269,57 @@ export class RequisicaoService {
       if (!dto.contrato_id) {
         throw new BadRequestException('Ordem de Serviço deve estar vinculada a um contrato');
       }
-      if (!dto.descricao_os && !(dto.modo_os && dto.itens_os?.length)) {
-        throw new BadRequestException('Descrição da OS ou itens da OS são obrigatórios');
+      const temItensOuEtapas = (dto.modo_os && (dto.itens_os?.length || dto.etapas_os?.length));
+      if (!dto.descricao_os && !temItensOuEtapas) {
+        throw new BadRequestException('Descrição da OS ou itens/etapas da OS são obrigatórios');
       }
 
       const contrato = await this.contratoRepository.findOne({ where: { id: dto.contrato_id } });
+
+      // Validar saldo para OS Demanda (itens e etapas)
+      if (dto.modo_os === 'ORDEM_DEMANDA' && dto.contrato_id) {
+        const statusAtivos = [
+          StatusRequisicao.RASCUNHO,
+          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+          StatusRequisicao.AUTORIZADA,
+          StatusRequisicao.ORDEM_GERADA,
+        ];
+        if (dto.itens_os?.length) {
+          const comprometidoPorItem = await this.somarQuantidadeComprometidaPorItemOS(dto.contrato_id);
+          for (const io of dto.itens_os) {
+            const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id } });
+            if (!itemCron) throw new BadRequestException(`Item do cronograma ${io.item_cronograma_id} não encontrado`);
+            if (itemCron.contrato_id !== dto.contrato_id) throw new BadRequestException(`Item não pertence ao contrato`);
+            const qtd = Number(itemCron.quantidade);
+            const medido = Number(itemCron.quantidade_medida || 0);
+            const comprometido = comprometidoPorItem.get(io.item_cronograma_id) || 0;
+            const saldo = qtd - medido - comprometido;
+            if (Number(io.quantidade_solicitada) > saldo + 0.0001) {
+              throw new BadRequestException(
+                `Quantidade solicitada do item "${itemCron.descricao}" excede o saldo disponível (${saldo.toFixed(2)})`
+              );
+            }
+          }
+        }
+        if (dto.etapas_os?.length) {
+          const comprometidoPorEtapa = await this.somarValorComprometidoPorEtapaOS(dto.contrato_id);
+          for (const eo of dto.etapas_os) {
+            const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id } });
+            if (!etapa) throw new BadRequestException(`Etapa ${eo.etapa_id} não encontrada`);
+            if (etapa.contrato_id !== dto.contrato_id) throw new BadRequestException(`Etapa não pertence ao contrato`);
+            const valorPrevisto = Number(etapa.valor_previsto);
+            const valorExecutado = Number(etapa.valor_executado || 0);
+            const comprometido = comprometidoPorEtapa.get(eo.etapa_id) || 0;
+            const saldo = valorPrevisto - valorExecutado - comprometido;
+            const valorSolicitado = Number(eo.valor_solicitado ?? 0);
+            if (valorSolicitado > saldo + 0.01) {
+              throw new BadRequestException(
+                `Valor solicitado da etapa "${etapa.descricao}" excede o saldo disponível (R$ ${saldo.toFixed(2)})`
+              );
+            }
+          }
+        }
+      }
 
       const novaOS = new Requisicao();
       novaOS.orgao_id = orgaoId;
@@ -259,6 +365,19 @@ export class RequisicaoService {
         });
         await this.requisicaoItemOSRepository.save(itensOS);
         this.logger.log(`OS ${numero}: ${itensOS.length} itens do cronograma vinculados`);
+      }
+
+      if (dto.etapas_os?.length) {
+        const etapasOS = dto.etapas_os.map(eo => {
+          const item = new RequisicaoEtapaOS();
+          item.requisicao_id = osSalva.id;
+          item.etapa_id = eo.etapa_id;
+          item.percentual_solicitado = Number(eo.percentual_solicitado ?? 0);
+          item.valor_solicitado = Number(eo.valor_solicitado ?? 0);
+          return item;
+        });
+        await this.requisicaoEtapaOSRepository.save(etapasOS);
+        this.logger.log(`OS ${numero}: ${etapasOS.length} etapas do cronograma vinculadas`);
       }
 
       this.logger.log(`OS ${numero} criada para contrato ${contrato?.numero_contrato}`);
@@ -1309,7 +1428,7 @@ export class RequisicaoService {
   async findOne(id: string): Promise<Requisicao> {
     const requisicao = await this.requisicaoRepository.findOne({
       where: { id },
-      relations: ['itens', 'itens.item_contrato', 'contrato', 'contrato.fornecedor', 'orgao', 'itensOS', 'itensOS.itemCronograma'],
+      relations: ['itens', 'itens.item_contrato', 'contrato', 'contrato.fornecedor', 'orgao', 'itensOS', 'itensOS.itemCronograma', 'etapasOS', 'etapasOS.etapa'],
     });
 
     if (!requisicao) {
@@ -1377,8 +1496,39 @@ export class RequisicaoService {
       );
     }
 
-    Object.assign(requisicao, dto);
-    return this.requisicaoRepository.save(requisicao);
+    const { itens_os, etapas_os, ...dtoRest } = dto as any;
+    Object.assign(requisicao, dtoRest);
+    const salva = await this.requisicaoRepository.save(requisicao);
+    if (requisicao.tipo === TipoRequisicao.ORDEM_SERVICO && requisicao.contrato_id) {
+      if (itens_os !== undefined) {
+        await this.requisicaoItemOSRepository.delete({ requisicao_id: id });
+        if (Array.isArray(itens_os) && itens_os.length > 0) {
+          const comprometido = await this.somarQuantidadeComprometidaPorItemOS(requisicao.contrato_id, id);
+          for (const io of itens_os) {
+            const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id } });
+            if (!itemCron || itemCron.contrato_id !== requisicao.contrato_id) continue;
+            const saldo = Number(itemCron.quantidade) - Number(itemCron.quantidade_medida || 0) - (comprometido.get(io.item_cronograma_id) || 0);
+            if (Number(io.quantidade_solicitada) > saldo + 0.0001) throw new BadRequestException(`Item "${itemCron.descricao}" excede saldo (${saldo.toFixed(2)})`);
+            await this.requisicaoItemOSRepository.save(this.requisicaoItemOSRepository.create({ requisicao_id: id, item_cronograma_id: io.item_cronograma_id, quantidade_solicitada: Number(io.quantidade_solicitada) }));
+          }
+        }
+      }
+      if (etapas_os !== undefined) {
+        await this.requisicaoEtapaOSRepository.delete({ requisicao_id: id });
+        if (Array.isArray(etapas_os) && etapas_os.length > 0) {
+          const comprometido = await this.somarValorComprometidoPorEtapaOS(requisicao.contrato_id, id);
+          for (const eo of etapas_os) {
+            const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id } });
+            if (!etapa || etapa.contrato_id !== requisicao.contrato_id) continue;
+            const saldo = Number(etapa.valor_previsto) - Number(etapa.valor_executado || 0) - (comprometido.get(eo.etapa_id) || 0);
+            const valor = Number(eo.valor_solicitado ?? 0);
+            if (valor > saldo + 0.01) throw new BadRequestException(`Etapa "${etapa.descricao}" excede saldo (R$ ${saldo.toFixed(2)})`);
+            await this.requisicaoEtapaOSRepository.save(this.requisicaoEtapaOSRepository.create({ requisicao_id: id, etapa_id: eo.etapa_id, percentual_solicitado: Number(eo.percentual_solicitado ?? 0), valor_solicitado: valor }));
+          }
+        }
+      }
+    }
+    return this.findOne(id);
   }
 
   // ============================================================================

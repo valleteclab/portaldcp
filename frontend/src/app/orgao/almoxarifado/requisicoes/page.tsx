@@ -23,7 +23,8 @@ import {
   BarChart2,
   ShieldCheck,
   ExternalLink,
-  Send
+  Send,
+  Pencil
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -926,6 +927,20 @@ function RequisicoesList() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {/* OS em rascunho → Editar */}
+                        {req.tipo === 'ORDEM_SERVICO' && req.status === 'RASCUNHO' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-blue-600 hover:text-blue-700"
+                            asChild
+                            title="Editar OS"
+                          >
+                            <Link href={`/orgao/almoxarifado/requisicoes/nova?editar=${req.id}`}>
+                              <Pencil className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        )}
                         {/* OS aprovada → botão para baixar PDF assinado (visível para toda OS autorizada) */}
                         {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && (
                           <Button
