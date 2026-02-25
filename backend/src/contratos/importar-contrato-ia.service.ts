@@ -6,7 +6,8 @@ import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
-import * as pdfParse from 'pdf-parse';
+import * as pdfParseLib from 'pdf-parse';
+const pdfParse = (pdfParseLib as any).default ?? pdfParseLib;
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021).
 Extraia os dados do contrato e retorne APENAS JSON válido, sem markdown, sem explicações.
@@ -136,11 +137,11 @@ export class ImportarContratoIaService {
 
     if (!fornecedorId && dados.fornecedor_cnpj) {
       const cnpj = dados.fornecedor_cnpj.replace(/\D/g, '');
-      let fornecedor = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: cnpj } });
+      let fornecedor: Fornecedor | null = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: cnpj } });
 
       if (!fornecedor) {
         this.logger.log(`Criando fornecedor placeholder para CNPJ ${cnpj}`);
-        fornecedor = this.fornecedorRepo.create({
+        const novo = this.fornecedorRepo.create({
           cpf_cnpj: cnpj,
           razao_social: dados.fornecedor_razao_social || 'A PREENCHER',
           nome_fantasia: dados.fornecedor_razao_social || 'A PREENCHER',
@@ -154,10 +155,10 @@ export class ImportarContratoIaService {
           email: `${cnpj}@apreencher.com`,
           ativo: false,
         } as any);
-        fornecedor = await this.fornecedorRepo.save(fornecedor);
+        fornecedor = await this.fornecedorRepo.save(novo as any) as unknown as Fornecedor;
       }
 
-      fornecedorId = fornecedor.id;
+      fornecedorId = fornecedor!.id;
     }
 
     if (!fornecedorId) {
@@ -190,7 +191,7 @@ export class ImportarContratoIaService {
     } else if ((modalidade === 'MEDICAO' || modalidade === 'ITEM_QUANTIDADE' || modalidade === 'ORDEM_SERVICO') && dados.itens?.length > 0) {
       for (const item of dados.itens) {
         try {
-          await this.medicaoService.addItemCronograma(contrato.id, {
+          await this.medicaoService.criarItemCronograma(contrato.id, {
             descricao: item.descricao,
             unidade_medida: item.unidade_medida,
             quantidade: item.quantidade,
