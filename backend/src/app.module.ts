@@ -43,6 +43,7 @@ import { EmailModule } from './email/email.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AssinaturasModule } from './assinaturas/assinaturas.module';
 import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -113,6 +114,7 @@ import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas
     WebhooksModule,
     AssinaturasModule,
     PortalAssinaturasModule,
+    WhatsAppModule,
   ],
   controllers: [HealthController],
   providers: [
