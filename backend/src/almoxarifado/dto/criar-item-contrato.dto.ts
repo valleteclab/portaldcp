@@ -2,8 +2,9 @@ import { IsString, IsNumber, IsOptional, IsEnum, Min, IsUUID } from 'class-valid
 import { UnidadeMedidaContrato } from '../entities/item-contrato.entity';
 
 export class CriarItemContratoDto {
+  @IsOptional()
   @IsUUID()
-  contrato_id: string;
+  contrato_id?: string;
 
   @IsNumber()
   @Min(1)
@@ -31,6 +32,14 @@ export class CriarItemContratoDto {
   @IsOptional()
   @IsString()
   descricao_detalhada?: string;
+
+  @IsOptional()
+  @IsString()
+  marca?: string;
+
+  @IsOptional()
+  @IsString()
+  modelo?: string;
 
   @IsEnum(UnidadeMedidaContrato)
   unidade_medida: UnidadeMedidaContrato;
@@ -76,6 +85,14 @@ export class AtualizarItemContratoDto {
   @IsOptional()
   @IsString()
   descricao_detalhada?: string;
+
+  @IsOptional()
+  @IsString()
+  marca?: string;
+
+  @IsOptional()
+  @IsString()
+  modelo?: string;
 
   @IsOptional()
   @IsNumber()

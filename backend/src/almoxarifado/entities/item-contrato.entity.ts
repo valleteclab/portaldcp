@@ -90,6 +90,12 @@ export class ItemContrato {
   @Column({ type: 'text', nullable: true })
   descricao_detalhada: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  marca: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  modelo: string;
+
   @Column({
     type: 'enum',
     enum: UnidadeMedidaContrato,

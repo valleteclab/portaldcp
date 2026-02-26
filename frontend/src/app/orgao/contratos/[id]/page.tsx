@@ -270,6 +270,8 @@ export default function DetalheContratoOrgaoPage() {
     numero_item: 1,
     descricao: '',
     descricao_detalhada: '',
+    marca: '',
+    modelo: '',
     unidade_medida: 'UNIDADE',
     valor_unitario: '',
     quantidade_contratada: '',
@@ -702,6 +704,8 @@ export default function DetalheContratoOrgaoPage() {
       numero_item: proximoNumero,
       descricao: '',
       descricao_detalhada: '',
+      marca: '',
+      modelo: '',
       unidade_medida: contrato?.categoria === 'SERVICOS' ? 'MES' : 'UNIDADE',
       valor_unitario: '',
       quantidade_contratada: '',
@@ -722,6 +726,8 @@ export default function DetalheContratoOrgaoPage() {
       numero_item: item.numero_item,
       descricao: item.descricao,
       descricao_detalhada: item.descricao_detalhada || '',
+      marca: (item as any).marca || '',
+      modelo: (item as any).modelo || '',
       unidade_medida: item.unidade_medida,
       valor_unitario: String(item.valor_unitario),
       quantidade_contratada: String(item.quantidade_contratada),
@@ -747,6 +753,8 @@ export default function DetalheContratoOrgaoPage() {
           body: JSON.stringify({
             descricao: novoItem.descricao,
             descricao_detalhada: novoItem.descricao_detalhada || null,
+            marca: novoItem.marca || null,
+            modelo: novoItem.modelo || null,
             valor_unitario: parseFloat(novoItem.valor_unitario),
             codigo_catalogo: novoItem.codigo_catalogo || null,
             codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
@@ -765,6 +773,8 @@ export default function DetalheContratoOrgaoPage() {
             numero_item: novoItem.numero_item,
             descricao: novoItem.descricao,
             descricao_detalhada: novoItem.descricao_detalhada || null,
+            marca: novoItem.marca || null,
+            modelo: novoItem.modelo || null,
             unidade_medida: novoItem.unidade_medida,
             valor_unitario: parseFloat(novoItem.valor_unitario),
             quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
@@ -1935,7 +1945,18 @@ export default function DetalheContratoOrgaoPage() {
             </div>
             <div className="space-y-2">
               <Label>Descrição Detalhada</Label>
-              <Textarea placeholder="Especificações técnicas, marca, modelo, etc. (opcional)" value={novoItem.descricao_detalhada} onChange={(e) => setNovoItem({...novoItem, descricao_detalhada: e.target.value})} rows={2} />
+              <Textarea placeholder="Especificações técnicas (opcional)" value={novoItem.descricao_detalhada} onChange={(e) => setNovoItem({...novoItem, descricao_detalhada: e.target.value})} rows={2} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Marca</Label>
+                <Input placeholder="Ex: Dell, Samsung, Canon..." value={novoItem.marca} onChange={(e) => setNovoItem({...novoItem, marca: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Modelo</Label>
+                <Input placeholder="Ex: Inspiron 15, Galaxy S23..." value={novoItem.modelo} onChange={(e) => setNovoItem({...novoItem, modelo: e.target.value})} />
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
