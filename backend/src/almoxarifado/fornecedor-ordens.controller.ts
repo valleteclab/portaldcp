@@ -17,7 +17,7 @@ import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
-@Controller('fornecedores/ordens')
+@Controller('fornecedor/ordens')
 export class FornecedorOrdensController {
   constructor(private readonly ordemService: OrdemFornecimentoService) {}
 

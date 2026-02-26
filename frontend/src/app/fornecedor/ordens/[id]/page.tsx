@@ -83,7 +83,7 @@ export default function OrdemDetalheFornecedorPage() {
   const carregarOrdem = async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/ordens/${id}`)
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}`)
       if (res.ok) {
         setOrdem(await res.json())
       } else {
@@ -104,7 +104,7 @@ export default function OrdemDetalheFornecedorPage() {
     setSubmitting(true)
     setErro(null)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/ordens/${id}/ciencia-recebimento`, {
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/ciencia-recebimento`, {
         method: 'POST',
         body: JSON.stringify({ observacao: observacao || undefined }),
       })
@@ -131,7 +131,7 @@ export default function OrdemDetalheFornecedorPage() {
     setSubmitting(true)
     setErro(null)
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/ordens/${id}/ciencia-entrega`, {
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/ciencia-entrega`, {
         method: 'POST',
         body: JSON.stringify({
           data_entrega: dataEntrega,

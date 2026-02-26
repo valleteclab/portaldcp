@@ -54,8 +54,8 @@ export default function OrdensFornecedorPage() {
     setLoading(true)
     try {
       const url = filtroStatus && filtroStatus !== 'ALL'
-        ? `${API_URL}/api/fornecedores/ordens?status=${filtroStatus}`
-        : `${API_URL}/api/fornecedores/ordens`
+        ? `${API_URL}/api/fornecedor/ordens?status=${filtroStatus}`
+        : `${API_URL}/api/fornecedor/ordens`
       const res = await authFetch(url)
       if (res.ok) {
         setOrdens(await res.json())
