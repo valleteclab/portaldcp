@@ -114,6 +114,18 @@ interface Requisicao {
   prazo_execucao_dias?: number | null;
   responsavel_tecnico?: string | null;
   fiscal_contrato_nome?: string | null;
+  modo_os?: string | null;
+  itensOS?: Array<{
+    id: string;
+    quantidade_solicitada: number;
+    itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number };
+  }>;
+  etapasOS?: Array<{
+    id: string;
+    percentual_solicitado: number;
+    valor_solicitado?: number;
+    etapa?: { numero_etapa?: number; descricao?: string; valor_previsto?: number };
+  }>;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -1100,7 +1112,7 @@ function RequisicoesList() {
 
       {/* Modal Detalhes */}
       <Dialog open={showDetalhes} onOpenChange={setShowDetalhes}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Requisição {requisicaoSelecionada?.numero}</DialogTitle>
             <DialogDescription>
@@ -1143,6 +1155,18 @@ function RequisicoesList() {
                   <label className="text-sm font-medium text-gray-500">Valor Total</label>
                   <p className="font-semibold">{formatarMoeda(requisicaoSelecionada.valor_total_estimado)}</p>
                 </div>
+                {requisicaoSelecionada.data_autorizacao && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Data Autorização</label>
+                    <p>{formatarData(requisicaoSelecionada.data_autorizacao)}</p>
+                  </div>
+                )}
+                {requisicaoSelecionada.usuario_autorizador_nome && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Autorizador</label>
+                    <p>{requisicaoSelecionada.usuario_autorizador_nome}</p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1162,6 +1186,63 @@ function RequisicoesList() {
                 </div>
               )}
 
+              {/* Informações específicas da OS */}
+              {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' && (
+                <div className="border rounded-lg p-4 space-y-3 bg-indigo-50">
+                  <h4 className="font-semibold text-indigo-800">Informações da Ordem de Serviço</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {requisicaoSelecionada.modo_os && (
+                      <div>
+                        <label className="text-gray-500">Tipo de Ordem</label>
+                        <p className="font-medium">{requisicaoSelecionada.modo_os === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'Ordem por Demanda'}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.descricao_os && (
+                      <div className="col-span-2">
+                        <label className="text-gray-500">Objeto da OS</label>
+                        <p className="font-medium">{requisicaoSelecionada.descricao_os}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.local_execucao && (
+                      <div>
+                        <label className="text-gray-500">Local de Execução</label>
+                        <p className="font-medium">{requisicaoSelecionada.local_execucao}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.responsavel_tecnico && (
+                      <div>
+                        <label className="text-gray-500">Responsável Técnico</label>
+                        <p className="font-medium">{requisicaoSelecionada.responsavel_tecnico}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.fiscal_contrato_nome && (
+                      <div>
+                        <label className="text-gray-500">Fiscal</label>
+                        <p className="font-medium">{requisicaoSelecionada.fiscal_contrato_nome}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.data_inicio_prevista && (
+                      <div>
+                        <label className="text-gray-500">Início Previsto</label>
+                        <p className="font-medium">{formatarData(requisicaoSelecionada.data_inicio_prevista)}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.data_fim_prevista && (
+                      <div>
+                        <label className="text-gray-500">Fim Previsto</label>
+                        <p className="font-medium">{formatarData(requisicaoSelecionada.data_fim_prevista)}</p>
+                      </div>
+                    )}
+                    {requisicaoSelecionada.prazo_execucao_dias != null && (
+                      <div>
+                        <label className="text-gray-500">Prazo de Execução</label>
+                        <p className="font-medium">{requisicaoSelecionada.prazo_execucao_dias} dias</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {requisicaoSelecionada.observacao_autorizador && (
                 <div>
                   <label className="text-sm font-medium text-gray-500">Observação do Autorizador</label>
@@ -1169,33 +1250,114 @@ function RequisicoesList() {
                 </div>
               )}
 
-              <div>
-                <label className="text-sm font-medium text-gray-500 mb-2 block">Itens</label>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead>Qtd. Solicitada</TableHead>
-                      <TableHead>Qtd. Autorizada</TableHead>
-                      <TableHead>Valor Unit.</TableHead>
-                      <TableHead>Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {requisicaoSelecionada.itens?.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.numero_item}</TableCell>
-                        <TableCell>{item.descricao}</TableCell>
-                        <TableCell>{item.quantidade_solicitada} {item.unidade_medida}</TableCell>
-                        <TableCell>{item.quantidade_autorizada || '-'}</TableCell>
-                        <TableCell>{item.valor_unitario ? formatarMoeda(item.valor_unitario) : '-'}</TableCell>
-                        <TableCell>{item.valor_total_estimado ? formatarMoeda(item.valor_total_estimado) : '-'}</TableCell>
+              {/* Itens de cronograma (itensOS) */}
+              {requisicaoSelecionada.itensOS && requisicaoSelecionada.itensOS.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">Itens da OS</label>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-right">Unidade</TableHead>
+                        <TableHead className="text-right">Qtd. Solicitada</TableHead>
+                        <TableHead className="text-right">Valor Unit.</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {requisicaoSelecionada.itensOS.map((item, idx) => {
+                        const ic = item.itemCronograma;
+                        const total = item.quantidade_solicitada * Number(ic?.valor_unitario ?? 0);
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell>{idx + 1}</TableCell>
+                            <TableCell>{ic?.descricao ?? '-'}</TableCell>
+                            <TableCell className="text-right">{ic?.unidade_medida ?? '-'}</TableCell>
+                            <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
+                            <TableCell className="text-right">{ic?.valor_unitario ? formatarMoeda(ic.valor_unitario) : '-'}</TableCell>
+                            <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Etapas (etapasOS) */}
+              {requisicaoSelecionada.etapasOS && requisicaoSelecionada.etapasOS.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">Etapas da OS</label>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-right">%</TableHead>
+                        <TableHead className="text-right">Valor Previsto</TableHead>
+                        <TableHead className="text-right">Total Autorizado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {requisicaoSelecionada.etapasOS.map((e, idx) => {
+                        const perc = Number(e.percentual_solicitado ?? 0) || 100;
+                        const valorPrevisto = Number(e.etapa?.valor_previsto ?? 0);
+                        const total = valorPrevisto * perc / 100;
+                        return (
+                          <TableRow key={e.id}>
+                            <TableCell>{e.etapa?.numero_etapa ?? idx + 1}</TableCell>
+                            <TableCell>{e.etapa?.descricao ?? '-'}</TableCell>
+                            <TableCell className="text-right">{perc}%</TableCell>
+                            <TableCell className="text-right">{formatarMoeda(valorPrevisto)}</TableCell>
+                            <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Itens de requisição normal */}
+              {(!requisicaoSelecionada.itensOS?.length && !requisicaoSelecionada.etapasOS?.length) && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">Itens</label>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Qtd. Solicitada</TableHead>
+                        <TableHead>Qtd. Autorizada</TableHead>
+                        <TableHead>Valor Unit.</TableHead>
+                        <TableHead>Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {requisicaoSelecionada.itens?.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.numero_item}</TableCell>
+                          <TableCell>{item.descricao}</TableCell>
+                          <TableCell>{item.quantidade_solicitada} {item.unidade_medida}</TableCell>
+                          <TableCell>{item.quantidade_autorizada || '-'}</TableCell>
+                          <TableCell>{item.valor_unitario ? formatarMoeda(item.valor_unitario) : '-'}</TableCell>
+                          <TableCell>{item.valor_total_estimado ? formatarMoeda(item.valor_total_estimado) : '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {requisicaoSelecionada.pdf_assinado_url && (
+                <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <span className="text-sm text-green-700">PDF assinado digitalmente disponível</span>
+                  {requisicaoSelecionada.codigo_validacao && (
+                    <span className="text-xs text-gray-500 ml-auto">Código: {requisicaoSelecionada.codigo_validacao}</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
