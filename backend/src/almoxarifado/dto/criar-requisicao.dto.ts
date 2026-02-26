@@ -275,6 +275,10 @@ export class EnviarAoFornecedorDto {
   @IsOptional()
   @IsString()
   telefone_fornecedor?: string;
+
+  @IsOptional()
+  @IsString()
+  tipo?: 'email' | 'whatsapp';
 }
 
 export class NegarRequisicaoDto {

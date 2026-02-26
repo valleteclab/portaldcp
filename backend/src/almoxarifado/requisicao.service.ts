@@ -132,7 +132,7 @@ export class RequisicaoService {
     requisicao: Requisicao,
     pdfPath: string,
     urlBase: string,
-    overrides?: { email?: string; telefone?: string },
+    overrides?: { email?: string; telefone?: string; tipo?: 'email' | 'whatsapp' },
   ): Promise<{ email: boolean; notificacao: boolean; whatsapp: boolean }> {
     const resultado = { email: false, notificacao: false, whatsapp: false };
     const fornecedor = requisicao.contrato?.fornecedor;
@@ -140,8 +140,9 @@ export class RequisicaoService {
 
     const emailFornecedor = (overrides?.email?.trim() || fornecedor.email || '').trim();
     const telefoneFornecedor = (overrides?.telefone?.trim() || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
+    const tipo = overrides?.tipo;
 
-    if (emailFornecedor) {
+    if ((!tipo || tipo === 'email') && emailFornecedor) {
       try {
         const pdfBuffer = fs.readFileSync(pdfPath);
         const nomeArquivo = `OS_${requisicao.numero.replace(/\//g, '_')}_assinada.pdf`;
@@ -178,7 +179,7 @@ export class RequisicaoService {
       this.logger.warn(`Erro ao criar notificação para fornecedor OS ${requisicao.numero}: ${err.message}`);
     }
 
-    if (telefoneFornecedor && telefoneFornecedor.length >= 10) {
+    if ((!tipo || tipo === 'whatsapp') && telefoneFornecedor && telefoneFornecedor.length >= 10) {
       try {
         const configurado = await this.whatsappService.isConfigurado(requisicao.orgao_id);
         if (configurado && requisicao.contrato_id) {
@@ -1548,6 +1549,7 @@ export class RequisicaoService {
     const resultado = await this.notificarFornecedorOS(requisicao, requisicao.pdf_assinado_url, urlBase, {
       email: dto?.email_fornecedor,
       telefone: dto?.telefone_fornecedor,
+      tipo: dto?.tipo,
     });
     return { notificacoes_fornecedor: resultado };
   }

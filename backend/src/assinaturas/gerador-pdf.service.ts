@@ -188,13 +188,13 @@ export class GeradorPdfService {
             itemCronograma: etapa.etapa ? {
               descricao: `Etapa ${etapa.etapa.numero_etapa}: ${etapa.etapa.descricao ?? '-'}`,
               unidade_medida: '%',
-              valor_unitario: etapa.valor_etapa ?? etapa.etapa?.valor_etapa ?? 0,
+              valor_unitario: etapa.valor_etapa ?? etapa.etapa?.valor_previsto ?? etapa.etapa?.valor_etapa ?? 0,
               quantidade_meses: null,
               valor_mensal: null,
             } : {
               descricao: etapa.descricao ?? `Etapa ${etapa.numero_etapa ?? ''}`,
               unidade_medida: '%',
-              valor_unitario: etapa.valor_etapa ?? 0,
+              valor_unitario: etapa.valor_previsto ?? etapa.valor_etapa ?? 0,
               quantidade_meses: null,
               valor_mensal: null,
             },

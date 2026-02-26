@@ -570,7 +570,7 @@ export default function CentralAprovacoesPage() {
     if (!requisicaoSelecionada) return;
     setEnviandoFornecedor(tipo);
     try {
-      const body: Record<string, string> = {};
+      const body: Record<string, string> = { tipo };
       if (tipo === 'email' && emailFornecedorEdit) body.email_fornecedor = emailFornecedorEdit;
       if (tipo === 'whatsapp' && telefoneFornecedorEdit) body.telefone_fornecedor = telefoneFornecedorEdit;
 
