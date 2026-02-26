@@ -44,7 +44,7 @@ interface Ordem {
 export default function OrdensFornecedorPage() {
   const [ordens, setOrdens] = useState<Ordem[]>([])
   const [loading, setLoading] = useState(true)
-  const [filtroStatus, setFiltroStatus] = useState<string>('')
+  const [filtroStatus, setFiltroStatus] = useState<string>('ALL')
 
   useEffect(() => {
     carregarOrdens()
@@ -53,7 +53,7 @@ export default function OrdensFornecedorPage() {
   const carregarOrdens = async () => {
     setLoading(true)
     try {
-      const url = filtroStatus
+      const url = filtroStatus && filtroStatus !== 'ALL'
         ? `${API_URL}/api/fornecedores/ordens?status=${filtroStatus}`
         : `${API_URL}/api/fornecedores/ordens`
       const res = await authFetch(url)
@@ -106,7 +106,7 @@ export default function OrdensFornecedorPage() {
             <SelectValue placeholder="Todos os status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todos os status</SelectItem>
+            <SelectItem value="ALL">Todos os status</SelectItem>
             {Object.entries(STATUS_ORDEM).map(([k, v]) => (
               <SelectItem key={k} value={k}>
                 {v.label}
