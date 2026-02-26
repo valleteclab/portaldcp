@@ -35,6 +35,7 @@ import {
   AtualizarRequisicaoDto,
   AutorizarRequisicaoDto,
   NegarRequisicaoDto,
+  DevolverRequisicaoDto,
   EnviarAoFornecedorDto,
 } from './dto/criar-requisicao.dto';
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
@@ -341,6 +342,21 @@ export class AlmoxarifadoController {
   ) {
     const user = request.user;
     return this.requisicaoService.negar(
+      id,
+      dto,
+      user.sub,
+      user.email || 'Autorizador',
+    );
+  }
+
+  @Post('requisicoes/:id/devolver')
+  async devolverRequisicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe()) dto: DevolverRequisicaoDto,
+  ) {
+    const user = request.user;
+    return this.requisicaoService.devolver(
       id,
       dto,
       user.sub,

@@ -39,6 +39,7 @@ export enum StatusRequisicao {
   AGUARDANDO_AUTORIZACAO = 'AGUARDANDO_AUTORIZACAO', // Aguardando aprovação do gestor
   AUTORIZADA = 'AUTORIZADA',                        // Aprovada - saldo reservado
   NEGADA = 'NEGADA',                                // Negada - saldo liberado (se tinha reserva)
+  DEVOLVIDA = 'DEVOLVIDA',                          // Devolvida para revisão pelo solicitante
   CANCELADA = 'CANCELADA',                          // Cancelada pelo solicitante
   ORDEM_GERADA = 'ORDEM_GERADA',                    // Ordem de fornecimento gerada
   ATENDIDA_PARCIAL = 'ATENDIDA_PARCIAL',            // Parcialmente recebida

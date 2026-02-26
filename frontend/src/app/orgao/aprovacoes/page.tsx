@@ -26,6 +26,10 @@ import {
   TrendingUp,
   ChevronRight,
   Shield,
+  RotateCcw,
+  Download,
+  Mail,
+  MessageCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -261,8 +265,13 @@ export default function CentralAprovacoesPage() {
   const [requisicaoSelecionada, setRequisicaoSelecionada] = useState<Requisicao | null>(null);
   const [showAprovarRequisicao, setShowAprovarRequisicao] = useState(false);
   const [showNegarRequisicao, setShowNegarRequisicao] = useState(false);
+  const [showDevolverRequisicao, setShowDevolverRequisicao] = useState(false);
+  const [showPosAprovacao, setShowPosAprovacao] = useState(false);
   const [observacaoRequisicao, setObservacaoRequisicao] = useState('');
   const [motivoNegativaRequisicao, setMotivoNegativaRequisicao] = useState('');
+  const [motivoDevolucaoRequisicao, setMotivoDevolucaoRequisicao] = useState('');
+  const [baixandoPdf, setBaixandoPdf] = useState(false);
+  const [enviandoFornecedor, setEnviandoFornecedor] = useState<'email' | 'whatsapp' | null>(null);
 
   // Modais Contrato
   const [contratoSelecionado, setContratoSelecionado] = useState<Contrato | null>(null);
@@ -320,6 +329,16 @@ export default function CentralAprovacoesPage() {
       carregarOrdensServico();
     }
   }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
+
+  useEffect(() => {
+    if (!orgaoId) return;
+    const interval = setInterval(() => {
+      if (podeAprovarRequisicoes) carregarRequisicoes();
+      carregarMedicoes();
+      carregarOrdensServico();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [orgaoId, podeAprovarRequisicoes]);
 
   // ============ CARREGAR DADOS ============
 
@@ -444,6 +463,7 @@ export default function CentralAprovacoesPage() {
       });
       if (res.ok) {
         setShowAprovarRequisicao(false);
+        setShowPosAprovacao(true);
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
@@ -478,6 +498,82 @@ export default function CentralAprovacoesPage() {
       alert('Erro ao negar requisição');
     } finally {
       setProcessando(false);
+    }
+  };
+
+  const devolverRequisicao = async () => {
+    if (!requisicaoSelecionada || !motivoDevolucaoRequisicao.trim()) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/devolver`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo: motivoDevolucaoRequisicao }),
+      });
+      if (res.ok) {
+        setShowDevolverRequisicao(false);
+        setMotivoDevolucaoRequisicao('');
+        await carregarRequisicoes();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao devolver requisição');
+      }
+    } catch (error) {
+      console.error('Erro:', error);
+      alert('Erro ao devolver requisição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const baixarPdfRequisicao = async () => {
+    if (!requisicaoSelecionada) return;
+    setBaixandoPdf(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/pdf-assinado`);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `OS_${requisicaoSelecionada.numero.replace(/\//g, '_')}_assinada.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('PDF não disponível. A OS pode ainda estar sendo processada.');
+      }
+    } catch {
+      alert('Erro ao baixar PDF');
+    } finally {
+      setBaixandoPdf(false);
+    }
+  };
+
+  const enviarAoFornecedorRequisicao = async (tipo: 'email' | 'whatsapp') => {
+    if (!requisicaoSelecionada) return;
+    setEnviandoFornecedor(tipo);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/enviar-ao-fornecedor`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const n = data.notificacoes_fornecedor;
+        if (tipo === 'email') {
+          alert(n?.email ? 'Email enviado ao fornecedor!' : 'Email não disponível para este fornecedor.');
+        } else {
+          alert(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não disponível para este fornecedor.');
+        }
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(error.message || 'Erro ao enviar notificação');
+      }
+    } catch {
+      alert('Erro ao enviar notificação ao fornecedor');
+    } finally {
+      setEnviandoFornecedor(null);
     }
   };
 
@@ -998,6 +1094,15 @@ export default function CentralAprovacoesPage() {
                           >
                             <XCircle className="h-4 w-4 mr-1" />
                             Negar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                            onClick={() => { setRequisicaoSelecionada(requisicao); setMotivoDevolucaoRequisicao(''); setShowDevolverRequisicao(true); }}
+                          >
+                            <RotateCcw className="h-4 w-4 mr-1" />
+                            Devolver
                           </Button>
                         </div>
                       </div>
@@ -1791,6 +1896,105 @@ export default function CentralAprovacoesPage() {
             <Button variant="destructive" onClick={negarRequisicao} disabled={processando || !motivoNegativaRequisicao.trim()}>
               {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
               Confirmar Negativa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Devolver Requisição */}
+      <Dialog open={showDevolverRequisicao} onOpenChange={setShowDevolverRequisicao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <RotateCcw className="h-5 w-5" />
+              Devolver para Revisão
+            </DialogTitle>
+            <DialogDescription>
+              Devolve a requisição {requisicaoSelecionada?.numero} para o solicitante corrigir.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-amber-50 p-4 rounded-lg mb-4">
+              <p className="text-sm text-amber-800">
+                A requisição será devolvida ao solicitante com o motivo informado para que ele faça as correções necessárias e reenvie para aprovação.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="motivo-devolucao">Motivo da Devolução *</Label>
+              <Textarea
+                id="motivo-devolucao"
+                value={motivoDevolucaoRequisicao}
+                onChange={(e) => setMotivoDevolucaoRequisicao(e.target.value)}
+                placeholder="Informe o que deve ser corrigido ou ajustado"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDevolverRequisicao(false)}>Cancelar</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={devolverRequisicao}
+              disabled={processando || !motivoDevolucaoRequisicao.trim()}
+            >
+              {processando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+              Confirmar Devolução
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Pós-Aprovação */}
+      <Dialog open={showPosAprovacao} onOpenChange={setShowPosAprovacao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <CheckCircle className="h-5 w-5" />
+              Requisição Aprovada!
+            </DialogTitle>
+            <DialogDescription>
+              {requisicaoSelecionada?.numero} foi aprovada com sucesso. O que deseja fazer agora?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' && (
+              <>
+                <Button
+                  className="w-full justify-start"
+                  variant="outline"
+                  onClick={baixarPdfRequisicao}
+                  disabled={baixandoPdf}
+                >
+                  {baixandoPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                  Baixar PDF da Ordem de Serviço
+                </Button>
+                <Button
+                  className="w-full justify-start"
+                  variant="outline"
+                  onClick={() => enviarAoFornecedorRequisicao('email')}
+                  disabled={enviandoFornecedor !== null}
+                >
+                  {enviandoFornecedor === 'email' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+                  Enviar por Email ao Fornecedor
+                </Button>
+                <Button
+                  className="w-full justify-start"
+                  variant="outline"
+                  onClick={() => enviarAoFornecedorRequisicao('whatsapp')}
+                  disabled={enviandoFornecedor !== null}
+                >
+                  {enviandoFornecedor === 'whatsapp' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
+                  Enviar via WhatsApp ao Fornecedor
+                </Button>
+              </>
+            )}
+            <div className="text-sm text-gray-500 text-center pt-2">
+              O solicitante já foi notificado automaticamente sobre a aprovação.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setShowPosAprovacao(false); setRequisicaoSelecionada(null); }}>
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

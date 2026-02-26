@@ -23,6 +23,7 @@ import {
   AtualizarRequisicaoDto, 
   AutorizarRequisicaoDto,
   NegarRequisicaoDto,
+  DevolverRequisicaoDto,
   EnviarAoFornecedorDto,
 } from './dto/criar-requisicao.dto';
 
@@ -952,6 +953,56 @@ export class RequisicaoService {
 
   // ============================================================================
   // CANCELAR REQUISIÇÃO (LIBERA SALDO)
+  // ============================================================================
+
+  async devolver(
+    id: string,
+    dto: DevolverRequisicaoDto,
+    autorizadorId: string,
+    autorizadorNome: string,
+  ): Promise<Requisicao> {
+    const requisicao = await this.findOne(id);
+
+    if (requisicao.status !== StatusRequisicao.AGUARDANDO_AUTORIZACAO) {
+      throw new BadRequestException(
+        `Requisição não pode ser devolvida. Status atual: ${requisicao.status}`,
+      );
+    }
+
+    if (!dto.motivo?.trim()) {
+      throw new BadRequestException('É obrigatório informar o motivo da devolução');
+    }
+
+    requisicao.status = StatusRequisicao.DEVOLVIDA;
+    requisicao.usuario_autorizador_id = autorizadorId;
+    requisicao.usuario_autorizador_nome = autorizadorNome;
+    requisicao.data_autorizacao = new Date();
+    requisicao.observacao_autorizador = dto.motivo;
+
+    this.logger.log(`Requisição ${requisicao.numero} devolvida por ${autorizadorNome}: ${dto.motivo}`);
+
+    const saved = await this.requisicaoRepository.save(requisicao);
+
+    try {
+      await this.notificacoesService.notificarResultadoRequisicao(
+        requisicao.orgao_id,
+        requisicao.numero,
+        requisicao.id,
+        {
+          id: requisicao.usuario_solicitante_id,
+          email: requisicao.usuario_solicitante_email || undefined,
+        },
+        false,
+        autorizadorNome,
+        `DEVOLVIDA PARA REVISÃO: ${dto.motivo}`,
+      );
+    } catch (notifError) {
+      this.logger.warn(`Erro ao enviar notificação de devolução: ${notifError.message}`);
+    }
+
+    return saved;
+  }
+
   // ============================================================================
 
   /**

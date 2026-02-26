@@ -281,3 +281,8 @@ export class NegarRequisicaoDto {
   @IsString()
   motivo: string;
 }
+
+export class DevolverRequisicaoDto {
+  @IsString()
+  motivo: string;
+}
