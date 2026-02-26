@@ -31,7 +31,9 @@ import {
   Shield,
   Warehouse,
   FilePen,
-  ClipboardList
+  ClipboardList,
+  Bot,
+  MessageCircle
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -60,6 +62,8 @@ const MODULOS = [
   { codigo: 'ALMOXARIFADO', nome: 'Almoxarifado', descricao: 'Gestão de almoxarifado e ordens de fornecimento', icon: Warehouse },
   { codigo: 'PORTAL_ASSINATURAS', nome: 'Portal de Assinaturas', descricao: 'Assinaturas eletrônicas de documentos avulsos', icon: FilePen },
   { codigo: 'ORDENS_SERVICO', nome: 'Ordens de Serviço', descricao: 'Gestão de Ordens de Serviço para contratos', icon: ClipboardList },
+  { codigo: 'IA_CONTRATOS', nome: 'IA Contratos', descricao: 'Importação de contratos via Inteligência Artificial', icon: Bot },
+  { codigo: 'WHATSAPP_CHAT', nome: 'WhatsApp Chat', descricao: 'Chat integrado com WhatsApp via Z-API', icon: MessageCircle },
 ]
 
 export default function AdminModulosPage() {
