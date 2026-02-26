@@ -133,8 +133,8 @@ function opcoesMesesReferencia(): { value: string; label: string }[] {
 }
 
 function ContratosOrgaoPageContent() {
-  const { temModulo } = useModulosOrgao()
-  const temIaContratos = temModulo(ModuloSistema.IA_CONTRATOS)
+  const { temAcesso } = useModulosOrgao()
+  const temIaContratos = temAcesso(ModuloSistema.IA_CONTRATOS)
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
