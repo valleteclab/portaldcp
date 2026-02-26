@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useModulosOrgao, ModuloSistema } from '@/hooks/useModulosOrgao'
+import { ModuleGuard } from '@/components/ModuleGuard'
 import { 
   Plus, 
   Bot,
@@ -135,6 +136,7 @@ function opcoesMesesReferencia(): { value: string; label: string }[] {
 function ContratosOrgaoPageContent() {
   const { temAcesso } = useModulosOrgao()
   const temIaContratos = temAcesso(ModuloSistema.IA_CONTRATOS)
+  const temAlmoxarifado = temAcesso(ModuloSistema.ALMOXARIFADO)
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
@@ -143,8 +145,6 @@ function ContratosOrgaoPageContent() {
     status: '',
     ano: ''
   })
-  const { temAcesso } = useModulosOrgao()
-  const temAlmoxarifado = temAcesso(ModuloSistema.ALMOXARIFADO)
 
   // Estados para modal Solicitar medição
   const [solicitarContrato, setSolicitarContrato] = useState<Contrato | null>(null)
