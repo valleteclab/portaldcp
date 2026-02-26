@@ -889,20 +889,20 @@ function RequisicoesList() {
 
       {/* Tabela */}
       <Card>
-        <CardContent className="pt-6">
-          <Table>
+        <CardContent className="pt-6 overflow-x-auto">
+          <Table className="text-xs">
             <TableHeader>
               <TableRow>
-                <TableHead>Número</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Setor</TableHead>
-                <TableHead>Solicitante</TableHead>
-                <TableHead>Data</TableHead>
-                <TableHead>Prioridade</TableHead>
-                <TableHead>Valor</TableHead>
-                <TableHead>Empresa</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+                <TableHead className="whitespace-nowrap">Número</TableHead>
+                <TableHead className="w-12">Tipo</TableHead>
+                <TableHead className="whitespace-nowrap">Setor</TableHead>
+                <TableHead className="whitespace-nowrap">Solicitante</TableHead>
+                <TableHead className="whitespace-nowrap">Data</TableHead>
+                <TableHead className="w-20">Prioridade</TableHead>
+                <TableHead className="whitespace-nowrap">Valor</TableHead>
+                <TableHead className="whitespace-nowrap">Empresa</TableHead>
+                <TableHead className="whitespace-nowrap">Status</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -915,26 +915,26 @@ function RequisicoesList() {
               ) : (
                 requisicoesFiltradas.map((req) => (
                   <TableRow key={req.id}>
-                    <TableCell className="font-medium">{req.numero}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">{req.numero}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={req.tipo === 'ORDEM_SERVICO' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}>
-                        {req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'MATERIAL' ? 'Material' : req.tipo === 'SERVICO' ? 'Serviço' : req.tipo}
+                      <Badge variant="outline" className={`text-xs ${req.tipo === 'ORDEM_SERVICO' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}`}>
+                        {req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'MATERIAL' ? 'Mat.' : req.tipo === 'SERVICO' ? 'Serv.' : req.tipo}
                       </Badge>
                     </TableCell>
-                    <TableCell>{req.setor_solicitante}</TableCell>
-                    <TableCell>{req.usuario_solicitante_nome}</TableCell>
-                    <TableCell>{formatarData(req.data_solicitacao)}</TableCell>
+                    <TableCell className="whitespace-nowrap">{req.setor_solicitante}</TableCell>
+                    <TableCell className="whitespace-nowrap">{req.usuario_solicitante_nome}</TableCell>
+                    <TableCell className="whitespace-nowrap">{formatarData(req.data_solicitacao)}</TableCell>
                     <TableCell>
-                      <Badge className={PRIORIDADE_COLORS[req.prioridade]}>
+                      <Badge className={`text-xs ${PRIORIDADE_COLORS[req.prioridade]}`}>
                         {req.prioridade}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatarMoeda(req.valor_total_estimado)}</TableCell>
-                    <TableCell className="max-w-[180px] truncate" title={req.contrato?.fornecedor?.razao_social}>
+                    <TableCell className="whitespace-nowrap">{formatarMoeda(req.valor_total_estimado)}</TableCell>
+                    <TableCell className="whitespace-nowrap max-w-[220px] truncate" title={req.contrato?.fornecedor?.razao_social}>
                       {req.contrato?.fornecedor?.razao_social || '-'}
                     </TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_COLORS[req.status]}>
+                    <TableCell className="whitespace-nowrap">
+                      <Badge className={`text-xs ${STATUS_COLORS[req.status]}`}>
                         {STATUS_LABELS[req.status]}
                       </Badge>
                     </TableCell>
