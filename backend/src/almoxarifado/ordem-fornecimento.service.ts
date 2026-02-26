@@ -911,18 +911,20 @@ export class OrdemFornecimentoService {
     fornecedorId: string,
     status?: StatusOrdemFornecimento,
   ): Promise<OrdemFornecimento[]> {
-    const query = this.ordemRepository.createQueryBuilder('ordem')
-      .leftJoinAndSelect('ordem.contrato', 'contrato')
-      .leftJoinAndSelect('ordem.orgao', 'orgao')
-      .leftJoinAndSelect('ordem.requisicao', 'requisicao')
-      .where('ordem.fornecedor_id = :fornecedorId', { fornecedorId })
-      .andWhere('ordem.status != :cancelada', { cancelada: StatusOrdemFornecimento.CANCELADA });
-
-    if (status) {
-      query.andWhere('ordem.status = :status', { status });
+    try {
+      const where: any = { fornecedor_id: fornecedorId };
+      if (status) {
+        where.status = status;
+      }
+      return await this.ordemRepository.find({
+        where,
+        relations: ['contrato', 'orgao'],
+        order: { created_at: 'DESC' },
+      });
+    } catch (err: any) {
+      this.logger.error(`findByFornecedor error: ${err?.message}`, err?.stack);
+      return [];
     }
-
-    return query.orderBy('ordem.created_at', 'DESC').getMany();
   }
 
   /**
