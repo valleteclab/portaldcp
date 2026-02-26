@@ -17,6 +17,16 @@ export const metadata: Metadata = {
   description: "Sistema completo de gestão de licitações públicas conforme Lei 14.133/2021. Participe de licitações de forma simples, segura e transparente.",
   keywords: ["licitações", "compras públicas", "pregão", "Lei 14.133", "PNCP", "fornecedores"],
   authors: [{ name: "ValletecLab" }],
+  icons: {
+    icon: [
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png" }],
+    other: [
+      { rel: "manifest", url: "/site.webmanifest" },
+    ],
+  },
 };
 
 export default function RootLayout({
