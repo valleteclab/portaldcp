@@ -303,9 +303,18 @@ function RequisicoesList() {
     });
   };
 
-  const handleVerDetalhes = (req: Requisicao) => {
+  const handleVerDetalhes = async (req: Requisicao) => {
     setRequisicaoSelecionada(req);
     setShowDetalhes(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRequisicaoSelecionada(data);
+      }
+    } catch {
+      // mantém dados parciais da lista
+    }
   };
 
   const handleAbrirAutorizar = (req: Requisicao) => {
