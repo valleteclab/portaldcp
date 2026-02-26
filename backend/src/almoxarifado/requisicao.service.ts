@@ -697,8 +697,22 @@ export class RequisicaoService {
             user_agent: undefined,
           });
 
+          // Recarrega com todas as relações necessárias para o PDF
+          const requisicaoParaPdf = await this.requisicaoRepository.findOne({
+            where: { id: requisicao.id },
+            relations: [
+              'itens', 'itens.item_contrato',
+              'itensOS', 'itensOS.itemCronograma',
+              'etapasOS', 'etapasOS.etapa',
+              'contrato', 'contrato.fornecedor',
+              'orgao',
+            ],
+          }) || requisicao;
+
+          this.logger.log(`PDF OS ${requisicao.numero}: itensOS=${requisicaoParaPdf.itensOS?.length ?? 0}, itens=${requisicaoParaPdf.itens?.length ?? 0}, etapasOS=${requisicaoParaPdf.etapasOS?.length ?? 0}`);
+
           const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
-            requisicao,
+            requisicaoParaPdf,
             [assinatura],
             `${urlBase}/validar-documento`,
           );

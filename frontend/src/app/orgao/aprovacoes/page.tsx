@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -277,6 +278,8 @@ export default function CentralAprovacoesPage() {
   const [motivoDevolucaoRequisicao, setMotivoDevolucaoRequisicao] = useState('');
   const [baixandoPdf, setBaixandoPdf] = useState(false);
   const [enviandoFornecedor, setEnviandoFornecedor] = useState<'email' | 'whatsapp' | null>(null);
+  const [emailFornecedorEdit, setEmailFornecedorEdit] = useState('');
+  const [telefoneFornecedorEdit, setTelefoneFornecedorEdit] = useState('');
 
   // Modais Contrato
   const [contratoSelecionado, setContratoSelecionado] = useState<Contrato | null>(null);
@@ -474,6 +477,8 @@ export default function CentralAprovacoesPage() {
           fornecedor_info: data.fornecedor_info,
           envio_automatico: data.envio_automatico,
         });
+        setEmailFornecedorEdit(data.fornecedor_info?.email || '');
+        setTelefoneFornecedorEdit(data.fornecedor_info?.telefone || '');
         setShowPosAprovacao(true);
         await carregarRequisicoes();
       } else {
@@ -565,17 +570,21 @@ export default function CentralAprovacoesPage() {
     if (!requisicaoSelecionada) return;
     setEnviandoFornecedor(tipo);
     try {
+      const body: Record<string, string> = {};
+      if (tipo === 'email' && emailFornecedorEdit) body.email_fornecedor = emailFornecedorEdit;
+      if (tipo === 'whatsapp' && telefoneFornecedorEdit) body.telefone_fornecedor = telefoneFornecedorEdit;
+
       const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/enviar-ao-fornecedor`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const data = await res.json();
         const n = data.notificacoes_fornecedor;
         if (tipo === 'email') {
-          alert(n?.email ? 'Email enviado ao fornecedor!' : 'Email não disponível para este fornecedor.');
+          alert(n?.email ? 'Email enviado ao fornecedor!' : 'Email não pôde ser enviado. Verifique o endereço.');
         } else {
-          alert(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não disponível para este fornecedor.');
+          alert(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não pôde ser enviado. Verifique o telefone.');
         }
       } else {
         const error = await res.json().catch(() => ({}));
@@ -1968,20 +1977,31 @@ export default function CentralAprovacoesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
-            {/* Info do fornecedor */}
+            {/* Info do fornecedor + campos editáveis */}
             {posAprovacaoData?.fornecedor_info && (
-              <div className="bg-gray-50 rounded-lg p-3 space-y-1">
-                <p className="text-sm font-semibold text-gray-700">Fornecedor</p>
-                <p className="text-sm text-gray-600">{posAprovacaoData.fornecedor_info.nome}</p>
-                <div className="flex flex-wrap gap-3 mt-1">
-                  <span className="text-xs flex items-center gap-1">
-                    <Mail className="h-3 w-3" />
-                    {posAprovacaoData.fornecedor_info.email || <span className="text-red-400">Email não cadastrado</span>}
-                  </span>
-                  <span className="text-xs flex items-center gap-1">
-                    <MessageCircle className="h-3 w-3" />
-                    {posAprovacaoData.fornecedor_info.telefone || <span className="text-red-400">Telefone não cadastrado</span>}
-                  </span>
+              <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+                <p className="text-sm font-semibold text-gray-700">{posAprovacaoData.fornecedor_info.nome}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-gray-500">Email do fornecedor</Label>
+                    <Input
+                      type="email"
+                      value={emailFornecedorEdit}
+                      onChange={(e) => setEmailFornecedorEdit(e.target.value)}
+                      placeholder="email@fornecedor.com"
+                      className="h-8 text-sm mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">WhatsApp (c/ DDD)</Label>
+                    <Input
+                      type="tel"
+                      value={telefoneFornecedorEdit}
+                      onChange={(e) => setTelefoneFornecedorEdit(e.target.value)}
+                      placeholder="77999999999"
+                      className="h-8 text-sm mt-1"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -2023,21 +2043,21 @@ export default function CentralAprovacoesPage() {
                       className="w-full justify-start"
                       variant="outline"
                       onClick={() => enviarAoFornecedorRequisicao('email')}
-                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.email}
+                      disabled={enviandoFornecedor !== null || !emailFornecedorEdit.trim()}
                     >
                       {enviandoFornecedor === 'email' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
                       Enviar por Email ao Fornecedor
-                      {!posAprovacaoData?.fornecedor_info?.email && <span className="ml-auto text-xs text-red-400">sem email</span>}
+                      {!emailFornecedorEdit.trim() && <span className="ml-auto text-xs text-red-400">informe o email</span>}
                     </Button>
                     <Button
                       className="w-full justify-start"
                       variant="outline"
                       onClick={() => enviarAoFornecedorRequisicao('whatsapp')}
-                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.telefone}
+                      disabled={enviandoFornecedor !== null || !telefoneFornecedorEdit.trim()}
                     >
                       {enviandoFornecedor === 'whatsapp' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
                       Enviar via WhatsApp ao Fornecedor
-                      {!posAprovacaoData?.fornecedor_info?.telefone && <span className="ml-auto text-xs text-red-400">sem telefone</span>}
+                      {!telefoneFornecedorEdit.trim() && <span className="ml-auto text-xs text-red-400">informe o telefone</span>}
                     </Button>
                   </>
                 )}
@@ -2049,7 +2069,7 @@ export default function CentralAprovacoesPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => enviarAoFornecedorRequisicao('email')}
-                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.email}
+                      disabled={enviandoFornecedor !== null || !emailFornecedorEdit.trim()}
                     >
                       {enviandoFornecedor === 'email' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
                       Reenviar Email
@@ -2059,7 +2079,7 @@ export default function CentralAprovacoesPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => enviarAoFornecedorRequisicao('whatsapp')}
-                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.telefone}
+                      disabled={enviandoFornecedor !== null || !telefoneFornecedorEdit.trim()}
                     >
                       {enviandoFornecedor === 'whatsapp' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
                       Reenviar WhatsApp
