@@ -209,6 +209,13 @@ export class Orgao {
   @Column({ type: 'varchar', length: 20, nullable: true, default: 'REQUISICAO' })
   fluxo_os: 'REQUISICAO' | 'MODULO_OS';
 
+  /**
+   * Quando true, ao aprovar uma OS envia automaticamente email e WhatsApp ao fornecedor.
+   * Quando false (padrão), o aprovador decide manualmente no modal pós-aprovação.
+   */
+  @Column({ type: 'boolean', default: false })
+  envio_automatico_os: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

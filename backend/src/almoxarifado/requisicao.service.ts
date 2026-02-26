@@ -709,12 +709,14 @@ export class RequisicaoService {
 
           this.logger.log(`PDF assinado gerado para OS ${requisicao.numero} - código: ${assinatura.codigo_validacao}`);
 
-          if (dto.enviar_ao_fornecedor !== false) {
+          if (dto.enviar_ao_fornecedor === true || requisicao.orgao?.envio_automatico_os === true) {
             const res = await this.notificarFornecedorOS(requisicao, pdfPath, urlBase, {
               email: dto.email_fornecedor,
               telefone: dto.telefone_fornecedor,
             });
             Object.assign(notificacoesFornecedor, res);
+          } else {
+            this.logger.log(`OS ${requisicao.numero}: envio automático desabilitado para o órgão. Aguardando envio manual.`);
           }
         } catch (assinaturaError) {
           this.logger.warn(`Erro ao gerar assinatura/PDF da OS ${requisicao.numero}: ${assinaturaError.message}`);
@@ -739,7 +741,17 @@ export class RequisicaoService {
         }
 
         const requisicaoAtualizada = await this.findOne(id);
-        return { requisicao: requisicaoAtualizada, notificacoes_fornecedor: notificacoesFornecedor } as any;
+        const fornecedor = requisicaoAtualizada.contrato?.fornecedor;
+        return {
+          requisicao: requisicaoAtualizada,
+          notificacoes_fornecedor: notificacoesFornecedor,
+          fornecedor_info: fornecedor ? {
+            nome: fornecedor.razao_social,
+            email: fornecedor.email || null,
+            telefone: fornecedor.representante_telefone || fornecedor.telefone || null,
+          } : null,
+          envio_automatico: requisicaoAtualizada.orgao?.envio_automatico_os ?? false,
+        } as any;
       }
 
       // =========================================================================

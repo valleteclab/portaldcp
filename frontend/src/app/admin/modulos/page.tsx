@@ -46,6 +46,7 @@ interface Orgao {
   modulos_ativos: string[]
   status: string
   fluxo_os?: 'REQUISICAO' | 'MODULO_OS'
+  envio_automatico_os?: boolean
 }
 
 const MODULOS = [
@@ -75,6 +76,7 @@ export default function AdminModulosPage() {
   const [saving, setSaving] = useState(false)
   const [modulosTemp, setModulosTemp] = useState<string[]>([])
   const [fluxoOsTemp, setFluxoOsTemp] = useState<'REQUISICAO' | 'MODULO_OS'>('REQUISICAO')
+  const [envioAutomaticoOsTemp, setEnvioAutomaticoOsTemp] = useState(false)
 
   useEffect(() => {
     carregarOrgaos()
@@ -102,6 +104,7 @@ export default function AdminModulosPage() {
     setSelectedOrgao(orgao)
     setModulosTemp(orgao.modulos_ativos || [])
     setFluxoOsTemp(orgao.fluxo_os === 'MODULO_OS' ? 'MODULO_OS' : 'REQUISICAO')
+    setEnvioAutomaticoOsTemp(orgao.envio_automatico_os ?? false)
     setModalOpen(true)
   }
 
@@ -119,7 +122,7 @@ export default function AdminModulosPage() {
     try {
       const res = await adminFetch(`${API_URL}/api/orgaos/${selectedOrgao.id}/modulos`, {
         method: 'PUT',
-        body: JSON.stringify({ modulos: modulosTemp, fluxo_os: fluxoOsTemp }),
+        body: JSON.stringify({ modulos: modulosTemp, fluxo_os: fluxoOsTemp, envio_automatico_os: envioAutomaticoOsTemp }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -321,6 +324,25 @@ export default function AdminModulosPage() {
                   <span className="text-xs text-gray-500">(página dedicada)</span>
                 </label>
               </div>
+            </div>
+          )}
+
+          {modulosTemp.includes('ORDENS_SERVICO') && (
+            <div className="border-t pt-4 space-y-3">
+              <Label className="text-base font-medium">Envio Automático ao Fornecedor</Label>
+              <p className="text-sm text-gray-500">
+                Quando habilitado, ao aprovar uma OS o sistema enviará automaticamente email e WhatsApp ao fornecedor.
+                Quando desabilitado, o aprovador decide manualmente.
+              </p>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div
+                  className={`relative w-12 h-6 rounded-full transition-colors ${envioAutomaticoOsTemp ? 'bg-green-500' : 'bg-gray-300'}`}
+                  onClick={() => setEnvioAutomaticoOsTemp(prev => !prev)}
+                >
+                  <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${envioAutomaticoOsTemp ? 'translate-x-6' : ''}`} />
+                </div>
+                <span className="text-sm font-medium">{envioAutomaticoOsTemp ? 'Envio automático ativado' : 'Envio automático desativado (manual)'}</span>
+              </label>
             </div>
           )}
 

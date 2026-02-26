@@ -267,6 +267,11 @@ export default function CentralAprovacoesPage() {
   const [showNegarRequisicao, setShowNegarRequisicao] = useState(false);
   const [showDevolverRequisicao, setShowDevolverRequisicao] = useState(false);
   const [showPosAprovacao, setShowPosAprovacao] = useState(false);
+  const [posAprovacaoData, setPosAprovacaoData] = useState<{
+    notificacoes?: { email?: boolean; whatsapp?: boolean };
+    fornecedor_info?: { nome: string; email?: string | null; telefone?: string | null } | null;
+    envio_automatico?: boolean;
+  } | null>(null);
   const [observacaoRequisicao, setObservacaoRequisicao] = useState('');
   const [motivoNegativaRequisicao, setMotivoNegativaRequisicao] = useState('');
   const [motivoDevolucaoRequisicao, setMotivoDevolucaoRequisicao] = useState('');
@@ -462,7 +467,13 @@ export default function CentralAprovacoesPage() {
         body: JSON.stringify({ observacao: observacaoRequisicao }),
       });
       if (res.ok) {
+        const data = await res.json();
         setShowAprovarRequisicao(false);
+        setPosAprovacaoData({
+          notificacoes: data.notificacoes_fornecedor,
+          fornecedor_info: data.fornecedor_info,
+          envio_automatico: data.envio_automatico,
+        });
         setShowPosAprovacao(true);
         await carregarRequisicoes();
       } else {
@@ -1953,12 +1964,50 @@ export default function CentralAprovacoesPage() {
               Requisição Aprovada!
             </DialogTitle>
             <DialogDescription>
-              {requisicaoSelecionada?.numero} foi aprovada com sucesso. O que deseja fazer agora?
+              {requisicaoSelecionada?.numero} foi aprovada com sucesso.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-3">
+          <div className="py-4 space-y-4">
+            {/* Info do fornecedor */}
+            {posAprovacaoData?.fornecedor_info && (
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                <p className="text-sm font-semibold text-gray-700">Fornecedor</p>
+                <p className="text-sm text-gray-600">{posAprovacaoData.fornecedor_info.nome}</p>
+                <div className="flex flex-wrap gap-3 mt-1">
+                  <span className="text-xs flex items-center gap-1">
+                    <Mail className="h-3 w-3" />
+                    {posAprovacaoData.fornecedor_info.email || <span className="text-red-400">Email não cadastrado</span>}
+                  </span>
+                  <span className="text-xs flex items-center gap-1">
+                    <MessageCircle className="h-3 w-3" />
+                    {posAprovacaoData.fornecedor_info.telefone || <span className="text-red-400">Telefone não cadastrado</span>}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Status de envio automático */}
+            {posAprovacaoData?.envio_automatico && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-sm font-medium text-green-800 mb-1">Notificações enviadas automaticamente:</p>
+                <div className="flex gap-3 text-sm">
+                  <span className={posAprovacaoData.notificacoes?.email ? 'text-green-700' : 'text-red-600'}>
+                    {posAprovacaoData.notificacoes?.email ? '✓ Email enviado' : '✗ Email não enviado'}
+                  </span>
+                  <span className={posAprovacaoData.notificacoes?.whatsapp ? 'text-green-700' : 'text-red-600'}>
+                    {posAprovacaoData.notificacoes?.whatsapp ? '✓ WhatsApp enviado' : '✗ WhatsApp não enviado'}
+                  </span>
+                </div>
+                {(!posAprovacaoData.notificacoes?.email || !posAprovacaoData.notificacoes?.whatsapp) && (
+                  <p className="text-xs text-amber-700 mt-1">Verifique se o fornecedor possui email e telefone cadastrado.</p>
+                )}
+              </div>
+            )}
+
+            {/* Ações manuais para OS */}
             {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' && (
-              <>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">Ações:</p>
                 <Button
                   className="w-full justify-start"
                   variant="outline"
@@ -1968,32 +2017,64 @@ export default function CentralAprovacoesPage() {
                   {baixandoPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                   Baixar PDF da Ordem de Serviço
                 </Button>
-                <Button
-                  className="w-full justify-start"
-                  variant="outline"
-                  onClick={() => enviarAoFornecedorRequisicao('email')}
-                  disabled={enviandoFornecedor !== null}
-                >
-                  {enviandoFornecedor === 'email' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
-                  Enviar por Email ao Fornecedor
-                </Button>
-                <Button
-                  className="w-full justify-start"
-                  variant="outline"
-                  onClick={() => enviarAoFornecedorRequisicao('whatsapp')}
-                  disabled={enviandoFornecedor !== null}
-                >
-                  {enviandoFornecedor === 'whatsapp' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
-                  Enviar via WhatsApp ao Fornecedor
-                </Button>
-              </>
+                {!posAprovacaoData?.envio_automatico && (
+                  <>
+                    <Button
+                      className="w-full justify-start"
+                      variant="outline"
+                      onClick={() => enviarAoFornecedorRequisicao('email')}
+                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.email}
+                    >
+                      {enviandoFornecedor === 'email' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+                      Enviar por Email ao Fornecedor
+                      {!posAprovacaoData?.fornecedor_info?.email && <span className="ml-auto text-xs text-red-400">sem email</span>}
+                    </Button>
+                    <Button
+                      className="w-full justify-start"
+                      variant="outline"
+                      onClick={() => enviarAoFornecedorRequisicao('whatsapp')}
+                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.telefone}
+                    >
+                      {enviandoFornecedor === 'whatsapp' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
+                      Enviar via WhatsApp ao Fornecedor
+                      {!posAprovacaoData?.fornecedor_info?.telefone && <span className="ml-auto text-xs text-red-400">sem telefone</span>}
+                    </Button>
+                  </>
+                )}
+                {posAprovacaoData?.envio_automatico && (
+                  <>
+                    <p className="text-xs text-gray-500 font-medium">Reenviar notificação:</p>
+                    <Button
+                      className="w-full justify-start"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => enviarAoFornecedorRequisicao('email')}
+                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.email}
+                    >
+                      {enviandoFornecedor === 'email' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+                      Reenviar Email
+                    </Button>
+                    <Button
+                      className="w-full justify-start"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => enviarAoFornecedorRequisicao('whatsapp')}
+                      disabled={enviandoFornecedor !== null || !posAprovacaoData?.fornecedor_info?.telefone}
+                    >
+                      {enviandoFornecedor === 'whatsapp' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
+                      Reenviar WhatsApp
+                    </Button>
+                  </>
+                )}
+              </div>
             )}
-            <div className="text-sm text-gray-500 text-center pt-2">
+
+            <div className="text-sm text-gray-500 text-center border-t pt-3">
               O solicitante já foi notificado automaticamente sobre a aprovação.
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => { setShowPosAprovacao(false); setRequisicaoSelecionada(null); }}>
+            <Button onClick={() => { setShowPosAprovacao(false); setRequisicaoSelecionada(null); setPosAprovacaoData(null); }}>
               Fechar
             </Button>
           </DialogFooter>

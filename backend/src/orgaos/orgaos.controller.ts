@@ -313,11 +313,11 @@ export class OrgaosController {
   @Put(':id/modulos')
   async atualizarModulos(
     @Param('id') id: string,
-    @Body() body: { modulos: string[]; fluxo_os?: 'REQUISICAO' | 'MODULO_OS' },
+    @Body() body: { modulos: string[]; fluxo_os?: 'REQUISICAO' | 'MODULO_OS'; envio_automatico_os?: boolean },
   ) {
     const { ModuloSistema } = require('./enums/modulos.enum');
     const modulos = body.modulos.map(m => m as typeof ModuloSistema[keyof typeof ModuloSistema]);
-    const orgao = await this.orgaosService.atualizarModulos(id, modulos, body.fluxo_os);
+    const orgao = await this.orgaosService.atualizarModulos(id, modulos, body.fluxo_os, body.envio_automatico_os);
 
     return {
       success: true,

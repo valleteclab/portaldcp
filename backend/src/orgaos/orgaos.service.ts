@@ -371,6 +371,7 @@ export class OrgaosService {
     id: string,
     modulos: ModuloSistema[],
     fluxoOs?: 'REQUISICAO' | 'MODULO_OS',
+    envioAutomaticoOs?: boolean,
   ): Promise<Orgao> {
     const orgao = await this.findOne(id);
 
@@ -379,6 +380,10 @@ export class OrgaosService {
 
     if (fluxoOs !== undefined) {
       orgao.fluxo_os = fluxoOs;
+    }
+
+    if (envioAutomaticoOs !== undefined) {
+      orgao.envio_automatico_os = envioAutomaticoOs;
     }
 
     return await this.orgaoRepository.save(orgao);

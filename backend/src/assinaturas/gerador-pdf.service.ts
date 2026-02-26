@@ -160,11 +160,26 @@ export class GeradorPdfService {
         doc.moveDown(0.6);
 
         // ── TABELA DE ITENS ────────────────────────────────────────────────────
-        if (dadosOS.itensOS?.length > 0) {
+        // Normaliza: aceita itensOS (RequisicaoItemOS) ou itens (ItemRequisicao) como fallback
+        const itensParaRender: Array<{ quantidade_solicitada: number; itemCronograma: any }> =
+          (dadosOS.itensOS?.length > 0)
+            ? dadosOS.itensOS
+            : (dadosOS.itens ?? []).map((item: any) => ({
+                quantidade_solicitada: item.quantidade_solicitada ?? item.quantidade ?? 1,
+                itemCronograma: item.itemCronograma ?? item.item_contrato ?? {
+                  descricao: item.descricao_item ?? item.descricao ?? item.item_contrato?.descricao ?? '-',
+                  unidade_medida: item.unidade_medida ?? item.item_contrato?.unidade_medida ?? 'UN',
+                  valor_unitario: item.valor_unitario_estimado ?? item.valor_unitario ?? item.item_contrato?.valor_unitario ?? 0,
+                  quantidade_meses: item.quantidade_meses ?? null,
+                  valor_mensal: item.valor_mensal ?? null,
+                },
+              }));
+
+        if (itensParaRender.length > 0) {
           doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
             .text('Itens da Ordem de Serviço:', marginL, doc.y, { width: contentW });
           doc.moveDown(0.3);
-          this.escreverTabelaItensOS(doc, dadosOS.itensOS);
+          this.escreverTabelaItensOS(doc, itensParaRender);
         }
 
         // ── ASSINATURAS (nova página se restar menos de 180pt) ────────────────
