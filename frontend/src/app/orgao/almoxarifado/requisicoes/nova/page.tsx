@@ -2220,6 +2220,51 @@ function NovaRequisicaoForm() {
             </div>
           )}
 
+          {/* Etapas do cronograma (OS com etapas) */}
+          {isOS && usarEtapasCronograma && etapasOS.length > 0 && (
+            <div>
+              <h4 className="font-medium mb-2">
+                Etapas Autorizadas ({etapasOS.length}) — {modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'Ordem por Demanda'}
+              </h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right">%</TableHead>
+                    <TableHead className="text-right">Valor Previsto</TableHead>
+                    <TableHead className="text-right">Total Autorizado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {etapasOS.map((etapa, idx) => {
+                    const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
+                    const perc = modoOS === 'ORDEM_GLOBAL' ? 100 : (demanda?.percentual_solicitado ?? 0);
+                    const valorPrevisto = Number(etapa.valor_previsto ?? 0);
+                    const total = valorPrevisto * perc / 100;
+                    return (
+                      <TableRow key={etapa.id}>
+                        <TableCell>{etapa.numero_etapa ?? idx + 1}</TableCell>
+                        <TableCell className="max-w-[300px] truncate">{etapa.descricao}</TableCell>
+                        <TableCell className="text-right">{perc}%</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(valorPrevisto)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              <div className="mt-2 p-3 bg-indigo-50 rounded-lg text-sm text-indigo-800">
+                <strong>Total autorizado:</strong>{' '}
+                {formatarMoeda(etapasOS.reduce((s, etapa) => {
+                  const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
+                  const perc = modoOS === 'ORDEM_GLOBAL' ? 100 : (demanda?.percentual_solicitado ?? 0);
+                  return s + Number(etapa.valor_previsto ?? 0) * perc / 100;
+                }, 0))}
+              </div>
+            </div>
+          )}
+
           {/* Itens (apenas para requisição normal) */}
           {!isOS && (
             <>

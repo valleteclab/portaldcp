@@ -183,22 +183,29 @@ export class GeradorPdfService {
             }),
           }));
         } else if (dadosOS.etapasOS?.length > 0) {
-          itensParaRender = dadosOS.etapasOS.map((etapa: any) => ({
-            quantidade_solicitada: etapa.percentual_solicitado ?? etapa.percentual ?? 1,
-            itemCronograma: etapa.etapa ? {
-              descricao: `Etapa ${etapa.etapa.numero_etapa}: ${etapa.etapa.descricao ?? '-'}`,
-              unidade_medida: '%',
-              valor_unitario: etapa.valor_etapa ?? etapa.etapa?.valor_previsto ?? etapa.etapa?.valor_etapa ?? 0,
-              quantidade_meses: null,
-              valor_mensal: null,
-            } : {
-              descricao: etapa.descricao ?? `Etapa ${etapa.numero_etapa ?? ''}`,
-              unidade_medida: '%',
-              valor_unitario: etapa.valor_previsto ?? etapa.valor_etapa ?? 0,
-              quantidade_meses: null,
-              valor_mensal: null,
-            },
-          }));
+          itensParaRender = dadosOS.etapasOS.map((etapa: any) => {
+            const perc = Number(etapa.percentual_solicitado ?? 0);
+            const valorPrevisto = etapa.etapa?.valor_previsto ?? etapa.etapa?.valor_etapa ?? etapa.valor_previsto ?? etapa.valor_etapa ?? 0;
+            const percEfetivo = perc > 0 ? perc : 100;
+            const totalEtapa = valorPrevisto * percEfetivo / 100;
+            return {
+              quantidade_solicitada: percEfetivo,
+              total_override: totalEtapa,
+              itemCronograma: etapa.etapa ? {
+                descricao: `Etapa ${etapa.etapa.numero_etapa}: ${etapa.etapa.descricao ?? '-'}`,
+                unidade_medida: '%',
+                valor_unitario: valorPrevisto,
+                quantidade_meses: null,
+                valor_mensal: null,
+              } : {
+                descricao: etapa.descricao ?? `Etapa ${etapa.numero_etapa ?? ''}`,
+                unidade_medida: '%',
+                valor_unitario: valorPrevisto,
+                quantidade_meses: null,
+                valor_mensal: null,
+              },
+            };
+          });
         }
 
         if (itensParaRender.length > 0) {
@@ -368,7 +375,7 @@ export class GeradorPdfService {
     return new Date(data).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; total_override?: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>): void {
     const pageWidth = doc.page.width - 100;
     const colDesc  = pageWidth * 0.44;
     const colUnid  = pageWidth * 0.10;
@@ -405,7 +412,7 @@ export class GeradorPdfService {
       const vlUnit = Number(ic.valor_unitario ?? 0);
       const meses  = ic.quantidade_meses ? Number(ic.quantidade_meses) : null;
       const vlMensal = ic.valor_mensal ?? (qtd * vlUnit);
-      const total  = meses ? vlMensal * meses : qtd * vlUnit;
+      const total  = item.total_override !== undefined ? item.total_override : (meses ? vlMensal * meses : qtd * vlUnit);
       totalGeral  += total;
 
       const rowStart = doc.y;
