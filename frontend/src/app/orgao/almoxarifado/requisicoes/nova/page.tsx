@@ -134,6 +134,12 @@ interface ItemCronograma {
   observacoes?: string;
 }
 
+interface Setor {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
 interface RascunhoRequisicao {
   etapa: number;
   contratoId: string | null;
@@ -315,6 +321,11 @@ function NovaRequisicaoForm() {
   const [carregandoItens, setCarregandoItens] = useState(false);
   const [buscaItem, setBuscaItem] = useState('');
   
+  // Setores (para select)
+  const [orgaoId, setOrgaoId] = useState<string | null>(null);
+  const [setores, setSetores] = useState<Setor[]>([]);
+  const [setorId, setSetorId] = useState<string>('OUTRO'); // 'OUTRO' = digitação manual
+
   // Etapa 3: Dados da Requisição
   const [tipo, setTipo] = useState('MATERIAL');
   const [setorSolicitante, setSetorSolicitante] = useState('');
@@ -350,6 +361,87 @@ function NovaRequisicaoForm() {
   const usarItensCronograma = isOS && itensCronograma.length > 0;
   const usarEtapasCronograma = isOS && etapasOS.length > 0 && itensCronograma.length === 0;
   const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
+
+  const handleSetorChange = (value: string) => {
+    setSetorId(value);
+    if (value === 'OUTRO') {
+      // Mantém valores atuais ou limpa
+      if (!setorSolicitante && !codigoSetor) {
+        setSetorSolicitante('');
+        setCodigoSetor('');
+      }
+    } else {
+      const s = setores.find((x) => x.id === value);
+      if (s) {
+        setSetorSolicitante(s.nome);
+        setCodigoSetor(s.codigo);
+      }
+    }
+  };
+
+  const renderSetorFields = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {setores.length > 0 ? (
+        <>
+          <div className="md:col-span-2">
+            <Label>Setor Solicitante *</Label>
+            <Select value={setorId} onValueChange={handleSetorChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione o setor" />
+              </SelectTrigger>
+              <SelectContent>
+                {setores.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.codigo} — {s.nome}
+                  </SelectItem>
+                ))}
+                <SelectItem value="OUTRO">Outro (digitar manualmente)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {setorId === 'OUTRO' && (
+            <>
+              <div>
+                <Label>Nome do Setor *</Label>
+                <Input
+                  value={setorSolicitante}
+                  onChange={(e) => setSetorSolicitante(e.target.value)}
+                  placeholder="Ex: Departamento de Compras"
+                />
+              </div>
+              <div>
+                <Label>Código do Setor</Label>
+                <Input
+                  value={codigoSetor}
+                  onChange={(e) => setCodigoSetor(e.target.value)}
+                  placeholder="Ex: DCOMP-001"
+                />
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div>
+            <Label>Setor Solicitante *</Label>
+            <Input
+              value={setorSolicitante}
+              onChange={(e) => setSetorSolicitante(e.target.value)}
+              placeholder="Ex: Departamento de Compras"
+            />
+          </div>
+          <div>
+            <Label>Código do Setor</Label>
+            <Input
+              value={codigoSetor}
+              onChange={(e) => setCodigoSetor(e.target.value)}
+              placeholder="Ex: DCOMP-001"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   // =========================================================================
   // AUTO-SAVE LOCAL
@@ -448,6 +540,48 @@ function NovaRequisicaoForm() {
   useEffect(() => {
     carregarContratos();
   }, []);
+
+  // Carregar orgao e setores
+  useEffect(() => {
+    const init = async () => {
+      const orgaoStr = localStorage.getItem('orgao');
+      const usuarioStr = localStorage.getItem('usuario');
+      let id: string | null = null;
+      if (orgaoStr) {
+        const orgao = JSON.parse(orgaoStr);
+        id = orgao?.id || null;
+      } else if (usuarioStr) {
+        const usuario = JSON.parse(usuarioStr);
+        id = usuario?.orgao_id || null;
+      }
+      if (!id) {
+        const res = await authFetch(`${API_URL}/api/orgaos/me`);
+        if (res.ok) {
+          const orgao = await res.json();
+          id = orgao?.id || null;
+        }
+      }
+      setOrgaoId(id);
+      if (id) {
+        const res = await authFetch(`${API_URL}/api/orgaos/${id}/setores`);
+        if (res.ok) setSetores(await res.json());
+      }
+    };
+    init();
+  }, []);
+
+  // Sincronizar setorId quando setorSolicitante/codigoSetor mudam (rascunho, edição)
+  useEffect(() => {
+    if (setores.length === 0) return;
+    const match = setores.find(
+      (s) => s.codigo === codigoSetor || (s.nome === setorSolicitante && setorSolicitante)
+    );
+    if (match && (setorSolicitante || codigoSetor)) {
+      setSetorId(match.id);
+    } else if (setorSolicitante || codigoSetor) {
+      setSetorId('OUTRO');
+    }
+  }, [setores, setorSolicitante, codigoSetor]);
 
   // Carregar OS para edição (rascunho)
   useEffect(() => {
@@ -1543,24 +1677,7 @@ function NovaRequisicaoForm() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Setor Solicitante *</Label>
-              <Input
-                value={setorSolicitante}
-                onChange={(e) => setSetorSolicitante(e.target.value)}
-                placeholder="Ex: Departamento de Compras"
-              />
-            </div>
-            <div>
-              <Label>Código do Setor</Label>
-              <Input
-                value={codigoSetor}
-                onChange={(e) => setCodigoSetor(e.target.value)}
-                placeholder="Ex: DCOMP-001"
-              />
-            </div>
-          </div>
+          {renderSetorFields()}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1719,24 +1836,7 @@ function NovaRequisicaoForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Setor Solicitante *</Label>
-                <Input
-                  value={setorSolicitante}
-                  onChange={(e) => setSetorSolicitante(e.target.value)}
-                  placeholder="Ex: Departamento de Engenharia"
-                />
-              </div>
-              <div>
-                <Label>Código do Setor</Label>
-                <Input
-                  value={codigoSetor}
-                  onChange={(e) => setCodigoSetor(e.target.value)}
-                  placeholder="Ex: DENG-001"
-                />
-              </div>
-            </div>
+            {renderSetorFields()}
 
             <div>
               <Label>Justificativa *</Label>
@@ -1872,24 +1972,7 @@ function NovaRequisicaoForm() {
                 </Table>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Setor Solicitante *</Label>
-                <Input
-                  value={setorSolicitante}
-                  onChange={(e) => setSetorSolicitante(e.target.value)}
-                  placeholder="Ex: Departamento de Engenharia"
-                />
-              </div>
-              <div>
-                <Label>Código do Setor</Label>
-                <Input
-                  value={codigoSetor}
-                  onChange={(e) => setCodigoSetor(e.target.value)}
-                  placeholder="Ex: DENG-001"
-                />
-              </div>
-            </div>
+            {renderSetorFields()}
             <div>
               <Label>Justificativa *</Label>
               <Textarea

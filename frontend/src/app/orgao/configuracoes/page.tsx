@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { 
   Settings,
   User,
@@ -14,7 +16,11 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  FolderTree,
+  Plus,
+  Pencil,
+  Trash2
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -22,10 +28,52 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 import { API_URL, authFetch, getAssetUrl } from '@/lib/api'
 
+interface Setor {
+  id: string
+  codigo: string
+  nome: string
+}
+
 export default function ConfiguracoesPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get("tab")
+  const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "seguranca"]
+  const [activeTab, setActiveTab] = useState(validTabs.includes(tabParam || "") ? tabParam! : "orgao")
+
+  useEffect(() => {
+    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam)
+    }
+  }, [tabParam])
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    const url = new URL(window.location.href)
+    if (value === "orgao") url.searchParams.delete("tab")
+    else url.searchParams.set("tab", value)
+    router.replace(url.pathname + url.search)
+  }
+
   const [orgao, setOrgao] = useState({
     id: '',
     nome: '',
@@ -158,6 +206,129 @@ export default function ConfiguracoesPage() {
   const [loadingPncp, setLoadingPncp] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
 
+  // Setores
+  const [setores, setSetores] = useState<Setor[]>([])
+  const [loadingSetores, setLoadingSetores] = useState(false)
+  const [modalSetorOpen, setModalSetorOpen] = useState(false)
+  const [editingSetor, setEditingSetor] = useState<Setor | null>(null)
+  const [formSetor, setFormSetor] = useState({ codigo: '', nome: '' })
+  const [savingSetor, setSavingSetor] = useState(false)
+  const [savingOrgao, setSavingOrgao] = useState(false)
+
+  const salvarDadosOrgao = async () => {
+    if (!orgao.id) return
+    setSavingOrgao(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: orgao.nome,
+          cnpj: orgao.cnpj,
+          logradouro: orgao.logradouro,
+          cidade: orgao.cidade,
+          uf: orgao.uf,
+          cep: orgao.cep,
+          telefone: orgao.telefone,
+          email: orgao.email,
+          site: orgao.site,
+        }),
+      })
+      if (res.ok) {
+        const dados = await res.json()
+        setOrgao((prev) => ({ ...prev, ...dados }))
+        const atual = localStorage.getItem("orgao") ? JSON.parse(localStorage.getItem("orgao")!) : {}
+        localStorage.setItem("orgao", JSON.stringify({ ...atual, ...dados }))
+        toast.success("Dados do órgão salvos com sucesso!")
+      } else {
+        const err = await res.json()
+        toast.error(err.message || "Erro ao salvar dados do órgão")
+      }
+    } catch (e) {
+      console.error("Erro ao salvar dados do órgão:", e)
+      toast.error("Erro ao salvar dados do órgão")
+    } finally {
+      setSavingOrgao(false)
+    }
+  }
+
+  const carregarSetores = async () => {
+    if (!orgao.id) return
+    setLoadingSetores(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/setores`)
+      if (res.ok) {
+        const data = await res.json()
+        setSetores(data)
+      }
+    } catch (e) {
+      console.error('Erro ao carregar setores:', e)
+    } finally {
+      setLoadingSetores(false)
+    }
+  }
+
+  useEffect(() => {
+    if (orgao.id) carregarSetores()
+  }, [orgao.id])
+
+  const abrirModalSetor = (setor?: Setor) => {
+    if (setor) {
+      setEditingSetor(setor)
+      setFormSetor({ codigo: setor.codigo, nome: setor.nome })
+    } else {
+      setEditingSetor(null)
+      setFormSetor({ codigo: '', nome: '' })
+    }
+    setModalSetorOpen(true)
+  }
+
+  const salvarSetor = async () => {
+    if (!orgao.id || !formSetor.codigo.trim() || !formSetor.nome.trim()) return
+    setSavingSetor(true)
+    try {
+      const url = editingSetor
+        ? `${API_URL}/api/orgaos/${orgao.id}/setores/${editingSetor.id}`
+        : `${API_URL}/api/orgaos/${orgao.id}/setores`
+      const res = await authFetch(url, {
+        method: editingSetor ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formSetor),
+      })
+      if (res.ok) {
+        setModalSetorOpen(false)
+        carregarSetores()
+        toast.success(editingSetor ? "Setor atualizado com sucesso!" : "Setor cadastrado com sucesso!")
+      } else {
+        const err = await res.json()
+        toast.error(err.message || "Erro ao salvar setor")
+      }
+    } catch (e) {
+      console.error("Erro ao salvar setor:", e)
+      toast.error("Erro ao salvar setor")
+    } finally {
+      setSavingSetor(false)
+    }
+  }
+
+  const excluirSetor = async (id: string) => {
+    if (!orgao.id) return
+    if (!confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) return
+    try {
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/setores/${id}`, { method: "DELETE" })
+      if (res.ok) {
+        carregarSetores()
+        toast.success("Setor excluído com sucesso!")
+      } else {
+        const err = await res.json()
+        toast.error(err.message || "Erro ao excluir setor")
+      }
+    } catch (e) {
+      console.error("Erro ao excluir setor:", e)
+      toast.error("Erro ao excluir setor")
+    }
+  }
+
   // Carregar status atual da configuração PNCP
   const carregarStatusPNCP = async () => {
     try {
@@ -241,10 +412,13 @@ export default function ConfiguracoesPage() {
         <p className="text-muted-foreground">Gerencie as configuracoes do orgao</p>
       </div>
 
-      <Tabs defaultValue="orgao">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="orgao">
             <Building2 className="h-4 w-4 mr-2" /> Dados do Orgao
+          </TabsTrigger>
+          <TabsTrigger value="setores">
+            <FolderTree className="h-4 w-4 mr-2" /> Setores
           </TabsTrigger>
           <TabsTrigger value="usuarios">
             <User className="h-4 w-4 mr-2" /> Usuarios
@@ -335,8 +509,9 @@ export default function ConfiguracoesPage() {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button>
-                  <Save className="mr-2 h-4 w-4" /> Salvar Alteracoes
+                <Button onClick={salvarDadosOrgao} disabled={savingOrgao || !orgao.id}>
+                  {savingOrgao ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Salvar Alteracoes
                 </Button>
               </div>
             </CardContent>
@@ -391,6 +566,100 @@ export default function ConfiguracoesPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="setores" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Setores / Departamentos</CardTitle>
+                  <CardDescription>Cadastre os setores para uso em requisições e ordens de serviço</CardDescription>
+                </div>
+                <Button onClick={() => abrirModalSetor()} disabled={!orgao.id}>
+                  <Plus className="h-4 w-4 mr-2" /> Novo Setor
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingSetores ? (
+                <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Carregando...
+                </div>
+              ) : setores.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FolderTree className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p>Nenhum setor cadastrado</p>
+                  <p className="text-sm">Clique em &quot;Novo Setor&quot; para cadastrar</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Código</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead className="w-24">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {setores.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="font-mono">{s.codigo}</TableCell>
+                        <TableCell>{s.nome}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => abrirModalSetor(s)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => excluirSetor(s.id)}>
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Dialog open={modalSetorOpen} onOpenChange={setModalSetorOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingSetor ? 'Editar Setor' : 'Novo Setor'}</DialogTitle>
+                <DialogDescription>
+                  Código e nome do setor (ex: DCOMP-001, Departamento de Compras)
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Código</Label>
+                  <Input
+                    value={formSetor.codigo}
+                    onChange={(e) => setFormSetor({ ...formSetor, codigo: e.target.value })}
+                    placeholder="Ex: DCOMP-001"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Nome</Label>
+                  <Input
+                    value={formSetor.nome}
+                    onChange={(e) => setFormSetor({ ...formSetor, nome: e.target.value })}
+                    placeholder="Ex: Departamento de Compras"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setModalSetorOpen(false)}>Cancelar</Button>
+                <Button onClick={salvarSetor} disabled={savingSetor || !formSetor.codigo.trim() || !formSetor.nome.trim()}>
+                  {savingSetor ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="usuarios" className="space-y-4">
