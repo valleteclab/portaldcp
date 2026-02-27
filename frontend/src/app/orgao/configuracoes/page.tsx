@@ -284,16 +284,19 @@ export default function ConfiguracoesPage() {
   }
 
   const salvarSetor = async () => {
-    if (!orgao.id || !formSetor.codigo.trim() || !formSetor.nome.trim()) return
+    if (!orgao.id || !formSetor.nome.trim()) return
     setSavingSetor(true)
     try {
       const url = editingSetor
         ? `${API_URL}/api/orgaos/${orgao.id}/setores/${editingSetor.id}`
         : `${API_URL}/api/orgaos/${orgao.id}/setores`
+      const body = editingSetor
+        ? { codigo: formSetor.codigo, nome: formSetor.nome }
+        : { nome: formSetor.nome }
       const res = await authFetch(url, {
         method: editingSetor ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formSetor),
+        body: JSON.stringify(body),
       })
       if (res.ok) {
         setModalSetorOpen(false)
@@ -630,18 +633,16 @@ export default function ConfiguracoesPage() {
               <DialogHeader>
                 <DialogTitle>{editingSetor ? 'Editar Setor' : 'Novo Setor'}</DialogTitle>
                 <DialogDescription>
-                  Código e nome do setor (ex: DCOMP-001, Departamento de Compras)
+                  {editingSetor ? 'Altere o nome do setor.' : 'O código será gerado automaticamente (ex: SET-001).'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Código</Label>
-                  <Input
-                    value={formSetor.codigo}
-                    onChange={(e) => setFormSetor({ ...formSetor, codigo: e.target.value })}
-                    placeholder="Ex: DCOMP-001"
-                  />
-                </div>
+                {editingSetor && (
+                  <div className="space-y-2">
+                    <Label>Código</Label>
+                    <Input value={formSetor.codigo} readOnly className="bg-muted" />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Nome</Label>
                   <Input
@@ -653,7 +654,7 @@ export default function ConfiguracoesPage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setModalSetorOpen(false)}>Cancelar</Button>
-                <Button onClick={salvarSetor} disabled={savingSetor || !formSetor.codigo.trim() || !formSetor.nome.trim()}>
+                <Button onClick={salvarSetor} disabled={savingSetor || !formSetor.nome.trim()}>
                   {savingSetor ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                   Salvar
                 </Button>

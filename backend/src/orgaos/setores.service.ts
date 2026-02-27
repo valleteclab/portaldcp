@@ -39,8 +39,18 @@ export class SetoresService {
       throw new HttpException('Órgão não encontrado', HttpStatus.NOT_FOUND);
     }
 
+    let codigo = (dto.codigo || '').trim();
+    if (!codigo) {
+      const setores = await this.setorRepository.find({ where: { orgao_id: orgaoId } });
+      const maxNum = setores.reduce((max, s) => {
+        const m = s.codigo.match(/^SET-(\d+)$/);
+        return m ? Math.max(max, parseInt(m[1], 10)) : max;
+      }, 0);
+      codigo = `SET-${String(maxNum + 1).padStart(3, '0')}`;
+    }
+
     const existente = await this.setorRepository.findOne({
-      where: { orgao_id: orgaoId, codigo: dto.codigo },
+      where: { orgao_id: orgaoId, codigo },
     });
     if (existente) {
       throw new HttpException('Já existe um setor com este código', HttpStatus.CONFLICT);
@@ -48,7 +58,7 @@ export class SetoresService {
 
     const setor = this.setorRepository.create({
       orgao_id: orgaoId,
-      codigo: dto.codigo,
+      codigo,
       nome: dto.nome,
     });
     return this.setorRepository.save(setor);
