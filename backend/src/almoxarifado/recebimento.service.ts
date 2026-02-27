@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Recebimento, TipoRecebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { OrdemFornecimento, StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { CriarRecebimentoDto, AceitarRecebimentoDto } from './dto/ordem-fornecimento.dto';
 
@@ -18,6 +19,8 @@ export class RecebimentoService {
     private readonly ordemRepository: Repository<OrdemFornecimento>,
     @InjectRepository(ItemContrato)
     private readonly itemContratoRepository: Repository<ItemContrato>,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
     private readonly ordemService: OrdemFornecimentoService,
     private readonly dataSource: DataSource,
   ) {}
@@ -106,6 +109,7 @@ export class RecebimentoService {
         numero_item: itemOrdem.numero_item,
         descricao: itemOrdem.descricao,
         unidade_medida: itemOrdem.unidade_medida,
+        tipo_item: itemOrdem.tipo_item ?? 'CONSUMO',
         quantidade_esperada: quantidadePendente,
         quantidade_recebida: itemDto.quantidade_recebida,
         quantidade_aceita: 0, // Será preenchido no aceite
@@ -207,6 +211,22 @@ export class RecebimentoService {
       throw new BadRequestException(
         `Recebimento não pode ser aceito. Status atual: ${recebimento.status}`
       );
+    }
+
+    // Verifica permissão para recebimentos com itens permanentes (patrimônio)
+    const temItemPermanente = recebimento.itens?.some(
+      (item) => (item as any).tipo_item === 'PERMANENTE'
+    );
+    if (temItemPermanente) {
+      const usuario = await this.usuarioRepository.findOne({
+        where: { id: usuarioId },
+      });
+      if (!usuario?.pode_receber_patrimonio) {
+        throw new ForbiddenException(
+          'Você não tem permissão para aceitar recebimentos de itens permanentes (patrimônio). ' +
+          'Solicite ao administrador a permissão "Receber patrimônio".'
+        );
+      }
     }
 
     // Busca ordem de fornecimento

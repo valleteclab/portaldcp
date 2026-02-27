@@ -137,6 +137,7 @@ export class OrdemFornecimentoService {
       numero_item: item.numero_item,
       descricao: item.descricao,
       unidade_medida: item.unidade_medida || '',
+      tipo_item: item.item_contrato?.tipo_item ?? 'CONSUMO',
       quantidade: Number(item.quantidade_autorizada || item.quantidade_solicitada),
       quantidade_entregue: 0,
       valor_unitario: Number(item.valor_unitario || 0),

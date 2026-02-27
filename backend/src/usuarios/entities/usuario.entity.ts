@@ -109,6 +109,13 @@ export class Usuario {
   @Column({ default: false })
   pode_gerenciar_os: boolean;
 
+  /**
+   * Indica se o usuário pode aceitar recebimentos de itens permanentes (patrimônio).
+   * Itens permanentes exigem esta permissão para dar baixa no contrato.
+   */
+  @Column({ default: false })
+  pode_receber_patrimonio: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

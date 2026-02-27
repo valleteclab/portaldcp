@@ -139,6 +139,7 @@ export class Recebimento {
     numero_item: number;
     descricao: string;
     unidade_medida: string;
+    tipo_item?: string;
     quantidade_esperada: number;    // Quantidade da OF
     quantidade_recebida: number;    // Quantidade efetivamente recebida
     quantidade_aceita: number;      // Quantidade aceita (após conferência)

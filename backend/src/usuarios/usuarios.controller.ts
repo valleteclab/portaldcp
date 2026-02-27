@@ -35,6 +35,7 @@ export class UsuariosController {
       cargo?: string;
       role?: RoleUsuario;
       orgao_id?: string;
+      pode_receber_patrimonio?: boolean;
     },
   ) {
     const usuario = await this.usuariosService.create(body);
@@ -113,6 +114,11 @@ export class UsuariosController {
       ativo: boolean;
       pode_aprovar_requisicoes: boolean;
       pode_cancelar_estornar: boolean;
+      pode_liberar_contratos: boolean;
+      pode_excluir_medicao: boolean;
+      eh_fiscal_contrato: boolean;
+      pode_gerenciar_os: boolean;
+      pode_receber_patrimonio: boolean;
     }>,
   ) {
     const usuario = await this.usuariosService.update(id, body);

@@ -155,6 +155,7 @@ export class OrdemFornecimento {
     numero_item: number;
     descricao: string;
     unidade_medida: string;
+    tipo_item?: string;
     quantidade: number;
     quantidade_entregue: number;
     valor_unitario: number;

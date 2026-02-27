@@ -30,6 +30,11 @@ import {
 } from 'typeorm';
 import { Contrato } from '../../contratos/entities/contrato.entity';
 
+export enum TipoItemContrato {
+  CONSUMO = 'CONSUMO',
+  PERMANENTE = 'PERMANENTE',
+}
+
 export enum UnidadeMedidaContrato {
   UNIDADE = 'UNIDADE',
   PECA = 'PECA',
@@ -95,6 +100,18 @@ export class ItemContrato {
 
   @Column({ type: 'varchar', nullable: true })
   modelo: string;
+
+  /**
+   * Tipo do item: CONSUMO (almoxarifado) ou PERMANENTE (patrimônio).
+   * Apenas para contratos categoria COMPRAS e modalidade ITEM_QUANTIDADE.
+   */
+  @Column({
+    type: 'enum',
+    enum: TipoItemContrato,
+    default: TipoItemContrato.CONSUMO,
+    nullable: true,
+  })
+  tipo_item: TipoItemContrato;
 
   @Column({
     type: 'enum',

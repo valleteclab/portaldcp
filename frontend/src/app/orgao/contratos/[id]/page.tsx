@@ -272,6 +272,7 @@ export default function DetalheContratoOrgaoPage() {
     descricao_detalhada: '',
     marca: '',
     modelo: '',
+    tipo_item: 'CONSUMO' as 'CONSUMO' | 'PERMANENTE',
     unidade_medida: 'UNIDADE',
     valor_unitario: '',
     quantidade_contratada: '',
@@ -706,6 +707,7 @@ export default function DetalheContratoOrgaoPage() {
       descricao_detalhada: '',
       marca: '',
       modelo: '',
+      tipo_item: 'CONSUMO',
       unidade_medida: contrato?.categoria === 'SERVICOS' ? 'MES' : 'UNIDADE',
       valor_unitario: '',
       quantidade_contratada: '',
@@ -728,6 +730,7 @@ export default function DetalheContratoOrgaoPage() {
       descricao_detalhada: item.descricao_detalhada || '',
       marca: (item as any).marca || '',
       modelo: (item as any).modelo || '',
+      tipo_item: ((item as any).tipo_item || 'CONSUMO') as 'CONSUMO' | 'PERMANENTE',
       unidade_medida: item.unidade_medida,
       valor_unitario: String(item.valor_unitario),
       quantidade_contratada: String(item.quantidade_contratada),
@@ -748,42 +751,50 @@ export default function DetalheContratoOrgaoPage() {
       if (!novoItem.quantidade_contratada) throw new Error('Informe a quantidade.')
 
       if (editandoItem) {
+        const payload: any = {
+          descricao: novoItem.descricao,
+          descricao_detalhada: novoItem.descricao_detalhada || null,
+          marca: novoItem.marca || null,
+          modelo: novoItem.modelo || null,
+          valor_unitario: parseFloat(novoItem.valor_unitario),
+          codigo_catalogo: novoItem.codigo_catalogo || null,
+          codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
+          lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
+          lote_descricao: novoItem.lote_descricao || null,
+        }
+        if (contrato?.categoria === 'COMPRAS' && contrato?.modalidade_execucao === 'ITEM_QUANTIDADE') {
+          payload.tipo_item = novoItem.tipo_item
+        }
         const res = await authFetch(`${API_URL}/api/almoxarifado/itens-contrato/${editandoItem.id}`, {
           method: 'PUT',
-          body: JSON.stringify({
-            descricao: novoItem.descricao,
-            descricao_detalhada: novoItem.descricao_detalhada || null,
-            marca: novoItem.marca || null,
-            modelo: novoItem.modelo || null,
-            valor_unitario: parseFloat(novoItem.valor_unitario),
-            codigo_catalogo: novoItem.codigo_catalogo || null,
-            codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
-            lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
-            lote_descricao: novoItem.lote_descricao || null,
-          }),
+          body: JSON.stringify(payload),
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           throw new Error(err.message || 'Erro ao atualizar item')
         }
       } else {
+        const payload: any = {
+          numero_item: novoItem.numero_item,
+          descricao: novoItem.descricao,
+          descricao_detalhada: novoItem.descricao_detalhada || null,
+          marca: novoItem.marca || null,
+          modelo: novoItem.modelo || null,
+          unidade_medida: novoItem.unidade_medida,
+          valor_unitario: parseFloat(novoItem.valor_unitario),
+          quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
+          codigo_catalogo: novoItem.codigo_catalogo || null,
+          codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
+          lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
+          lote_descricao: novoItem.lote_descricao || null,
+          observacoes: novoItem.observacoes || null,
+        }
+        if (contrato?.categoria === 'COMPRAS' && contrato?.modalidade_execucao === 'ITEM_QUANTIDADE') {
+          payload.tipo_item = novoItem.tipo_item
+        }
         const res = await authFetch(`${API_URL}/api/almoxarifado/contratos/${id}/itens`, {
           method: 'POST',
-          body: JSON.stringify({
-            numero_item: novoItem.numero_item,
-            descricao: novoItem.descricao,
-            descricao_detalhada: novoItem.descricao_detalhada || null,
-            marca: novoItem.marca || null,
-            modelo: novoItem.modelo || null,
-            unidade_medida: novoItem.unidade_medida,
-            valor_unitario: parseFloat(novoItem.valor_unitario),
-            quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
-            codigo_catalogo: novoItem.codigo_catalogo || null,
-            codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
-            lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
-            lote_descricao: novoItem.lote_descricao || null,
-            observacoes: novoItem.observacoes || null,
-          }),
+          body: JSON.stringify(payload),
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
@@ -828,10 +839,10 @@ export default function DetalheContratoOrgaoPage() {
   }
 
   const gerarModeloCSV = () => {
-    const header = 'numero_item;descricao;descricao_detalhada;unidade_medida;quantidade_contratada;valor_unitario;lote_numero;lote_descricao;codigo_catalogo;codigo_catalogo_proprio;observacoes'
-    const exemplo1 = '1;Resma de papel A4 75g;Papel sulfite branco formato A4;UNIDADE;500;25.90;1;Material de escritório;;;'
-    const exemplo2 = '2;Toner HP 26A;Toner original HP CF226A;UNIDADE;50;189.90;1;Material de escritório;449158;;'
-    const exemplo3 = '3;Serviço de manutenção predial;Manutenção preventiva mensal;MES;12;3500.00;2;Serviços gerais;;;'
+    const header = 'numero_item;descricao;descricao_detalhada;unidade_medida;quantidade_contratada;valor_unitario;tipo_item;lote_numero;lote_descricao;codigo_catalogo;codigo_catalogo_proprio;observacoes'
+    const exemplo1 = '1;Resma de papel A4 75g;Papel sulfite branco formato A4;UNIDADE;500;25.90;CONSUMO;1;Material de escritório;;;'
+    const exemplo2 = '2;Toner HP 26A;Toner original HP CF226A;UNIDADE;50;189.90;CONSUMO;1;Material de escritório;449158;;'
+    const exemplo3 = '3;Computador Dell;Notebook Dell Inspiron 15;UNIDADE;10;3500.00;PERMANENTE;2;Equipamentos;;;'
     const csv = [header, exemplo1, exemplo2, exemplo3].join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const link = document.createElement('a')
@@ -1959,6 +1970,19 @@ export default function DetalheContratoOrgaoPage() {
               </div>
             </div>
 
+            {contrato?.categoria === 'COMPRAS' && contrato?.modalidade_execucao === 'ITEM_QUANTIDADE' && (
+              <div className="space-y-2">
+                <Label>Tipo do item</Label>
+                <Select value={novoItem.tipo_item} onValueChange={(v) => setNovoItem({...novoItem, tipo_item: v as 'CONSUMO' | 'PERMANENTE'})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CONSUMO">Consumo (almoxarifado)</SelectItem>
+                    <SelectItem value="PERMANENTE">Permanente (patrimônio)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Unidade de Medida *</Label>
@@ -2034,6 +2058,7 @@ export default function DetalheContratoOrgaoPage() {
                 <li>Primeira linha deve conter os cabeçalhos</li>
                 <li>Campos obrigatórios: <strong>descricao, quantidade_contratada, valor_unitario</strong></li>
                 <li>Unidades: UNIDADE, PECA, CAIXA, METRO, LITRO, QUILOGRAMA, HORA, MES, SERVICO, GLOBAL</li>
+                <li>Tipo do item (contratos COMPRAS): CONSUMO ou PERMANENTE</li>
               </ul>
             </div>
 

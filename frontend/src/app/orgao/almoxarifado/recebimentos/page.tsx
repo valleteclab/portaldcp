@@ -67,6 +67,7 @@ interface Recebimento {
   itens: {
     numero_item: number;
     descricao: string;
+    tipo_item?: string;
     quantidade_esperada: number;
     quantidade_recebida: number;
     quantidade_aceita: number;
@@ -102,6 +103,7 @@ function RecebimentosList() {
   
   // Permissões do usuário
   const [podeCancelarEstornar, setPodeCancelarEstornar] = useState(false);
+  const [podeReceberPatrimonio, setPodeReceberPatrimonio] = useState(false);
   
   // Modal
   const [recebimentoSelecionado, setRecebimentoSelecionado] = useState<Recebimento | null>(null);
@@ -123,10 +125,8 @@ function RecebimentosList() {
         if (response.ok) {
           const usuario = await response.json();
           console.log('[Recebimentos] Usuario da API:', usuario);
-          console.log('[Recebimentos] pode_cancelar_estornar:', usuario.pode_cancelar_estornar);
-          const temPermissao = usuario.pode_cancelar_estornar === true;
-          console.log('[Recebimentos] Tem permissão?', temPermissao);
-          setPodeCancelarEstornar(temPermissao);
+          setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+          setPodeReceberPatrimonio(usuario.pode_receber_patrimonio === true);
           // Atualiza localStorage para cache (mas sempre busca da API)
           localStorage.setItem('usuario', JSON.stringify(usuario));
         } else {
@@ -490,6 +490,10 @@ function RecebimentosList() {
                               size="sm"
                               className="text-green-600 hover:text-green-700"
                               onClick={() => handleAbrirAceitar(rec)}
+                              disabled={rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio}
+                              title={rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio
+                                ? 'Requer permissão "Receber patrimônio" para aceitar itens permanentes'
+                                : 'Aceitar recebimento'}
                             >
                               <CheckCircle className="h-4 w-4" />
                             </Button>
@@ -595,6 +599,7 @@ function RecebimentosList() {
                     <TableRow>
                       <TableHead>#</TableHead>
                       <TableHead>Descrição</TableHead>
+                      <TableHead>Tipo</TableHead>
                       <TableHead>Esperado</TableHead>
                       <TableHead>Recebido</TableHead>
                       <TableHead>Aceito</TableHead>
@@ -606,6 +611,11 @@ function RecebimentosList() {
                       <TableRow key={index}>
                         <TableCell>{item.numero_item}</TableCell>
                         <TableCell>{item.descricao}</TableCell>
+                        <TableCell>
+                          <Badge variant={item.tipo_item === 'PERMANENTE' ? 'secondary' : 'outline'} className={item.tipo_item === 'PERMANENTE' ? 'bg-slate-100 text-slate-800' : ''}>
+                            {item.tipo_item === 'PERMANENTE' ? 'Permanente' : 'Consumo'}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{item.quantidade_esperada}</TableCell>
                         <TableCell>{item.quantidade_recebida}</TableCell>
                         <TableCell>
@@ -636,6 +646,11 @@ function RecebimentosList() {
           
           {recebimentoSelecionado && (
             <div className="space-y-4">
+              {recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio && (
+                <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-800 text-sm">
+                  Este recebimento contém itens permanentes (patrimônio). Você não tem permissão para aceitar. Solicite ao administrador a permissão &quot;Receber patrimônio&quot;.
+                </div>
+              )}
               <div className="bg-green-50 p-4 rounded-lg">
                 <p className="font-medium">{recebimentoSelecionado.numero}</p>
                 <p className="text-sm text-gray-600">
@@ -667,7 +682,11 @@ function RecebimentosList() {
             <Button variant="outline" onClick={() => setShowAceitar(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleAceitar} disabled={processando} className="bg-green-600 hover:bg-green-700">
+            <Button
+              onClick={handleAceitar}
+              disabled={processando || (recebimentoSelecionado?.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio)}
+              className="bg-green-600 hover:bg-green-700"
+            >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Aceite
             </Button>

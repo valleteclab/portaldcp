@@ -1,5 +1,5 @@
 import { IsString, IsNumber, IsOptional, IsEnum, Min, IsUUID } from 'class-validator';
-import { UnidadeMedidaContrato } from '../entities/item-contrato.entity';
+import { UnidadeMedidaContrato, TipoItemContrato } from '../entities/item-contrato.entity';
 
 export class CriarItemContratoDto {
   @IsOptional()
@@ -40,6 +40,10 @@ export class CriarItemContratoDto {
   @IsOptional()
   @IsString()
   modelo?: string;
+
+  @IsOptional()
+  @IsEnum(TipoItemContrato)
+  tipo_item?: TipoItemContrato;
 
   @IsEnum(UnidadeMedidaContrato)
   unidade_medida: UnidadeMedidaContrato;
@@ -93,6 +97,10 @@ export class AtualizarItemContratoDto {
   @IsOptional()
   @IsString()
   modelo?: string;
+
+  @IsOptional()
+  @IsEnum(TipoItemContrato)
+  tipo_item?: TipoItemContrato;
 
   @IsOptional()
   @IsNumber()
