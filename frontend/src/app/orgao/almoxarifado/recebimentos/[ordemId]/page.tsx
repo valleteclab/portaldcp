@@ -186,6 +186,26 @@ function RecebimentoUnificadoContent() {
             itensOf={ordem?.itens || []}
             iaIndisponivel={iaIndisponivel}
             onConfirmar={handleConfirmarMapeamento}
+            onRecusarNF={async (motivo: string) => {
+              try {
+                const nfId = notaFiscal?.id
+                if (nfId) {
+                  await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${nfId}/cancelar`, {
+                    method: 'POST',
+                    body: JSON.stringify({ motivo }),
+                  })
+                }
+                if (ordem?.id) {
+                  await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordem.id}/cancelar`, {
+                    method: 'POST',
+                    body: JSON.stringify({ motivo: `NF recusada: ${motivo}` }),
+                  })
+                }
+                carregarDados()
+              } catch (e) {
+                console.error('Erro ao recusar NF:', e)
+              }
+            }}
             loading={processing}
           />
         )}

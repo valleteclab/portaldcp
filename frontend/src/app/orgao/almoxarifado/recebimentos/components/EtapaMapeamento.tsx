@@ -40,6 +40,7 @@ interface EtapaMapeamentoProps {
   itensOf: ItemOf[]
   iaIndisponivel: boolean
   onConfirmar: (mapeamentoConfirmado: any[]) => void
+  onRecusarNF?: (motivo: string) => void
   loading: boolean
 }
 
@@ -58,9 +59,13 @@ export function EtapaMapeamento({
   itensOf,
   iaIndisponivel,
   onConfirmar,
+  onRecusarNF,
   loading,
 }: EtapaMapeamentoProps) {
   const [confirmados, setConfirmados] = useState<Record<number, boolean>>({})
+  const [showRecusarModal, setShowRecusarModal] = useState(false)
+  const [motivoRecusa, setMotivoRecusa] = useState('')
+  const [recusando, setRecusando] = useState(false)
   const [selecoes, setSelecoes] = useState<Record<number, string | null>>(() => {
     const initial: Record<number, string | null> = {}
     mapeamento.forEach(m => {
@@ -241,6 +246,22 @@ export function EtapaMapeamento({
                 </Badge>
               </div>
             ))}
+
+            {onRecusarNF && (
+              <div className="flex items-center justify-between pt-3 mt-2 border-t border-red-200">
+                <p className="text-xs text-gray-600">
+                  Caso as divergencias sejam impeditivas, recuse a NF e notifique o fornecedor.
+                </p>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => { setShowRecusarModal(true); setMotivoRecusa('') }}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                  Recusar NF e Notificar Fornecedor
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -412,6 +433,78 @@ export function EtapaMapeamento({
           <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
       </div>
+
+      {/* Modal Recusar NF */}
+      {showRecusarModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowRecusarModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle className="h-6 w-6 text-red-500" />
+              <h3 className="font-bold text-base">Recusar Nota Fiscal e Notificar Fornecedor</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              A NF sera recusada e o fornecedor sera notificado sobre as divergencias. Informe o motivo detalhado abaixo.
+            </p>
+
+            {analise.divergencias.length > 0 && (
+              <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs space-y-1">
+                <p className="font-semibold text-gray-700 mb-1">Divergencias detectadas:</p>
+                {analise.divergencias.map((d, i) => (
+                  <p key={i} className="text-gray-600">• {d.mensagem}</p>
+                ))}
+              </div>
+            )}
+
+            <select
+              value={motivoRecusa}
+              onChange={(e) => setMotivoRecusa(e.target.value)}
+              className="w-full border rounded-lg p-2.5 text-sm mb-2"
+            >
+              <option value="">Selecione o motivo principal...</option>
+              <option value="Quantidade divergente da OF">Quantidade divergente da OF</option>
+              <option value="Valor divergente do contrato">Valor divergente do contrato</option>
+              <option value="Produto nao corresponde ao pedido">Produto nao corresponde ao pedido</option>
+              <option value="NF com dados incorretos">NF com dados incorretos</option>
+              <option value="Outro">Outro</option>
+            </select>
+            {motivoRecusa === 'Outro' && (
+              <textarea
+                onChange={(e) => setMotivoRecusa(e.target.value)}
+                placeholder="Descreva o motivo..."
+                className="w-full border rounded-lg p-3 text-sm mb-2 min-h-[60px] resize-none"
+              />
+            )}
+            <textarea
+              placeholder="Observacoes adicionais para o fornecedor (opcional)..."
+              className="w-full border rounded-lg p-3 text-sm mb-4 min-h-[60px] resize-none"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setShowRecusarModal(false)}>
+                Voltar
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={!motivoRecusa.trim() || recusando}
+                onClick={async () => {
+                  setRecusando(true)
+                  try {
+                    if (onRecusarNF) {
+                      const detalhes = analise.divergencias.map(d => d.mensagem).join('; ')
+                      await onRecusarNF(`${motivoRecusa}. Divergencias: ${detalhes}`)
+                    }
+                    setShowRecusarModal(false)
+                  } finally {
+                    setRecusando(false)
+                  }
+                }}
+              >
+                {recusando ? 'Processando...' : 'Confirmar Recusa e Notificar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
