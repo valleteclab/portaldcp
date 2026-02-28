@@ -65,8 +65,13 @@ function RecebimentoUnificadoContent() {
         } else if (data.notaFiscal?.status === 'RECUSADA') {
           setEtapa('nf')
         } else if (recebimentosCancelados.length > 0 && data.notaFiscal) {
-          const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
-          setMapeamento(mapeamentoFonte)
+          // NF RECUSADA: não reutilizar mapeamento - recebimento deve iniciar do zero
+          if (data.notaFiscal.status === 'RECUSADA') {
+            setMapeamento([])
+          } else {
+            const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
+            setMapeamento(mapeamentoFonte)
+          }
           setEtapa('nf')
         } else if (data.notaFiscal?.mapeamento_confirmado) {
           setMapeamento(data.notaFiscal.mapeamento_confirmado)
@@ -246,25 +251,20 @@ function RecebimentoUnificadoContent() {
           if (recCancelados.length > 0) {
             return (
               <div className="space-y-4">
-                <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-amber-800">Recebimento anterior foi cancelado/rejeitado</p>
-                      <p className="text-sm text-amber-700 mt-1">
-                        Motivo: {recCancelados[0].motivo_rejeicao || recCancelados[0].motivo_estorno || 'Nao informado'}
-                      </p>
-                    </div>
-                    <Button onClick={() => setEtapa('nf')}>
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="py-6">
+                    <p className="font-bold text-amber-800">Recebimento anterior foi cancelado/rejeitado</p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      Motivo: {recCancelados[0].motivo_rejeicao || recCancelados[0].motivo_estorno || 'Não informado'}
+                    </p>
+                    <p className="text-sm text-amber-700 mt-2">
+                      A ordem voltou ao status ENVIADA. Os documentos foram marcados como rejeitados e o fornecedor foi notificado para reenviar. O recebimento deve ser iniciado do zero.
+                    </p>
+                    <Button onClick={() => setEtapa('nf')} className="mt-4">
                       Iniciar Novo Recebimento
                     </Button>
-                  </div>
-                </div>
-                <EtapaRecebimento
-                  recebimento={recCancelados[0]}
-                  ordemId={ordemId}
-                  podeReceberPatrimonio={podeReceberPatrimonio}
-                  onUpdate={carregarDados}
-                />
+                  </CardContent>
+                </Card>
               </div>
             )
           }

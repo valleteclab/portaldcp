@@ -846,13 +846,18 @@ export class AlmoxarifadoController {
     @Req() request: { user: JwtPayload },
     @Body('motivo') motivo: string,
   ) {
-    const user = request.user;
-    const usuario = await this.usuarioRepository.findOne({ where: { id: user.sub } });
+    const user = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (!user?.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para cancelar recebimentos. ' +
+        'Solicite ao administrador a permissão "Cancelar/Estornar".'
+      );
+    }
     return this.recebimentoService.cancelar(
       id,
       motivo || 'Cancelado pelo usuário',
-      user.sub,
-      usuario?.nome || user.email || 'Usuário',
+      user.id,
+      user.nome || user.email || 'Usuário',
     );
   }
 
