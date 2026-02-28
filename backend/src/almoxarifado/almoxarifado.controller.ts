@@ -1082,7 +1082,7 @@ export class AlmoxarifadoController {
     FilesInterceptor('arquivos', 10, {
       storage: multer.diskStorage({
         destination: (req, file, cb) => {
-          const uploadPath = path.join(process.cwd(), 'uploads', 'notas-fiscais');
+          const uploadPath = path.join(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), 'notas-fiscais');
           if (!fs.existsSync(uploadPath)) {
             fs.mkdirSync(uploadPath, { recursive: true });
           }

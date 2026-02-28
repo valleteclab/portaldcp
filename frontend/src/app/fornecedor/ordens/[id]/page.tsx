@@ -30,8 +30,15 @@ import {
   FileCode,
   AlertTriangle,
   History,
+  Download,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
+
+const getFileUrl = (caminho: string | null) => {
+  if (!caminho) return null
+  const filename = caminho.split(/[/\\]/).pop()
+  return `${API_URL}/api/uploads/notas-fiscais/${filename}`
+}
 
 const STATUS_ORDEM: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   EMITIDA: { label: 'Emitida', variant: 'secondary' },
@@ -446,7 +453,7 @@ export default function OrdemDetalheFornecedorPage() {
                 {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
               </div>
             ) : nfEnviada ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div className="flex items-center gap-2 text-green-600">
                   <CheckCircle className="h-5 w-5" />
                   <span className="font-medium">Nota Fiscal enviada com sucesso</span>
@@ -476,6 +483,39 @@ export default function OrdemDetalheFornecedorPage() {
                       <p className="font-mono text-xs break-all">{nfEnviada.chave_acesso}</p>
                     </div>
                   )}
+                </div>
+
+                <div className="border-t pt-3">
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    Documentos Anexados
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {nfEnviada.caminho_xml && (
+                      <a href={getFileUrl(nfEnviada.caminho_xml) || '#'} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 transition text-sm">
+                        <FileCode className="h-5 w-5 text-green-600 flex-shrink-0" />
+                        <span className="flex-1 truncate">XML da NF-e</span>
+                        <Download className="h-3 w-3 text-gray-400" />
+                      </a>
+                    )}
+                    {nfEnviada.caminho_pdf && (
+                      <a href={getFileUrl(nfEnviada.caminho_pdf) || '#'} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 transition text-sm">
+                        <FileText className="h-5 w-5 text-red-600 flex-shrink-0" />
+                        <span className="flex-1 truncate">PDF da Nota Fiscal</span>
+                        <Download className="h-3 w-3 text-gray-400" />
+                      </a>
+                    )}
+                    {nfEnviada.documentos_extras?.map((doc: any, i: number) => (
+                      <a key={i} href={getFileUrl(doc.caminho) || '#'} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 transition text-sm">
+                        <FileText className="h-5 w-5 text-orange-500 flex-shrink-0" />
+                        <span className="flex-1 truncate">{doc.nome}</span>
+                        <Download className="h-3 w-3 text-gray-400" />
+                      </a>
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
