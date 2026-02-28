@@ -477,11 +477,17 @@ export class AlmoxarifadoController {
   }
 
   @Delete('requisicoes/:id')
-  async excluirRequisicao(@Param('id', ParseUUIDPipe) id: string) {
-    // NOVA LÓGICA: Exclusão completa em cascata de qualquer status
-    // Retorna detalhes do que foi feito (recebimentos estornados, ordens excluídas, saldo liberado)
+  async excluirRequisicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (!user?.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Voce nao tem permissao para excluir requisicoes. Solicite ao administrador a permissao "Cancelar/Estornar".'
+      );
+    }
     const resultado = await this.requisicaoService.excluir(id);
-    
     return { 
       message: resultado.mensagem,
       detalhes: resultado.detalhes,
@@ -621,7 +627,16 @@ export class AlmoxarifadoController {
   }
 
   @Delete('ordens/:id')
-  async excluirOrdem(@Param('id', ParseUUIDPipe) id: string) {
+  async excluirOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (!user?.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Voce nao tem permissao para excluir ordens de fornecimento. Solicite ao administrador a permissao "Cancelar/Estornar".'
+      );
+    }
     await this.ordemService.excluir(id);
     return { message: 'Ordem excluída com sucesso' };
   }
@@ -860,7 +875,16 @@ export class AlmoxarifadoController {
   }
 
   @Delete('recebimentos/:id')
-  async excluirRecebimento(@Param('id', ParseUUIDPipe) id: string) {
+  async excluirRecebimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (!user?.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Voce nao tem permissao para excluir recebimentos. Solicite ao administrador a permissao "Cancelar/Estornar".'
+      );
+    }
     await this.recebimentoService.excluir(id);
     return { message: 'Recebimento excluído com sucesso' };
   }
