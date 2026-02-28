@@ -17,6 +17,7 @@ import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
 import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
+import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { 
   CriarRequisicaoDto, 
@@ -1752,6 +1753,15 @@ export class RequisicaoService {
           } catch (error) {
             this.logger.warn(`[EXCLUIR] Erro ao remover PDF: ${error.message}`);
           }
+        }
+
+        // Remove notas fiscais do fornecedor vinculadas a esta ordem
+        const notasFiscais = await queryRunner.manager.find(NotaFiscalFornecedor, {
+          where: { ordem_fornecimento_id: ordem.id },
+        });
+        for (const nf of notasFiscais) {
+          await queryRunner.manager.remove(nf);
+          this.logger.log(`[EXCLUIR] Nota fiscal fornecedor ${nf.numero || nf.id} excluída`);
         }
 
         // Exclui a ordem
