@@ -1052,6 +1052,15 @@ export class AlmoxarifadoController {
     return this.nfFornecedorService.findByOrdem(ordemId);
   }
 
+  @Delete('notas-fiscais-fornecedor/:id')
+  async deleteNotaFiscal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    this.getOrgaoId(request.user);
+    return this.nfFornecedorService.delete(id);
+  }
+
   @Post('ordens/:ordemId/upload-nota-fiscal')
   @UseInterceptors(
     FilesInterceptor('arquivos', 2, {

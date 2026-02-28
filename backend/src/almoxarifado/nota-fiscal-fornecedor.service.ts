@@ -131,6 +131,11 @@ export class NotaFiscalFornecedorService {
     return nf;
   }
 
+  async delete(id: string): Promise<void> {
+    const nf = await this.findOne(id);
+    await this.nfRepository.remove(nf);
+  }
+
   async atualizarMapeamentoAi(id: string, mapeamento: any[]): Promise<NotaFiscalFornecedor> {
     const nf = await this.findOne(id);
     nf.mapeamento_ai = mapeamento;
