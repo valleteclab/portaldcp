@@ -39,6 +39,7 @@ interface EtapaMapeamentoProps {
   produtosXml: ProdutoXml[]
   itensOf: ItemOf[]
   iaIndisponivel: boolean
+  jaConfirmado?: boolean
   onConfirmar: (mapeamentoConfirmado: any[]) => void
   onRecusarNF?: (motivo: string) => void
   loading: boolean
@@ -58,11 +59,19 @@ export function EtapaMapeamento({
   produtosXml,
   itensOf,
   iaIndisponivel,
+  jaConfirmado,
   onConfirmar,
   onRecusarNF,
   loading,
 }: EtapaMapeamentoProps) {
-  const [confirmados, setConfirmados] = useState<Record<number, boolean>>({})
+  const [confirmados, setConfirmados] = useState<Record<number, boolean>>(() => {
+    if (jaConfirmado) {
+      const initial: Record<number, boolean> = {}
+      mapeamento.forEach(m => { initial[m.produto_nf_index] = true })
+      return initial
+    }
+    return {}
+  })
   const [showRecusarModal, setShowRecusarModal] = useState(false)
   const [motivoRecusa, setMotivoRecusa] = useState('')
   const [recusando, setRecusando] = useState(false)

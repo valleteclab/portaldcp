@@ -185,6 +185,7 @@ function RecebimentoUnificadoContent() {
             produtosXml={notaFiscal?.produtos_xml || []}
             itensOf={ordem?.itens || []}
             iaIndisponivel={iaIndisponivel}
+            jaConfirmado={!!notaFiscal?.mapeamento_confirmado || recebimentos.length > 0}
             onConfirmar={handleConfirmarMapeamento}
             onRecusarNF={async (motivo: string) => {
               try {
