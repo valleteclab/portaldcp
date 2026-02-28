@@ -1054,7 +1054,17 @@ export class AlmoxarifadoController {
     @Body() body: { mapeamento: any[] },
   ) {
     const user = request.user;
-    return this.nfFornecedorService.confirmarMapeamento(nfId, body.mapeamento, user.sub);
+    const nf = await this.nfFornecedorService.confirmarMapeamento(nfId, body.mapeamento, user.sub);
+
+    const recebimento = await this.recebimentoService.criarComNF(
+      nf.ordem_fornecimento_id,
+      nf,
+      body.mapeamento,
+      user.sub,
+      user.email || 'Usuário',
+    );
+
+    return { nf, recebimento };
   }
 
   @Get('ordens/:id/recebimento-unificado')
