@@ -1,5 +1,12 @@
 # Scratchpad
 
+## Tarefa Concluída: Cancelar Recebimento com Aceite Parcial (2026-02-17)
+
+- [X] Ao cancelar recebimento que teve aceite parcial (almoxarifado ou patrimônio), reverter baixa no contrato e zerar aceites
+- [X] Limpar aceite_almoxarifado_*, aceite_patrimonio_*, valor_aceito, quantidade_aceita
+- [X] Chamar reverterAtendimento para devolver quantidade_entregue na OF
+- [X] Assim a substituição de NF passa na validação (temAceite = false)
+
 ## Tarefa Concluída: Aceite Separado Almoxarifado/Patrimônio (2026-02-17)
 
 - [X] Backend: aceite_almoxarifado_*, aceite_patrimonio_* na entity Recebimento

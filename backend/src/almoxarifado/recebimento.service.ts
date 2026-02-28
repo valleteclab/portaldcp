@@ -1104,6 +1104,7 @@ export class RecebimentoService {
 
   /**
    * Cancela o recebimento. A OF volta a ENVIADA.
+   * Se houver aceite parcial (almoxarifado ou patrimônio), reverte a baixa e limpa todos os aceites.
    * Marca a NF como RECUSADA e notifica o fornecedor para reenviar os documentos.
    * O recebimento deve ser iniciado do zero quando o fornecedor enviar nova NF.
    */
@@ -1121,8 +1122,62 @@ export class RecebimentoService {
       );
     }
 
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: recebimento.ordem_fornecimento_id },
+      relations: ['fornecedor'],
+    });
+
+    const temAceiteParcial =
+      !!recebimento.aceite_almoxarifado_data || !!recebimento.aceite_patrimonio_data;
+
+    if (temAceiteParcial && recebimento.itens?.length) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        for (const itemRec of recebimento.itens) {
+          if (itemRec.item_contrato_id && itemRec.quantidade_aceita > 0) {
+            const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+              where: { id: itemRec.item_contrato_id },
+              lock: { mode: 'pessimistic_write' },
+            });
+            if (itemContrato) {
+              const quantidadeAReverter = Math.min(
+                itemRec.quantidade_aceita,
+                Number(itemContrato.quantidade_entregue),
+              );
+              itemContrato.quantidade_entregue = Math.max(
+                0,
+                Number(itemContrato.quantidade_entregue) - quantidadeAReverter,
+              );
+              itemContrato.saldo_disponivel =
+                Number(itemContrato.quantidade_contratada) -
+                Number(itemContrato.quantidade_empenhada) -
+                Number(itemContrato.quantidade_entregue);
+              await queryRunner.manager.save(itemContrato);
+            }
+          }
+          itemRec.quantidade_aceita = 0;
+        }
+        await this.ordemService.reverterAtendimento(ordem!.id, recebimento.itens);
+        await queryRunner.commitTransaction();
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+      } finally {
+        await queryRunner.release();
+      }
+    }
+
     recebimento.status = StatusRecebimento.REJEITADO;
     recebimento.motivo_rejeicao = motivo;
+    recebimento.aceite_almoxarifado_data = null;
+    recebimento.aceite_almoxarifado_usuario_id = null;
+    recebimento.aceite_almoxarifado_usuario_nome = null;
+    recebimento.aceite_patrimonio_data = null;
+    recebimento.aceite_patrimonio_usuario_id = null;
+    recebimento.aceite_patrimonio_usuario_nome = null;
+    recebimento.valor_aceito = 0;
     recebimento.ocorrencias = recebimento.ocorrencias || [];
     recebimento.ocorrencias.push({
       data: new Date(),
@@ -1131,14 +1186,12 @@ export class RecebimentoService {
       usuario: usuarioNome,
     });
 
-    this.logger.log(`Recebimento ${recebimento.numero} cancelado por ${usuarioNome}: ${motivo}`);
+    this.logger.log(
+      `Recebimento ${recebimento.numero} cancelado por ${usuarioNome}: ${motivo}` +
+        (temAceiteParcial ? ' (aceites parciais revertidos)' : ''),
+    );
 
     const saved = await this.recebimentoRepository.save(recebimento);
-
-    const ordem = await this.ordemRepository.findOne({
-      where: { id: recebimento.ordem_fornecimento_id },
-      relations: ['fornecedor'],
-    });
     if (ordem) {
       ordem.status = StatusOrdemFornecimento.ENVIADA;
       await this.ordemRepository.save(ordem);
