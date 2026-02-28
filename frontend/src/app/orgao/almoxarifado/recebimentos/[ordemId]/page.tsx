@@ -189,17 +189,17 @@ function RecebimentoUnificadoContent() {
             onConfirmar={handleConfirmarMapeamento}
             onRecusarNF={async (motivo: string) => {
               try {
-                const nfId = notaFiscal?.id
-                if (nfId) {
-                  await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${nfId}/cancelar`, {
+                if (recebimentos.length > 0) {
+                  await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recebimentos[0].id}/cancelar`, {
                     method: 'POST',
                     body: JSON.stringify({ motivo }),
                   })
                 }
                 if (ordem?.id) {
+                  const motivoCompleto = `NF recusada na pre-analise: ${motivo}`
                   await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordem.id}/cancelar`, {
                     method: 'POST',
-                    body: JSON.stringify({ motivo: `NF recusada: ${motivo}` }),
+                    body: JSON.stringify({ motivo: motivoCompleto }),
                   })
                 }
                 carregarDados()
