@@ -50,14 +50,15 @@ function RecebimentoUnificadoContent() {
         setRecebimentos(data.recebimentos || [])
 
         if (data.recebimentos?.length > 0) {
+          const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
+          setMapeamento(mapeamentoFonte)
           setEtapa('recebimento')
-        } else if (data.notaFiscal?.mapeamento_ai || data.notaFiscal?.mapeamento_confirmado) {
-          setMapeamento(data.notaFiscal.mapeamento_ai || data.notaFiscal.mapeamento_confirmado || [])
-          if (data.notaFiscal.mapeamento_confirmado) {
-            setEtapa('recebimento')
-          } else {
-            setEtapa('mapeamento')
-          }
+        } else if (data.notaFiscal?.mapeamento_confirmado) {
+          setMapeamento(data.notaFiscal.mapeamento_confirmado)
+          setEtapa('recebimento')
+        } else if (data.notaFiscal?.mapeamento_ai) {
+          setMapeamento(data.notaFiscal.mapeamento_ai)
+          setEtapa('mapeamento')
         } else if (data.notaFiscal) {
           setEtapa('nf')
         } else {
