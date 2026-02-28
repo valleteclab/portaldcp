@@ -49,10 +49,23 @@ function RecebimentoUnificadoContent() {
         setNotaFiscal(data.notaFiscal)
         setRecebimentos(data.recebimentos || [])
 
-        if (data.recebimentos?.length > 0) {
+        const recebimentosAtivos = (data.recebimentos || []).filter(
+          (r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO'
+        )
+        const recebimentosCancelados = (data.recebimentos || []).filter(
+          (r: any) => r.status === 'REJEITADO' || r.status === 'ESTORNADO'
+        )
+
+        if (recebimentosAtivos.length > 0) {
           const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
           setMapeamento(mapeamentoFonte)
           setEtapa('recebimento')
+        } else if (recebimentosCancelados.length > 0 && !data.notaFiscal) {
+          setEtapa('nf')
+        } else if (recebimentosCancelados.length > 0 && data.notaFiscal) {
+          const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
+          setMapeamento(mapeamentoFonte)
+          setEtapa('nf')
         } else if (data.notaFiscal?.mapeamento_confirmado) {
           setMapeamento(data.notaFiscal.mapeamento_confirmado)
           setEtapa('recebimento')
@@ -186,12 +199,13 @@ function RecebimentoUnificadoContent() {
             produtosXml={notaFiscal?.produtos_xml || []}
             itensOf={ordem?.itens || []}
             iaIndisponivel={iaIndisponivel}
-            jaConfirmado={!!notaFiscal?.mapeamento_confirmado || recebimentos.length > 0}
+            jaConfirmado={!!notaFiscal?.mapeamento_confirmado || recebimentos.some((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')}
             onConfirmar={handleConfirmarMapeamento}
             onRecusarNF={async (motivo: string) => {
               try {
-                if (recebimentos.length > 0) {
-                  await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recebimentos[0].id}/cancelar`, {
+                const recAtivo = recebimentos.find((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
+                if (recAtivo) {
+                  await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recAtivo.id}/cancelar`, {
                     method: 'POST',
                     body: JSON.stringify({ motivo }),
                   })
@@ -212,25 +226,58 @@ function RecebimentoUnificadoContent() {
           />
         )}
 
-        {etapa === 'recebimento' && recebimentos.length > 0 && (
-          <EtapaRecebimento
-            recebimento={recebimentos[0]}
-            ordemId={ordemId}
-            podeReceberPatrimonio={podeReceberPatrimonio}
-            onUpdate={carregarDados}
-          />
-        )}
+        {etapa === 'recebimento' && (() => {
+          const recAtivos = recebimentos.filter((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
+          const recCancelados = recebimentos.filter((r: any) => r.status === 'REJEITADO' || r.status === 'ESTORNADO')
+          
+          if (recAtivos.length > 0) {
+            return (
+              <EtapaRecebimento
+                recebimento={recAtivos[0]}
+                ordemId={ordemId}
+                podeReceberPatrimonio={podeReceberPatrimonio}
+                onUpdate={carregarDados}
+              />
+            )
+          }
+          
+          if (recCancelados.length > 0) {
+            return (
+              <div className="space-y-4">
+                <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-amber-800">Recebimento anterior foi cancelado/rejeitado</p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Motivo: {recCancelados[0].motivo_rejeicao || recCancelados[0].motivo_estorno || 'Nao informado'}
+                      </p>
+                    </div>
+                    <Button onClick={() => setEtapa('nf')}>
+                      Iniciar Novo Recebimento
+                    </Button>
+                  </div>
+                </div>
+                <EtapaRecebimento
+                  recebimento={recCancelados[0]}
+                  ordemId={ordemId}
+                  podeReceberPatrimonio={podeReceberPatrimonio}
+                  onUpdate={carregarDados}
+                />
+              </div>
+            )
+          }
 
-        {etapa === 'recebimento' && recebimentos.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center text-gray-500">
-              <p>Nenhum recebimento criado ainda. Complete o mapeamento para prosseguir.</p>
-              <Button className="mt-4" onClick={() => setEtapa('mapeamento')}>
-                Voltar para Mapeamento
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+          return (
+            <Card>
+              <CardContent className="py-8 text-center text-gray-500">
+                <p>Nenhum recebimento criado ainda. Complete o mapeamento para prosseguir.</p>
+                <Button className="mt-4" onClick={() => setEtapa('mapeamento')}>
+                  Voltar para Mapeamento
+                </Button>
+              </CardContent>
+            </Card>
+          )
+        })()}
 
         {/* Resumo da OF */}
         {ordem && (
