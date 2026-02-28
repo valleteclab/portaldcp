@@ -109,6 +109,9 @@ function RecebimentoUnificadoContent() {
       if (res.ok) {
         await carregarDados()
         setEtapa('recebimento')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.message || 'Erro ao confirmar mapeamento')
       }
     } catch {
     } finally {

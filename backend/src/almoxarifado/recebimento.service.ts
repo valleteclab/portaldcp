@@ -788,84 +788,95 @@ export class RecebimentoService {
     usuarioId: string,
     usuarioNome: string,
   ): Promise<Recebimento> {
-    const ordem = await this.ordemRepository.findOne({
-      where: { id: ordemId },
-      relations: ['contrato'],
-    });
-    if (!ordem) throw new NotFoundException('Ordem não encontrada');
+    try {
+      const ordem = await this.ordemRepository.findOne({
+        where: { id: ordemId },
+        relations: ['contrato'],
+      });
+      if (!ordem) throw new NotFoundException('Ordem não encontrada');
 
-    const ano = new Date().getFullYear();
-    const ultimo = await this.recebimentoRepository
-      .createQueryBuilder('r')
-      .where('r.orgao_id = :orgaoId', { orgaoId: ordem.orgao_id })
-      .andWhere('r.ano = :ano', { ano })
-      .orderBy('r.sequencial', 'DESC')
-      .getOne();
-    const sequencial = (ultimo?.sequencial || 0) + 1;
-    const numero = `REC-${String(sequencial).padStart(4, '0')}/${ano}`;
+      const ano = new Date().getFullYear();
+      const ultimo = await this.recebimentoRepository
+        .createQueryBuilder('r')
+        .where('r.orgao_id = :orgaoId', { orgaoId: ordem.orgao_id })
+        .andWhere('r.ano = :ano', { ano })
+        .orderBy('r.sequencial', 'DESC')
+        .getOne();
+      const sequencial = (ultimo?.sequencial || 0) + 1;
+      const numero = `REC-${String(sequencial).padStart(4, '0')}/${ano}`;
 
-    const itensRecebimento = mapeamento.map(m => {
-      const itemOf = (ordem.itens || []).find(
-        (i: any) => i.item_contrato_id === m.item_contrato_id,
-      );
-      return {
-        item_contrato_id: m.item_contrato_id,
-        numero_item: m.produto_nf_index,
-        descricao: itemOf?.descricao || m.descricao_of || m.xProd_nf,
-        unidade_medida: itemOf?.unidade_medida || '',
-        tipo_item: itemOf?.tipo_item || 'CONSUMO',
-        quantidade_esperada: itemOf?.quantidade || 0,
-        quantidade_recebida: itemOf?.quantidade || 0,
-        quantidade_aceita: 0,
-        valor_unitario: itemOf?.valor_unitario || 0,
-        valor_total: (itemOf?.valor_unitario || 0) * (itemOf?.quantidade || 0),
-      };
-    });
+      const itensRecebimento = mapeamento.map(m => {
+        const itemOf = (ordem.itens || []).find(
+          (i: any) => i.item_contrato_id === m.item_contrato_id,
+        );
+        return {
+          item_contrato_id: m.item_contrato_id,
+          numero_item: m.produto_nf_index,
+          descricao: itemOf?.descricao || m.descricao_of || m.xProd_nf,
+          unidade_medida: itemOf?.unidade_medida || '',
+          tipo_item: itemOf?.tipo_item || 'CONSUMO',
+          quantidade_esperada: itemOf?.quantidade || 0,
+          quantidade_recebida: itemOf?.quantidade || 0,
+          quantidade_aceita: 0,
+          valor_unitario: itemOf?.valor_unitario || 0,
+          valor_total: (itemOf?.valor_unitario || 0) * (itemOf?.quantidade || 0),
+        };
+      });
 
-    const valorTotal = itensRecebimento.reduce((sum, i) => sum + i.valor_total, 0);
+      const valorTotal = itensRecebimento.reduce((sum, i) => sum + i.valor_total, 0);
 
-    const recebimento = this.recebimentoRepository.create({
-      orgao_id: ordem.orgao_id,
-      ordem_fornecimento_id: ordemId,
-      numero,
-      ano,
-      sequencial,
-      tipo: TipoRecebimento.PROVISORIO,
-      status: StatusRecebimento.PENDENTE,
-      numero_nota_fiscal: nf.numero,
-      serie_nota_fiscal: nf.serie,
-      data_nota_fiscal: nf.data_emissao,
-      chave_nfe: nf.chave_acesso,
-      valor_nota_fiscal: nf.valor_total,
-      nota_fiscal_fornecedor_id: nf.id,
-      mapeamento_ia: mapeamento.map(m => ({
-        produto_nf_index: m.produto_nf_index,
-        xProd_nf: m.xProd_nf,
-        item_contrato_id: m.item_contrato_id,
-        descricao_of: m.descricao_of,
-        confianca: m.confianca || 0,
-        confirmado_usuario: true,
-        confirmado_por: usuarioId,
-        confirmado_em: new Date().toISOString(),
-      })),
-      itens: itensRecebimento,
-      valor_total_recebido: valorTotal,
-      valor_aceito: 0,
-      usuario_recebedor_id: usuarioId,
-      usuario_recebedor_nome: usuarioNome,
-      baixa_realizada: false,
-    });
+      let dataNf: Date | null = null;
+      if (nf.data_emissao) {
+        const d = new Date(nf.data_emissao);
+        if (!isNaN(d.getTime())) dataNf = d;
+      }
 
-    const salvo = await this.recebimentoRepository.save(recebimento);
+      const recebimento = this.recebimentoRepository.create({
+        orgao_id: ordem.orgao_id,
+        ordem_fornecimento_id: ordemId,
+        numero,
+        ano,
+        sequencial,
+        tipo: TipoRecebimento.PROVISORIO,
+        status: StatusRecebimento.PENDENTE,
+        numero_nota_fiscal: nf.numero || null,
+        serie_nota_fiscal: nf.serie || null,
+        data_nota_fiscal: dataNf,
+        chave_nfe: nf.chave_acesso || null,
+        valor_nota_fiscal: nf.valor_total || 0,
+        nota_fiscal_fornecedor_id: nf.id,
+        mapeamento_ia: mapeamento.map(m => ({
+          produto_nf_index: m.produto_nf_index,
+          xProd_nf: m.xProd_nf,
+          item_contrato_id: m.item_contrato_id,
+          descricao_of: m.descricao_of,
+          confianca: m.confianca || 0,
+          confirmado_usuario: true,
+          confirmado_por: usuarioId,
+          confirmado_em: new Date().toISOString(),
+        })),
+        itens: itensRecebimento,
+        valor_total_recebido: valorTotal,
+        valor_aceito: 0,
+        usuario_recebedor_id: usuarioId,
+        usuario_recebedor_nome: usuarioNome,
+        baixa_realizada: false,
+      });
 
-    if (ordem.status === StatusOrdemFornecimento.ENVIADA) {
-      ordem.status = StatusOrdemFornecimento.EM_ATENDIMENTO;
-      await this.ordemRepository.save(ordem);
+      const salvo = await this.recebimentoRepository.save(recebimento);
+
+      if (ordem.status === StatusOrdemFornecimento.ENVIADA) {
+        ordem.status = StatusOrdemFornecimento.EM_ATENDIMENTO;
+        await this.ordemRepository.save(ordem);
+      }
+
+      this.logger.log(`Recebimento ${numero} criado com NF ${nf.numero} para OF ${ordem.numero}`);
+
+      return this.findOne(salvo.id);
+    } catch (error) {
+      this.logger.error(`Erro ao criar recebimento com NF: ${error.message}`, error.stack);
+      throw error;
     }
-
-    this.logger.log(`Recebimento ${numero} criado com NF ${nf.numero} para OF ${ordem.numero}`);
-
-    return this.findOne(salvo.id);
   }
 
   async findByOrdem(ordemId: string): Promise<Recebimento[]> {
