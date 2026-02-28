@@ -165,12 +165,13 @@ function RecebimentoUnificadoContent() {
       )}
 
       {/* Content */}
-      <div className="p-6 max-w-[1200px] mx-auto">
+      <div className="p-6">
         {etapa === 'nf' && (
           <EtapaNF
             notaFiscal={notaFiscal}
             ordem={ordem}
             onImportarXml={handleImportarXml}
+            onNfEnviada={carregarDados}
             loading={processing}
           />
         )}
