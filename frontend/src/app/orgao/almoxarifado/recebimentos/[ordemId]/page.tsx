@@ -210,12 +210,10 @@ function RecebimentoUnificadoContent() {
                     body: JSON.stringify({ motivo }),
                   })
                 }
-                if (ordem?.id) {
-                  const motivoCompleto = `NF recusada na pre-analise: ${motivo}`
-                  await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordem.id}/cancelar`, {
-                    method: 'POST',
-                    body: JSON.stringify({ motivo: motivoCompleto }),
-                  })
+                if (!recAtivo && notaFiscal?.id) {
+                  await authFetch(`${API_URL}/api/almoxarifado/notas-fiscais-fornecedor/${notaFiscal.id}`, {
+                    method: 'DELETE',
+                  }).catch(() => {})
                 }
                 carregarDados()
               } catch (e) {
