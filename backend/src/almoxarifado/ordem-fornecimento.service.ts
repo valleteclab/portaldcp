@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from './entities/ordem-fornecimento.entity';
-import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
+import { NotaFiscalFornecedor, StatusNotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisicao.entity';
 import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { HistoricoOrdemFornecimento, TipoAcaoOrdem } from './entities/historico-ordem.entity';
@@ -1032,7 +1032,7 @@ export class OrdemFornecimentoService {
     });
   }
 
-  async findEmAndamento(orgaoId: string): Promise<(OrdemFornecimento & { nf_disponivel?: boolean })[]> {
+  async findEmAndamento(orgaoId: string): Promise<(OrdemFornecimento & { nf_disponivel?: boolean; nf_recusada?: boolean })[]> {
     const ordens = await this.ordemRepository.createQueryBuilder('ordem')
       .leftJoinAndSelect('ordem.contrato', 'contrato')
       .leftJoinAndSelect('ordem.fornecedor', 'fornecedor')
@@ -1050,15 +1050,31 @@ export class OrdemFornecimentoService {
     if (ordens.length === 0) return ordens;
 
     const ordemIds = ordens.map((o) => o.id);
-    const nfs = await this.nfRepository.find({
-      where: { ordem_fornecimento_id: In(ordemIds) },
+    const nfsDisponiveis = await this.nfRepository.find({
+      where: {
+        ordem_fornecimento_id: In(ordemIds),
+        status: In([
+          StatusNotaFiscalFornecedor.ENVIADA,
+          StatusNotaFiscalFornecedor.PROCESSADA,
+          StatusNotaFiscalFornecedor.VINCULADA,
+        ]),
+      },
       select: ['ordem_fornecimento_id'],
     });
-    const ordensComNf = new Set(nfs.map((nf) => nf.ordem_fornecimento_id));
+    const nfsRecusadas = await this.nfRepository.find({
+      where: {
+        ordem_fornecimento_id: In(ordemIds),
+        status: StatusNotaFiscalFornecedor.RECUSADA,
+      },
+      select: ['ordem_fornecimento_id'],
+    });
+    const ordensComNfDisponivel = new Set(nfsDisponiveis.map((nf) => nf.ordem_fornecimento_id));
+    const ordensComNfRecusada = new Set(nfsRecusadas.map((nf) => nf.ordem_fornecimento_id));
 
     for (const ordem of ordens) {
-      (ordem as OrdemFornecimento & { nf_disponivel?: boolean }).nf_disponivel =
-        ordensComNf.has(ordem.id);
+      const ordemExt = ordem as OrdemFornecimento & { nf_disponivel?: boolean; nf_recusada?: boolean };
+      ordemExt.nf_disponivel = ordensComNfDisponivel.has(ordem.id);
+      ordemExt.nf_recusada = !ordemExt.nf_disponivel && ordensComNfRecusada.has(ordem.id);
     }
     return ordens;
   }

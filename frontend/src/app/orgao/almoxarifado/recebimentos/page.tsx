@@ -489,6 +489,11 @@ function RecebimentosList() {
                         <FileCheck className="h-3 w-3" />
                         NF disponível
                       </Badge>
+                    ) : of.nf_recusada ? (
+                      <Badge className="bg-red-100 text-red-800 text-xs flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        NF recusada
+                      </Badge>
                     ) : (
                       <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 text-xs flex items-center gap-1">
                         <Clock className="h-3 w-3" />
