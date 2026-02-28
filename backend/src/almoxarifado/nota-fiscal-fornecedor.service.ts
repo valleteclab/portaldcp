@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotaFiscalFornecedor, StatusNotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { OrdemFornecimento, StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
+import { Recebimento } from './entities/recebimento.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { XmlNfeParserService } from './xml-nfe-parser.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -19,6 +20,8 @@ export class NotaFiscalFornecedorService {
     private readonly nfRepository: Repository<NotaFiscalFornecedor>,
     @InjectRepository(OrdemFornecimento)
     private readonly ordemRepository: Repository<OrdemFornecimento>,
+    @InjectRepository(Recebimento)
+    private readonly recebimentoRepository: Repository<Recebimento>,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     private readonly xmlParser: XmlNfeParserService,
@@ -51,10 +54,17 @@ export class NotaFiscalFornecedorService {
     const existente = await this.nfRepository.findOne({
       where: { ordem_fornecimento_id: ordemId },
     });
-    if (existente && existente.status === StatusNotaFiscalFornecedor.VINCULADA) {
-      throw new BadRequestException('Esta NF já foi vinculada a um recebimento e não pode ser substituída');
-    }
     if (existente) {
+      const recebimentos = await this.recebimentoRepository.find({
+        where: { nota_fiscal_fornecedor_id: existente.id },
+      });
+      if (recebimentos.length > 0) {
+        const temAceite = recebimentos.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
+        if (temAceite) {
+          throw new BadRequestException('Não é possível substituir a NF pois já existe aceite no recebimento');
+        }
+        await this.recebimentoRepository.remove(recebimentos);
+      }
       await this.nfRepository.remove(existente);
     }
 
