@@ -16,7 +16,8 @@ import {
   RotateCcw,
   Trash2,
   Warehouse,
-  Archive
+  Archive,
+  FolderOpen
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,6 +65,7 @@ interface Recebimento {
   aceite_almoxarifado_usuario_nome?: string | null;
   aceite_patrimonio_data?: string | null;
   aceite_patrimonio_usuario_nome?: string | null;
+  ordem_fornecimento_id?: string;
   ordem_fornecimento?: {
     numero: string;
     fornecedor?: {
@@ -567,6 +569,18 @@ function RecebimentosList() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        {rec.ordem_fornecimento_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                            title="Abrir tela de recebimento unificada"
+                          >
+                            <Link href={`/orgao/almoxarifado/recebimentos/${rec.ordem_fornecimento_id}`}>
+                              <FolderOpen className="h-4 w-4 text-blue-600" />
+                            </Link>
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
