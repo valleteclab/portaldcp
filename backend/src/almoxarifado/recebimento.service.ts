@@ -321,6 +321,14 @@ export class RecebimentoService {
         recebimento.data_baixa = new Date();
       }
 
+      recebimento.ocorrencias = recebimento.ocorrencias || [];
+      recebimento.ocorrencias.push({
+        data: new Date(),
+        tipo: 'ACEITE_ALMOXARIFADO',
+        descricao: `Aceite almoxarifado por ${usuarioNome}. ${itensConsumo.length} item(ns) de consumo aceitos. Valor: R$ ${valorAceitoAlmox.toFixed(2)}`,
+        usuario: usuarioNome,
+      });
+
       await queryRunner.manager.save(recebimento);
       await queryRunner.commitTransaction();
 
@@ -451,6 +459,14 @@ export class RecebimentoService {
         recebimento.data_aceite = new Date();
         recebimento.data_baixa = new Date();
       }
+
+      recebimento.ocorrencias = recebimento.ocorrencias || [];
+      recebimento.ocorrencias.push({
+        data: new Date(),
+        tipo: 'ACEITE_PATRIMONIO',
+        descricao: `Aceite patrimonio por ${usuarioNome}. ${itensPermanente.length} item(ns) permanentes aceitos. Valor: R$ ${valorAceitoPatrim.toFixed(2)}`,
+        usuario: usuarioNome,
+      });
 
       await queryRunner.manager.save(recebimento);
       await queryRunner.commitTransaction();

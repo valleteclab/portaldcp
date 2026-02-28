@@ -83,6 +83,8 @@ export function EtapaRecebimento({
     }))
   }
 
+  const hasParcial = Object.values(itemStates).some(s => s.mode === 'parcial')
+
   const handleSalvarDecisoes = async () => {
     setSalvando(true)
     setErro(null)
@@ -113,7 +115,7 @@ export function EtapaRecebimento({
         } else {
           onUpdate()
         }
-      } else {
+      } else if (hasParcial) {
         const itensUpdate = Object.entries(itemStates).map(([item_contrato_id, s]) => ({
           item_contrato_id,
           quantidade_recebida: s.mode === 'total'
@@ -426,17 +428,19 @@ export function EtapaRecebimento({
         </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 justify-end">
-        <Button
-          size="sm"
-          variant="destructive"
-          onClick={() => { setShowCancelarModal(true); setMotivoCancelar('') }}
-        >
-          <Ban className="h-3.5 w-3.5 mr-1" />
-          Cancelar Recebimento
-        </Button>
-      </div>
+      {/* Toolbar - always show cancel if no baixa */}
+      {!recebimento?.baixa_realizada && (
+        <div className="flex items-center gap-2 justify-end">
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => { setShowCancelarModal(true); setMotivoCancelar('') }}
+          >
+            <Ban className="h-3.5 w-3.5 mr-1" />
+            Cancelar Recebimento
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Almoxarifado */}
@@ -476,7 +480,7 @@ export function EtapaRecebimento({
                   )}
                   <Button
                     onClick={async () => {
-                      if (Object.values(itemStates).some(s => s.mode === 'parcial' || s.mode === 'total')) {
+                      if (hasParcial) {
                         await handleSalvarDecisoes()
                       }
                       await handleAceitarAlmoxarifado()
@@ -534,7 +538,7 @@ export function EtapaRecebimento({
                   )}
                   <Button
                     onClick={async () => {
-                      if (Object.values(itemStates).some(s => s.mode === 'parcial' || s.mode === 'total')) {
+                      if (hasParcial) {
                         await handleSalvarDecisoes()
                       }
                       await handleAceitarPatrimonio()
@@ -581,18 +585,30 @@ export function EtapaRecebimento({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {ocorrencias.map((oc: any, idx: number) => (
-              <div key={idx} className="flex items-start gap-3 py-2 px-3 bg-gray-50 rounded text-xs border-l-2 border-gray-300">
-                <div className="flex-1">
-                  <span className="font-semibold">{oc.tipo}</span>
-                  <span className="text-gray-500 ml-2">{oc.usuario}</span>
-                  <p className="text-gray-600 mt-0.5">{oc.descricao}</p>
+            {ocorrencias.map((oc: any, idx: number) => {
+              const tipoLabels: Record<string, { label: string; color: string }> = {
+                'ACEITE_ALMOXARIFADO': { label: 'Aceite Almoxarifado', color: 'border-blue-400' },
+                'ACEITE_PATRIMONIO': { label: 'Aceite Patrimonio', color: 'border-purple-400' },
+                'ALTERACAO_QUANTIDADE': { label: 'Recebimento Parcial', color: 'border-amber-400' },
+                'CANCELAMENTO': { label: 'Cancelamento', color: 'border-red-400' },
+                'RECUSA_ITEM': { label: 'Recusa de Item', color: 'border-red-400' },
+                'REJEICAO': { label: 'Rejeicao', color: 'border-red-400' },
+                'ESTORNO': { label: 'Estorno', color: 'border-red-400' },
+                'BAIXA': { label: 'Baixa no Contrato', color: 'border-green-400' },
+              }
+              const info = tipoLabels[oc.tipo] || { label: oc.tipo, color: 'border-gray-300' }
+              return (
+                <div key={idx} className={`flex items-start gap-3 py-2 px-3 bg-gray-50 rounded text-xs border-l-2 ${info.color}`}>
+                  <div className="flex-1">
+                    <span className="font-semibold">{info.label}</span>
+                    <span className="text-gray-500 ml-2">{oc.usuario}</span>
+                    <p className="text-gray-600 mt-0.5">{oc.descricao}</p>
                 </div>
                 <span className="text-gray-400 whitespace-nowrap">
                   {new Date(oc.data).toLocaleString('pt-BR')}
                 </span>
               </div>
-            ))}
+            )})}
           </CardContent>
         </Card>
       )}
