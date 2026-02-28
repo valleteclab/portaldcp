@@ -51,8 +51,11 @@ export class NotaFiscalFornecedorService {
     const existente = await this.nfRepository.findOne({
       where: { ordem_fornecimento_id: ordemId },
     });
-    if (existente && existente.status !== StatusNotaFiscalFornecedor.ERRO) {
-      throw new BadRequestException('Já existe uma nota fiscal enviada para esta ordem');
+    if (existente && existente.status === StatusNotaFiscalFornecedor.VINCULADA) {
+      throw new BadRequestException('Esta NF já foi vinculada a um recebimento e não pode ser substituída');
+    }
+    if (existente) {
+      await this.nfRepository.remove(existente);
     }
 
     const xmlContent = fs.readFileSync(xmlFile.path, 'utf-8');

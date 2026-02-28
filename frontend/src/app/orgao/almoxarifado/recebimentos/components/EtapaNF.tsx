@@ -185,6 +185,31 @@ export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading
             )}
             {loading ? 'Processando IA...' : 'Importar XML e Vincular Produtos'}
           </Button>
+
+          <div className="mt-3 pt-3 border-t">
+            <p className="text-xs text-gray-500 mb-2">Enviou a NF errada? Substitua por outra:</p>
+            <label className="cursor-pointer inline-block">
+              <input
+                type="file"
+                multiple
+                accept=".xml,.pdf"
+                onChange={handleUploadManual}
+                disabled={uploading}
+                className="hidden"
+              />
+              <Button variant="outline" size="sm" asChild disabled={uploading}>
+                <span>
+                  {uploading ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <Upload className="h-3 w-3 mr-1" />
+                  )}
+                  {uploading ? 'Enviando...' : 'Substituir NF (XML + PDF)'}
+                </span>
+              </Button>
+            </label>
+            {erroUpload && <p className="text-xs text-red-600 mt-2">{erroUpload}</p>}
+          </div>
         </CardContent>
       </Card>
     </div>
