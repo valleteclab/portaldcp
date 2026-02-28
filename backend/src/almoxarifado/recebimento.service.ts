@@ -839,6 +839,7 @@ export class RecebimentoService {
         sequencial,
         tipo: TipoRecebimento.PROVISORIO,
         status: StatusRecebimento.PENDENTE,
+        data_recebimento: new Date(),
         numero_nota_fiscal: nf.numero || null,
         serie_nota_fiscal: nf.serie || null,
         data_nota_fiscal: dataNf,
