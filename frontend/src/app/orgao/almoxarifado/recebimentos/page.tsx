@@ -181,7 +181,7 @@ function RecebimentosList() {
 
   const carregarOrdensAguardando = async () => {
     try {
-      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens?status=ENVIADA`);
+      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens/em-andamento`);
       if (response.ok) {
         const data = await response.json();
         setOrdensAguardando(Array.isArray(data) ? data : data.data || []);
