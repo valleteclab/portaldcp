@@ -766,7 +766,11 @@ export class OrdemFornecimentoService {
       const requisicao = await this.requisicaoRepository.findOne({
         where: { id: ordem.requisicao_id },
       });
-      if (requisicao && requisicao.status === StatusRequisicao.ORDEM_GERADA) {
+      const statusSincronizaveis = [
+        StatusRequisicao.ORDEM_GERADA,
+        StatusRequisicao.ATENDIDA_PARCIAL,
+      ];
+      if (requisicao && statusSincronizaveis.includes(requisicao.status)) {
         requisicao.status = totalmenteAtendida
           ? StatusRequisicao.ATENDIDA
           : StatusRequisicao.ATENDIDA_PARCIAL;
