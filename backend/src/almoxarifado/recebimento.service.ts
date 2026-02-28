@@ -1026,4 +1026,144 @@ export class RecebimentoService {
 
     this.logger.log(`Recebimento ${recebimento.numero} excluído permanentemente`);
   }
+
+  async atualizarQuantidades(
+    id: string,
+    itensUpdate: { item_contrato_id: string; quantidade_recebida: number }[],
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Recebimento> {
+    const recebimento = await this.findOne(id);
+
+    if (recebimento.aceite_almoxarifado_data || recebimento.aceite_patrimonio_data) {
+      throw new BadRequestException(
+        'Não é possível alterar quantidades após aceite parcial ou total.',
+      );
+    }
+
+    const statusPermitidos = [StatusRecebimento.PENDENTE, StatusRecebimento.CONFERIDO];
+    if (!statusPermitidos.includes(recebimento.status)) {
+      throw new BadRequestException(
+        `Recebimento com status ${recebimento.status} não permite alteração de quantidades.`,
+      );
+    }
+
+    let valorTotal = 0;
+    for (const upd of itensUpdate) {
+      const item = recebimento.itens.find(i => i.item_contrato_id === upd.item_contrato_id);
+      if (item) {
+        if (upd.quantidade_recebida < 0) {
+          throw new BadRequestException(`Quantidade não pode ser negativa para ${item.descricao}`);
+        }
+        if (upd.quantidade_recebida > item.quantidade_esperada) {
+          throw new BadRequestException(
+            `Quantidade recebida (${upd.quantidade_recebida}) não pode ser maior que a esperada (${item.quantidade_esperada}) para ${item.descricao}`,
+          );
+        }
+        item.quantidade_recebida = upd.quantidade_recebida;
+        item.valor_total = item.valor_unitario * upd.quantidade_recebida;
+      }
+      valorTotal += item?.valor_total || 0;
+    }
+
+    recebimento.valor_total_recebido = recebimento.itens.reduce((s, i) => s + (i.valor_total || 0), 0);
+
+    recebimento.ocorrencias = recebimento.ocorrencias || [];
+    recebimento.ocorrencias.push({
+      data: new Date(),
+      tipo: 'ALTERACAO_QUANTIDADE',
+      descricao: `Quantidades atualizadas por ${usuarioNome} (recebimento parcial)`,
+      usuario: usuarioNome,
+    });
+
+    this.logger.log(`Recebimento ${recebimento.numero}: quantidades atualizadas por ${usuarioNome}`);
+
+    return this.recebimentoRepository.save(recebimento);
+  }
+
+  async cancelar(
+    id: string,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Recebimento> {
+    const recebimento = await this.findOne(id);
+
+    if (recebimento.baixa_realizada) {
+      throw new BadRequestException(
+        'Recebimento já teve baixa realizada. Use estorno para reverter.',
+      );
+    }
+
+    recebimento.status = StatusRecebimento.REJEITADO;
+    recebimento.motivo_rejeicao = motivo;
+    recebimento.ocorrencias = recebimento.ocorrencias || [];
+    recebimento.ocorrencias.push({
+      data: new Date(),
+      tipo: 'CANCELAMENTO',
+      descricao: `Cancelado por ${usuarioNome}: ${motivo}`,
+      usuario: usuarioNome,
+    });
+
+    this.logger.log(`Recebimento ${recebimento.numero} cancelado por ${usuarioNome}: ${motivo}`);
+
+    const saved = await this.recebimentoRepository.save(recebimento);
+
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: recebimento.ordem_fornecimento_id },
+    });
+    if (ordem) {
+      ordem.status = StatusOrdemFornecimento.ENVIADA;
+      await this.ordemRepository.save(ordem);
+    }
+
+    return saved;
+  }
+
+  async recusarItem(
+    id: string,
+    itemContratoId: string,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Recebimento> {
+    const recebimento = await this.findOne(id);
+
+    if (recebimento.baixa_realizada) {
+      throw new BadRequestException(
+        'Recebimento já teve baixa realizada. Use estorno para reverter.',
+      );
+    }
+
+    const item = recebimento.itens.find(i => i.item_contrato_id === itemContratoId);
+    if (!item) {
+      throw new BadRequestException('Item não encontrado no recebimento.');
+    }
+
+    recebimento.status = StatusRecebimento.REJEITADO;
+    recebimento.motivo_rejeicao = `Item recusado: ${item.descricao} - ${motivo}`;
+    recebimento.ocorrencias = recebimento.ocorrencias || [];
+    recebimento.ocorrencias.push({
+      data: new Date(),
+      tipo: 'RECUSA_ITEM',
+      descricao: `Item "${item.descricao}" recusado por ${usuarioNome}: ${motivo}. Recebimento total cancelado.`,
+      usuario: usuarioNome,
+    });
+
+    this.logger.log(
+      `Recebimento ${recebimento.numero}: item ${item.descricao} recusado por ${usuarioNome}. Recebimento cancelado.`,
+    );
+
+    const saved = await this.recebimentoRepository.save(recebimento);
+
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: recebimento.ordem_fornecimento_id },
+    });
+    if (ordem) {
+      ordem.status = StatusOrdemFornecimento.ENVIADA;
+      await this.ordemRepository.save(ordem);
+    }
+
+    return saved;
+  }
 }

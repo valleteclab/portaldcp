@@ -2,7 +2,8 @@ import {
   Controller, 
   Get, 
   Post, 
-  Put, 
+  Put,
+  Patch,
   Delete, 
   Body, 
   Param, 
@@ -805,6 +806,56 @@ export class AlmoxarifadoController {
       motivo || 'Estornado pelo usuário',
       user.id,
       user.nome,
+    );
+  }
+
+  @Patch('recebimentos/:id/atualizar-quantidades')
+  async atualizarQuantidades(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body('itens') itens: { item_contrato_id: string; quantidade_recebida: number }[],
+  ) {
+    const user = request.user;
+    const usuario = await this.usuarioRepository.findOne({ where: { id: user.sub } });
+    return this.recebimentoService.atualizarQuantidades(
+      id,
+      itens,
+      user.sub,
+      usuario?.nome || user.email || 'Usuário',
+    );
+  }
+
+  @Post('recebimentos/:id/cancelar')
+  async cancelarRecebimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body('motivo') motivo: string,
+  ) {
+    const user = request.user;
+    const usuario = await this.usuarioRepository.findOne({ where: { id: user.sub } });
+    return this.recebimentoService.cancelar(
+      id,
+      motivo || 'Cancelado pelo usuário',
+      user.sub,
+      usuario?.nome || user.email || 'Usuário',
+    );
+  }
+
+  @Post('recebimentos/:id/recusar-item')
+  async recusarItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body('item_contrato_id') itemContratoId: string,
+    @Body('motivo') motivo: string,
+  ) {
+    const user = request.user;
+    const usuario = await this.usuarioRepository.findOne({ where: { id: user.sub } });
+    return this.recebimentoService.recusarItem(
+      id,
+      itemContratoId,
+      motivo || 'Item recusado',
+      user.sub,
+      usuario?.nome || user.email || 'Usuário',
     );
   }
 
