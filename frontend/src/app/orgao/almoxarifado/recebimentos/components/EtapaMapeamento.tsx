@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Check, Bot, ArrowRight } from 'lucide-react'
 
 interface MapeamentoItem {
@@ -72,7 +72,7 @@ export function EtapaMapeamento({
   }
 
   const todosConfirmados = mapeamento.every(
-    m => confirmados[m.produto_nf_index] || !m.item_contrato_id
+    m => confirmados[m.produto_nf_index]
   )
 
   const handleConfirmarTodos = () => {
@@ -80,7 +80,7 @@ export function EtapaMapeamento({
       produto_nf_index: m.produto_nf_index,
       xProd_nf: m.xProd_nf,
       item_contrato_id: selecoes[m.produto_nf_index] || m.item_contrato_id,
-      descricao_of: m.descricao_of,
+      descricao_of: itensOf.find(i => i.item_contrato_id === (selecoes[m.produto_nf_index] || m.item_contrato_id))?.descricao || m.descricao_of,
     }))
     onConfirmar(result)
   }
@@ -148,15 +148,32 @@ export function EtapaMapeamento({
               <div className="text-center text-gray-300 text-lg">→</div>
 
               <div>
-                {item.item_contrato_id ? (
+                {selecoes[item.produto_nf_index] ? (
                   <div>
-                    <p className="text-sm font-semibold">{item.descricao_of}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">ID: {item.item_contrato_id.substring(0, 8)}...</p>
+                    <p className="text-sm font-semibold">
+                      {itensOf.find(i => i.item_contrato_id === selecoes[item.produto_nf_index])?.descricao || item.descricao_of}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      ID: {selecoes[item.produto_nf_index]!.substring(0, 8)}...
+                    </p>
                   </div>
                 ) : (
-                  <div className="border border-dashed border-red-300 bg-red-50 rounded-lg p-2 text-xs text-red-600">
-                    Produto nao identificado — selecionar manualmente
-                  </div>
+                  <Select
+                    onValueChange={(value) => {
+                      setSelecoes(prev => ({ ...prev, [item.produto_nf_index]: value }))
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-xs border-amber-300 bg-amber-50">
+                      <SelectValue placeholder="Selecionar item da OF..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itensOf.map(of => (
+                        <SelectItem key={of.item_contrato_id} value={of.item_contrato_id}>
+                          <span className="text-xs">{of.descricao} — {of.quantidade} {of.unidade_medida}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
 
@@ -186,12 +203,12 @@ export function EtapaMapeamento({
                 ) : (
                   <Button
                     size="sm"
-                    variant={item.item_contrato_id ? 'default' : 'outline'}
+                    variant={selecoes[item.produto_nf_index] ? 'default' : 'outline'}
                     onClick={() => confirmarItem(item.produto_nf_index)}
-                    disabled={!item.item_contrato_id}
+                    disabled={!selecoes[item.produto_nf_index]}
                     className="text-xs h-7"
                   >
-                    {item.item_contrato_id ? 'Confirmar' : 'Vincular'}
+                    Confirmar
                   </Button>
                 )}
               </div>
