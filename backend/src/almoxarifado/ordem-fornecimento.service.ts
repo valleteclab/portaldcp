@@ -1056,10 +1056,11 @@ export class OrdemFornecimentoService {
     });
     const ordensComNf = new Set(nfs.map((nf) => nf.ordem_fornecimento_id));
 
-    return ordens.map((ordem) => ({
-      ...ordem,
-      nf_disponivel: ordensComNf.has(ordem.id),
-    }));
+    for (const ordem of ordens) {
+      (ordem as OrdemFornecimento & { nf_disponivel?: boolean }).nf_disponivel =
+        ordensComNf.has(ordem.id);
+    }
+    return ordens;
   }
 
   // ============================================================================
