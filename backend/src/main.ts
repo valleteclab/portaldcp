@@ -1,6 +1,7 @@
 // IMPORTANTE: Carregar dotenv ANTES de qualquer outro import
 // para garantir que as variáveis de ambiente estejam disponíveis
 import * as dotenv from 'dotenv';
+import * as dns from 'dns';
 import * as path from 'path';
 
 // Tenta múltiplos caminhos para garantir que funcione em qualquer cenário
@@ -25,6 +26,11 @@ import { json, urlencoded } from 'express';
 import { DataSource } from 'typeorm';
 
 async function bootstrap() {
+  // Preferir IPv4 na resolução DNS para evitar ENETUNREACH em redes sem IPv6
+  if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+
   // Log de variáveis PNCP no startup (para debug no Railway)
   console.log('=== PNCP ENV CHECK ===');
   console.log('PNCP_API_URL:', process.env.PNCP_API_URL ? 'DEFINIDO' : 'NÃO DEFINIDO');

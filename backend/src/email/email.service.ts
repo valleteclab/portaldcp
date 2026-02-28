@@ -80,7 +80,9 @@ export class EmailService {
         port: config.port,
         secure: config.secure,
         auth: { user: config.user, pass: config.pass },
-      });
+        // Forçar IPv4 para evitar ENETUNREACH em redes sem IPv6
+        family: 4,
+      } as any);
 
       const to = Array.isArray(dto.to) ? dto.to.join(', ') : dto.to;
       const mailOptions: nodemailer.SendMailOptions = {

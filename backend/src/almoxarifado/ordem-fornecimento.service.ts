@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from './entities/ordem-fornecimento.entity';
+import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisicao.entity';
 import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { HistoricoOrdemFornecimento, TipoAcaoOrdem } from './entities/historico-ordem.entity';
@@ -22,6 +23,8 @@ export class OrdemFornecimentoService {
   constructor(
     @InjectRepository(OrdemFornecimento)
     private readonly ordemRepository: Repository<OrdemFornecimento>,
+    @InjectRepository(NotaFiscalFornecedor)
+    private readonly nfRepository: Repository<NotaFiscalFornecedor>,
     @InjectRepository(Requisicao)
     private readonly requisicaoRepository: Repository<Requisicao>,
     @InjectRepository(Contrato)
@@ -1029,20 +1032,34 @@ export class OrdemFornecimentoService {
     });
   }
 
-  async findEmAndamento(orgaoId: string): Promise<OrdemFornecimento[]> {
-    return this.ordemRepository.createQueryBuilder('ordem')
+  async findEmAndamento(orgaoId: string): Promise<(OrdemFornecimento & { nf_disponivel?: boolean })[]> {
+    const ordens = await this.ordemRepository.createQueryBuilder('ordem')
       .leftJoinAndSelect('ordem.contrato', 'contrato')
       .leftJoinAndSelect('ordem.fornecedor', 'fornecedor')
       .where('ordem.orgao_id = :orgaoId', { orgaoId })
-      .andWhere('ordem.status IN (:...status)', { 
+      .andWhere('ordem.status IN (:...status)', {
         status: [
           StatusOrdemFornecimento.ENVIADA,
           StatusOrdemFornecimento.EM_ATENDIMENTO,
           StatusOrdemFornecimento.ATENDIDA_PARCIAL,
-        ]
+        ],
       })
       .orderBy('ordem.data_entrega_prevista', 'ASC')
       .getMany();
+
+    if (ordens.length === 0) return ordens;
+
+    const ordemIds = ordens.map((o) => o.id);
+    const nfs = await this.nfRepository.find({
+      where: { ordem_fornecimento_id: In(ordemIds) },
+      select: ['ordem_fornecimento_id'],
+    });
+    const ordensComNf = new Set(nfs.map((nf) => nf.ordem_fornecimento_id));
+
+    return ordens.map((ordem) => ({
+      ...ordem,
+      nf_disponivel: ordensComNf.has(ordem.id),
+    }));
   }
 
   // ============================================================================

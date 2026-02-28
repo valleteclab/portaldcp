@@ -272,10 +272,18 @@ export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading
             <p className="text-sm text-gray-500 mb-4">XML não disponível para preview</p>
           )}
 
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-blue-800 font-medium mb-1">Próximo passo</p>
+            <p className="text-xs text-blue-700">
+              Clique no botão abaixo para extrair os produtos do XML e vinculá-los aos itens da ordem.
+              A IA irá sugerir os vínculos automaticamente.
+            </p>
+          </div>
+
           <Button
             onClick={onImportarXml}
             disabled={loading}
-            className="w-full"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
             size="lg"
           >
             {loading ? (

@@ -17,7 +17,9 @@ import {
   Trash2,
   Warehouse,
   Archive,
-  FolderOpen
+  FolderOpen,
+  FileCheck,
+  Clock
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -482,6 +484,17 @@ function RecebimentosList() {
                       <p className="font-semibold text-sm">{of.numero}</p>
                       <p className="text-xs text-gray-500">{of.fornecedor?.razao_social || '-'}</p>
                     </div>
+                    {of.nf_disponivel ? (
+                      <Badge className="bg-green-100 text-green-800 text-xs flex items-center gap-1">
+                        <FileCheck className="h-3 w-3" />
+                        NF disponível
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 text-xs flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        Aguard. NF
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 text-sm">
                     <span className="text-gray-500">{of.itens?.length || 0} itens</span>
