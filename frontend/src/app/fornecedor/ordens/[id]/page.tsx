@@ -28,6 +28,8 @@ import {
   FileText,
   Upload,
   FileCode,
+  AlertTriangle,
+  History,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 
@@ -343,7 +345,7 @@ export default function OrdemDetalheFornecedorPage() {
       </div>
 
       {/* Upload Nota Fiscal */}
-      {['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) && (
+      {(['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) || nfEnviada?.status === 'RECUSADA') && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -351,11 +353,80 @@ export default function OrdemDetalheFornecedorPage() {
               Nota Fiscal
             </CardTitle>
             <CardDescription>
-              Envie o XML da nota fiscal e opcionalmente o PDF
+              Envie o XML da nota fiscal e opcionalmente o PDF e outros documentos
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {nfEnviada ? (
+            {nfEnviada?.status === 'RECUSADA' ? (
+              <div className="space-y-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h4 className="font-bold text-red-800">Nota Fiscal Recusada</h4>
+                      <p className="text-sm text-red-700 mt-1">
+                        NF nº <strong>{nfEnviada.numero || 'S/N'}</strong> (Série {nfEnviada.serie || '-'}) foi recusada pelo órgão.
+                      </p>
+                      {nfEnviada.motivo_recusa && (
+                        <div className="bg-white border border-red-200 rounded-lg p-3 mt-2">
+                          <p className="text-xs text-gray-500">Motivo:</p>
+                          <p className="text-sm font-medium text-red-800">{nfEnviada.motivo_recusa}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {nfEnviada.historico?.length > 0 && (
+                  <div className="border rounded-lg p-4">
+                    <h4 className="font-medium text-sm flex items-center gap-2 mb-3">
+                      <History className="h-4 w-4 text-gray-500" />
+                      Histórico
+                    </h4>
+                    <div className="space-y-2">
+                      {nfEnviada.historico.map((h: any, i: number) => (
+                        <div key={i} className="flex items-start gap-2 text-sm border-b border-gray-100 pb-2 last:border-0">
+                          <Badge variant="destructive" className="text-[10px] flex-shrink-0">{h.tipo}</Badge>
+                          <div>
+                            <p className="text-gray-700">{h.descricao}</p>
+                            <p className="text-xs text-gray-400">{new Date(h.data).toLocaleString('pt-BR')}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 text-center">
+                  <Upload className="h-8 w-8 mx-auto text-blue-500 mb-2" />
+                  <p className="text-sm text-blue-800 font-medium mb-1">Envie uma nova Nota Fiscal corrigida</p>
+                  <p className="text-xs text-blue-600 mb-3">
+                    XML da NF-e (obrigatório) + PDF e outros documentos (opcional)
+                  </p>
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".xml,.pdf,.jpg,.jpeg,.png"
+                      onChange={handleUploadNf}
+                      disabled={uploadingNf}
+                      className="hidden"
+                    />
+                    <Button asChild disabled={uploadingNf}>
+                      <span>
+                        {uploadingNf ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        {uploadingNf ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF + Docs)'}
+                      </span>
+                    </Button>
+                  </label>
+                </div>
+                {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+              </div>
+            ) : nfEnviada ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-green-600">
                   <CheckCircle className="h-5 w-5" />
@@ -393,13 +464,13 @@ export default function OrdemDetalheFornecedorPage() {
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                   <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
                   <p className="text-sm text-gray-600 mb-2">
-                    Selecione o arquivo XML da NF-e (obrigatório) e opcionalmente o PDF
+                    Selecione o XML da NF-e (obrigatório) + PDF e outros documentos (opcional)
                   </p>
                   <label className="cursor-pointer">
                     <input
                       type="file"
                       multiple
-                      accept=".xml,.pdf"
+                      accept=".xml,.pdf,.jpg,.jpeg,.png"
                       onChange={handleUploadNf}
                       disabled={uploadingNf}
                       className="hidden"
@@ -411,7 +482,7 @@ export default function OrdemDetalheFornecedorPage() {
                         ) : (
                           <Upload className="h-4 w-4 mr-2" />
                         )}
-                        {uploadingNf ? 'Enviando...' : 'Selecionar Arquivos'}
+                        {uploadingNf ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF + Docs)'}
                       </span>
                     </Button>
                   </label>
