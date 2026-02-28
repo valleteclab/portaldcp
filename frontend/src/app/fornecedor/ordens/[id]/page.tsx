@@ -98,17 +98,21 @@ export default function OrdemDetalheFornecedorPage() {
     } catch {}
   }
 
-  const handleUploadNf = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
+  const [xmlFile, setXmlFile] = useState<File | null>(null)
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [outrosFiles, setOutrosFiles] = useState<File[]>([])
+
+  const handleEnviarNf = async () => {
+    if (!xmlFile) { setErroNf('Arquivo XML é obrigatório'); return }
+    if (!pdfFile) { setErroNf('Arquivo PDF da nota fiscal é obrigatório'); return }
 
     setUploadingNf(true)
     setErroNf(null)
     try {
       const formData = new FormData()
-      for (let i = 0; i < files.length; i++) {
-        formData.append('arquivos', files[i])
-      }
+      formData.append('arquivos', xmlFile)
+      formData.append('arquivos', pdfFile)
+      outrosFiles.forEach(f => formData.append('arquivos', f))
 
       const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`, {
         method: 'POST',
@@ -119,6 +123,9 @@ export default function OrdemDetalheFornecedorPage() {
       if (res.ok) {
         const data = await res.json()
         setNfEnviada(data)
+        setXmlFile(null)
+        setPdfFile(null)
+        setOutrosFiles([])
       } else {
         const data = await res.json().catch(() => ({}))
         setErroNf(data.message || 'Erro ao enviar nota fiscal')
@@ -127,7 +134,6 @@ export default function OrdemDetalheFornecedorPage() {
       setErroNf('Erro ao enviar nota fiscal')
     } finally {
       setUploadingNf(false)
-      e.target.value = ''
     }
   }
 
@@ -397,33 +403,46 @@ export default function OrdemDetalheFornecedorPage() {
                   </div>
                 )}
 
-                <div className="border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 text-center">
-                  <Upload className="h-8 w-8 mx-auto text-blue-500 mb-2" />
-                  <p className="text-sm text-blue-800 font-medium mb-1">Envie uma nova Nota Fiscal corrigida</p>
-                  <p className="text-xs text-blue-600 mb-3">
-                    XML da NF-e (obrigatório) + PDF e outros documentos (opcional)
-                  </p>
+                <p className="text-sm text-blue-800 font-medium mb-3">Envie uma nova Nota Fiscal corrigida</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${xmlFile ? 'border-green-400 bg-green-50' : 'border-gray-300 bg-white'}`}>
+                    <FileCode className={`h-6 w-6 mx-auto mb-1 ${xmlFile ? 'text-green-600' : 'text-gray-400'}`} />
+                    <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e *'}</p>
+                    <label className="cursor-pointer">
+                      <input type="file" accept=".xml" onChange={(e) => { setXmlFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                      <Button variant={xmlFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
+                    </label>
+                  </div>
+                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${pdfFile ? 'border-green-400 bg-green-50' : 'border-gray-300 bg-white'}`}>
+                    <FileText className={`h-6 w-6 mx-auto mb-1 ${pdfFile ? 'text-green-600' : 'text-gray-400'}`} />
+                    <p className="text-xs font-medium mb-2">{pdfFile ? pdfFile.name : 'PDF da Nota Fiscal *'}</p>
+                    <label className="cursor-pointer">
+                      <input type="file" accept=".pdf" onChange={(e) => { setPdfFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                      <Button variant={pdfFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{pdfFile ? 'Trocar' : 'Selecionar PDF'}</span></Button>
+                    </label>
+                  </div>
+                </div>
+                <div className={`border-2 border-dashed rounded-lg p-4 text-center ${outrosFiles.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'}`}>
+                  <p className="text-xs text-gray-500 mb-2">Outros documentos (opcional)</p>
+                  {outrosFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1 justify-center mb-2">
+                      {outrosFiles.map((f, i) => (
+                        <Badge key={i} variant="secondary" className="text-xs">
+                          {f.name}
+                          <button className="ml-1 text-red-500" onClick={() => setOutrosFiles(prev => prev.filter((_, idx) => idx !== i))}>×</button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                   <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      multiple
-                      accept=".xml,.pdf,.jpg,.jpeg,.png"
-                      onChange={handleUploadNf}
-                      disabled={uploadingNf}
-                      className="hidden"
-                    />
-                    <Button asChild disabled={uploadingNf}>
-                      <span>
-                        {uploadingNf ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : (
-                          <Upload className="h-4 w-4 mr-2" />
-                        )}
-                        {uploadingNf ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF + Docs)'}
-                      </span>
-                    </Button>
+                    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => { if (e.target.files) setOutrosFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }} className="hidden" />
+                    <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
                   </label>
                 </div>
+                <Button onClick={handleEnviarNf} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
+                  {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                  {uploadingNf ? 'Enviando...' : 'Enviar Nova Nota Fiscal'}
+                </Button>
                 {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
               </div>
             ) : nfEnviada ? (
@@ -460,33 +479,46 @@ export default function OrdemDetalheFornecedorPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600 mb-2">
-                    Selecione o XML da NF-e (obrigatório) + PDF e outros documentos (opcional)
-                  </p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${xmlFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
+                    <FileCode className={`h-6 w-6 mx-auto mb-1 ${xmlFile ? 'text-green-600' : 'text-gray-400'}`} />
+                    <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e *'}</p>
+                    <label className="cursor-pointer">
+                      <input type="file" accept=".xml" onChange={(e) => { setXmlFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                      <Button variant={xmlFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
+                    </label>
+                  </div>
+                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${pdfFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
+                    <FileText className={`h-6 w-6 mx-auto mb-1 ${pdfFile ? 'text-green-600' : 'text-gray-400'}`} />
+                    <p className="text-xs font-medium mb-2">{pdfFile ? pdfFile.name : 'PDF da Nota Fiscal *'}</p>
+                    <label className="cursor-pointer">
+                      <input type="file" accept=".pdf" onChange={(e) => { setPdfFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                      <Button variant={pdfFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{pdfFile ? 'Trocar' : 'Selecionar PDF'}</span></Button>
+                    </label>
+                  </div>
+                </div>
+                <div className={`border-2 border-dashed rounded-lg p-4 text-center ${outrosFiles.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                  <p className="text-xs text-gray-500 mb-2">Outros documentos (opcional): boleto, comprovante, etc.</p>
+                  {outrosFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1 justify-center mb-2">
+                      {outrosFiles.map((f, i) => (
+                        <Badge key={i} variant="secondary" className="text-xs">
+                          {f.name}
+                          <button className="ml-1 text-red-500" onClick={() => setOutrosFiles(prev => prev.filter((_, idx) => idx !== i))}>×</button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                   <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      multiple
-                      accept=".xml,.pdf,.jpg,.jpeg,.png"
-                      onChange={handleUploadNf}
-                      disabled={uploadingNf}
-                      className="hidden"
-                    />
-                    <Button asChild disabled={uploadingNf}>
-                      <span>
-                        {uploadingNf ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : (
-                          <Upload className="h-4 w-4 mr-2" />
-                        )}
-                        {uploadingNf ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF + Docs)'}
-                      </span>
-                    </Button>
+                    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => { if (e.target.files) setOutrosFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }} className="hidden" />
+                    <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
                   </label>
                 </div>
+                <Button onClick={handleEnviarNf} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
+                  {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                  {uploadingNf ? 'Enviando...' : 'Enviar Nota Fiscal'}
+                </Button>
                 {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
               </div>
             )}

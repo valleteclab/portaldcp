@@ -34,6 +34,7 @@ export class NotaFiscalFornecedorService {
     orgaoId: string,
     xmlFile: Express.Multer.File,
     pdfFile?: Express.Multer.File,
+    outrosArquivos?: Express.Multer.File[],
   ): Promise<NotaFiscalFornecedor> {
     const ordem = await this.ordemRepository.findOne({
       where: { id: ordemId, fornecedor_id: fornecedorId },
@@ -89,6 +90,11 @@ export class NotaFiscalFornecedorService {
         produtos_xml: parseResult.produtos,
         caminho_xml: xmlFile.path,
         caminho_pdf: pdfFile?.path || null,
+        documentos_extras: (outrosArquivos || []).map(f => ({
+          nome: f.originalname,
+          caminho: f.path,
+          tipo: f.mimetype,
+        })),
         xml_raw: xmlContent,
         status: StatusNotaFiscalFornecedor.PROCESSADA,
       });
@@ -102,6 +108,11 @@ export class NotaFiscalFornecedorService {
         ordem_fornecimento_id: ordemId,
         caminho_xml: xmlFile.path,
         caminho_pdf: pdfFile?.path || null,
+        documentos_extras: (outrosArquivos || []).map(f => ({
+          nome: f.originalname,
+          caminho: f.path,
+          tipo: f.mimetype,
+        })),
         xml_raw: xmlContent,
         status: StatusNotaFiscalFornecedor.ERRO,
         erro_processamento: error.message,

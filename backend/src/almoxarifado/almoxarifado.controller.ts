@@ -1079,7 +1079,7 @@ export class AlmoxarifadoController {
 
   @Post('ordens/:ordemId/upload-nota-fiscal')
   @UseInterceptors(
-    FilesInterceptor('arquivos', 2, {
+    FilesInterceptor('arquivos', 10, {
       storage: multer.diskStorage({
         destination: (req, file, cb) => {
           const uploadPath = path.join(process.cwd(), 'uploads', 'notas-fiscais');
@@ -1094,11 +1094,11 @@ export class AlmoxarifadoController {
         },
       }),
       fileFilter: (req, file, cb) => {
-        const allowed = ['text/xml', 'application/xml', 'application/pdf'];
+        const allowed = ['text/xml', 'application/xml', 'application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
         if (allowed.includes(file.mimetype) || file.originalname.endsWith('.xml')) {
           cb(null, true);
         } else {
-          cb(new Error('Apenas arquivos XML e PDF são permitidos'), false);
+          cb(new Error('Tipo de arquivo não permitido. Aceitos: XML, PDF, JPG, PNG'), false);
         }
       },
       limits: { fileSize: 15 * 1024 * 1024 },
@@ -1115,6 +1115,7 @@ export class AlmoxarifadoController {
       f.mimetype.includes('xml') || f.originalname.endsWith('.xml')
     );
     const pdfFile = arquivos?.find(f => f.mimetype === 'application/pdf');
+    const outrosArquivos = arquivos?.filter(f => f !== xmlFile && f !== pdfFile) || [];
 
     if (!xmlFile) {
       throw new BadRequestException('Arquivo XML é obrigatório');
@@ -1131,6 +1132,7 @@ export class AlmoxarifadoController {
       orgaoId,
       xmlFile,
       pdfFile,
+      outrosArquivos,
     );
   }
 

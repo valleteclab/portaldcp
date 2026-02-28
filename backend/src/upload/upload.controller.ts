@@ -99,6 +99,8 @@ export class UploadController {
       res.set({ 'Content-Type': 'image/jpeg' });
     } else if (ext === 'png') {
       res.set({ 'Content-Type': 'image/png' });
+    } else if (ext === 'xml') {
+      res.set({ 'Content-Type': 'application/xml' });
     }
   }
 

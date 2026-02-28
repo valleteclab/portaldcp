@@ -110,6 +110,13 @@ export class NotaFiscalFornecedor {
   @Column({ type: 'varchar', nullable: true })
   caminho_pdf: string | null;
 
+  @Column({ type: 'jsonb', default: [] })
+  documentos_extras: Array<{
+    nome: string;
+    caminho: string;
+    tipo: string;
+  }>;
+
   @Column({ type: 'text', nullable: true })
   xml_raw: string | null;
 

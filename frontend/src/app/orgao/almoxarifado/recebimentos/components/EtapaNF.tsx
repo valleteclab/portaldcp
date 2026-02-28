@@ -4,8 +4,14 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History } from 'lucide-react'
+import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+
+const getFileUrl = (caminho: string | null) => {
+  if (!caminho) return null
+  const filename = caminho.split(/[/\\]/).pop()
+  return `${API_URL}/api/uploads/notas-fiscais/${filename}`
+}
 
 interface EtapaNFProps {
   notaFiscal: any
@@ -306,6 +312,67 @@ export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading
           </div>
         </CardContent>
       </Card>
+
+      {(notaFiscal.caminho_pdf || notaFiscal.documentos_extras?.length > 0) && (
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-5 w-5 text-blue-600" />
+              Documentos Anexados
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {notaFiscal.caminho_xml && (
+                <a
+                  href={getFileUrl(notaFiscal.caminho_xml) || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition"
+                >
+                  <FileCode className="h-8 w-8 text-green-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">XML da NF-e</p>
+                    <p className="text-xs text-gray-500">Arquivo XML</p>
+                  </div>
+                  <Download className="h-4 w-4 text-gray-400" />
+                </a>
+              )}
+              {notaFiscal.caminho_pdf && (
+                <a
+                  href={getFileUrl(notaFiscal.caminho_pdf) || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition"
+                >
+                  <FileText className="h-8 w-8 text-red-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">PDF da Nota Fiscal</p>
+                    <p className="text-xs text-gray-500">Documento PDF</p>
+                  </div>
+                  <Download className="h-4 w-4 text-gray-400" />
+                </a>
+              )}
+              {notaFiscal.documentos_extras?.map((doc: any, i: number) => (
+                <a
+                  key={i}
+                  href={getFileUrl(doc.caminho) || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition"
+                >
+                  <Eye className="h-8 w-8 text-orange-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{doc.nome}</p>
+                    <p className="text-xs text-gray-500">{doc.tipo || 'Documento'}</p>
+                  </div>
+                  <Download className="h-4 w-4 text-gray-400" />
+                </a>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
