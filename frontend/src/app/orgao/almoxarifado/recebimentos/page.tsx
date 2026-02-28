@@ -127,6 +127,7 @@ function RecebimentosList() {
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
   const [motivoEstorno, setMotivoEstorno] = useState('');
   const [processando, setProcessando] = useState(false);
+  const [ordensAguardando, setOrdensAguardando] = useState<any[]>([]);
 
   useEffect(() => {
     // SEMPRE busca permissões do banco de dados (fonte da verdade)
@@ -150,6 +151,7 @@ function RecebimentosList() {
     };
     
     carregarPermissoes();
+    carregarOrdensAguardando();
   }, []);
 
   useEffect(() => {
@@ -173,6 +175,16 @@ function RecebimentosList() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const carregarOrdensAguardando = async () => {
+    try {
+      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens?status=ENVIADA`);
+      if (response.ok) {
+        const data = await response.json();
+        setOrdensAguardando(Array.isArray(data) ? data : data.data || []);
+      }
+    } catch {}
   };
 
   const formatarMoeda = (valor: number) => {
@@ -445,6 +457,41 @@ function RecebimentosList() {
           </div>
         </div>
       </div>
+
+      {/* Ordens Aguardando Recebimento */}
+      {ordensAguardando.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Package className="h-5 w-5 text-blue-600" />
+              Ordens Aguardando Recebimento ({ordensAguardando.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {ordensAguardando.map((of: any) => (
+                <Link
+                  key={of.id}
+                  href={`/orgao/almoxarifado/recebimentos/${of.id}`}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-blue-50 hover:border-blue-200 border border-transparent transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <p className="font-semibold text-sm">{of.numero}</p>
+                      <p className="text-xs text-gray-500">{of.fornecedor?.razao_social || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className="text-gray-500">{of.itens?.length || 0} itens</span>
+                    <span className="font-semibold">{formatarMoeda(of.valor_total || 0)}</span>
+                    <Badge variant="outline" className="text-xs">Abrir →</Badge>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filtros */}
       <Card>

@@ -1,4 +1,0 @@
-[Cursor] fix: remove invalid dados.ordem_servico_id reference in criarMedicao
-
-The typed dados parameter does not include ordem_servico_id. Only use
-osVinculada from the getOSAtiva() lookup.

@@ -9,6 +9,9 @@ import { RecebimentoService } from './recebimento.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { PdfOrdemService } from './pdf-ordem.service';
 import { MigracaoContratosService } from './migracao-contratos.service';
+import { NotaFiscalFornecedorService } from './nota-fiscal-fornecedor.service';
+import { MatchingIaService } from './matching-ia.service';
+import { XmlNfeParserService } from './xml-nfe-parser.service';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { Requisicao } from './entities/requisicao.entity';
 import { ItemRequisicao } from './entities/item-requisicao.entity';
@@ -18,6 +21,7 @@ import { ConfiguracaoAprovacao } from './entities/configuracao-aprovacao.entity'
 import { HistoricoOrdemFornecimento } from './entities/historico-ordem.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
+import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
@@ -29,6 +33,7 @@ import { ContratosModule } from '../contratos/contratos.module';
 import { EmailModule } from '../email/email.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AssinaturasModule } from '../assinaturas/assinaturas.module';
+import { IaModule } from '../ia/ia.module';
 
 @Module({
   imports: [
@@ -42,6 +47,7 @@ import { AssinaturasModule } from '../assinaturas/assinaturas.module';
       HistoricoOrdemFornecimento,
       RequisicaoItemOS,
       RequisicaoEtapaOS,
+      NotaFiscalFornecedor,
       ItemCronograma,
       EtapaCronograma,
       Contrato,
@@ -54,6 +60,7 @@ import { AssinaturasModule } from '../assinaturas/assinaturas.module';
     EmailModule,
     WhatsAppModule,
     AssinaturasModule,
+    IaModule,
   ],
   controllers: [AlmoxarifadoController, FornecedorOrdensController],
   providers: [
@@ -64,6 +71,9 @@ import { AssinaturasModule } from '../assinaturas/assinaturas.module';
     ConfiguracaoAprovacaoService,
     PdfOrdemService,
     MigracaoContratosService,
+    NotaFiscalFornecedorService,
+    MatchingIaService,
+    XmlNfeParserService,
   ],
   exports: [
     RequisicaoService, 

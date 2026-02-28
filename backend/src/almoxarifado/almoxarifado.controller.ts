@@ -28,6 +28,8 @@ import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { PdfOrdemService } from './pdf-ordem.service';
 import { CriarConfiguracaoAprovacaoDto, AtualizarConfiguracaoAprovacaoDto } from './dto/configuracao-aprovacao.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { NotaFiscalFornecedorService } from './nota-fiscal-fornecedor.service';
+import { MatchingIaService } from './matching-ia.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
 import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { 
@@ -66,6 +68,8 @@ export class AlmoxarifadoController {
     private readonly pdfOrdemService: PdfOrdemService,
     private readonly notificacoesService: NotificacoesService,
     private readonly migracaoContratosService: MigracaoContratosService,
+    private readonly nfFornecedorService: NotaFiscalFornecedorService,
+    private readonly matchingIaService: MatchingIaService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(OrdemFornecimento)
@@ -958,6 +962,68 @@ export class AlmoxarifadoController {
     }
 
     return resultado;
+  }
+
+  // ============================================================================
+  // NOTA FISCAL DO FORNECEDOR
+  // ============================================================================
+
+  @Get('ordens/:ordemId/nota-fiscal')
+  async getNotaFiscalOrdem(
+    @Param('ordemId', ParseUUIDPipe) ordemId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    this.getOrgaoId(request.user);
+    return this.nfFornecedorService.findByOrdem(ordemId);
+  }
+
+  @Post('ordens/:ordemId/matching-ia')
+  async executarMatchingIa(
+    @Param('ordemId', ParseUUIDPipe) ordemId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    this.getOrgaoId(request.user);
+    const nf = await this.nfFornecedorService.findByOrdem(ordemId);
+    if (!nf) {
+      throw new BadRequestException('Nenhuma nota fiscal encontrada para esta ordem');
+    }
+    return this.matchingIaService.matchProdutos(nf.id, ordemId);
+  }
+
+  @Post('recebimentos/:id/confirmar-mapeamento')
+  async confirmarMapeamento(
+    @Param('id', ParseUUIDPipe) nfId: string,
+    @Req() request: { user: JwtPayload },
+    @Body() body: { mapeamento: any[] },
+  ) {
+    const user = request.user;
+    return this.nfFornecedorService.confirmarMapeamento(nfId, body.mapeamento, user.sub);
+  }
+
+  @Get('ordens/:id/recebimento-unificado')
+  async getRecebimentoUnificado(
+    @Param('id', ParseUUIDPipe) ordemId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: ordemId, orgao_id: orgaoId },
+      relations: ['fornecedor', 'contrato'],
+    });
+    if (!ordem) {
+      throw new BadRequestException('Ordem não encontrada');
+    }
+
+    const notaFiscal = await this.nfFornecedorService.findByOrdem(ordemId);
+    
+    const recebimentos = await this.recebimentoService.findByOrdem(ordemId);
+
+    return {
+      ordem,
+      notaFiscal,
+      recebimentos,
+    };
   }
 
   // ============================================================================

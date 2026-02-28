@@ -29,6 +29,7 @@ import {
 } from 'typeorm';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { OrdemFornecimento } from './ordem-fornecimento.entity';
+import { NotaFiscalFornecedor } from './nota-fiscal-fornecedor.entity';
 
 export enum TipoRecebimento {
   PROVISORIO = 'PROVISORIO',
@@ -245,6 +246,29 @@ export class Recebimento {
 
   @Column({ type: 'text', nullable: true })
   motivo_estorno: string | null;
+
+  // ============================================================================
+  // VINCULAÇÃO COM NOTA FISCAL DO FORNECEDOR
+  // ============================================================================
+
+  @ManyToOne(() => NotaFiscalFornecedor, { nullable: true })
+  @JoinColumn({ name: 'nota_fiscal_fornecedor_id' })
+  nota_fiscal_fornecedor: NotaFiscalFornecedor | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  nota_fiscal_fornecedor_id: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  mapeamento_ia: {
+    produto_nf_index: number;
+    xProd_nf: string;
+    item_contrato_id: string | null;
+    descricao_of: string | null;
+    confianca: number;
+    confirmado_usuario: boolean;
+    confirmado_por: string | null;
+    confirmado_em: string | null;
+  }[] | null;
 
   // ============================================================================
   // AUDITORIA

@@ -1,9 +1,8 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as nodemailer from 'nodemailer';
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import * as dns from 'dns/promises';
+import { createDecipheriv } from 'crypto';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 
 export interface EnviarEmailDto {
@@ -71,30 +70,16 @@ export class EmailService {
   async enviar(orgaoId: string, dto: EnviarEmailDto): Promise<boolean> {
     const config = await this.getSmtpConfig(orgaoId);
     if (!config) {
-      this.logger.warn(`SMTP não configurado para órgão ${orgaoId}, email não enviado`);
+      this.logger.warn(`SMTP nao configurado para orgao ${orgaoId}, email nao enviado`);
       return false;
     }
 
     try {
-      // Resolve host para IPv4 para evitar ENETUNREACH em redes sem IPv6
-      let hostToUse = config.host;
-      try {
-        const addrs = await dns.resolve4(config.host);
-        if (addrs.length > 0) hostToUse = addrs[0];
-      } catch {
-        // mantém hostname se resolve4 falhar (ex: host já é IP)
-      }
-
-      // Porta 587 = STARTTLS (secure: false). Porta 465 = SSL implícito (secure: true).
-      // Usar secure: true na 587 causa "wrong version number".
-      const secure = config.port === 465 ? true : false;
-
       const transport = nodemailer.createTransport({
-        host: hostToUse,
+        host: config.host,
         port: config.port,
-        secure,
+        secure: config.secure,
         auth: { user: config.user, pass: config.pass },
-        tls: hostToUse !== config.host ? { servername: config.host } : undefined,
       });
 
       const to = Array.isArray(dto.to) ? dto.to.join(', ') : dto.to;
@@ -120,33 +105,20 @@ export class EmailService {
   async testarConexao(orgaoId: string, emailTeste?: string): Promise<{ sucesso: boolean; mensagem: string }> {
     const config = await this.getSmtpConfig(orgaoId);
     if (!config) {
-      return { sucesso: false, mensagem: 'SMTP não configurado para este órgão' };
+      return { sucesso: false, mensagem: 'SMTP nao configurado para este orgao' };
     }
 
     const destino = emailTeste || config.user;
     try {
       await this.enviar(orgaoId, {
         to: destino,
-        subject: '[Teste] Configuração de email - Portal DCP',
-        text: 'Este é um email de teste. Se você recebeu, a configuração SMTP está correta.',
-        html: '<p>Este é um email de teste. Se você recebeu, a configuração SMTP está correta.</p>',
+        subject: '[Teste] Configuracao de email - Portal DCP',
+        text: 'Este e um email de teste. Se voce recebeu, a configuracao SMTP esta correta.',
+        html: '<p>Este e um email de teste. Se voce recebeu, a configuracao SMTP esta correta.</p>',
       });
       return { sucesso: true, mensagem: `Email de teste enviado para ${destino}` };
     } catch (error: any) {
-      let mensagem = error.message || 'Erro ao enviar email de teste';
-      if (mensagem.includes('Invalid greeting') || mensagem.includes('Gpop') || mensagem.includes('POP')) {
-        mensagem = 'Servidor incorreto: você configurou POP3 ou IMAP na aba SMTP. Para ENVIAR emails use smtp.gmail.com (porta 587) ou smtp.office365.com (porta 587). pop.gmail.com e imap.gmail.com são para RECEBER.';
-      }
-      if (mensagem.includes('ENETUNREACH') || mensagem.includes('ETIMEDOUT')) {
-        mensagem = 'Rede inacessível. O servidor pode não ter IPv6. Já configuramos para usar IPv4. Verifique firewall, proxy ou se o host permite conexões SMTP na porta 587.';
-      }
-      if (mensagem.includes('wrong version number') || mensagem.includes('ssl3_get_record')) {
-        mensagem = 'Erro SSL: na porta 587 use SSL/TLS desligado (STARTTLS). Na porta 465 ligue SSL/TLS. Corrija a configuração e tente novamente.';
-      }
-      if (mensagem.includes('Application-specific password') || mensagem.includes('InvalidSecondFactor') || mensagem.includes('534-5.7.9')) {
-        mensagem = 'Gmail com 2FA exige Senha de app (não a senha normal). Acesse https://myaccount.google.com/apppasswords — ative 2FA se necessário, gere uma senha de app e use os 16 caracteres no campo Senha.';
-      }
-      return { sucesso: false, mensagem };
+      return { sucesso: false, mensagem: error.message || 'Erro ao enviar email de teste' };
     }
   }
 }

@@ -1,0 +1,8 @@
+[Cursor] feat: tipo_item (CONSUMO/PERMANENTE) + permissão pode_receber_patrimonio
+
+- ItemContrato: enum TipoItemContrato, coluna tipo_item, migration
+- Ordem e Recebimento: propagar tipo_item nos itens JSON
+- Usuario: pode_receber_patrimonio + migration + admin
+- Recebimento: validar permissão ao aceitar itens PERMANENTE
+- Frontend: modal item (COMPRAS+ITEM_QUANTIDADE), admin checkbox, recebimentos
+- Importação CSV: aceitar coluna tipo_item

@@ -26,6 +26,8 @@ import {
   Calendar,
   Loader2,
   FileText,
+  Upload,
+  FileCode,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 
@@ -75,10 +77,57 @@ export default function OrdemDetalheFornecedorPage() {
   const [dataEntrega, setDataEntrega] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [nfEnviada, setNfEnviada] = useState<any>(null)
+  const [uploadingNf, setUploadingNf] = useState(false)
+  const [erroNf, setErroNf] = useState<string | null>(null)
 
   useEffect(() => {
     carregarOrdem()
+    carregarNf()
   }, [id])
+
+  const carregarNf = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data) setNfEnviada(data)
+      }
+    } catch {}
+  }
+
+  const handleUploadNf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setUploadingNf(true)
+    setErroNf(null)
+    try {
+      const formData = new FormData()
+      for (let i = 0; i < files.length; i++) {
+        formData.append('arquivos', files[i])
+      }
+
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`, {
+        method: 'POST',
+        body: formData,
+        headers: {},
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setNfEnviada(data)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setErroNf(data.message || 'Erro ao enviar nota fiscal')
+      }
+    } catch {
+      setErroNf('Erro ao enviar nota fiscal')
+    } finally {
+      setUploadingNf(false)
+      e.target.value = ''
+    }
+  }
 
   const carregarOrdem = async () => {
     setLoading(true)
@@ -292,6 +341,87 @@ export default function OrdemDetalheFornecedorPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Upload Nota Fiscal */}
+      {['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileCode className="h-5 w-5 text-green-600" />
+              Nota Fiscal
+            </CardTitle>
+            <CardDescription>
+              Envie o XML da nota fiscal e opcionalmente o PDF
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {nfEnviada ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-green-600">
+                  <CheckCircle className="h-5 w-5" />
+                  <span className="font-medium">Nota Fiscal enviada com sucesso</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg text-sm">
+                  <div>
+                    <p className="text-gray-500">Numero/Serie</p>
+                    <p className="font-medium">{nfEnviada.numero || '-'}/{nfEnviada.serie || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Valor Total</p>
+                    <p className="font-medium">{formatarMoeda(nfEnviada.valor_total || 0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Emitente</p>
+                    <p className="font-medium">{nfEnviada.razao_social_emitente || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Status</p>
+                    <Badge variant={nfEnviada.status === 'ERRO' ? 'destructive' : 'default'}>
+                      {nfEnviada.status}
+                    </Badge>
+                  </div>
+                  {nfEnviada.chave_acesso && (
+                    <div className="col-span-2">
+                      <p className="text-gray-500">Chave de Acesso</p>
+                      <p className="font-mono text-xs break-all">{nfEnviada.chave_acesso}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600 mb-2">
+                    Selecione o arquivo XML da NF-e (obrigatório) e opcionalmente o PDF
+                  </p>
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".xml,.pdf"
+                      onChange={handleUploadNf}
+                      disabled={uploadingNf}
+                      className="hidden"
+                    />
+                    <Button asChild disabled={uploadingNf}>
+                      <span>
+                        {uploadingNf ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        {uploadingNf ? 'Enviando...' : 'Selecionar Arquivos'}
+                      </span>
+                    </Button>
+                  </label>
+                </div>
+                {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -780,6 +780,13 @@ export class RecebimentoService {
   // CONSULTAS
   // ============================================================================
 
+  async findByOrdem(ordemId: string): Promise<Recebimento[]> {
+    return this.recebimentoRepository.find({
+      where: { ordem_fornecimento_id: ordemId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
   async findAll(filtros: {
     orgaoId: string;
     status?: StatusRecebimento;
