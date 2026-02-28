@@ -15,6 +15,7 @@ export enum StatusNotaFiscalFornecedor {
   ENVIADA = 'ENVIADA',
   PROCESSADA = 'PROCESSADA',
   VINCULADA = 'VINCULADA',
+  RECUSADA = 'RECUSADA',
   ERRO = 'ERRO',
 }
 
@@ -121,6 +122,17 @@ export class NotaFiscalFornecedor {
 
   @Column({ type: 'text', nullable: true })
   erro_processamento: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  motivo_recusa: string | null;
+
+  @Column({ type: 'jsonb', default: [] })
+  historico: Array<{
+    data: string;
+    tipo: string;
+    descricao: string;
+    usuario: string;
+  }>;
 
   @CreateDateColumn()
   created_at: Date;

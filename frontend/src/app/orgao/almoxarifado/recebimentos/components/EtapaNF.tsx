@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, FileText, FileCode, Clock, Upload } from 'lucide-react'
+import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 interface EtapaNFProps {
@@ -80,6 +80,100 @@ export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading
           <CardContent>
             <p className="text-sm text-gray-600 mb-4">
               Caso o fornecedor tenha enviado a NF por e-mail ou outro meio, você pode anexar o XML e o PDF aqui.
+            </p>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+              <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+              <p className="text-sm text-gray-500 mb-3">
+                Selecione o arquivo XML da NF-e (obrigatório) e opcionalmente o PDF
+              </p>
+              <label className="cursor-pointer inline-block">
+                <input
+                  type="file"
+                  multiple
+                  accept=".xml,.pdf"
+                  onChange={handleUploadManual}
+                  disabled={uploading}
+                  className="hidden"
+                />
+                <Button asChild disabled={uploading}>
+                  <span>
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Upload className="h-4 w-4 mr-2" />
+                    )}
+                    {uploading ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF)'}
+                  </span>
+                </Button>
+              </label>
+            </div>
+            {erroUpload && <p className="text-sm text-red-600 mt-3">{erroUpload}</p>}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (notaFiscal?.status === 'RECUSADA') {
+    return (
+      <div className="space-y-5">
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="py-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-6 w-6 text-red-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="font-bold text-red-800 mb-1">Nota Fiscal Recusada</h3>
+                <p className="text-sm text-red-700 mb-2">
+                  NF nº <strong>{notaFiscal.numero || 'S/N'}</strong> (Série {notaFiscal.serie || '-'}) foi recusada na pré-análise.
+                </p>
+                {notaFiscal.motivo_recusa && (
+                  <div className="bg-white border border-red-200 rounded-lg p-3 mb-3">
+                    <p className="text-xs text-gray-500 mb-1">Motivo da recusa:</p>
+                    <p className="text-sm font-medium text-red-800">{notaFiscal.motivo_recusa}</p>
+                  </div>
+                )}
+                <p className="text-sm text-gray-600">
+                  O fornecedor foi notificado. Aguarde o envio de uma nova NF ou anexe manualmente abaixo.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {notaFiscal.historico?.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <History className="h-5 w-5 text-gray-600" />
+                Histórico
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {notaFiscal.historico.map((h: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-sm border-b border-gray-100 pb-2">
+                    <Badge variant="destructive" className="text-[10px] flex-shrink-0">{h.tipo}</Badge>
+                    <div>
+                      <p className="text-gray-700">{h.descricao}</p>
+                      <p className="text-xs text-gray-400">{new Date(h.data).toLocaleString('pt-BR')}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Upload className="h-5 w-5 text-blue-600" />
+              Enviar Nova Nota Fiscal
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-gray-600 mb-4">
+              Anexe o XML e PDF da nova NF corrigida para continuar o recebimento.
             </p>
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
               <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />

@@ -1061,6 +1061,22 @@ export class AlmoxarifadoController {
     return this.nfFornecedorService.delete(id);
   }
 
+  @Post('notas-fiscais-fornecedor/:id/recusar')
+  async recusarNotaFiscal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { motivo: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    this.getOrgaoId(request.user);
+    const usuario = request.user;
+    return this.nfFornecedorService.recusarNF(
+      id,
+      body.motivo,
+      usuario.sub || (usuario as any).id,
+      usuario.email || (usuario as any).nome || 'Usuário',
+    );
+  }
+
   @Post('ordens/:ordemId/upload-nota-fiscal')
   @UseInterceptors(
     FilesInterceptor('arquivos', 2, {

@@ -136,6 +136,83 @@ export class NotaFiscalFornecedorService {
     await this.nfRepository.remove(nf);
   }
 
+  async recusarNF(
+    id: string,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<{ nf: NotaFiscalFornecedor; recebimentoCancelado: boolean }> {
+    const nf = await this.nfRepository.findOne({
+      where: { id },
+      relations: ['ordem_fornecimento', 'ordem_fornecimento.fornecedor'],
+    });
+    if (!nf) throw new NotFoundException('Nota fiscal não encontrada');
+
+    nf.status = StatusNotaFiscalFornecedor.RECUSADA;
+    nf.motivo_recusa = motivo;
+    nf.historico = nf.historico || [];
+    nf.historico.push({
+      data: new Date().toISOString(),
+      tipo: 'NF_RECUSADA',
+      descricao: `NF recusada por ${usuarioNome}: ${motivo}`,
+      usuario: usuarioNome,
+    });
+    await this.nfRepository.save(nf);
+
+    let recebimentoCancelado = false;
+    const recAtivo = await this.recebimentoRepository.findOne({
+      where: {
+        ordem_fornecimento_id: nf.ordem_fornecimento_id,
+        status: 'PENDENTE' as any,
+      },
+    });
+    if (recAtivo) {
+      recAtivo.status = 'REJEITADO' as any;
+      recAtivo.motivo_rejeicao = `NF recusada na pré-análise: ${motivo}`;
+      recAtivo.ocorrencias = recAtivo.ocorrencias || [];
+      recAtivo.ocorrencias.push({
+        data: new Date(),
+        tipo: 'NF_RECUSADA',
+        descricao: `NF ${nf.numero || ''} recusada por ${usuarioNome}: ${motivo}`,
+        usuario: usuarioNome,
+      });
+      await this.recebimentoRepository.save(recAtivo);
+      recebimentoCancelado = true;
+    }
+
+    const ordem = nf.ordem_fornecimento;
+    if (ordem) {
+      ordem.status = StatusOrdemFornecimento.ENVIADA;
+      await this.ordemRepository.save(ordem);
+    }
+
+    const fornecedor = ordem?.fornecedor;
+    if (fornecedor) {
+      const ordemNumero = ordem.numero || 'N/A';
+      try {
+        await this.notificacoesService.criar({
+          orgao_id: nf.orgao_id,
+          usuario_id: fornecedor.id,
+          usuario_email: fornecedor.email || undefined,
+          tipo: TipoNotificacao.NF_RECUSADA,
+          titulo: `Nota Fiscal recusada - OF ${ordemNumero}`,
+          mensagem: `Sua Nota Fiscal nº ${nf.numero || 'S/N'} referente à OF ${ordemNumero} foi recusada.\n\nMotivo: ${motivo}\n\nPor favor, corrija e envie uma nova NF pelo portal.`,
+          entidade_tipo: 'ordem_fornecimento',
+          entidade_id: nf.ordem_fornecimento_id,
+          link: `/fornecedor/ordens/${nf.ordem_fornecimento_id}`,
+          prioridade: 'ALTA' as any,
+          enviar_email: true,
+        });
+        this.logger.log(`Notificação de NF recusada enviada ao fornecedor ${fornecedor.razao_social}`);
+      } catch (err: any) {
+        this.logger.warn(`Erro ao notificar fornecedor sobre NF recusada: ${err.message}`);
+      }
+    }
+
+    this.logger.log(`NF ${nf.numero || nf.id} recusada por ${usuarioNome}: ${motivo}`);
+    return { nf, recebimentoCancelado };
+  }
+
   async atualizarMapeamentoAi(id: string, mapeamento: any[]): Promise<NotaFiscalFornecedor> {
     const nf = await this.findOne(id);
     nf.mapeamento_ai = mapeamento;

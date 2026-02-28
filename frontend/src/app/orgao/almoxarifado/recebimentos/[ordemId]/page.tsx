@@ -62,6 +62,8 @@ function RecebimentoUnificadoContent() {
           setEtapa('recebimento')
         } else if (recebimentosCancelados.length > 0 && !data.notaFiscal) {
           setEtapa('nf')
+        } else if (data.notaFiscal?.status === 'RECUSADA') {
+          setEtapa('nf')
         } else if (recebimentosCancelados.length > 0 && data.notaFiscal) {
           const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
           setMapeamento(mapeamentoFonte)
@@ -203,17 +205,19 @@ function RecebimentoUnificadoContent() {
             onConfirmar={handleConfirmarMapeamento}
             onRecusarNF={async (motivo: string) => {
               try {
-                const recAtivo = recebimentos.find((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
-                if (recAtivo) {
-                  await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recAtivo.id}/cancelar`, {
+                if (notaFiscal?.id) {
+                  await authFetch(`${API_URL}/api/almoxarifado/notas-fiscais-fornecedor/${notaFiscal.id}/recusar`, {
                     method: 'POST',
                     body: JSON.stringify({ motivo }),
                   })
-                }
-                if (!recAtivo && notaFiscal?.id) {
-                  await authFetch(`${API_URL}/api/almoxarifado/notas-fiscais-fornecedor/${notaFiscal.id}`, {
-                    method: 'DELETE',
-                  }).catch(() => {})
+                } else {
+                  const recAtivo = recebimentos.find((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
+                  if (recAtivo) {
+                    await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recAtivo.id}/cancelar`, {
+                      method: 'POST',
+                      body: JSON.stringify({ motivo }),
+                    })
+                  }
                 }
                 carregarDados()
               } catch (e) {

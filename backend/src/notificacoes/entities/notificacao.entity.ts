@@ -69,6 +69,7 @@ export enum TipoNotificacao {
 
   // Nota Fiscal Fornecedor
   NF_DISPONIVEL = 'NF_DISPONIVEL',
+  NF_RECUSADA = 'NF_RECUSADA',
 
   // Geral
   SISTEMA = 'SISTEMA',
