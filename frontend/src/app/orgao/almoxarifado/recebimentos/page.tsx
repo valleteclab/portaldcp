@@ -14,7 +14,9 @@ import {
   ClipboardCheck,
   AlertTriangle,
   RotateCcw,
-  Trash2
+  Trash2,
+  Warehouse,
+  Archive
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,6 +60,10 @@ interface Recebimento {
   valor_total_recebido: number;
   valor_aceito: number;
   usuario_recebedor_nome: string;
+  aceite_almoxarifado_data?: string | null;
+  aceite_almoxarifado_usuario_nome?: string | null;
+  aceite_patrimonio_data?: string | null;
+  aceite_patrimonio_usuario_nome?: string | null;
   ordem_fornecimento?: {
     numero: string;
     fornecedor?: {
@@ -84,6 +90,8 @@ const STATUS_COLORS: Record<string, string> = {
   REJEITADO: 'bg-red-100 text-red-800',
   ACEITO_PARCIAL: 'bg-orange-100 text-orange-800',
   ESTORNADO: 'bg-gray-100 text-gray-800',
+  PENDENTE_ALMOXARIFADO: 'bg-cyan-100 text-cyan-800',
+  PENDENTE_PATRIMONIO: 'bg-purple-100 text-purple-800',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -93,6 +101,8 @@ const STATUS_LABELS: Record<string, string> = {
   REJEITADO: 'Rejeitado',
   ACEITO_PARCIAL: 'Aceito Parcialmente',
   ESTORNADO: 'Estornado',
+  PENDENTE_ALMOXARIFADO: 'Pendente aceite almoxarifado',
+  PENDENTE_PATRIMONIO: 'Pendente aceite patrimônio',
 };
 
 function RecebimentosList() {
@@ -109,6 +119,8 @@ function RecebimentosList() {
   const [recebimentoSelecionado, setRecebimentoSelecionado] = useState<Recebimento | null>(null);
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showAceitar, setShowAceitar] = useState(false);
+  const [showAceitarAlmox, setShowAceitarAlmox] = useState(false);
+  const [showAceitarPatrimonio, setShowAceitarPatrimonio] = useState(false);
   const [showRejeitar, setShowRejeitar] = useState(false);
   const [showEstornar, setShowEstornar] = useState(false);
   const [showExcluir, setShowExcluir] = useState(false);
@@ -235,6 +247,54 @@ function RecebimentosList() {
     } catch (error) {
       console.error('Erro ao aceitar:', error);
       alert('Erro ao aceitar recebimento');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleAceitarAlmoxarifado = async () => {
+    if (!recebimentoSelecionado) return;
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/recebimentos/${recebimentoSelecionado.id}/aceitar-almoxarifado`,
+        { method: 'POST' }
+      );
+      if (response.ok) {
+        alert('Itens de almoxarifado (consumo) aceitos! Baixa realizada.');
+        setShowAceitarAlmox(false);
+        carregarRecebimentos();
+      } else {
+        const error = await response.json();
+        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao aceitar almoxarifado:', error);
+      alert('Erro ao aceitar itens de almoxarifado');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const handleAceitarPatrimonio = async () => {
+    if (!recebimentoSelecionado) return;
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/recebimentos/${recebimentoSelecionado.id}/aceitar-patrimonio`,
+        { method: 'POST' }
+      );
+      if (response.ok) {
+        alert('Itens de patrimônio (permanente) aceitos! Baixa realizada.');
+        setShowAceitarPatrimonio(false);
+        carregarRecebimentos();
+      } else {
+        const error = await response.json();
+        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao aceitar patrimônio:', error);
+      alert('Erro ao aceitar itens de patrimônio');
     } finally {
       setProcessando(false);
     }
@@ -370,13 +430,6 @@ function RecebimentosList() {
 
   return (
     <div className="space-y-6">
-      {/* Debug: Mostrar permissão (remover depois) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="bg-yellow-50 border border-yellow-200 p-2 rounded text-xs">
-          Debug: podeCancelarEstornar = {podeCancelarEstornar ? 'SIM' : 'NÃO'}
-        </div>
-      )}
-      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -416,6 +469,8 @@ function RecebimentosList() {
                 <SelectItem value="__all__">Todos os status</SelectItem>
                 <SelectItem value="PENDENTE">Pendente Conferência</SelectItem>
                 <SelectItem value="CONFERIDO">Conferido</SelectItem>
+                <SelectItem value="PENDENTE_ALMOXARIFADO">Pendente aceite almoxarifado</SelectItem>
+                <SelectItem value="PENDENTE_PATRIMONIO">Pendente aceite patrimônio</SelectItem>
                 <SelectItem value="ACEITO">Aceito</SelectItem>
                 <SelectItem value="ACEITO_PARCIAL">Aceito Parcialmente</SelectItem>
                 <SelectItem value="REJEITADO">Rejeitado</SelectItem>
@@ -483,20 +538,58 @@ function RecebimentosList() {
                             <ClipboardCheck className="h-4 w-4" />
                           </Button>
                         )}
-                        {(rec.status === 'CONFERIDO' || rec.status === 'PENDENTE') && (
+                        {(rec.status === 'CONFERIDO' || rec.status === 'PENDENTE' || rec.status === 'PENDENTE_ALMOXARIFADO' || rec.status === 'PENDENTE_PATRIMONIO') && (
                           <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-green-600 hover:text-green-700"
-                              onClick={() => handleAbrirAceitar(rec)}
-                              disabled={rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio}
-                              title={rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio
-                                ? 'Requer permissão "Receber patrimônio" para aceitar itens permanentes'
-                                : 'Aceitar recebimento'}
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </Button>
+                            {/* Fallback: recebimentos legados sem tipo_item usam aceite único */}
+                            {(rec.itens?.length ?? 0) > 0 && !rec.itens?.some((i) => i.tipo_item === 'CONSUMO') && !rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !rec.aceite_almoxarifado_data && !rec.aceite_patrimonio_data && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-green-600 hover:text-green-700"
+                                onClick={() => {
+                                  setRecebimentoSelecionado(rec);
+                                  setShowAceitar(true);
+                                }}
+                                disabled={processando}
+                                title="Aceitar recebimento (itens sem classificação)"
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {rec.itens?.some((i) => i.tipo_item === 'CONSUMO') && !rec.aceite_almoxarifado_data && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-cyan-600 hover:text-cyan-700"
+                                onClick={() => {
+                                  setRecebimentoSelecionado(rec);
+                                  setShowAceitarAlmox(true);
+                                }}
+                                disabled={processando}
+                                title="Aceitar itens de almoxarifado (consumo)"
+                              >
+                                <Warehouse className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !rec.aceite_patrimonio_data && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className={podeReceberPatrimonio ? 'text-purple-600 hover:text-purple-700' : 'text-gray-400 cursor-not-allowed'}
+                                onClick={() => {
+                                  if (podeReceberPatrimonio) {
+                                    setRecebimentoSelecionado(rec);
+                                    setShowAceitarPatrimonio(true);
+                                  }
+                                }}
+                                disabled={processando || !podeReceberPatrimonio}
+                                title={podeReceberPatrimonio
+                                  ? 'Aceitar itens de patrimônio (permanente)'
+                                  : 'Requer permissão "Receber patrimônio"'}
+                              >
+                                <Archive className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -592,42 +685,141 @@ function RecebimentosList() {
                 </div>
               </div>
 
+              {(recebimentoSelecionado.aceite_almoxarifado_data || recebimentoSelecionado.aceite_patrimonio_data) && (
+                <div className="grid grid-cols-2 gap-4">
+                  {recebimentoSelecionado.aceite_almoxarifado_data && (
+                    <div className="bg-cyan-50 p-3 rounded-lg border border-cyan-200">
+                      <p className="text-sm font-medium text-cyan-800">Almoxarifado (Consumo)</p>
+                      <p className="text-xs text-cyan-700">
+                        Aceito em {formatarData(recebimentoSelecionado.aceite_almoxarifado_data)}
+                        {recebimentoSelecionado.aceite_almoxarifado_usuario_nome && (
+                          <> por {recebimentoSelecionado.aceite_almoxarifado_usuario_nome}</>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                  {recebimentoSelecionado.aceite_patrimonio_data && (
+                    <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                      <p className="text-sm font-medium text-purple-800">Patrimônio (Permanente)</p>
+                      <p className="text-xs text-purple-700">
+                        Aceito em {formatarData(recebimentoSelecionado.aceite_patrimonio_data)}
+                        {recebimentoSelecionado.aceite_patrimonio_usuario_nome && (
+                          <> por {recebimentoSelecionado.aceite_patrimonio_usuario_nome}</>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="text-sm font-medium text-gray-500 mb-2 block">Itens</label>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Esperado</TableHead>
-                      <TableHead>Recebido</TableHead>
-                      <TableHead>Aceito</TableHead>
-                      <TableHead>Valor</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {recebimentoSelecionado.itens?.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{item.numero_item}</TableCell>
-                        <TableCell>{item.descricao}</TableCell>
-                        <TableCell>
-                          <Badge variant={item.tipo_item === 'PERMANENTE' ? 'secondary' : 'outline'} className={item.tipo_item === 'PERMANENTE' ? 'bg-slate-100 text-slate-800' : ''}>
-                            {item.tipo_item === 'PERMANENTE' ? 'Permanente' : 'Consumo'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{item.quantidade_esperada}</TableCell>
-                        <TableCell>{item.quantidade_recebida}</TableCell>
-                        <TableCell>
-                          <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
-                            {item.quantidade_aceita}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
+                {recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'CONSUMO') && (
+                  <div className="mb-4">
+                    <p className="text-xs font-medium text-cyan-700 mb-2 flex items-center gap-1">
+                      <Warehouse className="h-3 w-3" /> Almoxarifado — Consumo
+                    </p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead>Esperado</TableHead>
+                          <TableHead>Recebido</TableHead>
+                          <TableHead>Aceito</TableHead>
+                          <TableHead>Valor</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'CONSUMO').map((item, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{item.numero_item}</TableCell>
+                            <TableCell>{item.descricao}</TableCell>
+                            <TableCell>{item.quantidade_esperada}</TableCell>
+                            <TableCell>{item.quantidade_recebida}</TableCell>
+                            <TableCell>
+                              <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
+                                {item.quantidade_aceita}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'PERMANENTE') && (
+                  <div>
+                    <p className="text-xs font-medium text-purple-700 mb-2 flex items-center gap-1">
+                      <Archive className="h-3 w-3" /> Patrimônio — Permanente
+                    </p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead>Esperado</TableHead>
+                          <TableHead>Recebido</TableHead>
+                          <TableHead>Aceito</TableHead>
+                          <TableHead>Valor</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'PERMANENTE').map((item, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{item.numero_item}</TableCell>
+                            <TableCell>{item.descricao}</TableCell>
+                            <TableCell>{item.quantidade_esperada}</TableCell>
+                            <TableCell>{item.quantidade_recebida}</TableCell>
+                            <TableCell>
+                              <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
+                                {item.quantidade_aceita}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {!recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'CONSUMO') && !recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'PERMANENTE') && (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Esperado</TableHead>
+                        <TableHead>Recebido</TableHead>
+                        <TableHead>Aceito</TableHead>
+                        <TableHead>Valor</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {recebimentoSelecionado.itens?.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{item.numero_item}</TableCell>
+                          <TableCell>{item.descricao}</TableCell>
+                          <TableCell>
+                            <Badge variant={item.tipo_item === 'PERMANENTE' ? 'secondary' : 'outline'} className={item.tipo_item === 'PERMANENTE' ? 'bg-slate-100 text-slate-800' : ''}>
+                              {item.tipo_item === 'PERMANENTE' ? 'Permanente' : 'Consumo'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{item.quantidade_esperada}</TableCell>
+                          <TableCell>{item.quantidade_recebida}</TableCell>
+                          <TableCell>
+                            <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
+                              {item.quantidade_aceita}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
             </div>
           )}
@@ -689,6 +881,76 @@ function RecebimentosList() {
             >
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Confirmar Aceite
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Aceitar Almoxarifado */}
+      <Dialog open={showAceitarAlmox} onOpenChange={setShowAceitarAlmox}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-cyan-600">Aceitar itens Almoxarifado (Consumo)</DialogTitle>
+            <DialogDescription>
+              Será realizada a baixa dos itens de consumo no contrato.
+            </DialogDescription>
+          </DialogHeader>
+          {recebimentoSelecionado && (
+            <div className="space-y-4">
+              <div className="bg-cyan-50 p-4 rounded-lg border border-cyan-200">
+                <p className="font-medium">{recebimentoSelecionado.numero}</p>
+                <p className="text-sm text-gray-600">
+                  {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'CONSUMO').length || 0} item(ns) de consumo
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAceitarAlmox(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAceitarAlmoxarifado}
+              disabled={processando}
+              className="bg-cyan-600 hover:bg-cyan-700"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirmar Aceite Almoxarifado
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Aceitar Patrimônio */}
+      <Dialog open={showAceitarPatrimonio} onOpenChange={setShowAceitarPatrimonio}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-purple-600">Aceitar itens Patrimônio (Permanente)</DialogTitle>
+            <DialogDescription>
+              Será realizada a baixa dos itens permanentes no contrato.
+            </DialogDescription>
+          </DialogHeader>
+          {recebimentoSelecionado && (
+            <div className="space-y-4">
+              <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                <p className="font-medium">{recebimentoSelecionado.numero}</p>
+                <p className="text-sm text-gray-600">
+                  {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'PERMANENTE').length || 0} item(ns) permanente(s)
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAceitarPatrimonio(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAceitarPatrimonio}
+              disabled={processando || !podeReceberPatrimonio}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirmar Aceite Patrimônio
             </Button>
           </DialogFooter>
         </DialogContent>

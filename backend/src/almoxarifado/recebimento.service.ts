@@ -190,13 +190,293 @@ export class RecebimentoService {
   }
 
   // ============================================================================
-  // ACEITAR RECEBIMENTO (BAIXA NO CONTRATO)
+  // CALCULAR STATUS (ACEITE SEPARADO)
+  // ============================================================================
+
+  /**
+   * Calcula o status do recebimento considerando aceites separados almoxarifado/patrimônio.
+   * Compatibilidade: recebimentos antigos (aceite único) com baixa_realizada e aceite_* null → ACEITO.
+   */
+  private calcularStatus(recebimento: Recebimento): StatusRecebimento {
+    // Compatibilidade com recebimentos antigos (aceite único)
+    if (
+      recebimento.baixa_realizada &&
+      !recebimento.aceite_almoxarifado_data &&
+      !recebimento.aceite_patrimonio_data
+    ) {
+      return StatusRecebimento.ACEITO;
+    }
+
+    const temConsumo = recebimento.itens?.some((i) => (i as any).tipo_item === 'CONSUMO');
+    const temPermanente = recebimento.itens?.some((i) => (i as any).tipo_item === 'PERMANENTE');
+    const almoxAceito = !temConsumo || !!recebimento.aceite_almoxarifado_data;
+    const patrimAceito = !temPermanente || !!recebimento.aceite_patrimonio_data;
+
+    if (almoxAceito && patrimAceito) return StatusRecebimento.ACEITO;
+    if (!almoxAceito && !patrimAceito) return StatusRecebimento.CONFERIDO;
+    if (!almoxAceito) return StatusRecebimento.PENDENTE_ALMOXARIFADO;
+    return StatusRecebimento.PENDENTE_PATRIMONIO;
+  }
+
+  // ============================================================================
+  // ACEITAR ALMOXARIFADO (itens CONSUMO)
+  // ============================================================================
+
+  /**
+   * Aceita itens CONSUMO e realiza baixa no contrato.
+   * Qualquer usuário com acesso ao almoxarifado pode executar.
+   */
+  async aceitarAlmoxarifado(
+    id: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Recebimento> {
+    const recebimento = await this.findOne(id);
+
+    const statusAceitaveis = [
+      StatusRecebimento.CONFERIDO,
+      StatusRecebimento.PENDENTE,
+      StatusRecebimento.PENDENTE_ALMOXARIFADO,
+    ];
+    if (!statusAceitaveis.includes(recebimento.status)) {
+      throw new BadRequestException(
+        `Recebimento não pode ser aceito pelo almoxarifado. Status atual: ${recebimento.status}`,
+      );
+    }
+
+    const itensConsumo = recebimento.itens?.filter(
+      (i) => (i as any).tipo_item === 'CONSUMO',
+    ) ?? [];
+    if (itensConsumo.length === 0) {
+      throw new BadRequestException(
+        'Este recebimento não possui itens de consumo (almoxarifado).',
+      );
+    }
+
+    if (recebimento.aceite_almoxarifado_data) {
+      throw new BadRequestException(
+        'Itens de almoxarifado já foram aceitos neste recebimento.',
+      );
+    }
+
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: recebimento.ordem_fornecimento_id },
+    });
+    if (!ordem) {
+      throw new BadRequestException('Ordem de fornecimento não encontrada');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      let valorAceitoAlmox = 0;
+      for (const itemRec of itensConsumo) {
+        const quantidadeAceita = itemRec.quantidade_recebida;
+        itemRec.quantidade_aceita = quantidadeAceita;
+        const valorItem = quantidadeAceita * itemRec.valor_unitario;
+        valorAceitoAlmox += valorItem;
+
+        if (itemRec.item_contrato_id && quantidadeAceita > 0) {
+          const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+            where: { id: itemRec.item_contrato_id },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (itemContrato) {
+            const quantidadeADesempenhar = Math.min(
+              quantidadeAceita,
+              Number(itemContrato.quantidade_empenhada),
+            );
+            itemContrato.quantidade_empenhada =
+              Number(itemContrato.quantidade_empenhada) - quantidadeADesempenhar;
+            itemContrato.quantidade_entregue =
+              Number(itemContrato.quantidade_entregue) + quantidadeAceita;
+            itemContrato.saldo_disponivel =
+              Number(itemContrato.quantidade_contratada) -
+              Number(itemContrato.quantidade_empenhada) -
+              Number(itemContrato.quantidade_entregue);
+            await queryRunner.manager.save(itemContrato);
+          }
+        }
+
+        await this.ordemService.atualizarAtendimento(
+          recebimento.ordem_fornecimento_id,
+          itemRec.item_contrato_id,
+          quantidadeAceita,
+          valorItem,
+        );
+      }
+
+      recebimento.aceite_almoxarifado_data = new Date();
+      recebimento.aceite_almoxarifado_usuario_id = usuarioId;
+      recebimento.aceite_almoxarifado_usuario_nome = usuarioNome;
+      recebimento.valor_aceito = Number(recebimento.valor_aceito) + valorAceitoAlmox;
+      recebimento.status = this.calcularStatus(recebimento);
+      recebimento.baixa_realizada =
+        recebimento.status === StatusRecebimento.ACEITO;
+      if (recebimento.baixa_realizada) {
+        recebimento.data_aceite = new Date();
+        recebimento.data_baixa = new Date();
+      }
+
+      await queryRunner.manager.save(recebimento);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Recebimento ${recebimento.numero}: aceite almoxarifado por ${usuarioNome}. ` +
+          `Valor: R$ ${valorAceitoAlmox.toFixed(2)}`,
+      );
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Erro ao aceitar almoxarifado ${id}: ${error.message}`,
+      );
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================================================
+  // ACEITAR PATRIMÔNIO (itens PERMANENTE)
+  // ============================================================================
+
+  /**
+   * Aceita itens PERMANENTE e realiza baixa no contrato.
+   * Requer permissão pode_receber_patrimonio.
+   */
+  async aceitarPatrimonio(
+    id: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Recebimento> {
+    const recebimento = await this.findOne(id);
+
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: usuarioId },
+    });
+    if (!usuario?.pode_receber_patrimonio) {
+      throw new ForbiddenException(
+        'Você não tem permissão para aceitar recebimentos de itens permanentes (patrimônio). ' +
+          'Solicite ao administrador a permissão "Receber patrimônio".',
+      );
+    }
+
+    const statusAceitaveis = [
+      StatusRecebimento.CONFERIDO,
+      StatusRecebimento.PENDENTE,
+      StatusRecebimento.PENDENTE_PATRIMONIO,
+    ];
+    if (!statusAceitaveis.includes(recebimento.status)) {
+      throw new BadRequestException(
+        `Recebimento não pode ser aceito pelo patrimônio. Status atual: ${recebimento.status}`,
+      );
+    }
+
+    const itensPermanente = recebimento.itens?.filter(
+      (i) => (i as any).tipo_item === 'PERMANENTE',
+    ) ?? [];
+    if (itensPermanente.length === 0) {
+      throw new BadRequestException(
+        'Este recebimento não possui itens permanentes (patrimônio).',
+      );
+    }
+
+    if (recebimento.aceite_patrimonio_data) {
+      throw new BadRequestException(
+        'Itens de patrimônio já foram aceitos neste recebimento.',
+      );
+    }
+
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: recebimento.ordem_fornecimento_id },
+    });
+    if (!ordem) {
+      throw new BadRequestException('Ordem de fornecimento não encontrada');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      let valorAceitoPatrim = 0;
+      for (const itemRec of itensPermanente) {
+        const quantidadeAceita = itemRec.quantidade_recebida;
+        itemRec.quantidade_aceita = quantidadeAceita;
+        const valorItem = quantidadeAceita * itemRec.valor_unitario;
+        valorAceitoPatrim += valorItem;
+
+        if (itemRec.item_contrato_id && quantidadeAceita > 0) {
+          const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
+            where: { id: itemRec.item_contrato_id },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (itemContrato) {
+            const quantidadeADesempenhar = Math.min(
+              quantidadeAceita,
+              Number(itemContrato.quantidade_empenhada),
+            );
+            itemContrato.quantidade_empenhada =
+              Number(itemContrato.quantidade_empenhada) - quantidadeADesempenhar;
+            itemContrato.quantidade_entregue =
+              Number(itemContrato.quantidade_entregue) + quantidadeAceita;
+            itemContrato.saldo_disponivel =
+              Number(itemContrato.quantidade_contratada) -
+              Number(itemContrato.quantidade_empenhada) -
+              Number(itemContrato.quantidade_entregue);
+            await queryRunner.manager.save(itemContrato);
+          }
+        }
+
+        await this.ordemService.atualizarAtendimento(
+          recebimento.ordem_fornecimento_id,
+          itemRec.item_contrato_id,
+          quantidadeAceita,
+          valorItem,
+        );
+      }
+
+      recebimento.aceite_patrimonio_data = new Date();
+      recebimento.aceite_patrimonio_usuario_id = usuarioId;
+      recebimento.aceite_patrimonio_usuario_nome = usuarioNome;
+      recebimento.valor_aceito = Number(recebimento.valor_aceito) + valorAceitoPatrim;
+      recebimento.status = this.calcularStatus(recebimento);
+      recebimento.baixa_realizada =
+        recebimento.status === StatusRecebimento.ACEITO;
+      if (recebimento.baixa_realizada) {
+        recebimento.data_aceite = new Date();
+        recebimento.data_baixa = new Date();
+      }
+
+      await queryRunner.manager.save(recebimento);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Recebimento ${recebimento.numero}: aceite patrimônio por ${usuarioNome}. ` +
+          `Valor: R$ ${valorAceitoPatrim.toFixed(2)}`,
+      );
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Erro ao aceitar patrimônio ${id}: ${error.message}`,
+      );
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================================================
+  // ACEITAR RECEBIMENTO (BAIXA NO CONTRATO) — legado
   // ============================================================================
 
   /**
    * Aceita o recebimento e realiza a baixa definitiva no contrato.
-   * 
-   * IMPORTANTE: Este é o ponto onde o saldo EMPENHADO é convertido em ENTREGUE.
+   * Para recebimentos mistos (CONSUMO + PERMANENTE), use aceitarAlmoxarifado e aceitarPatrimonio.
    */
   async aceitar(
     id: string,
@@ -451,14 +731,22 @@ export class RecebimentoService {
 
         // Reverte quantidade aceita no item do recebimento
         itemRec.quantidade_aceita = 0;
-        await queryRunner.manager.save(itemRec);
       }
 
       // Atualiza recebimento
       recebimento.status = StatusRecebimento.ESTORNADO;
       recebimento.baixa_realizada = false;
       recebimento.data_baixa = null;
-      recebimento.motivo_rejeicao = motivo;
+      recebimento.aceite_almoxarifado_data = null;
+      recebimento.aceite_almoxarifado_usuario_id = null;
+      recebimento.aceite_almoxarifado_usuario_nome = null;
+      recebimento.aceite_patrimonio_data = null;
+      recebimento.aceite_patrimonio_usuario_id = null;
+      recebimento.aceite_patrimonio_usuario_nome = null;
+      recebimento.data_estorno = new Date();
+      recebimento.usuario_estorno_id = usuarioId;
+      recebimento.usuario_estorno_nome = usuarioNome;
+      recebimento.motivo_estorno = motivo;
       recebimento.ocorrencias = recebimento.ocorrencias || [];
       recebimento.ocorrencias.push({
         data: new Date(),
@@ -548,14 +836,19 @@ export class RecebimentoService {
   }
 
   async findPendentesAceite(orgaoId: string): Promise<Recebimento[]> {
-    return this.recebimentoRepository.find({
-      where: { 
-        orgao_id: orgaoId, 
-        status: StatusRecebimento.CONFERIDO,
-      },
-      relations: ['ordem_fornecimento'],
-      order: { created_at: 'ASC' },
-    });
+    return this.recebimentoRepository
+      .createQueryBuilder('rec')
+      .leftJoinAndSelect('rec.ordem_fornecimento', 'ordem')
+      .where('rec.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('rec.status IN (:...statuses)', {
+        statuses: [
+          StatusRecebimento.CONFERIDO,
+          StatusRecebimento.PENDENTE_ALMOXARIFADO,
+          StatusRecebimento.PENDENTE_PATRIMONIO,
+        ],
+      })
+      .orderBy('rec.created_at', 'ASC')
+      .getMany();
   }
 
   // ============================================================================

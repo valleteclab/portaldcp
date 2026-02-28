@@ -42,6 +42,8 @@ export enum StatusRecebimento {
   REJEITADO = 'REJEITADO',     // Rejeitado (problemas na entrega)
   ACEITO_PARCIAL = 'ACEITO_PARCIAL', // Aceito parcialmente
   ESTORNADO = 'ESTORNADO',     // Estornado (baixa revertida)
+  PENDENTE_ALMOXARIFADO = 'PENDENTE_ALMOXARIFADO',  // Patrimônio aceitou; falta almoxarifado
+  PENDENTE_PATRIMONIO = 'PENDENTE_PATRIMONIO',      // Almoxarifado aceitou; falta patrimônio
 }
 
 @Entity('recebimentos')
@@ -173,6 +175,28 @@ export class Recebimento {
 
   @Column({ type: 'varchar', nullable: true })
   usuario_conferente_nome: string | null;
+
+  // ============================================================================
+  // ACEITE SEPARADO (ALMOXARIFADO / PATRIMÔNIO)
+  // ============================================================================
+
+  @Column({ type: 'timestamp', nullable: true })
+  aceite_almoxarifado_data: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  aceite_almoxarifado_usuario_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  aceite_almoxarifado_usuario_nome: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  aceite_patrimonio_data: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  aceite_patrimonio_usuario_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  aceite_patrimonio_usuario_nome: string | null;
 
   // ============================================================================
   // OBSERVAÇÕES E OCORRÊNCIAS

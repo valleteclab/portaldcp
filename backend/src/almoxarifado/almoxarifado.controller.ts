@@ -734,6 +734,38 @@ export class AlmoxarifadoController {
     );
   }
 
+  @Post('recebimentos/:id/aceitar-almoxarifado')
+  async aceitarAlmoxarifado(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = request.user;
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: user.sub },
+    });
+    return this.recebimentoService.aceitarAlmoxarifado(
+      id,
+      user.sub,
+      usuario?.nome || user.email || 'Usuário',
+    );
+  }
+
+  @Post('recebimentos/:id/aceitar-patrimonio')
+  async aceitarPatrimonio(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = request.user;
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: user.sub },
+    });
+    return this.recebimentoService.aceitarPatrimonio(
+      id,
+      user.sub,
+      usuario?.nome || user.email || 'Usuário',
+    );
+  }
+
   @Post('recebimentos/:id/rejeitar')
   async rejeitarRecebimento(
     @Param('id', ParseUUIDPipe) id: string,

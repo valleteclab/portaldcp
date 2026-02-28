@@ -1,5 +1,14 @@
 # Scratchpad
 
+## Tarefa Concluída: Aceite Separado Almoxarifado/Patrimônio (2026-02-17)
+
+- [X] Backend: aceite_almoxarifado_*, aceite_patrimonio_* na entity Recebimento
+- [X] Backend: aceitarAlmoxarifado, aceitarPatrimonio, calcularStatus, estornar com motivo_estorno
+- [X] Backend: compatibilidade recebimentos antigos em calcularStatus
+- [X] Frontend: botões Warehouse (almox) e Archive (patrimônio), modais separados
+- [X] Frontend: fallback botão Aceitar para recebimentos legados sem tipo_item
+- [X] Migration 1772100004000-AddAceiteSeparadoRecebimento
+
 ## Tarefa Concluída: OS com Medição por Etapas (2026-02-17)
 
 - [X] Backend: RequisicaoEtapaOS, DTO etapas_os, validação Global vs Demanda, saldo por etapa
