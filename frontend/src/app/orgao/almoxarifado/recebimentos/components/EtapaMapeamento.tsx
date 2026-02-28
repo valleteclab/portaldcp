@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { useState, useMemo } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Check, Bot, ArrowRight } from 'lucide-react'
+import { Check, Bot, ArrowRight, AlertTriangle, TrendingUp, TrendingDown, Info, ShieldAlert } from 'lucide-react'
 
 interface MapeamentoItem {
   produto_nf_index: number
@@ -40,6 +41,15 @@ interface EtapaMapeamentoProps {
   iaIndisponivel: boolean
   onConfirmar: (mapeamentoConfirmado: any[]) => void
   loading: boolean
+}
+
+interface Divergencia {
+  tipo: 'quantidade_maior' | 'quantidade_menor' | 'valor_diferente' | 'item_extra_nf' | 'item_faltante_of'
+  severidade: 'alta' | 'media' | 'baixa'
+  mensagem: string
+  orientacao: string
+  produtoNf?: string
+  itemOf?: string
 }
 
 export function EtapaMapeamento({
@@ -88,8 +98,163 @@ export function EtapaMapeamento({
   const matchCount = mapeamento.filter(m => m.item_contrato_id).length
   const confirmedCount = Object.values(confirmados).filter(Boolean).length
 
+  const analise = useMemo(() => {
+    const divergencias: Divergencia[] = []
+    let valorTotalNf = 0
+    let valorTotalOf = 0
+
+    for (const m of mapeamento) {
+      const prod = produtosXml.find(p => p.nItem === m.produto_nf_index)
+      const ofItem = m.item_contrato_id
+        ? itensOf.find(i => i.item_contrato_id === m.item_contrato_id)
+        : null
+
+      if (prod) valorTotalNf += prod.vProd || (prod.qCom * prod.vUnCom)
+
+      if (prod && ofItem) {
+        valorTotalOf += ofItem.valor_unitario * ofItem.quantidade
+
+        if (prod.qCom > ofItem.quantidade) {
+          divergencias.push({
+            tipo: 'quantidade_maior',
+            severidade: 'alta',
+            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pede apenas ${ofItem.quantidade} ${ofItem.unidade_medida}`,
+            orientacao: `Excedente de ${prod.qCom - ofItem.quantidade} un. Verifique se ha outra OF pendente para este fornecedor ou se sera necessario devolver o excedente.`,
+            produtoNf: prod.xProd,
+            itemOf: ofItem.descricao,
+          })
+        } else if (prod.qCom < ofItem.quantidade) {
+          divergencias.push({
+            tipo: 'quantidade_menor',
+            severidade: 'media',
+            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pede ${ofItem.quantidade} ${ofItem.unidade_medida}`,
+            orientacao: `Faltam ${ofItem.quantidade - prod.qCom} un. O recebimento sera parcial para este item. O saldo ficara em aberto na OF.`,
+            produtoNf: prod.xProd,
+            itemOf: ofItem.descricao,
+          })
+        }
+
+        const diffValor = Math.abs(prod.vUnCom - ofItem.valor_unitario)
+        const percentDiff = ofItem.valor_unitario > 0 ? (diffValor / ofItem.valor_unitario) * 100 : 0
+        if (percentDiff > 5) {
+          divergencias.push({
+            tipo: 'valor_diferente',
+            severidade: percentDiff > 20 ? 'alta' : 'media',
+            mensagem: `"${prod.xProd}": Valor unitario NF ${fmt(prod.vUnCom)} vs OF ${fmt(ofItem.valor_unitario)} (${percentDiff.toFixed(0)}% de diferenca)`,
+            orientacao: percentDiff > 20
+              ? 'Diferenca significativa. Verifique com o fornecedor antes de aceitar.'
+              : 'Diferenca pequena, pode ser arredondamento ou reajuste contratual.',
+            produtoNf: prod.xProd,
+            itemOf: ofItem.descricao,
+          })
+        }
+      }
+    }
+
+    const itensOfNaoMapeados = itensOf.filter(
+      of => !mapeamento.some(m => m.item_contrato_id === of.item_contrato_id || selecoes[mapeamento.find(mm => mm.item_contrato_id === of.item_contrato_id)?.produto_nf_index || -1] === of.item_contrato_id)
+    )
+    for (const of of itensOfNaoMapeados) {
+      divergencias.push({
+        tipo: 'item_faltante_of',
+        severidade: 'media',
+        mensagem: `"${of.descricao}" consta na OF mas nao foi encontrado na NF`,
+        orientacao: 'Este item pode vir em outra NF ou o fornecedor nao entregou. O item ficara pendente na OF.',
+        itemOf: of.descricao,
+      })
+    }
+
+    const altaSeveridade = divergencias.filter(d => d.severidade === 'alta').length
+    const mediaSeveridade = divergencias.filter(d => d.severidade === 'media').length
+
+    return { divergencias, valorTotalNf, valorTotalOf, altaSeveridade, mediaSeveridade }
+  }, [mapeamento, produtosXml, itensOf, selecoes])
+
+  const getDivergenciasItem = (prodNfIndex: number, itemContratoId: string | null) => {
+    if (!itemContratoId) return []
+    const prod = produtosXml.find(p => p.nItem === prodNfIndex)
+    const ofItem = itensOf.find(i => i.item_contrato_id === itemContratoId)
+    if (!prod || !ofItem) return []
+    return analise.divergencias.filter(
+      d => d.produtoNf === prod.xProd && d.itemOf === ofItem.descricao
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {/* Pre-analise */}
+      {analise.divergencias.length > 0 && (
+        <Card className={analise.altaSeveridade > 0 ? 'border-red-300 bg-red-50/30' : 'border-amber-300 bg-amber-50/30'}>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ShieldAlert className={`h-5 w-5 ${analise.altaSeveridade > 0 ? 'text-red-500' : 'text-amber-500'}`} />
+              Pre-Analise: {analise.divergencias.length} divergencia(s) encontrada(s)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="bg-white rounded-lg p-3 border text-center">
+                <p className="text-[10px] font-bold text-gray-400 uppercase">Valor Total NF</p>
+                <p className="font-bold text-base">{fmt(analise.valorTotalNf)}</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border text-center">
+                <p className="text-[10px] font-bold text-gray-400 uppercase">Valor Total OF</p>
+                <p className="font-bold text-base">{fmt(analise.valorTotalOf)}</p>
+                {Math.abs(analise.valorTotalNf - analise.valorTotalOf) > 0.01 && (
+                  <p className={`text-xs mt-1 font-semibold ${analise.valorTotalNf > analise.valorTotalOf ? 'text-red-600' : 'text-amber-600'}`}>
+                    {analise.valorTotalNf > analise.valorTotalOf
+                      ? `NF excede OF em ${fmt(analise.valorTotalNf - analise.valorTotalOf)}`
+                      : `OF excede NF em ${fmt(analise.valorTotalOf - analise.valorTotalNf)}`}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {analise.divergencias.map((div, idx) => (
+              <div
+                key={idx}
+                className={`flex items-start gap-3 p-3 rounded-lg border text-xs ${
+                  div.severidade === 'alta' ? 'bg-red-50 border-red-200' :
+                  div.severidade === 'media' ? 'bg-amber-50 border-amber-200' :
+                  'bg-blue-50 border-blue-200'
+                }`}
+              >
+                {div.tipo === 'quantidade_maior' ? (
+                  <TrendingUp className={`h-4 w-4 mt-0.5 flex-shrink-0 ${div.severidade === 'alta' ? 'text-red-500' : 'text-amber-500'}`} />
+                ) : div.tipo === 'quantidade_menor' ? (
+                  <TrendingDown className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                ) : (
+                  <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${div.severidade === 'alta' ? 'text-red-500' : 'text-amber-500'}`} />
+                )}
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-800">{div.mensagem}</p>
+                  <p className="text-gray-600 mt-1 flex items-center gap-1">
+                    <Info className="h-3 w-3" /> {div.orientacao}
+                  </p>
+                </div>
+                <Badge variant="outline" className={`text-[9px] flex-shrink-0 ${
+                  div.severidade === 'alta' ? 'border-red-300 text-red-600' :
+                  div.severidade === 'media' ? 'border-amber-300 text-amber-600' :
+                  'border-blue-300 text-blue-600'
+                }`}>
+                  {div.severidade === 'alta' ? 'CRITICA' : div.severidade === 'media' ? 'ATENCAO' : 'INFO'}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {analise.divergencias.length === 0 && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+          <Check className="h-5 w-5 text-green-600" />
+          <div>
+            <p className="font-semibold text-green-800 text-sm">NF compativel com a OF</p>
+            <p className="text-xs text-green-700">Quantidades e valores estao de acordo. Confirme os vinculos para prosseguir.</p>
+          </div>
+        </div>
+      )}
+
       {iaIndisponivel && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3">
           <Bot className="h-6 w-6 text-amber-600" />
@@ -127,93 +292,108 @@ export function EtapaMapeamento({
 
       {mapeamento.map(item => {
         const prod = produtosXml.find(p => p.nItem === item.produto_nf_index)
-        const ofItem = itensOf.find(i => i.item_contrato_id === item.item_contrato_id)
+        const selectedItemId = selecoes[item.produto_nf_index] || item.item_contrato_id
+        const ofItem = selectedItemId ? itensOf.find(i => i.item_contrato_id === selectedItemId) : null
         const isConfirmed = confirmados[item.produto_nf_index]
+        const itemDivergencias = getDivergenciasItem(item.produto_nf_index, selectedItemId)
 
         return (
-          <Card
-            key={item.produto_nf_index}
-            className={isConfirmed ? 'border-green-200 bg-green-50/50' : ''}
-          >
-            <CardContent className="py-3 grid grid-cols-[1fr_28px_1fr_100px_90px] gap-3 items-center">
-              <div>
-                <p className="text-sm font-semibold">{item.xProd_nf}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-gray-500">
-                    {prod?.qCom} {prod?.uCom} · {fmt(prod?.vUnCom || 0)}/un
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-center text-gray-300 text-lg">→</div>
-
-              <div>
-                {selecoes[item.produto_nf_index] ? (
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {itensOf.find(i => i.item_contrato_id === selecoes[item.produto_nf_index])?.descricao || item.descricao_of}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      ID: {selecoes[item.produto_nf_index]!.substring(0, 8)}...
-                    </p>
-                  </div>
-                ) : (
-                  <Select
-                    onValueChange={(value) => {
-                      setSelecoes(prev => ({ ...prev, [item.produto_nf_index]: value }))
-                    }}
-                  >
-                    <SelectTrigger className="h-9 text-xs border-amber-300 bg-amber-50">
-                      <SelectValue placeholder="Selecionar item da OF..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {itensOf.map(of => (
-                        <SelectItem key={of.item_contrato_id} value={of.item_contrato_id}>
-                          <span className="text-xs">{of.descricao} — {of.quantidade} {of.unidade_medida}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              <div>
-                {item.item_contrato_id ? (
-                  <div className="space-y-1">
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${confiancaBg(item.confianca)}`}
-                        style={{ width: `${item.confianca}%` }}
-                      />
-                    </div>
-                    <span className={`text-xs font-bold ${confiancaColor(item.confianca)}`}>
-                      {item.confianca}% IA
+          <div key={item.produto_nf_index} className="space-y-0">
+            <Card className={isConfirmed ? 'border-green-200 bg-green-50/50' : itemDivergencias.length > 0 ? 'border-amber-200' : ''}>
+              <CardContent className="py-3 grid grid-cols-[1fr_28px_1fr_100px_90px] gap-3 items-center">
+                <div>
+                  <p className="text-sm font-semibold">{item.xProd_nf}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-gray-500">
+                      {prod?.qCom} {prod?.uCom} · {fmt(prod?.vUnCom || 0)}/un
                     </span>
                   </div>
-                ) : (
-                  <span className="text-xs text-red-300">—</span>
-                )}
-              </div>
+                  {ofItem && prod && prod.qCom !== ofItem.quantidade && (
+                    <div className={`mt-1.5 flex items-center gap-1 text-[10px] font-semibold ${prod.qCom > ofItem.quantidade ? 'text-red-600' : 'text-amber-600'}`}>
+                      {prod.qCom > ofItem.quantidade ? (
+                        <><TrendingUp className="h-3 w-3" /> NF: {prod.qCom} un &gt; OF: {ofItem.quantidade} un (excedente: {prod.qCom - ofItem.quantidade})</>
+                      ) : (
+                        <><TrendingDown className="h-3 w-3" /> NF: {prod.qCom} un &lt; OF: {ofItem.quantidade} un (faltam: {ofItem.quantidade - prod.qCom})</>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-              <div>
-                {isConfirmed ? (
-                  <span className="text-xs text-green-600 font-bold flex items-center gap-1">
-                    <Check className="h-3.5 w-3.5" /> OK
-                  </span>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant={selecoes[item.produto_nf_index] ? 'default' : 'outline'}
-                    onClick={() => confirmarItem(item.produto_nf_index)}
-                    disabled={!selecoes[item.produto_nf_index]}
-                    className="text-xs h-7"
-                  >
-                    Confirmar
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                <div className="text-center text-gray-300 text-lg">→</div>
+
+                <div>
+                  {selecoes[item.produto_nf_index] ? (
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {itensOf.find(i => i.item_contrato_id === selecoes[item.produto_nf_index])?.descricao || item.descricao_of}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        ID: {selecoes[item.produto_nf_index]!.substring(0, 8)}...
+                      </p>
+                      {ofItem && (
+                        <p className="text-xs text-gray-500">
+                          OF: {ofItem.quantidade} {ofItem.unidade_medida} · {fmt(ofItem.valor_unitario)}/un
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <Select
+                      onValueChange={(value) => {
+                        setSelecoes(prev => ({ ...prev, [item.produto_nf_index]: value }))
+                      }}
+                    >
+                      <SelectTrigger className="h-9 text-xs border-amber-300 bg-amber-50">
+                        <SelectValue placeholder="Selecionar item da OF..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {itensOf.map(of => (
+                          <SelectItem key={of.item_contrato_id} value={of.item_contrato_id}>
+                            <span className="text-xs">{of.descricao} — {of.quantidade} {of.unidade_medida}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <div>
+                  {item.item_contrato_id ? (
+                    <div className="space-y-1">
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${confiancaBg(item.confianca)}`}
+                          style={{ width: `${item.confianca}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-bold ${confiancaColor(item.confianca)}`}>
+                        {item.confianca}% IA
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-red-300">—</span>
+                  )}
+                </div>
+
+                <div>
+                  {isConfirmed ? (
+                    <span className="text-xs text-green-600 font-bold flex items-center gap-1">
+                      <Check className="h-3.5 w-3.5" /> OK
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant={selecoes[item.produto_nf_index] ? 'default' : 'outline'}
+                      onClick={() => confirmarItem(item.produto_nf_index)}
+                      disabled={!selecoes[item.produto_nf_index]}
+                      className="text-xs h-7"
+                    >
+                      Confirmar
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )
       })}
 
