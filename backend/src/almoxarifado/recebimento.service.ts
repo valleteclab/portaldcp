@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Recebimento, TipoRecebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { OrdemFornecimento, StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
@@ -8,6 +8,8 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { NotaFiscalFornecedor, StatusNotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { CriarRecebimentoDto, AceitarRecebimentoDto } from './dto/ordem-fornecimento.dto';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 
 @Injectable()
 export class RecebimentoService {
@@ -22,7 +24,10 @@ export class RecebimentoService {
     private readonly itemContratoRepository: Repository<ItemContrato>,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
+    @InjectRepository(NotaFiscalFornecedor)
+    private readonly nfRepository: Repository<NotaFiscalFornecedor>,
     private readonly ordemService: OrdemFornecimentoService,
+    private readonly notificacoesService: NotificacoesService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -1097,6 +1102,11 @@ export class RecebimentoService {
     return this.recebimentoRepository.save(recebimento);
   }
 
+  /**
+   * Cancela o recebimento. A OF volta a ENVIADA.
+   * Marca a NF como RECUSADA e notifica o fornecedor para reenviar os documentos.
+   * O recebimento deve ser iniciado do zero quando o fornecedor enviar nova NF.
+   */
   async cancelar(
     id: string,
     motivo: string,
@@ -1127,10 +1137,62 @@ export class RecebimentoService {
 
     const ordem = await this.ordemRepository.findOne({
       where: { id: recebimento.ordem_fornecimento_id },
+      relations: ['fornecedor'],
     });
     if (ordem) {
       ordem.status = StatusOrdemFornecimento.ENVIADA;
       await this.ordemRepository.save(ordem);
+    }
+
+    // Marca NF como RECUSADA e notifica fornecedor para reenviar documentos
+    const nfs = await this.nfRepository.find({
+      where: {
+        ordem_fornecimento_id: recebimento.ordem_fornecimento_id,
+        status: In([
+          StatusNotaFiscalFornecedor.ENVIADA,
+          StatusNotaFiscalFornecedor.PROCESSADA,
+          StatusNotaFiscalFornecedor.VINCULADA,
+        ]),
+      },
+      relations: ['ordem_fornecimento', 'ordem_fornecimento.fornecedor'],
+    });
+    const motivoRecusa = `Recebimento cancelado: ${motivo}`;
+    for (const nf of nfs) {
+      nf.status = StatusNotaFiscalFornecedor.RECUSADA;
+      nf.motivo_recusa = motivoRecusa;
+      nf.historico = nf.historico || [];
+      nf.historico.push({
+        data: new Date().toISOString(),
+        tipo: 'RECEBIMENTO_CANCELADO',
+        descricao: `NF rejeitada devido ao cancelamento do recebimento por ${usuarioNome}: ${motivo}`,
+        usuario: usuarioNome,
+      });
+      await this.nfRepository.save(nf);
+
+      const fornecedor = ordem?.fornecedor || nf.ordem_fornecimento?.fornecedor;
+      if (fornecedor) {
+        try {
+          await this.notificacoesService.criar({
+            orgao_id: nf.orgao_id,
+            usuario_id: fornecedor.id,
+            usuario_email: fornecedor.email || undefined,
+            tipo: TipoNotificacao.NF_RECUSADA,
+            titulo: `Documentos rejeitados - OF ${ordem?.numero || 'N/A'}`,
+            mensagem:
+              `Os documentos enviados (NF nº ${nf.numero || 'S/N'}) foram rejeitados devido ao cancelamento do recebimento.\n\n` +
+              `Motivo: ${motivo}\n\n` +
+              `Por favor, envie novamente os documentos (XML e PDF) pela ordem de fornecimento no portal.`,
+            entidade_tipo: 'ordem_fornecimento',
+            entidade_id: recebimento.ordem_fornecimento_id,
+            link: `/fornecedor/ordens/${recebimento.ordem_fornecimento_id}`,
+            prioridade: 'ALTA' as any,
+            enviar_email: true,
+          });
+          this.logger.log(`Fornecedor notificado sobre rejeição de documentos - OF ${ordem?.numero}`);
+        } catch (notifErr: any) {
+          this.logger.warn(`Erro ao notificar fornecedor: ${notifErr.message}`);
+        }
+      }
     }
 
     return saved;

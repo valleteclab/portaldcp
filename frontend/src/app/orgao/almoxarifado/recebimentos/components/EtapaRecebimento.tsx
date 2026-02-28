@@ -624,7 +624,7 @@ export function EtapaRecebimento({
               <h3 className="font-bold text-base">Cancelar Recebimento</h3>
             </div>
             <p className="text-sm text-gray-600 mb-4">
-              Esta acao cancelara o recebimento completo. A ordem de fornecimento voltara ao status anterior.
+              Esta ação cancelará o recebimento completo. A ordem de fornecimento voltará ao status anterior (ENVIADA). Os documentos enviados serão marcados como rejeitados e o fornecedor será notificado para reenviar os documentos. O recebimento deverá ser iniciado do zero.
             </p>
             <textarea
               value={motivoCancelar}
