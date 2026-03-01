@@ -1225,19 +1225,6 @@ export class AlmoxarifadoController {
     );
   }
 
-  @Post('ordens/:ordemId/modo-envio-nf')
-  async definirModoEnvioNf(
-    @Param('ordemId', ParseUUIDPipe) ordemId: string,
-    @Req() request: { user: JwtPayload },
-    @Body() body: { modo: 'CONJUNTA' | 'SEPARADA' },
-  ) {
-    this.getOrgaoId(request.user);
-    if (!body.modo || !['CONJUNTA', 'SEPARADA'].includes(body.modo)) {
-      throw new BadRequestException('Modo deve ser CONJUNTA ou SEPARADA');
-    }
-    return this.ordemService.definirModoEnvioNf(ordemId, body.modo, 'orgao');
-  }
-
   @Post('ordens/:ordemId/upload-nota-fiscal')
   @UseInterceptors(
     FilesInterceptor('arquivos', 10, {
@@ -1268,7 +1255,6 @@ export class AlmoxarifadoController {
   async uploadNotaFiscalOrgao(
     @Param('ordemId', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
-    @Query('tipo_itens') tipoItensQuery: string | undefined,
     @UploadedFiles() arquivos: Express.Multer.File[],
   ) {
     const orgaoId = this.getOrgaoId(request.user);
@@ -1288,10 +1274,6 @@ export class AlmoxarifadoController {
       throw new BadRequestException('Ordem não encontrada');
     }
 
-    const tipoItens = tipoItensQuery === 'CONSUMO' || tipoItensQuery === 'PERMANENTE'
-      ? tipoItensQuery
-      : undefined;
-
     return this.nfFornecedorService.upload(
       ordemId,
       ordem.fornecedor_id,
@@ -1299,7 +1281,6 @@ export class AlmoxarifadoController {
       xmlFile,
       pdfFile,
       outrosArquivos,
-      tipoItens,
     );
   }
 

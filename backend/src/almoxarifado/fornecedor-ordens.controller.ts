@@ -76,23 +76,6 @@ export class FornecedorOrdensController {
     );
   }
 
-  @Post(':id/modo-envio-nf')
-  async definirModoEnvioNf(
-    @Param('id', ParseUUIDPipe) ordemId: string,
-    @Req() request: { user: JwtPayload },
-    @Body() body: { modo: 'CONJUNTA' | 'SEPARADA' },
-  ) {
-    const fornecedorId = this.getFornecedorId(request.user);
-    const ordem = await this.ordemService.findOne(ordemId);
-    if (ordem.fornecedor_id !== fornecedorId) {
-      throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
-    }
-    if (!body.modo || !['CONJUNTA', 'SEPARADA'].includes(body.modo)) {
-      throw new BadRequestException('Modo deve ser CONJUNTA ou SEPARADA');
-    }
-    return this.ordemService.definirModoEnvioNf(ordemId, body.modo, 'fornecedor');
-  }
-
   @Post(':id/ciencia-entrega')
   async cienciaEntrega(
     @Param('id', ParseUUIDPipe) id: string,
@@ -152,16 +135,15 @@ export class FornecedorOrdensController {
   async uploadNotaFiscal(
     @Param('id', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
-    @Query('tipo_itens') tipoItensQuery: string | undefined,
     @UploadedFiles() arquivos: Express.Multer.File[],
   ) {
     const fornecedorId = this.getFornecedorId(request.user);
 
-    const xmlFile = arquivos?.find(f => 
+    const xmlFile = arquivos?.find(f =>
       f.mimetype.includes('xml') || f.originalname.endsWith('.xml')
     );
     const pdfFile = arquivos?.find(f => f.mimetype === 'application/pdf');
-    const outrosArquivos = arquivos?.filter(f => 
+    const outrosArquivos = arquivos?.filter(f =>
       f !== xmlFile && f !== pdfFile
     ) || [];
 
@@ -177,10 +159,6 @@ export class FornecedorOrdensController {
       throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
     }
 
-    const tipoItens = tipoItensQuery === 'CONSUMO' || tipoItensQuery === 'PERMANENTE'
-      ? tipoItensQuery
-      : undefined;
-
     return this.nfService.upload(
       ordemId,
       fornecedorId,
@@ -188,7 +166,6 @@ export class FornecedorOrdensController {
       xmlFile,
       pdfFile,
       outrosArquivos,
-      tipoItens,
     );
   }
 

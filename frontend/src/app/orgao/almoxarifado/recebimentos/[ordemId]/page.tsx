@@ -35,7 +35,6 @@ function RecebimentoUnificadoContent() {
   const [itensJaRecebidos, setItensJaRecebidos] = useState<any[]>([])
   const [recebimentoAtivo, setRecebimentoAtivo] = useState<any>(null)
   const [notasFiscais, setNotasFiscais] = useState<any[]>([])
-  const [definindoModo, setDefinindoModo] = useState(false)
   const [mapeamento, setMapeamento] = useState<any[]>([])
   const [iaIndisponivel, setIaIndisponivel] = useState(false)
   const [etapa, setEtapa] = useState<string>('nf')
@@ -202,8 +201,8 @@ function RecebimentoUnificadoContent() {
         </div>
       </div>
 
-      {/* Seletor NF quando modo separada (2 NFs) */}
-      {ordem?.modo_envio_nf === 'SEPARADA' && notasFiscais.length >= 1 && (
+      {/* Seletor NF quando múltiplas NFs */}
+      {notasFiscais.length > 1 && (
         <div className="px-6 py-2 bg-gray-50 border-b flex gap-2 flex-wrap">
           {notasFiscais.map((nf: any) => (
             <Button
@@ -212,7 +211,7 @@ function RecebimentoUnificadoContent() {
               size="sm"
               onClick={() => router.push(`/orgao/almoxarifado/recebimentos/${ordemId}?nf_id=${nf.id}`)}
             >
-              NF {nf.tipo_itens === 'CONSUMO' ? 'Consumo' : 'Permanente'} {nf.numero && `(${nf.numero})`}
+              NF {nf.numero || nf.id?.slice(0, 8)}
             </Button>
           ))}
         </div>
@@ -230,122 +229,22 @@ function RecebimentoUnificadoContent() {
 
       {/* Content */}
       <div className="p-6">
-        {etapa === 'nf' && (() => {
-          const temConsumoEPermanente = ordem?.itens?.some((i: any) => (i.tipo_item || 'CONSUMO') === 'CONSUMO') &&
-            ordem?.itens?.some((i: any) => (i as any).tipo_item === 'PERMANENTE')
-          const precisaDefinirModo = temConsumoEPermanente && !ordem?.modo_envio_nf
-          const modoSeparada = ordem?.modo_envio_nf === 'SEPARADA'
+        {etapa === 'nf' && (
+          <EtapaNF
+            notaFiscal={notaFiscal}
+            ordem={ordem}
+            notasFiscais={notasFiscais}
+            onImportarXml={handleImportarXml}
+            onNfEnviada={carregarDados}
+            loading={processing}
+          />
+        )}
 
-          if (precisaDefinirModo) {
-            return (
-              <Card className="border-amber-200 bg-amber-50/50">
-                <CardHeader>
-                  <CardTitle className="text-base">Como será enviada a Nota Fiscal?</CardTitle>
-                  <CardDescription>
-                    Esta ordem contém itens de consumo e permanentes. Defina como a(s) nota(s) fiscal(is) será(ão) enviada(s):
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Button
-                      variant="outline"
-                      className="h-auto py-4 justify-start"
-                      disabled={definindoModo}
-                      onClick={async () => {
-                        setDefinindoModo(true)
-                        try {
-                          const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/modo-envio-nf`, {
-                            method: 'POST',
-                            body: JSON.stringify({ modo: 'CONJUNTA' }),
-                          })
-                          if (res.ok) await carregarDados()
-                        } finally {
-                          setDefinindoModo(false)
-                        }
-                      }}
-                    >
-                      <div className="text-left">
-                        <p className="font-semibold">Conjunta (1 NF)</p>
-                        <p className="text-xs text-gray-500">Uma única NF para todos os itens</p>
-                      </div>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-auto py-4 justify-start"
-                      disabled={definindoModo}
-                      onClick={async () => {
-                        setDefinindoModo(true)
-                        try {
-                          const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/modo-envio-nf`, {
-                            method: 'POST',
-                            body: JSON.stringify({ modo: 'SEPARADA' }),
-                          })
-                          if (res.ok) await carregarDados()
-                        } finally {
-                          setDefinindoModo(false)
-                        }
-                      }}
-                    >
-                      <div className="text-left">
-                        <p className="font-semibold">Separada (2 NFs)</p>
-                        <p className="text-xs text-gray-500">Uma NF para consumo, outra para permanentes</p>
-                      </div>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          }
-
-          return (
-            <EtapaNF
-              notaFiscal={notaFiscal}
-              ordem={ordem}
-              notasFiscais={notasFiscais}
-              modoSeparada={modoSeparada}
-              onImportarXml={handleImportarXml}
-              onNfEnviada={carregarDados}
-              loading={processing}
-            />
-          )
-        })()}
-
-        {etapa === 'mapeamento' && (() => {
-          // Quando NF separada: pré-análise só considera itens do tipo da NF atual
-          const baseItens = itensPendentes.length > 0 ? itensPendentes : (ordem?.itens || [])
-          const tipoNf = notaFiscal?.tipo_itens as 'CONSUMO' | 'PERMANENTE' | null | undefined
-          const itensParaMapeamento = tipoNf
-            ? baseItens.filter((i: any) => (i.tipo_item || 'CONSUMO') === tipoNf)
-            : baseItens
-          const modoSeparadaMap = ordem?.modo_envio_nf === 'SEPARADA'
-          const tiposFaltantesMap = modoSeparadaMap
-            ? (['CONSUMO', 'PERMANENTE'] as const).filter(
-                (t) => !notasFiscais.some((n: any) => n.tipo_itens === t && n.status !== 'RECUSADA')
-              )
-            : []
-
-          return (
-          <div className="space-y-4">
-            {tiposFaltantesMap.length > 0 && (
-              <Card className="border-amber-200 bg-amber-50/50">
-                <CardContent className="py-4">
-                  <p className="text-sm font-medium text-amber-800">
-                    Ainda falta anexar {tiposFaltantesMap.length === 1
-                      ? `NF ${tiposFaltantesMap[0] === 'CONSUMO' ? 'Consumo' : 'Permanente'}`
-                      : 'as 2 NFs'}
-                    . Clique em &quot;1. Nota Fiscal&quot; para adicionar.
-                  </p>
-                  <Button variant="outline" size="sm" className="mt-2" onClick={() => setEtapa('nf')}>
-                    Ir para Nota Fiscal
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+        {etapa === 'mapeamento' && (
           <EtapaMapeamento
             mapeamento={mapeamento}
             produtosXml={notaFiscal?.produtos_xml || []}
-            itensOf={itensParaMapeamento}
-            tipoItensNf={tipoNf}
+            itensOf={itensPendentes.length > 0 ? itensPendentes : (ordem?.itens || [])}
             itensJaRecebidos={itensJaRecebidos}
             recebimentosAceitos={recebimentos.filter((r: any) => r.status === 'ACEITO')}
             iaIndisponivel={iaIndisponivel}
@@ -374,36 +273,23 @@ function RecebimentoUnificadoContent() {
             }}
             loading={processing}
           />
-          </div>
-          )
-        })()}
+        )}
 
         {etapa === 'recebimento' && (() => {
           const recAtivos = recebimentos.filter((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
           const recCancelados = recebimentos.filter((r: any) => r.status === 'REJEITADO' || r.status === 'ESTORNADO')
           const recExibir = recebimentoAtivo || (notaFiscal ? recAtivos.find((r: any) => r.nota_fiscal_fornecedor_id === notaFiscal?.id) : null) || recAtivos[0]
-          const modoSeparada = ordem?.modo_envio_nf === 'SEPARADA'
-          const tiposFaltantes = modoSeparada
-            ? (['CONSUMO', 'PERMANENTE'] as const).filter(
-                (t) => !notasFiscais.some((n: any) => n.tipo_itens === t && n.status !== 'RECUSADA')
-              )
-            : []
+          const ofAberta = (ordem?.valor_entregue ?? 0) < (ordem?.valor_total ?? 0) - 0.01
 
           if (recExibir) {
             return (
               <div className="space-y-4">
-                {tiposFaltantes.length > 0 && (
+                {ofAberta && (
                   <Card className="border-amber-200 bg-amber-50/50">
                     <CardContent className="py-4">
                       <p className="text-sm font-medium text-amber-800">
-                        Ainda falta anexar {tiposFaltantes.length === 1
-                          ? `NF ${tiposFaltantes[0] === 'CONSUMO' ? 'Consumo' : 'Permanente'}`
-                          : 'as 2 NFs'}
-                        . Clique em &quot;1. Nota Fiscal&quot; acima para adicionar.
+                        Recebimento aceito. Aguardando envio de outras notas para fechar o valor da OF.
                       </p>
-                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setEtapa('nf')}>
-                        Ir para Nota Fiscal
-                      </Button>
                     </CardContent>
                   </Card>
                 )}

@@ -89,44 +89,15 @@ export default function OrdemDetalheFornecedorPage() {
   const [dataEntrega, setDataEntrega] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [nfEnviada, setNfEnviada] = useState<any>(null)
   const [nfsEnviadas, setNfsEnviadas] = useState<any[]>([])
   const [uploadingNf, setUploadingNf] = useState(false)
   const [erroNf, setErroNf] = useState<string | null>(null)
-  const [showModoEnvioModal, setShowModoEnvioModal] = useState(false)
-  const [definindoModo, setDefinindoModo] = useState(false)
+  const [avisoNf, setAvisoNf] = useState<string | null>(null)
 
   useEffect(() => {
     carregarOrdem()
-    carregarNf()
+    carregarNfs()
   }, [id])
-
-  useEffect(() => {
-    if (ordem?.modo_envio_nf === 'SEPARADA') {
-      carregarNfs()
-    }
-  }, [ordem?.modo_envio_nf, id])
-
-  const temConsumoEPermanente = ordem?.itens?.some((i: any) => (i.tipo_item || 'CONSUMO') === 'CONSUMO') &&
-    ordem?.itens?.some((i: any) => (i as any).tipo_item === 'PERMANENTE')
-  const precisaDefinirModo = temConsumoEPermanente && !ordem?.modo_envio_nf
-  const modoSeparada = ordem?.modo_envio_nf === 'SEPARADA'
-
-  useEffect(() => {
-    if (temConsumoEPermanente && !ordem?.modo_envio_nf && ['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem?.status || '')) {
-      setShowModoEnvioModal(true)
-    }
-  }, [temConsumoEPermanente, ordem?.modo_envio_nf, ordem?.status])
-
-  const carregarNf = async () => {
-    try {
-      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`)
-      if (res.ok) {
-        const data = await res.json()
-        setNfEnviada(data || null)
-      }
-    } catch {}
-  }
 
   const carregarNfs = async () => {
     try {
@@ -140,55 +111,24 @@ export default function OrdemDetalheFornecedorPage() {
     }
   }
 
-  const handleDefinirModo = async (modo: 'CONJUNTA' | 'SEPARADA') => {
-    setDefinindoModo(true)
-    setErroNf(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/modo-envio-nf`, {
-        method: 'POST',
-        body: JSON.stringify({ modo }),
-      })
-      if (res.ok) {
-        setShowModoEnvioModal(false)
-        await carregarOrdem()
-        if (modo === 'SEPARADA') await carregarNfs()
-      } else {
-        const data = await res.json().catch(() => ({}))
-        setErroNf(data.message || 'Erro ao definir modo')
-      }
-    } catch {
-      setErroNf('Erro ao definir modo de envio')
-    } finally {
-      setDefinindoModo(false)
-    }
-  }
-
   const [xmlFile, setXmlFile] = useState<File | null>(null)
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [outrosFiles, setOutrosFiles] = useState<File[]>([])
-  const [xmlFileConsumo, setXmlFileConsumo] = useState<File | null>(null)
-  const [pdfFileConsumo, setPdfFileConsumo] = useState<File | null>(null)
-  const [xmlFilePermanente, setXmlFilePermanente] = useState<File | null>(null)
-  const [pdfFilePermanente, setPdfFilePermanente] = useState<File | null>(null)
 
-  const handleEnviarNf = async (tipoItens?: 'CONSUMO' | 'PERMANENTE') => {
-    const xml = tipoItens === 'CONSUMO' ? xmlFileConsumo : tipoItens === 'PERMANENTE' ? xmlFilePermanente : xmlFile
-    const pdf = tipoItens === 'CONSUMO' ? pdfFileConsumo : tipoItens === 'PERMANENTE' ? pdfFilePermanente : pdfFile
-    if (!xml) { setErroNf('Arquivo XML é obrigatório'); return }
-    if (!pdf) { setErroNf('Arquivo PDF da nota fiscal é obrigatório'); return }
+  const handleEnviarNf = async () => {
+    if (!xmlFile) { setErroNf('Arquivo XML é obrigatório'); return }
+    if (!pdfFile) { setErroNf('Arquivo PDF da nota fiscal é obrigatório'); return }
 
     setUploadingNf(true)
     setErroNf(null)
+    setAvisoNf(null)
     try {
       const formData = new FormData()
-      formData.append('arquivos', xml)
-      formData.append('arquivos', pdf)
-      if (!tipoItens) outrosFiles.forEach(f => formData.append('arquivos', f))
+      formData.append('arquivos', xmlFile)
+      formData.append('arquivos', pdfFile)
+      outrosFiles.forEach(f => formData.append('arquivos', f))
 
-      const url = tipoItens
-        ? `${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal?tipo_itens=${tipoItens}`
-        : `${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`
-      const res = await authFetch(url, {
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`, {
         method: 'POST',
         body: formData,
         headers: {},
@@ -196,24 +136,13 @@ export default function OrdemDetalheFornecedorPage() {
 
       if (res.ok) {
         const data = await res.json()
-        if (tipoItens) {
-          setNfsEnviadas(prev => {
-            const rest = prev.filter((n: any) => n.tipo_itens !== tipoItens)
-            return [...rest, data]
-          })
-        } else {
-          setNfEnviada(data)
-        }
-        if (tipoItens === 'CONSUMO') {
-          setXmlFileConsumo(null)
-          setPdfFileConsumo(null)
-        } else if (tipoItens === 'PERMANENTE') {
-          setXmlFilePermanente(null)
-          setPdfFilePermanente(null)
-        } else {
-          setXmlFile(null)
-          setPdfFile(null)
-          setOutrosFiles([])
+        setNfsEnviadas(prev => [...prev, data])
+        setXmlFile(null)
+        setPdfFile(null)
+        setOutrosFiles([])
+        await carregarOrdem()
+        if (data.valor_total < (ordem?.valor_total || 0) - 0.01) {
+          setAvisoNf('A OF ficará aberta para envio do restante. Envie novas notas fiscais até atingir o valor da ordem.')
         }
       } else {
         const data = await res.json().catch(() => ({}))
@@ -439,50 +368,9 @@ export default function OrdemDetalheFornecedorPage() {
         </Card>
       </div>
 
-      {/* Modal: definir modo envio NF (quando OF tem consumo + permanente) */}
-      {showModoEnvioModal && precisaDefinirModo && (
-        <Dialog open onOpenChange={(o) => !definindoModo && setShowModoEnvioModal(o)}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Como será enviada a Nota Fiscal?</DialogTitle>
-              <DialogDescription>
-                Esta ordem contém itens de consumo e itens permanentes. Defina como você enviará a(s) nota(s) fiscal(is):
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 py-4">
-              <Button
-                className="w-full justify-start h-auto py-4"
-                variant="outline"
-                onClick={() => handleDefinirModo('CONJUNTA')}
-                disabled={definindoModo}
-              >
-                <div className="text-left">
-                  <p className="font-semibold">Conjunta (1 NF)</p>
-                  <p className="text-sm text-gray-500">Uma única nota fiscal para todos os itens</p>
-                </div>
-              </Button>
-              <Button
-                className="w-full justify-start h-auto py-4"
-                variant="outline"
-                onClick={() => handleDefinirModo('SEPARADA')}
-                disabled={definindoModo}
-              >
-                <div className="text-left">
-                  <p className="font-semibold">Separada (2 NFs)</p>
-                  <p className="text-sm text-gray-500">Uma NF para itens de consumo e outra para permanentes</p>
-                </div>
-              </Button>
-            </div>
-            {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Upload Nota Fiscal - incluir ATENDIDA_PARCIAL quando modo separada (1 NF aceita, falta a outra) */}
-      {(['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) ||
-        (modoSeparada && ordem.status === 'ATENDIDA_PARCIAL') ||
-        nfEnviada?.status === 'RECUSADA' ||
-        (modoSeparada && nfsEnviadas.some((n: any) => n.status === 'RECUSADA'))) && (
+      {/* Upload Nota Fiscal - pré-análise no backend: valor NF > OF bloqueia; valor < OF permite com aviso */}
+      {(['ENVIADA', 'EM_ATENDIMENTO', 'ATENDIDA_PARCIAL'].includes(ordem.status) ||
+        nfsEnviadas.some((n: any) => n.status === 'RECUSADA')) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -490,52 +378,45 @@ export default function OrdemDetalheFornecedorPage() {
               Nota Fiscal
             </CardTitle>
             <CardDescription>
-              {modoSeparada
-                ? 'Envie 2 notas fiscais: uma para itens de consumo e outra para permanentes'
-                : 'Envie o XML da nota fiscal e opcionalmente o PDF e outros documentos'}
+              Envie o XML e o PDF da nota fiscal. O sistema fará a pré-análise: se o valor da NF for maior que o da ordem, o envio será bloqueado.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {precisaDefinirModo ? (
-              <div className="space-y-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <p className="font-medium text-amber-800">Defina como enviará a nota fiscal</p>
-                  <p className="text-sm text-amber-700 mt-1">
-                    Esta ordem tem itens de consumo e permanentes. Escolha se enviará 1 NF conjunta ou 2 NFs separadas.
-                  </p>
-                  <Button className="mt-3" onClick={() => setShowModoEnvioModal(true)}>
-                    Definir modo de envio
-                  </Button>
-                </div>
+            {avisoNf && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                {avisoNf}
               </div>
-            ) : nfEnviada?.status === 'RECUSADA' || (modoSeparada && nfsEnviadas.some((n: any) => n.status === 'RECUSADA')) ? (
+            )}
+            {nfsEnviadas.some((n: any) => n.status === 'RECUSADA') ? (
               <div className="space-y-4">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <h4 className="font-bold text-red-800">Nota Fiscal Recusada</h4>
-                      <p className="text-sm text-red-700 mt-1">
-                        NF nº <strong>{nfEnviada.numero || 'S/N'}</strong> (Série {nfEnviada.serie || '-'}) foi recusada pelo órgão.
-                      </p>
-                      {nfEnviada.motivo_recusa && (
-                        <div className="bg-white border border-red-200 rounded-lg p-3 mt-2">
-                          <p className="text-xs text-gray-500">Motivo:</p>
-                          <p className="text-sm font-medium text-red-800">{nfEnviada.motivo_recusa}</p>
-                        </div>
-                      )}
+                {nfsEnviadas.filter((n: any) => n.status === 'RECUSADA').map((nfRec: any) => (
+                  <div key={nfRec.id} className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <h4 className="font-bold text-red-800">Nota Fiscal Recusada</h4>
+                        <p className="text-sm text-red-700 mt-1">
+                          NF nº <strong>{nfRec.numero || 'S/N'}</strong> (Série {nfRec.serie || '-'}) foi recusada pelo órgão.
+                        </p>
+                        {nfRec.motivo_recusa && (
+                          <div className="bg-white border border-red-200 rounded-lg p-3 mt-2">
+                            <p className="text-xs text-gray-500">Motivo:</p>
+                            <p className="text-sm font-medium text-red-800">{nfRec.motivo_recusa}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                ))}
 
-                {nfEnviada.historico?.length > 0 && (
+                {nfsEnviadas.find((n: any) => n.status === 'RECUSADA')?.historico?.length > 0 && (
                   <div className="border rounded-lg p-4">
                     <h4 className="font-medium text-sm flex items-center gap-2 mb-3">
                       <History className="h-4 w-4 text-gray-500" />
                       Histórico
                     </h4>
                     <div className="space-y-2">
-                      {nfEnviada.historico.map((h: any, i: number) => (
+                      {nfsEnviadas.find((n: any) => n.status === 'RECUSADA')?.historico?.map((h: any, i: number) => (
                         <div key={i} className="flex items-start gap-2 text-sm border-b border-gray-100 pb-2 last:border-0">
                           <Badge variant="destructive" className="text-[10px] flex-shrink-0">{h.tipo}</Badge>
                           <div>
@@ -548,205 +429,90 @@ export default function OrdemDetalheFornecedorPage() {
                   </div>
                 )}
 
-                <p className="text-sm text-blue-800 font-medium mb-3">Envie uma nova Nota Fiscal corrigida</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${xmlFile ? 'border-green-400 bg-green-50' : 'border-gray-300 bg-white'}`}>
-                    <FileCode className={`h-6 w-6 mx-auto mb-1 ${xmlFile ? 'text-green-600' : 'text-gray-400'}`} />
-                    <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e *'}</p>
-                    <label className="cursor-pointer">
-                      <input type="file" accept=".xml" onChange={(e) => { setXmlFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                      <Button variant={xmlFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
-                    </label>
-                  </div>
-                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${pdfFile ? 'border-green-400 bg-green-50' : 'border-gray-300 bg-white'}`}>
-                    <FileText className={`h-6 w-6 mx-auto mb-1 ${pdfFile ? 'text-green-600' : 'text-gray-400'}`} />
-                    <p className="text-xs font-medium mb-2">{pdfFile ? pdfFile.name : 'PDF da Nota Fiscal *'}</p>
-                    <label className="cursor-pointer">
-                      <input type="file" accept=".pdf" onChange={(e) => { setPdfFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                      <Button variant={pdfFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{pdfFile ? 'Trocar' : 'Selecionar PDF'}</span></Button>
-                    </label>
-                  </div>
-                </div>
-                <div className={`border-2 border-dashed rounded-lg p-4 text-center ${outrosFiles.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'}`}>
-                  <p className="text-xs text-gray-500 mb-2">Outros documentos (opcional)</p>
-                  {outrosFiles.length > 0 && (
-                    <div className="flex flex-wrap gap-1 justify-center mb-2">
-                      {outrosFiles.map((f, i) => (
-                        <Badge key={i} variant="secondary" className="text-xs">
-                          {f.name}
-                          <button className="ml-1 text-red-500" onClick={() => setOutrosFiles(prev => prev.filter((_, idx) => idx !== i))}>×</button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  <label className="cursor-pointer">
-                    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => { if (e.target.files) setOutrosFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }} className="hidden" />
-                    <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
-                  </label>
-                </div>
-                <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
-                  {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                  {uploadingNf ? 'Enviando...' : 'Enviar Nova Nota Fiscal'}
-                </Button>
-                {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+                <p className="text-sm text-blue-800 font-medium mb-3">Envie uma nova Nota Fiscal corrigida abaixo.</p>
               </div>
-            ) : modoSeparada ? (
-              <div className="space-y-6">
-                {(['CONSUMO', 'PERMANENTE'] as const).map((tipo) => {
-                  const nf = nfsEnviadas.find((n: any) => n.tipo_itens === tipo)
-                  const xml = tipo === 'CONSUMO' ? xmlFileConsumo : xmlFilePermanente
-                  const pdf = tipo === 'CONSUMO' ? pdfFileConsumo : pdfFilePermanente
-                  const temNf = nf && nf.status !== 'RECUSADA'
-                  return (
-                    <div key={tipo} className="border rounded-lg p-4 bg-gray-50/50">
-                      <h4 className="font-semibold mb-3 flex items-center gap-2">
-                        {tipo === 'CONSUMO' ? <Package className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
-                        NF {tipo === 'CONSUMO' ? 'Consumo' : 'Permanente'}
-                      </h4>
-                      {temNf ? (
-                        <div className="flex items-center gap-2 text-green-600 text-sm">
-                          <CheckCircle className="h-4 w-4" />
-                          NF {nf.numero}/{nf.serie} enviada
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className={`border-2 border-dashed rounded p-3 text-center ${xml ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
-                            <p className="text-xs mb-1">{xml ? xml.name : 'XML *'}</p>
-                            <label className="cursor-pointer">
-                              <input type="file" accept=".xml" onChange={(e) => { tipo === 'CONSUMO' ? setXmlFileConsumo(e.target.files?.[0] || null) : setXmlFilePermanente(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                              <Button variant={xml ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Selecionar</span></Button>
-                            </label>
-                          </div>
-                          <div className={`border-2 border-dashed rounded p-3 text-center ${pdf ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
-                            <p className="text-xs mb-1">{pdf ? pdf.name : 'PDF *'}</p>
-                            <label className="cursor-pointer">
-                              <input type="file" accept=".pdf" onChange={(e) => { tipo === 'CONSUMO' ? setPdfFileConsumo(e.target.files?.[0] || null) : setPdfFilePermanente(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                              <Button variant={pdf ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Selecionar</span></Button>
-                            </label>
-                          </div>
-                          <div className="md:col-span-2">
-                            <Button onClick={() => handleEnviarNf(tipo)} disabled={uploadingNf || !xml || !pdf} size="sm">
-                              {uploadingNf ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Send className="h-3 w-3 mr-1" />}
-                              Enviar NF {tipo === 'CONSUMO' ? 'Consumo' : 'Permanente'}
-                            </Button>
-                          </div>
-                        </div>
+            ) : nfsEnviadas.filter((n: any) => n.status !== 'RECUSADA').length > 0 ? (
+              <div className="space-y-4">
+                {nfsEnviadas.filter((n: any) => n.status !== 'RECUSADA').map((nf: any) => (
+                  <div key={nf.id} className="p-4 bg-gray-50 rounded-lg border text-sm">
+                    <div className="flex items-center gap-2 text-green-600 mb-2">
+                      <CheckCircle className="h-4 w-4" />
+                      <span className="font-medium">NF {nf.numero || '-'}/{nf.serie || '-'}</span>
+                      <Badge variant={nf.status === 'ERRO' ? 'destructive' : 'default'} className="text-[10px]">{nf.status}</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div><span className="text-gray-500">Valor:</span> {formatarMoeda(nf.valor_total || 0)}</div>
+                      <div><span className="text-gray-500">Emitente:</span> {nf.razao_social_emitente || '-'}</div>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      {nf.caminho_xml && (
+                        <a href={getFileUrl(nf.caminho_xml) || '#'} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-blue-600 hover:underline text-xs">
+                          <FileCode className="h-3 w-3" /> XML
+                        </a>
+                      )}
+                      {nf.caminho_pdf && (
+                        <a href={getFileUrl(nf.caminho_pdf) || '#'} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-blue-600 hover:underline text-xs">
+                          <FileText className="h-3 w-3" /> PDF
+                        </a>
                       )}
                     </div>
-                  )
-                })}
-                {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
-              </div>
-            ) : nfEnviada ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="h-5 w-5" />
-                  <span className="font-medium">Nota Fiscal enviada com sucesso</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg text-sm">
-                  <div>
-                    <p className="text-gray-500">Numero/Serie</p>
-                    <p className="font-medium">{nfEnviada.numero || '-'}/{nfEnviada.serie || '-'}</p>
                   </div>
-                  <div>
-                    <p className="text-gray-500">Valor Total</p>
-                    <p className="font-medium">{formatarMoeda(nfEnviada.valor_total || 0)}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Emitente</p>
-                    <p className="font-medium">{nfEnviada.razao_social_emitente || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Status</p>
-                    <Badge variant={nfEnviada.status === 'ERRO' ? 'destructive' : 'default'}>
-                      {nfEnviada.status}
-                    </Badge>
-                  </div>
-                  {nfEnviada.chave_acesso && (
-                    <div className="col-span-2">
-                      <p className="text-gray-500">Chave de Acesso</p>
-                      <p className="font-mono text-xs break-all">{nfEnviada.chave_acesso}</p>
-                    </div>
-                  )}
-                </div>
-
+                ))}
+                {(ordem?.valor_entregue ?? 0) < (ordem?.valor_total ?? 0) - 0.01 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded">
+                    OF aberta — envie novas notas até atingir o valor da ordem.
+                  </p>
+                )}
                 <div className="border-t pt-3">
-                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-blue-600" />
-                    Documentos Anexados
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {nfEnviada.caminho_xml && (
-                      <a href={getFileUrl(nfEnviada.caminho_xml) || '#'} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 transition text-sm">
-                        <FileCode className="h-5 w-5 text-green-600 flex-shrink-0" />
-                        <span className="flex-1 truncate">XML da NF-e</span>
-                        <Download className="h-3 w-3 text-gray-400" />
-                      </a>
-                    )}
-                    {nfEnviada.caminho_pdf && (
-                      <a href={getFileUrl(nfEnviada.caminho_pdf) || '#'} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 transition text-sm">
-                        <FileText className="h-5 w-5 text-red-600 flex-shrink-0" />
-                        <span className="flex-1 truncate">PDF da Nota Fiscal</span>
-                        <Download className="h-3 w-3 text-gray-400" />
-                      </a>
-                    )}
-                    {nfEnviada.documentos_extras?.map((doc: any, i: number) => (
-                      <a key={i} href={getFileUrl(doc.caminho) || '#'} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 transition text-sm">
-                        <FileText className="h-5 w-5 text-orange-500 flex-shrink-0" />
-                        <span className="flex-1 truncate">{doc.nome}</span>
-                        <Download className="h-3 w-3 text-gray-400" />
-                      </a>
-                    ))}
-                  </div>
+                  <p className="text-sm font-medium mb-2">Enviar outra Nota Fiscal</p>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${xmlFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
-                    <FileCode className={`h-6 w-6 mx-auto mb-1 ${xmlFile ? 'text-green-600' : 'text-gray-400'}`} />
-                    <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e *'}</p>
-                    <label className="cursor-pointer">
-                      <input type="file" accept=".xml" onChange={(e) => { setXmlFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                      <Button variant={xmlFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
-                    </label>
-                  </div>
-                  <div className={`border-2 border-dashed rounded-lg p-4 text-center ${pdfFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
-                    <FileText className={`h-6 w-6 mx-auto mb-1 ${pdfFile ? 'text-green-600' : 'text-gray-400'}`} />
-                    <p className="text-xs font-medium mb-2">{pdfFile ? pdfFile.name : 'PDF da Nota Fiscal *'}</p>
-                    <label className="cursor-pointer">
-                      <input type="file" accept=".pdf" onChange={(e) => { setPdfFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                      <Button variant={pdfFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{pdfFile ? 'Trocar' : 'Selecionar PDF'}</span></Button>
-                    </label>
-                  </div>
-                </div>
-                <div className={`border-2 border-dashed rounded-lg p-4 text-center ${outrosFiles.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
-                  <p className="text-xs text-gray-500 mb-2">Outros documentos (opcional): boleto, comprovante, etc.</p>
-                  {outrosFiles.length > 0 && (
-                    <div className="flex flex-wrap gap-1 justify-center mb-2">
-                      {outrosFiles.map((f, i) => (
-                        <Badge key={i} variant="secondary" className="text-xs">
-                          {f.name}
-                          <button className="ml-1 text-red-500" onClick={() => setOutrosFiles(prev => prev.filter((_, idx) => idx !== i))}>×</button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+            ) : null}
+            {/* Formulário de upload - sempre visível quando card está aberto */}
+            <div className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className={`border-2 border-dashed rounded-lg p-4 text-center ${xmlFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
+                  <FileCode className={`h-6 w-6 mx-auto mb-1 ${xmlFile ? 'text-green-600' : 'text-gray-400'}`} />
+                  <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e *'}</p>
                   <label className="cursor-pointer">
-                    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => { if (e.target.files) setOutrosFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }} className="hidden" />
-                    <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
+                    <input type="file" accept=".xml" onChange={(e) => { setXmlFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                    <Button variant={xmlFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
                   </label>
                 </div>
-                <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
-                  {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                  {uploadingNf ? 'Enviando...' : 'Enviar Nota Fiscal'}
-                </Button>
-                {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+                <div className={`border-2 border-dashed rounded-lg p-4 text-center ${pdfFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
+                  <FileText className={`h-6 w-6 mx-auto mb-1 ${pdfFile ? 'text-green-600' : 'text-gray-400'}`} />
+                  <p className="text-xs font-medium mb-2">{pdfFile ? pdfFile.name : 'PDF da Nota Fiscal *'}</p>
+                  <label className="cursor-pointer">
+                    <input type="file" accept=".pdf" onChange={(e) => { setPdfFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                    <Button variant={pdfFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{pdfFile ? 'Trocar' : 'Selecionar PDF'}</span></Button>
+                  </label>
+                </div>
               </div>
-            )}
+              <div className={`border-2 border-dashed rounded-lg p-4 text-center ${outrosFiles.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                <p className="text-xs text-gray-500 mb-2">Outros documentos (opcional)</p>
+                {outrosFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-1 justify-center mb-2">
+                    {outrosFiles.map((f, i) => (
+                      <Badge key={i} variant="secondary" className="text-xs">
+                        {f.name}
+                        <button className="ml-1 text-red-500" onClick={() => setOutrosFiles(prev => prev.filter((_, idx) => idx !== i))}>×</button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <label className="cursor-pointer">
+                  <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => { if (e.target.files) setOutrosFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }} className="hidden" />
+                  <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
+                </label>
+              </div>
+              <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
+                {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                {uploadingNf ? 'Enviando...' : 'Enviar Nota Fiscal'}
+              </Button>
+              {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+            </div>
           </CardContent>
         </Card>
       )}

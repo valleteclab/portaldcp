@@ -35,7 +35,6 @@ export class NotaFiscalFornecedorService {
     xmlFile: Express.Multer.File,
     pdfFile?: Express.Multer.File,
     outrosArquivos?: Express.Multer.File[],
-    tipoItens?: 'CONSUMO' | 'PERMANENTE',
   ): Promise<NotaFiscalFornecedor> {
     const ordem = await this.ordemRepository.findOne({
       where: { id: ordemId, fornecedor_id: fornecedorId },
@@ -48,86 +47,64 @@ export class NotaFiscalFornecedorService {
     const statusPermitidos = [
       StatusOrdemFornecimento.ENVIADA,
       StatusOrdemFornecimento.EM_ATENDIMENTO,
-      StatusOrdemFornecimento.ATENDIDA_PARCIAL, // Permite 2º XML para itens pendentes
+      StatusOrdemFornecimento.ATENDIDA_PARCIAL,
     ];
     if (!statusPermitidos.includes(ordem.status)) {
       throw new BadRequestException(`Ordem com status ${ordem.status} não permite envio de NF`);
     }
 
-    const itens = ordem.itens || [];
-    const temConsumo = itens.some((i: any) => (i.tipo_item || 'CONSUMO') === 'CONSUMO');
-    const temPermanente = itens.some((i: any) => (i as any).tipo_item === 'PERMANENTE');
-    const temAmbos = temConsumo && temPermanente;
+    const xmlContent = fs.readFileSync(xmlFile.path, 'utf-8');
+    let parseResult: { header: any; produtos: any[] };
 
-    if (temAmbos && !ordem.modo_envio_nf) {
+    try {
+      parseResult = this.xmlParser.parse(xmlContent);
+    } catch (parseErr: any) {
+      throw new BadRequestException(`Erro ao processar XML: ${parseErr.message}`);
+    }
+
+    // Pré-análise: valor total da NF vs valor total da OF
+    const valorTotalXml = Number(parseResult.header.valorTotal) || 0;
+    const valorTotalOf = Number(ordem.valor_total) || 0;
+    const tolerancia = 0.01;
+
+    if (valorTotalXml > valorTotalOf + tolerancia) {
       throw new BadRequestException(
-        'Defina primeiro como a nota fiscal será enviada: conjunta (1 NF) ou separada (2 NFs).',
+        `O valor total da NF (R$ ${valorTotalXml.toFixed(2).replace('.', ',')}) é maior que o valor da Ordem de Fornecimento (R$ ${valorTotalOf.toFixed(2).replace('.', ',')}). ` +
+        'Anexe a nota fiscal e o XML corretos.',
       );
     }
 
-    if (temAmbos && ordem.modo_envio_nf === 'SEPARADA') {
-      if (!tipoItens || !['CONSUMO', 'PERMANENTE'].includes(tipoItens)) {
-        throw new BadRequestException(
-          'Informe o tipo da NF: CONSUMO (itens de consumo) ou PERMANENTE (itens permanentes).',
-        );
-      }
-    } else if (tipoItens) {
-      tipoItens = undefined; // Conjunta: ignora
-    }
+    // Substituir NF existente sem recebimento aceito; caso contrário, adicionar nova
+    const nfsExistentes = await this.nfRepository.find({
+      where: { ordem_fornecimento_id: ordemId },
+      order: { created_at: 'DESC' },
+    });
+    const temRecebimentoAceito = await this.recebimentoRepository
+      .createQueryBuilder('r')
+      .where('r.ordem_fornecimento_id = :ordemId', { ordemId })
+      .andWhere('r.status IN (:...statuses)', { statuses: ['ACEITO', 'ACEITO_PARCIAL'] })
+      .getExists();
 
-    // Em ATENDIDA_PARCIAL ou SEPARADA: adiciona nova NF (não substitui)
-    const isOrdemParcial = ordem.status === StatusOrdemFornecimento.ATENDIDA_PARCIAL;
-    const isSeparada = ordem.modo_envio_nf === 'SEPARADA';
-
-    const whereNf: any = { ordem_fornecimento_id: ordemId };
-    if (isSeparada && tipoItens) {
-      whereNf.tipo_itens = tipoItens;
-    }
-
-    if (!isOrdemParcial && !isSeparada) {
-      const existente = await this.nfRepository.findOne({ where: { ordem_fornecimento_id: ordemId } });
-      if (existente) {
-        const recebimentos = await this.recebimentoRepository.find({
-          where: { nota_fiscal_fornecedor_id: existente.id },
-        });
-        if (recebimentos.length > 0) {
-          const temAceite = recebimentos.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
-          if (temAceite) {
-            throw new BadRequestException('Não é possível substituir a NF pois já existe aceite no recebimento');
-          }
-          await this.recebimentoRepository.remove(recebimentos);
-        }
-        await this.nfRepository.remove(existente);
-      }
-    } else if (isSeparada && tipoItens) {
-      const existente = await this.nfRepository.findOne({ where: whereNf });
-      if (existente) {
-        const recebimentos = await this.recebimentoRepository.find({
-          where: { nota_fiscal_fornecedor_id: existente.id },
-        });
-        if (recebimentos.length > 0) {
-          const temAceite = recebimentos.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
-          if (temAceite) {
-            throw new BadRequestException(`NF de ${tipoItens} já possui recebimento aceito.`);
-          }
-          await this.recebimentoRepository.remove(recebimentos);
-        }
-        await this.nfRepository.remove(existente);
+    if (!temRecebimentoAceito && nfsExistentes.length > 0) {
+      const ultimaNf = nfsExistentes[0];
+      const recs = await this.recebimentoRepository.find({
+        where: { nota_fiscal_fornecedor_id: ultimaNf.id },
+      });
+      const temAceite = recs.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
+      if (!temAceite) {
+        for (const r of recs) await this.recebimentoRepository.remove(r);
+        await this.nfRepository.remove(ultimaNf);
       }
     }
-
-    const xmlContent = fs.readFileSync(xmlFile.path, 'utf-8');
 
     let nf: NotaFiscalFornecedor;
 
     try {
-      const parseResult = this.xmlParser.parse(xmlContent);
-
       nf = this.nfRepository.create({
         orgao_id: orgaoId,
         fornecedor_id: fornecedorId,
         ordem_fornecimento_id: ordemId,
-        tipo_itens: tipoItens || null,
+        tipo_itens: null,
         numero: parseResult.header.numero,
         serie: parseResult.header.serie,
         chave_acesso: parseResult.header.chaveAcesso,
@@ -148,13 +125,13 @@ export class NotaFiscalFornecedorService {
       });
 
       nf = await this.nfRepository.save(nf);
-      this.logger.log(`NF ${nf.numero}/${nf.serie} (${tipoItens || 'conjunta'}) processada para OF ${ordemId}`);
+      this.logger.log(`NF ${nf.numero}/${nf.serie} processada para OF ${ordemId}`);
     } catch (error) {
       nf = this.nfRepository.create({
         orgao_id: orgaoId,
         fornecedor_id: fornecedorId,
         ordem_fornecimento_id: ordemId,
-        tipo_itens: tipoItens || null,
+        tipo_itens: null,
         caminho_xml: xmlFile.path,
         caminho_pdf: pdfFile?.path || null,
         documentos_extras: (outrosArquivos || []).map(f => ({
@@ -189,7 +166,7 @@ export class NotaFiscalFornecedorService {
   async findAllByOrdem(ordemId: string): Promise<NotaFiscalFornecedor[]> {
     return this.nfRepository.find({
       where: { ordem_fornecimento_id: ordemId },
-      order: { tipo_itens: 'ASC', created_at: 'DESC' },
+      order: { created_at: 'DESC' },
     });
   }
 
