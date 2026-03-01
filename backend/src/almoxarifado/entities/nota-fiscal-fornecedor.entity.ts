@@ -74,6 +74,13 @@ export class NotaFiscalFornecedor {
   @Column()
   ordem_fornecimento_id: string;
 
+  /**
+   * Quando modo_envio_nf da ordem é SEPARADA: indica se esta NF é para itens CONSUMO ou PERMANENTE.
+   * Null = NF conjunta (todos os itens).
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  tipo_itens: 'CONSUMO' | 'PERMANENTE' | null;
+
   @Column({ type: 'varchar', nullable: true })
   numero: string | null;
 

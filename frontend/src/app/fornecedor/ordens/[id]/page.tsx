@@ -23,6 +23,7 @@ import {
   CheckCircle,
   Package,
   Building,
+  Building2,
   Calendar,
   Loader2,
   FileText,
@@ -68,11 +69,13 @@ interface Ordem {
     numero_item: number
     descricao: string
     unidade_medida: string
+    tipo_item?: string
     quantidade: number
     quantidade_entregue: number
     valor_unitario: number
     valor_total: number
   }>
+  modo_envio_nf?: 'CONJUNTA' | 'SEPARADA' | null
 }
 
 export default function OrdemDetalheFornecedorPage() {
@@ -87,41 +90,105 @@ export default function OrdemDetalheFornecedorPage() {
   const [submitting, setSubmitting] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [nfEnviada, setNfEnviada] = useState<any>(null)
+  const [nfsEnviadas, setNfsEnviadas] = useState<any[]>([])
   const [uploadingNf, setUploadingNf] = useState(false)
   const [erroNf, setErroNf] = useState<string | null>(null)
+  const [showModoEnvioModal, setShowModoEnvioModal] = useState(false)
+  const [definindoModo, setDefinindoModo] = useState(false)
 
   useEffect(() => {
     carregarOrdem()
     carregarNf()
   }, [id])
 
+  useEffect(() => {
+    if (ordem?.modo_envio_nf === 'SEPARADA') {
+      carregarNfs()
+    }
+  }, [ordem?.modo_envio_nf, id])
+
+  const temConsumoEPermanente = ordem?.itens?.some((i: any) => (i.tipo_item || 'CONSUMO') === 'CONSUMO') &&
+    ordem?.itens?.some((i: any) => (i as any).tipo_item === 'PERMANENTE')
+  const precisaDefinirModo = temConsumoEPermanente && !ordem?.modo_envio_nf
+  const modoSeparada = ordem?.modo_envio_nf === 'SEPARADA'
+
+  useEffect(() => {
+    if (temConsumoEPermanente && !ordem?.modo_envio_nf && ['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem?.status || '')) {
+      setShowModoEnvioModal(true)
+    }
+  }, [temConsumoEPermanente, ordem?.modo_envio_nf, ordem?.status])
+
   const carregarNf = async () => {
     try {
       const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`)
       if (res.ok) {
         const data = await res.json()
-        if (data) setNfEnviada(data)
+        setNfEnviada(data || null)
       }
     } catch {}
+  }
+
+  const carregarNfs = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/notas-fiscais`)
+      if (res.ok) {
+        const data = await res.json()
+        setNfsEnviadas(Array.isArray(data) ? data : [])
+      }
+    } catch {
+      setNfsEnviadas([])
+    }
+  }
+
+  const handleDefinirModo = async (modo: 'CONJUNTA' | 'SEPARADA') => {
+    setDefinindoModo(true)
+    setErroNf(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/modo-envio-nf`, {
+        method: 'POST',
+        body: JSON.stringify({ modo }),
+      })
+      if (res.ok) {
+        setShowModoEnvioModal(false)
+        await carregarOrdem()
+        if (modo === 'SEPARADA') await carregarNfs()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setErroNf(data.message || 'Erro ao definir modo')
+      }
+    } catch {
+      setErroNf('Erro ao definir modo de envio')
+    } finally {
+      setDefinindoModo(false)
+    }
   }
 
   const [xmlFile, setXmlFile] = useState<File | null>(null)
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [outrosFiles, setOutrosFiles] = useState<File[]>([])
+  const [xmlFileConsumo, setXmlFileConsumo] = useState<File | null>(null)
+  const [pdfFileConsumo, setPdfFileConsumo] = useState<File | null>(null)
+  const [xmlFilePermanente, setXmlFilePermanente] = useState<File | null>(null)
+  const [pdfFilePermanente, setPdfFilePermanente] = useState<File | null>(null)
 
-  const handleEnviarNf = async () => {
-    if (!xmlFile) { setErroNf('Arquivo XML é obrigatório'); return }
-    if (!pdfFile) { setErroNf('Arquivo PDF da nota fiscal é obrigatório'); return }
+  const handleEnviarNf = async (tipoItens?: 'CONSUMO' | 'PERMANENTE') => {
+    const xml = tipoItens === 'CONSUMO' ? xmlFileConsumo : tipoItens === 'PERMANENTE' ? xmlFilePermanente : xmlFile
+    const pdf = tipoItens === 'CONSUMO' ? pdfFileConsumo : tipoItens === 'PERMANENTE' ? pdfFilePermanente : pdfFile
+    if (!xml) { setErroNf('Arquivo XML é obrigatório'); return }
+    if (!pdf) { setErroNf('Arquivo PDF da nota fiscal é obrigatório'); return }
 
     setUploadingNf(true)
     setErroNf(null)
     try {
       const formData = new FormData()
-      formData.append('arquivos', xmlFile)
-      formData.append('arquivos', pdfFile)
-      outrosFiles.forEach(f => formData.append('arquivos', f))
+      formData.append('arquivos', xml)
+      formData.append('arquivos', pdf)
+      if (!tipoItens) outrosFiles.forEach(f => formData.append('arquivos', f))
 
-      const res = await authFetch(`${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`, {
+      const url = tipoItens
+        ? `${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal?tipo_itens=${tipoItens}`
+        : `${API_URL}/api/fornecedor/ordens/${id}/nota-fiscal`
+      const res = await authFetch(url, {
         method: 'POST',
         body: formData,
         headers: {},
@@ -129,10 +196,25 @@ export default function OrdemDetalheFornecedorPage() {
 
       if (res.ok) {
         const data = await res.json()
-        setNfEnviada(data)
-        setXmlFile(null)
-        setPdfFile(null)
-        setOutrosFiles([])
+        if (tipoItens) {
+          setNfsEnviadas(prev => {
+            const rest = prev.filter((n: any) => n.tipo_itens !== tipoItens)
+            return [...rest, data]
+          })
+        } else {
+          setNfEnviada(data)
+        }
+        if (tipoItens === 'CONSUMO') {
+          setXmlFileConsumo(null)
+          setPdfFileConsumo(null)
+        } else if (tipoItens === 'PERMANENTE') {
+          setXmlFilePermanente(null)
+          setPdfFilePermanente(null)
+        } else {
+          setXmlFile(null)
+          setPdfFile(null)
+          setOutrosFiles([])
+        }
       } else {
         const data = await res.json().catch(() => ({}))
         setErroNf(data.message || 'Erro ao enviar nota fiscal')
@@ -357,8 +439,47 @@ export default function OrdemDetalheFornecedorPage() {
         </Card>
       </div>
 
+      {/* Modal: definir modo envio NF (quando OF tem consumo + permanente) */}
+      {showModoEnvioModal && precisaDefinirModo && (
+        <Dialog open onOpenChange={(o) => !definindoModo && setShowModoEnvioModal(o)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Como será enviada a Nota Fiscal?</DialogTitle>
+              <DialogDescription>
+                Esta ordem contém itens de consumo e itens permanentes. Defina como você enviará a(s) nota(s) fiscal(is):
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-4">
+              <Button
+                className="w-full justify-start h-auto py-4"
+                variant="outline"
+                onClick={() => handleDefinirModo('CONJUNTA')}
+                disabled={definindoModo}
+              >
+                <div className="text-left">
+                  <p className="font-semibold">Conjunta (1 NF)</p>
+                  <p className="text-sm text-gray-500">Uma única nota fiscal para todos os itens</p>
+                </div>
+              </Button>
+              <Button
+                className="w-full justify-start h-auto py-4"
+                variant="outline"
+                onClick={() => handleDefinirModo('SEPARADA')}
+                disabled={definindoModo}
+              >
+                <div className="text-left">
+                  <p className="font-semibold">Separada (2 NFs)</p>
+                  <p className="text-sm text-gray-500">Uma NF para itens de consumo e outra para permanentes</p>
+                </div>
+              </Button>
+            </div>
+            {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Upload Nota Fiscal */}
-      {(['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) || nfEnviada?.status === 'RECUSADA') && (
+      {(['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) || nfEnviada?.status === 'RECUSADA' || (modoSeparada && nfsEnviadas.some((n: any) => n.status === 'RECUSADA'))) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -366,11 +487,25 @@ export default function OrdemDetalheFornecedorPage() {
               Nota Fiscal
             </CardTitle>
             <CardDescription>
-              Envie o XML da nota fiscal e opcionalmente o PDF e outros documentos
+              {modoSeparada
+                ? 'Envie 2 notas fiscais: uma para itens de consumo e outra para permanentes'
+                : 'Envie o XML da nota fiscal e opcionalmente o PDF e outros documentos'}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {nfEnviada?.status === 'RECUSADA' ? (
+            {precisaDefinirModo ? (
+              <div className="space-y-4">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <p className="font-medium text-amber-800">Defina como enviará a nota fiscal</p>
+                  <p className="text-sm text-amber-700 mt-1">
+                    Esta ordem tem itens de consumo e permanentes. Escolha se enviará 1 NF conjunta ou 2 NFs separadas.
+                  </p>
+                  <Button className="mt-3" onClick={() => setShowModoEnvioModal(true)}>
+                    Definir modo de envio
+                  </Button>
+                </div>
+              </div>
+            ) : nfEnviada?.status === 'RECUSADA' || (modoSeparada && nfsEnviadas.some((n: any) => n.status === 'RECUSADA')) ? (
               <div className="space-y-4">
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <div className="flex items-start gap-3">
@@ -446,10 +581,57 @@ export default function OrdemDetalheFornecedorPage() {
                     <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
                   </label>
                 </div>
-                <Button onClick={handleEnviarNf} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
+                <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
                   {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                   {uploadingNf ? 'Enviando...' : 'Enviar Nova Nota Fiscal'}
                 </Button>
+                {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
+              </div>
+            ) : modoSeparada ? (
+              <div className="space-y-6">
+                {(['CONSUMO', 'PERMANENTE'] as const).map((tipo) => {
+                  const nf = nfsEnviadas.find((n: any) => n.tipo_itens === tipo)
+                  const xml = tipo === 'CONSUMO' ? xmlFileConsumo : xmlFilePermanente
+                  const pdf = tipo === 'CONSUMO' ? pdfFileConsumo : pdfFilePermanente
+                  const temNf = nf && nf.status !== 'RECUSADA'
+                  return (
+                    <div key={tipo} className="border rounded-lg p-4 bg-gray-50/50">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        {tipo === 'CONSUMO' ? <Package className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+                        NF {tipo === 'CONSUMO' ? 'Consumo' : 'Permanente'}
+                      </h4>
+                      {temNf ? (
+                        <div className="flex items-center gap-2 text-green-600 text-sm">
+                          <CheckCircle className="h-4 w-4" />
+                          NF {nf.numero}/{nf.serie} enviada
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className={`border-2 border-dashed rounded p-3 text-center ${xml ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
+                            <p className="text-xs mb-1">{xml ? xml.name : 'XML *'}</p>
+                            <label className="cursor-pointer">
+                              <input type="file" accept=".xml" onChange={(e) => { tipo === 'CONSUMO' ? setXmlFileConsumo(e.target.files?.[0] || null) : setXmlFilePermanente(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                              <Button variant={xml ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Selecionar</span></Button>
+                            </label>
+                          </div>
+                          <div className={`border-2 border-dashed rounded p-3 text-center ${pdf ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
+                            <p className="text-xs mb-1">{pdf ? pdf.name : 'PDF *'}</p>
+                            <label className="cursor-pointer">
+                              <input type="file" accept=".pdf" onChange={(e) => { tipo === 'CONSUMO' ? setPdfFileConsumo(e.target.files?.[0] || null) : setPdfFilePermanente(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
+                              <Button variant={pdf ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Selecionar</span></Button>
+                            </label>
+                          </div>
+                          <div className="md:col-span-2">
+                            <Button onClick={() => handleEnviarNf(tipo)} disabled={uploadingNf || !xml || !pdf} size="sm">
+                              {uploadingNf ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Send className="h-3 w-3 mr-1" />}
+                              Enviar NF {tipo === 'CONSUMO' ? 'Consumo' : 'Permanente'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
                 {erroNf && <p className="text-sm text-red-600">{erroNf}</p>}
               </div>
             ) : nfEnviada ? (
@@ -555,7 +737,7 @@ export default function OrdemDetalheFornecedorPage() {
                     <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
                   </label>
                 </div>
-                <Button onClick={handleEnviarNf} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
+                <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
                   {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                   {uploadingNf ? 'Enviando...' : 'Enviar Nota Fiscal'}
                 </Button>

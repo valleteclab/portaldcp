@@ -1225,6 +1225,19 @@ export class AlmoxarifadoController {
     );
   }
 
+  @Post('ordens/:ordemId/modo-envio-nf')
+  async definirModoEnvioNf(
+    @Param('ordemId', ParseUUIDPipe) ordemId: string,
+    @Req() request: { user: JwtPayload },
+    @Body() body: { modo: 'CONJUNTA' | 'SEPARADA' },
+  ) {
+    this.getOrgaoId(request.user);
+    if (!body.modo || !['CONJUNTA', 'SEPARADA'].includes(body.modo)) {
+      throw new BadRequestException('Modo deve ser CONJUNTA ou SEPARADA');
+    }
+    return this.ordemService.definirModoEnvioNf(ordemId, body.modo, 'orgao');
+  }
+
   @Post('ordens/:ordemId/upload-nota-fiscal')
   @UseInterceptors(
     FilesInterceptor('arquivos', 10, {
@@ -1255,6 +1268,7 @@ export class AlmoxarifadoController {
   async uploadNotaFiscalOrgao(
     @Param('ordemId', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
+    @Query('tipo_itens') tipoItensQuery: string | undefined,
     @UploadedFiles() arquivos: Express.Multer.File[],
   ) {
     const orgaoId = this.getOrgaoId(request.user);
@@ -1274,6 +1288,10 @@ export class AlmoxarifadoController {
       throw new BadRequestException('Ordem não encontrada');
     }
 
+    const tipoItens = tipoItensQuery === 'CONSUMO' || tipoItensQuery === 'PERMANENTE'
+      ? tipoItensQuery
+      : undefined;
+
     return this.nfFornecedorService.upload(
       ordemId,
       ordem.fornecedor_id,
@@ -1281,6 +1299,7 @@ export class AlmoxarifadoController {
       xmlFile,
       pdfFile,
       outrosArquivos,
+      tipoItens,
     );
   }
 
@@ -1288,11 +1307,14 @@ export class AlmoxarifadoController {
   async executarMatchingIa(
     @Param('ordemId', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
+    @Body() body: { nf_id?: string },
   ) {
     this.getOrgaoId(request.user);
-    const nf = await this.nfFornecedorService.findByOrdem(ordemId);
-    if (!nf) {
-      throw new BadRequestException('Nenhuma nota fiscal encontrada para esta ordem');
+    const nf = body.nf_id
+      ? await this.nfFornecedorService.findOne(body.nf_id)
+      : await this.nfFornecedorService.findByOrdem(ordemId);
+    if (!nf || nf.ordem_fornecimento_id !== ordemId) {
+      throw new BadRequestException('Nota fiscal não encontrada para esta ordem');
     }
     return this.matchingIaService.matchProdutos(nf.id, ordemId);
   }
@@ -1321,6 +1343,7 @@ export class AlmoxarifadoController {
   async getRecebimentoUnificado(
     @Param('id', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
+    @Query('nf_id') nfIdQuery: string | undefined,
   ) {
     const orgaoId = this.getOrgaoId(request.user);
     
@@ -1332,7 +1355,10 @@ export class AlmoxarifadoController {
       throw new BadRequestException('Ordem não encontrada');
     }
 
-    const notaFiscal = await this.nfFornecedorService.findByOrdem(ordemId);
+    const notasFiscais = await this.nfFornecedorService.findAllByOrdem(ordemId);
+    const notaFiscal = nfIdQuery && notasFiscais.some((nf: any) => nf.id === nfIdQuery)
+      ? notasFiscais.find((nf: any) => nf.id === nfIdQuery)
+      : notasFiscais[0] || null;
     
     const recebimentos = await this.recebimentoService.findByOrdem(ordemId);
 
@@ -1347,6 +1373,7 @@ export class AlmoxarifadoController {
     return {
       ordem,
       notaFiscal,
+      notasFiscais,
       recebimentos,
       itensPendentes,
       itensJaRecebidos: itensJaRecebidos.map((i: any) => ({

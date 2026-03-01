@@ -941,6 +941,30 @@ export class OrdemFornecimentoService {
   }
 
   /**
+   * Define como a NF será enviada quando a OF tem itens CONSUMO e PERMANENTE.
+   * CONJUNTA = 1 NF para todos | SEPARADA = 2 NFs (consumo + permanente) → 2 recebimentos.
+   */
+  async definirModoEnvioNf(
+    ordemId: string,
+    modo: 'CONJUNTA' | 'SEPARADA',
+    usuarioTipo: 'orgao' | 'fornecedor',
+  ): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(ordemId);
+    const itens = ordem.itens || [];
+    const temConsumo = itens.some((i: any) => (i.tipo_item || 'CONSUMO') === 'CONSUMO');
+    const temPermanente = itens.some((i: any) => (i as any).tipo_item === 'PERMANENTE');
+
+    if (!temConsumo || !temPermanente) {
+      throw new BadRequestException(
+        'Modo de envio de NF só se aplica a ordens com itens de consumo e permanente.',
+      );
+    }
+
+    ordem.modo_envio_nf = modo;
+    return this.ordemRepository.save(ordem);
+  }
+
+  /**
    * Lista ordens do fornecedor (para portal do fornecedor)
    */
   async findByFornecedor(

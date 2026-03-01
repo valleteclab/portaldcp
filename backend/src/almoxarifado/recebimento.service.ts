@@ -984,6 +984,20 @@ export class RecebimentoService {
       });
       if (!ordem) throw new NotFoundException('Ordem não encontrada');
 
+      // Quando NF tem tipo_itens (separada): validar que mapeamento só inclui itens desse tipo
+      const nfTipoItens = (nf as any).tipo_itens;
+      if (nfTipoItens) {
+        for (const m of mapeamento) {
+          if (!m.item_contrato_id) continue;
+          const itemOf = (ordem.itens || []).find((i: any) => i.item_contrato_id === m.item_contrato_id);
+          if (itemOf && (itemOf.tipo_item || 'CONSUMO') !== nfTipoItens) {
+            throw new BadRequestException(
+              `Item "${itemOf.descricao}" não pertence a esta NF (${nfTipoItens}). Esta NF é apenas para itens ${nfTipoItens}.`,
+            );
+          }
+        }
+      }
+
       // REQ-ALM-001: não permitir ateste de itens já totalmente recebidos
       const itensJaRecebidos: string[] = [];
       for (const m of mapeamento) {

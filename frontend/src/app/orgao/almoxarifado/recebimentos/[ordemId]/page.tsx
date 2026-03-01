@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Package, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
@@ -23,7 +23,9 @@ const STEPS = [
 function RecebimentoUnificadoContent() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const ordemId = params.ordemId as string
+  const nfIdUrl = searchParams.get('nf_id') || undefined
 
   const [loading, setLoading] = useState(true)
   const [ordem, setOrdem] = useState<any>(null)
@@ -32,6 +34,8 @@ function RecebimentoUnificadoContent() {
   const [itensPendentes, setItensPendentes] = useState<any[]>([])
   const [itensJaRecebidos, setItensJaRecebidos] = useState<any[]>([])
   const [recebimentoAtivo, setRecebimentoAtivo] = useState<any>(null)
+  const [notasFiscais, setNotasFiscais] = useState<any[]>([])
+  const [definindoModo, setDefinindoModo] = useState(false)
   const [mapeamento, setMapeamento] = useState<any[]>([])
   const [iaIndisponivel, setIaIndisponivel] = useState(false)
   const [etapa, setEtapa] = useState<string>('nf')
@@ -41,8 +45,11 @@ function RecebimentoUnificadoContent() {
   const carregarDados = useCallback(async () => {
     setLoading(true)
     try {
+      const url = nfIdUrl
+        ? `${API_URL}/api/almoxarifado/ordens/${ordemId}/recebimento-unificado?nf_id=${nfIdUrl}`
+        : `${API_URL}/api/almoxarifado/ordens/${ordemId}/recebimento-unificado`
       const [resUnif, resUser] = await Promise.all([
-        authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/recebimento-unificado`),
+        authFetch(url),
         authFetch(`${API_URL}/api/usuarios/me`),
       ])
 
@@ -53,6 +60,7 @@ function RecebimentoUnificadoContent() {
         setRecebimentos(data.recebimentos || [])
         setItensPendentes(data.itensPendentes || [])
         setItensJaRecebidos(data.itensJaRecebidos || [])
+        setNotasFiscais(data.notasFiscais || [])
 
         const recebimentosAtivos = (data.recebimentos || []).filter(
           (r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO'
@@ -109,7 +117,7 @@ function RecebimentoUnificadoContent() {
     } finally {
       setLoading(false)
     }
-  }, [ordemId])
+  }, [ordemId, nfIdUrl])
 
   useEffect(() => {
     carregarDados()
@@ -118,9 +126,10 @@ function RecebimentoUnificadoContent() {
   const handleImportarXml = async () => {
     setProcessing(true)
     try {
+      const body = notaFiscal?.id ? { nf_id: notaFiscal.id } : {}
       const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/matching-ia`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify(body),
       })
       if (res.ok) {
         const data = await res.json()
@@ -193,6 +202,22 @@ function RecebimentoUnificadoContent() {
         </div>
       </div>
 
+      {/* Seletor NF quando modo separada (2 NFs) */}
+      {ordem?.modo_envio_nf === 'SEPARADA' && notasFiscais.length >= 1 && (
+        <div className="px-6 py-2 bg-gray-50 border-b flex gap-2 flex-wrap">
+          {notasFiscais.map((nf: any) => (
+            <Button
+              key={nf.id}
+              variant={notaFiscal?.id === nf.id ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => router.push(`/orgao/almoxarifado/recebimentos/${ordemId}?nf_id=${nf.id}`)}
+            >
+              NF {nf.tipo_itens === 'CONSUMO' ? 'Consumo' : 'Permanente'} {nf.numero && `(${nf.numero})`}
+            </Button>
+          ))}
+        </div>
+      )}
+
       {/* Step indicator */}
       {notaFiscal && (
         <StepIndicator
@@ -205,15 +230,85 @@ function RecebimentoUnificadoContent() {
 
       {/* Content */}
       <div className="p-6">
-        {etapa === 'nf' && (
-          <EtapaNF
-            notaFiscal={notaFiscal}
-            ordem={ordem}
-            onImportarXml={handleImportarXml}
-            onNfEnviada={carregarDados}
-            loading={processing}
-          />
-        )}
+        {etapa === 'nf' && (() => {
+          const temConsumoEPermanente = ordem?.itens?.some((i: any) => (i.tipo_item || 'CONSUMO') === 'CONSUMO') &&
+            ordem?.itens?.some((i: any) => (i as any).tipo_item === 'PERMANENTE')
+          const precisaDefinirModo = temConsumoEPermanente && !ordem?.modo_envio_nf
+          const modoSeparada = ordem?.modo_envio_nf === 'SEPARADA'
+
+          if (precisaDefinirModo) {
+            return (
+              <Card className="border-amber-200 bg-amber-50/50">
+                <CardHeader>
+                  <CardTitle className="text-base">Como será enviada a Nota Fiscal?</CardTitle>
+                  <CardDescription>
+                    Esta ordem contém itens de consumo e permanentes. Defina como a(s) nota(s) fiscal(is) será(ão) enviada(s):
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Button
+                      variant="outline"
+                      className="h-auto py-4 justify-start"
+                      disabled={definindoModo}
+                      onClick={async () => {
+                        setDefinindoModo(true)
+                        try {
+                          const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/modo-envio-nf`, {
+                            method: 'POST',
+                            body: JSON.stringify({ modo: 'CONJUNTA' }),
+                          })
+                          if (res.ok) await carregarDados()
+                        } finally {
+                          setDefinindoModo(false)
+                        }
+                      }}
+                    >
+                      <div className="text-left">
+                        <p className="font-semibold">Conjunta (1 NF)</p>
+                        <p className="text-xs text-gray-500">Uma única NF para todos os itens</p>
+                      </div>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-auto py-4 justify-start"
+                      disabled={definindoModo}
+                      onClick={async () => {
+                        setDefinindoModo(true)
+                        try {
+                          const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/modo-envio-nf`, {
+                            method: 'POST',
+                            body: JSON.stringify({ modo: 'SEPARADA' }),
+                          })
+                          if (res.ok) await carregarDados()
+                        } finally {
+                          setDefinindoModo(false)
+                        }
+                      }}
+                    >
+                      <div className="text-left">
+                        <p className="font-semibold">Separada (2 NFs)</p>
+                        <p className="text-xs text-gray-500">Uma NF para consumo, outra para permanentes</p>
+                      </div>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          }
+
+          return (
+            <EtapaNF
+              notaFiscal={notaFiscal}
+              ordem={ordem}
+              notasFiscais={notasFiscais}
+              modoSeparada={modoSeparada}
+              onImportarXml={handleImportarXml}
+              onNfEnviada={carregarDados}
+              loading={processing}
+            />
+          )
+        })()}
 
         {etapa === 'mapeamento' && (
           <EtapaMapeamento

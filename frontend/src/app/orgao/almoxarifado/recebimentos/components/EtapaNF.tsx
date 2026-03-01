@@ -16,17 +16,19 @@ const getFileUrl = (caminho: string | null) => {
 interface EtapaNFProps {
   notaFiscal: any
   ordem: any
+  notasFiscais?: any[]
+  modoSeparada?: boolean
   onImportarXml: () => void
   onNfEnviada: () => void
   loading: boolean
 }
 
-export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading }: EtapaNFProps) {
+export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], modoSeparada = false, onImportarXml, onNfEnviada, loading }: EtapaNFProps) {
   const [uploading, setUploading] = useState(false)
   const [erroUpload, setErroUpload] = useState<string | null>(null)
   const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-  const handleUploadManual = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadManual = async (e: React.ChangeEvent<HTMLInputElement>, tipoItens?: 'CONSUMO' | 'PERMANENTE') => {
     const files = e.target.files
     if (!files || files.length === 0) return
 
@@ -38,7 +40,10 @@ export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading
         formData.append('arquivos', files[i])
       }
 
-      const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordem.id}/upload-nota-fiscal`, {
+      const url = tipoItens
+        ? `${API_URL}/api/almoxarifado/ordens/${ordem.id}/upload-nota-fiscal?tipo_itens=${tipoItens}`
+        : `${API_URL}/api/almoxarifado/ordens/${ordem.id}/upload-nota-fiscal`
+      const res = await authFetch(url, {
         method: 'POST',
         body: formData,
         headers: {},
@@ -84,35 +89,74 @@ export function EtapaNF({ notaFiscal, ordem, onImportarXml, onNfEnviada, loading
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-gray-600 mb-4">
-              Caso o fornecedor tenha enviado a NF por e-mail ou outro meio, você pode anexar o XML e o PDF aqui.
-            </p>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-              <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-              <p className="text-sm text-gray-500 mb-3">
-                Selecione o arquivo XML da NF-e (obrigatório) e opcionalmente o PDF
-              </p>
-              <label className="cursor-pointer inline-block">
-                <input
-                  type="file"
-                  multiple
-                  accept=".xml,.pdf"
-                  onChange={handleUploadManual}
-                  disabled={uploading}
-                  className="hidden"
-                />
-                <Button asChild disabled={uploading}>
-                  <span>
-                    {uploading ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Upload className="h-4 w-4 mr-2" />
-                    )}
-                    {uploading ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF)'}
-                  </span>
-                </Button>
-              </label>
-            </div>
+            {modoSeparada ? (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Esta ordem tem envio separado. Anexe uma NF para itens de consumo e outra para permanentes.
+                </p>
+                {(['CONSUMO', 'PERMANENTE'] as const).map((tipo) => {
+                  const nf = notasFiscais.find((n: any) => n.tipo_itens === tipo)
+                  const temNf = nf && nf.status !== 'RECUSADA'
+                  return (
+                    <div key={tipo} className="border rounded-lg p-4 bg-gray-50/50">
+                      <p className="font-medium text-sm mb-2">NF {tipo === 'CONSUMO' ? 'Consumo' : 'Permanente'}</p>
+                      {temNf ? (
+                        <p className="text-sm text-green-600">NF {nf.numero}/{nf.serie} já enviada</p>
+                      ) : (
+                        <label className="cursor-pointer inline-block">
+                          <input
+                            type="file"
+                            multiple
+                            accept=".xml,.pdf"
+                            onChange={(e) => handleUploadManual(e, tipo)}
+                            disabled={uploading}
+                            className="hidden"
+                          />
+                          <Button variant="outline" size="sm" disabled={uploading} asChild>
+                            <span>
+                              {uploading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Upload className="h-3 w-3 mr-1" />}
+                              Selecionar XML + PDF
+                            </span>
+                          </Button>
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  Caso o fornecedor tenha enviado a NF por e-mail ou outro meio, você pode anexar o XML e o PDF aqui.
+                </p>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-500 mb-3">
+                    Selecione o arquivo XML da NF-e (obrigatório) e opcionalmente o PDF
+                  </p>
+                  <label className="cursor-pointer inline-block">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".xml,.pdf"
+                      onChange={(e) => handleUploadManual(e)}
+                      disabled={uploading}
+                      className="hidden"
+                    />
+                    <Button asChild disabled={uploading}>
+                      <span>
+                        {uploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        {uploading ? 'Enviando...' : 'Selecionar Arquivos (XML + PDF)'}
+                      </span>
+                    </Button>
+                  </label>
+                </div>
+              </>
+            )}
             {erroUpload && <p className="text-sm text-red-600 mt-3">{erroUpload}</p>}
           </CardContent>
         </Card>

@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: NF Conjunta vs Separada (OF com consumo + permanente) (2026-03-01)
+
+- [X] Ordem: modo_envio_nf (CONJUNTA | SEPARADA); NF: tipo_itens (CONSUMO | PERMANENTE)
+- [X] Migration 1772700000000; API definir modo; upload com tipo_itens
+- [X] Fornecedor: pergunta ao anexar NF; 2 slots quando separada
+- [X] Órgão: mesma pergunta ao importar XML; 2 slots quando separada
+- [X] 2 NFs → 2 recebimentos distintos; matching-ia e criarComNF filtram por tipo
+
 ## Tarefa Concluída: REQ-ALM-001 - Evitar ateste duplicado em 2º recebimento (2026-03-01)
 
 - [X] Permitir 2º XML em OF ATENDIDA_PARCIAL (não substituir NF existente)

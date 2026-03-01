@@ -28,7 +28,12 @@ export class MatchingIaService {
     if (!ordem) throw new Error('Ordem de fornecimento não encontrada');
 
     const produtosNf = nf.produtos_xml || [];
-    const todosItens = ordem.itens || [];
+    let todosItens = ordem.itens || [];
+    // Quando NF tem tipo_itens (separada): apenas itens desse tipo
+    if ((nf as any).tipo_itens) {
+      const tipo = (nf as any).tipo_itens;
+      todosItens = todosItens.filter((i: any) => (i.tipo_item || 'CONSUMO') === tipo);
+    }
     // REQ-ALM-001: apenas itens com saldo pendente (não totalmente recebidos)
     const itensOf = todosItens.filter(
       (item: any) => (item.quantidade_entregue ?? 0) < (item.quantidade ?? 0),

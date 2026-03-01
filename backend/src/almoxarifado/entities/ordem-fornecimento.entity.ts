@@ -166,6 +166,14 @@ export class OrdemFornecimento {
   // ENVIO
   // ============================================================================
 
+  /**
+   * Quando a OF tem itens CONSUMO e PERMANENTE: como o fornecedor enviará a NF?
+   * CONJUNTA = 1 NF para todos os itens
+   * SEPARADA = 2 NFs (uma para consumo, outra para permanente) → 2 recebimentos distintos
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  modo_envio_nf: 'CONJUNTA' | 'SEPARADA' | null;
+
   @Column({ type: 'timestamp', nullable: true })
   data_envio: Date | null;
 
