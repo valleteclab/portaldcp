@@ -195,7 +195,6 @@ function OrdensList() {
   // Modais
   const [ordemSelecionada, setOrdemSelecionada] = useState<OrdemFornecimento | null>(null);
   const [showDetalhes, setShowDetalhes] = useState(false);
-  const [showRecebimento, setShowRecebimento] = useState(false);
   const [showExcluir, setShowExcluir] = useState(false);
   const [showCancelar, setShowCancelar] = useState(false);
   const [showEditar, setShowEditar] = useState(false);
@@ -225,23 +224,6 @@ function OrdensList() {
   const [processando, setProcessando] = useState(false);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null);
   
-  // Formulário de recebimento
-  const [formRecebimento, setFormRecebimento] = useState({
-    tipo: 'PROVISORIO',
-    numero_nota_fiscal: '',
-    serie_nota_fiscal: '',
-    data_nota_fiscal: '',
-    chave_nfe: '',
-    valor_nota_fiscal: '',
-    local_recebimento: '',
-    observacoes: '',
-    itens: [] as Array<{
-      item_contrato_id: string;
-      quantidade_recebida: number;
-      observacao?: string;
-    }>,
-  });
-
   useEffect(() => {
     carregarOrdens();
   }, [filtroStatus]);
@@ -331,28 +313,6 @@ function OrdensList() {
     setOrdemSelecionada(ordem);
     setShowHistorico(true);
     await carregarHistorico(ordem.id);
-  };
-
-  const handleAbrirRecebimento = (ordem: OrdemFornecimento) => {
-    setOrdemSelecionada(ordem);
-    const itensPreenchidos = ordem.itens.map(item => ({
-      item_contrato_id: item.item_contrato_id,
-      quantidade_recebida: item.quantidade - item.quantidade_entregue,
-      observacao: '',
-    }));
-    
-    setFormRecebimento({
-      tipo: 'PROVISORIO',
-      numero_nota_fiscal: '',
-      serie_nota_fiscal: '',
-      data_nota_fiscal: '',
-      chave_nfe: '',
-      valor_nota_fiscal: '',
-      local_recebimento: ordem.local_entrega || '',
-      observacoes: '',
-      itens: itensPreenchidos,
-    });
-    setShowRecebimento(true);
   };
 
   const handleAbrirExcluir = (ordem: OrdemFornecimento) => {
@@ -503,71 +463,6 @@ function OrdensList() {
     } catch (error) {
       console.error('Erro ao excluir:', error);
       alert('Erro ao excluir ordem');
-    } finally {
-      setProcessando(false);
-    }
-  };
-
-  const handleCriarRecebimento = async () => {
-    if (!ordemSelecionada) return;
-    
-    const itensComQuantidade = formRecebimento.itens.filter(item => item.quantidade_recebida > 0);
-    if (itensComQuantidade.length === 0) {
-      alert('É necessário informar quantidades recebidas para pelo menos um item');
-      return;
-    }
-
-    setProcessando(true);
-    try {
-      const payload: any = {
-        ordem_fornecimento_id: ordemSelecionada.id,
-        tipo: formRecebimento.tipo,
-        itens: itensComQuantidade.map(item => ({
-          item_contrato_id: item.item_contrato_id,
-          quantidade_recebida: Number(item.quantidade_recebida),
-          observacao: item.observacao || undefined,
-        })),
-      };
-
-      if (formRecebimento.numero_nota_fiscal.trim()) {
-        payload.numero_nota_fiscal = formRecebimento.numero_nota_fiscal.trim();
-      }
-      if (formRecebimento.serie_nota_fiscal.trim()) {
-        payload.serie_nota_fiscal = formRecebimento.serie_nota_fiscal.trim();
-      }
-      if (formRecebimento.data_nota_fiscal) {
-        payload.data_nota_fiscal = formRecebimento.data_nota_fiscal;
-      }
-      if (formRecebimento.chave_nfe.trim()) {
-        payload.chave_nfe = formRecebimento.chave_nfe.trim();
-      }
-      if (formRecebimento.valor_nota_fiscal) {
-        payload.valor_nota_fiscal = Number(formRecebimento.valor_nota_fiscal);
-      }
-      if (formRecebimento.local_recebimento.trim()) {
-        payload.local_recebimento = formRecebimento.local_recebimento.trim();
-      }
-      if (formRecebimento.observacoes.trim()) {
-        payload.observacoes = formRecebimento.observacoes.trim();
-      }
-
-      const response = await authFetch(`${API_URL}/api/almoxarifado/recebimentos`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        const recebimentoCriado = await response.json();
-        alert(`Recebimento ${recebimentoCriado.numero} criado com sucesso!`);
-        setShowRecebimento(false);
-        carregarOrdens();
-      } else {
-        const error = await response.json();
-        alert(`Erro ao criar recebimento: ${error.message || 'Erro desconhecido'}`);
-      }
-    } catch (error) {
-      console.error('Erro ao criar recebimento:', error);
-      alert('Erro ao criar recebimento');
     } finally {
       setProcessando(false);
     }
@@ -835,16 +730,18 @@ function OrdensList() {
                             </Button>
                           )}
                           
-                          {/* Registrar Recebimento */}
+                          {/* Registrar Recebimento - leva para página de recebimento da ordem */}
                           {acoes.registrarRecebimento && (
                             <Button
                               variant="ghost"
                               size="sm"
                               className="text-purple-600 hover:text-purple-700"
-                              onClick={() => handleAbrirRecebimento(ordem)}
-                              title="Registrar Recebimento"
+                              asChild
+                              title="Ir para página de recebimento da ordem"
                             >
-                              <Package className="h-4 w-4" />
+                              <Link href={`/orgao/almoxarifado/recebimentos/${ordem.id}`}>
+                                <Package className="h-4 w-4" />
+                              </Link>
                             </Button>
                           )}
                           
@@ -1314,188 +1211,6 @@ function OrdensList() {
               {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <Edit className="h-4 w-4 mr-2" />
               Salvar Alterações
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Criar Recebimento */}
-      <Dialog open={showRecebimento} onOpenChange={setShowRecebimento}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-purple-600">Registrar Recebimento</DialogTitle>
-            <DialogDescription>
-              Registre o recebimento de materiais/serviços da ordem {ordemSelecionada?.numero}
-            </DialogDescription>
-          </DialogHeader>
-          
-          {ordemSelecionada && (
-            <div className="space-y-4">
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <p className="font-medium">{ordemSelecionada.numero}</p>
-                <p className="text-sm text-gray-600">
-                  Fornecedor: {ordemSelecionada.fornecedor?.razao_social}
-                </p>
-                <p className="text-sm text-gray-600">
-                  Valor Total: {formatarMoeda(ordemSelecionada.valor_total)}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Tipo de Recebimento *</Label>
-                  <Select
-                    value={formRecebimento.tipo}
-                    onValueChange={(value) => setFormRecebimento({ ...formRecebimento, tipo: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PROVISORIO">Provisório</SelectItem>
-                      <SelectItem value="DEFINITIVO">Definitivo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label>Local de Recebimento</Label>
-                  <Input
-                    placeholder="Ex: Almoxarifado Central..."
-                    value={formRecebimento.local_recebimento}
-                    onChange={(e) => setFormRecebimento({ ...formRecebimento, local_recebimento: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Dados da Nota Fiscal</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Número da NF</Label>
-                    <Input
-                      placeholder="000000000"
-                      value={formRecebimento.numero_nota_fiscal}
-                      onChange={(e) => setFormRecebimento({ ...formRecebimento, numero_nota_fiscal: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Série</Label>
-                    <Input
-                      placeholder="001"
-                      value={formRecebimento.serie_nota_fiscal}
-                      onChange={(e) => setFormRecebimento({ ...formRecebimento, serie_nota_fiscal: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Data da NF</Label>
-                    <Input
-                      type="date"
-                      value={formRecebimento.data_nota_fiscal}
-                      onChange={(e) => setFormRecebimento({ ...formRecebimento, data_nota_fiscal: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Valor da NF</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={formRecebimento.valor_nota_fiscal}
-                      onChange={(e) => setFormRecebimento({ ...formRecebimento, valor_nota_fiscal: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Itens Recebidos</h3>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>#</TableHead>
-                        <TableHead>Descrição</TableHead>
-                        <TableHead>Qtd Ordem</TableHead>
-                        <TableHead>Já Entregue</TableHead>
-                        <TableHead>Qtd Recebida *</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {ordemSelecionada.itens.map((itemOrdem, index) => {
-                        const itemRecebimento = formRecebimento.itens.find(
-                          i => i.item_contrato_id === itemOrdem.item_contrato_id
-                        ) || { item_contrato_id: itemOrdem.item_contrato_id, quantidade_recebida: 0, observacao: '' };
-                        const quantidadePendente = itemOrdem.quantidade - itemOrdem.quantidade_entregue;
-                        
-                        return (
-                          <TableRow key={itemOrdem.item_contrato_id || index}>
-                            <TableCell>{itemOrdem.numero_item}</TableCell>
-                            <TableCell>{itemOrdem.descricao}</TableCell>
-                            <TableCell>{itemOrdem.quantidade}</TableCell>
-                            <TableCell>{itemOrdem.quantidade_entregue}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max={quantidadePendente}
-                                  placeholder="0"
-                                  value={itemRecebimento.quantidade_recebida || ''}
-                                  onChange={(e) => {
-                                    const novaQuantidade = Number(e.target.value) || 0;
-                                    const novosItens = formRecebimento.itens.filter(
-                                      i => i.item_contrato_id !== itemOrdem.item_contrato_id
-                                    );
-                                    if (novaQuantidade > 0) {
-                                      novosItens.push({
-                                        item_contrato_id: itemOrdem.item_contrato_id,
-                                        quantidade_recebida: novaQuantidade,
-                                        observacao: itemRecebimento.observacao || '',
-                                      });
-                                    }
-                                    setFormRecebimento({ ...formRecebimento, itens: novosItens });
-                                  }}
-                                  className="w-24"
-                                />
-                                <span className="text-xs text-gray-500">
-                                  (pend: {quantidadePendente})
-                                </span>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              <div>
-                <Label>Observações Gerais</Label>
-                <Textarea
-                  placeholder="Observações sobre o recebimento..."
-                  value={formRecebimento.observacoes}
-                  onChange={(e) => setFormRecebimento({ ...formRecebimento, observacoes: e.target.value })}
-                  rows={3}
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRecebimento(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleCriarRecebimento}
-              disabled={processando}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <Package className="h-4 w-4 mr-2" />
-              Registrar Recebimento
             </Button>
           </DialogFooter>
         </DialogContent>

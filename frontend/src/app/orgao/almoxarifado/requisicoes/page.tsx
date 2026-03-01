@@ -351,12 +351,22 @@ function RequisicoesList() {
     setShowEnviarFornecedor(true);
   };
 
-  const handleAbrirHistoricoOS = async (req: Requisicao) => {
+  const handleAbrirHistorico = async (req: Requisicao) => {
     setRequisicaoSelecionada(req);
     setShowHistoricoOS(true);
     setCarregandoHistoricoOS(true);
     try {
-      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/historico`);
+      let url: string;
+      if (req.tipo === 'ORDEM_SERVICO') {
+        url = `${API_URL}/api/almoxarifado/requisicoes/${req.id}/historico`;
+      } else if (req.ordem_fornecimento_id) {
+        url = `${API_URL}/api/almoxarifado/ordens/${req.ordem_fornecimento_id}/historico`;
+      } else {
+        setHistoricoOS([]);
+        setCarregandoHistoricoOS(false);
+        return;
+      }
+      const res = await authFetch(url);
       if (res.ok) {
         const data = await res.json();
         setHistoricoOS(data);
@@ -1054,14 +1064,14 @@ function RequisicoesList() {
                             </Link>
                           </Button>
                         )}
-                        {/* OS → Ver Histórico (Movimento do Pedido) */}
-                        {req.tipo === 'ORDEM_SERVICO' && (
+                        {/* Ver Histórico: OS (requisição) ou OF (ordem de fornecimento) */}
+                        {(req.tipo === 'ORDEM_SERVICO' || req.ordem_fornecimento_id) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             className="text-slate-600 hover:text-slate-700"
-                            onClick={() => handleAbrirHistoricoOS(req)}
-                            title="Ver histórico da ordem"
+                            onClick={() => handleAbrirHistorico(req)}
+                            title={req.tipo === 'ORDEM_SERVICO' ? 'Ver histórico da ordem de serviço' : 'Ver histórico da ordem de fornecimento'}
                           >
                             <History className="h-4 w-4" />
                           </Button>
@@ -1724,16 +1734,18 @@ function RequisicoesList() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Histórico OS (Movimento do Pedido) */}
+      {/* Modal Histórico (OS ou OF) */}
       <Dialog open={showHistoricoOS} onOpenChange={setShowHistoricoOS}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
-              Movimento do Pedido - {requisicaoSelecionada?.numero}
+              Movimento do Pedido - {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' ? requisicaoSelecionada?.numero : requisicaoSelecionada?.ordem_fornecimento?.numero || requisicaoSelecionada?.numero}
             </DialogTitle>
             <DialogDescription>
-              Histórico de todas as movimentações desta Ordem de Serviço
+              {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO'
+                ? 'Histórico de todas as movimentações desta Ordem de Serviço'
+                : 'Histórico de todas as movimentações desta Ordem de Fornecimento'}
             </DialogDescription>
           </DialogHeader>
           {carregandoHistoricoOS ? (
@@ -1756,14 +1768,53 @@ function RequisicoesList() {
                     PEDIDO_CRIADO: 'PEDIDO CRIADO',
                     ENVIADA_APROVACAO: 'ENVIADA PARA APROVAÇÃO',
                     PEDIDO_AUTORIZADO: 'PEDIDO AUTORIZADO',
+                    CRIADA: 'ORDEM CRIADA',
+                    EDITADA: 'ORDEM EDITADA',
+                    EMITIDA: 'ORDEM EMITIDA',
+                    ENVIADA: 'ORDEM ENVIADA',
+                    REENVIADA: 'ORDEM REENVIADA',
+                    CANCELADA: 'ORDEM CANCELADA',
+                    REATIVADA: 'ORDEM REATIVADA',
+                    VISUALIZADA_FORNECEDOR: 'VISUALIZADA PELO FORNECEDOR',
+                    ACEITA_FORNECEDOR: 'ACEITA PELO FORNECEDOR',
+                    RECUSADA_FORNECEDOR: 'RECUSADA PELO FORNECEDOR',
+                    ENTREGA_REGISTRADA: 'ENTREGA REGISTRADA',
+                    ENTREGA_PARCIAL: 'ENTREGA PARCIAL',
+                    ENTREGA_COMPLETA: 'ENTREGA COMPLETA',
+                    ENTREGA_ESTORNADA: 'ENTREGA ESTORNADA',
+                    PDF_GERADO: 'PDF GERADO',
+                    PDF_BAIXADO: 'PDF BAIXADO',
+                    NOTIFICACAO_ENVIADA: 'NOTIFICAÇÃO ENVIADA',
+                    EMAIL_ENVIADO: 'EMAIL ENVIADO',
+                  };
+                  const icones: Record<string, string> = {
+                    PEDIDO_CRIADO: '📝',
+                    PEDIDO_AUTORIZADO: '✅',
+                    ENVIADA_APROVACAO: '📤',
+                    CRIADA: '📄',
+                    EDITADA: '✏️',
+                    EMITIDA: '📄',
+                    ENVIADA: '📤',
+                    REENVIADA: '🔄',
+                    CANCELADA: '❌',
+                    REATIVADA: '♻️',
+                    VISUALIZADA_FORNECEDOR: '👁️',
+                    ACEITA_FORNECEDOR: '✅',
+                    RECUSADA_FORNECEDOR: '🚫',
+                    ENTREGA_REGISTRADA: '📦',
+                    ENTREGA_PARCIAL: '📦',
+                    ENTREGA_COMPLETA: '🎉',
+                    ENTREGA_ESTORNADA: '↩️',
+                    PDF_GERADO: '📋',
+                    PDF_BAIXADO: '⬇️',
+                    NOTIFICACAO_ENVIADA: '🔔',
+                    EMAIL_ENVIADO: '📧',
                   };
                   return (
                     <div key={item.id} className="relative flex gap-4 pb-6 last:pb-0">
                       <div className="relative z-10 flex-shrink-0 w-12 flex justify-center">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isVerde ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                          <span className="text-sm">
-                            {item.tipo_acao === 'PEDIDO_CRIADO' ? '📝' : item.tipo_acao === 'PEDIDO_AUTORIZADO' ? '✅' : '📤'}
-                          </span>
+                          <span className="text-sm">{icones[item.tipo_acao] || '📋'}</span>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1780,7 +1831,7 @@ function RequisicoesList() {
                           <div className="space-y-1 text-sm text-gray-600">
                             {requisicaoSelecionada && (
                               <>
-                                <p><span className="font-medium text-gray-500">Nº do Pedido:</span> {requisicaoSelecionada.numero}</p>
+                                <p><span className="font-medium text-gray-500">Nº do Pedido:</span> {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' ? requisicaoSelecionada.numero : requisicaoSelecionada.ordem_fornecimento?.numero || requisicaoSelecionada.numero}</p>
                                 <p><span className="font-medium text-gray-500">Fornecedor:</span> {requisicaoSelecionada.contrato?.fornecedor?.razao_social || '-'}</p>
                                 <p><span className="font-medium text-gray-500">Secretaria:</span> {requisicaoSelecionada.orgao?.nome || '-'}</p>
                               </>
