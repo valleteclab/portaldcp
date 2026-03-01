@@ -1,5 +1,12 @@
 # Scratchpad
 
+## Tarefa Concluída: Dossiê fiscal ao finalizar recebimento (2026-03-01)
+
+- [X] garantirDossieENotificarFiscal: cria DossieOrdem e notifica fiscal ao aceitar (ACEITO)
+- [X] Chamado em aceitar, aceitarAlmoxarifado, aceitarPatrimonio quando status vira ACEITO
+- [X] Dossiê criado independente de gerarComprovacaoAceite (notificação sempre enviada)
+- [X] listarDossiesFiscal e gerarZip: incluir ACEITO_PARCIAL (ordens parcialmente aceitas)
+
 ## Tarefa Concluída: Pré-análise - excedente quantidade e valor faltante (2026-03-01)
 
 - [X] quantidade_maior (ex: NF 5 un, OF pendente 1): bloquear recebimento, orientar recusar e solicitar nova NF

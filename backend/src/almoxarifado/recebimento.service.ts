@@ -295,22 +295,7 @@ export class RecebimentoService {
     await this.recebimentoRepository.save(rec);
 
     this.logger.log(`Comprovação de aceite gerada para recebimento ${rec.numero}`);
-
-    // Notifica o fiscal do contrato que o dossiê está disponível
-    const ordemComContrato = await this.ordemRepository.findOne({
-      where: { id: rec.ordem_fornecimento_id },
-      relations: ['contrato'],
-    });
-    if (ordemComContrato?.contrato?.fiscal_id) {
-      this.dossieService
-        .notificarFiscalDossieDisponivel(
-          rec.orgao_id,
-          rec.ordem_fornecimento_id,
-          ordemComContrato.numero,
-          ordemComContrato.contrato.fiscal_id,
-        )
-        .catch((e) => this.logger.warn(`Erro ao notificar fiscal: ${e?.message}`));
-    }
+    // Notificação ao fiscal é feita por garantirDossieENotificarFiscal (chamado ao aceitar)
   }
 
   /**
@@ -488,6 +473,9 @@ export class RecebimentoService {
             e?.stack,
           );
         });
+        this.dossieService.garantirDossieENotificarFiscal(recebimento.ordem_fornecimento_id).catch((e) =>
+          this.logger.warn(`Erro ao garantir dossiê fiscal: ${e?.message}`),
+        );
       }
       return this.findOne(id);
     } catch (error) {
@@ -636,6 +624,9 @@ export class RecebimentoService {
             e?.stack,
           );
         });
+        this.dossieService.garantirDossieENotificarFiscal(recebimento.ordem_fornecimento_id).catch((e) =>
+          this.logger.warn(`Erro ao garantir dossiê fiscal: ${e?.message}`),
+        );
       }
       return this.findOne(id);
     } catch (error) {
@@ -796,6 +787,9 @@ export class RecebimentoService {
             e?.stack,
           );
         });
+        this.dossieService.garantirDossieENotificarFiscal(recebimento.ordem_fornecimento_id).catch((e) =>
+          this.logger.warn(`Erro ao garantir dossiê fiscal: ${e?.message}`),
+        );
       }
       return this.findOne(id);
     } catch (error) {

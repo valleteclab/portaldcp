@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { join } from 'path';
 import * as fs from 'fs';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -55,8 +55,11 @@ export class DossieService {
     const resultado: any[] = [];
     for (const ordem of ordens) {
       const recebimentos = await this.recebimentoRepository.find({
-        where: { ordem_fornecimento_id: ordem.id, status: StatusRecebimento.ACEITO },
-        select: ['id', 'numero', 'comprovacao_aceite_path', 'comprovacao_aceite_codigo_validacao'],
+        where: {
+          ordem_fornecimento_id: ordem.id,
+          status: In([StatusRecebimento.ACEITO, StatusRecebimento.ACEITO_PARCIAL]),
+        },
+        select: ['id', 'numero', 'comprovacao_aceite_path', 'comprovacao_aceite_codigo_validacao', 'status'],
       });
       if (recebimentos.length === 0) continue;
 
@@ -167,7 +170,10 @@ export class DossieService {
     if (!ordem) throw new NotFoundException('Ordem não encontrada');
 
     const recebimentos = await this.recebimentoRepository.find({
-      where: { ordem_fornecimento_id: ordemId, status: StatusRecebimento.ACEITO },
+      where: {
+        ordem_fornecimento_id: ordemId,
+        status: In([StatusRecebimento.ACEITO, StatusRecebimento.ACEITO_PARCIAL]),
+      },
     });
     const dossie = await this.dossieRepository.findOne({
       where: { ordem_fornecimento_id: ordemId },
@@ -261,6 +267,32 @@ export class DossieService {
       this.logger.log(`Notificação DOSSIE_FISCAL_DISPONIVEL enviada ao fiscal ${fiscalId}`);
     } catch (e) {
       this.logger.warn(`Erro ao notificar fiscal: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Garante que o dossiê existe e notifica o fiscal quando recebimento é aceito.
+   * Chamado ao finalizar recebimento (ACEITO) para garantir que o fiscal receba a documentação.
+   */
+  async garantirDossieENotificarFiscal(ordemId: string): Promise<void> {
+    try {
+      const ordem = await this.ordemRepository.findOne({
+        where: { id: ordemId },
+        relations: ['contrato'],
+      });
+      if (!ordem) return;
+      const dossie = await this.getOuCriarDossie(ordemId);
+      this.logger.log(`Dossiê garantido para ordem ${ordem.numero} (id: ${dossie.id})`);
+      if (ordem.contrato?.fiscal_id) {
+        await this.notificarFiscalDossieDisponivel(
+          ordem.orgao_id,
+          ordemId,
+          ordem.numero,
+          ordem.contrato.fiscal_id,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(`Erro ao garantir dossiê/notificar fiscal (ordem ${ordemId}): ${(e as Error).message}`);
     }
   }
 }
