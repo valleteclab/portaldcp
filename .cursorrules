@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: Pré-análise e vínculo no 2º recebimento (2026-03-01)
+
+- [X] Pré-análise: usar valor pendente (OF total - já entregue) e quantidade pendente nos cálculos
+- [X] Exibir Valor Total NF, Valor Total OF, Valor já entregue, Valor pendente na OF
+- [X] Comparar NF vs valor pendente (não vs total OF)
+- [X] Divergências de quantidade: usar quantidade - quantidade_entregue (OF pendente)
+- [X] jaConfirmado: apenas quando notaFiscal.mapeamento_confirmado (não auto-confirmar no 2º recebimento)
+
 ## Tarefa Concluída: Resumo e arquivos na tela aguardando próxima NF (2026-03-01)
 
 - [X] Card "Resumo do que já foi atendido" quando aguardarProximaNf: tabela itens com qtd OF, entregue, pendente, valor

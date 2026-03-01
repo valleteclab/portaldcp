@@ -30,6 +30,7 @@ interface ItemOf {
   descricao: string
   unidade_medida: string
   quantidade: number
+  quantidade_entregue?: number
   valor_unitario: number
   tipo_item?: string
 }
@@ -42,6 +43,8 @@ interface EtapaMapeamentoProps {
   recebimentosAceitos?: any[]
   iaIndisponivel: boolean
   jaConfirmado?: boolean
+  valorTotalOf?: number
+  valorEntregueOf?: number
   onConfirmar: (mapeamentoConfirmado: any[]) => void
   onRecusarNF?: (motivo: string) => void
   loading: boolean
@@ -64,6 +67,8 @@ export function EtapaMapeamento({
   recebimentosAceitos = [],
   iaIndisponivel,
   jaConfirmado,
+  valorTotalOf: valorTotalOfProp,
+  valorEntregueOf = 0,
   onConfirmar,
   onRecusarNF,
   loading,
@@ -126,7 +131,7 @@ export function EtapaMapeamento({
   const analise = useMemo(() => {
     const divergencias: Divergencia[] = []
     let valorTotalNf = 0
-    let valorTotalOf = 0
+    let valorTotalOfMapeado = 0
 
     for (const m of mapeamento) {
       const prod = produtosXml.find(p => p.nItem === m.produto_nf_index)
@@ -137,23 +142,25 @@ export function EtapaMapeamento({
       if (prod) valorTotalNf += prod.vProd || (prod.qCom * prod.vUnCom)
 
       if (prod && ofItem) {
-        valorTotalOf += ofItem.valor_unitario * ofItem.quantidade
+        const qtdEntregue = ofItem.quantidade_entregue ?? 0
+        const quantidadePendente = Math.max(0, ofItem.quantidade - qtdEntregue)
+        valorTotalOfMapeado += ofItem.valor_unitario * quantidadePendente
 
-        if (prod.qCom > ofItem.quantidade) {
+        if (prod.qCom > quantidadePendente) {
           divergencias.push({
             tipo: 'quantidade_maior',
             severidade: 'alta',
-            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pede apenas ${ofItem.quantidade} ${ofItem.unidade_medida}`,
-            orientacao: `Excedente de ${prod.qCom - ofItem.quantidade} un. Verifique se ha outra OF pendente para este fornecedor ou se sera necessario devolver o excedente.`,
+            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pendente e apenas ${quantidadePendente} ${ofItem.unidade_medida}`,
+            orientacao: `Excedente de ${prod.qCom - quantidadePendente} un. Verifique se ha outra OF pendente para este fornecedor ou se sera necessario devolver o excedente.`,
             produtoNf: prod.xProd,
             itemOf: ofItem.descricao,
           })
-        } else if (prod.qCom < ofItem.quantidade) {
+        } else if (prod.qCom < quantidadePendente) {
           divergencias.push({
             tipo: 'quantidade_menor',
             severidade: 'media',
-            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pede ${ofItem.quantidade} ${ofItem.unidade_medida}`,
-            orientacao: `Faltam ${ofItem.quantidade - prod.qCom} un. O recebimento sera parcial para este item. O saldo ficara em aberto na OF.`,
+            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pendente e ${quantidadePendente} ${ofItem.unidade_medida}`,
+            orientacao: `Faltam ${quantidadePendente - prod.qCom} un. O recebimento sera parcial para este item. O saldo ficara em aberto na OF.`,
             produtoNf: prod.xProd,
             itemOf: ofItem.descricao,
           })
@@ -180,20 +187,28 @@ export function EtapaMapeamento({
       of => !mapeamento.some(m => m.item_contrato_id === of.item_contrato_id || selecoes[mapeamento.find(mm => mm.item_contrato_id === of.item_contrato_id)?.produto_nf_index || -1] === of.item_contrato_id)
     )
     for (const of of itensOfNaoMapeados) {
-      divergencias.push({
-        tipo: 'item_faltante_of',
-        severidade: 'media',
-        mensagem: `"${of.descricao}" consta na OF mas nao foi encontrado na NF`,
-        orientacao: 'Este item pode vir em outra NF ou o fornecedor nao entregou. O item ficara pendente na OF.',
-        itemOf: of.descricao,
-      })
+      const qtdPend = Math.max(0, of.quantidade - (of.quantidade_entregue ?? 0))
+      if (qtdPend > 0) {
+        divergencias.push({
+          tipo: 'item_faltante_of',
+          severidade: 'media',
+          mensagem: `"${of.descricao}" consta na OF mas nao foi encontrado na NF`,
+          orientacao: 'Este item pode vir em outra NF ou o fornecedor nao entregou. O item ficara pendente na OF.',
+          itemOf: of.descricao,
+        })
+      }
     }
+
+    const valorTotalOf = valorTotalOfProp ?? valorTotalOfMapeado
+    const valorPendenteOf = valorTotalOfProp != null
+      ? Math.max(0, valorTotalOfProp - valorEntregueOf)
+      : valorTotalOfMapeado
 
     const altaSeveridade = divergencias.filter(d => d.severidade === 'alta').length
     const mediaSeveridade = divergencias.filter(d => d.severidade === 'media').length
 
-    return { divergencias, valorTotalNf, valorTotalOf, altaSeveridade, mediaSeveridade }
-  }, [mapeamento, produtosXml, itensOf, selecoes])
+    return { divergencias, valorTotalNf, valorTotalOf, valorPendenteOf, valorEntregueOf, altaSeveridade, mediaSeveridade }
+  }, [mapeamento, produtosXml, itensOf, selecoes, valorTotalOfProp, valorEntregueOf])
 
   const getDivergenciasItem = (prodNfIndex: number, itemContratoId: string | null) => {
     if (!itemContratoId) return []
@@ -242,7 +257,7 @@ export function EtapaMapeamento({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
               <div className="bg-white rounded-lg p-3 border text-center">
                 <p className="text-[10px] font-bold text-gray-400 uppercase">Valor Total NF</p>
                 <p className="font-bold text-base">{fmt(analise.valorTotalNf)}</p>
@@ -250,11 +265,21 @@ export function EtapaMapeamento({
               <div className="bg-white rounded-lg p-3 border text-center">
                 <p className="text-[10px] font-bold text-gray-400 uppercase">Valor Total OF</p>
                 <p className="font-bold text-base">{fmt(analise.valorTotalOf)}</p>
-                {Math.abs(analise.valorTotalNf - analise.valorTotalOf) > 0.01 && (
-                  <p className={`text-xs mt-1 font-semibold ${analise.valorTotalNf > analise.valorTotalOf ? 'text-red-600' : 'text-amber-600'}`}>
-                    {analise.valorTotalNf > analise.valorTotalOf
-                      ? `NF excede OF em ${fmt(analise.valorTotalNf - analise.valorTotalOf)}`
-                      : `OF excede NF em ${fmt(analise.valorTotalOf - analise.valorTotalNf)}`}
+              </div>
+              {analise.valorEntregueOf > 0 && (
+                <div className="bg-white rounded-lg p-3 border text-center">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Ja entregue</p>
+                  <p className="font-bold text-base text-green-600">{fmt(analise.valorEntregueOf)}</p>
+                </div>
+              )}
+              <div className="bg-white rounded-lg p-3 border text-center">
+                <p className="text-[10px] font-bold text-gray-400 uppercase">Valor pendente na OF</p>
+                <p className="font-bold text-base">{fmt(analise.valorPendenteOf)}</p>
+                {Math.abs(analise.valorTotalNf - analise.valorPendenteOf) > 0.01 && (
+                  <p className={`text-xs mt-1 font-semibold ${analise.valorTotalNf > analise.valorPendenteOf ? 'text-red-600' : 'text-amber-600'}`}>
+                    {analise.valorTotalNf > analise.valorPendenteOf
+                      ? `NF excede pendente em ${fmt(analise.valorTotalNf - analise.valorPendenteOf)}`
+                      : `Pendente excede NF em ${fmt(analise.valorPendenteOf - analise.valorTotalNf)}`}
                   </p>
                 )}
               </div>
@@ -374,15 +399,19 @@ export function EtapaMapeamento({
                       {prod?.qCom} {prod?.uCom} · {fmt(prod?.vUnCom || 0)}/un
                     </span>
                   </div>
-                  {ofItem && prod && prod.qCom !== ofItem.quantidade && (
-                    <div className={`mt-1.5 flex items-center gap-1 text-[10px] font-semibold ${prod.qCom > ofItem.quantidade ? 'text-red-600' : 'text-amber-600'}`}>
-                      {prod.qCom > ofItem.quantidade ? (
-                        <><TrendingUp className="h-3 w-3" /> NF: {prod.qCom} un &gt; OF: {ofItem.quantidade} un (excedente: {prod.qCom - ofItem.quantidade})</>
-                      ) : (
-                        <><TrendingDown className="h-3 w-3" /> NF: {prod.qCom} un &lt; OF: {ofItem.quantidade} un (faltam: {ofItem.quantidade - prod.qCom})</>
-                      )}
-                    </div>
-                  )}
+                  {ofItem && prod && (() => {
+                    const qtdPend = Math.max(0, ofItem.quantidade - (ofItem.quantidade_entregue ?? 0))
+                    if (prod.qCom === qtdPend) return null
+                    return (
+                      <div className={`mt-1.5 flex items-center gap-1 text-[10px] font-semibold ${prod.qCom > qtdPend ? 'text-red-600' : 'text-amber-600'}`}>
+                        {prod.qCom > qtdPend ? (
+                          <><TrendingUp className="h-3 w-3" /> NF: {prod.qCom} un &gt; OF pendente: {qtdPend} un (excedente: {prod.qCom - qtdPend})</>
+                        ) : (
+                          <><TrendingDown className="h-3 w-3" /> NF: {prod.qCom} un &lt; OF pendente: {qtdPend} un (faltam: {qtdPend - prod.qCom})</>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 <div className="text-center text-gray-300 text-lg">→</div>
@@ -398,7 +427,7 @@ export function EtapaMapeamento({
                       </p>
                       {ofItem && (
                         <p className="text-xs text-gray-500">
-                          OF: {ofItem.quantidade} {ofItem.unidade_medida} · {fmt(ofItem.valor_unitario)}/un
+                          OF pendente: {Math.max(0, ofItem.quantidade - (ofItem.quantidade_entregue ?? 0))} {ofItem.unidade_medida} · {fmt(ofItem.valor_unitario)}/un
                         </p>
                       )}
                     </div>
@@ -412,11 +441,14 @@ export function EtapaMapeamento({
                         <SelectValue placeholder="Selecionar item da OF..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {itensOf.map(of => (
-                          <SelectItem key={of.item_contrato_id} value={of.item_contrato_id}>
-                            <span className="text-xs">{of.descricao} — {of.quantidade} {of.unidade_medida}</span>
-                          </SelectItem>
-                        ))}
+                        {itensOf.map(of => {
+                          const qtdPend = Math.max(0, of.quantidade - (of.quantidade_entregue ?? 0))
+                          return (
+                            <SelectItem key={of.item_contrato_id} value={of.item_contrato_id}>
+                              <span className="text-xs">{of.descricao} — {qtdPend} {of.unidade_medida} pendente</span>
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                   )}
