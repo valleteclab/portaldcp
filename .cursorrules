@@ -7,6 +7,7 @@
 - [X] Fornecedor: pergunta ao anexar NF; 2 slots quando separada
 - [X] Órgão: mesma pergunta ao importar XML; 2 slots quando separada
 - [X] 2 NFs → 2 recebimentos distintos; matching-ia e criarComNF filtram por tipo
+- [X] Pré-análise: quando NF separada, filtrar itensOf por tipo_itens da NF — só valida itens da NF atual (ex: NF Permanente não flagra GRAMPEADOR)
 
 ## Tarefa Concluída: REQ-ALM-001 - Evitar ateste duplicado em 2º recebimento (2026-03-01)
 

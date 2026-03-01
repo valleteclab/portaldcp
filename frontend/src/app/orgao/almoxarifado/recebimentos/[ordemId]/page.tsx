@@ -310,11 +310,19 @@ function RecebimentoUnificadoContent() {
           )
         })()}
 
-        {etapa === 'mapeamento' && (
+        {etapa === 'mapeamento' && (() => {
+          // Quando NF separada: pré-análise só considera itens do tipo da NF atual
+          const baseItens = itensPendentes.length > 0 ? itensPendentes : (ordem?.itens || [])
+          const tipoNf = notaFiscal?.tipo_itens as 'CONSUMO' | 'PERMANENTE' | null | undefined
+          const itensParaMapeamento = tipoNf
+            ? baseItens.filter((i: any) => (i.tipo_item || 'CONSUMO') === tipoNf)
+            : baseItens
+
+          return (
           <EtapaMapeamento
             mapeamento={mapeamento}
             produtosXml={notaFiscal?.produtos_xml || []}
-            itensOf={itensPendentes.length > 0 ? itensPendentes : (ordem?.itens || [])}
+            itensOf={itensParaMapeamento}
             itensJaRecebidos={itensJaRecebidos}
             recebimentosAceitos={recebimentos.filter((r: any) => r.status === 'ACEITO')}
             iaIndisponivel={iaIndisponivel}
@@ -343,7 +351,8 @@ function RecebimentoUnificadoContent() {
             }}
             loading={processing}
           />
-        )}
+          )
+        })()}
 
         {etapa === 'recebimento' && (() => {
           const recAtivos = recebimentos.filter((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
