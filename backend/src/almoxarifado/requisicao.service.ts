@@ -19,6 +19,8 @@ import { GerarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
+import { DossieOrdem } from './entities/dossie-ordem.entity';
+import { DossieAnexo } from './entities/dossie-anexo.entity';
 import { 
   CriarRequisicaoDto, 
   AtualizarRequisicaoDto, 
@@ -2004,6 +2006,19 @@ export class RequisicaoService {
         for (const nf of notasFiscais) {
           await queryRunner.manager.remove(nf);
           this.logger.log(`[EXCLUIR] Nota fiscal fornecedor ${nf.numero || nf.id} excluída`);
+        }
+
+        // Remove dossiê fiscal vinculado à ordem (evita FK constraint ao excluir ordem)
+        const dossies = await queryRunner.manager.find(DossieOrdem, {
+          where: { ordem_fornecimento_id: ordem.id },
+          relations: ['anexos'],
+        });
+        for (const dossie of dossies) {
+          if (dossie.anexos?.length) {
+            await queryRunner.manager.remove(dossie.anexos);
+          }
+          await queryRunner.manager.remove(dossie);
+          this.logger.log(`[EXCLUIR] Dossiê fiscal da ordem ${ordem.numero} excluído`);
         }
 
         // Exclui a ordem
