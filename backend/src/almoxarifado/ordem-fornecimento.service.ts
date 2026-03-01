@@ -210,7 +210,7 @@ export class OrdemFornecimentoService {
       await this.registrarHistorico({
         ordemId: ordemSalva.id,
         tipoAcao: TipoAcaoOrdem.PEDIDO_CRIADO,
-        descricao: `Movimentação feita por: ${requisicao.usuario_solicitante_nome || 'Sistema'} em: ${dataCriacaoReq.toLocaleString('pt-BR')}`,
+        descricao: `Movimentação feita por: ${requisicao.usuario_solicitante_nome || 'Sistema'}`,
         detalhes: { requisicao_numero: requisicao.numero },
         statusNovo: 'RASCUNHO',
         usuarioId: requisicao.usuario_solicitante_id || undefined,
@@ -222,7 +222,7 @@ export class OrdemFornecimentoService {
       await this.registrarHistorico({
         ordemId: ordemSalva.id,
         tipoAcao: TipoAcaoOrdem.PEDIDO_AUTORIZADO,
-        descricao: `Movimentação feita por: ${usuarioNome} em: ${dataAutorizacao.toLocaleString('pt-BR')}`,
+        descricao: `Movimentação feita por: ${usuarioNome}`,
         detalhes: { requisicao_numero: requisicao.numero },
         statusAnterior: 'AGUARDANDO_AUTORIZACAO',
         statusNovo: StatusOrdemFornecimento.EMITIDA,

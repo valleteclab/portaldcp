@@ -466,7 +466,7 @@ export class RequisicaoService {
         this.historicoRequisicaoRepository.create({
           requisicao_id: osSalva.id,
           tipo_acao: 'PEDIDO_CRIADO',
-          descricao: `Movimentação feita por: ${usuarioNome} em: ${new Date().toLocaleString('pt-BR')}`,
+          descricao: `Movimentação feita por: ${usuarioNome}`,
           usuario_id: usuarioId,
           usuario_nome: usuarioNome,
           data_evento: new Date(),
@@ -627,7 +627,7 @@ export class RequisicaoService {
         this.historicoRequisicaoRepository.create({
           requisicao_id: requisicaoSalva.id,
           tipo_acao: 'PEDIDO_CRIADO',
-          descricao: `Movimentação feita por: ${usuarioNome} em: ${new Date().toLocaleString('pt-BR')}`,
+          descricao: `Movimentação feita por: ${usuarioNome}`,
           usuario_id: usuarioId,
           usuario_nome: usuarioNome,
           data_evento: new Date(),
@@ -677,7 +677,7 @@ export class RequisicaoService {
       this.historicoRequisicaoRepository.create({
         requisicao_id: requisicao.id,
         tipo_acao: 'ENVIADA_APROVACAO',
-        descricao: `Enviada para aprovação por: ${requisicao.usuario_solicitante_nome || 'Sistema'} em: ${new Date().toLocaleString('pt-BR')}`,
+        descricao: `Enviada para aprovação por: ${requisicao.usuario_solicitante_nome || 'Sistema'}`,
         usuario_id: requisicao.usuario_solicitante_id || null,
         usuario_nome: requisicao.usuario_solicitante_nome || 'Sistema',
         data_evento: new Date(),
@@ -795,7 +795,7 @@ export class RequisicaoService {
           this.historicoRequisicaoRepository.create({
             requisicao_id: requisicao.id,
             tipo_acao: 'PEDIDO_AUTORIZADO',
-            descricao: `Movimentação feita por: ${autorizadorNome} em: ${new Date().toLocaleString('pt-BR')}`,
+            descricao: `Movimentação feita por: ${autorizadorNome}`,
             usuario_id: autorizadorId,
             usuario_nome: autorizadorNome,
             data_evento: new Date(),
@@ -984,7 +984,7 @@ export class RequisicaoService {
         this.historicoRequisicaoRepository.create({
           requisicao_id: requisicao.id,
           tipo_acao: 'PEDIDO_AUTORIZADO',
-          descricao: `Movimentação feita por: ${autorizadorNome} em: ${new Date().toLocaleString('pt-BR')}`,
+          descricao: `Movimentação feita por: ${autorizadorNome}`,
           usuario_id: autorizadorId,
           usuario_nome: autorizadorNome,
           data_evento: new Date(),
