@@ -8,6 +8,8 @@
 - [X] OrdemFornecimentoService.cancelarOrdem: incluir ACEITO_PARCIAL na busca de recebimentos a reverter
 - [X] RequisicaoService.excluir: safeguard recebimento.itens || [] e quantidade_aceita > 0
 - [X] Migration 1772200000000-ReparoQuantidadeEntregueItensContrato: recalcula quantidade_entregue a partir dos recebimentos existentes; se tabela recebimentos vazia, zera
+- [X] Fix: app.module migrations path dist/migrations → dist/src/migrations (NestJS compila para dist/src/)
+- [X] Script scripts/reparo-quantidade-entregue.ts + npm run reparo:quantidade-entregue para reparo manual
 
 ## Tarefa Concluída: Cancelar Recebimento com Aceite Parcial (2026-02-17)
 
