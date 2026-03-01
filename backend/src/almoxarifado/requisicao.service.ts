@@ -1047,7 +1047,22 @@ export class RequisicaoService {
 
       const requisicaoAtualizada = await this.findOne(id);
       if (requisicao.contrato_id && (requisicao.tipo as TipoRequisicao) !== TipoRequisicao.ORDEM_SERVICO) {
-        return { requisicao: requisicaoAtualizada, notificacoes_fornecedor: notificacoesFornecedorOF } as any;
+        const reqComRelacoes = await this.requisicaoRepository.findOne({
+          where: { id },
+          relations: ['contrato', 'contrato.fornecedor'],
+        });
+        const fornecedor = reqComRelacoes?.contrato?.fornecedor;
+        return {
+          requisicao: requisicaoAtualizada,
+          notificacoes_fornecedor: notificacoesFornecedorOF,
+          fornecedor_info: fornecedor ? {
+            nome: fornecedor.razao_social,
+            email: fornecedor.email || null,
+            telefone: fornecedor.representante_telefone || fornecedor.telefone || null,
+          } : null,
+          envio_automatico: requisicao.orgao?.envio_automatico_os ?? false,
+          ordem_fornecimento_id: requisicaoAtualizada.ordem_fornecimento_id || undefined,
+        } as any;
       }
       return requisicaoAtualizada;
     } catch (error) {

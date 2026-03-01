@@ -272,6 +272,7 @@ export default function CentralAprovacoesPage() {
     notificacoes?: { email?: boolean; whatsapp?: boolean };
     fornecedor_info?: { nome: string; email?: string | null; telefone?: string | null } | null;
     envio_automatico?: boolean;
+    ordem_fornecimento_id?: string;
   } | null>(null);
   const [observacaoRequisicao, setObservacaoRequisicao] = useState('');
   const [motivoNegativaRequisicao, setMotivoNegativaRequisicao] = useState('');
@@ -476,6 +477,7 @@ export default function CentralAprovacoesPage() {
           notificacoes: data.notificacoes_fornecedor,
           fornecedor_info: data.fornecedor_info,
           envio_automatico: data.envio_automatico,
+          ordem_fornecimento_id: data.ordem_fornecimento_id,
         });
         setEmailFornecedorEdit(data.fornecedor_info?.email || '');
         setTelefoneFornecedorEdit(data.fornecedor_info?.telefone || '');
@@ -545,19 +547,23 @@ export default function CentralAprovacoesPage() {
     if (!requisicaoSelecionada) return;
     setBaixandoPdf(true);
     try {
-      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/pdf-assinado`);
+      const isOF = !!posAprovacaoData?.ordem_fornecimento_id;
+      const url = isOF
+        ? `${API_URL}/api/almoxarifado/ordens/${posAprovacaoData!.ordem_fornecimento_id}/pdf`
+        : `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/pdf-assinado`;
+      const res = await authFetch(url);
       if (res.ok) {
         const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
+        const urlObj = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = url;
-        link.download = `OS_${requisicaoSelecionada.numero.replace(/\//g, '_')}_assinada.pdf`;
+        link.href = urlObj;
+        link.download = isOF ? `OF_${requisicaoSelecionada.numero.replace(/\//g, '_')}_assinada.pdf` : `OS_${requisicaoSelecionada.numero.replace(/\//g, '_')}_assinada.pdf`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        window.URL.revokeObjectURL(urlObj);
       } else {
-        alert('PDF não disponível. A OS pode ainda estar sendo processada.');
+        alert(isOF ? 'PDF não disponível. A OF pode ainda estar sendo processada.' : 'PDF não disponível. A OS pode ainda estar sendo processada.');
       }
     } catch {
       alert('Erro ao baixar PDF');
@@ -574,7 +580,12 @@ export default function CentralAprovacoesPage() {
       if (tipo === 'email' && emailFornecedorEdit) body.email_fornecedor = emailFornecedorEdit;
       if (tipo === 'whatsapp' && telefoneFornecedorEdit) body.telefone_fornecedor = telefoneFornecedorEdit;
 
-      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/enviar-ao-fornecedor`, {
+      const isOF = !!posAprovacaoData?.ordem_fornecimento_id;
+      const url = isOF
+        ? `${API_URL}/api/almoxarifado/ordens/${posAprovacaoData!.ordem_fornecimento_id}/enviar-ao-fornecedor`
+        : `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/enviar-ao-fornecedor`;
+
+      const res = await authFetch(url, {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -2024,8 +2035,8 @@ export default function CentralAprovacoesPage() {
               </div>
             )}
 
-            {/* Ações manuais para OS */}
-            {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' && (
+            {/* Ações manuais para OS e OF */}
+            {(requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' || posAprovacaoData?.ordem_fornecimento_id) && (
               <div className="space-y-2">
                 <p className="text-sm font-medium text-gray-700">Ações:</p>
                 <Button
@@ -2035,7 +2046,7 @@ export default function CentralAprovacoesPage() {
                   disabled={baixandoPdf}
                 >
                   {baixandoPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                  Baixar PDF da Ordem de Serviço
+                  {posAprovacaoData?.ordem_fornecimento_id ? 'Baixar PDF da Ordem de Fornecimento' : 'Baixar PDF da Ordem de Serviço'}
                 </Button>
                 {!posAprovacaoData?.envio_automatico && (
                   <>
