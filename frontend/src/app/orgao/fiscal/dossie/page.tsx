@@ -11,6 +11,7 @@ import {
   Upload,
   CheckCircle,
   FileCheck,
+  Eye,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,6 +47,7 @@ interface DossieItem {
   tem_nf: boolean;
   tem_comprovacao: boolean;
   recebimentos: Array<{ id: string; numero: string; tem_comprovacao: boolean }>;
+  nfs?: Array<{ id: string; numero: string; filename_pdf: string | null; filename_xml: string | null }>;
   anexos_count: number;
   entregue_financeiro_em: string | null;
 }
@@ -84,6 +86,27 @@ function DossieFiscalContent() {
   const formatarMoeda = (valor: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 
+  const abrirDocumentoEmNovaAba = (blob: Blob, nome: string) => {
+    const url = window.URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+  };
+
+  const handleVisualizarOF = async (ordemId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/pdf`);
+      if (res.ok) {
+        const blob = await res.blob();
+        abrirDocumentoEmNovaAba(blob, 'OF');
+      } else {
+        alert('OF não disponível');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao visualizar OF');
+    }
+  };
+
   const handleDownloadOF = async (ordemId: string) => {
     try {
       const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemId}/pdf`);
@@ -99,6 +122,21 @@ function DossieFiscalContent() {
     } catch (e) {
       console.error(e);
       alert('Erro ao baixar OF');
+    }
+  };
+
+  const handleVisualizarComprovacao = async (recebimentoId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recebimentoId}/comprovacao-aceite`);
+      if (res.ok) {
+        const blob = await res.blob();
+        abrirDocumentoEmNovaAba(blob, 'Comprovação');
+      } else {
+        alert('Comprovação não disponível');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao visualizar comprovação');
     }
   };
 
@@ -119,6 +157,21 @@ function DossieFiscalContent() {
     } catch (e) {
       console.error(e);
       alert('Erro ao baixar comprovação');
+    }
+  };
+
+  const handleVisualizarNF = async (filename: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/uploads/notas-fiscais/${filename}`);
+      if (res.ok) {
+        const blob = await res.blob();
+        abrirDocumentoEmNovaAba(blob, 'NF');
+      } else {
+        alert('NF não disponível');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao visualizar NF');
     }
   };
 
@@ -261,9 +314,54 @@ function DossieFiscalContent() {
                     <TableCell>{formatarMoeda(d.valor_total)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {d.tem_of_pdf && <Badge variant="outline" className="text-green-700">OF</Badge>}
-                        {d.tem_nf && <Badge variant="outline" className="text-blue-700">NF</Badge>}
-                        {d.tem_comprovacao && <Badge variant="outline" className="text-purple-700">Comprov.</Badge>}
+                        {d.tem_of_pdf && (
+                          <Badge
+                            variant="outline"
+                            className="text-green-700 cursor-pointer hover:bg-green-50"
+                            onClick={() => handleVisualizarOF(d.ordem_id)}
+                            title="Visualizar OF"
+                          >
+                            <Eye className="h-3 w-3 mr-0.5 inline" /> OF
+                          </Badge>
+                        )}
+                        {d.tem_nf && ((d.nfs || []).length > 0 ? (d.nfs || []).map((nf) => (
+                          nf.filename_pdf ? (
+                            <Badge
+                              key={nf.id}
+                              variant="outline"
+                              className="text-blue-700 cursor-pointer hover:bg-blue-50"
+                              onClick={() => handleVisualizarNF(nf.filename_pdf!)}
+                              title={`Visualizar NF ${nf.numero || ''}`}
+                            >
+                              <Eye className="h-3 w-3 mr-0.5 inline" /> NF {nf.numero ? ` ${nf.numero}` : ''}
+                            </Badge>
+                          ) : nf.filename_xml ? (
+                            <Badge
+                              key={nf.id}
+                              variant="outline"
+                              className="text-blue-700 cursor-pointer hover:bg-blue-50"
+                              onClick={() => handleVisualizarNF(nf.filename_xml!)}
+                              title={`Visualizar NF XML ${nf.numero || ''}`}
+                            >
+                              <Eye className="h-3 w-3 mr-0.5 inline" /> NF {nf.numero ? ` ${nf.numero}` : ''}
+                            </Badge>
+                          ) : (
+                            <Badge key={nf.id} variant="outline" className="text-blue-700">NF {nf.numero || ''}</Badge>
+                          )
+                        )) : (
+                          <Badge variant="outline" className="text-blue-700">NF</Badge>
+                        ))}
+                        {d.recebimentos.filter((r) => r.tem_comprovacao).map((r) => (
+                          <Badge
+                            key={r.id}
+                            variant="outline"
+                            className="text-purple-700 cursor-pointer hover:bg-purple-50"
+                            onClick={() => handleVisualizarComprovacao(r.id)}
+                            title={`Visualizar Comprovação ${r.numero}`}
+                          >
+                            <Eye className="h-3 w-3 mr-0.5 inline" /> Comprov. {r.numero}
+                          </Badge>
+                        ))}
                         {d.anexos_count > 0 && <Badge variant="secondary">+{d.anexos_count} anexo(s)</Badge>}
                       </div>
                     </TableCell>
@@ -338,25 +436,44 @@ function DossieFiscalContent() {
           {ordemDetalhe && (
             <div className="space-y-4">
               <div className="border rounded p-4 space-y-2">
-                <p className="font-medium">Documentos disponíveis:</p>
+                <p className="font-medium">Documentos disponíveis (clique para visualizar ou baixar):</p>
                 <div className="flex flex-wrap gap-2">
                   {ordemDetalhe.tem_of_pdf && (
-                    <Button variant="outline" size="sm" onClick={() => handleDownloadOF(ordemDetalhe.ordem_id)}>
-                      <FileText className="h-4 w-4 mr-1" /> OF
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="sm" onClick={() => handleVisualizarOF(ordemDetalhe.ordem_id)} title="Visualizar">
+                        <Eye className="h-4 w-4 mr-1" /> Ver OF
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleDownloadOF(ordemDetalhe.ordem_id)} title="Baixar">
+                        <Download className="h-4 w-4 mr-1" /> OF
+                      </Button>
+                    </div>
                   )}
                   {ordemDetalhe.recebimentos.map((r) =>
                     r.tem_comprovacao ? (
-                      <Button
-                        key={r.id}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDownloadComprovacao(r.id)}
-                      >
-                        <FileCheck className="h-4 w-4 mr-1" /> Comprov. {r.numero}
-                      </Button>
+                      <div key={r.id} className="flex gap-1">
+                        <Button variant="outline" size="sm" onClick={() => handleVisualizarComprovacao(r.id)} title="Visualizar">
+                          <Eye className="h-4 w-4 mr-1" /> Ver Comprov. {r.numero}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDownloadComprovacao(r.id)} title="Baixar">
+                          <Download className="h-4 w-4 mr-1" /> Comprov. {r.numero}
+                        </Button>
+                      </div>
                     ) : null,
                   )}
+                  {(ordemDetalhe.nfs || []).filter((nf) => nf.filename_pdf || nf.filename_xml).map((nf) => {
+                    const fname = nf.filename_pdf || nf.filename_xml;
+                    return fname ? (
+                      <Button
+                        key={nf.id}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleVisualizarNF(fname)}
+                        title="Visualizar NF"
+                      >
+                        <Eye className="h-4 w-4 mr-1" /> Ver NF {nf.numero || ''}
+                      </Button>
+                    ) : null;
+                  })}
                 </div>
               </div>
               <div>

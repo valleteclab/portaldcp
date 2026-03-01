@@ -97,6 +97,14 @@ export class DossieService {
           numero: r.numero,
           tem_comprovacao: !!(r.comprovacao_aceite_path && fs.existsSync(r.comprovacao_aceite_path)),
         })),
+        nfs: nfs
+          .filter((nf) => nf.caminho_pdf || nf.caminho_xml)
+          .map((nf) => ({
+            id: nf.id,
+            numero: nf.numero,
+            filename_pdf: nf.caminho_pdf ? nf.caminho_pdf.split(/[/\\]/).pop() : null,
+            filename_xml: nf.caminho_xml ? nf.caminho_xml.split(/[/\\]/).pop() : null,
+          })),
         anexos_count: dossie?.anexos?.length ?? 0,
         entregue_financeiro_em: dossie?.entregue_financeiro_em,
       });
