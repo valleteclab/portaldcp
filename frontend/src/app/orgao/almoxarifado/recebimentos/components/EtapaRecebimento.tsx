@@ -48,8 +48,9 @@ export function EtapaRecebimento({
     const states: Record<string, ItemState> = {}
     const itens = recebimento?.itens || []
     for (const item of itens) {
+      const isParcialNf = (item.quantidade_recebida ?? 0) < (item.quantidade_esperada ?? 0)
       states[item.item_contrato_id] = {
-        mode: 'none',
+        mode: isParcialNf ? 'parcial' : 'none',
         quantidade: item.quantidade_recebida,
         motivoRecusa: '',
         observacao: '',
@@ -313,6 +314,8 @@ export function EtapaRecebimento({
                   size="sm"
                   variant={isTotal ? 'default' : 'outline'}
                   className={`h-7 px-2 text-xs ${isTotal ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                  disabled={item.quantidade_recebida < item.quantidade_esperada}
+                  title={item.quantidade_recebida < item.quantidade_esperada ? 'NF tem menos unidades que a OF — use Parcial' : undefined}
                   onClick={() => setItemState(item.item_contrato_id, { mode: 'total', quantidade: item.quantidade_esperada })}
                 >
                   <Check className="h-3 w-3 mr-1" /> Total
