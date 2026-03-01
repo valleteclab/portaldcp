@@ -176,7 +176,10 @@ export class OrdemFornecimento {
   observacoes_envio: string | null;
 
   @Column({ type: 'varchar', nullable: true })
-  caminho_pdf: string | null; // Caminho do PDF gerado
+  caminho_pdf: string | null; // Caminho do PDF gerado (assinado digitalmente)
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  codigo_validacao: string | null; // Código para validar autenticidade do documento
 
   // ============================================================================
   // RESPONSÁVEIS

@@ -72,6 +72,9 @@ interface OrdemFornecimento {
   local_entrega?: string | null;
   prazo_entrega_dias?: number;
   observacoes?: string;
+  caminho_pdf?: string | null;
+  codigo_validacao?: string | null;
+  contrato_id?: string;
   contrato?: {
     numero_contrato: string;
   };
@@ -324,6 +327,34 @@ function OrdensList() {
   };
 
   // Ações
+  const handleEnviarAoFornecedor = async (ordem: OrdemFornecimento) => {
+    if (!confirm(`Enviar PDF assinado da ordem ${ordem.numero} ao fornecedor por email e WhatsApp?`)) return;
+    setProcessando(true);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/${ordem.id}/enviar-ao-fornecedor`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const n = data?.notificacoes_fornecedor || {};
+        const partes: string[] = [];
+        if (n.email) partes.push('Email enviado');
+        if (n.notificacao) partes.push('Notificação criada');
+        if (n.whatsapp) partes.push('WhatsApp enviado');
+        alert(partes.length ? `Enviado: ${partes.join(' • ')}` : 'Enviado ao fornecedor.');
+      } else {
+        const err = await response.json();
+        alert(`Erro: ${err.message || 'Erro ao enviar'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao enviar ao fornecedor');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
   const handleEnviar = async () => {
     if (!ordemSelecionada) return;
     
@@ -569,11 +600,14 @@ function OrdensList() {
       verHistorico: true,
       enviar: false,
       reenviar: false,
+      enviarAoFornecedor: false,
       editar: false,
       registrarRecebimento: false,
       excluir: false,
       cancelar: false,
     };
+
+    acoes.enviarAoFornecedor = !!(ordem.caminho_pdf && ordem.fornecedor);
 
     switch (ordem.status) {
       case 'RASCUNHO':
@@ -787,6 +821,20 @@ function OrdensList() {
                               title="Reenviar ao fornecedor"
                             >
                               <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          )}
+                          
+                          {/* Enviar ao fornecedor (PDF assinado - email, WhatsApp, notificação) */}
+                          {acoes.enviarAoFornecedor && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-indigo-600 hover:text-indigo-700"
+                              onClick={() => handleEnviarAoFornecedor(ordem)}
+                              disabled={processando}
+                              title="Enviar PDF assinado ao fornecedor (email, WhatsApp)"
+                            >
+                              <Send className="h-4 w-4" />
                             </Button>
                           )}
                           

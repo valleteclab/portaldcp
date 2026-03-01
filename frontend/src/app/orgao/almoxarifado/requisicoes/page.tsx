@@ -599,10 +599,11 @@ function RequisicoesList() {
     if (!requisicaoSelecionada) return;
     
     const isOS = requisicaoSelecionada.tipo === 'ORDEM_SERVICO';
+    const geraOF = requisicaoSelecionada.contrato_id && !isOS;
     const reqId = requisicaoSelecionada.id;
 
     const body: Record<string, unknown> = {};
-    if (isOS) {
+    if (isOS || geraOF) {
       body.enviar_ao_fornecedor = enviarAoFornecedor;
       if (emailFornecedor.trim()) body.email_fornecedor = emailFornecedor.trim();
       if (telefoneFornecedor.trim()) body.telefone_fornecedor = telefoneFornecedor.trim();
@@ -639,6 +640,21 @@ function RequisicoesList() {
             partes.push('Você pode enviar ao fornecedor depois usando o botão "Enviar ao fornecedor" nas ações.');
           } else {
             partes.push('O fornecedor receberá por email, notificação e WhatsApp (se configurado).');
+          }
+          alert(partes.join('\n\n'));
+        } else if (geraOF) {
+          const data = await response.json();
+          const n = data?.notificacoes_fornecedor;
+          const partes: string[] = ['Requisição autorizada! Ordem de Fornecimento gerada e assinada digitalmente.'];
+          if (enviarAoFornecedor && n) {
+            const envios: string[] = [];
+            if (n.email) envios.push('Email enviado');
+            else envios.push('Email não enviado');
+            if (n.notificacao) envios.push('Notificação criada');
+            if (n.whatsapp) envios.push('WhatsApp enviado');
+            partes.push(`Fornecedor: ${envios.join(' • ')}`);
+          } else if (!enviarAoFornecedor) {
+            partes.push('Você pode enviar ao fornecedor depois na tela de Ordens.');
           }
           alert(partes.join('\n\n'));
         } else {
@@ -1426,6 +1442,58 @@ function RequisicoesList() {
                       className="rounded border-gray-300"
                     />
                     <label htmlFor="enviar-fornecedor" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Enviar notificação ao fornecedor agora (email, notificação e WhatsApp)
+                    </label>
+                  </div>
+                  {requisicaoSelecionada.contrato?.fornecedor && enviarAoFornecedor && (
+                    <div className="space-y-3 p-4 rounded-lg border border-gray-200 bg-gray-50">
+                      <p className="text-sm font-medium text-gray-700">Contato do fornecedor para notificação (pode alterar)</p>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={emailFornecedor}
+                          onChange={(e) => setEmailFornecedor(e.target.value)}
+                          placeholder="email@fornecedor.com"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Telefone (WhatsApp)</label>
+                        <input
+                          type="tel"
+                          value={telefoneFornecedor}
+                          onChange={(e) => setTelefoneFornecedor(e.target.value)}
+                          placeholder="(00) 00000-0000"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : requisicaoSelecionada.contrato_id ? (
+                <>
+                  <div className="bg-blue-50 p-4 rounded-lg text-sm border border-blue-200">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-blue-800">Ordem de Fornecimento</p>
+                        <p className="text-blue-700 mt-1">
+                          Ao autorizar, será gerada uma Ordem de Fornecimento assinada digitalmente.
+                          O <strong>PDF será gerado automaticamente</strong>. Você pode escolher se deseja enviar ao fornecedor agora ou depois.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 bg-gray-50">
+                    <input
+                      type="checkbox"
+                      id="enviar-fornecedor-of"
+                      checked={enviarAoFornecedor}
+                      onChange={(e) => setEnviarAoFornecedor(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    <label htmlFor="enviar-fornecedor-of" className="text-sm font-medium text-gray-700 cursor-pointer">
                       Enviar notificação ao fornecedor agora (email, notificação e WhatsApp)
                     </label>
                   </div>

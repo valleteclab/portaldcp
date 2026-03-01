@@ -14,6 +14,7 @@ import {
   ParseUUIDPipe,
   Logger,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -565,6 +566,20 @@ export class AlmoxarifadoController {
       user.sub,
       user.email || 'Usuário',
     );
+  }
+
+  @Post('ordens/:id/enviar-ao-fornecedor')
+  async enviarOrdemAoFornecedor(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe({ whitelist: true })) dto?: { email_fornecedor?: string; telefone_fornecedor?: string; tipo?: 'email' | 'whatsapp' },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem não pertence ao seu órgão');
+    }
+    return this.ordemService.enviarAoFornecedor(id, dto);
   }
 
   @Post('ordens/:id/reenviar')

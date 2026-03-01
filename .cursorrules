@@ -11,6 +11,25 @@
 - [X] Fix: app.module migrations path dist/migrations → dist/src/migrations (NestJS compila para dist/src/)
 - [X] Script scripts/reparo-quantidade-entregue.ts + npm run reparo:quantidade-entregue para reparo manual
 
+## Tarefa Concluída: Assinatura digital e envio ao fornecedor para OF (2026-03-01)
+
+- [X] EntidadeTipo.ORDEM_FORNECIMENTO, TipoNotificacao.ORDEM_FORNECIMENTO_APROVADA
+- [X] OrdemFornecimento.codigo_validacao + migration
+- [X] gerarPdfOrdemFornecimento com assinaturas opcionais (quadro assinaturas eletrônicas)
+- [X] Fluxo autorizar: assinatura + PDF assinado + notificarFornecedorOF (email, WhatsApp, notificação)
+- [X] Checkbox enviar_ao_fornecedor e envio_automatico_os no modal autorizar (reutilizado para OF)
+- [X] POST ordens/:id/enviar-ao-fornecedor para reenvio
+- [X] enviarOrdem/reenviarOrdem usam caminho_pdf (assinado) quando disponível
+
+## Tarefa Concluída: PDF Ordem de Fornecimento no modelo da Ordem de Serviço (2026-03-01)
+
+- [X] GeradorPdfService.gerarPdfOrdemFornecimento: mesmo layout visual da OS
+- [X] Cabeçalho: logo + dados do órgão, título OF/OS, número
+- [X] Campos informativos: Número, Data Emissão, Órgão, Contrato, Fornecedor, Setor, Local, Solicitante
+- [X] Objeto/Justificativa, tabela de itens (Descrição, Unidade, Qtd., Valor Unit., Total)
+- [X] Rodapé: texto sobre NF + espaço para assinatura
+- [X] PdfOrdemService delegando para GeradorPdfService
+
 ## Tarefa Concluída: Cancelar recebimento com aceite parcial - restaurar empenhado (2026-03-01)
 
 - [X] Ao estornar/cancelar recebimento que teve aceite parcial: restaurar quantidade_empenhada

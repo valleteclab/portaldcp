@@ -3,6 +3,7 @@ import { Orgao } from '../../orgaos/entities/orgao.entity';
 
 export enum EntidadeTipo {
   ORDEM_SERVICO = 'ORDEM_SERVICO',
+  ORDEM_FORNECIMENTO = 'ORDEM_FORNECIMENTO',
   MEDICAO = 'MEDICAO',
   DOCUMENTO_AVULSO = 'DOCUMENTO_AVULSO',
 }

@@ -202,6 +202,82 @@ export class RequisicaoService {
     return resultado;
   }
 
+  /**
+   * Envia email (com PDF), notificação no sistema e WhatsApp ao fornecedor da OF.
+   * Mesmo modelo da notificarFornecedorOS.
+   */
+  private async notificarFornecedorOF(
+    ordem: OrdemFornecimento & { fornecedor?: { id: string; razao_social?: string; email?: string; representante_telefone?: string; telefone?: string }; contrato_id?: string },
+    pdfPath: string,
+    urlBase: string,
+    overrides?: { email?: string; telefone?: string },
+  ): Promise<{ email: boolean; notificacao: boolean; whatsapp: boolean }> {
+    const resultado = { email: false, notificacao: false, whatsapp: false };
+    const fornecedor = ordem.fornecedor;
+    if (!fornecedor) return resultado;
+
+    const emailFornecedor = (overrides?.email?.trim() || fornecedor.email || '').trim();
+    const telefoneFornecedor = (overrides?.telefone?.trim() || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
+
+    if (emailFornecedor) {
+      try {
+        const pdfBuffer = fs.readFileSync(pdfPath);
+        const nomeArquivo = `OF_${ordem.numero.replace(/\//g, '_')}_assinada.pdf`;
+        await this.emailService.enviar(ordem.orgao_id, {
+          to: emailFornecedor,
+          subject: `Ordem de Fornecimento ${ordem.numero} - ${fornecedor.razao_social}`,
+          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero} assinada digitalmente.`,
+          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong> assinada digitalmente.</p>`,
+          attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
+        });
+        resultado.email = true;
+        this.logger.log(`Email enviado ao fornecedor ${fornecedor.razao_social} para OF ${ordem.numero}`);
+      } catch (err: any) {
+        this.logger.warn(`Erro ao enviar email para fornecedor OF ${ordem.numero}: ${err.message}`);
+      }
+    }
+
+    try {
+      await this.notificacoesService.criar({
+        orgao_id: ordem.orgao_id,
+        usuario_id: fornecedor.id,
+        usuario_email: emailFornecedor || undefined,
+        usuario_telefone: telefoneFornecedor || undefined,
+        tipo: TipoNotificacao.ORDEM_FORNECIMENTO_APROVADA,
+        titulo: `Ordem de Fornecimento ${ordem.numero} aprovada`,
+        mensagem: `A Ordem de Fornecimento ${ordem.numero} foi aprovada e assinada digitalmente. Verifique seu email para o documento em anexo.`,
+        entidade_tipo: 'ordem_fornecimento',
+        entidade_id: ordem.id,
+        link: `/fornecedor/contratos/${ordem.contrato_id}`,
+        enviar_email: false,
+      });
+      resultado.notificacao = true;
+    } catch (err: any) {
+      this.logger.warn(`Erro ao criar notificação para fornecedor OF ${ordem.numero}: ${err.message}`);
+    }
+
+    if (telefoneFornecedor && telefoneFornecedor.length >= 10) {
+      try {
+        const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
+        if (configurado && ordem.contrato_id) {
+          const linkPortal = `${urlBase}/fornecedor/contratos/${ordem.contrato_id}`;
+          const mensagem = `Ordem de Fornecimento ${ordem.numero} aprovada e assinada digitalmente.\n\nFornecedor: ${fornecedor.razao_social}\n\nO documento também foi enviado por email. Use o botão abaixo para acessar o portal.`;
+          const enviado = await this.whatsappService.enviarComBotao(ordem.orgao_id, {
+            to: telefoneFornecedor,
+            mensagem,
+            botoes: [{ id: '1', type: 'URL', label: 'Ver no Portal do Fornecedor', url: linkPortal }],
+          });
+          if (enviado) resultado.whatsapp = true;
+          this.logger.log(`WhatsApp enviado ao fornecedor ${fornecedor.razao_social} para OF ${ordem.numero}`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Erro ao enviar WhatsApp para fornecedor OF ${ordem.numero}: ${err.message}`);
+      }
+    }
+
+    return resultado;
+  }
+
   // ============================================================================
   // CRIAR REQUISIÇÃO
   // ============================================================================
@@ -857,6 +933,8 @@ export class RequisicaoService {
       this.logger.log(`Requisição ${requisicao.numero} autorizada por ${autorizadorNome}`);
 
       // Gera ordem de fornecimento automaticamente após aprovação (exceto para ORDEM_SERVICO)
+      // Mesmo modelo da OS: assinatura digital + PDF + envio ao fornecedor
+      const notificacoesFornecedorOF = { email: false, notificacao: false, whatsapp: false };
       try {
         if (requisicao.contrato_id && (requisicao.tipo as TipoRequisicao) !== TipoRequisicao.ORDEM_SERVICO) {
           const ordemGerada = await this.ordemFornecimentoService.gerarOrdem(
@@ -871,6 +949,77 @@ export class RequisicaoService {
             autorizadorNome,
           );
           this.logger.log(`Ordem de fornecimento ${ordemGerada.numero} gerada automaticamente para requisição ${requisicao.numero}`);
+
+          // Assinatura digital + PDF assinado (mesmo modelo da OS)
+          try {
+            const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+            const assinatura = await this.assinaturasService.registrarAssinatura({
+              orgao_id: requisicao.orgao_id,
+              entidade_tipo: EntidadeTipo.ORDEM_FORNECIMENTO,
+              entidade_id: ordemGerada.id,
+              papel_assinante: PapelAssinante.GESTOR,
+              usuario_id: autorizadorId,
+              usuario_nome: autorizadorNome,
+              usuario_cpf_cnpj: '',
+              usuario_telefone: undefined,
+              ip_address: undefined,
+              user_agent: undefined,
+            });
+
+            const ordemParaPdf = await this.ordemFornecimentoRepository.findOne({
+              where: { id: ordemGerada.id },
+              relations: ['orgao', 'contrato', 'contrato.fornecedor', 'requisicao'],
+            });
+            if (ordemParaPdf) {
+              const dadosOrdem = {
+                numero: ordemParaPdf.numero,
+                tipo: ordemParaPdf.tipo,
+                data_emissao: ordemParaPdf.data_emissao,
+                descricao: ordemParaPdf.descricao,
+                local_entrega: ordemParaPdf.local_entrega,
+                valor_total: Number(ordemParaPdf.valor_total),
+                itens: ordemParaPdf.itens || [],
+                orgao: ordemParaPdf.orgao ? { nome: ordemParaPdf.orgao.nome, logo_url: ordemParaPdf.orgao.logo_url, logradouro: ordemParaPdf.orgao.logradouro, bairro: ordemParaPdf.orgao.bairro, cidade: ordemParaPdf.orgao.cidade, uf: ordemParaPdf.orgao.uf } : undefined,
+                contrato: ordemParaPdf.contrato ? { numero_contrato: ordemParaPdf.contrato.numero_contrato, objeto: ordemParaPdf.contrato.objeto, fornecedor: ordemParaPdf.contrato.fornecedor ? { razao_social: ordemParaPdf.contrato.fornecedor.razao_social, cpf_cnpj: ordemParaPdf.contrato.fornecedor.cpf_cnpj } : undefined } : undefined,
+                requisicao: ordemParaPdf.requisicao ? { usuario_solicitante_nome: ordemParaPdf.requisicao.usuario_solicitante_nome, setor_solicitante: ordemParaPdf.requisicao.setor_solicitante, prioridade: ordemParaPdf.requisicao.prioridade } : undefined,
+                usuario_emitente_nome: ordemParaPdf.usuario_emitente_nome,
+              };
+
+              const uploadPath = require('path').join(process.cwd(), 'uploads', 'ordens');
+              const pdfPath = await this.geradorPdfService.gerarPdfOrdemFornecimento(
+                dadosOrdem,
+                uploadPath,
+                { assinaturas: [assinatura], urlValidacaoBase: `${urlBase}/validar-documento` },
+              );
+
+              ordemParaPdf.caminho_pdf = pdfPath;
+              ordemParaPdf.codigo_validacao = assinatura.codigo_validacao;
+              await this.ordemFornecimentoRepository.save(ordemParaPdf);
+
+              this.logger.log(`PDF assinado gerado para OF ${ordemParaPdf.numero} - código: ${assinatura.codigo_validacao}`);
+
+              if (dto.enviar_ao_fornecedor === true || requisicao.orgao?.envio_automatico_os === true) {
+                const ordemComFornecedor = await this.ordemFornecimentoRepository.findOne({
+                  where: { id: ordemParaPdf.id },
+                  relations: ['fornecedor'],
+                });
+                if (ordemComFornecedor) {
+                  const res = await this.notificarFornecedorOF(ordemComFornecedor, pdfPath, urlBase, {
+                    email: dto.email_fornecedor,
+                    telefone: dto.telefone_fornecedor,
+                  });
+                  Object.assign(notificacoesFornecedorOF, res);
+                  // Marca ordem como ENVIADA (documento foi enviado ao fornecedor)
+                  ordemParaPdf.status = StatusOrdemFornecimento.ENVIADA;
+                  ordemParaPdf.data_envio = new Date();
+                  ordemParaPdf.email_fornecedor = dto.email_fornecedor || ordemComFornecedor.fornecedor?.email || null;
+                  await this.ordemFornecimentoRepository.save(ordemParaPdf);
+                }
+              }
+            }
+          } catch (assinaturaError) {
+            this.logger.warn(`Erro ao gerar assinatura/PDF da OF ${ordemGerada.numero}: ${assinaturaError.message}`);
+          }
         }
       } catch (ordemError) {
         // Não falha a operação se a ordem não puder ser gerada
@@ -896,7 +1045,11 @@ export class RequisicaoService {
         this.logger.warn(`Erro ao enviar notificação de aprovação: ${notifError.message}`);
       }
 
-      return this.findOne(id);
+      const requisicaoAtualizada = await this.findOne(id);
+      if (requisicao.contrato_id && (requisicao.tipo as TipoRequisicao) !== TipoRequisicao.ORDEM_SERVICO) {
+        return { requisicao: requisicaoAtualizada, notificacoes_fornecedor: notificacoesFornecedorOF } as any;
+      }
+      return requisicaoAtualizada;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Erro ao autorizar requisição ${id}: ${error.message}`);

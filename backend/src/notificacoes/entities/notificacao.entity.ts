@@ -46,6 +46,9 @@ export enum TipoNotificacao {
 
   // Ordem de Serviço (OS assinada)
   ORDEM_SERVICO_APROVADA = 'ORDEM_SERVICO_APROVADA',
+
+  // Ordem de Fornecimento (OF assinada)
+  ORDEM_FORNECIMENTO_APROVADA = 'ORDEM_FORNECIMENTO_APROVADA',
   
   // Recebimentos
   RECEBIMENTO_PENDENTE = 'RECEBIMENTO_PENDENTE',

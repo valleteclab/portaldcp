@@ -231,6 +231,233 @@ export class GeradorPdfService {
   }
 
   /**
+   * Gera o PDF da Ordem de Fornecimento (mesmo modelo visual da Ordem de Serviço)
+   * Usado para ordens de materiais geradas a partir de requisições autorizadas.
+   * Quando assinaturas e urlValidacaoBase são fornecidos, inclui quadro de assinaturas eletrônicas.
+   */
+  async gerarPdfOrdemFornecimento(
+    ordem: {
+      numero: string;
+      tipo?: string;
+      data_emissao: Date;
+      descricao?: string | null;
+      local_entrega?: string | null;
+      valor_total: number;
+      itens: Array<{
+        numero_item?: number;
+        descricao: string;
+        unidade_medida?: string;
+        quantidade: number;
+        valor_unitario: number;
+        valor_total: number;
+      }>;
+      orgao?: { nome?: string; logo_url?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cnpj?: string };
+      contrato?: { numero_contrato?: string; numero_processo?: string; objeto?: string; fornecedor?: { razao_social?: string; cpf_cnpj?: string } };
+      requisicao?: { usuario_solicitante_nome?: string; setor_solicitante?: string; prioridade?: string };
+      usuario_emitente_nome?: string;
+    },
+    outputDir?: string,
+    opcoes?: { assinaturas?: AssinaturaDigital[]; urlValidacaoBase?: string },
+  ): Promise<string> {
+    const dir = outputDir || join(this.uploadDir, 'documentos_assinados');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    const filename = `OF_${ordem.numero.replace(/\//g, '_')}_${Date.now()}.pdf`;
+    const filePath = join(dir, filename);
+
+    return new Promise(async (resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const writeStream = createWriteStream(filePath);
+        doc.pipe(writeStream);
+
+        const orgao = ordem.orgao || {};
+        const pageW = doc.page.width;
+        const marginL = 50;
+        const contentW = pageW - marginL * 2;
+
+        // ── CABEÇALHO: logo + dados do órgão (mesmo modelo da OS) ─────────────
+        let logoWidth = 0;
+        const logoPath = orgao.logo_url
+          ? join(this.uploadDir, orgao.logo_url.replace(/^\/api\/uploads\//, ''))
+          : null;
+        if (logoPath && existsSync(logoPath)) {
+          try {
+            doc.image(logoPath, marginL, 40, { width: 60, height: 60 });
+            logoWidth = 70;
+          } catch (e) {
+            this.logger.warn(`Erro ao incluir logo no PDF: ${(e as Error).message}`);
+          }
+        }
+
+        const textX = marginL + logoWidth;
+        const textW = contentW - logoWidth;
+        let lineY = 40;
+
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#111827')
+          .text((orgao.nome || 'ÓRGÃO').toUpperCase(), textX, lineY, { width: textW });
+        lineY += 17;
+
+        if (orgao.logradouro && orgao.logradouro !== 'A definir') {
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(orgao.logradouro.toUpperCase(), textX, lineY, { width: textW });
+          lineY += 13;
+        }
+        if (orgao.bairro && orgao.bairro !== 'Centro') {
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(orgao.bairro.toUpperCase(), textX, lineY, { width: textW });
+          lineY += 13;
+        }
+        if (orgao.cidade) {
+          const cidadeUF = `${orgao.cidade.toUpperCase()} - ${(orgao.uf || '').toUpperCase()}`;
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(cidadeUF, textX, lineY, { width: textW });
+          lineY += 13;
+        }
+
+        const headerBottom = Math.max(lineY + 5, 110);
+        doc.y = headerBottom;
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(1).stroke('#374151');
+        doc.moveDown(0.5);
+
+        // ── TÍTULO + NÚMERO ──────────────────────────────────────────────────
+        const titulo = ordem.tipo === 'SERVICO' ? 'ORDEM DE SERVIÇO' : 'ORDEM DE FORNECIMENTO';
+        const numOF = ordem.numero || '';
+        const tituloY = doc.y;
+        doc.fontSize(14).font('Helvetica-Bold').fillColor('#111827')
+          .text(titulo, marginL, tituloY, { width: contentW - 80, align: 'center' });
+        doc.fontSize(12).font('Helvetica-Bold').fillColor('#1e40af')
+          .text(numOF, pageW - marginL - 80, tituloY, { width: 80, align: 'right' });
+
+        doc.moveDown(0.3);
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(1).stroke('#374151');
+        doc.moveDown(0.6);
+
+        // ── CAMPOS INFORMATIVOS ─────────────────────────────────────────────
+        const labelW = 100;
+        const valueW = contentW / 2 - labelW - 10;
+        const col2X = marginL + contentW / 2;
+
+        const campo = (label: string, valor: string, x: number, y: number, w: number) => {
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151').text(label, x, y, { width: labelW, continued: false });
+          doc.fontSize(9).font('Helvetica').fillColor('#111827').text(valor || '-', x + labelW, y, { width: w });
+        };
+
+        let rowY = doc.y;
+
+        campo('Número:', numOF, marginL, rowY, valueW);
+        campo('Data Emissão:', ordem.data_emissao ? new Date(ordem.data_emissao).toLocaleDateString('pt-BR') : '-', col2X, rowY, valueW);
+        rowY += 16;
+
+        campo('Órgão:', (orgao.nome || '-').toUpperCase(), marginL, rowY, contentW - labelW);
+        rowY += 16;
+
+        if (ordem.contrato?.numero_contrato) {
+          campo('Contrato:', ordem.contrato.numero_contrato, marginL, rowY, valueW);
+          if (ordem.contrato?.fornecedor?.cpf_cnpj) {
+            campo('CNPJ/CPF:', ordem.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
+          }
+          rowY += 16;
+        }
+
+        if (ordem.contrato?.fornecedor?.razao_social) {
+          campo('Fornecedor:', (ordem.contrato.fornecedor.razao_social || '-').toUpperCase(), marginL, rowY, contentW - labelW);
+          rowY += 16;
+        }
+
+        if (ordem.requisicao?.setor_solicitante) {
+          campo('Setor:', ordem.requisicao.setor_solicitante, marginL, rowY, valueW);
+          if (ordem.requisicao?.prioridade) {
+            campo('Prioridade:', ordem.requisicao.prioridade, col2X, rowY, valueW);
+          }
+          rowY += 16;
+        }
+
+        if (ordem.local_entrega) {
+          campo('Local de Entrega:', ordem.local_entrega, marginL, rowY, contentW - labelW);
+          rowY += 16;
+        }
+
+        if (ordem.requisicao?.usuario_solicitante_nome) {
+          campo('Solicitante:', ordem.requisicao.usuario_solicitante_nome, marginL, rowY, contentW - labelW);
+          rowY += 16;
+        }
+
+        doc.y = rowY + 4;
+        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
+        doc.moveDown(0.6);
+
+        // ── OBJETO / JUSTIFICATIVA ───────────────────────────────────────────
+        if (ordem.descricao || ordem.contrato?.objeto) {
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151')
+            .text('Objeto / Justificativa:', marginL, doc.y, { width: contentW });
+          doc.moveDown(0.2);
+          doc.fontSize(9).font('Helvetica').fillColor('#111827')
+            .text(ordem.descricao || ordem.contrato?.objeto || 'Sem descrição', marginL, doc.y, { width: contentW, align: 'justify' });
+          doc.moveDown(0.5);
+          doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
+          doc.moveDown(0.6);
+        }
+
+        // ── TABELA DE ITENS ──────────────────────────────────────────────────
+        const itensParaRender = (ordem.itens || []).map((item) => ({
+          quantidade_solicitada: Number(item.quantidade),
+          itemCronograma: {
+            descricao: item.descricao || '-',
+            unidade_medida: item.unidade_medida || 'UN',
+            valor_unitario: Number(item.valor_unitario),
+            quantidade_meses: undefined,
+            valor_mensal: undefined,
+          },
+          total_override: Number(item.valor_total),
+        }));
+
+        if (itensParaRender.length > 0) {
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
+            .text('Itens da Ordem de Fornecimento:', marginL, doc.y, { width: contentW });
+          doc.moveDown(0.3);
+          this.escreverTabelaItensOS(doc, itensParaRender);
+        }
+
+        // ── RODAPÉ: assinaturas eletrônicas ou espaço para assinatura manual ───
+        if (opcoes?.assinaturas?.length && opcoes?.urlValidacaoBase) {
+          if (doc.y > doc.page.height - 200) doc.addPage();
+          await this.escreverQuadroAssinaturas(doc, opcoes.assinaturas, opcoes.urlValidacaoBase);
+        } else {
+          if (doc.y > doc.page.height - 120) doc.addPage();
+          doc.moveDown(1);
+          doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.8).stroke('#6b7280');
+          doc.moveDown(0.5);
+
+          doc.fontSize(9).font('Helvetica').fillColor('#374151')
+            .text(
+              'A NOTA FISCAL SÓ TERÁ VALIDADE NO LANÇAMENTO DO EMPENHO, SE ACOMPANHADA DESTA ORDEM DEVIDAMENTE ASSINADA PELO RESPONSÁVEL.',
+              marginL, doc.y, { width: contentW, align: 'center' }
+            );
+          doc.moveDown(1);
+
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827').text('Assinatura(s):');
+          doc.moveDown(0.5);
+          if (ordem.usuario_emitente_nome) {
+            doc.fontSize(8).font('Helvetica').fillColor('#374151')
+              .text(`Emitente: ${ordem.usuario_emitente_nome}`);
+          }
+          doc.moveDown(1.5);
+          doc.moveTo(marginL, doc.y).lineTo(marginL + 200, doc.y).lineWidth(0.5).stroke('#9ca3af');
+          doc.fontSize(7).font('Helvetica').fillColor('#6b7280')
+            .text('Responsável', marginL, doc.y + 2, { width: 200 });
+        }
+
+        doc.end();
+        writeStream.on('finish', () => resolve(filePath));
+        writeStream.on('error', reject);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  /**
    * Gera o PDF do Boletim de Medição com as assinaturas
    */
   async gerarPdfMedicao(dadosMedicao: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<string> {

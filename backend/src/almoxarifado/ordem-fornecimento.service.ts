@@ -208,19 +208,8 @@ export class OrdemFornecimentoService {
         usuarioTipo: 'orgao',
       });
 
-      // Gera PDF automaticamente
-      try {
-        const caminhoPdf = await this.pdfOrdemService.gerarPdf(ordemSalva.id);
-        
-        // Atualiza ordem com caminho do PDF
-        ordemSalva.caminho_pdf = caminhoPdf;
-        await this.ordemRepository.save(ordemSalva);
-        
-        this.logger.log(`PDF da ordem ${numero} gerado: ${caminhoPdf}`);
-      } catch (pdfError) {
-        // Não falha se PDF não puder ser gerado
-        this.logger.warn(`Erro ao gerar PDF da ordem: ${pdfError.message}`);
-      }
+      // PDF com assinatura digital é gerado pelo requisicao.service após autorização
+      // (mesmo modelo da Ordem de Serviço)
 
       return this.findOne(ordemSalva.id);
     } catch (error) {
@@ -271,9 +260,11 @@ export class OrdemFornecimentoService {
       usuarioTipo: 'orgao',
     });
 
+    const pdfPath = ordem.caminho_pdf && fs.existsSync(ordem.caminho_pdf)
+      ? ordem.caminho_pdf
+      : await this.pdfOrdemService.gerarPdf(id);
     if (ordemSalva.email_fornecedor) {
       try {
-        const pdfPath = await this.pdfOrdemService.gerarPdf(id);
         const pdfBuffer = fs.readFileSync(pdfPath);
         const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
         await this.emailService.enviar(ordem.orgao_id, {
@@ -339,6 +330,38 @@ export class OrdemFornecimentoService {
 
     const ordemSalva = await this.ordemRepository.save(ordem);
 
+    // Reenvia PDF por email/WhatsApp (usa PDF assinado se disponível)
+    const pdfPath = ordem.caminho_pdf && fs.existsSync(ordem.caminho_pdf)
+      ? ordem.caminho_pdf
+      : await this.pdfOrdemService.gerarPdf(id);
+    if (ordemSalva.email_fornecedor) {
+      try {
+        const pdfBuffer = fs.readFileSync(pdfPath);
+        const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
+        await this.emailService.enviar(ordem.orgao_id, {
+          to: ordemSalva.email_fornecedor,
+          subject: `Ordem de Fornecimento ${ordem.numero} - ${ordem.fornecedor?.razao_social || ''}`,
+          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero}.\n\n${observacoes ? `Observações: ${observacoes}` : ''}`,
+          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong>.</p>${observacoes ? `<p><em>Observações: ${observacoes}</em></p>` : ''}`,
+          attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
+        });
+      } catch (err: any) {
+        this.logger.warn(`Email da ordem nao enviado: ${err.message}`);
+      }
+    }
+    const telefoneFornecedor = ordem.fornecedor?.representante_telefone || ordem.fornecedor?.telefone;
+    if (telefoneFornecedor) {
+      try {
+        const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
+        if (configurado) {
+          const mensagem = `Ordem de Fornecimento ${ordem.numero} reenviada.\n\nFornecedor: ${ordem.fornecedor?.razao_social || ''}\n\nVerifique seu email para o documento em anexo.${observacoes ? `\n\nObservacoes: ${observacoes}` : ''}`;
+          await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
+        }
+      } catch (err: any) {
+        this.logger.warn(`WhatsApp da ordem nao enviado: ${err.message}`);
+      }
+    }
+
     // Registra no histórico
     await this.registrarHistorico({
       ordemId: id,
@@ -349,36 +372,6 @@ export class OrdemFornecimentoService {
       usuarioNome,
       usuarioTipo: 'orgao',
     });
-
-    if (ordemSalva.email_fornecedor) {
-      try {
-        const pdfPath = await this.pdfOrdemService.gerarPdf(id);
-        const pdfBuffer = fs.readFileSync(pdfPath);
-        const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
-        await this.emailService.enviar(ordem.orgao_id, {
-          to: ordemSalva.email_fornecedor,
-          subject: `[Reenvio] Ordem de Fornecimento ${ordem.numero} - ${ordem.fornecedor?.razao_social || ''}`,
-          text: `Reenvio da Ordem de Fornecimento ${ordem.numero}.\n\n${observacoes ? `Observações: ${observacoes}` : ''}`,
-          html: `<p>Reenvio da Ordem de Fornecimento <strong>${ordem.numero}</strong>.</p>${observacoes ? `<p><em>Observações: ${observacoes}</em></p>` : ''}`,
-          attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
-        });
-      } catch (err: any) {
-        this.logger.warn(`Email da ordem nao reenviado: ${err.message}`);
-      }
-    }
-
-    const telefoneFornecedor = ordem.fornecedor?.representante_telefone || ordem.fornecedor?.telefone;
-    if (telefoneFornecedor) {
-      try {
-        const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
-        if (configurado) {
-          const mensagem = `[Reenvio] Ordem de Fornecimento ${ordem.numero}.\n\nFornecedor: ${ordem.fornecedor?.razao_social || ''}\n\nVerifique seu email para o documento em anexo.${observacoes ? `\n\nObservacoes: ${observacoes}` : ''}`;
-          await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
-        }
-      } catch (err: any) {
-        this.logger.warn(`WhatsApp da ordem nao reenviado: ${err.message}`);
-      }
-    }
 
     this.logger.log(`Ordem ${ordem.numero} reenviada ao fornecedor`);
 
@@ -1019,6 +1012,92 @@ export class OrdemFornecimentoService {
     );
 
     return this.findOne(ordemId);
+  }
+
+  /**
+   * Envia ou reenvia notificação (email, notificação, WhatsApp) ao fornecedor da OF.
+   * Mesmo modelo da OS. Requer PDF assinado.
+   */
+  async enviarAoFornecedor(
+    ordemId: string,
+    dto?: { email_fornecedor?: string; telefone_fornecedor?: string; tipo?: 'email' | 'whatsapp' },
+  ): Promise<{ notificacoes_fornecedor: { email: boolean; notificacao: boolean; whatsapp: boolean } }> {
+    const ordem = await this.findOne(ordemId);
+    if (!ordem.caminho_pdf) {
+      throw new BadRequestException(
+        'PDF assinado não disponível. A ordem precisa ter sido assinada digitalmente na aprovação.',
+      );
+    }
+    if (!fs.existsSync(ordem.caminho_pdf)) {
+      throw new BadRequestException('Arquivo PDF não encontrado no servidor.');
+    }
+
+    const resultado = { email: false, notificacao: false, whatsapp: false };
+    const fornecedor = ordem.fornecedor;
+    if (!fornecedor) {
+      return { notificacoes_fornecedor: resultado };
+    }
+
+    const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+    const emailFornecedor = (dto?.email_fornecedor?.trim() || fornecedor.email || '').trim();
+    const telefoneFornecedor = (dto?.telefone_fornecedor?.trim() || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
+    const tipo = dto?.tipo;
+
+    if ((!tipo || tipo === 'email') && emailFornecedor) {
+      try {
+        const pdfBuffer = fs.readFileSync(ordem.caminho_pdf);
+        const nomeArquivo = `OF_${ordem.numero.replace(/\//g, '_')}_assinada.pdf`;
+        await this.emailService.enviar(ordem.orgao_id, {
+          to: emailFornecedor,
+          subject: `Ordem de Fornecimento ${ordem.numero} - ${fornecedor.razao_social}`,
+          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero} assinada digitalmente.`,
+          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong> assinada digitalmente.</p>`,
+          attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
+        });
+        resultado.email = true;
+      } catch (err: any) {
+        this.logger.warn(`Erro ao enviar email para fornecedor OF ${ordem.numero}: ${err.message}`);
+      }
+    }
+
+    try {
+      await this.notificacoesService.criar({
+        orgao_id: ordem.orgao_id,
+        usuario_id: fornecedor.id,
+        usuario_email: emailFornecedor || undefined,
+        usuario_telefone: telefoneFornecedor || undefined,
+        tipo: TipoNotificacao.ORDEM_FORNECIMENTO_APROVADA,
+        titulo: `Ordem de Fornecimento ${ordem.numero} aprovada`,
+        mensagem: `A Ordem de Fornecimento ${ordem.numero} foi aprovada e assinada digitalmente. Verifique seu email para o documento em anexo.`,
+        entidade_tipo: 'ordem_fornecimento',
+        entidade_id: ordem.id,
+        link: `/fornecedor/contratos/${ordem.contrato_id}`,
+        enviar_email: false,
+      });
+      resultado.notificacao = true;
+    } catch (err: any) {
+      this.logger.warn(`Erro ao criar notificação para fornecedor OF ${ordem.numero}: ${err.message}`);
+    }
+
+    if ((!tipo || tipo === 'whatsapp') && telefoneFornecedor && telefoneFornecedor.length >= 10) {
+      try {
+        const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
+        if (configurado && ordem.contrato_id) {
+          const linkPortal = `${urlBase}/fornecedor/contratos/${ordem.contrato_id}`;
+          const mensagem = `Ordem de Fornecimento ${ordem.numero} aprovada e assinada digitalmente.\n\nFornecedor: ${fornecedor.razao_social}\n\nO documento também foi enviado por email. Use o botão abaixo para acessar o portal.`;
+          const enviado = await this.whatsappService.enviarComBotao(ordem.orgao_id, {
+            to: telefoneFornecedor,
+            mensagem,
+            botoes: [{ id: '1', type: 'URL', label: 'Ver no Portal do Fornecedor', url: linkPortal }],
+          });
+          if (enviado) resultado.whatsapp = true;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Erro ao enviar WhatsApp para fornecedor OF ${ordem.numero}: ${err.message}`);
+      }
+    }
+
+    return { notificacoes_fornecedor: resultado };
   }
 
   async findPendentesEnvio(orgaoId: string): Promise<OrdemFornecimento[]> {
