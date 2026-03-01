@@ -478,8 +478,11 @@ export default function OrdemDetalheFornecedorPage() {
         </Dialog>
       )}
 
-      {/* Upload Nota Fiscal */}
-      {(['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) || nfEnviada?.status === 'RECUSADA' || (modoSeparada && nfsEnviadas.some((n: any) => n.status === 'RECUSADA'))) && (
+      {/* Upload Nota Fiscal - incluir ATENDIDA_PARCIAL quando modo separada (1 NF aceita, falta a outra) */}
+      {(['ENVIADA', 'EM_ATENDIMENTO'].includes(ordem.status) ||
+        (modoSeparada && ordem.status === 'ATENDIDA_PARCIAL') ||
+        nfEnviada?.status === 'RECUSADA' ||
+        (modoSeparada && nfsEnviadas.some((n: any) => n.status === 'RECUSADA'))) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

@@ -317,8 +317,30 @@ function RecebimentoUnificadoContent() {
           const itensParaMapeamento = tipoNf
             ? baseItens.filter((i: any) => (i.tipo_item || 'CONSUMO') === tipoNf)
             : baseItens
+          const modoSeparadaMap = ordem?.modo_envio_nf === 'SEPARADA'
+          const tiposFaltantesMap = modoSeparadaMap
+            ? (['CONSUMO', 'PERMANENTE'] as const).filter(
+                (t) => !notasFiscais.some((n: any) => n.tipo_itens === t && n.status !== 'RECUSADA')
+              )
+            : []
 
           return (
+          <div className="space-y-4">
+            {tiposFaltantesMap.length > 0 && (
+              <Card className="border-amber-200 bg-amber-50/50">
+                <CardContent className="py-4">
+                  <p className="text-sm font-medium text-amber-800">
+                    Ainda falta anexar {tiposFaltantesMap.length === 1
+                      ? `NF ${tiposFaltantesMap[0] === 'CONSUMO' ? 'Consumo' : 'Permanente'}`
+                      : 'as 2 NFs'}
+                    . Clique em &quot;1. Nota Fiscal&quot; para adicionar.
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={() => setEtapa('nf')}>
+                    Ir para Nota Fiscal
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           <EtapaMapeamento
             mapeamento={mapeamento}
             produtosXml={notaFiscal?.produtos_xml || []}
@@ -351,6 +373,7 @@ function RecebimentoUnificadoContent() {
             }}
             loading={processing}
           />
+          </div>
           )
         })()}
 
@@ -358,15 +381,38 @@ function RecebimentoUnificadoContent() {
           const recAtivos = recebimentos.filter((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
           const recCancelados = recebimentos.filter((r: any) => r.status === 'REJEITADO' || r.status === 'ESTORNADO')
           const recExibir = recebimentoAtivo || (notaFiscal ? recAtivos.find((r: any) => r.nota_fiscal_fornecedor_id === notaFiscal?.id) : null) || recAtivos[0]
-          
+          const modoSeparada = ordem?.modo_envio_nf === 'SEPARADA'
+          const tiposFaltantes = modoSeparada
+            ? (['CONSUMO', 'PERMANENTE'] as const).filter(
+                (t) => !notasFiscais.some((n: any) => n.tipo_itens === t && n.status !== 'RECUSADA')
+              )
+            : []
+
           if (recExibir) {
             return (
-              <EtapaRecebimento
-                recebimento={recExibir}
-                ordemId={ordemId}
-                podeReceberPatrimonio={podeReceberPatrimonio}
-                onUpdate={carregarDados}
-              />
+              <div className="space-y-4">
+                {tiposFaltantes.length > 0 && (
+                  <Card className="border-amber-200 bg-amber-50/50">
+                    <CardContent className="py-4">
+                      <p className="text-sm font-medium text-amber-800">
+                        Ainda falta anexar {tiposFaltantes.length === 1
+                          ? `NF ${tiposFaltantes[0] === 'CONSUMO' ? 'Consumo' : 'Permanente'}`
+                          : 'as 2 NFs'}
+                        . Clique em &quot;1. Nota Fiscal&quot; acima para adicionar.
+                      </p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setEtapa('nf')}>
+                        Ir para Nota Fiscal
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+                <EtapaRecebimento
+                  recebimento={recExibir}
+                  ordemId={ordemId}
+                  podeReceberPatrimonio={podeReceberPatrimonio}
+                  onUpdate={carregarDados}
+                />
+              </div>
             )
           }
           

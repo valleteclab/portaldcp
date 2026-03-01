@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye } from 'lucide-react'
@@ -364,6 +364,63 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], modoSeparada = f
           </div>
         </CardContent>
       </Card>
+
+      {/* Quando modo separada e falta anexar a outra NF */}
+      {modoSeparada && (() => {
+        const tiposFaltantes = (['CONSUMO', 'PERMANENTE'] as const).filter(
+          (tipo) => !notasFiscais.some((n: any) => n.tipo_itens === tipo && n.status !== 'RECUSADA')
+        )
+        if (tiposFaltantes.length === 0) return null
+        return (
+          <Card className="md:col-span-2 border-amber-200 bg-amber-50/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base text-amber-800">
+                <AlertTriangle className="h-5 w-5" />
+                Ainda falta anexar {tiposFaltantes.length === 1
+                  ? `NF ${tiposFaltantes[0] === 'CONSUMO' ? 'Consumo' : 'Permanente'}`
+                  : 'as 2 NFs'}
+              </CardTitle>
+              <CardDescription>
+                Esta ordem tem envio separado. Anexe a(s) nota(s) fiscal(is) pendente(s) abaixo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {tiposFaltantes.map((tipo) => {
+                  const nf = notasFiscais.find((n: any) => n.tipo_itens === tipo)
+                  const temNf = nf && nf.status !== 'RECUSADA'
+                  return (
+                    <div key={tipo} className="border rounded-lg p-4 bg-white">
+                      <p className="font-medium text-sm mb-2">NF {tipo === 'CONSUMO' ? 'Consumo' : 'Permanente'}</p>
+                      {temNf ? (
+                        <p className="text-sm text-green-600">NF {nf.numero}/{nf.serie} já enviada</p>
+                      ) : (
+                        <label className="cursor-pointer inline-block">
+                          <input
+                            type="file"
+                            multiple
+                            accept=".xml,.pdf"
+                            onChange={(e) => handleUploadManual(e, tipo)}
+                            disabled={uploading}
+                            className="hidden"
+                          />
+                          <Button variant="outline" size="sm" disabled={uploading} asChild>
+                            <span>
+                              {uploading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Upload className="h-3 w-3 mr-1" />}
+                              Selecionar XML + PDF
+                            </span>
+                          </Button>
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {erroUpload && <p className="text-sm text-red-600 mt-3">{erroUpload}</p>}
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {(notaFiscal.caminho_pdf || notaFiscal.documentos_extras?.length > 0) && (
         <Card className="md:col-span-2">
