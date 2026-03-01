@@ -430,11 +430,11 @@ export class OrdemFornecimentoService {
     try {
       // Se tem entregas parciais, precisa estornar primeiro
       if (ordem.status === StatusOrdemFornecimento.ATENDIDA_PARCIAL) {
-        // Busca recebimentos aceitos
+        // Busca recebimentos aceitos (ACEITO ou ACEITO_PARCIAL - ambos têm baixa realizada)
         const recebimentos = await queryRunner.manager.find(Recebimento, {
-          where: { 
+          where: {
             ordem_fornecimento_id: id,
-            status: StatusRecebimento.ACEITO,
+            status: In([StatusRecebimento.ACEITO, StatusRecebimento.ACEITO_PARCIAL]),
           },
         });
 

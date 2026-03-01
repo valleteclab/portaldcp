@@ -1,5 +1,14 @@
 # Scratchpad
 
+## Tarefa Concluída: Inconsistência quantidade_entregue após exclusão de requisições (2026-03-01)
+
+- [X] Problema: Ao excluir requisições, recebimentos zerados mas itens_contrato.quantidade_entregue permanecia (ex: Grampeador 5)
+- [X] Causa: Recebimentos removidos sem passar pelo fluxo de estorno (ex: CASCADE, SQL direto) ou bugs em cancelarOrdem/estornar
+- [X] RecebimentoService.estornar: aceitar ACEITO_PARCIAL (antes só ACEITO)
+- [X] OrdemFornecimentoService.cancelarOrdem: incluir ACEITO_PARCIAL na busca de recebimentos a reverter
+- [X] RequisicaoService.excluir: safeguard recebimento.itens || [] e quantidade_aceita > 0
+- [X] Migration 1772200000000-ReparoQuantidadeEntregueItensContrato: recalcula quantidade_entregue a partir dos recebimentos existentes; se tabela recebimentos vazia, zera
+
 ## Tarefa Concluída: Cancelar Recebimento com Aceite Parcial (2026-02-17)
 
 - [X] Ao cancelar recebimento que teve aceite parcial (almoxarifado ou patrimônio), reverter baixa no contrato e zerar aceites

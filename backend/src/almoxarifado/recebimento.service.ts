@@ -698,7 +698,8 @@ export class RecebimentoService {
       );
     }
 
-    if (recebimento.status !== StatusRecebimento.ACEITO) {
+    if (recebimento.status !== StatusRecebimento.ACEITO &&
+        recebimento.status !== StatusRecebimento.ACEITO_PARCIAL) {
       throw new BadRequestException(
         `Recebimento não pode ser estornado. Status atual: ${recebimento.status}`
       );

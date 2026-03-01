@@ -1703,8 +1703,8 @@ export class RequisicaoService {
               recebimento.status === StatusRecebimento.ACEITO_PARCIAL) {
             
             // Estorna: libera quantidade_entregue no contrato
-            for (const itemRec of recebimento.itens) {
-              if (itemRec.item_contrato_id) {
+            for (const itemRec of recebimento.itens || []) {
+              if (itemRec.item_contrato_id && (itemRec.quantidade_aceita ?? 0) > 0) {
                 const itemContrato = await queryRunner.manager.findOne(ItemContrato, {
                   where: { id: itemRec.item_contrato_id },
                   lock: { mode: 'pessimistic_write' },
