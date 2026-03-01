@@ -139,12 +139,12 @@ export function EtapaMapeamento({
         ? itensOf.find(i => i.item_contrato_id === m.item_contrato_id)
         : null
 
-      if (prod) valorTotalNf += prod.vProd || (prod.qCom * prod.vUnCom)
+      if (prod) valorTotalNf += Number(prod.vProd || prod.qCom * prod.vUnCom) || 0
 
       if (prod && ofItem) {
         const qtdEntregue = ofItem.quantidade_entregue ?? 0
         const quantidadePendente = Math.max(0, ofItem.quantidade - qtdEntregue)
-        valorTotalOfMapeado += ofItem.valor_unitario * quantidadePendente
+        valorTotalOfMapeado += Number(ofItem.valor_unitario || 0) * quantidadePendente
 
         if (prod.qCom > quantidadePendente) {
           divergencias.push({
@@ -199,14 +199,20 @@ export function EtapaMapeamento({
       }
     }
 
-    const valorTotalOf = valorTotalOfProp ?? valorTotalOfMapeado
+    const valorTotalOf = Number(valorTotalOfProp ?? valorTotalOfMapeado) || 0
     const valorPendenteOf = valorTotalOfProp != null
-      ? Math.max(0, valorTotalOfProp - valorEntregueOf)
-      : valorTotalOfMapeado
+      ? Math.max(0, Number(valorTotalOfProp) - Number(valorEntregueOf))
+      : Number(valorTotalOfMapeado) || 0
 
     const altaSeveridade = divergencias.filter(d => d.severidade === 'alta').length
     const mediaSeveridade = divergencias.filter(d => d.severidade === 'media').length
-    const nfExcedeValor = valorTotalOfProp != null && valorTotalNf + valorEntregueOf > (valorTotalOfProp ?? 0) + 0.01
+    const round2 = (v: number) => Math.round(Number(v) * 100) / 100
+    const vNf = Number(valorTotalNf)
+    const vEntregue = Number(valorEntregueOf)
+    const vTotal = Number(valorTotalOfProp ?? 0)
+    const somaNfEntregue = round2(vNf + vEntregue)
+    const totalOf = round2(vTotal)
+    const nfExcedeValor = valorTotalOfProp != null && somaNfEntregue > totalOf + 0.01
     const temExcedenteQuantidade = divergencias.some(d => d.tipo === 'quantidade_maior')
 
     return { divergencias, valorTotalNf, valorTotalOf, valorPendenteOf, valorEntregueOf, altaSeveridade, mediaSeveridade, nfExcedeValor, temExcedenteQuantidade }

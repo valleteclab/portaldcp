@@ -356,8 +356,8 @@ function RecebimentoUnificadoContent() {
             recebimentosAceitos={recebimentos.filter((r: any) => r.status === 'ACEITO')}
             iaIndisponivel={iaIndisponivel}
             jaConfirmado={!!notaFiscal?.mapeamento_confirmado}
-            valorTotalOf={ordem?.valor_total}
-            valorEntregueOf={ordem?.valor_entregue ?? 0}
+            valorTotalOf={ordem?.valor_total != null ? Number(ordem.valor_total) : undefined}
+            valorEntregueOf={ordem?.valor_entregue != null ? Number(ordem.valor_entregue) : 0}
             onConfirmar={handleConfirmarMapeamento}
             onRecusarNF={async (motivo: string) => {
               try {
