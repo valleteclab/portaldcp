@@ -984,6 +984,17 @@ export class RecebimentoService {
       });
       if (!ordem) throw new NotFoundException('Ordem não encontrada');
 
+      const valorNf = Number(nf.valor_total ?? 0) || 0;
+      const valorEntregue = Number(ordem.valor_entregue ?? 0) || 0;
+      const valorTotalOf = Number(ordem.valor_total ?? 0) || 0;
+      const tolerancia = 0.01;
+      if (valorNf + valorEntregue > valorTotalOf + tolerancia) {
+        throw new BadRequestException(
+          `O valor da NF (R$ ${valorNf.toFixed(2).replace('.', ',')}) somado ao já entregue (R$ ${valorEntregue.toFixed(2).replace('.', ',')}) excede o valor da OF (R$ ${valorTotalOf.toFixed(2).replace('.', ',')}). ` +
+          'Recuse esta NF e solicite ao fornecedor uma nova nota fiscal com o valor correto.',
+        );
+      }
+
       // Quando NF tem tipo_itens (separada): validar que mapeamento só inclui itens desse tipo
       const nfTipoItens = (nf as any).tipo_itens;
       if (nfTipoItens) {

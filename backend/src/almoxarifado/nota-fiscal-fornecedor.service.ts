@@ -62,15 +62,24 @@ export class NotaFiscalFornecedorService {
       throw new BadRequestException(`Erro ao processar XML: ${parseErr.message}`);
     }
 
-    // Pré-análise: valor total da NF vs valor total da OF
+    // Pré-análise: valor total da NF vs valor total da OF (considerando o já entregue)
     const valorTotalXml = Number(parseResult.header.valorTotal) || 0;
     const valorTotalOf = Number(ordem.valor_total) || 0;
+    const valorEntregue = Number(ordem.valor_entregue ?? 0) || 0;
+    const valorPendente = Math.max(0, valorTotalOf - valorEntregue);
     const tolerancia = 0.01;
 
     if (valorTotalXml > valorTotalOf + tolerancia) {
       throw new BadRequestException(
         `O valor total da NF (R$ ${valorTotalXml.toFixed(2).replace('.', ',')}) é maior que o valor da Ordem de Fornecimento (R$ ${valorTotalOf.toFixed(2).replace('.', ',')}). ` +
         'Anexe a nota fiscal e o XML corretos.',
+      );
+    }
+
+    if (valorTotalXml + valorEntregue > valorTotalOf + tolerancia) {
+      throw new BadRequestException(
+        `O valor da NF (R$ ${valorTotalXml.toFixed(2).replace('.', ',')}) somado ao já entregue (R$ ${valorEntregue.toFixed(2).replace('.', ',')}) excede o valor da OF (R$ ${valorTotalOf.toFixed(2).replace('.', ',')}). ` +
+        'Solicite ao fornecedor uma nova nota fiscal com o valor correto (pendente: R$ ' + valorPendente.toFixed(2).replace('.', ',') + ').',
       );
     }
 

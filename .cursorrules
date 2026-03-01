@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: Bloquear NF quando soma excede valor da OF (2026-03-01)
+
+- [X] Backend upload: validar valorTotalXml + valor_entregue <= valor_total (bloquear no 2º envio)
+- [X] Backend criarComNF: validar antes de criar recebimento
+- [X] Frontend EtapaMapeamento: card bloqueio quando NF + entregue > OF, desabilitar Prosseguir
+- [X] Botão "Recusar NF e Notificar Fornecedor" com motivo "Valor da NF excede o valor pendente na OF"
+- [X] Recusar envia notificação ao fornecedor (fluxo existente)
+
 ## Tarefa Concluída: Pré-análise e vínculo no 2º recebimento (2026-03-01)
 
 - [X] Pré-análise: usar valor pendente (OF total - já entregue) e quantidade pendente nos cálculos

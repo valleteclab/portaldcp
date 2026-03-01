@@ -206,8 +206,9 @@ export function EtapaMapeamento({
 
     const altaSeveridade = divergencias.filter(d => d.severidade === 'alta').length
     const mediaSeveridade = divergencias.filter(d => d.severidade === 'media').length
+    const nfExcedeValor = valorTotalOfProp != null && valorTotalNf + valorEntregueOf > (valorTotalOfProp ?? 0) + 0.01
 
-    return { divergencias, valorTotalNf, valorTotalOf, valorPendenteOf, valorEntregueOf, altaSeveridade, mediaSeveridade }
+    return { divergencias, valorTotalNf, valorTotalOf, valorPendenteOf, valorEntregueOf, altaSeveridade, mediaSeveridade, nfExcedeValor }
   }, [mapeamento, produtosXml, itensOf, selecoes, valorTotalOfProp, valorEntregueOf])
 
   const getDivergenciasItem = (prodNfIndex: number, itemContratoId: string | null) => {
@@ -225,8 +226,42 @@ export function EtapaMapeamento({
 
   return (
     <div className="space-y-4">
+      {/* Bloqueio: NF + já entregue excede valor da OF */}
+      {analise.nfExcedeValor && (
+        <Card className="border-red-400 bg-red-50">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-bold text-red-800 text-base">
+                  Valor da NF excede o permitido
+                </h3>
+                <p className="text-sm text-red-700 mt-1">
+                  O valor desta NF ({fmt(analise.valorTotalNf)}) somado ao já entregue ({fmt(analise.valorEntregueOf)}) excede o valor da Ordem de Fornecimento ({fmt(analise.valorTotalOf)}).
+                </p>
+                <p className="text-sm text-red-700 mt-2 font-medium">
+                  Não é possível vincular produtos. Solicite ao fornecedor uma nova nota fiscal com o valor correto (pendente: {fmt(analise.valorPendenteOf)}).
+                </p>
+                {onRecusarNF && (
+                  <div className="mt-4">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => { setShowRecusarModal(true); setMotivoRecusa('Valor da NF excede o valor pendente na OF') }}
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                      Recusar NF e Notificar Fornecedor
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* REQ-ALM-001: Alerta quando XML contém itens já atestados */}
-      {temItensJaRecebidosNoMapeamento && (
+      {temItensJaRecebidosNoMapeamento && !analise.nfExcedeValor && (
         <Card className="border-amber-300 bg-amber-50">
           <CardContent className="py-4">
             <div className="flex items-start gap-3">
@@ -497,13 +532,15 @@ export function EtapaMapeamento({
 
       <div className="flex items-center justify-between mt-4">
         <span className="text-sm text-gray-500">
-          {mapeamento.length - confirmedCount > 0
-            ? `${mapeamento.length - confirmedCount} item(ns) aguardando confirmacao`
-            : 'Todos os vinculos confirmados'}
+          {analise.nfExcedeValor
+            ? 'Recuse a NF e solicite nova nota ao fornecedor'
+            : mapeamento.length - confirmedCount > 0
+              ? `${mapeamento.length - confirmedCount} item(ns) aguardando confirmacao`
+              : 'Todos os vinculos confirmados'}
         </span>
         <Button
           onClick={handleConfirmarTodos}
-          disabled={!todosConfirmados || loading}
+          disabled={!todosConfirmados || loading || analise.nfExcedeValor}
           size="lg"
         >
           {loading ? 'Processando...' : 'Prosseguir para Recebimento'}
@@ -523,9 +560,12 @@ export function EtapaMapeamento({
               A NF sera recusada e o fornecedor sera notificado sobre as divergencias. Informe o motivo detalhado abaixo.
             </p>
 
-            {analise.divergencias.length > 0 && (
+            {(analise.divergencias.length > 0 || analise.nfExcedeValor) && (
               <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs space-y-1">
-                <p className="font-semibold text-gray-700 mb-1">Divergencias detectadas:</p>
+                <p className="font-semibold text-gray-700 mb-1">Detalhes:</p>
+                {analise.nfExcedeValor && (
+                  <p className="text-gray-600">• Valor NF ({fmt(analise.valorTotalNf)}) + entregue ({fmt(analise.valorEntregueOf)}) excede OF ({fmt(analise.valorTotalOf)}). Pendente: {fmt(analise.valorPendenteOf)}</p>
+                )}
                 {analise.divergencias.map((d, i) => (
                   <p key={i} className="text-gray-600">• {d.mensagem}</p>
                 ))}
@@ -538,6 +578,7 @@ export function EtapaMapeamento({
               className="w-full border rounded-lg p-2.5 text-sm mb-2"
             >
               <option value="">Selecione o motivo principal...</option>
+              <option value="Valor da NF excede o valor pendente na OF">Valor da NF excede o valor pendente na OF</option>
               <option value="Quantidade divergente da OF">Quantidade divergente da OF</option>
               <option value="Valor divergente do contrato">Valor divergente do contrato</option>
               <option value="Produto nao corresponde ao pedido">Produto nao corresponde ao pedido</option>
@@ -567,8 +608,13 @@ export function EtapaMapeamento({
                   setRecusando(true)
                   try {
                     if (onRecusarNF) {
-                      const detalhes = analise.divergencias.map(d => d.mensagem).join('; ')
-                      await onRecusarNF(`${motivoRecusa}. Divergencias: ${detalhes}`)
+                      const detalhes = analise.divergencias.length > 0
+                        ? analise.divergencias.map(d => d.mensagem).join('; ')
+                        : (analise.nfExcedeValor
+                          ? `NF (${fmt(analise.valorTotalNf)}) + entregue (${fmt(analise.valorEntregueOf)}) excede OF (${fmt(analise.valorTotalOf)}). Pendente: ${fmt(analise.valorPendenteOf)}`
+                          : '')
+                      const msg = detalhes ? `${motivoRecusa}. ${detalhes}` : motivoRecusa
+                      await onRecusarNF(msg)
                     }
                     setShowRecusarModal(false)
                   } finally {
