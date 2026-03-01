@@ -35,6 +35,7 @@ export class NotaFiscalFornecedorService {
     xmlFile: Express.Multer.File,
     pdfFile?: Express.Multer.File,
     outrosArquivos?: Express.Multer.File[],
+    uploadPorFornecedor = false,
   ): Promise<NotaFiscalFornecedor> {
     const ordem = await this.ordemRepository.findOne({
       where: { id: ordemId, fornecedor_id: fornecedorId },
@@ -77,9 +78,13 @@ export class NotaFiscalFornecedorService {
     }
 
     if (valorTotalXml + valorEntregue > valorTotalOf + tolerancia) {
+      const msgPendente = `Valor pendente na OF: R$ ${valorPendente.toFixed(2).replace('.', ',')}.`;
+      const orientacao = uploadPorFornecedor
+        ? `Envie uma nova nota fiscal com o valor correto. ${msgPendente}`
+        : `Solicite ao fornecedor uma nova nota fiscal com o valor correto. ${msgPendente}`;
       throw new BadRequestException(
         `O valor da NF (R$ ${valorTotalXml.toFixed(2).replace('.', ',')}) somado ao já entregue (R$ ${valorEntregue.toFixed(2).replace('.', ',')}) excede o valor da OF (R$ ${valorTotalOf.toFixed(2).replace('.', ',')}). ` +
-        'Solicite ao fornecedor uma nova nota fiscal com o valor correto (pendente: R$ ' + valorPendente.toFixed(2).replace('.', ',') + ').',
+        orientacao,
       );
     }
 

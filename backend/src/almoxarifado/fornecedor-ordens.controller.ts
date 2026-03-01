@@ -166,6 +166,7 @@ export class FornecedorOrdensController {
       xmlFile,
       pdfFile,
       outrosArquivos,
+      true, // upload por fornecedor - mensagem adequada
     );
   }
 
