@@ -729,17 +729,19 @@ export class RecebimentoService {
           });
 
           if (itemContrato) {
-            // Reverte: move de entregue de volta para disponível
+            // Reverte: move de entregue de volta para empenhado (ordem ainda existe)
             const quantidadeAEstornar = Math.min(
               itemRec.quantidade_aceita,
               Number(itemContrato.quantidade_entregue)
             );
 
-            itemContrato.quantidade_entregue = 
+            itemContrato.quantidade_entregue =
               Math.max(0, Number(itemContrato.quantidade_entregue) - quantidadeAEstornar);
-            itemContrato.saldo_disponivel = 
-              Number(itemContrato.quantidade_contratada) - 
-              Number(itemContrato.quantidade_empenhada) - 
+            itemContrato.quantidade_empenhada =
+              Number(itemContrato.quantidade_empenhada) + quantidadeAEstornar;
+            itemContrato.saldo_disponivel =
+              Number(itemContrato.quantidade_contratada) -
+              Number(itemContrato.quantidade_empenhada) -
               Number(itemContrato.quantidade_entregue);
 
             await queryRunner.manager.save(itemContrato);
@@ -1151,6 +1153,9 @@ export class RecebimentoService {
                 0,
                 Number(itemContrato.quantidade_entregue) - quantidadeAReverter,
               );
+              // Restaura empenhado: unidades voltam a ficar reservadas para a ordem
+              itemContrato.quantidade_empenhada =
+                Number(itemContrato.quantidade_empenhada) + quantidadeAReverter;
               itemContrato.saldo_disponivel =
                 Number(itemContrato.quantidade_contratada) -
                 Number(itemContrato.quantidade_empenhada) -

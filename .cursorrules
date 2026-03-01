@@ -11,6 +11,12 @@
 - [X] Fix: app.module migrations path dist/migrations → dist/src/migrations (NestJS compila para dist/src/)
 - [X] Script scripts/reparo-quantidade-entregue.ts + npm run reparo:quantidade-entregue para reparo manual
 
+## Tarefa Concluída: Cancelar recebimento com aceite parcial - restaurar empenhado (2026-03-01)
+
+- [X] Ao estornar/cancelar recebimento que teve aceite parcial: restaurar quantidade_empenhada
+- [X] Fluxo: aceite reduz empenhado e aumenta entregue; cancelar deve reverter AMBOS (entregue-=, empenhado+=)
+- [X] Motivo: ordem ainda existe (ENVIADA), unidades continuam reservadas para reenvio do fornecedor
+
 ## Tarefa Concluída: Cancelar Recebimento com Aceite Parcial (2026-02-17)
 
 - [X] Ao cancelar recebimento que teve aceite parcial (almoxarifado ou patrimônio), reverter baixa no contrato e zerar aceites
