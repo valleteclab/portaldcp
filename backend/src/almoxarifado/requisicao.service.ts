@@ -622,6 +622,18 @@ export class RequisicaoService {
 
       await queryRunner.commitTransaction();
 
+      // Histórico: PEDIDO CRIADO (requisição é o pedido desde o início)
+      await this.historicoRequisicaoRepository.save(
+        this.historicoRequisicaoRepository.create({
+          requisicao_id: requisicaoSalva.id,
+          tipo_acao: 'PEDIDO_CRIADO',
+          descricao: `Movimentação feita por: ${usuarioNome} em: ${new Date().toLocaleString('pt-BR')}`,
+          usuario_id: usuarioId,
+          usuario_nome: usuarioNome,
+          data_evento: new Date(),
+        }),
+      );
+
       this.logger.log(
         `Requisição ${numero} criada com ${itensParaSalvar.length} itens. ` +
         `Saldo reservado para ${itensContratoParaReservar.length} itens de contrato.`
@@ -660,18 +672,17 @@ export class RequisicaoService {
     requisicao.status = StatusRequisicao.AGUARDANDO_AUTORIZACAO;
     const saved = await this.requisicaoRepository.save(requisicao);
 
-    if (requisicao.tipo === TipoRequisicao.ORDEM_SERVICO) {
-      await this.historicoRequisicaoRepository.save(
-        this.historicoRequisicaoRepository.create({
-          requisicao_id: requisicao.id,
-          tipo_acao: 'ENVIADA_APROVACAO',
-          descricao: `Enviada para aprovação por: ${requisicao.usuario_solicitante_nome || 'Sistema'} em: ${new Date().toLocaleString('pt-BR')}`,
-          usuario_id: requisicao.usuario_solicitante_id || null,
-          usuario_nome: requisicao.usuario_solicitante_nome || 'Sistema',
-          data_evento: new Date(),
-        }),
-      );
-    }
+    // Histórico: ENVIADA PARA APROVAÇÃO (todas as requisições)
+    await this.historicoRequisicaoRepository.save(
+      this.historicoRequisicaoRepository.create({
+        requisicao_id: requisicao.id,
+        tipo_acao: 'ENVIADA_APROVACAO',
+        descricao: `Enviada para aprovação por: ${requisicao.usuario_solicitante_nome || 'Sistema'} em: ${new Date().toLocaleString('pt-BR')}`,
+        usuario_id: requisicao.usuario_solicitante_id || null,
+        usuario_nome: requisicao.usuario_solicitante_nome || 'Sistema',
+        data_evento: new Date(),
+      }),
+    );
 
     // Notifica aprovadores
     this.logger.log(`[NOTIFICAÇÃO] Enviando requisição ${requisicao.numero} para aprovação. Usuários do órgão recebidos: ${usuariosOrgao?.length || 0}`);
@@ -967,6 +978,18 @@ export class RequisicaoService {
 
       await queryRunner.manager.save(requisicao);
       await queryRunner.commitTransaction();
+
+      // Histórico: PEDIDO AUTORIZADO (requisição normal que gera OF)
+      await this.historicoRequisicaoRepository.save(
+        this.historicoRequisicaoRepository.create({
+          requisicao_id: requisicao.id,
+          tipo_acao: 'PEDIDO_AUTORIZADO',
+          descricao: `Movimentação feita por: ${autorizadorNome} em: ${new Date().toLocaleString('pt-BR')}`,
+          usuario_id: autorizadorId,
+          usuario_nome: autorizadorNome,
+          data_evento: new Date(),
+        }),
+      );
 
       this.logger.log(`Requisição ${requisicao.numero} autorizada por ${autorizadorNome}`);
 

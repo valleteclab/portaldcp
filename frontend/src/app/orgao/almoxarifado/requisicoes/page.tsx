@@ -356,17 +356,8 @@ function RequisicoesList() {
     setShowHistoricoOS(true);
     setCarregandoHistoricoOS(true);
     try {
-      let url: string;
-      if (req.tipo === 'ORDEM_SERVICO') {
-        url = `${API_URL}/api/almoxarifado/requisicoes/${req.id}/historico`;
-      } else if (req.ordem_fornecimento_id) {
-        url = `${API_URL}/api/almoxarifado/ordens/${req.ordem_fornecimento_id}/historico`;
-      } else {
-        setHistoricoOS([]);
-        setCarregandoHistoricoOS(false);
-        return;
-      }
-      const res = await authFetch(url);
+      // Sempre busca histórico da REQUISIÇÃO (desde criação, envio aprovação, autorização)
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/historico`);
       if (res.ok) {
         const data = await res.json();
         setHistoricoOS(data);
@@ -1064,18 +1055,16 @@ function RequisicoesList() {
                             </Link>
                           </Button>
                         )}
-                        {/* Ver Histórico: OS (requisição) ou OF (ordem de fornecimento) */}
-                        {(req.tipo === 'ORDEM_SERVICO' || req.ordem_fornecimento_id) && (
-                          <Button
+                        {/* Ver Histórico: todas as requisições (desde criação, envio aprovação, autorização) */}
+                        <Button
                             variant="ghost"
                             size="sm"
                             className="text-slate-600 hover:text-slate-700"
                             onClick={() => handleAbrirHistorico(req)}
-                            title={req.tipo === 'ORDEM_SERVICO' ? 'Ver histórico da ordem de serviço' : 'Ver histórico da ordem de fornecimento'}
+                            title="Ver histórico da requisição"
                           >
                             <History className="h-4 w-4" />
                           </Button>
-                        )}
                         {/* Botão para gerar ordem manualmente (apenas para requisições de material/serviço aprovadas sem ordem) */}
                         {req.tipo !== 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && !req.ordem_fornecimento_id && (
                           <Button
@@ -1740,12 +1729,10 @@ function RequisicoesList() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
-              Movimento do Pedido - {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' ? requisicaoSelecionada?.numero : requisicaoSelecionada?.ordem_fornecimento?.numero || requisicaoSelecionada?.numero}
+              Histórico da Requisição {requisicaoSelecionada?.numero}
             </DialogTitle>
             <DialogDescription>
-              {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO'
-                ? 'Histórico de todas as movimentações desta Ordem de Serviço'
-                : 'Histórico de todas as movimentações desta Ordem de Fornecimento'}
+              Desde a criação do pedido até a autorização (quem criou, enviou para aprovação, autorizou)
             </DialogDescription>
           </DialogHeader>
           {carregandoHistoricoOS ? (
@@ -1831,7 +1818,7 @@ function RequisicoesList() {
                           <div className="space-y-1 text-sm text-gray-600">
                             {requisicaoSelecionada && (
                               <>
-                                <p><span className="font-medium text-gray-500">Nº do Pedido:</span> {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' ? requisicaoSelecionada.numero : requisicaoSelecionada.ordem_fornecimento?.numero || requisicaoSelecionada.numero}</p>
+                                <p><span className="font-medium text-gray-500">Nº do Pedido:</span> {requisicaoSelecionada.numero}</p>
                                 <p><span className="font-medium text-gray-500">Fornecedor:</span> {requisicaoSelecionada.contrato?.fornecedor?.razao_social || '-'}</p>
                                 <p><span className="font-medium text-gray-500">Secretaria:</span> {requisicaoSelecionada.orgao?.nome || '-'}</p>
                               </>
