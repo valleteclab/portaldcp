@@ -155,6 +155,22 @@ export class Orgao {
   @Column({ nullable: true })
   email_from: string; // "Prefeitura <contato@prefeitura.gov.br>"
 
+  // ============ EMAIL (RESEND API - alternativa) ============
+
+  @Column({ nullable: true })
+  email_resend_api_key: string;
+
+  @Column({ nullable: true })
+  email_resend_from: string; // email verificado no Resend
+
+  @Column({ 
+    type: 'enum', 
+    enum: ['SMTP', 'RESEND'], 
+    nullable: true,
+    default: 'SMTP'
+  })
+  email_metodo: string; // qual método usar: SMTP ou RESEND
+
   // ============ EMAIL (IMAP - recepção) ============
 
   @Column({ nullable: true })

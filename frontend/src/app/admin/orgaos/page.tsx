@@ -152,6 +152,7 @@ export default function AdminOrgaosPage() {
   })
 
   const [formEmail, setFormEmail] = useState({
+    email_metodo: 'SMTP' as 'SMTP' | 'RESEND',
     email_smtp_host: '',
     email_smtp_port: 587,
     email_smtp_secure: false,
@@ -161,7 +162,10 @@ export default function AdminOrgaosPage() {
     email_imap_host: '',
     email_imap_port: 993,
     email_imap_user: '',
-    email_imap_senha: ''
+    email_imap_senha: '',
+    // Resend
+    email_resend_api_key: '',
+    email_resend_from: '',
   })
   const [testandoImap, setTestandoImap] = useState(false)
 
@@ -355,6 +359,7 @@ export default function AdminOrgaosPage() {
       if (res.ok) {
         const cfg = await res.json()
         setFormEmail({
+          email_metodo: cfg.email_metodo || 'SMTP',
           email_smtp_host: cfg.email_smtp_host || '',
           email_smtp_port: cfg.email_smtp_port ?? 587,
           email_smtp_secure: cfg.email_smtp_secure ?? false,
@@ -364,7 +369,10 @@ export default function AdminOrgaosPage() {
           email_imap_host: cfg.email_imap_host || '',
           email_imap_port: cfg.email_imap_port ?? 993,
           email_imap_user: cfg.email_imap_user || '',
-          email_imap_senha: ''
+          email_imap_senha: '',
+          // Resend
+          email_resend_api_key: '',
+          email_resend_from: cfg.email_resend_from || '',
         })
       }
     } catch (e) {
@@ -374,15 +382,34 @@ export default function AdminOrgaosPage() {
 
   const salvarConfiguracaoEmail = async () => {
     if (!orgaoSelecionado) return
-    const host = (formEmail.email_smtp_host || '').toLowerCase()
-    if (host.includes('pop.') || host.includes('imap.')) {
-      alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
-      return
+    
+    // Validações específicas para SMTP
+    if (formEmail.email_metodo === 'SMTP') {
+      const host = (formEmail.email_smtp_host || '').toLowerCase()
+      if (host.includes('pop.') || host.includes('imap.')) {
+        alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
+        return
+      }
+      if ([993, 995].includes(formEmail.email_smtp_port)) {
+        alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
+        return
+      }
     }
-    if ([993, 995].includes(formEmail.email_smtp_port)) {
-      alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
-      return
+    
+    // Validações específicas para Resend
+    if (formEmail.email_metodo === 'RESEND') {
+      // Se não preencher nenhum campo, assume que vai usar variável global
+      if (!formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+        // OK - vai usar variáveis de ambiente
+      } else if (formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+        alert('Se preencher a API Key, também preencha o email de origem.')
+        return
+      } else if (!formEmail.email_resend_api_key && formEmail.email_resend_from) {
+        alert('Se preencher o email de origem, também preencha a API Key.')
+        return
+      }
     }
+    
     setSalvandoEmail(true)
     try {
       const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config`, {
@@ -391,19 +418,20 @@ export default function AdminOrgaosPage() {
         body: JSON.stringify({
           ...formEmail,
           email_smtp_senha: formEmail.email_smtp_senha || undefined,
-          email_imap_senha: formEmail.email_imap_senha || undefined
+          email_imap_senha: formEmail.email_imap_senha || undefined,
+          email_resend_api_key: formEmail.email_resend_api_key || undefined
         })
       })
       if (res.ok) {
-        alert('Configuracao de email salva com sucesso!')
-        carregarOrgaos()
+        alert('Configuração de email salva com sucesso!')
+        setShowConfigurarEmail(false)
       } else {
         const err = await res.json()
-        alert(err.message || 'Erro ao salvar')
+        alert(err.message || 'Erro ao salvar configuração')
       }
     } catch (e) {
-      console.error(e)
-      alert('Erro ao salvar configuracao')
+      console.error('Erro ao salvar config email:', e)
+      alert('Erro ao salvar configuração')
     } finally {
       setSalvandoEmail(false)
     }
@@ -411,21 +439,48 @@ export default function AdminOrgaosPage() {
 
   const testarConfiguracaoEmail = async () => {
     if (!orgaoSelecionado) return
-    const host = (formEmail.email_smtp_host || '').toLowerCase()
-    if (host.includes('pop.') || host.includes('imap.')) {
-      alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
-      return
+    
+    // Validações específicas para SMTP
+    if (formEmail.email_metodo === 'SMTP') {
+      const host = (formEmail.email_smtp_host || '').toLowerCase()
+      if (host.includes('pop.') || host.includes('imap.')) {
+        alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
+        return
+      }
+      if ([993, 995].includes(formEmail.email_smtp_port)) {
+        alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
+        return
+      }
     }
-    if ([993, 995].includes(formEmail.email_smtp_port)) {
-      alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
-      return
+    
+    // Validações específicas para Resend
+    if (formEmail.email_metodo === 'RESEND') {
+      // Se não preencher nenhum campo, assume que vai usar variável global
+      if (!formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+        // OK - vai usar variáveis de ambiente
+      } else if (formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+        alert('Se preencher a API Key, também preencha o email de origem.')
+        return
+      } else if (!formEmail.email_resend_api_key && formEmail.email_resend_from) {
+        alert('Se preencher o email de origem, também preencha a API Key.')
+        return
+      }
     }
+    
     setTestandoEmail(true)
     try {
+      // Para Resend, usa o email configurado ou o global
+      let emailTeste: string;
+      if (formEmail.email_metodo === 'RESEND') {
+        emailTeste = formEmail.email_resend_from || 'usando-config-global';
+      } else {
+        emailTeste = formEmail.email_smtp_user;
+      }
+      
       const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config/testar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: formEmail.email_smtp_user })
+        body: JSON.stringify({ email: emailTeste })
       })
       const data = await res.json()
       alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
@@ -1266,34 +1321,142 @@ export default function AdminOrgaosPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="w-5 h-5" />
-              Configurar Email (SMTP / IMAP)
+              Configurar Email (SMTP / Resend)
             </DialogTitle>
             <DialogDescription>
-              {orgaoSelecionado?.nome} - Envio (SMTP) e recepção (IMAP) de emails
+              {orgaoSelecionado?.nome} - Envio de emails via SMTP ou Resend API
             </DialogDescription>
           </DialogHeader>
           
-          <Tabs defaultValue="smtp" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="smtp">SMTP (Envio)</TabsTrigger>
-              <TabsTrigger value="imap">IMAP (Recepção)</TabsTrigger>
+          <Tabs defaultValue="metodo" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="metodo">Método</TabsTrigger>
+              <TabsTrigger value="smtp">SMTP</TabsTrigger>
+              <TabsTrigger value="imap">IMAP</TabsTrigger>
             </TabsList>
-            <TabsContent value="smtp" className="space-y-4 py-4">
-            <div className="p-3 bg-blue-50 rounded-lg text-sm">
-              <p className="font-medium text-blue-800">SMTP = ENVIO de emails</p>
-              <p className="text-blue-700 mt-1 text-xs">
-                Gmail: smtp.gmail.com porta 587 | Outlook: smtp.office365.com porta 587
-              </p>
-              <p className="text-amber-700 mt-1 text-xs font-medium">
-                Gmail com 2FA: use Senha de app (não a senha normal).{' '}
-                <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="underline">Criar senha de app</a>
-              </p>
-              <p className="text-amber-700 mt-1 text-xs">
-                Não use pop. ou imap. aqui — esses são para receber (aba IMAP).
-              </p>
-            </div>
+            
+            <TabsContent value="metodo" className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Método de Envio de Email</Label>
+                <Select
+                  value={formEmail.email_metodo}
+                  onValueChange={(value: 'SMTP' | 'RESEND') => setFormEmail({ ...formEmail, email_metodo: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o método" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SMTP">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4" />
+                        <div>
+                          <div className="font-medium">SMTP</div>
+                          <div className="text-xs text-gray-500">Servidor próprio (Gmail, Outlook, etc)</div>
+                        </div>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="RESEND">
+                      <div className="flex items-center gap-2">
+                        <MessageCircle className="w-4 h-4" />
+                        <div>
+                          <div className="font-medium">Resend API</div>
+                          <div className="text-xs text-gray-500">Serviço cloud (recomendado)</div>
+                        </div>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div>
+              {formEmail.email_metodo === 'RESEND' && (
+                <div className="p-3 bg-green-50 rounded-lg text-sm">
+                  <p className="font-medium text-green-800">Resend API - Configuração Simplificada</p>
+                  <p className="text-green-700 mt-1 text-xs">
+                    1. Crie conta em <a href="https://resend.com" target="_blank" className="underline">resend.com</a><br/>
+                    2. Adicione um domínio verificado<br/>
+                    3. Use a API Key e o email verificado
+                  </p>
+                  <p className="text-amber-700 mt-1 text-xs font-medium">
+                    Vantagem: Não precisa configurar servidor, funciona em qualquer hospedagem
+                  </p>
+                </div>
+              )}
+
+              {formEmail.email_metodo === 'RESEND' && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                    <p className="font-medium text-amber-800">💡 Dica: Configuração Global</p>
+                    <p className="text-amber-700 mt-1 text-xs">
+                      Você pode configurar uma API Key global no Railway para todos os órgãos.
+                      Configure as variáveis <code>RESEND_API_KEY</code> e <code>RESEND_FROM_EMAIL</code>.
+                    </p>
+                    <p className="text-amber-700 mt-1 text-xs">
+                      A configuração individual do órgão tem prioridade sobre a global.
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <Label>API Key do Resend</Label>
+                    <Input
+                      type="password"
+                      value={formEmail.email_resend_api_key}
+                      onChange={(e) => setFormEmail({ ...formEmail, email_resend_api_key: e.target.value })}
+                      placeholder="re_xxxxxxxxxxxxxxxx (deixe vazio para usar global)"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Obtenha em: Dashboard → API Keys
+                      <br />
+                      <span className="text-amber-600">Deixe vazio para usar variável global do Railway</span>
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label>Email de Origem (From)</Label>
+                    <Input
+                      type="email"
+                      value={formEmail.email_resend_from}
+                      onChange={(e) => setFormEmail({ ...formEmail, email_resend_from: e.target.value })}
+                      placeholder="contato@orgao.gov.br (deixe vazio para usar global)"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Email verificado no seu domínio Resend
+                      <br />
+                      <span className="text-amber-600">Deixe vazio para usar variável global do Railway</span>
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {formEmail.email_metodo === 'SMTP' && (
+                <div className="p-3 bg-blue-50 rounded-lg text-sm">
+                  <p className="font-medium text-blue-800">SMTP = ENVIO de emails</p>
+                  <p className="text-blue-700 mt-1 text-xs">
+                    Gmail: smtp.gmail.com porta 587 | Outlook: smtp.office365.com porta 587
+                  </p>
+                  <p className="text-amber-700 mt-1 text-xs font-medium">
+                    Gmail com 2FA: use Senha de app (não a senha normal).{' '}
+                    <a href="https://support.google.com/accounts/answer/185833" target="_blank" className="underline">
+                      Criar senha de app
+                    </a>
+                  </p>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="smtp" className="space-y-4 py-4">
+              <div className="p-3 bg-blue-50 rounded-lg text-sm">
+                <p className="font-medium text-blue-800">SMTP = ENVIO de emails</p>
+                <p className="text-blue-700 mt-1 text-xs">
+                  Gmail: smtp.gmail.com porta 587 | Outlook: smtp.office365.com porta 587
+                </p>
+                <p className="text-amber-700 mt-1 text-xs font-medium">
+                  Gmail com 2FA: use Senha de app (não a senha normal).{' '}
+                  <a href="https://support.google.com/accounts/answer/185833" target="_blank" className="underline">
+                    Criar senha de app
+                  </a>
+                </p>
+                <p className="text-amber-700 mt-1 text-xs">
+                  Não use pop. ou imap. aqui — esses são para receber (aba IMAP).
+                </p>
               <Label>Servidor SMTP (host) — ex: smtp.gmail.com</Label>
               <Input
                 value={formEmail.email_smtp_host}
@@ -1416,10 +1579,16 @@ export default function AdminOrgaosPage() {
             <Button
               variant="outline"
               onClick={testarConfiguracaoEmail}
-              disabled={testandoEmail || !formEmail.email_smtp_host || !formEmail.email_smtp_user}
+              disabled={
+                testandoEmail || 
+                (formEmail.email_metodo === 'SMTP' && (!formEmail.email_smtp_host || !formEmail.email_smtp_user)) ||
+                (formEmail.email_metodo === 'RESEND' && 
+                 !formEmail.email_resend_api_key && 
+                 !formEmail.email_resend_from)
+              }
             >
               {testandoEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4 mr-1" />}
-              Testar
+              Testar {formEmail.email_metodo}
             </Button>
             <Button variant="outline" onClick={() => setShowConfigurarEmail(false)}>
               Cancelar

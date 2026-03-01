@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as nodemailer from 'nodemailer';
 import { createDecipheriv } from 'crypto';
+import { Resend } from 'resend';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 
 export interface EnviarEmailDto {
@@ -67,60 +68,156 @@ export class EmailService {
     };
   }
 
+  async getResendConfig(orgaoId: string): Promise<{
+    apiKey: string;
+    from: string;
+  } | null> {
+    // 1. Tenta configuração do órgão
+    const orgao = await this.orgaoRepository.findOne({
+      where: { id: orgaoId },
+      select: ['id', 'email_resend_api_key', 'email_resend_from'],
+    });
+    
+    if (orgao?.email_resend_api_key && orgao?.email_resend_from) {
+      const apiKey = orgao.email_resend_api_key ? this.decryptText(orgao.email_resend_api_key) : '';
+      return {
+        apiKey,
+        from: orgao.email_resend_from,
+      };
+    }
+    
+    // 2. Fallback para variável de ambiente global (como WhatsApp)
+    if (process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL) {
+      return {
+        apiKey: process.env.RESEND_API_KEY,
+        from: process.env.RESEND_FROM_EMAIL,
+      };
+    }
+    
+    return null;
+  }
+
+  async getEmailConfig(orgaoId: string): Promise<{
+    metodo: 'SMTP' | 'RESEND';
+    config: any;
+  } | null> {
+    const orgao = await this.orgaoRepository.findOne({
+      where: { id: orgaoId },
+      select: ['id', 'email_metodo'],
+    });
+    
+    if (!orgao?.email_metodo) return null;
+
+    if (orgao.email_metodo === 'RESEND') {
+      const config = await this.getResendConfig(orgaoId);
+      if (!config) return null;
+      return { metodo: 'RESEND', config };
+    } else {
+      const config = await this.getSmtpConfig(orgaoId);
+      if (!config) return null;
+      return { metodo: 'SMTP', config };
+    }
+  }
+
   async enviar(orgaoId: string, dto: EnviarEmailDto): Promise<boolean> {
-    const config = await this.getSmtpConfig(orgaoId);
-    if (!config) {
-      this.logger.warn(`SMTP nao configurado para orgao ${orgaoId}, email nao enviado`);
+    const emailConfig = await this.getEmailConfig(orgaoId);
+    if (!emailConfig) {
+      this.logger.warn(`Email nao configurado para orgao ${orgaoId}, email nao enviado`);
       return false;
     }
 
     try {
-      const transport = nodemailer.createTransport({
-        host: config.host,
-        port: config.port,
-        secure: config.secure,
-        auth: { user: config.user, pass: config.pass },
-        // Forçar IPv4 para evitar ENETUNREACH em redes sem IPv6
-        family: 4,
-      } as any);
-
-      const to = Array.isArray(dto.to) ? dto.to.join(', ') : dto.to;
-      const mailOptions: nodemailer.SendMailOptions = {
-        from: config.from,
-        to,
-        subject: dto.subject,
-        text: dto.text,
-        html: dto.html,
-        attachments: dto.attachments,
-        replyTo: dto.replyTo,
-      };
-
-      const info = await transport.sendMail(mailOptions);
-      this.logger.log(`Email enviado para ${to}: ${info.messageId}`);
-      return true;
+      if (emailConfig.metodo === 'RESEND') {
+        return await this.enviarResend(emailConfig.config, dto);
+      } else {
+        return await this.enviarSmtp(emailConfig.config, dto);
+      }
     } catch (error: any) {
-      this.logger.error(`Erro ao enviar email (orgao ${orgaoId}): ${error.message}`);
+      this.logger.error(`Erro ao enviar email (${emailConfig.metodo}, orgao ${orgaoId}): ${error.message}`);
       throw error;
     }
   }
 
-  async testarConexao(orgaoId: string, emailTeste?: string): Promise<{ sucesso: boolean; mensagem: string }> {
-    const config = await this.getSmtpConfig(orgaoId);
-    if (!config) {
-      return { sucesso: false, mensagem: 'SMTP nao configurado para este orgao' };
+  private async enviarSmtp(config: any, dto: EnviarEmailDto): Promise<boolean> {
+    const transport = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      auth: { user: config.user, pass: config.pass },
+      // Forçar IPv4 para evitar ENETUNREACH em redes sem IPv6
+      family: 4,
+    } as any);
+
+    const to = Array.isArray(dto.to) ? dto.to.join(', ') : dto.to;
+    const mailOptions: nodemailer.SendMailOptions = {
+      from: config.from,
+      to,
+      subject: dto.subject,
+      text: dto.text,
+      html: dto.html,
+      attachments: dto.attachments,
+      replyTo: dto.replyTo,
+    };
+
+    const info = await transport.sendMail(mailOptions);
+    this.logger.log(`Email SMTP enviado para ${to}: ${info.messageId}`);
+    return true;
+  }
+
+  private async enviarResend(config: any, dto: EnviarEmailDto): Promise<boolean> {
+    const resend = new Resend(config.apiKey);
+    
+    const to = Array.isArray(dto.to) ? dto.to[0] : dto.to; // Resend API suporta apenas um destinatário por request
+    
+    const emailOptions: any = {
+      from: config.from,
+      to: to,
+      subject: dto.subject,
+    };
+
+    if (dto.html) {
+      emailOptions.html = dto.html;
+    } else if (dto.text) {
+      emailOptions.text = dto.text;
     }
 
-    const destino = emailTeste || config.user;
+    if (dto.replyTo) {
+      emailOptions.replyTo = dto.replyTo;
+    }
+
+    // Resend não suporta attachments diretamente na API básica
+    if (dto.attachments && dto.attachments.length > 0) {
+      this.logger.warn(`Resend API não suporta attachments. Enviando sem anexos.`);
+    }
+
+    const { data, error } = await resend.emails.send(emailOptions);
+    
+    if (error) {
+      throw new Error(`Resend API error: ${error.message}`);
+    }
+
+    this.logger.log(`Email Resend enviado para ${to}: ${data.id}`);
+    return true;
+  }
+
+  async testarConexao(orgaoId: string, emailTeste?: string): Promise<{ sucesso: boolean; mensagem: string }> {
+    const emailConfig = await this.getEmailConfig(orgaoId);
+    if (!emailConfig) {
+      return { sucesso: false, mensagem: 'Email nao configurado para este orgao' };
+    }
+
+    const destino = emailTeste || (emailConfig.metodo === 'RESEND' ? emailConfig.config.from : emailConfig.config.user);
+    
     try {
       await this.enviar(orgaoId, {
         to: destino,
         subject: '[Teste] Configuracao de email - Portal DCP',
-        text: 'Este e um email de teste. Se voce recebeu, a configuracao SMTP esta correta.',
-        html: '<p>Este e um email de teste. Se voce recebeu, a configuracao SMTP esta correta.</p>',
+        text: 'Este e um email de teste. Se voce recebeu, a configuracao esta correta.',
+        html: '<p>Este e um email de teste. Se voce recebeu, a configuracao esta correta.</p>',
       });
-      return { sucesso: true, mensagem: `Email de teste enviado para ${destino}` };
+      return { sucesso: true, mensagem: `Email de teste enviado para ${destino} via ${emailConfig.metodo}` };
     } catch (error: any) {
-      return { sucesso: false, mensagem: error.message || 'Erro ao enviar email de teste' };
+      return { sucesso: false, mensagem: error.message || `Erro ao enviar email de teste via ${emailConfig.metodo}` };
     }
   }
 }
