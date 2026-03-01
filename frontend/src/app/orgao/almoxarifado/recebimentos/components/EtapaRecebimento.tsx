@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
   CheckCircle, Warehouse, Building2, Lock, XCircle, Ban,
-  History, AlertTriangle, Check, Percent,
+  History, AlertTriangle, Check, Percent, FileText, Paperclip, Loader2,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -35,6 +36,7 @@ export function EtapaRecebimento({
 }: EtapaRecebimentoProps) {
   const [loadingAlmox, setLoadingAlmox] = useState(false)
   const [loadingPatrim, setLoadingPatrim] = useState(false)
+  const [gerandoPdf, setGerandoPdf] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [showCancelarModal, setShowCancelarModal] = useState(false)
@@ -68,8 +70,11 @@ export function EtapaRecebimento({
   const isEstornado = recebimento?.status === 'ESTORNADO'
   const isCancelado = isRejeitado || isEstornado
 
-  const aceitos = (almoxAceito ? 1 : 0) + (patrimAceito ? 1 : 0)
-  const total = itensPermanente.length > 0 ? 2 : 1
+  // Só conta aceites das seções que têm itens: apenas CONSUMO → almox; apenas PERMANENTE → patrim; ambos → os dois
+  const precisaAlmox = itensConsumo.length > 0
+  const precisaPatrim = itensPermanente.length > 0
+  const aceitos = (precisaAlmox && almoxAceito ? 1 : 0) + (precisaPatrim && patrimAceito ? 1 : 0)
+  const total = (precisaAlmox ? 1 : 0) + (precisaPatrim ? 1 : 0)
   const ocorrencias = recebimento?.ocorrencias || []
 
   const itensRecusados = Object.entries(itemStates).filter(([, s]) => s.mode === 'recusado')
@@ -206,6 +211,42 @@ export function EtapaRecebimento({
       setErro('Erro ao aceitar patrimonio')
     } finally {
       setLoadingPatrim(false)
+    }
+  }
+
+  const handleGerarComprovacaoPdf = async () => {
+    setGerandoPdf(true)
+    setErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recebimento.id}/gerar-comprovacao-aceite`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setErro(data.message || 'Erro ao gerar PDF')
+      } else {
+        onUpdate()
+      }
+    } catch {
+      setErro('Erro ao gerar comprovação de aceite')
+    } finally {
+      setGerandoPdf(false)
+    }
+  }
+
+  const handleDownloadComprovacao = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/recebimentos/${recebimento.id}/comprovacao-aceite`)
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ComprovacaoAceite_${recebimento?.numero?.replace(/\//g, '_') || 'recebimento'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Erro ao baixar PDF:', e)
     }
   }
 
@@ -453,8 +494,8 @@ export function EtapaRecebimento({
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500">{itensConsumo.length} itens</span>
-                <Badge variant={almoxAceito ? 'default' : 'secondary'}>
-                  {almoxAceito ? 'Aceito' : 'Pendente'}
+                <Badge variant={!precisaAlmox ? 'outline' : almoxAceito ? 'default' : 'secondary'}>
+                  {!precisaAlmox ? 'Não se aplica' : almoxAceito ? 'Aceito' : 'Pendente'}
                 </Badge>
               </div>
             </div>
@@ -466,14 +507,19 @@ export function EtapaRecebimento({
             )}
 
             <div className="pt-3">
-              {almoxAceito ? (
+              {itensConsumo.length === 0 ? (
+                <div className="bg-gray-50 rounded-lg p-3 text-center text-gray-500 text-sm">
+                  <CheckCircle className="h-4 w-4 inline mr-1" />
+                  Nenhum item de consumo — não requer aceite
+                </div>
+              ) : almoxAceito ? (
                 <div className="bg-green-50 rounded-lg p-3 text-center text-green-700 font-bold text-sm">
                   <CheckCircle className="h-4 w-4 inline mr-1" />
                   Recebido por {recebimento.aceite_almoxarifado_usuario_nome}
                 </div>
               ) : !hasRecusados ? (
                 <div className="space-y-2">
-                  {!allItensDecididos && itensConsumo.length > 0 && (
+                  {!allItensDecididos && (
                     <p className="text-xs text-amber-600 text-center">
                       Defina Total, Parcial ou Recusar para cada item antes de aceitar.
                     </p>
@@ -506,8 +552,8 @@ export function EtapaRecebimento({
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500">{itensPermanente.length} itens</span>
-                <Badge variant={patrimAceito ? 'default' : 'secondary'}>
-                  {patrimAceito ? 'Aceito' : 'Pendente'}
+                <Badge variant={!precisaPatrim ? 'outline' : patrimAceito ? 'default' : 'secondary'}>
+                  {!precisaPatrim ? 'Não se aplica' : patrimAceito ? 'Aceito' : 'Pendente'}
                 </Badge>
               </div>
             </div>
@@ -519,7 +565,12 @@ export function EtapaRecebimento({
             )}
 
             <div className="pt-3">
-              {patrimAceito ? (
+              {itensPermanente.length === 0 ? (
+                <div className="bg-gray-50 rounded-lg p-3 text-center text-gray-500 text-sm">
+                  <CheckCircle className="h-4 w-4 inline mr-1" />
+                  Nenhum item permanente — não requer aceite
+                </div>
+              ) : patrimAceito ? (
                 <div className="bg-green-50 rounded-lg p-3 text-center text-green-700 font-bold text-sm">
                   <CheckCircle className="h-4 w-4 inline mr-1" />
                   Recebido por {recebimento.aceite_patrimonio_usuario_nome}
@@ -531,7 +582,7 @@ export function EtapaRecebimento({
                 </div>
               ) : !hasRecusados ? (
                 <div className="space-y-2">
-                  {!allItensDecididos && itensPermanente.length > 0 && (
+                  {!allItensDecididos && (
                     <p className="text-xs text-amber-600 text-center">
                       Defina Total, Parcial ou Recusar para cada item.
                     </p>
@@ -543,7 +594,7 @@ export function EtapaRecebimento({
                       }
                       await handleAceitarPatrimonio()
                     }}
-                    disabled={loadingPatrim || itensPermanente.length === 0 || !itensPermanente.every((i: any) => itemStates[i.item_contrato_id]?.mode !== 'none')}
+                    disabled={loadingPatrim || !itensPermanente.every((i: any) => itemStates[i.item_contrato_id]?.mode !== 'none')}
                     className="w-full bg-purple-600 hover:bg-purple-700"
                   >
                     {loadingPatrim ? 'Processando...' : 'Aceitar Patrimonio'}
@@ -562,6 +613,8 @@ export function EtapaRecebimento({
             <p className="font-bold text-sm">
               {aceitos >= total
                 ? 'Recebimento concluido — NF liberada para o Financeiro'
+                : total === 1
+                ? 'Aguardando aceite'
                 : aceitos === 1
                 ? 'Aguardando segundo aceite'
                 : 'Aguardando os dois aceites'}
@@ -575,6 +628,57 @@ export function EtapaRecebimento({
           </div>
         </CardContent>
       </Card>
+
+      {/* Dossiê do Fiscal — quando recebimento concluído */}
+      {aceitos >= total && (
+        <Card className="border-blue-200 bg-blue-50/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4 text-blue-600" />
+              Dossiê do Fiscal
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-gray-700">Comprovação de Aceite (PDF assinado)</span>
+              {recebimento?.comprovacao_aceite_path ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-blue-600 hover:text-blue-700"
+                  onClick={handleDownloadComprovacao}
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1" /> Baixar PDF
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGerarComprovacaoPdf}
+                  disabled={gerandoPdf}
+                >
+                  {gerandoPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <FileText className="h-3.5 w-3.5 mr-1" />}
+                  {gerandoPdf ? 'Gerando...' : 'Gerar PDF'}
+                </Button>
+              )}
+            </div>
+            <div className="pt-2 border-t border-blue-200">
+              <p className="text-sm text-gray-700 font-medium mb-1">
+                Deseja anexar mais algum documento para enviar ao dossiê?
+              </p>
+              <p className="text-xs text-gray-600 mb-2">
+                O fiscal do contrato receberá o dossiê com OF, Nota Fiscal e Comprovação de Aceite. Você pode adicionar documentos extras na página do Dossiê do Fiscal.
+              </p>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/orgao/fiscal/dossie" className="flex items-center gap-2">
+                  <Paperclip className="h-3.5 w-3.5" />
+                  Acessar Dossiê do Fiscal
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Historico */}
       {ocorrencias.length > 0 && (

@@ -838,6 +838,22 @@ export class AlmoxarifadoController {
     return res.sendFile(path.resolve(pdfPath));
   }
 
+  @Post('recebimentos/:id/gerar-comprovacao-aceite')
+  async gerarComprovacaoAceite(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const user = request.user;
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: user.sub },
+    });
+    return this.recebimentoService.gerarComprovacaoAceiteManualmente(
+      id,
+      user.sub,
+      usuario?.nome || user.email || 'Usuário',
+    );
+  }
+
   @Post('recebimentos')
   async criarRecebimento(
     @Req() request: { user: JwtPayload },

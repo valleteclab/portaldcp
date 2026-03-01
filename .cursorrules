@@ -6,6 +6,8 @@
 - [X] Página "Dossiê do Fiscal" /orgao/fiscal/dossie com OF + NF + Comprovação + anexos
 - [X] Upload de anexos, download ZIP, marcar entregue ao financeiro
 - [X] Notificação ao fiscal quando dossiê disponível
+- [X] Fix: PDF não gerando — log de erro melhorado; endpoint POST recebimentos/:id/gerar-comprovacao-aceite para retry manual
+- [X] Tela recebimento: card "Dossiê do Fiscal" quando aceite concluído — Baixar PDF / Gerar PDF + link "Deseja anexar mais algum documento?"
 
 ## Tarefa Concluída: Clareza OF + Botão único Enviar (2026-03-01)
 

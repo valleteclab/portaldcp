@@ -313,6 +313,44 @@ export class RecebimentoService {
     }
   }
 
+  /**
+   * Gera manualmente o PDF da Comprovação de Aceite (para retry quando falhou no aceite).
+   * Só funciona se o recebimento estiver ACEITO e ainda não tiver comprovacao_aceite_path.
+   */
+  async gerarComprovacaoAceiteManualmente(
+    recebimentoId: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const rec = await this.recebimentoRepository.findOne({
+      where: { id: recebimentoId },
+      select: ['id', 'numero', 'status', 'comprovacao_aceite_path'],
+    });
+    if (!rec) {
+      throw new NotFoundException('Recebimento não encontrado');
+    }
+    if (rec.status !== StatusRecebimento.ACEITO) {
+      throw new BadRequestException(
+        'Apenas recebimentos totalmente aceitos podem gerar a comprovação.',
+      );
+    }
+    if (rec.comprovacao_aceite_path) {
+      return { ok: true, message: 'Comprovação já existe.' };
+    }
+    try {
+      await this.gerarComprovacaoAceite(recebimentoId, usuarioId, usuarioNome);
+      return { ok: true, message: 'Comprovação de aceite gerada com sucesso.' };
+    } catch (e: any) {
+      this.logger.error(
+        `Erro ao gerar comprovação manual (${recebimentoId}): ${e?.message}`,
+        e?.stack,
+      );
+      throw new BadRequestException(
+        `Não foi possível gerar o PDF: ${e?.message || 'erro desconhecido'}`,
+      );
+    }
+  }
+
   /** Retorna o caminho do PDF da comprovação de aceite, ou null se não existir */
   async getComprovacaoAceitePath(recebimentoId: string): Promise<string | null> {
     const rec = await this.recebimentoRepository.findOne({
@@ -444,9 +482,12 @@ export class RecebimentoService {
       );
 
       if (recebimento.status === StatusRecebimento.ACEITO) {
-        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) =>
-          this.logger.warn(`Erro ao gerar comprovação de aceite: ${e?.message}`),
-        );
+        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) => {
+          this.logger.error(
+            `Erro ao gerar comprovação de aceite (recebimento ${id}): ${e?.message}`,
+            e?.stack,
+          );
+        });
       }
       return this.findOne(id);
     } catch (error) {
@@ -589,9 +630,12 @@ export class RecebimentoService {
       );
 
       if (recebimento.status === StatusRecebimento.ACEITO) {
-        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) =>
-          this.logger.warn(`Erro ao gerar comprovação de aceite: ${e?.message}`),
-        );
+        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) => {
+          this.logger.error(
+            `Erro ao gerar comprovação de aceite (recebimento ${id}): ${e?.message}`,
+            e?.stack,
+          );
+        });
       }
       return this.findOne(id);
     } catch (error) {
@@ -746,9 +790,12 @@ export class RecebimentoService {
       );
 
       if (recebimento.status === StatusRecebimento.ACEITO) {
-        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) =>
-          this.logger.warn(`Erro ao gerar comprovação de aceite: ${e?.message}`),
-        );
+        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) => {
+          this.logger.error(
+            `Erro ao gerar comprovação de aceite (recebimento ${id}): ${e?.message}`,
+            e?.stack,
+          );
+        });
       }
       return this.findOne(id);
     } catch (error) {
