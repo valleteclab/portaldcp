@@ -265,6 +265,16 @@ export class AlmoxarifadoController {
     return this.requisicaoService.findOne(id);
   }
 
+  @Get('requisicoes/:id/historico')
+  async getHistoricoRequisicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
+    return this.requisicaoService.getHistoricoRequisicao(id);
+  }
+
   @Post('requisicoes')
   async criarRequisicao(
     @Req() request: { user: JwtPayload },

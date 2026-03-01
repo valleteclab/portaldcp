@@ -19,6 +19,7 @@ import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { Recebimento } from './entities/recebimento.entity';
 import { ConfiguracaoAprovacao } from './entities/configuracao-aprovacao.entity';
 import { HistoricoOrdemFornecimento } from './entities/historico-ordem.entity';
+import { HistoricoRequisicao } from './entities/historico-requisicao.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
 import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
@@ -45,6 +46,7 @@ import { IaModule } from '../ia/ia.module';
       Recebimento,
       ConfiguracaoAprovacao,
       HistoricoOrdemFornecimento,
+      HistoricoRequisicao,
       RequisicaoItemOS,
       RequisicaoEtapaOS,
       NotaFiscalFornecedor,

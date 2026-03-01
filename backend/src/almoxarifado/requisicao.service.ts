@@ -30,6 +30,7 @@ import {
 
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
 import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
+import { HistoricoRequisicao } from './entities/historico-requisicao.entity';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -61,6 +62,8 @@ export class RequisicaoService {
     private readonly itemCronogramaRepository: Repository<ItemCronograma>,
     @InjectRepository(EtapaCronograma)
     private readonly etapaCronogramaRepository: Repository<EtapaCronograma>,
+    @InjectRepository(HistoricoRequisicao)
+    private readonly historicoRequisicaoRepository: Repository<HistoricoRequisicao>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -459,6 +462,17 @@ export class RequisicaoService {
         this.logger.log(`OS ${numero}: ${etapasOS.length} etapas do cronograma vinculadas`);
       }
 
+      await this.historicoRequisicaoRepository.save(
+        this.historicoRequisicaoRepository.create({
+          requisicao_id: osSalva.id,
+          tipo_acao: 'PEDIDO_CRIADO',
+          descricao: `Movimentação feita por: ${usuarioNome} em: ${new Date().toLocaleString('pt-BR')}`,
+          usuario_id: usuarioId,
+          usuario_nome: usuarioNome,
+          data_evento: new Date(),
+        }),
+      );
+
       this.logger.log(`OS ${numero} criada para contrato ${contrato?.numero_contrato}`);
       return this.findOne(osSalva.id);
     }
@@ -646,6 +660,19 @@ export class RequisicaoService {
     requisicao.status = StatusRequisicao.AGUARDANDO_AUTORIZACAO;
     const saved = await this.requisicaoRepository.save(requisicao);
 
+    if (requisicao.tipo === TipoRequisicao.ORDEM_SERVICO) {
+      await this.historicoRequisicaoRepository.save(
+        this.historicoRequisicaoRepository.create({
+          requisicao_id: requisicao.id,
+          tipo_acao: 'ENVIADA_APROVACAO',
+          descricao: `Enviada para aprovação por: ${requisicao.usuario_solicitante_nome || 'Sistema'} em: ${new Date().toLocaleString('pt-BR')}`,
+          usuario_id: requisicao.usuario_solicitante_id || null,
+          usuario_nome: requisicao.usuario_solicitante_nome || 'Sistema',
+          data_evento: new Date(),
+        }),
+      );
+    }
+
     // Notifica aprovadores
     this.logger.log(`[NOTIFICAÇÃO] Enviando requisição ${requisicao.numero} para aprovação. Usuários do órgão recebidos: ${usuariosOrgao?.length || 0}`);
     this.logger.log(`[NOTIFICAÇÃO] IDs dos usuários recebidos: ${usuariosOrgao?.map(u => u.id).join(', ') || 'nenhum'}`);
@@ -752,6 +779,17 @@ export class RequisicaoService {
 
         await queryRunner.manager.save(requisicao);
         await queryRunner.commitTransaction();
+
+        await this.historicoRequisicaoRepository.save(
+          this.historicoRequisicaoRepository.create({
+            requisicao_id: requisicao.id,
+            tipo_acao: 'PEDIDO_AUTORIZADO',
+            descricao: `Movimentação feita por: ${autorizadorNome} em: ${new Date().toLocaleString('pt-BR')}`,
+            usuario_id: autorizadorId,
+            usuario_nome: autorizadorNome,
+            data_evento: new Date(),
+          }),
+        );
 
         this.logger.log(`OS ${requisicao.numero} autorizada por ${autorizadorNome}`);
 
@@ -1619,6 +1657,7 @@ export class RequisicaoService {
       .leftJoinAndSelect('req.itens', 'itens')
       .leftJoinAndSelect('req.contrato', 'contrato')
       .leftJoinAndSelect('contrato.fornecedor', 'fornecedor')
+      .leftJoinAndSelect('req.orgao', 'orgao')
       .where('req.orgao_id = :orgaoId', { orgaoId: filtros.orgaoId });
 
     if (filtros.status) {
@@ -1683,6 +1722,18 @@ export class RequisicaoService {
     }
 
     return requisicao;
+  }
+
+  async getHistoricoRequisicao(requisicaoId: string): Promise<HistoricoRequisicao[]> {
+    const itens = await this.historicoRequisicaoRepository.find({
+      where: { requisicao_id: requisicaoId },
+    });
+    itens.sort((a, b) => {
+      const da = a.data_evento ? new Date(a.data_evento).getTime() : new Date(a.created_at).getTime();
+      const db = b.data_evento ? new Date(b.data_evento).getTime() : new Date(b.created_at).getTime();
+      return da - db;
+    });
+    return itens;
   }
 
   /**

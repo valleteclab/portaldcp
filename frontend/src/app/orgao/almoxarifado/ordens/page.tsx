@@ -82,6 +82,9 @@ interface OrdemFornecimento {
     razao_social: string;
     email?: string;
   };
+  orgao?: {
+    nome: string;
+  };
   requisicao?: {
     numero: string;
   };
@@ -106,6 +109,7 @@ interface HistoricoOrdem {
   usuario_nome?: string;
   usuario_tipo?: string;
   created_at: string;
+  data_evento?: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -128,8 +132,35 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELADA: 'Cancelada',
 };
 
+const TIPO_MOVIMENTO_LABELS: Record<string, string> = {
+  PEDIDO_CRIADO: 'PEDIDO CRIADO',
+  PEDIDO_AUTORIZADO: 'PEDIDO AUTORIZADO',
+  CRIADA: 'ORDEM CRIADA',
+  EDITADA: 'ORDEM EDITADA',
+  EMITIDA: 'ORDEM EMITIDA',
+  ENVIADA: 'ORDEM ENVIADA',
+  REENVIADA: 'ORDEM REENVIADA',
+  CANCELADA: 'ORDEM CANCELADA',
+  REATIVADA: 'ORDEM REATIVADA',
+  VISUALIZADA_FORNECEDOR: 'VISUALIZADA PELO FORNECEDOR',
+  ACEITA_FORNECEDOR: 'ACEITA PELO FORNECEDOR',
+  RECUSADA_FORNECEDOR: 'RECUSADA PELO FORNECEDOR',
+  ENTREGA_REGISTRADA: 'ENTREGA REGISTRADA',
+  ENTREGA_PARCIAL: 'ENTREGA PARCIAL',
+  ENTREGA_COMPLETA: 'ENTREGA COMPLETA',
+  ENTREGA_ESTORNADA: 'ENTREGA ESTORNADA',
+  PDF_GERADO: 'PDF GERADO',
+  PDF_BAIXADO: 'PDF BAIXADO',
+  NOTIFICACAO_ENVIADA: 'NOTIFICAÇÃO ENVIADA',
+  EMAIL_ENVIADO: 'EMAIL ENVIADO',
+  OBSERVACAO_ADICIONADA: 'OBSERVAÇÃO ADICIONADA',
+  ITEM_ALTERADO: 'ITEM ALTERADO',
+};
+
 const ACAO_ICONS: Record<string, string> = {
-  CRIADA: '📝',
+  PEDIDO_CRIADO: '📝',
+  PEDIDO_AUTORIZADO: '✅',
+  CRIADA: '📄',
   EDITADA: '✏️',
   EMITIDA: '📄',
   ENVIADA: '📤',
@@ -1067,37 +1098,53 @@ function OrdensList() {
               <p>Nenhum histórico encontrado</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {historico.map((item, index) => (
-                <div 
-                  key={item.id} 
-                  className={`flex gap-4 ${index !== historico.length - 1 ? 'pb-4 border-b' : ''}`}
-                >
-                  <div className="text-2xl">
-                    {ACAO_ICONS[item.tipo_acao] || '📋'}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium">{item.descricao}</p>
-                    <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                      <span>{formatarDataHora(item.created_at)}</span>
-                      {item.usuario_nome && (
-                        <>
-                          <span>•</span>
-                          <span>{item.usuario_nome}</span>
-                        </>
-                      )}
-                      {item.status_novo && (
-                        <>
-                          <span>•</span>
-                          <Badge className={STATUS_COLORS[item.status_novo]} variant="outline">
-                            {STATUS_LABELS[item.status_novo]}
-                          </Badge>
-                        </>
-                      )}
+            <div className="relative">
+              {/* Linha vertical da timeline */}
+              <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" />
+              
+              <div className="space-y-0">
+                {historico.map((item, index) => {
+                  const dataExibicao = item.data_evento || item.created_at;
+                  const horaExibicao = new Date(dataExibicao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                  const isVerde = item.tipo_acao === 'PEDIDO_CRIADO' || index % 2 === 0;
+                  return (
+                    <div key={item.id} className="relative flex gap-4 pb-6 last:pb-0">
+                      {/* Marcador na timeline */}
+                      <div className="relative z-10 flex-shrink-0 w-12 flex justify-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isVerde ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                          <span className="text-sm">{ACAO_ICONS[item.tipo_acao] || '📋'}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Card do evento */}
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-white border rounded-lg p-4 shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="font-semibold text-gray-900">
+                              {TIPO_MOVIMENTO_LABELS[item.tipo_acao] || item.tipo_acao}
+                            </p>
+                            <div className="flex items-center gap-1 text-sm text-gray-500">
+                              <Clock className="h-4 w-4" />
+                              {formatarDataHora(dataExibicao)}
+                            </div>
+                          </div>
+                          <div className="space-y-1 text-sm text-gray-600">
+                            {ordemSelecionada && (
+                              <>
+                                <p><span className="font-medium text-gray-500">Nº do Pedido:</span> {ordemSelecionada.numero}</p>
+                                <p><span className="font-medium text-gray-500">Fornecedor:</span> {ordemSelecionada.fornecedor?.razao_social || '-'}</p>
+                                <p><span className="font-medium text-gray-500">Secretaria:</span> {ordemSelecionada.orgao?.nome || '-'}</p>
+                              </>
+                            )}
+                            <p><span className="font-medium text-gray-500">Tipo de Movimento:</span> {TIPO_MOVIMENTO_LABELS[item.tipo_acao] || item.tipo_acao}</p>
+                            <p><span className="font-medium text-gray-500">Descrição:</span> {item.descricao}</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
           )}
         </DialogContent>

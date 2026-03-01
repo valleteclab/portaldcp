@@ -52,6 +52,7 @@ export class OrdemFornecimentoService {
     usuarioId?: string;
     usuarioNome?: string;
     usuarioTipo?: 'orgao' | 'fornecedor' | 'sistema';
+    dataEvento?: Date;
   }): Promise<HistoricoOrdemFornecimento> {
     const historico = new HistoricoOrdemFornecimento();
     historico.ordem_fornecimento_id = params.ordemId;
@@ -63,15 +64,21 @@ export class OrdemFornecimentoService {
     historico.usuario_id = params.usuarioId || null;
     historico.usuario_nome = params.usuarioNome || null;
     historico.usuario_tipo = params.usuarioTipo || 'orgao';
+    historico.data_evento = params.dataEvento || null;
 
     return this.historicoRepository.save(historico);
   }
 
   async getHistorico(ordemId: string): Promise<HistoricoOrdemFornecimento[]> {
-    return this.historicoRepository.find({
+    const itens = await this.historicoRepository.find({
       where: { ordem_fornecimento_id: ordemId },
-      order: { created_at: 'DESC' },
     });
+    itens.sort((a, b) => {
+      const da = a.data_evento ? new Date(a.data_evento).getTime() : new Date(a.created_at).getTime();
+      const db = b.data_evento ? new Date(b.data_evento).getTime() : new Date(b.created_at).getTime();
+      return da - db;
+    });
+    return itens;
   }
 
   // ============================================================================
@@ -196,15 +203,43 @@ export class OrdemFornecimentoService {
         `Valor: R$ ${valorTotal.toFixed(2)}`
       );
 
-      // Registra no histórico
+      // Registra no histórico (timeline como "Movimento do Pedido")
+      const dataCriacaoReq = requisicao.created_at ? new Date(requisicao.created_at) : new Date();
+      const dataAutorizacao = requisicao.data_autorizacao ? new Date(requisicao.data_autorizacao) : new Date();
+
+      await this.registrarHistorico({
+        ordemId: ordemSalva.id,
+        tipoAcao: TipoAcaoOrdem.PEDIDO_CRIADO,
+        descricao: `Movimentação feita por: ${requisicao.usuario_solicitante_nome || 'Sistema'} em: ${dataCriacaoReq.toLocaleString('pt-BR')}`,
+        detalhes: { requisicao_numero: requisicao.numero },
+        statusNovo: 'RASCUNHO',
+        usuarioId: requisicao.usuario_solicitante_id || undefined,
+        usuarioNome: requisicao.usuario_solicitante_nome || 'Sistema',
+        usuarioTipo: 'orgao',
+        dataEvento: dataCriacaoReq,
+      });
+
+      await this.registrarHistorico({
+        ordemId: ordemSalva.id,
+        tipoAcao: TipoAcaoOrdem.PEDIDO_AUTORIZADO,
+        descricao: `Movimentação feita por: ${usuarioNome} em: ${dataAutorizacao.toLocaleString('pt-BR')}`,
+        detalhes: { requisicao_numero: requisicao.numero },
+        statusAnterior: 'AGUARDANDO_AUTORIZACAO',
+        statusNovo: StatusOrdemFornecimento.EMITIDA,
+        usuarioId,
+        usuarioNome,
+        usuarioTipo: 'orgao',
+        dataEvento: dataAutorizacao,
+      });
+
       await this.registrarHistorico({
         ordemId: ordemSalva.id,
         tipoAcao: TipoAcaoOrdem.CRIADA,
         descricao: `Ordem ${numero} criada a partir da requisição ${requisicao.numero}`,
         detalhes: { requisicao_numero: requisicao.numero, valor_total: valorTotal },
         statusNovo: StatusOrdemFornecimento.EMITIDA,
-        usuarioId: usuarioId,
-        usuarioNome: usuarioNome,
+        usuarioId,
+        usuarioNome,
         usuarioTipo: 'orgao',
       });
 
@@ -895,7 +930,7 @@ export class OrdemFornecimentoService {
   async findOne(id: string): Promise<OrdemFornecimento> {
     const ordem = await this.ordemRepository.findOne({
       where: { id },
-      relations: ['contrato', 'fornecedor', 'requisicao'],
+      relations: ['contrato', 'fornecedor', 'requisicao', 'orgao'],
     });
 
     if (!ordem) {

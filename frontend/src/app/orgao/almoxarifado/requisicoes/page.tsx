@@ -24,7 +24,8 @@ import {
   ShieldCheck,
   ExternalLink,
   Send,
-  Pencil
+  Pencil,
+  History
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -91,6 +92,7 @@ interface Requisicao {
     numero: string;
   };
   local_entrega?: string | null;
+  orgao?: { nome: string };
   contrato?: {
     numero_contrato: string;
     fornecedor?: {
@@ -212,6 +214,11 @@ function RequisicoesList() {
   const [emailEnviarFornecedor, setEmailEnviarFornecedor] = useState('');
   const [telefoneEnviarFornecedor, setTelefoneEnviarFornecedor] = useState('');
   const [enviandoFornecedorId, setEnviandoFornecedorId] = useState<string | null>(null);
+
+  // Modal Histórico (OS)
+  const [showHistoricoOS, setShowHistoricoOS] = useState(false);
+  const [historicoOS, setHistoricoOS] = useState<Array<{ id: string; tipo_acao: string; descricao: string; usuario_nome?: string; created_at: string; data_evento?: string | null }>>([]);
+  const [carregandoHistoricoOS, setCarregandoHistoricoOS] = useState(false);
 
   // Carregar info do contrato se filtrado
   useEffect(() => {
@@ -342,6 +349,25 @@ function RequisicoesList() {
       setTelefoneEnviarFornecedor('');
     }
     setShowEnviarFornecedor(true);
+  };
+
+  const handleAbrirHistoricoOS = async (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    setShowHistoricoOS(true);
+    setCarregandoHistoricoOS(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/historico`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoricoOS(data);
+      } else {
+        setHistoricoOS([]);
+      }
+    } catch {
+      setHistoricoOS([]);
+    } finally {
+      setCarregandoHistoricoOS(false);
+    }
   };
 
   const handleEnviarAoFornecedor = async () => {
@@ -1028,6 +1054,18 @@ function RequisicoesList() {
                             </Link>
                           </Button>
                         )}
+                        {/* OS → Ver Histórico (Movimento do Pedido) */}
+                        {req.tipo === 'ORDEM_SERVICO' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-600 hover:text-slate-700"
+                            onClick={() => handleAbrirHistoricoOS(req)}
+                            title="Ver histórico da ordem"
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
+                        )}
                         {/* Botão para gerar ordem manualmente (apenas para requisições de material/serviço aprovadas sem ordem) */}
                         {req.tipo !== 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && !req.ordem_fornecimento_id && (
                           <Button
@@ -1651,6 +1689,81 @@ function RequisicoesList() {
               Enviar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Histórico OS (Movimento do Pedido) */}
+      <Dialog open={showHistoricoOS} onOpenChange={setShowHistoricoOS}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Movimento do Pedido - {requisicaoSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Histórico de todas as movimentações desta Ordem de Serviço
+            </DialogDescription>
+          </DialogHeader>
+          {carregandoHistoricoOS ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : historicoOS.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Nenhum histórico encontrado</p>
+            </div>
+          ) : (
+            <div className="relative">
+              <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" />
+              <div className="space-y-0">
+                {historicoOS.map((item, index) => {
+                  const dataExibicao = item.data_evento || item.created_at;
+                  const isVerde = item.tipo_acao === 'PEDIDO_CRIADO' || index % 2 === 0;
+                  const labels: Record<string, string> = {
+                    PEDIDO_CRIADO: 'PEDIDO CRIADO',
+                    ENVIADA_APROVACAO: 'ENVIADA PARA APROVAÇÃO',
+                    PEDIDO_AUTORIZADO: 'PEDIDO AUTORIZADO',
+                  };
+                  return (
+                    <div key={item.id} className="relative flex gap-4 pb-6 last:pb-0">
+                      <div className="relative z-10 flex-shrink-0 w-12 flex justify-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isVerde ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                          <span className="text-sm">
+                            {item.tipo_acao === 'PEDIDO_CRIADO' ? '📝' : item.tipo_acao === 'PEDIDO_AUTORIZADO' ? '✅' : '📤'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-white border rounded-lg p-4 shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="font-semibold text-gray-900">
+                              {labels[item.tipo_acao] || item.tipo_acao}
+                            </p>
+                            <div className="flex items-center gap-1 text-sm text-gray-500">
+                              <Clock className="h-4 w-4" />
+                              {new Date(dataExibicao).toLocaleString('pt-BR')}
+                            </div>
+                          </div>
+                          <div className="space-y-1 text-sm text-gray-600">
+                            {requisicaoSelecionada && (
+                              <>
+                                <p><span className="font-medium text-gray-500">Nº do Pedido:</span> {requisicaoSelecionada.numero}</p>
+                                <p><span className="font-medium text-gray-500">Fornecedor:</span> {requisicaoSelecionada.contrato?.fornecedor?.razao_social || '-'}</p>
+                                <p><span className="font-medium text-gray-500">Secretaria:</span> {requisicaoSelecionada.orgao?.nome || '-'}</p>
+                              </>
+                            )}
+                            <p><span className="font-medium text-gray-500">Tipo de Movimento:</span> {labels[item.tipo_acao] || item.tipo_acao}</p>
+                            <p><span className="font-medium text-gray-500">Descrição:</span> {item.descricao}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

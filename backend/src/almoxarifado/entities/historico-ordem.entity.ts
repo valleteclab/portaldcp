@@ -20,7 +20,9 @@ import {
 import { OrdemFornecimento } from './ordem-fornecimento.entity';
 
 export enum TipoAcaoOrdem {
-  // Ciclo de vida
+  // Ciclo de vida (timeline como "Movimento do Pedido")
+  PEDIDO_CRIADO = 'PEDIDO_CRIADO',
+  PEDIDO_AUTORIZADO = 'PEDIDO_AUTORIZADO',
   CRIADA = 'CRIADA',
   EDITADA = 'EDITADA',
   EMITIDA = 'EMITIDA',
@@ -120,4 +122,8 @@ export class HistoricoOrdemFornecimento {
 
   @CreateDateColumn()
   created_at: Date;
+
+  /** Data do evento (para eventos retroativos, ex: PEDIDO_CRIADO usa data da requisição) */
+  @Column({ type: 'timestamp', nullable: true })
+  data_evento: Date | null;
 }
