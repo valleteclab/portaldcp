@@ -43,7 +43,8 @@ export class MatchingIaService {
       return { mapeamento: [], ia_indisponivel: false };
     }
 
-    const prompt = this.buildPrompt(produtosNf, itensOf);
+    const tipoItensNf = (nf as any).tipo_itens as string | undefined;
+    const prompt = this.buildPrompt(produtosNf, itensOf, tipoItensNf);
 
     for (let tentativa = 0; tentativa < 2; tentativa++) {
       try {
@@ -51,7 +52,23 @@ export class MatchingIaService {
           { role: 'user', content: prompt },
         ]);
 
-        const mapeamento = this.parseResposta(resposta, produtosNf);
+        let mapeamento = this.parseResposta(resposta, produtosNf);
+
+        // Pós-processamento: quando NF tem tipo, invalidar matches com valor muito diferente
+        const tipoNf = (nf as any).tipo_itens;
+        if (tipoNf && itensOf.length > 0) {
+          mapeamento = mapeamento.map((m) => {
+            if (!m.item_contrato_id) return m;
+            const prod = produtosNf.find((p: any) => (p.nItem || 0) === m.produto_nf_index);
+            const ofItem = itensOf.find((i: any) => i.item_contrato_id === m.item_contrato_id);
+            if (!prod?.vUnCom || !ofItem?.valor_unitario) return m;
+            const ratio = Number(prod.vUnCom) / Number(ofItem.valor_unitario);
+            if (ratio > 5 || ratio < 0.2) {
+              return { ...m, item_contrato_id: null, descricao_of: null, confianca: 0, justificativa: 'Valor incompatível — produto provavelmente de outro tipo' };
+            }
+            return m;
+          });
+        }
 
         await this.nfRepository.update(nfId, { mapeamento_ai: mapeamento });
 
@@ -79,6 +96,7 @@ export class MatchingIaService {
   private buildPrompt(
     produtosNf: any[],
     itensOf: any[],
+    tipoItens?: string,
   ): string {
     const nfList = produtosNf.map((p, i) => ({
       index: p.nItem || i + 1,
@@ -96,6 +114,9 @@ export class MatchingIaService {
       quantidade_restante: (item.quantidade ?? 0) - (item.quantidade_entregue ?? 0),
       valor_unitario: item.valor_unitario,
     }));
+    const regraTipo = tipoItens
+      ? `IMPORTANTE: Esta NF é EXCLUSIVAMENTE para itens de ${tipoItens}. Os itens da OF listados são todos desse tipo. NÃO vincule produtos da NF que sejam claramente de outro tipo (ex: notebooks, computadores, impressoras em NF de CONSUMO são equipamentos permanentes). Para esses produtos, retorne item_contrato_id como null. Use o valor unitário como critério forte: se o produto da NF tiver valor muito diferente (ex: 10x ou mais) do item da OF, provavelmente são tipos diferentes — retorne null.`
+      : '';
 
     return `Você é um assistente de mapeamento de produtos. Compare os produtos da Nota Fiscal com os itens da Ordem de Fornecimento e faça o vínculo.
 
@@ -105,7 +126,10 @@ ${JSON.stringify(nfList, null, 2)}
 ITENS DA ORDEM DE FORNECIMENTO:
 ${JSON.stringify(ofList, null, 2)}
 
-REGRAS:
+${regraTipo ? `REGRAS ESPECIAIS (NF separada - tipo ${tipoItens}):
+${regraTipo}
+
+` : ''}REGRAS GERAIS:
 1. Para cada produto da NF, encontre o item mais provável na OF
 2. Atribua uma confiança de 0 a 100
 3. Se não encontrar correspondência, retorne item_contrato_id como null

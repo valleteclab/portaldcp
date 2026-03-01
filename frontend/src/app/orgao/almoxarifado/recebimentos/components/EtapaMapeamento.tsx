@@ -45,10 +45,12 @@ interface EtapaMapeamentoProps {
   onConfirmar: (mapeamentoConfirmado: any[]) => void
   onRecusarNF?: (motivo: string) => void
   loading: boolean
+  /** Quando NF separada: CONSUMO ou PERMANENTE - valida se NF não contém itens de outro tipo */
+  tipoItensNf?: 'CONSUMO' | 'PERMANENTE' | null
 }
 
 interface Divergencia {
-  tipo: 'quantidade_maior' | 'quantidade_menor' | 'valor_diferente' | 'item_extra_nf' | 'item_faltante_of'
+  tipo: 'quantidade_maior' | 'quantidade_menor' | 'valor_diferente' | 'item_extra_nf' | 'item_faltante_of' | 'nf_excede_tipo'
   severidade: 'alta' | 'media' | 'baixa'
   mensagem: string
   orientacao: string
@@ -67,6 +69,7 @@ export function EtapaMapeamento({
   onConfirmar,
   onRecusarNF,
   loading,
+  tipoItensNf,
 }: EtapaMapeamentoProps) {
   const [confirmados, setConfirmados] = useState<Record<number, boolean>>(() => {
     if (jaConfirmado) {
@@ -127,6 +130,11 @@ export function EtapaMapeamento({
     const divergencias: Divergencia[] = []
     let valorTotalNf = 0
     let valorTotalOf = 0
+
+    // Valor esperado para NF do tipo (quando separada): soma dos itens da OF desse tipo
+    const valorTotalOfEsperado = tipoItensNf
+      ? itensOf.reduce((s, i) => s + (i.valor_unitario || 0) * (i.quantidade || 0), 0)
+      : 0
 
     for (const m of mapeamento) {
       const prod = produtosXml.find(p => p.nItem === m.produto_nf_index)
@@ -189,11 +197,24 @@ export function EtapaMapeamento({
       })
     }
 
+    // NF separada: detectar NF com itens de outro tipo (ex: NF Consumo com notebook)
+    if (tipoItensNf && valorTotalOfEsperado > 0 && valorTotalNf > valorTotalOfEsperado * 1.05) {
+      const tipoLabel = tipoItensNf === 'CONSUMO' ? 'consumo' : 'permanente'
+      divergencias.push({
+        tipo: 'nf_excede_tipo',
+        severidade: 'alta',
+        mensagem: `O valor da NF (${fmt(valorTotalNf)}) excede o valor dos itens de ${tipoLabel} da OF (${fmt(valorTotalOfEsperado)})`,
+        orientacao: 'Esta NF pode conter itens de outro tipo. O envio foi marcado como separado — verifique se a NF correta foi anexada ou recuse e solicite a NF adequada.',
+        produtoNf: undefined,
+        itemOf: undefined,
+      })
+    }
+
     const altaSeveridade = divergencias.filter(d => d.severidade === 'alta').length
     const mediaSeveridade = divergencias.filter(d => d.severidade === 'media').length
 
-    return { divergencias, valorTotalNf, valorTotalOf, altaSeveridade, mediaSeveridade }
-  }, [mapeamento, produtosXml, itensOf, selecoes])
+    return { divergencias, valorTotalNf, valorTotalOf, valorTotalOfEsperado: tipoItensNf ? valorTotalOfEsperado : undefined, altaSeveridade, mediaSeveridade }
+  }, [mapeamento, produtosXml, itensOf, selecoes, tipoItensNf])
 
   const getDivergenciasItem = (prodNfIndex: number, itemContratoId: string | null) => {
     if (!itemContratoId) return []
@@ -248,13 +269,15 @@ export function EtapaMapeamento({
                 <p className="font-bold text-base">{fmt(analise.valorTotalNf)}</p>
               </div>
               <div className="bg-white rounded-lg p-3 border text-center">
-                <p className="text-[10px] font-bold text-gray-400 uppercase">Valor Total OF</p>
-                <p className="font-bold text-base">{fmt(analise.valorTotalOf)}</p>
-                {Math.abs(analise.valorTotalNf - analise.valorTotalOf) > 0.01 && (
-                  <p className={`text-xs mt-1 font-semibold ${analise.valorTotalNf > analise.valorTotalOf ? 'text-red-600' : 'text-amber-600'}`}>
-                    {analise.valorTotalNf > analise.valorTotalOf
-                      ? `NF excede OF em ${fmt(analise.valorTotalNf - analise.valorTotalOf)}`
-                      : `OF excede NF em ${fmt(analise.valorTotalOf - analise.valorTotalNf)}`}
+                <p className="text-[10px] font-bold text-gray-400 uppercase">
+                  Valor Total OF {tipoItensNf ? `(itens ${tipoItensNf === 'CONSUMO' ? 'consumo' : 'permanente'})` : ''}
+                </p>
+                <p className="font-bold text-base">{fmt(analise.valorTotalOfEsperado ?? analise.valorTotalOf)}</p>
+                {Math.abs(analise.valorTotalNf - (analise.valorTotalOfEsperado ?? analise.valorTotalOf)) > 0.01 && (
+                  <p className={`text-xs mt-1 font-semibold ${analise.valorTotalNf > (analise.valorTotalOfEsperado ?? analise.valorTotalOf) ? 'text-red-600' : 'text-amber-600'}`}>
+                    {analise.valorTotalNf > (analise.valorTotalOfEsperado ?? analise.valorTotalOf)
+                      ? `NF excede OF em ${fmt(analise.valorTotalNf - (analise.valorTotalOfEsperado ?? analise.valorTotalOf))}`
+                      : `OF excede NF em ${fmt((analise.valorTotalOfEsperado ?? analise.valorTotalOf) - analise.valorTotalNf)}`}
                   </p>
                 )}
               </div>
@@ -273,6 +296,8 @@ export function EtapaMapeamento({
                   <TrendingUp className={`h-4 w-4 mt-0.5 flex-shrink-0 ${div.severidade === 'alta' ? 'text-red-500' : 'text-amber-500'}`} />
                 ) : div.tipo === 'quantidade_menor' ? (
                   <TrendingDown className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                ) : div.tipo === 'nf_excede_tipo' ? (
+                  <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0 text-red-500" />
                 ) : (
                   <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${div.severidade === 'alta' ? 'text-red-500' : 'text-amber-500'}`} />
                 )}

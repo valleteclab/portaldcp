@@ -345,6 +345,7 @@ function RecebimentoUnificadoContent() {
             mapeamento={mapeamento}
             produtosXml={notaFiscal?.produtos_xml || []}
             itensOf={itensParaMapeamento}
+            tipoItensNf={tipoNf}
             itensJaRecebidos={itensJaRecebidos}
             recebimentosAceitos={recebimentos.filter((r: any) => r.status === 'ACEITO')}
             iaIndisponivel={iaIndisponivel}
