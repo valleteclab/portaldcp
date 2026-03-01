@@ -28,7 +28,11 @@ export class MatchingIaService {
     if (!ordem) throw new Error('Ordem de fornecimento não encontrada');
 
     const produtosNf = nf.produtos_xml || [];
-    const itensOf = ordem.itens || [];
+    const todosItens = ordem.itens || [];
+    // REQ-ALM-001: apenas itens com saldo pendente (não totalmente recebidos)
+    const itensOf = todosItens.filter(
+      (item: any) => (item.quantidade_entregue ?? 0) < (item.quantidade ?? 0),
+    );
 
     if (produtosNf.length === 0) {
       return { mapeamento: [], ia_indisponivel: false };
@@ -84,6 +88,7 @@ export class MatchingIaService {
       descricao: item.descricao,
       unidade: item.unidade_medida,
       quantidade: item.quantidade,
+      quantidade_restante: (item.quantidade ?? 0) - (item.quantidade_entregue ?? 0),
       valor_unitario: item.valor_unitario,
     }));
 

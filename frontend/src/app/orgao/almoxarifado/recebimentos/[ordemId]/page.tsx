@@ -29,6 +29,9 @@ function RecebimentoUnificadoContent() {
   const [ordem, setOrdem] = useState<any>(null)
   const [notaFiscal, setNotaFiscal] = useState<any>(null)
   const [recebimentos, setRecebimentos] = useState<any[]>([])
+  const [itensPendentes, setItensPendentes] = useState<any[]>([])
+  const [itensJaRecebidos, setItensJaRecebidos] = useState<any[]>([])
+  const [recebimentoAtivo, setRecebimentoAtivo] = useState<any>(null)
   const [mapeamento, setMapeamento] = useState<any[]>([])
   const [iaIndisponivel, setIaIndisponivel] = useState(false)
   const [etapa, setEtapa] = useState<string>('nf')
@@ -48,6 +51,8 @@ function RecebimentoUnificadoContent() {
         setOrdem(data.ordem)
         setNotaFiscal(data.notaFiscal)
         setRecebimentos(data.recebimentos || [])
+        setItensPendentes(data.itensPendentes || [])
+        setItensJaRecebidos(data.itensJaRecebidos || [])
 
         const recebimentosAtivos = (data.recebimentos || []).filter(
           (r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO'
@@ -55,11 +60,20 @@ function RecebimentoUnificadoContent() {
         const recebimentosCancelados = (data.recebimentos || []).filter(
           (r: any) => r.status === 'REJEITADO' || r.status === 'ESTORNADO'
         )
+        // REQ-ALM-001: recebimento ativo da NF atual (pode haver múltiplas NFs em OF parcial)
+        const recAtivoParaNfAtual = data.notaFiscal
+          ? recebimentosAtivos.find((r: any) => r.nota_fiscal_fornecedor_id === data.notaFiscal?.id)
+          : null
 
-        if (recebimentosAtivos.length > 0) {
+        if (recAtivoParaNfAtual) {
           const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
           setMapeamento(mapeamentoFonte)
+          setRecebimentoAtivo(recAtivoParaNfAtual)
           setEtapa('recebimento')
+        } else if (recebimentosAtivos.length > 0 && data.notaFiscal) {
+          // Há recebimentos de outra NF (OF parcial), mas a NF atual ainda não tem recebimento → mapeamento
+          setMapeamento(data.notaFiscal?.mapeamento_ai || data.notaFiscal?.mapeamento_confirmado || [])
+          setEtapa(data.notaFiscal?.mapeamento_confirmado ? 'mapeamento' : data.notaFiscal?.mapeamento_ai ? 'mapeamento' : 'nf')
         } else if (recebimentosCancelados.length > 0 && !data.notaFiscal) {
           setEtapa('nf')
         } else if (data.notaFiscal?.status === 'RECUSADA') {
@@ -75,6 +89,7 @@ function RecebimentoUnificadoContent() {
           setEtapa('nf')
         } else if (data.notaFiscal?.mapeamento_confirmado) {
           setMapeamento(data.notaFiscal.mapeamento_confirmado)
+          setRecebimentoAtivo(recebimentosAtivos.find((r: any) => r.nota_fiscal_fornecedor_id === data.notaFiscal?.id) || recebimentosAtivos[0] || null)
           setEtapa('recebimento')
         } else if (data.notaFiscal?.mapeamento_ai) {
           setMapeamento(data.notaFiscal.mapeamento_ai)
@@ -204,7 +219,9 @@ function RecebimentoUnificadoContent() {
           <EtapaMapeamento
             mapeamento={mapeamento}
             produtosXml={notaFiscal?.produtos_xml || []}
-            itensOf={ordem?.itens || []}
+            itensOf={itensPendentes.length > 0 ? itensPendentes : (ordem?.itens || [])}
+            itensJaRecebidos={itensJaRecebidos}
+            recebimentosAceitos={recebimentos.filter((r: any) => r.status === 'ACEITO')}
             iaIndisponivel={iaIndisponivel}
             jaConfirmado={!!notaFiscal?.mapeamento_confirmado || recebimentos.some((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')}
             onConfirmar={handleConfirmarMapeamento}
@@ -236,11 +253,12 @@ function RecebimentoUnificadoContent() {
         {etapa === 'recebimento' && (() => {
           const recAtivos = recebimentos.filter((r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO')
           const recCancelados = recebimentos.filter((r: any) => r.status === 'REJEITADO' || r.status === 'ESTORNADO')
+          const recExibir = recebimentoAtivo || (notaFiscal ? recAtivos.find((r: any) => r.nota_fiscal_fornecedor_id === notaFiscal?.id) : null) || recAtivos[0]
           
-          if (recAtivos.length > 0) {
+          if (recExibir) {
             return (
               <EtapaRecebimento
-                recebimento={recAtivos[0]}
+                recebimento={recExibir}
                 ordemId={ordemId}
                 podeReceberPatrimonio={podeReceberPatrimonio}
                 onUpdate={carregarDados}

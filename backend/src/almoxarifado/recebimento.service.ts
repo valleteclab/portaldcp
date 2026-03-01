@@ -984,6 +984,24 @@ export class RecebimentoService {
       });
       if (!ordem) throw new NotFoundException('Ordem não encontrada');
 
+      // REQ-ALM-001: não permitir ateste de itens já totalmente recebidos
+      const itensJaRecebidos: string[] = [];
+      for (const m of mapeamento) {
+        if (!m.item_contrato_id) continue;
+        const itemOf = (ordem.itens || []).find((i: any) => i.item_contrato_id === m.item_contrato_id);
+        if (!itemOf) continue;
+        const qtdEntregue = Number(itemOf.quantidade_entregue ?? 0);
+        const qtdTotal = Number(itemOf.quantidade ?? 0);
+        if (qtdTotal > 0 && qtdEntregue >= qtdTotal) {
+          itensJaRecebidos.push(itemOf.descricao || m.descricao_of || m.xProd_nf || 'Item');
+        }
+      }
+      if (itensJaRecebidos.length > 0) {
+        throw new BadRequestException(
+          `Os itens [${itensJaRecebidos.join(', ')}] já foram recebidos em recebimento anterior. Somente itens pendentes podem ser atestados.`,
+        );
+      }
+
       const ano = new Date().getFullYear();
       const ultimo = await this.recebimentoRepository
         .createQueryBuilder('r')
@@ -994,21 +1012,29 @@ export class RecebimentoService {
       const sequencial = (ultimo?.sequencial || 0) + 1;
       const numero = `REC-${String(sequencial).padStart(4, '0')}/${ano}`;
 
+      const produtosXml = nf.produtos_xml || [];
       const itensRecebimento = mapeamento.map(m => {
         const itemOf = (ordem.itens || []).find(
           (i: any) => i.item_contrato_id === m.item_contrato_id,
         );
+        const qtdTotal = Number(itemOf?.quantidade ?? 0);
+        const qtdEntregue = Number(itemOf?.quantidade_entregue ?? 0);
+        const qtdRestante = Math.max(0, qtdTotal - qtdEntregue);
+        const prodNf = produtosXml[m.produto_nf_index - 1] || produtosXml.find((p: any) => p.nItem === m.produto_nf_index);
+        const qtdNf = Number(prodNf?.qCom ?? qtdRestante);
+        const qtdRecebida = Math.min(qtdNf, qtdRestante);
+        const valorUnit = Number(itemOf?.valor_unitario ?? 0);
         return {
           item_contrato_id: m.item_contrato_id,
           numero_item: m.produto_nf_index,
           descricao: itemOf?.descricao || m.descricao_of || m.xProd_nf,
           unidade_medida: itemOf?.unidade_medida || '',
           tipo_item: itemOf?.tipo_item || 'CONSUMO',
-          quantidade_esperada: itemOf?.quantidade || 0,
-          quantidade_recebida: itemOf?.quantidade || 0,
+          quantidade_esperada: qtdRestante,
+          quantidade_recebida: qtdRecebida,
           quantidade_aceita: 0,
-          valor_unitario: itemOf?.valor_unitario || 0,
-          valor_total: (itemOf?.valor_unitario || 0) * (itemOf?.quantidade || 0),
+          valor_unitario: valorUnit,
+          valor_total: valorUnit * qtdRecebida,
         };
       });
 

@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: REQ-ALM-001 - Evitar ateste duplicado em 2º recebimento (2026-03-01)
+
+- [X] Permitir 2º XML em OF ATENDIDA_PARCIAL (não substituir NF existente)
+- [X] Matching IA: enviar apenas itens pendentes (quantidade_entregue < quantidade)
+- [X] criarComNF: validar e bloquear itens já totalmente recebidos
+- [X] Frontend: alerta quando mapeamento contém itens já recebidos; itensPendentes no select
+- [X] Fluxo múltiplas NFs: recAtivoParaNfAtual para exibir recebimento correto
+
 ## Tarefa Concluída: Dossiê do Fiscal (2026-03-01)
 
 - [X] Documento "Comprovação de Aceite" (PDF assinado) ao concluir aceite

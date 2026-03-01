@@ -1336,10 +1336,23 @@ export class AlmoxarifadoController {
     
     const recebimentos = await this.recebimentoService.findByOrdem(ordemId);
 
+    // REQ-ALM-001: itens pendentes (saldo > 0) e já recebidos para o filtro no mapeamento
+    const itensPendentes = (ordem.itens || []).filter(
+      (i: any) => (Number(i.quantidade_entregue ?? 0) < Number(i.quantidade ?? 0)),
+    );
+    const itensJaRecebidos = (ordem.itens || []).filter(
+      (i: any) => (Number(i.quantidade ?? 0) > 0 && Number(i.quantidade_entregue ?? 0) >= Number(i.quantidade ?? 0)),
+    );
+
     return {
       ordem,
       notaFiscal,
       recebimentos,
+      itensPendentes,
+      itensJaRecebidos: itensJaRecebidos.map((i: any) => ({
+        item_contrato_id: i.item_contrato_id,
+        descricao: i.descricao,
+      })),
     };
   }
 

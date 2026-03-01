@@ -47,26 +47,31 @@ export class NotaFiscalFornecedorService {
     const statusPermitidos = [
       StatusOrdemFornecimento.ENVIADA,
       StatusOrdemFornecimento.EM_ATENDIMENTO,
+      StatusOrdemFornecimento.ATENDIDA_PARCIAL, // Permite 2º XML para itens pendentes
     ];
     if (!statusPermitidos.includes(ordem.status)) {
       throw new BadRequestException(`Ordem com status ${ordem.status} não permite envio de NF`);
     }
 
-    const existente = await this.nfRepository.findOne({
-      where: { ordem_fornecimento_id: ordemId },
-    });
-    if (existente) {
-      const recebimentos = await this.recebimentoRepository.find({
-        where: { nota_fiscal_fornecedor_id: existente.id },
+    // Em ATENDIDA_PARCIAL: adiciona nova NF (não substitui) — itens já atestados ficam em recebimentos anteriores
+    const isOrdemParcial = ordem.status === StatusOrdemFornecimento.ATENDIDA_PARCIAL;
+    if (!isOrdemParcial) {
+      const existente = await this.nfRepository.findOne({
+        where: { ordem_fornecimento_id: ordemId },
       });
-      if (recebimentos.length > 0) {
-        const temAceite = recebimentos.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
-        if (temAceite) {
-          throw new BadRequestException('Não é possível substituir a NF pois já existe aceite no recebimento');
+      if (existente) {
+        const recebimentos = await this.recebimentoRepository.find({
+          where: { nota_fiscal_fornecedor_id: existente.id },
+        });
+        if (recebimentos.length > 0) {
+          const temAceite = recebimentos.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
+          if (temAceite) {
+            throw new BadRequestException('Não é possível substituir a NF pois já existe aceite no recebimento');
+          }
+          await this.recebimentoRepository.remove(recebimentos);
         }
-        await this.recebimentoRepository.remove(recebimentos);
+        await this.nfRepository.remove(existente);
       }
-      await this.nfRepository.remove(existente);
     }
 
     const xmlContent = fs.readFileSync(xmlFile.path, 'utf-8');
