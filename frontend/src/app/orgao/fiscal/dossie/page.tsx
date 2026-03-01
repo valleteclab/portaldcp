@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
-import { API_URL, authFetch, formatarData } from '@/lib/api';
+import { API_URL, authFetch, formatarDataBR } from '@/lib/api';
 
 interface DossieItem {
   ordem_id: string;
@@ -257,7 +257,7 @@ function DossieFiscalContent() {
                     <TableCell className="font-medium">{d.ordem_numero}</TableCell>
                     <TableCell>{d.contrato_numero}</TableCell>
                     <TableCell>{d.fornecedor}</TableCell>
-                    <TableCell>{formatarData(d.data_emissao)}</TableCell>
+                    <TableCell>{formatarDataBR(d.data_emissao)}</TableCell>
                     <TableCell>{formatarMoeda(d.valor_total)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
