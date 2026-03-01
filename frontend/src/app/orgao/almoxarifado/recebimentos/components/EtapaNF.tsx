@@ -17,12 +17,13 @@ interface EtapaNFProps {
   notaFiscal: any
   ordem: any
   notasFiscais?: any[]
+  aguardarProximaNf?: boolean
   onImportarXml: () => void
   onNfEnviada: () => void
   loading: boolean
 }
 
-export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], onImportarXml, onNfEnviada, loading }: EtapaNFProps) {
+export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], aguardarProximaNf = false, onImportarXml, onNfEnviada, loading }: EtapaNFProps) {
   const [uploading, setUploading] = useState(false)
   const [erroUpload, setErroUpload] = useState<string | null>(null)
   const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -65,10 +66,13 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], onImportarXml, o
         <Card className="text-center">
           <CardContent className="py-10">
             <Clock className="h-12 w-12 mx-auto text-amber-400 mb-4" />
-            <h3 className="text-lg font-bold mb-2">Aguardando Nota Fiscal</h3>
+            <h3 className="text-lg font-bold mb-2">
+              {aguardarProximaNf ? 'Aguardando próxima Nota Fiscal' : 'Aguardando Nota Fiscal'}
+            </h3>
             <p className="text-gray-600 text-sm mb-6">
-              O fornecedor <strong>{ordem?.fornecedor?.razao_social || ordem?.fornecedor?.nome || '-'}</strong> ainda
-              não enviou a nota fiscal pelo portal.
+              {aguardarProximaNf
+                ? 'OF parcialmente atendida. Anexe o XML e o PDF da próxima nota fiscal abaixo.'
+                : `O fornecedor ${ordem?.fornecedor?.razao_social || ordem?.fornecedor?.nome || '-'} ainda não enviou a nota fiscal pelo portal.`}
             </p>
             <div className="bg-gray-50 rounded-lg p-4 text-sm text-left space-y-1 max-w-md mx-auto">
               <p><span className="text-gray-500">OF:</span> {ordem?.numero}</p>

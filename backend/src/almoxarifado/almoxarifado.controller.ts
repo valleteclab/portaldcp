@@ -1337,11 +1337,23 @@ export class AlmoxarifadoController {
     }
 
     const notasFiscais = await this.nfFornecedorService.findAllByOrdem(ordemId);
-    const notaFiscal = nfIdQuery && notasFiscais.some((nf: any) => nf.id === nfIdQuery)
-      ? notasFiscais.find((nf: any) => nf.id === nfIdQuery)
-      : notasFiscais[0] || null;
-    
     const recebimentos = await this.recebimentoService.findByOrdem(ordemId);
+
+    // OF aberta e todas as NFs já têm recebimento aceito → aguardando próxima XML
+    const valorEntregue = Number(ordem.valor_entregue ?? 0);
+    const valorTotal = Number(ordem.valor_total ?? 0);
+    const ofAberta = valorTotal > 0 && valorEntregue < valorTotal - 0.01;
+    const todasNfsComRecebimentoAceito = notasFiscais.length > 0 && notasFiscais.every((nf: any) => {
+      const rec = recebimentos.find((r: any) => r.nota_fiscal_fornecedor_id === nf.id);
+      return rec && ['ACEITO', 'ACEITO_PARCIAL'].includes(rec.status);
+    });
+    const aguardarProximaNf = ofAberta && todasNfsComRecebimentoAceito;
+
+    const notaFiscal = aguardarProximaNf
+      ? null
+      : (nfIdQuery && notasFiscais.some((nf: any) => nf.id === nfIdQuery)
+        ? notasFiscais.find((nf: any) => nf.id === nfIdQuery)
+        : notasFiscais[0] || null);
 
     // REQ-ALM-001: itens pendentes (saldo > 0) e já recebidos para o filtro no mapeamento
     const itensPendentes = (ordem.itens || []).filter(
@@ -1361,6 +1373,7 @@ export class AlmoxarifadoController {
         item_contrato_id: i.item_contrato_id,
         descricao: i.descricao,
       })),
+      aguardarProximaNf: aguardarProximaNf || false,
     };
   }
 

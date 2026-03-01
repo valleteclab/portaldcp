@@ -35,6 +35,7 @@ function RecebimentoUnificadoContent() {
   const [itensJaRecebidos, setItensJaRecebidos] = useState<any[]>([])
   const [recebimentoAtivo, setRecebimentoAtivo] = useState<any>(null)
   const [notasFiscais, setNotasFiscais] = useState<any[]>([])
+  const [aguardarProximaNf, setAguardarProximaNf] = useState(false)
   const [mapeamento, setMapeamento] = useState<any[]>([])
   const [iaIndisponivel, setIaIndisponivel] = useState(false)
   const [etapa, setEtapa] = useState<string>('nf')
@@ -60,6 +61,11 @@ function RecebimentoUnificadoContent() {
         setItensPendentes(data.itensPendentes || [])
         setItensJaRecebidos(data.itensJaRecebidos || [])
         setNotasFiscais(data.notasFiscais || [])
+        setAguardarProximaNf(data.aguardarProximaNf || false)
+
+        if (data.aguardarProximaNf && nfIdUrl) {
+          router.replace(`/orgao/almoxarifado/recebimentos/${ordemId}`, { scroll: false })
+        }
 
         const recebimentosAtivos = (data.recebimentos || []).filter(
           (r: any) => r.status !== 'REJEITADO' && r.status !== 'ESTORNADO'
@@ -102,6 +108,8 @@ function RecebimentoUnificadoContent() {
           setMapeamento(data.notaFiscal.mapeamento_ai)
           setEtapa('mapeamento')
         } else if (data.notaFiscal) {
+          setEtapa('nf')
+        } else if (data.aguardarProximaNf) {
           setEtapa('nf')
         } else {
           setEtapa('nf')
@@ -230,14 +238,29 @@ function RecebimentoUnificadoContent() {
       {/* Content */}
       <div className="p-6">
         {etapa === 'nf' && (
-          <EtapaNF
-            notaFiscal={notaFiscal}
-            ordem={ordem}
-            notasFiscais={notasFiscais}
-            onImportarXml={handleImportarXml}
-            onNfEnviada={carregarDados}
-            loading={processing}
-          />
+          <>
+            {aguardarProximaNf && (
+              <Card className="mb-6 border-amber-200 bg-amber-50/50">
+                <CardContent className="py-4">
+                  <p className="font-semibold text-amber-800">
+                    OF parcialmente atendida. Envie a próxima nota fiscal para continuar.
+                  </p>
+                  <p className="text-sm text-amber-700 mt-1">
+                    O valor da ordem ainda não foi atingido. Anexe o XML e o PDF da próxima NF abaixo.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+            <EtapaNF
+              notaFiscal={notaFiscal}
+              ordem={ordem}
+              notasFiscais={notasFiscais}
+              aguardarProximaNf={aguardarProximaNf}
+              onImportarXml={handleImportarXml}
+              onNfEnviada={carregarDados}
+              loading={processing}
+            />
+          </>
         )}
 
         {etapa === 'mapeamento' && (
