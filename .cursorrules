@@ -1,5 +1,10 @@
 # Scratchpad
 
+## Tarefa Concluída: Resumo e arquivos na tela aguardando próxima NF (2026-03-01)
+
+- [X] Card "Resumo do que já foi atendido" quando aguardarProximaNf: tabela itens com qtd OF, entregue, pendente, valor
+- [X] Links para XML e PDF do último recebimento (NF vinculada ao recebimento mais recente)
+
 ## Tarefa Concluída: Fluxo NF simplificado - pré-análise automática (2026-03-01)
 
 - [X] Removida pergunta conjunta/separada (fornecedor e órgão)

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Package, Loader2 } from 'lucide-react'
+import { ArrowLeft, Package, Loader2, FileText, FileCode, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -182,6 +182,11 @@ function RecebimentoUnificadoContent() {
   })()
 
   const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const getFileUrl = (caminho: string | null) => {
+    if (!caminho) return null
+    const filename = caminho.split(/[/\\]/).pop()
+    return `${API_URL}/api/uploads/notas-fiscais/${filename}`
+  }
 
   if (loading) {
     return (
@@ -240,16 +245,95 @@ function RecebimentoUnificadoContent() {
         {etapa === 'nf' && (
           <>
             {aguardarProximaNf && (
-              <Card className="mb-6 border-amber-200 bg-amber-50/50">
-                <CardContent className="py-4">
-                  <p className="font-semibold text-amber-800">
-                    OF parcialmente atendida. Envie a próxima nota fiscal para continuar.
-                  </p>
-                  <p className="text-sm text-amber-700 mt-1">
-                    O valor da ordem ainda não foi atingido. Anexe o XML e o PDF da próxima NF abaixo.
-                  </p>
-                </CardContent>
-              </Card>
+              <>
+                <Card className="mb-6 border-amber-200 bg-amber-50/50">
+                  <CardContent className="py-4">
+                    <p className="font-semibold text-amber-800">
+                      OF parcialmente atendida. Envie a próxima nota fiscal para continuar.
+                    </p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      O valor da ordem ainda não foi atingido. Anexe o XML e o PDF da próxima NF abaixo.
+                    </p>
+                  </CardContent>
+                </Card>
+                {(() => {
+                  const itensComEntregue = (ordem?.itens || []).filter((i: any) => (i.quantidade_entregue ?? 0) > 0)
+                  const ultimoRec = recebimentos[0]
+                  const ultimaNf = ultimoRec ? notasFiscais.find((nf: any) => nf.id === ultimoRec.nota_fiscal_fornecedor_id) : null
+                  return (
+                    <Card className="mb-6 border-blue-200 bg-blue-50/30">
+                      <CardHeader>
+                        <CardTitle className="text-base">Resumo do que já foi atendido</CardTitle>
+                        <CardDescription>
+                          Valor entregue: {fmt(ordem?.valor_entregue)} de {fmt(ordem?.valor_total)}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {itensComEntregue.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b text-left text-gray-500">
+                                  <th className="py-2">Item</th>
+                                  <th className="py-2 text-right">Qtd OF</th>
+                                  <th className="py-2 text-right">Entregue</th>
+                                  <th className="py-2 text-right">Pendente</th>
+                                  <th className="py-2 text-right">Valor</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {itensComEntregue.map((item: any) => (
+                                  <tr key={item.item_contrato_id} className="border-b">
+                                    <td className="py-2">{item.descricao}</td>
+                                    <td className="py-2 text-right">{item.quantidade} {item.unidade_medida}</td>
+                                    <td className="py-2 text-right font-medium text-green-600">{item.quantidade_entregue}</td>
+                                    <td className="py-2 text-right">{Math.max(0, (item.quantidade ?? 0) - (item.quantidade_entregue ?? 0))}</td>
+                                    <td className="py-2 text-right">{fmt((item.valor_unitario ?? 0) * (item.quantidade_entregue ?? 0))}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        {ultimaNf && (ultimaNf.caminho_xml || ultimaNf.caminho_pdf) && (
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 mb-2">
+                              Arquivos do último recebimento
+                              {ultimaNf.numero || ultimaNf.serie ? ` (NF ${ultimaNf.numero || 'S/N'}/${ultimaNf.serie || '-'})` : ''}
+                            </p>
+                            <div className="flex gap-2 flex-wrap">
+                              {ultimaNf.caminho_xml && (
+                                <a
+                                  href={getFileUrl(ultimaNf.caminho_xml) || '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition text-sm"
+                                >
+                                  <FileCode className="h-4 w-4 text-green-600" />
+                                  XML da NF-e
+                                  <Download className="h-3 w-3 text-gray-400" />
+                                </a>
+                              )}
+                              {ultimaNf.caminho_pdf && (
+                                <a
+                                  href={getFileUrl(ultimaNf.caminho_pdf) || '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition text-sm"
+                                >
+                                  <FileText className="h-4 w-4 text-red-600" />
+                                  PDF da Nota Fiscal
+                                  <Download className="h-3 w-3 text-gray-400" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )
+                })()}
+              </>
             )}
             <EtapaNF
               notaFiscal={notaFiscal}
