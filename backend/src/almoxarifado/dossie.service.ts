@@ -36,18 +36,24 @@ export class DossieService {
   ) {}
 
   /**
-   * Lista ordens com recebimento ACEITO para o fiscal (contratos onde fiscal_id = userId)
+   * Lista ordens com recebimento ACEITO/ACEITO_PARCIAL para o fiscal.
+   * Se o usuário é fiscal de algum contrato: mostra apenas ordens desses contratos.
+   * Caso contrário (ex: admin, usuário sem contratos como fiscal): mostra todas as ordens do órgão.
    */
   async listarDossiesFiscal(orgaoId: string, fiscalId: string): Promise<any[]> {
-    const contratos = await this.contratoRepository.find({
+    const contratosComoFiscal = await this.contratoRepository.find({
       where: { orgao_id: orgaoId, fiscal_id: fiscalId },
       select: ['id'],
     });
-    const contratoIds = contratos.map((c) => c.id);
-    if (contratoIds.length === 0) return [];
+    const contratoIds = contratosComoFiscal.map((c) => c.id);
+
+    const whereOrdens: { orgao_id: string; contrato_id?: any } = { orgao_id: orgaoId };
+    if (contratoIds.length > 0) {
+      whereOrdens.contrato_id = In(contratoIds);
+    }
 
     const ordens = await this.ordemRepository.find({
-      where: { orgao_id: orgaoId, contrato_id: In(contratoIds) },
+      where: whereOrdens,
       relations: ['contrato', 'contrato.fornecedor', 'fornecedor'],
       order: { data_emissao: 'DESC' },
     });

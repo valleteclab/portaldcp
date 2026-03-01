@@ -545,6 +545,12 @@ export class AlmoxarifadoController {
     return this.ordemService.getEstatisticas(orgaoId);
   }
 
+  @Get('ordens/dossie-fiscal')
+  async listarDossiesFiscal(@Req() request: { user: JwtPayload }) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.dossieService.listarDossiesFiscal(orgaoId, request.user.sub);
+  }
+
   @Get('ordens/:id')
   async getOrdem(@Param('id', ParseUUIDPipe) id: string) {
     return this.ordemService.findOne(id);
@@ -671,12 +677,6 @@ export class AlmoxarifadoController {
   @Get('ordens/:id/historico')
   async getHistoricoOrdem(@Param('id', ParseUUIDPipe) id: string) {
     return this.ordemService.getHistorico(id);
-  }
-
-  @Get('ordens/dossie-fiscal')
-  async listarDossiesFiscal(@Req() request: { user: JwtPayload }) {
-    const orgaoId = this.getOrgaoId(request.user);
-    return this.dossieService.listarDossiesFiscal(orgaoId, request.user.sub);
   }
 
   @Get('ordens/:id/dossie/zip')
