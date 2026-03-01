@@ -150,8 +150,8 @@ export function EtapaMapeamento({
           divergencias.push({
             tipo: 'quantidade_maior',
             severidade: 'alta',
-            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pendente e apenas ${quantidadePendente} ${ofItem.unidade_medida}`,
-            orientacao: `Excedente de ${prod.qCom - quantidadePendente} un. Verifique se ha outra OF pendente para este fornecedor ou se sera necessario devolver o excedente.`,
+            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pendente é apenas ${quantidadePendente} ${ofItem.unidade_medida}`,
+            orientacao: `Excedente de ${prod.qCom - quantidadePendente} un. O recebimento não deve prosseguir. Recuse esta NF e solicite ao fornecedor uma nova nota fiscal com a quantidade correta.`,
             produtoNf: prod.xProd,
             itemOf: ofItem.descricao,
           })
@@ -159,8 +159,8 @@ export function EtapaMapeamento({
           divergencias.push({
             tipo: 'quantidade_menor',
             severidade: 'media',
-            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pendente e ${quantidadePendente} ${ofItem.unidade_medida}`,
-            orientacao: `Faltam ${quantidadePendente - prod.qCom} un. O recebimento sera parcial para este item. O saldo ficara em aberto na OF.`,
+            mensagem: `"${prod.xProd}": NF com ${prod.qCom} ${prod.uCom}, mas OF pendente é ${quantidadePendente} ${ofItem.unidade_medida}`,
+            orientacao: `Faltam ${quantidadePendente - prod.qCom} un. O recebimento será parcial para este item. O saldo ficará em aberto na OF.`,
             produtoNf: prod.xProd,
             itemOf: ofItem.descricao,
           })
@@ -172,10 +172,10 @@ export function EtapaMapeamento({
           divergencias.push({
             tipo: 'valor_diferente',
             severidade: percentDiff > 20 ? 'alta' : 'media',
-            mensagem: `"${prod.xProd}": Valor unitario NF ${fmt(prod.vUnCom)} vs OF ${fmt(ofItem.valor_unitario)} (${percentDiff.toFixed(0)}% de diferenca)`,
+            mensagem: `"${prod.xProd}": Valor unitário NF ${fmt(prod.vUnCom)} vs OF ${fmt(ofItem.valor_unitario)} (${percentDiff.toFixed(0)}% de diferença)`,
             orientacao: percentDiff > 20
-              ? 'Diferenca significativa. Verifique com o fornecedor antes de aceitar.'
-              : 'Diferenca pequena, pode ser arredondamento ou reajuste contratual.',
+              ? 'Diferença significativa. Verifique com o fornecedor antes de aceitar.'
+              : 'Diferença pequena, pode ser arredondamento ou reajuste contratual.',
             produtoNf: prod.xProd,
             itemOf: ofItem.descricao,
           })
@@ -192,8 +192,8 @@ export function EtapaMapeamento({
         divergencias.push({
           tipo: 'item_faltante_of',
           severidade: 'media',
-          mensagem: `"${of.descricao}" consta na OF mas nao foi encontrado na NF`,
-          orientacao: 'Este item pode vir em outra NF ou o fornecedor nao entregou. O item ficara pendente na OF.',
+          mensagem: `"${of.descricao}" consta na OF mas não foi encontrado na NF`,
+          orientacao: 'Este item pode vir em outra NF ou o fornecedor não entregou. O item ficará pendente na OF.',
           itemOf: of.descricao,
         })
       }
@@ -207,8 +207,9 @@ export function EtapaMapeamento({
     const altaSeveridade = divergencias.filter(d => d.severidade === 'alta').length
     const mediaSeveridade = divergencias.filter(d => d.severidade === 'media').length
     const nfExcedeValor = valorTotalOfProp != null && valorTotalNf + valorEntregueOf > (valorTotalOfProp ?? 0) + 0.01
+    const temExcedenteQuantidade = divergencias.some(d => d.tipo === 'quantidade_maior')
 
-    return { divergencias, valorTotalNf, valorTotalOf, valorPendenteOf, valorEntregueOf, altaSeveridade, mediaSeveridade, nfExcedeValor }
+    return { divergencias, valorTotalNf, valorTotalOf, valorPendenteOf, valorEntregueOf, altaSeveridade, mediaSeveridade, nfExcedeValor, temExcedenteQuantidade }
   }, [mapeamento, produtosXml, itensOf, selecoes, valorTotalOfProp, valorEntregueOf])
 
   const getDivergenciasItem = (prodNfIndex: number, itemContratoId: string | null) => {
@@ -288,7 +289,7 @@ export function EtapaMapeamento({
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <ShieldAlert className={`h-5 w-5 ${analise.altaSeveridade > 0 ? 'text-red-500' : 'text-amber-500'}`} />
-              Pre-Analise: {analise.divergencias.length} divergencia(s) encontrada(s)
+              Pré-análise: {analise.divergencias.length} divergência(s) encontrada(s)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -303,7 +304,7 @@ export function EtapaMapeamento({
               </div>
               {analise.valorEntregueOf > 0 && (
                 <div className="bg-white rounded-lg p-3 border text-center">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase">Ja entregue</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Já entregue</p>
                   <p className="font-bold text-base text-green-600">{fmt(analise.valorEntregueOf)}</p>
                 </div>
               )}
@@ -314,7 +315,7 @@ export function EtapaMapeamento({
                   <p className={`text-xs mt-1 font-semibold ${analise.valorTotalNf > analise.valorPendenteOf ? 'text-red-600' : 'text-amber-600'}`}>
                     {analise.valorTotalNf > analise.valorPendenteOf
                       ? `NF excede pendente em ${fmt(analise.valorTotalNf - analise.valorPendenteOf)}`
-                      : `Pendente excede NF em ${fmt(analise.valorPendenteOf - analise.valorTotalNf)}`}
+                      : `Falta ${fmt(analise.valorPendenteOf - analise.valorTotalNf)} para completar a OF`}
                   </p>
                 )}
               </div>
@@ -347,7 +348,7 @@ export function EtapaMapeamento({
                   div.severidade === 'media' ? 'border-amber-300 text-amber-600' :
                   'border-blue-300 text-blue-600'
                 }`}>
-                  {div.severidade === 'alta' ? 'CRITICA' : div.severidade === 'media' ? 'ATENCAO' : 'INFO'}
+                  {div.severidade === 'alta' ? 'CRÍTICA' : div.severidade === 'media' ? 'ATENÇÃO' : 'INFO'}
                 </Badge>
               </div>
             ))}
@@ -355,7 +356,7 @@ export function EtapaMapeamento({
             {onRecusarNF && (
               <div className="flex items-center justify-between pt-3 mt-2 border-t border-red-200">
                 <p className="text-xs text-gray-600">
-                  Caso as divergencias sejam impeditivas, recuse a NF e notifique o fornecedor.
+                  Caso as divergências sejam impeditivas, recuse a NF e notifique o fornecedor.
                 </p>
                 <Button
                   variant="destructive"
@@ -376,7 +377,7 @@ export function EtapaMapeamento({
           <Check className="h-5 w-5 text-green-600" />
           <div>
             <p className="font-semibold text-green-800 text-sm">NF compativel com a OF</p>
-            <p className="text-xs text-green-700">Quantidades e valores estao de acordo. Confirme os vinculos para prosseguir.</p>
+            <p className="text-xs text-green-700">Quantidades e valores estão de acordo. Confirme os vínculos para prosseguir.</p>
           </div>
         </div>
       )}
@@ -399,7 +400,7 @@ export function EtapaMapeamento({
               <p className="font-semibold text-blue-800">
                 IA identificou {matchCount} de {mapeamento.length} produtos
               </p>
-              <p className="text-sm text-blue-700">Revise e confirme os vinculos antes de prosseguir.</p>
+              <p className="text-sm text-blue-700">Revise e confirme os vínculos antes de prosseguir.</p>
             </div>
           </div>
           <div className="bg-white rounded-lg px-3 py-1.5 border border-blue-200 text-sm font-bold text-blue-700">
@@ -532,15 +533,15 @@ export function EtapaMapeamento({
 
       <div className="flex items-center justify-between mt-4">
         <span className="text-sm text-gray-500">
-          {analise.nfExcedeValor
+          {analise.nfExcedeValor || analise.temExcedenteQuantidade
             ? 'Recuse a NF e solicite nova nota ao fornecedor'
             : mapeamento.length - confirmedCount > 0
-              ? `${mapeamento.length - confirmedCount} item(ns) aguardando confirmacao`
-              : 'Todos os vinculos confirmados'}
+              ? `${mapeamento.length - confirmedCount} item(ns) aguardando confirmação`
+              : 'Todos os vínculos confirmados'}
         </span>
         <Button
           onClick={handleConfirmarTodos}
-          disabled={!todosConfirmados || loading || analise.nfExcedeValor}
+          disabled={!todosConfirmados || loading || analise.nfExcedeValor || analise.temExcedenteQuantidade}
           size="lg"
         >
           {loading ? 'Processando...' : 'Prosseguir para Recebimento'}
@@ -557,7 +558,7 @@ export function EtapaMapeamento({
               <h3 className="font-bold text-base">Recusar Nota Fiscal e Notificar Fornecedor</h3>
             </div>
             <p className="text-sm text-gray-600 mb-3">
-              A NF sera recusada e o fornecedor sera notificado sobre as divergencias. Informe o motivo detalhado abaixo.
+              A NF será recusada e o fornecedor será notificado sobre as divergências. Informe o motivo detalhado abaixo.
             </p>
 
             {(analise.divergencias.length > 0 || analise.nfExcedeValor) && (
@@ -581,7 +582,7 @@ export function EtapaMapeamento({
               <option value="Valor da NF excede o valor pendente na OF">Valor da NF excede o valor pendente na OF</option>
               <option value="Quantidade divergente da OF">Quantidade divergente da OF</option>
               <option value="Valor divergente do contrato">Valor divergente do contrato</option>
-              <option value="Produto nao corresponde ao pedido">Produto nao corresponde ao pedido</option>
+              <option value="Produto não corresponde ao pedido">Produto não corresponde ao pedido</option>
               <option value="NF com dados incorretos">NF com dados incorretos</option>
               <option value="Outro">Outro</option>
             </select>
@@ -593,7 +594,7 @@ export function EtapaMapeamento({
               />
             )}
             <textarea
-              placeholder="Observacoes adicionais para o fornecedor (opcional)..."
+              placeholder="Observações adicionais para o fornecedor (opcional)..."
               className="w-full border rounded-lg p-3 text-sm mb-4 min-h-[60px] resize-none"
             />
             <div className="flex gap-2 justify-end">

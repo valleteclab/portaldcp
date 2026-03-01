@@ -1,5 +1,12 @@
 # Scratchpad
 
+## Tarefa Concluída: Pré-análise - excedente quantidade e valor faltante (2026-03-01)
+
+- [X] quantidade_maior (ex: NF 5 un, OF pendente 1): bloquear recebimento, orientar recusar e solicitar nova NF
+- [X] Valor: mostrar "Falta R$ X para completar a OF" em vez de "Pendente excede NF em R$ X"
+- [X] Backend criarComNF: validar e bloquear quando NF tem quantidade > pendente
+- [X] Correções ortografia: divergência, há, não, será, ficará, vínculos, confirmação, etc.
+
 ## Tarefa Concluída: Bloquear NF quando soma excede valor da OF (2026-03-01)
 
 - [X] Backend upload: validar valorTotalXml + valor_entregue <= valor_total (bloquear no 2º envio)

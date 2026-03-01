@@ -1027,6 +1027,25 @@ export class RecebimentoService {
         );
       }
 
+      const produtosXml = nf.produtos_xml || [];
+      const itensComExcedente: string[] = [];
+      for (const m of mapeamento) {
+        if (!m.item_contrato_id) continue;
+        const itemOf = (ordem.itens || []).find((i: any) => i.item_contrato_id === m.item_contrato_id);
+        if (!itemOf) continue;
+        const qtdRestante = Math.max(0, Number(itemOf.quantidade ?? 0) - Number(itemOf.quantidade_entregue ?? 0));
+        const prodNf = produtosXml[m.produto_nf_index - 1] || produtosXml.find((p: any) => p.nItem === m.produto_nf_index);
+        const qtdNf = Number(prodNf?.qCom ?? 0);
+        if (qtdNf > qtdRestante) {
+          itensComExcedente.push(`${itemOf.descricao || m.descricao_of || m.xProd_nf} (NF: ${qtdNf} > pendente: ${qtdRestante})`);
+        }
+      }
+      if (itensComExcedente.length > 0) {
+        throw new BadRequestException(
+          `A NF possui quantidade maior que o pendente na OF para: ${itensComExcedente.join('; ')}. Recuse esta NF e solicite ao fornecedor uma nova nota fiscal com a quantidade correta.`,
+        );
+      }
+
       const ano = new Date().getFullYear();
       const ultimo = await this.recebimentoRepository
         .createQueryBuilder('r')
@@ -1037,7 +1056,6 @@ export class RecebimentoService {
       const sequencial = (ultimo?.sequencial || 0) + 1;
       const numero = `REC-${String(sequencial).padStart(4, '0')}/${ano}`;
 
-      const produtosXml = nf.produtos_xml || [];
       const itensRecebimento = mapeamento.map(m => {
         const itemOf = (ordem.itens || []).find(
           (i: any) => i.item_contrato_id === m.item_contrato_id,
