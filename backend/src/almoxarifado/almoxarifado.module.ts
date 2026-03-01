@@ -23,6 +23,9 @@ import { HistoricoRequisicao } from './entities/historico-requisicao.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
 import { NotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
+import { DossieOrdem } from './entities/dossie-ordem.entity';
+import { DossieAnexo } from './entities/dossie-anexo.entity';
+import { DossieService } from './dossie.service';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
@@ -50,6 +53,8 @@ import { IaModule } from '../ia/ia.module';
       RequisicaoItemOS,
       RequisicaoEtapaOS,
       NotaFiscalFornecedor,
+      DossieOrdem,
+      DossieAnexo,
       ItemCronograma,
       EtapaCronograma,
       Contrato,
@@ -76,6 +81,7 @@ import { IaModule } from '../ia/ia.module';
     NotaFiscalFornecedorService,
     MatchingIaService,
     XmlNfeParserService,
+    DossieService,
   ],
   exports: [
     RequisicaoService, 

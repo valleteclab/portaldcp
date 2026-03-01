@@ -680,4 +680,190 @@ export class GeradorPdfService {
     doc.y += 20;
     doc.moveDown(0.5);
   }
+
+  /**
+   * Gera o PDF da Comprovação de Aceite do Recebimento (para o fiscal).
+   * Inclui dados do recebimento, itens aceitos e quadro de assinaturas.
+   */
+  async gerarPdfComprovacaoAceite(
+    recebimento: {
+      numero: string;
+      data_recebimento: Date;
+      numero_nota_fiscal?: string | null;
+      valor_total_recebido: number;
+      valor_aceito: number;
+      aceite_almoxarifado_data?: Date | null;
+      aceite_almoxarifado_usuario_nome?: string | null;
+      aceite_patrimonio_data?: Date | null;
+      aceite_patrimonio_usuario_nome?: string | null;
+      itens?: Array<{
+        numero_item?: number;
+        descricao: string;
+        unidade_medida?: string;
+        tipo_item?: string;
+        quantidade_recebida: number;
+        quantidade_aceita: number;
+        valor_unitario: number;
+        valor_total: number;
+      }>;
+      ordem_fornecimento?: {
+        numero: string;
+        fornecedor?: { razao_social?: string };
+      };
+      orgao?: { nome?: string; logo_url?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string };
+    },
+    outputDir?: string,
+    opcoes?: { assinaturas?: AssinaturaDigital[]; urlValidacaoBase?: string },
+  ): Promise<string> {
+    const dir = outputDir || join(this.uploadDir, 'documentos_assinados');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    const filename = `ComprovacaoAceite_${recebimento.numero.replace(/\//g, '_')}_${Date.now()}.pdf`;
+    const filePath = join(dir, filename);
+
+    return new Promise(async (resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const writeStream = createWriteStream(filePath);
+        doc.pipe(writeStream);
+
+        const orgao = recebimento.orgao || {};
+        const pageW = doc.page.width;
+        const marginL = 50;
+        const contentW = pageW - marginL * 2;
+
+        // ── CABEÇALHO ────────────────────────────────────────────────────────
+        let logoWidth = 0;
+        const logoPath = orgao.logo_url
+          ? join(this.uploadDir, orgao.logo_url.replace(/^\/api\/uploads\//, ''))
+          : null;
+        if (logoPath && existsSync(logoPath)) {
+          try {
+            doc.image(logoPath, marginL, 40, { width: 60, height: 60 });
+            logoWidth = 70;
+          } catch (e) {
+            this.logger.warn(`Erro ao incluir logo no PDF: ${(e as Error).message}`);
+          }
+        }
+
+        const textX = marginL + logoWidth;
+        const textW = contentW - logoWidth;
+        let lineY = 40;
+
+        doc.fontSize(13).font('Helvetica-Bold').fillColor('#111827')
+          .text((orgao.nome || 'ÓRGÃO').toUpperCase(), textX, lineY, { width: textW });
+        lineY += 17;
+
+        doc.fontSize(14).font('Helvetica-Bold').fillColor('#1e40af')
+          .text('COMPROVAÇÃO DE ACEITE DO RECEBIMENTO', marginL, lineY, { width: contentW, align: 'center' });
+        lineY += 22;
+
+        doc.moveTo(marginL, lineY).lineTo(pageW - marginL, lineY).lineWidth(1).stroke('#374151');
+        doc.moveDown(0.6);
+
+        // ── DADOS DO RECEBIMENTO ─────────────────────────────────────────────
+        const campo = (label: string, valor: string, x: number, y: number, w: number) => {
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151').text(label, x, y, { width: 90, continued: false });
+          doc.fontSize(9).font('Helvetica').fillColor('#111827').text(valor || '-', x + 92, y, { width: w });
+        };
+
+        let rowY = doc.y;
+        const col2X = marginL + contentW / 2;
+
+        campo('Nº Recebimento:', recebimento.numero, marginL, rowY, contentW / 2 - 100);
+        campo('Data Recebimento:', recebimento.data_recebimento ? new Date(recebimento.data_recebimento).toLocaleDateString('pt-BR') : '-', col2X, rowY, contentW / 2 - 100);
+        rowY += 16;
+
+        campo('Nº Nota Fiscal:', recebimento.numero_nota_fiscal || '-', marginL, rowY, contentW / 2 - 100);
+        campo('Ordem:', recebimento.ordem_fornecimento?.numero || '-', col2X, rowY, contentW / 2 - 100);
+        rowY += 16;
+
+        campo('Fornecedor:', recebimento.ordem_fornecimento?.fornecedor?.razao_social || '-', marginL, rowY, contentW - 100);
+        rowY += 16;
+
+        campo('Valor Total Recebido:', `R$ ${Number(recebimento.valor_total_recebido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, marginL, rowY, contentW / 2 - 100);
+        campo('Valor Aceito:', `R$ ${Number(recebimento.valor_aceito || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, col2X, rowY, contentW / 2 - 100);
+        rowY += 20;
+
+        // Aceites realizados
+        const aceites: string[] = [];
+        if (recebimento.aceite_almoxarifado_data && recebimento.aceite_almoxarifado_usuario_nome) {
+          aceites.push(`Almoxarifado: ${recebimento.aceite_almoxarifado_usuario_nome} em ${new Date(recebimento.aceite_almoxarifado_data).toLocaleString('pt-BR')}`);
+        }
+        if (recebimento.aceite_patrimonio_data && recebimento.aceite_patrimonio_usuario_nome) {
+          aceites.push(`Patrimônio: ${recebimento.aceite_patrimonio_usuario_nome} em ${new Date(recebimento.aceite_patrimonio_data).toLocaleString('pt-BR')}`);
+        }
+        if (aceites.length > 0) {
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text('Aceites realizados:', marginL, doc.y);
+          doc.moveDown(0.2);
+          doc.fontSize(8).font('Helvetica').fillColor('#111827');
+          aceites.forEach((a) => {
+            doc.text(`• ${a}`, marginL, doc.y);
+            doc.moveDown(0.15);
+          });
+          doc.moveDown(0.3);
+        }
+
+        // ── TABELA DE ITENS ──────────────────────────────────────────────────
+        doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
+          .text('Itens aceitos:', marginL, doc.y);
+        doc.moveDown(0.3);
+
+        const itens = recebimento.itens || [];
+        if (itens.length > 0) {
+          const colDesc = contentW * 0.40;
+          const colTipo = contentW * 0.12;
+          const colQtd = contentW * 0.12;
+          const colValor = contentW * 0.18;
+          const colTotal = contentW * 0.18;
+
+          const x0 = marginL;
+          const x1 = x0 + colDesc;
+          const x2 = x1 + colTipo;
+          const x3 = x2 + colQtd;
+          const x4 = x3 + colValor;
+
+          const headerY = doc.y;
+          doc.rect(x0, headerY, contentW, 16).fillAndStroke('#e5e7eb', '#9ca3af');
+          doc.fontSize(7).font('Helvetica-Bold').fillColor('#111827');
+          doc.text('Descrição', x0 + 3, headerY + 4, { width: colDesc - 6 });
+          doc.text('Tipo', x1, headerY + 4, { width: colTipo - 4, align: 'center' });
+          doc.text('Qtd.', x2, headerY + 4, { width: colQtd - 4, align: 'right' });
+          doc.text('Valor Unit.', x3, headerY + 4, { width: colValor - 4, align: 'right' });
+          doc.text('Total', x4, headerY + 4, { width: colTotal - 4, align: 'right' });
+          doc.y = headerY + 18;
+
+          doc.font('Helvetica').fillColor('#374151');
+          for (const item of itens) {
+            const rowY = doc.y + 2;
+            if (rowY > doc.page.height - 120) doc.addPage();
+            doc.fontSize(8);
+            doc.text((item.descricao || '-').substring(0, 60), x0 + 3, rowY, { width: colDesc - 6 });
+            doc.text((item as any).tipo_item === 'CONSUMO' ? 'Consumo' : (item as any).tipo_item === 'PERMANENTE' ? 'Permanente' : '-', x1, rowY, { width: colTipo - 4, align: 'center' });
+            doc.text(String(item.quantidade_aceita ?? item.quantidade_recebida ?? 0), x2, rowY, { width: colQtd - 4, align: 'right' });
+            doc.text(`R$ ${Number(item.valor_unitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x3, rowY, { width: colValor - 4, align: 'right' });
+            doc.text(`R$ ${Number(item.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x4, rowY, { width: colTotal - 4, align: 'right' });
+            doc.y = rowY + 14;
+          }
+          doc.moveDown(0.5);
+        }
+
+        // ── ASSINATURAS ──────────────────────────────────────────────────────
+        if (opcoes?.assinaturas?.length && opcoes?.urlValidacaoBase) {
+          if (doc.y > doc.page.height - 200) doc.addPage();
+          await this.escreverQuadroAssinaturas(doc, opcoes.assinaturas, opcoes.urlValidacaoBase);
+        } else {
+          doc.moveDown(1);
+          doc.fontSize(8).font('Helvetica').fillColor('#6b7280')
+            .text('Documento gerado automaticamente pelo sistema.', marginL, doc.y, { width: contentW });
+        }
+
+        doc.end();
+        writeStream.on('finish', () => resolve(filePath));
+        writeStream.on('error', reject);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
 }

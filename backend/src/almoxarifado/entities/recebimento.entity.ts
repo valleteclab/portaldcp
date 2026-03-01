@@ -258,6 +258,13 @@ export class Recebimento {
   @Column({ type: 'varchar', nullable: true })
   nota_fiscal_fornecedor_id: string | null;
 
+  // Comprovação de Aceite (PDF assinado para o fiscal)
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  comprovacao_aceite_path: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  comprovacao_aceite_codigo_validacao: string | null;
+
   @Column({ type: 'jsonb', nullable: true })
   mapeamento_ia: {
     produto_nf_index: number;

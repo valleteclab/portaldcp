@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
+import { join } from 'path';
 import { Recebimento, TipoRecebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { OrdemFornecimento, StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
@@ -10,6 +11,10 @@ import { NotaFiscalFornecedor, StatusNotaFiscalFornecedor } from './entities/not
 import { CriarRecebimentoDto, AceitarRecebimentoDto } from './dto/ordem-fornecimento.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
+import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import { DossieService } from './dossie.service';
 
 @Injectable()
 export class RecebimentoService {
@@ -28,6 +33,9 @@ export class RecebimentoService {
     private readonly nfRepository: Repository<NotaFiscalFornecedor>,
     private readonly ordemService: OrdemFornecimentoService,
     private readonly notificacoesService: NotificacoesService,
+    private readonly geradorPdfService: GeradorPdfService,
+    private readonly assinaturasService: AssinaturasService,
+    private readonly dossieService: DossieService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -224,6 +232,99 @@ export class RecebimentoService {
     return StatusRecebimento.PENDENTE_PATRIMONIO;
   }
 
+  /**
+   * Gera o PDF da Comprovação de Aceite e registra assinatura digital.
+   * Chamado quando o recebimento fica totalmente aceito (ACEITO).
+   */
+  private async gerarComprovacaoAceite(
+    recebimentoId: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<void> {
+    const rec = await this.recebimentoRepository.findOne({
+      where: { id: recebimentoId },
+      relations: ['ordem_fornecimento', 'ordem_fornecimento.fornecedor', 'ordem_fornecimento.orgao'],
+    });
+    if (!rec || rec.comprovacao_aceite_path) return;
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: usuarioId } });
+    const cpfCnpj = usuario?.cpf?.replace(/\D/g, '') || '00000000000';
+
+    const assinatura = await this.assinaturasService.registrarAssinatura({
+      orgao_id: rec.orgao_id,
+      entidade_tipo: EntidadeTipo.COMPROVACAO_ACEITE_RECEBIMENTO,
+      entidade_id: rec.id,
+      usuario_id: usuarioId,
+      usuario_nome: usuarioNome,
+      usuario_cpf_cnpj: cpfCnpj.length >= 11 ? cpfCnpj : '00000000000',
+      papel_assinante: PapelAssinante.FISCAL,
+    });
+
+    const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+    const docDir = join(uploadDir, 'documentos_assinados');
+    const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+
+    const dadosRec = {
+      numero: rec.numero,
+      data_recebimento: rec.data_recebimento,
+      numero_nota_fiscal: rec.numero_nota_fiscal,
+      valor_total_recebido: Number(rec.valor_total_recebido),
+      valor_aceito: Number(rec.valor_aceito),
+      aceite_almoxarifado_data: rec.aceite_almoxarifado_data,
+      aceite_almoxarifado_usuario_nome: rec.aceite_almoxarifado_usuario_nome,
+      aceite_patrimonio_data: rec.aceite_patrimonio_data,
+      aceite_patrimonio_usuario_nome: rec.aceite_patrimonio_usuario_nome,
+      itens: rec.itens || [],
+      ordem_fornecimento: rec.ordem_fornecimento
+        ? {
+            numero: rec.ordem_fornecimento.numero,
+            fornecedor: rec.ordem_fornecimento.fornecedor,
+          }
+        : undefined,
+      orgao: rec.ordem_fornecimento?.orgao,
+    };
+
+    const pdfPath = await this.geradorPdfService.gerarPdfComprovacaoAceite(
+      dadosRec,
+      docDir,
+      { assinaturas: [assinatura], urlValidacaoBase: `${urlBase}/validar-documento` },
+    );
+
+    rec.comprovacao_aceite_path = pdfPath;
+    rec.comprovacao_aceite_codigo_validacao = assinatura.codigo_validacao;
+    await this.recebimentoRepository.save(rec);
+
+    this.logger.log(`Comprovação de aceite gerada para recebimento ${rec.numero}`);
+
+    // Notifica o fiscal do contrato que o dossiê está disponível
+    const ordemComContrato = await this.ordemRepository.findOne({
+      where: { id: rec.ordem_fornecimento_id },
+      relations: ['contrato'],
+    });
+    if (ordemComContrato?.contrato?.fiscal_id) {
+      this.dossieService
+        .notificarFiscalDossieDisponivel(
+          rec.orgao_id,
+          rec.ordem_fornecimento_id,
+          ordemComContrato.numero,
+          ordemComContrato.contrato.fiscal_id,
+        )
+        .catch((e) => this.logger.warn(`Erro ao notificar fiscal: ${e?.message}`));
+    }
+  }
+
+  /** Retorna o caminho do PDF da comprovação de aceite, ou null se não existir */
+  async getComprovacaoAceitePath(recebimentoId: string): Promise<string | null> {
+    const rec = await this.recebimentoRepository.findOne({
+      where: { id: recebimentoId },
+      select: ['id', 'numero', 'comprovacao_aceite_path', 'orgao_id'],
+    });
+    if (!rec?.comprovacao_aceite_path) return null;
+    const { existsSync } = await import('fs');
+    if (!existsSync(rec.comprovacao_aceite_path)) return null;
+    return rec.comprovacao_aceite_path;
+  }
+
   // ============================================================================
   // ACEITAR ALMOXARIFADO (itens CONSUMO)
   // ============================================================================
@@ -341,6 +442,12 @@ export class RecebimentoService {
         `Recebimento ${recebimento.numero}: aceite almoxarifado por ${usuarioNome}. ` +
           `Valor: R$ ${valorAceitoAlmox.toFixed(2)}`,
       );
+
+      if (recebimento.status === StatusRecebimento.ACEITO) {
+        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) =>
+          this.logger.warn(`Erro ao gerar comprovação de aceite: ${e?.message}`),
+        );
+      }
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -480,6 +587,12 @@ export class RecebimentoService {
         `Recebimento ${recebimento.numero}: aceite patrimônio por ${usuarioNome}. ` +
           `Valor: R$ ${valorAceitoPatrim.toFixed(2)}`,
       );
+
+      if (recebimento.status === StatusRecebimento.ACEITO) {
+        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) =>
+          this.logger.warn(`Erro ao gerar comprovação de aceite: ${e?.message}`),
+        );
+      }
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -632,6 +745,11 @@ export class RecebimentoService {
         `Status: ${recebimento.status}, Valor aceito: R$ ${valorAceito.toFixed(2)}`
       );
 
+      if (recebimento.status === StatusRecebimento.ACEITO) {
+        this.gerarComprovacaoAceite(id, usuarioId, usuarioNome).catch((e) =>
+          this.logger.warn(`Erro ao gerar comprovação de aceite: ${e?.message}`),
+        );
+      }
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();

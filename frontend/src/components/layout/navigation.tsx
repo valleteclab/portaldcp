@@ -131,6 +131,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/ordens", label: "Ordens de Fornecimento", icon: Send, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/recebimentos", label: "Recebimentos", icon: Package, modulo: ModuloSistema.ALMOXARIFADO },
+    { href: "/orgao/fiscal/dossie", label: "Dossiê do Fiscal", icon: FileCheck, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações Requisições", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO, requerAprovador: true },
     { href: "/orgao/aprovacoes", label: "Central de Aprovações", icon: CheckCircle, requerAprovador: true },
     { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3 },

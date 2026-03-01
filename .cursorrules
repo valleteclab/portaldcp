@@ -1,5 +1,12 @@
 # Scratchpad
 
+## Tarefa Concluída: Dossiê do Fiscal (2026-03-01)
+
+- [X] Documento "Comprovação de Aceite" (PDF assinado) ao concluir aceite
+- [X] Página "Dossiê do Fiscal" /orgao/fiscal/dossie com OF + NF + Comprovação + anexos
+- [X] Upload de anexos, download ZIP, marcar entregue ao financeiro
+- [X] Notificação ao fiscal quando dossiê disponível
+
 ## Tarefa Concluída: Clareza OF + Botão único Enviar (2026-03-01)
 
 - [X] Requisições: banner no modal detalhes quando OF gerada — "Ordem de Fornecimento gerada", link para Ordens de Fornecimento

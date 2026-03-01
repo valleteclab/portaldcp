@@ -32,6 +32,7 @@ import { CriarConfiguracaoAprovacaoDto, AtualizarConfiguracaoAprovacaoDto } from
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { NotaFiscalFornecedorService } from './nota-fiscal-fornecedor.service';
 import { MatchingIaService } from './matching-ia.service';
+import { DossieService } from './dossie.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
 import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { 
@@ -72,6 +73,7 @@ export class AlmoxarifadoController {
     private readonly migracaoContratosService: MigracaoContratosService,
     private readonly nfFornecedorService: NotaFiscalFornecedorService,
     private readonly matchingIaService: MatchingIaService,
+    private readonly dossieService: DossieService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(OrdemFornecimento)
@@ -671,6 +673,86 @@ export class AlmoxarifadoController {
     return this.ordemService.getHistorico(id);
   }
 
+  @Get('ordens/dossie-fiscal')
+  async listarDossiesFiscal(@Req() request: { user: JwtPayload }) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.dossieService.listarDossiesFiscal(orgaoId, request.user.sub);
+  }
+
+  @Get('ordens/:id/dossie/zip')
+  async downloadDossieZip(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Res() res: Response,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem não pertence a este órgão');
+    }
+    const zipBuffer = await this.dossieService.gerarZip(id);
+    const safeNum = ordem.numero.replace(/\//g, '_');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Dossie_${safeNum}.zip"`);
+    return res.send(zipBuffer);
+  }
+
+  @Post('ordens/:id/dossie/anexos')
+  @UseInterceptors(
+    FileInterceptor('arquivo', {
+      storage: multer.diskStorage({
+        destination: (req, file, cb) => {
+          const uploadPath = path.join(process.cwd(), 'uploads', 'dossie_temp');
+          if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
+          cb(null, `dossie-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`);
+        },
+      }),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadDossieAnexo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Envie um arquivo');
+    }
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem não pertence a este órgão');
+    }
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    return this.dossieService.uploadAnexo(
+      id,
+      file,
+      request.user.sub,
+      usuario?.nome || request.user.email || 'Usuário',
+    );
+  }
+
+  @Post('ordens/:id/dossie/entregue-financeiro')
+  async marcarEntregueFinanceiro(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem não pertence a este órgão');
+    }
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    return this.dossieService.marcarEntregueFinanceiro(
+      id,
+      request.user.sub,
+      usuario?.nome || request.user.email || 'Usuário',
+    );
+  }
+
   @Get('ordens/:id/pdf')
   async gerarPdfOrdem(
     @Param('id', ParseUUIDPipe) id: string,
@@ -734,6 +816,26 @@ export class AlmoxarifadoController {
   @Get('recebimentos/:id')
   async getRecebimento(@Param('id', ParseUUIDPipe) id: string) {
     return this.recebimentoService.findOne(id);
+  }
+
+  @Get('recebimentos/:id/comprovacao-aceite')
+  async downloadComprovacaoAceite(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    const recebimento = await this.recebimentoService.findOne(id);
+    const pdfPath = await this.recebimentoService.getComprovacaoAceitePath(id);
+    if (!pdfPath) {
+      throw new BadRequestException(
+        'Comprovação de aceite não disponível. O documento é gerado automaticamente quando o recebimento é totalmente aceito.',
+      );
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="ComprovacaoAceite_${recebimento.numero.replace(/\//g, '_')}.pdf"`,
+    );
+    return res.sendFile(path.resolve(pdfPath));
   }
 
   @Post('recebimentos')

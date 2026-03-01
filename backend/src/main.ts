@@ -74,6 +74,9 @@ async function bootstrap() {
         IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'ORDEM_FORNECIMENTO' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'assinaturas_digitais_entidade_tipo_enum')) THEN
           ALTER TYPE assinaturas_digitais_entidade_tipo_enum ADD VALUE 'ORDEM_FORNECIMENTO';
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'COMPROVACAO_ACEITE_RECEBIMENTO' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'assinaturas_digitais_entidade_tipo_enum')) THEN
+          ALTER TYPE assinaturas_digitais_entidade_tipo_enum ADD VALUE 'COMPROVACAO_ACEITE_RECEBIMENTO';
+        END IF;
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$;
     `);

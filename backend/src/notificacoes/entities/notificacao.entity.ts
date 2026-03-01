@@ -74,6 +74,9 @@ export enum TipoNotificacao {
   NF_DISPONIVEL = 'NF_DISPONIVEL',
   NF_RECUSADA = 'NF_RECUSADA',
 
+  // Dossiê Fiscal
+  DOSSIE_FISCAL_DISPONIVEL = 'DOSSIE_FISCAL_DISPONIVEL',
+
   // Geral
   SISTEMA = 'SISTEMA',
   ALERTA = 'ALERTA',
