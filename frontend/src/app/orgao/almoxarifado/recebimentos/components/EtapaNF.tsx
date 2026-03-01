@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye } from 'lucide-react'
+import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye, ListOrdered } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 const getFileUrl = (caminho: string | null) => {
@@ -17,13 +17,15 @@ interface EtapaNFProps {
   notaFiscal: any
   ordem: any
   notasFiscais?: any[]
+  nfsPendentes?: any[]
   aguardarProximaNf?: boolean
   onImportarXml: () => void
   onNfEnviada: () => void
+  onSelecionarNf?: (nfId: string) => void
   loading: boolean
 }
 
-export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], aguardarProximaNf = false, onImportarXml, onNfEnviada, loading }: EtapaNFProps) {
+export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [], aguardarProximaNf = false, onImportarXml, onNfEnviada, onSelecionarNf, loading }: EtapaNFProps) {
   const [uploading, setUploading] = useState(false)
   const [erroUpload, setErroUpload] = useState<string | null>(null)
   const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -63,23 +65,59 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], aguardarProximaN
   if (!notaFiscal) {
     return (
       <div className="space-y-5">
-        <Card className="text-center">
-          <CardContent className="py-10">
-            <Clock className="h-12 w-12 mx-auto text-amber-400 mb-4" />
-            <h3 className="text-lg font-bold mb-2">
-              {aguardarProximaNf ? 'Aguardando próxima Nota Fiscal' : 'Aguardando Nota Fiscal'}
-            </h3>
-            <p className="text-gray-600 text-sm mb-6">
-              {aguardarProximaNf
-                ? 'OF parcialmente atendida. Anexe o XML e o PDF da próxima nota fiscal abaixo.'
-                : `O fornecedor ${ordem?.fornecedor?.razao_social || ordem?.fornecedor?.nome || '-'} ainda não enviou a nota fiscal pelo portal.`}
-            </p>
-            <div className="bg-gray-50 rounded-lg p-4 text-sm text-left space-y-1 max-w-md mx-auto">
-              <p><span className="text-gray-500">OF:</span> {ordem?.numero}</p>
-              <p><span className="text-gray-500">Valor:</span> {fmt(ordem?.valor_total)}</p>
-            </div>
-          </CardContent>
-        </Card>
+        {nfsPendentes.length > 1 && onSelecionarNf && (
+          <Card className="border-blue-200 bg-blue-50/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListOrdered className="h-5 w-5 text-blue-600" />
+                Notas enviadas pelo fornecedor ({nfsPendentes.length} na fila)
+              </CardTitle>
+              <CardDescription>
+                Escolha qual nota fiscal processar. A ordem sugerida é da mais antiga para a mais recente.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {[...nfsPendentes].reverse().map((nf: any, idx: number) => (
+                  <div
+                    key={nf.id}
+                    className="flex items-center justify-between p-3 border rounded-lg bg-white hover:bg-gray-50"
+                  >
+                    <div>
+                      <p className="font-medium">NF {nf.numero || 'S/N'}/{nf.serie || '-'}</p>
+                      <p className="text-sm text-gray-500">
+                        Valor: {fmt(nf.valor_total)} · Emitente: {nf.razao_social_emitente || '-'}
+                      </p>
+                    </div>
+                    <Button size="sm" onClick={() => onSelecionarNf(nf.id)}>
+                      Processar esta NF
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {nfsPendentes.length === 0 && (
+          <Card className="text-center">
+            <CardContent className="py-10">
+              <Clock className="h-12 w-12 mx-auto text-amber-400 mb-4" />
+              <h3 className="text-lg font-bold mb-2">
+                {aguardarProximaNf ? 'Aguardando próxima Nota Fiscal' : 'Aguardando Nota Fiscal'}
+              </h3>
+              <p className="text-gray-600 text-sm mb-6">
+                {aguardarProximaNf
+                  ? 'OF parcialmente atendida. Anexe o XML e o PDF da próxima nota fiscal abaixo.'
+                  : `O fornecedor ${ordem?.fornecedor?.razao_social || ordem?.fornecedor?.nome || '-'} ainda não enviou a nota fiscal pelo portal.`}
+              </p>
+              <div className="bg-gray-50 rounded-lg p-4 text-sm text-left space-y-1 max-w-md mx-auto">
+                <p><span className="text-gray-500">OF:</span> {ordem?.numero}</p>
+                <p><span className="text-gray-500">Valor:</span> {fmt(ordem?.valor_total)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -220,6 +258,37 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], aguardarProximaN
   }
 
   return (
+    <div className="space-y-5">
+      {nfsPendentes.length > 1 && onSelecionarNf && (
+        <Card className="border-blue-200 bg-blue-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ListOrdered className="h-5 w-5 text-blue-600" />
+              Outras notas na fila ({nfsPendentes.length})
+            </CardTitle>
+            <CardDescription>
+              Processando NF {notaFiscal?.numero || ''}. Clique para trocar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {nfsPendentes
+                .filter((nf: any) => nf.id !== notaFiscal?.id)
+                .map((nf: any) => (
+                  <Button
+                    key={nf.id}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onSelecionarNf(nf.id)}
+                  >
+                    NF {nf.numero || 'S/N'}/{nf.serie || '-'} · {fmt(nf.valor_total)}
+                  </Button>
+                ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
       <Card>
         <CardHeader>
@@ -386,6 +455,7 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], aguardarProximaN
           </CardContent>
         </Card>
       )}
+    </div>
     </div>
   )
 }

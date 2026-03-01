@@ -88,28 +88,8 @@ export class NotaFiscalFornecedorService {
       );
     }
 
-    // Substituir NF existente sem recebimento aceito; caso contrário, adicionar nova
-    const nfsExistentes = await this.nfRepository.find({
-      where: { ordem_fornecimento_id: ordemId },
-      order: { created_at: 'DESC' },
-    });
-    const temRecebimentoAceito = await this.recebimentoRepository
-      .createQueryBuilder('r')
-      .where('r.ordem_fornecimento_id = :ordemId', { ordemId })
-      .andWhere('r.status IN (:...statuses)', { statuses: ['ACEITO', 'ACEITO_PARCIAL'] })
-      .getExists();
-
-    if (!temRecebimentoAceito && nfsExistentes.length > 0) {
-      const ultimaNf = nfsExistentes[0];
-      const recs = await this.recebimentoRepository.find({
-        where: { nota_fiscal_fornecedor_id: ultimaNf.id },
-      });
-      const temAceite = recs.some(r => (r as any).aceite_almoxarifado_data || (r as any).aceite_patrimonio_data);
-      if (!temAceite) {
-        for (const r of recs) await this.recebimentoRepository.remove(r);
-        await this.nfRepository.remove(ultimaNf);
-      }
-    }
+    // Sempre adicionar nova NF (não substituir). Múltiplas NFs podem ser enviadas antes da validação.
+    // O órgão escolhe qual processar na tela de recebimento (fila).
 
     let nf: NotaFiscalFornecedor;
 

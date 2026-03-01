@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: Fila de NFs quando fornecedor envia várias antes da validação (2026-03-01)
+
+- [X] Backend upload: sempre adicionar NF (removida lógica de substituir a anterior)
+- [X] nfsPendentes: NFs sem recebimento aceito (excluindo RECUSADA)
+- [X] Quando múltiplas pendentes: notaFiscal=null, órgão vê fila e escolhe qual processar
+- [X] Fila na tela: "Notas enviadas pelo fornecedor (X na fila)" com botão "Processar esta NF"
+- [X] Ao processar uma NF, card "Outras notas na fila" para trocar
+
 ## Tarefa Concluída: Dossiê fiscal ao finalizar recebimento (2026-03-01)
 
 - [X] garantirDossieENotificarFiscal: cria DossieOrdem e notifica fiscal ao aceitar (ACEITO)

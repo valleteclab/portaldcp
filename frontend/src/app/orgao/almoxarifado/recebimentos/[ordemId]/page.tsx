@@ -35,6 +35,7 @@ function RecebimentoUnificadoContent() {
   const [itensJaRecebidos, setItensJaRecebidos] = useState<any[]>([])
   const [recebimentoAtivo, setRecebimentoAtivo] = useState<any>(null)
   const [notasFiscais, setNotasFiscais] = useState<any[]>([])
+  const [nfsPendentes, setNfsPendentes] = useState<any[]>([])
   const [aguardarProximaNf, setAguardarProximaNf] = useState(false)
   const [mapeamento, setMapeamento] = useState<any[]>([])
   const [iaIndisponivel, setIaIndisponivel] = useState(false)
@@ -62,6 +63,7 @@ function RecebimentoUnificadoContent() {
         setItensJaRecebidos(data.itensJaRecebidos || [])
         setNotasFiscais(data.notasFiscais || [])
         setAguardarProximaNf(data.aguardarProximaNf || false)
+        setNfsPendentes(data.nfsPendentes || [])
 
         if (data.aguardarProximaNf && nfIdUrl) {
           router.replace(`/orgao/almoxarifado/recebimentos/${ordemId}`, { scroll: false })
@@ -339,9 +341,11 @@ function RecebimentoUnificadoContent() {
               notaFiscal={notaFiscal}
               ordem={ordem}
               notasFiscais={notasFiscais}
+              nfsPendentes={nfsPendentes}
               aguardarProximaNf={aguardarProximaNf}
               onImportarXml={handleImportarXml}
               onNfEnviada={carregarDados}
+              onSelecionarNf={(nfId) => router.push(`/orgao/almoxarifado/recebimentos/${ordemId}?nf_id=${nfId}`)}
               loading={processing}
             />
           </>
