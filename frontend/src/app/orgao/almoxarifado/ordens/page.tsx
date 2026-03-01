@@ -20,8 +20,9 @@ import {
   Trash2,
   Edit,
   History,
-  RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Mail,
+  MessageCircle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -81,7 +82,10 @@ interface OrdemFornecimento {
   fornecedor?: {
     razao_social: string;
     email?: string;
+    representante_telefone?: string;
+    telefone?: string;
   };
+  email_fornecedor?: string | null;
   orgao?: {
     nome: string;
   };
@@ -125,7 +129,7 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   RASCUNHO: 'Rascunho',
   EMITIDA: 'Emitida',
-  ENVIADA: 'Enviada',
+  ENVIADA: 'Aguardando recebimento',
   EM_ATENDIMENTO: 'Em Atendimento',
   ATENDIDA_PARCIAL: 'Parcialmente Atendida',
   ATENDIDA: 'Atendida',
@@ -191,17 +195,17 @@ function OrdensList() {
   // Modais
   const [ordemSelecionada, setOrdemSelecionada] = useState<OrdemFornecimento | null>(null);
   const [showDetalhes, setShowDetalhes] = useState(false);
-  const [showEnviar, setShowEnviar] = useState(false);
   const [showRecebimento, setShowRecebimento] = useState(false);
   const [showExcluir, setShowExcluir] = useState(false);
   const [showCancelar, setShowCancelar] = useState(false);
   const [showEditar, setShowEditar] = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   
-  // Envio
-  const [emailFornecedor, setEmailFornecedor] = useState('');
-  const [observacoesEnvio, setObservacoesEnvio] = useState('');
-  const [isReenvio, setIsReenvio] = useState(false);
+  // Envio ao fornecedor (PDF assinado)
+  const [showEnviarAoFornecedor, setShowEnviarAoFornecedor] = useState(false);
+  const [emailEnviarFornecedor, setEmailEnviarFornecedor] = useState('');
+  const [telefoneEnviarFornecedor, setTelefoneEnviarFornecedor] = useState('');
+  const [enviandoTipo, setEnviandoTipo] = useState<'email' | 'whatsapp' | null>(null);
   
   // Cancelamento
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
@@ -299,12 +303,11 @@ function OrdensList() {
     setShowDetalhes(true);
   };
 
-  const handleAbrirEnviar = (ordem: OrdemFornecimento, reenvio: boolean = false) => {
+  const handleAbrirEnviarAoFornecedor = (ordem: OrdemFornecimento) => {
     setOrdemSelecionada(ordem);
-    setEmailFornecedor(ordem.fornecedor?.email || '');
-    setObservacoesEnvio('');
-    setIsReenvio(reenvio);
-    setShowEnviar(true);
+    setEmailEnviarFornecedor(ordem.fornecedor?.email || ordem.email_fornecedor || '');
+    setTelefoneEnviarFornecedor(ordem.fornecedor?.representante_telefone || ordem.fornecedor?.telefone || '');
+    setShowEnviarAoFornecedor(true);
   };
 
   const handleAbrirCancelar = (ordem: OrdemFornecimento) => {
@@ -357,23 +360,34 @@ function OrdensList() {
     setShowExcluir(true);
   };
 
-  // Ações
-  const handleEnviarAoFornecedor = async (ordem: OrdemFornecimento) => {
-    if (!confirm(`Enviar PDF assinado da ordem ${ordem.numero} ao fornecedor por email e WhatsApp?`)) return;
-    setProcessando(true);
+  const handleEnviarAoFornecedor = async (tipo: 'email' | 'whatsapp') => {
+    if (!ordemSelecionada) return;
+    if (tipo === 'email' && !emailEnviarFornecedor.trim()) {
+      alert('Informe o email do fornecedor');
+      return;
+    }
+    if (tipo === 'whatsapp' && !telefoneEnviarFornecedor.trim()) {
+      alert('Informe o telefone do fornecedor');
+      return;
+    }
+    setEnviandoTipo(tipo);
     try {
+      const body: Record<string, string> = { tipo };
+      if (tipo === 'email') body.email_fornecedor = emailEnviarFornecedor.trim();
+      if (tipo === 'whatsapp') body.telefone_fornecedor = telefoneEnviarFornecedor.replace(/\D/g, '');
       const response = await authFetch(
-        `${API_URL}/api/almoxarifado/ordens/${ordem.id}/enviar-ao-fornecedor`,
-        { method: 'POST', body: JSON.stringify({}) },
+        `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/enviar-ao-fornecedor`,
+        { method: 'POST', body: JSON.stringify(body) },
       );
       if (response.ok) {
         const data = await response.json();
         const n = data?.notificacoes_fornecedor || {};
-        const partes: string[] = [];
-        if (n.email) partes.push('Email enviado');
-        if (n.notificacao) partes.push('Notificação criada');
-        if (n.whatsapp) partes.push('WhatsApp enviado');
-        alert(partes.length ? `Enviado: ${partes.join(' • ')}` : 'Enviado ao fornecedor.');
+        const msg = tipo === 'email'
+          ? (n.email ? 'Email enviado com sucesso!' : 'Email não pôde ser enviado.')
+          : (n.whatsapp ? 'WhatsApp enviado com sucesso!' : 'WhatsApp não pôde ser enviado.');
+        alert(msg);
+        setShowEnviarAoFornecedor(false);
+        carregarOrdens();
       } else {
         const err = await response.json();
         alert(`Erro: ${err.message || 'Erro ao enviar'}`);
@@ -382,40 +396,7 @@ function OrdensList() {
       console.error(e);
       alert('Erro ao enviar ao fornecedor');
     } finally {
-      setProcessando(false);
-    }
-  };
-
-  const handleEnviar = async () => {
-    if (!ordemSelecionada) return;
-    
-    setProcessando(true);
-    try {
-      const endpoint = isReenvio 
-        ? `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/reenviar`
-        : `${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/enviar`;
-      
-      const response = await authFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({
-          email_fornecedor: emailFornecedor,
-          observacoes: observacoesEnvio,
-        }),
-      });
-
-      if (response.ok) {
-        alert(`Ordem ${isReenvio ? 'reenviada' : 'enviada'} com sucesso!`);
-        setShowEnviar(false);
-        carregarOrdens();
-      } else {
-        const error = await response.json();
-        alert(`Erro ao ${isReenvio ? 'reenviar' : 'enviar'}: ${error.message || 'Erro desconhecido'}`);
-      }
-    } catch (error) {
-      console.error('Erro ao enviar:', error);
-      alert('Erro ao enviar ordem');
-    } finally {
-      setProcessando(false);
+      setEnviandoTipo(null);
     }
   };
 
@@ -629,8 +610,6 @@ function OrdensList() {
       verDetalhes: true,
       baixarPDF: true,
       verHistorico: true,
-      enviar: false,
-      reenviar: false,
       enviarAoFornecedor: false,
       editar: false,
       registrarRecebimento: false,
@@ -638,24 +617,24 @@ function OrdensList() {
       cancelar: false,
     };
 
-    acoes.enviarAoFornecedor = !!(ordem.caminho_pdf && ordem.fornecedor);
+    acoes.enviarAoFornecedor = !!ordem.fornecedor;
 
     switch (ordem.status) {
       case 'RASCUNHO':
       case 'EMITIDA':
-        acoes.enviar = true;
+        acoes.enviarAoFornecedor = !!ordem.fornecedor;
         acoes.editar = true;
         acoes.excluir = true;
         break;
       case 'ENVIADA':
       case 'EM_ATENDIMENTO':
-        acoes.reenviar = true;
+        acoes.enviarAoFornecedor = !!ordem.fornecedor;
         acoes.editar = true;
         acoes.cancelar = true;
         acoes.registrarRecebimento = ordem.tipo !== 'SERVICO' && ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
         break;
       case 'ATENDIDA_PARCIAL':
-        acoes.reenviar = true;
+        acoes.enviarAoFornecedor = !!ordem.fornecedor;
         acoes.editar = true;
         acoes.cancelar = true;
         acoes.registrarRecebimento = ordem.tipo !== 'SERVICO' && ordem.itens.some(item => item.quantidade - item.quantidade_entregue > 0);
@@ -829,41 +808,15 @@ function OrdensList() {
                             )}
                           </Button>
                           
-                          {/* Enviar */}
-                          {acoes.enviar && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-blue-600 hover:text-blue-700"
-                              onClick={() => handleAbrirEnviar(ordem, false)}
-                              title="Enviar ao fornecedor"
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
-                          )}
-                          
-                          {/* Reenviar */}
-                          {acoes.reenviar && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-blue-600 hover:text-blue-700"
-                              onClick={() => handleAbrirEnviar(ordem, true)}
-                              title="Reenviar ao fornecedor"
-                            >
-                              <RefreshCw className="h-4 w-4" />
-                            </Button>
-                          )}
-                          
-                          {/* Enviar ao fornecedor (PDF assinado - email, WhatsApp, notificação) */}
+                          {/* Enviar/Reenviar ao fornecedor (PDF assinado) */}
                           {acoes.enviarAoFornecedor && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="text-indigo-600 hover:text-indigo-700"
-                              onClick={() => handleEnviarAoFornecedor(ordem)}
+                              className="text-blue-600 hover:text-blue-700"
+                              onClick={() => handleAbrirEnviarAoFornecedor(ordem)}
                               disabled={processando}
-                              title="Enviar PDF assinado ao fornecedor (email, WhatsApp)"
+                              title={ordem.status === 'EMITIDA' ? 'Enviar ao fornecedor' : 'Reenviar ao fornecedor'}
                             >
                               <Send className="h-4 w-4" />
                             </Button>
@@ -1150,19 +1103,22 @@ function OrdensList() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Enviar/Reenviar */}
-      <Dialog open={showEnviar} onOpenChange={setShowEnviar}>
+      {/* Modal Enviar/Reenviar ao Fornecedor (PDF assinado digitalmente) */}
+      <Dialog open={showEnviarAoFornecedor} onOpenChange={setShowEnviarAoFornecedor}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isReenvio ? 'Reenviar' : 'Enviar'} Ordem ao Fornecedor</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-blue-600" />
+              {ordemSelecionada?.status === 'EMITIDA' ? 'Enviar' : 'Reenviar'} Ordem ao Fornecedor
+            </DialogTitle>
             <DialogDescription>
-              A ordem será enviada por email ao fornecedor
+              A ordem será enviada com o PDF assinado digitalmente. Escolha o canal de envio:
             </DialogDescription>
           </DialogHeader>
           
           {ordemSelecionada && (
             <div className="space-y-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                 <p className="font-medium">{ordemSelecionada.numero}</p>
                 <p className="text-sm text-gray-600">
                   Fornecedor: {ordemSelecionada.fornecedor?.razao_social}
@@ -1176,32 +1132,55 @@ function OrdensList() {
                 <Label>Email do Fornecedor</Label>
                 <Input
                   type="email"
-                  value={emailFornecedor}
-                  onChange={(e) => setEmailFornecedor(e.target.value)}
+                  value={emailEnviarFornecedor}
+                  onChange={(e) => setEmailEnviarFornecedor(e.target.value)}
                   placeholder="email@fornecedor.com"
                 />
               </div>
 
               <div>
-                <Label>Observações</Label>
-                <Textarea
-                  value={observacoesEnvio}
-                  onChange={(e) => setObservacoesEnvio(e.target.value)}
-                  placeholder="Observações adicionais para o fornecedor..."
-                  rows={3}
+                <Label>Telefone (WhatsApp)</Label>
+                <Input
+                  type="tel"
+                  value={telefoneEnviarFornecedor}
+                  onChange={(e) => setTelefoneEnviarFornecedor(e.target.value)}
+                  placeholder="(00) 00000-0000"
                 />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={() => handleEnviarAoFornecedor('email')}
+                  disabled={enviandoTipo !== null || !emailEnviarFornecedor.trim()}
+                  className="flex-1"
+                >
+                  {enviandoTipo === 'email' ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Mail className="h-4 w-4 mr-2" />
+                  )}
+                  Enviar por Email
+                </Button>
+                <Button
+                  onClick={() => handleEnviarAoFornecedor('whatsapp')}
+                  disabled={enviandoTipo !== null || !telefoneEnviarFornecedor.trim()}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  {enviandoTipo === 'whatsapp' ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Enviar por WhatsApp
+                </Button>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEnviar(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEnviar} disabled={processando}>
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {isReenvio ? <RefreshCw className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-              {isReenvio ? 'Reenviar' : 'Enviar'} Ordem
+            <Button variant="outline" onClick={() => setShowEnviarAoFornecedor(false)}>
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

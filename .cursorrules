@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Concluída: Clareza OF + Botão único Enviar (2026-03-01)
+
+- [X] Requisições: banner no modal detalhes quando OF gerada — "Ordem de Fornecimento gerada", link para Ordens de Fornecimento
+- [X] Requisições: badge na tabela "OF gerada — acesse Ordens de Fornecimento" para não-OS com ordem_fornecimento_id
+- [X] Ordens: um único botão Enviar/Reenviar ao fornecedor (PDF assinado)
+- [X] Modal unificado: email e telefone editáveis, opções Enviar por Email e Enviar por WhatsApp
+- [X] Backend enviarAoFornecedor já atualiza status para ENVIADA quando EMITIDA
+
 ## Tarefa Concluída: Inconsistência quantidade_entregue após exclusão de requisições (2026-03-01)
 
 - [X] Problema: Ao excluir requisições, recebimentos zerados mas itens_contrato.quantidade_entregue permanecia (ex: Grampeador 5)

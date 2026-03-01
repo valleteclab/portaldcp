@@ -1058,13 +1058,11 @@ export class OrdemFornecimentoService {
     dto?: { email_fornecedor?: string; telefone_fornecedor?: string; tipo?: 'email' | 'whatsapp' },
   ): Promise<{ notificacoes_fornecedor: { email: boolean; notificacao: boolean; whatsapp: boolean } }> {
     const ordem = await this.findOne(ordemId);
-    if (!ordem.caminho_pdf) {
-      throw new BadRequestException(
-        'PDF assinado não disponível. A ordem precisa ter sido assinada digitalmente na aprovação.',
-      );
-    }
-    if (!fs.existsSync(ordem.caminho_pdf)) {
-      throw new BadRequestException('Arquivo PDF não encontrado no servidor.');
+    let pdfPath = ordem.caminho_pdf;
+    if (!pdfPath || !fs.existsSync(pdfPath)) {
+      pdfPath = await this.pdfOrdemService.gerarPdf(ordemId);
+      ordem.caminho_pdf = pdfPath;
+      await this.ordemRepository.save(ordem);
     }
 
     const resultado = { email: false, notificacao: false, whatsapp: false };
@@ -1080,7 +1078,7 @@ export class OrdemFornecimentoService {
 
     if ((!tipo || tipo === 'email') && emailFornecedor) {
       try {
-        const pdfBuffer = fs.readFileSync(ordem.caminho_pdf);
+        const pdfBuffer = fs.readFileSync(pdfPath);
         const nomeArquivo = `OF_${ordem.numero.replace(/\//g, '_')}_assinada.pdf`;
         await this.emailService.enviar(ordem.orgao_id, {
           to: emailFornecedor,
@@ -1129,6 +1127,16 @@ export class OrdemFornecimentoService {
         }
       } catch (err: any) {
         this.logger.warn(`Erro ao enviar WhatsApp para fornecedor OF ${ordem.numero}: ${err.message}`);
+      }
+    }
+
+    if (resultado.email || resultado.whatsapp) {
+      if (ordem.status === StatusOrdemFornecimento.EMITIDA) {
+        ordem.status = StatusOrdemFornecimento.ENVIADA;
+        ordem.data_envio = new Date();
+        ordem.email_fornecedor = emailFornecedor || ordem.email_fornecedor || null;
+        await this.ordemRepository.save(ordem);
+        this.logger.log(`Ordem ${ordem.numero} marcada como ENVIADA após notificação ao fornecedor`);
       }
     }
 

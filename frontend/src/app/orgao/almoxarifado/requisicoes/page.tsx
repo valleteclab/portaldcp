@@ -1105,6 +1105,11 @@ function RequisicoesList() {
                             Pendente na Central de Aprovações
                           </span>
                         )}
+                        {req.tipo !== 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && req.ordem_fornecimento_id && (
+                          <span className="text-xs text-blue-600 font-medium px-2 py-1 bg-blue-50 rounded-md border border-blue-200">
+                            OF gerada — acesse Ordens de Fornecimento
+                          </span>
+                        )}
                         {/* Botão de cancelar */}
                         {/* Qualquer usuário pode cancelar: RASCUNHO, AGUARDANDO_AUTORIZACAO, NEGADA */}
                         {req.status === 'RASCUNHO' && (
@@ -1185,6 +1190,33 @@ function RequisicoesList() {
           
           {requisicaoSelecionada && (
             <div className="space-y-4">
+              {/* Banner de clareza: requisição aprovada gerou OF */}
+              {requisicaoSelecionada.tipo !== 'ORDEM_SERVICO' &&
+                (requisicaoSelecionada.status === 'AUTORIZADA' || requisicaoSelecionada.status === 'ORDEM_GERADA') &&
+                requisicaoSelecionada.ordem_fornecimento_id && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <FileText className="h-6 w-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-blue-900">
+                        Ordem de Fornecimento gerada
+                      </p>
+                      <p className="text-sm text-blue-800 mt-1">
+                        Sua requisição foi aprovada e gerou a Ordem de Fornecimento{' '}
+                        <strong>{requisicaoSelecionada.ordem_fornecimento?.numero || ''}</strong>.
+                        Acesse a página de Ordens de Fornecimento para enviar ao fornecedor e acompanhar o recebimento.
+                      </p>
+                      <Button variant="outline" size="sm" className="mt-3" asChild>
+                        <Link href="/orgao/almoxarifado/ordens">
+                          <ExternalLink className="h-4 w-4 mr-2" />
+                          Ir para Ordens de Fornecimento
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-500">Status</label>
