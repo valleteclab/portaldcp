@@ -38,6 +38,7 @@ import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import * as fs from 'fs';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 
 @Injectable()
 export class RequisicaoService {
@@ -66,6 +67,8 @@ export class RequisicaoService {
     private readonly etapaCronogramaRepository: Repository<EtapaCronograma>,
     @InjectRepository(HistoricoRequisicao)
     private readonly historicoRequisicaoRepository: Repository<HistoricoRequisicao>,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
     private readonly itemContratoService: ItemContratoService,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => ConfiguracaoAprovacaoService))
@@ -843,6 +846,11 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         // =========================================================================
         try {
           const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+          
+          // Buscar cargo do usuário
+          const usuario = await this.usuarioRepository.findOne({ where: { id: autorizadorId } });
+          const cargo = usuario?.cargo || 'Gestor / Ordenador de Despesa';
+          
           const assinatura = await this.assinaturasService.registrarAssinatura({
             orgao_id: requisicao.orgao_id,
             entidade_tipo: EntidadeTipo.ORDEM_SERVICO,
@@ -851,6 +859,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
             usuario_id: autorizadorId,
             usuario_nome: autorizadorNome,
             usuario_cpf_cnpj: '',
+            usuario_cargo: cargo,
             usuario_telefone: undefined,
             ip_address: undefined,
             user_agent: undefined,
@@ -1046,6 +1055,11 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           // Assinatura digital + PDF assinado (mesmo modelo da OS)
           try {
             const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+            
+            // Buscar cargo do usuário (já buscado anteriormente, reutilizar se possível)
+            const usuario = await this.usuarioRepository.findOne({ where: { id: autorizadorId } });
+            const cargo = usuario?.cargo || 'Gestor / Ordenador de Despesa';
+            
             const assinatura = await this.assinaturasService.registrarAssinatura({
               orgao_id: requisicao.orgao_id,
               entidade_tipo: EntidadeTipo.ORDEM_FORNECIMENTO,
@@ -1054,6 +1068,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
               usuario_id: autorizadorId,
               usuario_nome: autorizadorNome,
               usuario_cpf_cnpj: '',
+              usuario_cargo: cargo,
               usuario_telefone: undefined,
               ip_address: undefined,
               user_agent: undefined,

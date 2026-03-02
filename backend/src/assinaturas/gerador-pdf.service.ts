@@ -562,9 +562,9 @@ export class GeradorPdfService {
       doc.rect(marginL, yStart, contentW, boxH).fillAndStroke('#f9fafb', '#e5e7eb');
 
       doc.fillColor('#111827').fontSize(8.5).font('Helvetica-Bold')
-        .text(`Assinado por: ${ass.usuario_nome}`, marginL + 8, yStart + 7, { width: contentW - 16 });
+        .text(`Assinado por: ${this.normalizarNome(ass.usuario_nome)}`, marginL + 8, yStart + 7, { width: contentW - 16 });
       doc.fontSize(8).font('Helvetica').fillColor('#374151')
-        .text(`Papel: ${PAPEL_LABELS[ass.papel_assinante] || ass.papel_assinante}`, marginL + 8, yStart + 19, { width: contentW - 16 });
+        .text(`Cargo: ${ass.usuario_cargo || ass.papel_assinante || '-'}`, marginL + 8, yStart + 19, { width: contentW - 16 });
       doc.fillColor('#6b7280')
         .text(`Data/Hora: ${this.formatarDataHora(ass.data_assinatura)}`, marginL + 8, yStart + 30, { width: contentW - 16 });
       doc.fillColor('#16a34a').font('Helvetica-Bold').fontSize(7.5)
@@ -600,6 +600,21 @@ export class GeradorPdfService {
 
   private formatarDataHora(data: Date): string {
     return new Date(data).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  private normalizarNome(nome: string): string {
+    if (!nome) return '';
+    // Se o nome estiver todo em minúsculo ou maiúsculo, normalizar para Title Case
+    const estaMinusculo = nome === nome.toLowerCase();
+    const estaMaiusculo = nome === nome.toUpperCase();
+    if (estaMinusculo || estaMaiusculo) {
+      return nome
+        .toLowerCase()
+        .split(' ')
+        .map(palavra => palavra.charAt(0).toUpperCase() + palavra.slice(1))
+        .join(' ');
+    }
+    return nome;
   }
 
   private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; total_override?: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>): void {

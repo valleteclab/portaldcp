@@ -153,6 +153,7 @@ export class AssinaturasService {
     usuario_id?: string;
     usuario_nome: string;
     usuario_cpf_cnpj: string;
+    usuario_cargo?: string;
     usuario_telefone?: string;
     papel_assinante: PapelAssinante;
     ip_address?: string;

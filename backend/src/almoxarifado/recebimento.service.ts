@@ -249,6 +249,7 @@ export class RecebimentoService {
 
     const usuario = await this.usuarioRepository.findOne({ where: { id: usuarioId } });
     const cpfCnpj = usuario?.cpf?.replace(/\D/g, '') || '00000000000';
+    const cargo = usuario?.cargo || 'Fiscal de Contrato';
 
     const assinatura = await this.assinaturasService.registrarAssinatura({
       orgao_id: rec.orgao_id,
@@ -257,6 +258,7 @@ export class RecebimentoService {
       usuario_id: usuarioId,
       usuario_nome: usuarioNome,
       usuario_cpf_cnpj: cpfCnpj.length >= 11 ? cpfCnpj : '00000000000',
+      usuario_cargo: cargo,
       papel_assinante: PapelAssinante.FISCAL,
     });
 

@@ -46,6 +46,9 @@ export class AssinaturaDigital {
   @Column({ type: 'varchar', length: 20 })
   usuario_cpf_cnpj: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  usuario_cargo: string;
+
   @Column({ type: 'varchar', length: 20, nullable: true })
   usuario_telefone: string;
 
