@@ -1139,8 +1139,23 @@ ${usuarioNome || 'Gestão de Contratos'}</p>`,
         await this.emailService.enviar(ordem.orgao_id, {
           to: emailFornecedor,
           subject: `Ordem de Fornecimento ${ordem.numero} - ${fornecedor.razao_social}`,
-          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero} assinada digitalmente.`,
-          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong> assinada digitalmente.</p>`,
+          text: `Prezado(a) ${fornecedor.razao_social},
+
+Sua Ordem de Fornecimento ${ordem.numero} foi aprovada e assinada digitalmente. O documento oficial está anexado a este email.
+
+Para visualizar o documento e registrar a entrega dos materiais/serviços, acesse o Portal do Fornecedor:
+${urlBase}/fornecedor/contratos/${ordem.contrato_id}
+
+Atenciosamente,
+Gestão de Contratos`,
+          html: `<p>Prezado(a) <strong>${fornecedor.razao_social}</strong>,</p>
+
+<p>Sua <strong>Ordem de Fornecimento ${ordem.numero}</strong> foi aprovada e assinada digitalmente. O documento oficial está anexado a este email.</p>
+
+<p>Para visualizar o documento e registrar a entrega dos materiais/serviços, acesse o <a href="${urlBase}/fornecedor/contratos/${ordem.contrato_id}">Portal do Fornecedor</a>.</p>
+
+<p>Atenciosamente,<br>
+Gestão de Contratos</p>`,
           attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
         });
         resultado.email = true;
@@ -1173,7 +1188,7 @@ ${usuarioNome || 'Gestão de Contratos'}</p>`,
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado && ordem.contrato_id) {
           const linkPortal = `${urlBase}/fornecedor/contratos/${ordem.contrato_id}`;
-          const mensagem = `Ordem de Fornecimento ${ordem.numero} aprovada e assinada digitalmente.\n\nFornecedor: ${fornecedor.razao_social}\n\nO documento também foi enviado por email. Use o botão abaixo para acessar o portal.`;
+          const mensagem = `📦 *Ordem de Fornecimento Aprovada*\n\nPrezado(a) *${fornecedor.razao_social}*,\n\nSua OF *${ordem.numero}* foi aprovada e assinada digitalmente.\n\n📎 O documento oficial foi enviado para seu email.\n\n👉 Acesse o portal para registrar entrega:`;
           const enviado = await this.whatsappService.enviarComBotao(ordem.orgao_id, {
             to: telefoneFornecedor,
             mensagem,
