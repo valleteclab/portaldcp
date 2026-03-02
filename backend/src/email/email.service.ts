@@ -221,9 +221,13 @@ export class EmailService {
       emailOptions.replyTo = dto.replyTo;
     }
 
-    // Resend não suporta attachments diretamente na API básica
+    // Resend API suporta attachments - converter para base64
     if (dto.attachments && dto.attachments.length > 0) {
-      this.logger.warn(`Resend API não suporta attachments. Enviando sem anexos.`);
+      emailOptions.attachments = dto.attachments.map(att => ({
+        filename: att.filename,
+        content: att.content.toString('base64'),
+      }));
+      this.logger.log(`Anexando ${dto.attachments.length} arquivo(s) ao email via Resend`);
     }
 
     const { data, error } = await resend.emails.send(emailOptions);
