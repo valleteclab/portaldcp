@@ -36,7 +36,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { EmailModule } from '../email/email.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
-import { AssinaturasModule } from '../assinaturas/assinaturas.module';
+import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
 import { IaModule } from '../ia/ia.module';
 
 @Module({
@@ -61,6 +61,7 @@ import { IaModule } from '../ia/ia.module';
       Orgao,
       Fornecedor,
       Usuario,
+      AssinaturaDigital,
     ]),
     NotificacoesModule,
     forwardRef(() => ContratosModule),
