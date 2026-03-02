@@ -305,8 +305,24 @@ export class OrdemFornecimentoService {
         await this.emailService.enviar(ordem.orgao_id, {
           to: ordemSalva.email_fornecedor,
           subject: `Ordem de Fornecimento ${ordem.numero} - ${ordem.fornecedor?.razao_social || ''}`,
-          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero}.\n\n${observacoes ? `Observações: ${observacoes}` : ''}`,
-          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong>.</p>${observacoes ? `<p><em>Observações: ${observacoes}</em></p>` : ''}`,
+          text: `Prezado(a) ${ordem.fornecedor?.razao_social || 'Fornecedor'},
+
+Sua Ordem de Fornecimento ${ordem.numero} foi emitida e está disponível em anexo.
+
+${observacoes ? `Observações: ${observacoes}\n\n` : ''}Para registrar a entrega dos materiais/serviços, acesse o Portal do Fornecedor:
+${process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${ordem.contrato_id}
+
+Atenciosamente,
+${usuarioNome || 'Gestão de Contratos'}`,
+          html: `<p>Prezado(a) <strong>${ordem.fornecedor?.razao_social || 'Fornecedor'}</strong>,</p>
+
+<p>Sua <strong>Ordem de Fornecimento ${ordem.numero}</strong> foi emitida e está disponível em anexo.</p>
+
+${observacoes ? `<p><strong>Observações:</strong> ${observacoes}</p>` : ''}
+<p>Para registrar a entrega dos materiais/serviços, acesse o <a href="${process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${ordem.contrato_id}">Portal do Fornecedor</a>.</p>
+
+<p>Atenciosamente,<br>
+${usuarioNome || 'Gestão de Contratos'}</p>`,
           attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
         });
       } catch (err: any) {
@@ -319,7 +335,7 @@ export class OrdemFornecimentoService {
       try {
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado) {
-          const mensagem = `Ordem de Fornecimento ${ordem.numero} enviada.\n\nFornecedor: ${ordem.fornecedor?.razao_social || ''}\n\nVerifique seu email para o documento em anexo.${observacoes ? `\n\nObservacoes: ${observacoes}` : ''}`;
+          const mensagem = `📦 *Ordem de Fornecimento Emitida*\n\nPrezado(a) *${ordem.fornecedor?.razao_social || 'Fornecedor'}*,\n\nSua OF *${ordem.numero}* foi emitida.\n\n📎 Verifique seu email para o documento em anexo.\n\n👉 Acesse o portal para registrar a entrega.`;
           await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
         }
       } catch (err: any) {
@@ -376,8 +392,24 @@ export class OrdemFornecimentoService {
         await this.emailService.enviar(ordem.orgao_id, {
           to: ordemSalva.email_fornecedor,
           subject: `Ordem de Fornecimento ${ordem.numero} - ${ordem.fornecedor?.razao_social || ''}`,
-          text: `Segue em anexo a Ordem de Fornecimento ${ordem.numero}.\n\n${observacoes ? `Observações: ${observacoes}` : ''}`,
-          html: `<p>Segue em anexo a Ordem de Fornecimento <strong>${ordem.numero}</strong>.</p>${observacoes ? `<p><em>Observações: ${observacoes}</em></p>` : ''}`,
+          text: `Prezado(a) ${ordem.fornecedor?.razao_social || 'Fornecedor'},
+
+Sua Ordem de Fornecimento ${ordem.numero} foi reenviada e está disponível em anexo.
+
+${observacoes ? `Observações do reenvio: ${observacoes}\n\n` : ''}Para registrar a entrega dos materiais/serviços, acesse o Portal do Fornecedor:
+${process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${ordem.contrato_id}
+
+Atenciosamente,
+${usuarioNome || 'Gestão de Contratos'}`,
+          html: `<p>Prezado(a) <strong>${ordem.fornecedor?.razao_social || 'Fornecedor'}</strong>,</p>
+
+<p>Sua <strong>Ordem de Fornecimento ${ordem.numero}</strong> foi reenviada e está disponível em anexo.</p>
+
+${observacoes ? `<p><strong>Observações do reenvio:</strong> ${observacoes}</p>` : ''}
+<p>Para registrar a entrega dos materiais/serviços, acesse o <a href="${process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${ordem.contrato_id}">Portal do Fornecedor</a>.</p>
+
+<p>Atenciosamente,<br>
+${usuarioNome || 'Gestão de Contratos'}</p>`,
           attachments: [{ filename: nomeArquivo, content: pdfBuffer }],
         });
       } catch (err: any) {
@@ -389,7 +421,7 @@ export class OrdemFornecimentoService {
       try {
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado) {
-          const mensagem = `Ordem de Fornecimento ${ordem.numero} reenviada.\n\nFornecedor: ${ordem.fornecedor?.razao_social || ''}\n\nVerifique seu email para o documento em anexo.${observacoes ? `\n\nObservacoes: ${observacoes}` : ''}`;
+          const mensagem = `📦 *Ordem de Fornecimento Reenviada*\n\nPrezado(a) *${ordem.fornecedor?.razao_social || 'Fornecedor'}*,\n\nSua OF *${ordem.numero}* foi reenviada.\n\n📎 Verifique seu email para o documento em anexo.\n\n👉 Acesse o portal para registrar a entrega.`;
           await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
         }
       } catch (err: any) {
