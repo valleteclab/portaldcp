@@ -183,7 +183,7 @@ export default function ImportarPortalTransparenciaPage() {
                   onCheckedChange={(checked) => setApenasVigentes(checked as boolean)}
                 />
                 <Label htmlFor="vigentes" className="cursor-pointer">
-                  Apenas contratos vigentes (vigência >= hoje)
+                  Apenas contratos vigentes (vigência {'>='} hoje)
                 </Label>
               </div>
               <Button onClick={buscarContratos} disabled={buscando}>
