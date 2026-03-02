@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { 
   ArrowLeft,
   Search,
@@ -43,6 +45,8 @@ export default function ImportarPortalTransparenciaPage() {
   const [resultado, setResultado] = useState<ResultadoImportacao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [numeroBusca, setNumeroBusca] = useState('')
+  const [limite, setLimite] = useState(50)
+  const [apenasVigentes, setApenasVigentes] = useState(true)
 
   const buscarContratos = async () => {
     setBuscando(true)
@@ -52,7 +56,8 @@ export default function ImportarPortalTransparenciaPage() {
     try {
       const params = new URLSearchParams()
       if (numeroBusca) params.append('numero', numeroBusca)
-      params.append('limit', '50')
+      params.append('limit', limite.toString())
+      params.append('apenas_vigentes', apenasVigentes.toString())
       
       const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/buscar?${params}`)
       
@@ -80,7 +85,8 @@ export default function ImportarPortalTransparenciaPage() {
     try {
       const params = new URLSearchParams()
       if (numeroBusca) params.append('numero', numeroBusca)
-      params.append('limit', '50')
+      params.append('limit', limite.toString())
+      params.append('apenas_vigentes', apenasVigentes.toString())
       
       const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar?${params}`, {
         method: 'POST'
@@ -149,27 +155,51 @@ export default function ImportarPortalTransparenciaPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Número do contrato (ex: 001/2024) - opcional"
-                value={numeroBusca}
-                onChange={(e) => setNumeroBusca(e.target.value)}
-              />
+          <div className="flex flex-col gap-4">
+            <div className="flex gap-4">
+              <div className="flex-[2]">
+                <Input
+                  placeholder="Número do contrato (ex: 001/2024) - opcional"
+                  value={numeroBusca}
+                  onChange={(e) => setNumeroBusca(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <Input
+                  type="number"
+                  min={1}
+                  max={200}
+                  placeholder="Limite"
+                  value={limite}
+                  onChange={(e) => setLimite(parseInt(e.target.value) || 50)}
+                />
+              </div>
             </div>
-            <Button onClick={buscarContratos} disabled={buscando}>
-              {buscando ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Buscando...
-                </>
-              ) : (
-                <>
-                  <Search className="w-4 h-4 mr-2" />
-                  Buscar
-                </>
-              )}
-            </Button>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="vigentes" 
+                  checked={apenasVigentes}
+                  onCheckedChange={(checked) => setApenasVigentes(checked as boolean)}
+                />
+                <Label htmlFor="vigentes" className="cursor-pointer">
+                  Apenas contratos vigentes (vigência >= hoje)
+                </Label>
+              </div>
+              <Button onClick={buscarContratos} disabled={buscando}>
+                {buscando ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Buscando...
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4 mr-2" />
+                    Buscar
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

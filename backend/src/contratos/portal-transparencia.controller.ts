@@ -12,11 +12,13 @@ export class PortalTransparenciaController {
     @Query('numero') numero?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('apenas_vigentes') apenasVigentes?: string,
   ): Promise<PortalTransparenciaResponse> {
     return this.portalTransparenciaService.buscarContratos({
       numero,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
+      apenas_vigentes: apenasVigentes === 'true',
     });
   }
 
@@ -26,6 +28,7 @@ export class PortalTransparenciaController {
     @Query('numero') numero?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('apenas_vigentes') apenasVigentes?: string,
   ) {
     const orgaoId = req.user.orgao_id;
     
@@ -33,6 +36,7 @@ export class PortalTransparenciaController {
       numero,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
+      apenas_vigentes: apenasVigentes === 'true',
     });
   }
 }

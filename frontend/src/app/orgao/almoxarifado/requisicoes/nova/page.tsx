@@ -1559,7 +1559,7 @@ function NovaRequisicaoForm() {
                           {item.numero_item}
                         </TableCell>
                         <TableCell className="max-w-[300px]">
-                          <span className="line-clamp-2">{item.descricao}</span>
+                          <span className="whitespace-normal break-words text-sm">{item.descricao}</span>
                         </TableCell>
                         <TableCell>{item.unidade_medida}</TableCell>
                         <TableCell className="text-right">
@@ -1811,7 +1811,9 @@ function NovaRequisicaoForm() {
                       return (
                         <TableRow key={item.id}>
                           <TableCell>{item.numero_item}</TableCell>
-                          <TableCell className="max-w-[280px]">{item.descricao}</TableCell>
+                          <TableCell className="max-w-[280px]">
+                            <span className="whitespace-normal break-words text-sm">{item.descricao}</span>
+                          </TableCell>
                           <TableCell className="text-right">{item.unidade_medida}</TableCell>
                           <TableCell className="text-right">{Number(item.quantidade)}</TableCell>
                           <TableCell className="text-right">{Number(item.quantidade_medida)}</TableCell>
@@ -1948,7 +1950,9 @@ function NovaRequisicaoForm() {
                       return (
                         <TableRow key={etapa.id}>
                           <TableCell>{etapa.numero_etapa ?? etapa.ordem ?? '-'}</TableCell>
-                          <TableCell className="max-w-[280px]">{etapa.descricao}</TableCell>
+                          <TableCell className="max-w-[280px]">
+                            <span className="whitespace-normal break-words text-sm">{etapa.descricao}</span>
+                          </TableCell>
                           <TableCell className="text-right">{formatarMoeda(valorPrevisto)}</TableCell>
                           <TableCell className="text-right">{formatarMoeda(valorExecutado)}</TableCell>
                           <TableCell className="text-right font-medium">{formatarMoeda(saldo)}</TableCell>

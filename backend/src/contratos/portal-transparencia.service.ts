@@ -39,6 +39,7 @@ export class PortalTransparenciaService {
     numero?: string;
     limit?: number;
     offset?: number;
+    apenas_vigentes?: boolean;
   }): Promise<PortalTransparenciaResponse> {
     try {
       const queryParams = new URLSearchParams();
@@ -55,7 +56,26 @@ export class PortalTransparenciaService {
         this.httpService.get<PortalTransparenciaResponse>(url)
       );
 
-      return response.data;
+      let data = response.data.data || [];
+      
+      // Filtrar apenas contratos vigentes se solicitado
+      if (params.apenas_vigentes) {
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        
+        data = data.filter(contrato => {
+          const dataVigencia = this.parseDataBrasileira(contrato.vigencia);
+          return dataVigencia >= hoje;
+        });
+        
+        this.logger.log(`Filtrados ${data.length} contratos vigentes de ${response.data.data?.length || 0} total`);
+      }
+
+      return {
+        resource: response.data.resource,
+        count: data.length,
+        data: data
+      };
     } catch (error) {
       this.logger.error(`Erro ao buscar contratos na API: ${error.message}`, error.stack);
       throw new Error(`Falha ao consultar API do Portal de Transparência: ${error.message}`);
@@ -71,6 +91,7 @@ export class PortalTransparenciaService {
       numero?: string;
       limit?: number;
       offset?: number;
+      apenas_vigentes?: boolean;
     }
   ): Promise<{
     importados: number;
