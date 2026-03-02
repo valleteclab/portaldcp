@@ -44,7 +44,7 @@ function SelecionarOrgaoContent() {
       return
     }
 
-    fetch(`${API_URL}/api/orgaos`)
+    fetch(`${API_URL}/api/orgaos/publico`)
       .then(r => r.json())
       .then(data => {
         const lista = Array.isArray(data) ? data : (data.data || [])

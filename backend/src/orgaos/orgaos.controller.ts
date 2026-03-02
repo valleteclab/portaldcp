@@ -116,6 +116,15 @@ export class OrgaosController {
     };
   }
 
+  @Public()
+  @Get('publico')
+  async findAllPublico(): Promise<{ id: string; nome: string; cnpj: string }[]> {
+    const orgaos = await this.orgaosService.findAll();
+    return orgaos
+      .filter((o: any) => o.ativo !== false)
+      .map((o: any) => ({ id: o.id, nome: o.nome, cnpj: o.cnpj }));
+  }
+
   @Get()
   async findAll(): Promise<any[]> {
     const orgaos = await this.orgaosService.findAll();
