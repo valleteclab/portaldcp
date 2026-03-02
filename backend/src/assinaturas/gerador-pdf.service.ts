@@ -633,7 +633,7 @@ export class GeradorPdfService {
 
     for (const item of itensOS) {
       const ic  = item.itemCronograma || {};
-      const desc = (ic.descricao || '-').substring(0, 90);
+      const desc = ic.descricao || '-';
       const unid = ic.unidade_medida || '-';
       const qtd  = Number(item.quantidade_solicitada);
       const vlUnit = Number(ic.valor_unitario ?? 0);
@@ -642,13 +642,15 @@ export class GeradorPdfService {
       const total  = item.total_override !== undefined ? item.total_override : (meses ? vlMensal * meses : qtd * vlUnit);
       totalGeral  += total;
 
-      const rowStart = doc.y;
-      if (rowStart > doc.page.height - 80) {
+      doc.fontSize(8);
+      const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
+      const rowH = Math.max(descHeight, 12);
+
+      if (doc.y + rowH + 4 > doc.page.height - 80) {
         doc.addPage(); doc.y = 50;
       }
 
       const rowY = doc.y + 2;
-      doc.fontSize(8);
       doc.text(desc,  x0 + 3, rowY, { width: colDesc - 6 });
       doc.text(unid,  x1, rowY, { width: colUnid,  align: 'center' });
       doc.text(
@@ -663,7 +665,7 @@ export class GeradorPdfService {
         `R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
         x4, rowY, { width: colTotal, align: 'right' }
       );
-      doc.y = rowY + 14;
+      doc.y = rowY + rowH + 2;
       doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
       doc.y += 1;
     }
