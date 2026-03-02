@@ -19,7 +19,8 @@ import {
   Archive,
   FolderOpen,
   FileCheck,
-  Clock
+  Clock,
+  Download
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -393,6 +394,33 @@ function RecebimentosList() {
     }
   };
 
+  const handleDownloadPDF = async (rec: Recebimento) => {
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/recebimentos/${rec.id}/comprovacao-aceite`
+      );
+      
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.message || 'PDF não disponível');
+        return;
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Comprovacao_Aceite_${rec.numero.replace(/\//g, '_')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Erro ao baixar PDF:', error);
+      alert('Erro ao baixar PDF');
+    }
+  };
+
   const handleAbrirExcluir = (rec: Recebimento) => {
     setRecebimentoSelecionado(rec);
     setShowExcluir(true);
@@ -678,6 +706,18 @@ function RecebimentosList() {
                               <XCircle className="h-4 w-4" />
                             </Button>
                           </>
+                        )}
+                        {/* Botão de download PDF (apenas para recebimentos ACEITO ou ACEITO_PARCIAL) */}
+                        {(rec.status === 'ACEITO' || rec.status === 'ACEITO_PARCIAL') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-blue-600 hover:text-blue-700"
+                            onClick={() => handleDownloadPDF(rec)}
+                            title="Baixar PDF de comprovação de aceite"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
                         )}
                         {/* Botão de estornar (apenas para recebimentos ACEITO e usuários autorizados) */}
                         {rec.status === 'ACEITO' && podeCancelarEstornar && (
