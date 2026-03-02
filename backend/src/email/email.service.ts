@@ -113,15 +113,23 @@ export class EmailService {
       select: ['id', 'email_metodo'],
     });
     
-    if (!orgao?.email_metodo) return null;
+    // Default to SMTP for backwards compatibility
+    const metodo = orgao?.email_metodo || 'SMTP';
+    this.logger.log(`Email config para orgao ${orgaoId}: metodo=${metodo}`);
 
-    if (orgao.email_metodo === 'RESEND') {
+    if (metodo === 'RESEND') {
       const config = await this.getResendConfig(orgaoId);
-      if (!config) return null;
+      if (!config) {
+        this.logger.warn(`Resend config incompleto para orgao ${orgaoId}`);
+        return null;
+      }
       return { metodo: 'RESEND', config };
     } else {
       const config = await this.getSmtpConfig(orgaoId);
-      if (!config) return null;
+      if (!config) {
+        this.logger.warn(`SMTP config incompleto para orgao ${orgaoId}`);
+        return null;
+      }
       return { metodo: 'SMTP', config };
     }
   }
