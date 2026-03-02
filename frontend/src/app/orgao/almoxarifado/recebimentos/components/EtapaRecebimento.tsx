@@ -26,6 +26,7 @@ interface EtapaRecebimentoProps {
   ordemId: string
   podeReceberPatrimonio: boolean
   onUpdate: () => void
+  onConcluido?: () => void
 }
 
 export function EtapaRecebimento({
@@ -33,6 +34,7 @@ export function EtapaRecebimento({
   ordemId,
   podeReceberPatrimonio,
   onUpdate,
+  onConcluido,
 }: EtapaRecebimentoProps) {
   const [loadingAlmox, setLoadingAlmox] = useState(false)
   const [loadingPatrim, setLoadingPatrim] = useState(false)
@@ -185,7 +187,12 @@ export function EtapaRecebimento({
         const data = await res.json().catch(() => ({}))
         setErro(data.message || 'Erro ao aceitar almoxarifado')
       } else {
-        onUpdate()
+        // Se patrimônio já estava aceito (ou não precisa), redireciona
+        if (patrimAceito || !precisaPatrim) {
+          onConcluido?.()
+        } else {
+          onUpdate()
+        }
       }
     } catch {
       setErro('Erro ao aceitar almoxarifado')
@@ -206,7 +213,12 @@ export function EtapaRecebimento({
         const data = await res.json().catch(() => ({}))
         setErro(data.message || 'Erro ao aceitar patrimonio')
       } else {
-        onUpdate()
+        // Se almoxarifado já estava aceito (ou não precisa), redireciona
+        if (almoxAceito || !precisaAlmox) {
+          onConcluido?.()
+        } else {
+          onUpdate()
+        }
       }
     } catch {
       setErro('Erro ao aceitar patrimonio')

@@ -411,6 +411,7 @@ function RecebimentoUnificadoContent() {
                   ordemId={ordemId}
                   podeReceberPatrimonio={podeReceberPatrimonio}
                   onUpdate={carregarDados}
+                  onConcluido={() => router.push('/orgao/almoxarifado/recebimentos')}
                 />
               </div>
             )
