@@ -1,0 +1,289 @@
+'use client'
+
+import { useState } from 'react'
+import Link from 'next/link'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { 
+  ArrowLeft,
+  Search,
+  Download,
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  ExternalLink,
+  Building2
+} from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
+
+interface ContratoAPI {
+  contratos_contratoNumero: string
+  contratos_documento: string
+  contratos_favorecido: string
+  contratos_contratoObjeto: string
+  contratos_vigencia: string
+  aditivos_valor_total: string
+}
+
+interface ResultadoImportacao {
+  importados: number
+  erros: number
+  detalhes: Array<{ numero: string; status: 'sucesso' | 'erro'; mensagem?: string }>
+}
+
+export default function ImportarPortalTransparenciaPage() {
+  const [buscando, setBuscando] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [contratos, setContratos] = useState<ContratoAPI[]>([])
+  const [resultado, setResultado] = useState<ResultadoImportacao | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [numeroBusca, setNumeroBusca] = useState('')
+
+  const buscarContratos = async () => {
+    setBuscando(true)
+    setErro(null)
+    setResultado(null)
+    
+    try {
+      const params = new URLSearchParams()
+      if (numeroBusca) params.append('numero', numeroBusca)
+      params.append('limit', '50')
+      
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/buscar?${params}`)
+      
+      if (res.ok) {
+        const data = await res.json()
+        setContratos(data.data || [])
+      } else {
+        const errorData = await res.json().catch(() => ({}))
+        setErro(errorData.message || 'Erro ao buscar contratos')
+      }
+    } catch (error) {
+      setErro('Erro ao conectar com a API do Portal de Transparência')
+    } finally {
+      setBuscando(false)
+    }
+  }
+
+  const importarContratos = async () => {
+    if (contratos.length === 0) return
+    
+    setImportando(true)
+    setErro(null)
+    setResultado(null)
+    
+    try {
+      const params = new URLSearchParams()
+      if (numeroBusca) params.append('numero', numeroBusca)
+      params.append('limit', '50')
+      
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar?${params}`, {
+        method: 'POST'
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        setResultado(data)
+      } else {
+        const errorData = await res.json().catch(() => ({}))
+        setErro(errorData.message || 'Erro ao importar contratos')
+      }
+    } catch (error) {
+      setErro('Erro ao importar contratos')
+    } finally {
+      setImportando(false)
+    }
+  }
+
+  const formatarValor = (valor: string) => {
+    const num = parseFloat(valor)
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num)
+  }
+
+  return (
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/orgao/contratos">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Voltar
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Building2 className="w-6 h-6 text-blue-600" />
+              Importar do Portal de Transparência
+            </h1>
+            <p className="text-gray-600">
+              Importe contratos diretamente da API do Portal da Transparência da CMLem
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" asChild>
+          <a href="https://portaldatransparencia.cmlem.ba.gov.br" target="_blank" rel="noopener noreferrer">
+            <ExternalLink className="w-4 h-4 mr-2" />
+            Ver Portal
+          </a>
+        </Button>
+      </div>
+
+      {/* Busca */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Buscar Contratos</CardTitle>
+          <CardDescription>
+            Busque contratos na API do Portal de Transparência. Deixe em branco para buscar todos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <Input
+                placeholder="Número do contrato (ex: 001/2024) - opcional"
+                value={numeroBusca}
+                onChange={(e) => setNumeroBusca(e.target.value)}
+              />
+            </div>
+            <Button onClick={buscarContratos} disabled={buscando}>
+              {buscando ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Buscando...
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4 mr-2" />
+                  Buscar
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Erro */}
+      {erro && (
+        <Alert variant="destructive">
+          <AlertTriangle className="w-4 h-4" />
+          <AlertDescription>{erro}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Resultado da Importação */}
+      {resultado && (
+        <Alert className={resultado.erros === 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}>
+          <CheckCircle className={`w-4 h-4 ${resultado.erros === 0 ? 'text-green-600' : 'text-yellow-600'}`} />
+          <AlertDescription className="space-y-2">
+            <p className="font-medium">
+              Importação concluída: {resultado.importados} contratos importados com sucesso
+              {resultado.erros > 0 && `, ${resultado.erros} erros`}
+            </p>
+            {resultado.detalhes.filter(d => d.status === 'erro').length > 0 && (
+              <div className="text-sm">
+                <p className="font-medium mt-2">Erros:</p>
+                <ul className="list-disc list-inside mt-1">
+                  {resultado.detalhes
+                    .filter(d => d.status === 'erro')
+                    .map((d, i) => (
+                      <li key={i} className="text-red-600">{d.numero}: {d.mensagem}</li>
+                    ))}
+                </ul>
+              </div>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Lista de Contratos */}
+      {contratos.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Contratos Encontrados</CardTitle>
+                <CardDescription>
+                  {contratos.length} contratos encontrados no Portal de Transparência
+                </CardDescription>
+              </div>
+              <Button 
+                onClick={importarContratos} 
+                disabled={importando}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {importando ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Importando...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Importar Todos
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left py-3 px-2">Número</th>
+                    <th className="text-left py-3 px-2">Fornecedor</th>
+                    <th className="text-left py-3 px-2">Objeto</th>
+                    <th className="text-right py-3 px-2">Valor</th>
+                    <th className="text-center py-3 px-2">Vigência</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contratos.map((contrato, index) => (
+                    <tr key={index} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-2 font-medium">
+                        {contrato.contratos_contratoNumero}
+                      </td>
+                      <td className="py-3 px-2">
+                        <p className="font-medium">{contrato.contratos_favorecido}</p>
+                        <p className="text-sm text-gray-500">{contrato.contratos_documento}</p>
+                      </td>
+                      <td className="py-3 px-2 max-w-md">
+                        <p className="text-sm text-gray-700 line-clamp-2">
+                          {contrato.contratos_contratoObjeto}
+                        </p>
+                      </td>
+                      <td className="py-3 px-2 text-right font-medium">
+                        {formatarValor(contrato.aditivos_valor_total)}
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        <Badge variant="outline">
+                          {contrato.contratos_vigencia}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Estado vazio */}
+      {contratos.length === 0 && !buscando && !erro && (
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center">
+            <Search className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+            <p className="text-gray-500">
+              Clique em "Buscar" para carregar os contratos do Portal de Transparência
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}

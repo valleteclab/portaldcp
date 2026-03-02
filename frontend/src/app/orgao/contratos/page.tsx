@@ -36,7 +36,8 @@ import {
   Package,
   FileCheck,
   Info,
-  MessageCircle
+  MessageCircle,
+  Building2
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -445,6 +446,12 @@ window._extraindoContratos = true;
           <Button variant="outline" onClick={() => { setShowImportar(true); setContratosImportar([]); setResultadoImportacao(null) }}>
             <Upload className="w-4 h-4 mr-2" />
             Importar JSON
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/orgao/contratos/importar-portal-transparencia">
+              <Building2 className="w-4 h-4 mr-2" />
+              Importar do Portal
+            </Link>
           </Button>
           <Button variant="outline" asChild>
             <Link href="/orgao/contratos/novo?from=licitacao">
