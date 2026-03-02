@@ -744,6 +744,7 @@ export class NotificacoesService {
           entidade_tipo: 'contrato',
           entidade_id: contratoId,
           link: `/fornecedor/contratos/${contratoId}`,
+          enviar_email: true,
           metadata: { mes_referencia: mesReferencia, contrato_numero: contratoNumero, fiscal: fiscalNome },
         },
       );
