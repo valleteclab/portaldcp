@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Package, Loader2, FileText, FileCode, Download } from 'lucide-react'
+import { ArrowLeft, Package, Loader2, FileText, FileCode, Download, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -42,6 +42,7 @@ function RecebimentoUnificadoContent() {
   const [etapa, setEtapa] = useState<string>('nf')
   const [processing, setProcessing] = useState(false)
   const [podeReceberPatrimonio, setPodeReceberPatrimonio] = useState(false)
+  const [ofConcluida, setOfConcluida] = useState(false)
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -65,6 +66,18 @@ function RecebimentoUnificadoContent() {
         setAguardarProximaNf(data.aguardarProximaNf || false)
         setNfsPendentes(data.nfsPendentes || [])
 
+        // Detectar se OF está 100% atendida (concluída)
+        const ofTotalmenteAtendida = data.ordem?.status === 'ATENDIDA' || 
+          (data.ordem?.valor_entregue && data.ordem?.valor_total && 
+           Number(data.ordem.valor_entregue) >= Number(data.ordem.valor_total) - 0.01)
+        const recebimentosAceitos = (data.recebimentos || []).filter((r: any) => r.status === 'ACEITO' || r.status === 'ACEITO_PARCIAL')
+        const temRecebimentosConcluidos = recebimentosAceitos.length > 0
+        
+        // OF concluída: não tem NF pendente, não precisa aguardar próxima, mas tem recebimentos aceitos
+        const isOfConcluida = ofTotalmenteAtendida || 
+          (!data.aguardarProximaNf && !data.notaFiscal && !data.nfsPendentes?.length && temRecebimentosConcluidos)
+        setOfConcluida(isOfConcluida)
+
         if (data.aguardarProximaNf && nfIdUrl) {
           router.replace(`/orgao/almoxarifado/recebimentos/${ordemId}`, { scroll: false })
         }
@@ -80,7 +93,9 @@ function RecebimentoUnificadoContent() {
           ? recebimentosAtivos.find((r: any) => r.nota_fiscal_fornecedor_id === data.notaFiscal?.id)
           : null
 
-        if (recAtivoParaNfAtual) {
+        if (isOfConcluida) {
+          setEtapa('concluida')
+        } else if (recAtivoParaNfAtual) {
           const mapeamentoFonte = data.notaFiscal?.mapeamento_confirmado || data.notaFiscal?.mapeamento_ai || []
           setMapeamento(mapeamentoFonte)
           setRecebimentoAtivo(recAtivoParaNfAtual)
@@ -244,6 +259,45 @@ function RecebimentoUnificadoContent() {
 
       {/* Content */}
       <div className="p-6">
+        {etapa === 'concluida' && (
+          <Card className="border-green-200 bg-green-50/50">
+            <CardContent className="py-10 text-center">
+              <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
+              <h3 className="text-xl font-bold text-green-800 mb-2">
+                OF 100% Atendida
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Esta ordem de fornecimento foi totalmente atendida.
+              </p>
+              <div className="bg-white rounded-lg p-4 text-sm text-left max-w-md mx-auto space-y-2">
+                <p><span className="text-gray-500">Valor Total:</span> <span className="font-semibold">{fmt(ordem?.valor_total)}</span></p>
+                <p><span className="text-gray-500">Valor Entregue:</span> <span className="font-semibold text-green-600">{fmt(ordem?.valor_entregue)}</span></p>
+                <p><span className="text-gray-500">Status:</span> <Badge className="bg-green-100 text-green-800">{ordem?.status}</Badge></p>
+                {recebimentos.length > 0 && (
+                  <div className="pt-2 border-t">
+                    <p className="text-xs text-gray-500 mb-2">Recebimentos:</p>
+                    {recebimentos.map((r: any) => (
+                      <div key={r.id} className="flex justify-between text-xs py-1">
+                        <span>{r.numero}</span>
+                        <span className={r.status === 'ACEITO' || r.status === 'ACEITO_PARCIAL' ? 'text-green-600 font-medium' : 'text-gray-500'}>
+                          {r.status} · {fmt(r.valor_total_recebido)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-6">
+                <Button onClick={() => router.push('/orgao/almoxarifado/recebimentos')}>
+                  Voltar para Lista
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {etapa === 'nf' && (
           <>
             {aguardarProximaNf && (
