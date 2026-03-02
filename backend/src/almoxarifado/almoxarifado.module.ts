@@ -37,6 +37,7 @@ import { ContratosModule } from '../contratos/contratos.module';
 import { EmailModule } from '../email/email.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
+import { AssinaturasModule } from '../assinaturas/assinaturas.module';
 import { IaModule } from '../ia/ia.module';
 
 @Module({
