@@ -828,61 +828,85 @@ export class GeradorPdfService {
 
         const itens = recebimento.itens || [];
         if (itens.length > 0) {
-          const colDesc = contentW * 0.40;
-          const colTipo = contentW * 0.12;
-          const colQtd = contentW * 0.12;
-          const colValor = contentW * 0.18;
-          const colTotal = contentW * 0.18;
+          const pageWidth = contentW;
+          const colNum   = pageWidth * 0.06;  // Nº Item
+          const colDesc  = pageWidth * 0.44;  // Descrição (aumentada)
+          const colUnid  = pageWidth * 0.10;  // Unidade
+          const colQtd   = pageWidth * 0.10;  // Qtd.
+          const colValor = pageWidth * 0.15;  // Valor Unit.
+          const colTotal = pageWidth * 0.15;  // Total
 
           const x0 = marginL;
-          const x1 = x0 + colDesc;
-          const x2 = x1 + colTipo;
-          const x3 = x2 + colQtd;
-          const x4 = x3 + colValor;
+          const x1 = x0 + colNum;
+          const x2 = x1 + colDesc;
+          const x3 = x2 + colUnid;
+          const x4 = x3 + colQtd;
+          const x5 = x4 + colValor;
 
+          // ── Cabeçalho da tabela
           const headerY = doc.y;
-          doc.rect(x0, headerY, contentW, 16).fillAndStroke('#e5e7eb', '#9ca3af');
-          doc.fontSize(7).font('Helvetica-Bold').fillColor('#111827');
-          doc.text('Descrição', x0 + 3, headerY + 4, { width: colDesc - 6 });
-          doc.text('Tipo', x1, headerY + 4, { width: colTipo - 4, align: 'center' });
-          doc.text('Qtd.', x2, headerY + 4, { width: colQtd - 4, align: 'right' });
-          doc.text('Valor Unit.', x3, headerY + 4, { width: colValor - 4, align: 'right' });
-          doc.text('Total', x4, headerY + 4, { width: colTotal - 4, align: 'right' });
-          doc.y = headerY + 18;
+          doc.rect(x0, headerY, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
+          doc.text('Nº',      x0 + 3,  headerY + 5, { width: colNum - 6, align: 'center' });
+          doc.text('Descrição',   x1 + 3,  headerY + 5, { width: colDesc - 6 });
+          doc.text('Unidade',     x2,      headerY - 13 + 5, { width: colUnid,  align: 'center' });
+          doc.text('Qtd.',        x3,      headerY - 13 + 5, { width: colQtd,   align: 'right' });
+          doc.text('Valor Unit.', x4,      headerY - 13 + 5, { width: colValor, align: 'right' });
+          doc.text('Total',       x5,      headerY - 13 + 5, { width: colTotal, align: 'right' });
+          doc.y = headerY + 20;
 
+          // ── Linhas
           doc.font('Helvetica').fillColor('#374151');
+          let totalGeral = 0;
+
           for (const item of itens) {
+            const numeroItem = item.numero_item || '-';
+            const desc = item.descricao || '-';
+            const unid = item.unidade_medida || 'UN';
+            const qtd  = Number(item.quantidade_aceita ?? item.quantidade_recebida ?? 0);
+            const vlUnit = Number(item.valor_unitario || 0);
+            const total  = Number(item.valor_total || 0);
+            totalGeral  += total;
+
             doc.fontSize(8);
-            const descricao = item.descricao || '-';
-            const maxWidth = colDesc - 6;
-            const maxHeight = 28; // Altura máxima para 2 linhas
-            
-            // Calcular altura necessária para o texto
-            const textHeight = doc.heightOfString(descricao, { width: maxWidth });
-            const rowHeight = Math.min(textHeight, maxHeight) + 4;
-            
-            const rowY = doc.y + 2;
-            if (rowY + rowHeight > doc.page.height - 120) doc.addPage();
-            
-            // Renderizar descrição com quebra de linha, truncando com reticências se necessário
-            if (textHeight > maxHeight) {
-              // Texto longo: truncar com reticências
-              let truncated = descricao;
-              while (doc.heightOfString(truncated + '...', { width: maxWidth }) > maxHeight && truncated.length > 10) {
-                truncated = truncated.slice(0, -1);
-              }
-              doc.text(truncated + '...', x0 + 3, rowY, { width: maxWidth, height: maxHeight });
-            } else {
-              // Texto cabe nas linhas disponíveis
-              doc.text(descricao, x0 + 3, rowY, { width: maxWidth, height: maxHeight });
+            const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
+            const rowH = Math.max(descHeight, 12);
+
+            if (doc.y + rowH + 4 > doc.page.height - 80) {
+              doc.addPage(); doc.y = 50;
             }
-            
-            doc.text((item as any).tipo_item === 'CONSUMO' ? 'Consumo' : (item as any).tipo_item === 'PERMANENTE' ? 'Permanente' : '-', x1, rowY, { width: colTipo - 4, align: 'center' });
-            doc.text(String(item.quantidade_aceita ?? item.quantidade_recebida ?? 0), x2, rowY, { width: colQtd - 4, align: 'right' });
-            doc.text(`R$ ${Number(item.valor_unitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x3, rowY, { width: colValor - 4, align: 'right' });
-            doc.text(`R$ ${Number(item.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x4, rowY, { width: colTotal - 4, align: 'right' });
-            doc.y = rowY + rowHeight;
+
+            const rowY = doc.y + 2;
+            doc.text(numeroItem.toString(), x0 + 3, rowY, { width: colNum - 6, align: 'center' });
+            doc.text(desc,  x1 + 3, rowY, { width: colDesc - 6 });
+            doc.text(unid,  x2, rowY, { width: colUnid,  align: 'center' });
+            doc.text(
+              qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
+              x3, rowY, { width: colQtd, align: 'right' }
+            );
+            doc.text(
+              vlUnit > 0 ? `R$ ${vlUnit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-',
+              x4, rowY, { width: colValor, align: 'right' }
+            );
+            doc.text(
+              `R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+              x5, rowY, { width: colTotal, align: 'right' }
+            );
+            doc.y = rowY + rowH + 2;
+            doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
+            doc.y += 1;
           }
+
+          // ── Linha de total geral
+          doc.moveDown(0.2);
+          doc.rect(x0, doc.y, pageWidth, 18).fillAndStroke('#f3f4f6', '#9ca3af');
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827');
+          doc.text('TOTAL GERAL', x0 + 3, doc.y + 5, { width: colNum + colDesc + colUnid + colQtd + colValor - 6 });
+          doc.text(
+            `R$ ${totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+            x5, doc.y - 14 + 5, { width: colTotal, align: 'right' }
+          );
+          doc.y += 20;
           doc.moveDown(0.5);
         }
 
