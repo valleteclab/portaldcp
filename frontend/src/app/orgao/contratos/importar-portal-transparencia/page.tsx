@@ -20,12 +20,14 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 
 interface ContratoAPI {
-  contratos_contratoNumero: string
-  contratos_documento: string
-  contratos_favorecido: string
-  contratos_contratoObjeto: string
-  contratos_vigencia: string
-  aditivos_valor_total: string
+  contratoNumero: string
+  documento: string
+  favorecido: string
+  contratoObjeto: string
+  vigencia: string
+  vigencia_inicio?: string
+  aditivos_valor_total?: string | null
+  valor_contrato?: string
 }
 
 interface ResultadoImportacao {
@@ -98,9 +100,15 @@ export default function ImportarPortalTransparenciaPage() {
     }
   }
 
-  const formatarValor = (valor: string) => {
-    const num = parseFloat(valor)
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num)
+  const formatarValor = (contrato: ContratoAPI) => {
+    // Tentar usar aditivos_valor_total primeiro, senão valor_contrato
+    if (contrato.aditivos_valor_total) {
+      const num = parseFloat(contrato.aditivos_valor_total)
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num)
+    } else if (contrato.valor_contrato) {
+      return contrato.valor_contrato
+    }
+    return 'R$ 0,00'
   }
 
   return (
@@ -245,23 +253,23 @@ export default function ImportarPortalTransparenciaPage() {
                   {contratos.map((contrato, index) => (
                     <tr key={index} className="border-b hover:bg-gray-50">
                       <td className="py-3 px-2 font-medium">
-                        {contrato.contratos_contratoNumero}
+                        {contrato.contratoNumero}
                       </td>
                       <td className="py-3 px-2">
-                        <p className="font-medium">{contrato.contratos_favorecido}</p>
-                        <p className="text-sm text-gray-500">{contrato.contratos_documento}</p>
+                        <p className="font-medium">{contrato.favorecido}</p>
+                        <p className="text-sm text-gray-500">{contrato.documento}</p>
                       </td>
                       <td className="py-3 px-2 max-w-md">
                         <p className="text-sm text-gray-700 line-clamp-2">
-                          {contrato.contratos_contratoObjeto}
+                          {contrato.contratoObjeto}
                         </p>
                       </td>
                       <td className="py-3 px-2 text-right font-medium">
-                        {formatarValor(contrato.aditivos_valor_total)}
+                        {formatarValor(contrato)}
                       </td>
                       <td className="py-3 px-2 text-center">
                         <Badge variant="outline">
-                          {contrato.contratos_vigencia}
+                          {contrato.vigencia}
                         </Badge>
                       </td>
                     </tr>

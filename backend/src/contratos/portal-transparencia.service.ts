@@ -5,12 +5,14 @@ import { ContratosService } from './contratos.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
 
 export interface PortalTransparenciaContrato {
-  contratos_contratoNumero: string;
-  contratos_documento: string;
-  contratos_favorecido: string;
-  contratos_contratoObjeto: string;
-  contratos_vigencia: string;
-  aditivos_valor_total: string;
+  contratoNumero: string;
+  documento: string;
+  favorecido: string;
+  contratoObjeto: string;
+  vigencia: string;
+  vigencia_inicio?: string;
+  aditivos_valor_total?: string | null;
+  valor_contrato?: string;
 }
 
 export interface PortalTransparenciaResponse {
@@ -96,17 +98,17 @@ export class PortalTransparenciaService {
           await this.importarContratoIndividual(orgaoId, contratoApi);
           resultado.importados++;
           resultado.detalhes.push({
-            numero: contratoApi.contratos_contratoNumero,
+            numero: contratoApi.contratoNumero,
             status: 'sucesso',
           });
         } catch (error) {
           resultado.erros++;
           resultado.detalhes.push({
-            numero: contratoApi.contratos_contratoNumero,
+            numero: contratoApi.contratoNumero,
             status: 'erro',
             mensagem: error.message,
           });
-          this.logger.error(`Erro ao importar contrato ${contratoApi.contratos_contratoNumero}: ${error.message}`);
+          this.logger.error(`Erro ao importar contrato ${contratoApi.contratoNumero}: ${error.message}`);
         }
       }
 
@@ -125,7 +127,7 @@ export class PortalTransparenciaService {
     contratoApi: PortalTransparenciaContrato
   ): Promise<void> {
     // Limpar CNPJ (remover formatação)
-    const cnpjLimpo = contratoApi.contratos_documento.replace(/\D/g, '');
+    const cnpjLimpo = contratoApi.documento.replace(/\D/g, '');
     
     // Buscar ou criar fornecedor usando métodos existentes
     let fornecedor;
@@ -139,36 +141,46 @@ export class PortalTransparenciaService {
     }
     
     if (!fornecedor) {
-      this.logger.log(`Criando fornecedor: ${contratoApi.contratos_favorecido} - ${cnpjLimpo}`);
+      this.logger.log(`Criando fornecedor: ${contratoApi.favorecido} - ${cnpjLimpo}`);
       // Usar cadastro rápido que já existe no sistema
       fornecedor = await this.fornecedoresService.cadastroRapidoOrgao(
         cnpjLimpo,
-        contratoApi.contratos_favorecido
+        contratoApi.favorecido
       );
     }
 
     // Converter vigência para data
-    const dataVigencia = this.parseDataBrasileira(contratoApi.contratos_vigencia);
+    const dataVigencia = this.parseDataBrasileira(contratoApi.vigencia);
     
-    // Converter valor
-    const valorGlobal = parseFloat(contratoApi.aditivos_valor_total) || 0;
+    // Converter valor - usar aditivos_valor_total se existir, senão valor_contrato
+    let valorGlobal = 0;
+    if (contratoApi.aditivos_valor_total) {
+      valorGlobal = parseFloat(contratoApi.aditivos_valor_total) || 0;
+    } else if (contratoApi.valor_contrato) {
+      // Remover 'R$' e converter formato brasileiro (1.234,56 -> 1234.56)
+      const valorLimpo = contratoApi.valor_contrato
+        .replace(/^R\$\s*/, '')
+        .replace(/\./g, '')
+        .replace(',', '.');
+      valorGlobal = parseFloat(valorLimpo) || 0;
+    }
 
-    // Extrair ano do número do contrato (ex: 001/2024 -> 2024)
-    const anoMatch = contratoApi.contratos_contratoNumero.match(/\/(\d{4})$/);
+    // Extrair ano do número do contrato (ex: 001/2024-Contrato -> 2024)
+    const anoMatch = contratoApi.contratoNumero.match(/\/(\d{4})/);
     const ano = anoMatch ? parseInt(anoMatch[1]) : new Date().getFullYear();
 
     // Criar contrato usando o método existente
-    this.logger.log(`Criando contrato: ${contratoApi.contratos_contratoNumero}`);
+    this.logger.log(`Criando contrato: ${contratoApi.contratoNumero}`);
     
     // Buscar se contrato já existe
     try {
       const contratoExistente = await this.contratosService.findByNumero(
         orgaoId,
-        contratoApi.contratos_contratoNumero
+        contratoApi.contratoNumero
       );
       
       if (contratoExistente) {
-        this.logger.log(`Contrato ${contratoApi.contratos_contratoNumero} já existe, pulando...`);
+        this.logger.log(`Contrato ${contratoApi.contratoNumero} já existe, pulando...`);
         return;
       }
     } catch (e) {
@@ -177,11 +189,11 @@ export class PortalTransparenciaService {
 
     // Criar DTO para o contrato
     const createDto = {
-      numero_contrato: contratoApi.contratos_contratoNumero,
+      numero_contrato: contratoApi.contratoNumero.replace('-Contrato', ''),
       ano,
-      objeto: contratoApi.contratos_contratoObjeto,
+      objeto: contratoApi.contratoObjeto,
       valor_global: valorGlobal,
-      data_inicio: new Date(),
+      data_inicio: contratoApi.vigencia_inicio ? this.parseDataBrasileira(contratoApi.vigencia_inicio) : new Date(),
       data_fim: dataVigencia,
       fornecedor_id: fornecedor.id,
       modalidade: 'CONTRATACAO_DIRETA',
