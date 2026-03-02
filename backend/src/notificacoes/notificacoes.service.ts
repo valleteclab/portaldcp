@@ -726,10 +726,22 @@ export class NotificacoesService {
     if (fornecedorDestinatarios.length === 0) return;
     const [ano, mes] = mesReferencia.split('-');
     const mesAnoLabel = mes && ano ? `${mes}/${ano}` : mesReferencia;
-    const textoPadrao = `Solicitamos o envio da medição referente a ${mesAnoLabel}.`;
-    const mensagem = mensagemOpcional?.trim()
-      ? `${textoPadrao}\n\nMensagem do fiscal: ${mensagemOpcional.trim()}`
-      : textoPadrao;
+    
+    // Texto profissional para o email
+    const saudacao = fornecedorNome ? `Prezado(a) ${fornecedorNome},` : 'Prezado(a) Fornecedor,';
+    const textoEmail = `${saudacao}
+
+Solicitamos o envio da medição de serviços referente ao período de ${mesAnoLabel}, conforme contrato ${contratoNumero}.
+
+Para enviar a medição, acesse o Portal do Fornecedor através do link abaixo:
+${appUrl || process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${contratoId}
+
+${mensagemOpcional?.trim() ? `Mensagem do fiscal ${fiscalNome}:\n${mensagemOpcional.trim()}\n\n` : ''}Caso a medição já tenha sido enviada, por favor, desconsidere este comunicado.
+
+Atenciosamente,
+${fiscalNome}`;
+
+    const mensagem = textoEmail;
 
     this.logger.log(`Notificando solicitação de medição – contrato ${contratoNumero}, mês ${mesReferencia}`);
     try {
