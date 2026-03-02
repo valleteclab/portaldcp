@@ -93,6 +93,12 @@ export class UsuariosController {
     return result;
   }
 
+  @Get('pendentes')
+  async listarPendentesTop(@Query('orgao_id') orgaoId?: string) {
+    const usuarios = await this.usuariosService.listarPendentes(orgaoId);
+    return usuarios.map(({ senha_hash, ...u }) => u);
+  }
+
   @Get(':id')
   async findById(@Param('id') id: string) {
     const usuario = await this.usuariosService.findById(id);
@@ -167,5 +173,39 @@ export class UsuariosController {
       message: 'Módulos do usuário atualizados',
       usuario: result,
     };
+  }
+
+  // ============ APROVAÇÃO GOOGLE OAUTH ============
+
+  @Put(':id/aprovar')
+  async aprovar(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+    @Body() body: {
+      role?: RoleUsuario;
+      pode_aprovar_requisicoes?: boolean;
+      pode_cancelar_estornar?: boolean;
+      pode_liberar_contratos?: boolean;
+      pode_excluir_medicao?: boolean;
+      eh_fiscal_contrato?: boolean;
+      pode_gerenciar_os?: boolean;
+      pode_receber_patrimonio?: boolean;
+    },
+  ) {
+    const adminId = request.user.sub;
+    const usuario = await this.usuariosService.aprovar(id, adminId, body);
+    const { senha_hash, ...result } = usuario;
+    return { success: true, usuario: result };
+  }
+
+  @Put(':id/rejeitar')
+  async rejeitar(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const adminId = request.user.sub;
+    const usuario = await this.usuariosService.rejeitar(id, adminId);
+    const { senha_hash, ...result } = usuario;
+    return { success: true, usuario: result };
   }
 }

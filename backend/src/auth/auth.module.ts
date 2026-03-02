@@ -10,6 +10,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
+import { GoogleStrategy } from './google.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { OrgaoGuard } from './orgao.guard';
@@ -19,6 +20,7 @@ import { ModuloGuard } from './modulo.guard';
 @Module({
   controllers: [AuthController],
   imports: [
+    ConfigModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -42,6 +44,7 @@ import { ModuloGuard } from './modulo.guard';
   providers: [
     AuthService,
     JwtStrategy,
+    GoogleStrategy,
     JwtAuthGuard,
     RolesGuard,
     OrgaoGuard,

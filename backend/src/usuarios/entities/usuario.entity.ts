@@ -116,6 +116,31 @@ export class Usuario {
   @Column({ default: false })
   pode_receber_patrimonio: boolean;
 
+  @Column({ nullable: true })
+  google_id: string;
+
+  @Column({ default: false })
+  google_login: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: ['PENDENTE', 'ATIVO', 'BLOQUEADO', 'INATIVO'],
+    default: 'ATIVO',
+  })
+  status: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_solicitacao: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_aprovacao: Date;
+
+  @Column({ nullable: true })
+  aprovado_por: string;
+
+  @Column({ nullable: true })
+  foto_url: string;
+
   @CreateDateColumn()
   created_at: Date;
 

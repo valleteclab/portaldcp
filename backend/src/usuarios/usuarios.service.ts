@@ -51,6 +51,9 @@ export class UsuariosService {
       role: data.role || RoleUsuario.EQUIPE_APOIO,
       orgao_id: data.orgao_id,
       ativo: true,
+      status: 'ATIVO',
+      data_solicitacao: new Date(),
+      data_aprovacao: new Date(),
       pode_aprovar_requisicoes: data.pode_aprovar_requisicoes || false,
       pode_cancelar_estornar: data.pode_cancelar_estornar || false,
       pode_liberar_contratos: data.pode_liberar_contratos || false,
@@ -261,6 +264,63 @@ export class UsuariosService {
     
     this.logger.log(`[UsuariosService] Módulos atualizados para usuário ${id}: ${modulosUnicos}`);
     
+    return await this.usuarioRepository.save(usuario);
+  }
+
+  async listarPendentes(orgaoId?: string): Promise<Usuario[]> {
+    const where: any = { status: 'PENDENTE' };
+    if (orgaoId) where.orgao_id = orgaoId;
+    return await this.usuarioRepository.find({
+      where,
+      relations: ['orgao'],
+      order: { data_solicitacao: 'ASC' },
+    });
+  }
+
+  async aprovar(id: string, adminId: string, dados: {
+    role?: RoleUsuario;
+    pode_aprovar_requisicoes?: boolean;
+    pode_cancelar_estornar?: boolean;
+    pode_liberar_contratos?: boolean;
+    pode_excluir_medicao?: boolean;
+    eh_fiscal_contrato?: boolean;
+    pode_gerenciar_os?: boolean;
+    pode_receber_patrimonio?: boolean;
+  }): Promise<Usuario> {
+    const usuario = await this.findById(id);
+    if (usuario.status !== 'PENDENTE') {
+      throw new BadRequestException('Usuário não está pendente de aprovação');
+    }
+    Object.assign(usuario, {
+      status: 'ATIVO',
+      ativo: true,
+      aprovado_por: adminId,
+      data_aprovacao: new Date(),
+      role: dados.role || usuario.role,
+      pode_aprovar_requisicoes: dados.pode_aprovar_requisicoes ?? false,
+      pode_cancelar_estornar: dados.pode_cancelar_estornar ?? false,
+      pode_liberar_contratos: dados.pode_liberar_contratos ?? false,
+      pode_excluir_medicao: dados.pode_excluir_medicao ?? false,
+      eh_fiscal_contrato: dados.eh_fiscal_contrato ?? false,
+      pode_gerenciar_os: dados.pode_gerenciar_os ?? false,
+      pode_receber_patrimonio: dados.pode_receber_patrimonio ?? false,
+    });
+    this.logger.log(`Usuário ${usuario.email} aprovado por ${adminId}`);
+    return await this.usuarioRepository.save(usuario);
+  }
+
+  async rejeitar(id: string, adminId: string): Promise<Usuario> {
+    const usuario = await this.findById(id);
+    if (usuario.status !== 'PENDENTE') {
+      throw new BadRequestException('Usuário não está pendente de aprovação');
+    }
+    Object.assign(usuario, {
+      status: 'BLOQUEADO',
+      ativo: false,
+      aprovado_por: adminId,
+      data_aprovacao: new Date(),
+    });
+    this.logger.log(`Usuário ${usuario.email} rejeitado por ${adminId}`);
     return await this.usuarioRepository.save(usuario);
   }
 }

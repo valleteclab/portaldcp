@@ -55,6 +55,8 @@ import {
   CheckCircle,
   XCircle,
   Package,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 
@@ -78,6 +80,10 @@ interface Usuario {
   orgao_id?: string
   orgao?: Orgao
   ativo: boolean
+  status?: string
+  google_login?: boolean
+  foto_url?: string
+  data_solicitacao?: string
   created_at: string
   modulos_habilitados?: string[]
   pode_aprovar_requisicoes?: boolean
@@ -125,8 +131,11 @@ export default function AdminUsuariosPage() {
   const [showEditarUsuario, setShowEditarUsuario] = useState(false)
   const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
   const [showModulosUsuario, setShowModulosUsuario] = useState(false)
+  const [showAprovarUsuario, setShowAprovarUsuario] = useState(false)
   const [usuarioSelecionado, setUsuarioSelecionado] = useState<Usuario | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [filtroStatus, setFiltroStatus] = useState<string>('todos')
+  const [aprovandoId, setAprovandoId] = useState<string | null>(null)
 
   // Módulos do usuário
   const [modulosUsuario, setModulosUsuario] = useState<string[]>([])
@@ -408,13 +417,50 @@ export default function AdminUsuariosPage() {
     }
   }
 
+  const aprovarUsuario = async (usuario: Usuario, dados: { role: string }) => {
+    setAprovandoId(usuario.id)
+    try {
+      const res = await adminFetch(`${API_URL}/api/usuarios/${usuario.id}/aprovar`, {
+        method: 'PUT',
+        body: JSON.stringify({ role: dados.role }),
+      })
+      if (!res.ok) throw new Error('Erro ao aprovar usuário')
+      setShowAprovarUsuario(false)
+      setUsuarioSelecionado(null)
+      carregarDados()
+    } catch (error: any) {
+      setErro(error.message)
+    } finally {
+      setAprovandoId(null)
+    }
+  }
+
+  const rejeitarUsuario = async (usuario: Usuario) => {
+    if (!confirm(`Rejeitar acesso de ${usuario.nome}?`)) return
+    setAprovandoId(usuario.id)
+    try {
+      const res = await adminFetch(`${API_URL}/api/usuarios/${usuario.id}/rejeitar`, {
+        method: 'PUT',
+      })
+      if (!res.ok) throw new Error('Erro ao rejeitar usuário')
+      carregarDados()
+    } catch (error: any) {
+      setErro(error.message)
+    } finally {
+      setAprovandoId(null)
+    }
+  }
+
+  const usuariosPendentes = usuarios.filter(u => u.status === 'PENDENTE')
+
   const usuariosFiltrados = usuarios.filter((u) => {
     const matchBusca =
       u.nome.toLowerCase().includes(busca.toLowerCase()) ||
       u.email.toLowerCase().includes(busca.toLowerCase())
     const matchOrgao = filtroOrgao === 'todos' || u.orgao_id === filtroOrgao
     const matchRole = filtroRole === 'todos' || u.role === filtroRole
-    return matchBusca && matchOrgao && matchRole
+    const matchStatus = filtroStatus === 'todos' || (u.status || 'ATIVO') === filtroStatus
+    return matchBusca && matchOrgao && matchRole && matchStatus
   })
 
   return (
@@ -441,11 +487,69 @@ export default function AdminUsuariosPage() {
           </Button>
         </div>
 
+        {/* Banner de Pendentes */}
+        {usuariosPendentes.length > 0 && (
+          <Card className="mb-6 border-yellow-300 bg-yellow-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-yellow-800 text-base">
+                <AlertTriangle className="h-5 w-5" />
+                {usuariosPendentes.length} usuário(s) aguardando aprovação
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {usuariosPendentes.map(u => (
+                  <div key={u.id} className="flex items-center justify-between bg-white border border-yellow-200 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      {u.foto_url ? (
+                        <img src={u.foto_url} alt="" className="w-8 h-8 rounded-full" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-yellow-200 flex items-center justify-center text-yellow-700 font-bold text-sm">
+                          {u.nome.charAt(0)}
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-medium text-sm">{u.nome}</p>
+                        <p className="text-xs text-gray-500">{u.email} · {u.orgao?.nome || 'Sem órgão'}</p>
+                      </div>
+                      {u.google_login && (
+                        <Badge className="bg-blue-100 text-blue-700 text-xs">Google</Badge>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-green-700 border-green-300 hover:bg-green-50"
+                        disabled={aprovandoId === u.id}
+                        onClick={() => { setUsuarioSelecionado(u); setShowAprovarUsuario(true) }}
+                      >
+                        {aprovandoId === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                        Aprovar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-700 border-red-300 hover:bg-red-50"
+                        disabled={aprovandoId === u.id}
+                        onClick={() => rejeitarUsuario(u)}
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Rejeitar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Filtros */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="flex gap-4">
-              <div className="flex-1">
+            <div className="flex gap-4 flex-wrap">
+              <div className="flex-1 min-w-[200px]">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
@@ -456,8 +560,20 @@ export default function AdminUsuariosPage() {
                   />
                 </div>
               </div>
+              <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+                <SelectTrigger className="w-[160px]">
+                  <Clock className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="ATIVO">Ativos</SelectItem>
+                  <SelectItem value="PENDENTE">Pendentes</SelectItem>
+                  <SelectItem value="BLOQUEADO">Bloqueados</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={filtroOrgao} onValueChange={setFiltroOrgao}>
-                <SelectTrigger className="w-[250px]">
+                <SelectTrigger className="w-[230px]">
                   <Building2 className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Filtrar por órgão" />
                 </SelectTrigger>
@@ -471,7 +587,7 @@ export default function AdminUsuariosPage() {
                 </SelectContent>
               </Select>
               <Select value={filtroRole} onValueChange={setFiltroRole}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Filtrar por função" />
                 </SelectTrigger>
                 <SelectContent>
@@ -576,24 +692,36 @@ export default function AdminUsuariosPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toggleAtivo(usuario)}
-                          className={usuario.ativo ? 'text-green-600' : 'text-red-600'}
-                        >
-                          {usuario.ativo ? (
-                            <>
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Ativo
-                            </>
+                        <div className="flex flex-col gap-1">
+                          {usuario.status === 'PENDENTE' ? (
+                            <Badge className="bg-yellow-100 text-yellow-800 border border-yellow-300 text-xs">
+                              <Clock className="h-3 w-3 mr-1" />Pendente
+                            </Badge>
+                          ) : usuario.status === 'BLOQUEADO' ? (
+                            <Badge className="bg-red-100 text-red-800 border border-red-300 text-xs">
+                              <XCircle className="h-3 w-3 mr-1" />Bloqueado
+                            </Badge>
                           ) : (
-                            <>
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Inativo
-                            </>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleAtivo(usuario)}
+                              className={usuario.ativo ? 'text-green-600 h-7 px-2' : 'text-red-600 h-7 px-2'}
+                            >
+                              {usuario.ativo ? (
+                                <><CheckCircle className="h-3 w-3 mr-1" />Ativo</>
+                              ) : (
+                                <><XCircle className="h-3 w-3 mr-1" />Inativo</>
+                              )}
+                            </Button>
                           )}
-                        </Button>
+                          {usuario.google_login && (
+                            <Badge className="bg-blue-50 text-blue-600 border border-blue-200 text-xs w-fit">
+                              <svg className="h-3 w-3 mr-1" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                              Google
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-0">
@@ -631,6 +759,57 @@ export default function AdminUsuariosPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Modal Aprovar Usuário Google */}
+        <Dialog open={showAprovarUsuario} onOpenChange={v => { if (!v) { setShowAprovarUsuario(false); setUsuarioSelecionado(null) } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Aprovar Acesso</DialogTitle>
+              <DialogDescription>Defina a função do usuário antes de aprovar o acesso</DialogDescription>
+            </DialogHeader>
+            {usuarioSelecionado && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                  {usuarioSelecionado.foto_url ? (
+                    <img src={usuarioSelecionado.foto_url} alt="" className="w-10 h-10 rounded-full" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center font-bold text-blue-700">{usuarioSelecionado.nome.charAt(0)}</div>
+                  )}
+                  <div>
+                    <p className="font-medium">{usuarioSelecionado.nome}</p>
+                    <p className="text-sm text-gray-500">{usuarioSelecionado.email}</p>
+                    <p className="text-xs text-gray-400">{usuarioSelecionado.orgao?.nome}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Função</Label>
+                  <Select
+                    defaultValue={usuarioSelecionado.role || 'EQUIPE_APOIO'}
+                    onValueChange={v => setUsuarioSelecionado({ ...usuarioSelecionado, role: v as any })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN">Administrador</SelectItem>
+                      <SelectItem value="PREGOEIRO">Pregoeiro</SelectItem>
+                      <SelectItem value="EQUIPE_APOIO">Equipe de Apoio</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setShowAprovarUsuario(false); setUsuarioSelecionado(null) }}>Cancelar</Button>
+              <Button
+                className="bg-green-600 hover:bg-green-700"
+                disabled={aprovandoId === usuarioSelecionado?.id}
+                onClick={() => usuarioSelecionado && aprovarUsuario(usuarioSelecionado, { role: usuarioSelecionado.role })}
+              >
+                {aprovandoId ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+                Aprovar Acesso
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Modal Novo/Editar Usuário */}
         <Dialog

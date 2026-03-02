@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { Role } from './roles.decorator';
@@ -39,6 +40,8 @@ export class AuthService {
     private readonly orgaoRepository: Repository<Orgao>,
     @InjectRepository(Fornecedor)
     private readonly fornecedorRepository: Repository<Fornecedor>,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
   /**
@@ -348,6 +351,128 @@ export class AuthService {
 
     // Fornecedores não têm acesso a dados de órgãos
     return false;
+  }
+
+  /**
+   * Processa login via Google OAuth
+   * Retorna status para o controller redirecionar corretamente
+   */
+  async processarGoogleLogin(googleUser: { googleId: string; email: string; firstName: string; lastName: string; picture: string }): Promise<
+    | { status: 'ATIVO'; token: string }
+    | { status: 'PENDENTE'; tempToken: string; email: string }
+    | { status: 'AGUARDANDO_APROVACAO'; email: string }
+    | { status: 'BLOQUEADO'; email: string }
+  > {
+    const usuario = await this.usuarioRepository.findOne({
+      where: { email: googleUser.email },
+      relations: ['orgao'],
+    });
+
+    if (!usuario) {
+      // Usuário novo - gerar token temporário com dados do Google para completar cadastro
+      const tempPayload = {
+        sub: 'google-temp',
+        type: 'GOOGLE_TEMP',
+        email: googleUser.email,
+        nome: `${googleUser.firstName} ${googleUser.lastName}`,
+        googleId: googleUser.googleId,
+        picture: googleUser.picture,
+        exp: Math.floor(Date.now() / 1000) + 600, // 10 minutos
+      };
+      const tempToken = this.jwtService.sign(tempPayload, { expiresIn: '10m' });
+      return { status: 'PENDENTE', tempToken, email: googleUser.email };
+    }
+
+    // Usuário existente - verificar status
+    if (usuario.status === 'BLOQUEADO' || usuario.status === 'INATIVO') {
+      return { status: 'BLOQUEADO', email: usuario.email };
+    }
+
+    if (usuario.status === 'PENDENTE') {
+      return { status: 'AGUARDANDO_APROVACAO', email: usuario.email };
+    }
+
+    // Atualizar google_id se ainda não vinculado
+    if (!usuario.google_id) {
+      await this.usuarioRepository.update(usuario.id, {
+        google_id: googleUser.googleId,
+        google_login: true,
+        foto_url: googleUser.picture,
+        ultimo_acesso: new Date(),
+      });
+    } else {
+      await this.usuarioRepository.update(usuario.id, { ultimo_acesso: new Date() });
+    }
+
+    const payload: JwtPayload = {
+      sub: usuario.id,
+      type: UserType.USUARIO,
+      email: usuario.email,
+      role: usuario.role,
+      orgaoId: usuario.orgao_id,
+    };
+
+    const token = this.jwtService.sign(payload);
+    this.logger.log(`Login Google bem-sucedido: ${usuario.email}`);
+    return { status: 'ATIVO', token };
+  }
+
+  /**
+   * Completa o cadastro do usuário Google (seleciona órgão)
+   * Cria usuário com status PENDENTE aguardando aprovação admin
+   */
+  async completarCadastroGoogle(tempToken: string, orgaoId: string, role?: string): Promise<{ mensagem: string; email: string }> {
+    let decoded: any;
+    try {
+      decoded = this.jwtService.verify(tempToken);
+    } catch {
+      throw new UnauthorizedException('Token inválido ou expirado. Faça login novamente.');
+    }
+
+    if (decoded.type !== 'GOOGLE_TEMP') {
+      throw new UnauthorizedException('Token inválido');
+    }
+
+    const orgao = await this.orgaoRepository.findOne({ where: { id: orgaoId, ativo: true } });
+    if (!orgao) {
+      throw new UnauthorizedException('Órgão não encontrado ou inativo');
+    }
+
+    // Verificar se email já existe
+    const existente = await this.usuarioRepository.findOne({ where: { email: decoded.email } });
+    if (existente) {
+      throw new UnauthorizedException('Este email já está cadastrado no sistema');
+    }
+
+    const usuario = this.usuarioRepository.create({
+      nome: decoded.nome,
+      email: decoded.email,
+      senha_hash: createHash('sha256').update(Math.random().toString()).digest('hex'),
+      google_id: decoded.googleId,
+      google_login: true,
+      foto_url: decoded.picture,
+      orgao_id: orgaoId,
+      role: (role as RoleUsuario) || RoleUsuario.EQUIPE_APOIO,
+      ativo: false,
+      status: 'PENDENTE',
+      data_solicitacao: new Date(),
+    });
+
+    await this.usuarioRepository.save(usuario);
+    this.logger.log(`Novo usuário Google aguardando aprovação: ${decoded.email} → órgão ${orgao.nome}`);
+
+    return { mensagem: 'Cadastro enviado! Aguarde a aprovação do administrador.', email: decoded.email };
+  }
+
+  /**
+   * Verifica o status de aprovação de um usuário pelo email
+   */
+  async verificarStatusUsuario(email: string): Promise<{ status: string; email: string }> {
+    const usuario = await this.usuarioRepository.findOne({ where: { email } });
+    if (!usuario) {
+      return { status: 'NAO_ENCONTRADO', email };
+    }
+    return { status: usuario.status, email };
   }
 }
 
