@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import * as path from 'path';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
+import { AssinaturaDigital, EntidadeTipo } from '../assinaturas/entities/assinatura-digital.entity';
 
 @Injectable()
 export class PdfOrdemService {
@@ -13,6 +14,8 @@ export class PdfOrdemService {
   constructor(
     @InjectRepository(OrdemFornecimento)
     private readonly ordemRepository: Repository<OrdemFornecimento>,
+    @InjectRepository(AssinaturaDigital)
+    private readonly assinaturaRepository: Repository<AssinaturaDigital>,
     private readonly geradorPdfService: GeradorPdfService,
   ) {}
 
@@ -34,6 +37,16 @@ export class PdfOrdemService {
     if (!ordem) {
       throw new Error('Ordem não encontrada');
     }
+
+    // Buscar assinaturas digitais da OF
+    const assinaturas = await this.assinaturaRepository.find({
+      where: {
+        entidade_id: ordemId,
+        entidade_tipo: EntidadeTipo.ORDEM_FORNECIMENTO,
+      },
+    });
+
+    this.logger.log(`OF ${ordem.numero}: ${assinaturas.length} assinatura(s) encontrada(s)`);
 
     const dadosOrdem = {
       numero: ordem.numero,
@@ -72,6 +85,10 @@ export class PdfOrdemService {
     const caminhoCompleto = await this.geradorPdfService.gerarPdfOrdemFornecimento(
       dadosOrdem,
       this.uploadPath,
+      {
+        assinaturas: assinaturas.length > 0 ? assinaturas : undefined,
+        urlValidacaoBase: assinaturas.length > 0 ? `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento` : undefined,
+      },
     );
 
     this.logger.log(`PDF gerado: ${caminhoCompleto}`);
