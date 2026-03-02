@@ -157,6 +157,11 @@ export class PortalAssinaturasController {
     return this.portalAssinaturasService.cancelarDocumento(id, this.getOrgaoId(req.user));
   }
 
+  @Delete(':id')
+  async excluir(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.portalAssinaturasService.excluirDocumento(id, this.getOrgaoId(req.user));
+  }
+
   @Post(':id/reenviar')
   async reenviar(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
     return this.portalAssinaturasService.reenviarNotificacoes(id, this.getOrgaoId(req.user));

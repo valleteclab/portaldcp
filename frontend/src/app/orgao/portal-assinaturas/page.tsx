@@ -427,6 +427,22 @@ export default function PortalAssinaturasPage() {
     }
   }
 
+  const handleExcluir = async (docId: string) => {
+    if (!confirm('Tem certeza que deseja EXCLUIR este processo de assinatura? Esta ação é permanente e não pode ser desfeita.')) return
+    try {
+      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.message || 'Erro ao excluir')
+        return
+      }
+      voltarLista()
+      carregar()
+    } catch (e: any) {
+      alert(e.message || 'Erro ao excluir documento')
+    }
+  }
+
   const handleReenviar = async (docId: string) => {
     try {
       const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}/reenviar`, { method: 'POST' })
@@ -688,6 +704,12 @@ export default function PortalAssinaturasPage() {
                             <Download className="h-3 w-3" /> Baixar
                           </Button>
                         )}
+                        {doc.status !== 'CONCLUIDO' && (
+                          <Button size="sm" variant="outline" className="gap-1 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={e => { e.stopPropagation(); handleExcluir(doc.id) }}>
+                            <Trash2 className="h-3 w-3" /> Excluir
+                          </Button>
+                        )}
                       </div>
                     )
                   })}
@@ -818,6 +840,12 @@ export default function PortalAssinaturasPage() {
                   <X className="h-3.5 w-3.5" /> Cancelar
                 </Button>
               </>
+            )}
+            {modo === 'visualizar' && docAtivo && docAtivo.status !== 'CONCLUIDO' && (
+              <Button size="sm" variant="outline" className="gap-1.5 text-red-700 border-red-300 hover:bg-red-50"
+                onClick={() => handleExcluir(docAtivo.id)}>
+                <Trash2 className="h-3.5 w-3.5" /> Excluir
+              </Button>
             )}
           </div>
         </div>

@@ -462,6 +462,20 @@ export class PortalAssinaturasService {
     return { sucesso: true };
   }
 
+  async excluirDocumento(documentoId: string, orgaoId: string): Promise<{ sucesso: boolean }> {
+    const doc = await this.documentoRepository.findOne({
+      where: { id: documentoId, orgao_id: orgaoId },
+      relations: ['signatarios'],
+    });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    if (doc.status === StatusDocumentoAssinatura.CONCLUIDO) {
+      throw new BadRequestException('Documento concluído não pode ser excluído.');
+    }
+    await this.signatarioRepository.delete({ documento_id: documentoId });
+    await this.documentoRepository.delete(documentoId);
+    return { sucesso: true };
+  }
+
   async reenviarNotificacoes(documentoId: string, orgaoId: string): Promise<{ enviados: number }> {
     const doc = await this.documentoRepository.findOne({
       where: { id: documentoId, orgao_id: orgaoId },
