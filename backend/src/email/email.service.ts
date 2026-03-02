@@ -78,19 +78,26 @@ export class EmailService {
       select: ['id', 'email_resend_api_key', 'email_resend_from'],
     });
     
+    this.logger.log(`Resend config para orgao ${orgaoId}: email_resend_api_key=${orgao?.email_resend_api_key ? '***' : 'null'}, email_resend_from=${orgao?.email_resend_from || 'null'}`);
+    
     if (orgao?.email_resend_api_key && orgao?.email_resend_from) {
       const apiKey = orgao.email_resend_api_key ? this.decryptText(orgao.email_resend_api_key) : '';
+      // Normalizar para lowercase
+      const fromEmail = orgao.email_resend_from.toLowerCase().trim();
+      this.logger.log(`Usando config do orgao: from=${fromEmail}`);
       return {
         apiKey,
-        from: orgao.email_resend_from,
+        from: fromEmail,
       };
     }
     
     // 2. Fallback para variável de ambiente global (como WhatsApp)
     if (process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL) {
+      const fromEmail = process.env.RESEND_FROM_EMAIL.toLowerCase().trim();
+      this.logger.log(`Usando config global: from=${fromEmail}`);
       return {
         apiKey: process.env.RESEND_API_KEY,
-        from: process.env.RESEND_FROM_EMAIL,
+        from: fromEmail,
       };
     }
     
@@ -167,10 +174,15 @@ export class EmailService {
   private async enviarResend(config: any, dto: EnviarEmailDto): Promise<boolean> {
     const resend = new Resend(config.apiKey);
     
-    const to = Array.isArray(dto.to) ? dto.to[0] : dto.to; // Resend API suporta apenas um destinatário por request
+    const to = Array.isArray(dto.to) ? dto.to[0] : dto.to;
+    
+    // Normalizar o email from - Resend é case-sensitive com domínios
+    const fromEmail = config.from?.toLowerCase().trim();
+    
+    this.logger.log(`Enviando email via Resend: from=${fromEmail}, to=${to}`);
     
     const emailOptions: any = {
-      from: config.from,
+      from: fromEmail,
       to: to,
       subject: dto.subject,
     };
