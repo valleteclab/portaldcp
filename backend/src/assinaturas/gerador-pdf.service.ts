@@ -852,15 +852,36 @@ export class GeradorPdfService {
 
           doc.font('Helvetica').fillColor('#374151');
           for (const item of itens) {
-            const rowY = doc.y + 2;
-            if (rowY > doc.page.height - 120) doc.addPage();
             doc.fontSize(8);
-            doc.text((item.descricao || '-').substring(0, 60), x0 + 3, rowY, { width: colDesc - 6 });
+            const descricao = item.descricao || '-';
+            const maxWidth = colDesc - 6;
+            const maxHeight = 28; // Altura máxima para 2 linhas
+            
+            // Calcular altura necessária para o texto
+            const textHeight = doc.heightOfString(descricao, { width: maxWidth });
+            const rowHeight = Math.min(textHeight, maxHeight) + 4;
+            
+            const rowY = doc.y + 2;
+            if (rowY + rowHeight > doc.page.height - 120) doc.addPage();
+            
+            // Renderizar descrição com quebra de linha, truncando com reticências se necessário
+            if (textHeight > maxHeight) {
+              // Texto longo: truncar com reticências
+              let truncated = descricao;
+              while (doc.heightOfString(truncated + '...', { width: maxWidth }) > maxHeight && truncated.length > 10) {
+                truncated = truncated.slice(0, -1);
+              }
+              doc.text(truncated + '...', x0 + 3, rowY, { width: maxWidth, height: maxHeight });
+            } else {
+              // Texto cabe nas linhas disponíveis
+              doc.text(descricao, x0 + 3, rowY, { width: maxWidth, height: maxHeight });
+            }
+            
             doc.text((item as any).tipo_item === 'CONSUMO' ? 'Consumo' : (item as any).tipo_item === 'PERMANENTE' ? 'Permanente' : '-', x1, rowY, { width: colTipo - 4, align: 'center' });
             doc.text(String(item.quantidade_aceita ?? item.quantidade_recebida ?? 0), x2, rowY, { width: colQtd - 4, align: 'right' });
             doc.text(`R$ ${Number(item.valor_unitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x3, rowY, { width: colValor - 4, align: 'right' });
             doc.text(`R$ ${Number(item.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x4, rowY, { width: colTotal - 4, align: 'right' });
-            doc.y = rowY + 14;
+            doc.y = rowY + rowHeight;
           }
           doc.moveDown(0.5);
         }
