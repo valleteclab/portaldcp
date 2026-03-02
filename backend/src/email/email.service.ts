@@ -44,6 +44,22 @@ export class EmailService {
     }
   }
 
+  private normalizarEmailFrom(from: string): string {
+    if (!from) return '';
+    from = from.trim();
+    
+    // Se tem formato "Nome <email@dominio.com>", normalizar só o email
+    const match = from.match(/^(.*)<([^>]+)>\s*$/);
+    if (match) {
+      const displayName = match[1].trim();
+      const emailAddress = match[2].trim().toLowerCase();
+      return `${displayName} <${emailAddress}>`;
+    }
+    
+    // Se é só o email sem display name, converter tudo para lowercase
+    return from.toLowerCase();
+  }
+
   async getSmtpConfig(orgaoId: string): Promise<{
     host: string;
     port: number;
@@ -82,8 +98,8 @@ export class EmailService {
     
     if (orgao?.email_resend_api_key && orgao?.email_resend_from) {
       const apiKey = orgao.email_resend_api_key ? this.decryptText(orgao.email_resend_api_key) : '';
-      // Normalizar para lowercase
-      const fromEmail = orgao.email_resend_from.toLowerCase().trim();
+      // Normalizar apenas o endereço de email para lowercase, manter display name
+      const fromEmail = this.normalizarEmailFrom(orgao.email_resend_from);
       this.logger.log(`Usando config do orgao: from=${fromEmail}`);
       return {
         apiKey,
@@ -93,7 +109,7 @@ export class EmailService {
     
     // 2. Fallback para variável de ambiente global (como WhatsApp)
     if (process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL) {
-      const fromEmail = process.env.RESEND_FROM_EMAIL.toLowerCase().trim();
+      const fromEmail = this.normalizarEmailFrom(process.env.RESEND_FROM_EMAIL);
       this.logger.log(`Usando config global: from=${fromEmail}`);
       return {
         apiKey: process.env.RESEND_API_KEY,
@@ -184,8 +200,8 @@ export class EmailService {
     
     const to = Array.isArray(dto.to) ? dto.to[0] : dto.to;
     
-    // Normalizar o email from - Resend é case-sensitive com domínios
-    const fromEmail = config.from?.toLowerCase().trim();
+    // Normalizar apenas o endereço de email para lowercase, manter display name
+    const fromEmail = this.normalizarEmailFrom(config.from);
     
     this.logger.log(`Enviando email via Resend: from=${fromEmail}, to=${to}`);
     
