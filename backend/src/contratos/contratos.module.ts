@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { HttpModule } from '@nestjs/axios';
 import { ContratosController } from './contratos.controller';
 import { ContratosService } from './contratos.service';
+import { PortalTransparenciaController } from './portal-transparencia.controller';
+import { PortalTransparenciaService } from './portal-transparencia.service';
+import { FornecedoresModule } from '../fornecedores/fornecedores.module';
 import { Contrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { HistoricoContrato } from './entities/historico-contrato.entity';
@@ -50,9 +54,11 @@ import { ImportarContratoIaService } from './importar-contrato-ia.service';
     NotificacoesModule,
     UploadModule,
     IaModule,
+    HttpModule,
+    FornecedoresModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController],
-  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, PortalTransparenciaController],
+  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, PortalTransparenciaService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService]
 })
 export class ContratosModule {}
