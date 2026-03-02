@@ -449,6 +449,43 @@ export class OrgaosController {
     return email;
   }
 
+  // ============ CONVITE WHATSAPP ============
+
+  @Post('convite-whatsapp')
+  async enviarConviteWhatsApp(
+    @Req() req: { user: JwtPayload },
+    @Body() body: { telefone: string; nome?: string; orgaoId: string }
+  ) {
+    if (req.user.type !== UserType.ADMIN) {
+      throw new UnauthorizedException('Apenas administradores podem enviar convites');
+    }
+
+    const { telefone, nome, orgaoId } = body;
+    if (!telefone || !orgaoId) {
+      throw new UnauthorizedException('Telefone e órgão são obrigatórios');
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.portaldcp.com.br';
+    const mensagem =
+      `Olá${nome ? `, ${nome}` : ''}! 👋\n\n` +
+      `Você foi convidado(a) para acessar o *Portal DCP* – sistema de gestão de contratações públicas.\n\n` +
+      `📋 *Como funciona:*\n` +
+      `1️⃣ Acesse o link abaixo\n` +
+      `2️⃣ Clique em *"Entrar com Google"* e use sua conta Google\n` +
+      `3️⃣ Selecione o órgão ao qual pertence\n` +
+      `4️⃣ Aguarde a aprovação do administrador\n` +
+      `5️⃣ Você receberá uma notificação aqui no WhatsApp quando seu acesso for liberado ✅\n\n` +
+      `🔗 *Link de acesso:*\n${frontendUrl}/orgao-login\n\n` +
+      `Em caso de dúvidas, entre em contato com o administrador do sistema.`;
+
+    const enviado = await this.whatsappService.enviar(orgaoId, { to: telefone, mensagem });
+
+    return {
+      success: enviado,
+      mensagem: enviado ? 'Convite enviado com sucesso!' : 'Falha ao enviar. Verifique se o WhatsApp está configurado para este órgão.',
+    };
+  }
+
   @Post(':id/emails/:uid/responder')
   async responderEmail(
     @Param('id') id: string,

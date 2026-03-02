@@ -16,7 +16,8 @@ import {
   Package,
   Settings,
   Database,
-  Bot
+  Bot,
+  MessageCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -27,6 +28,7 @@ const menuItems = [
   { href: "/admin/catalogo", label: "Catálogo de Itens", icon: Database },
   { href: "/admin/modulos", label: "Módulos", icon: Package },
   { href: "/admin/usuarios", label: "Usuários", icon: Users },
+  { href: "/admin/convites", label: "Convites WhatsApp", icon: MessageCircle },
   { href: "/admin/configuracoes-aprovacao", label: "Config. Aprovações", icon: Settings },
   { href: "/admin/fornecedores", label: "Fornecedores", icon: FileText },
   { href: "/admin/solicitacoes", label: "Solicitações", icon: FileText },
