@@ -341,6 +341,7 @@ export class OrgaosController {
   async atualizarEmailConfig(
     @Param('id') id: string,
     @Body() config: {
+      email_metodo?: 'SMTP' | 'RESEND';
       email_smtp_host?: string;
       email_smtp_port?: number;
       email_smtp_secure?: boolean;
@@ -351,6 +352,8 @@ export class OrgaosController {
       email_imap_port?: number;
       email_imap_user?: string;
       email_imap_senha?: string;
+      email_resend_api_key?: string;
+      email_resend_from?: string;
     }
   ) {
     const orgao = await this.orgaosService.atualizarEmailConfig(id, config);

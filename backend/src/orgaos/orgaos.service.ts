@@ -276,6 +276,7 @@ export class OrgaosService {
   // ============ CONFIGURAÇÃO EMAIL (SMTP) ============
 
   async getEmailConfig(id: string): Promise<{
+    email_metodo: string | null;
     email_smtp_host: string | null;
     email_smtp_port: number | null;
     email_smtp_secure: boolean | null;
@@ -286,23 +287,29 @@ export class OrgaosService {
     email_imap_port: number | null;
     email_imap_user: string | null;
     imap_configurado: boolean;
+    email_resend_api_key: string | null;
+    email_resend_from: string | null;
   }> {
     const orgao = await this.findOne(id);
     return {
+      email_metodo: (orgao.email_metodo as 'SMTP' | 'RESEND') || 'SMTP',
       email_smtp_host: orgao.email_smtp_host || null,
       email_smtp_port: orgao.email_smtp_port ?? null,
       email_smtp_secure: orgao.email_smtp_secure ?? null,
       email_smtp_user: orgao.email_smtp_user || null,
       email_from: orgao.email_from || null,
-      configurado: !!(orgao.email_smtp_host && orgao.email_smtp_user),
+      configurado: !!(orgao.email_smtp_host && orgao.email_smtp_user) || !!(orgao.email_resend_api_key && orgao.email_resend_from),
       email_imap_host: orgao.email_imap_host || null,
       email_imap_port: orgao.email_imap_port ?? null,
       email_imap_user: orgao.email_imap_user || null,
       imap_configurado: !!(orgao.email_imap_host && orgao.email_imap_user),
+      email_resend_api_key: orgao.email_resend_api_key ? '***' : null,
+      email_resend_from: orgao.email_resend_from || null,
     };
   }
 
   async atualizarEmailConfig(id: string, config: {
+    email_metodo?: 'SMTP' | 'RESEND';
     email_smtp_host?: string;
     email_smtp_port?: number;
     email_smtp_secure?: boolean;
@@ -313,8 +320,11 @@ export class OrgaosService {
     email_imap_port?: number;
     email_imap_user?: string;
     email_imap_senha?: string;
+    email_resend_api_key?: string;
+    email_resend_from?: string;
   }): Promise<Orgao> {
     const orgao = await this.findOne(id);
+    if (config.email_metodo !== undefined) orgao.email_metodo = config.email_metodo;
     if (config.email_smtp_host !== undefined) orgao.email_smtp_host = config.email_smtp_host;
     if (config.email_smtp_port !== undefined) orgao.email_smtp_port = config.email_smtp_port;
     if (config.email_smtp_secure !== undefined) orgao.email_smtp_secure = config.email_smtp_secure;
@@ -329,6 +339,10 @@ export class OrgaosService {
     if (config.email_imap_senha !== undefined && config.email_imap_senha !== '') {
       orgao.email_imap_senha = this.encryptText(config.email_imap_senha);
     }
+    if (config.email_resend_api_key !== undefined && config.email_resend_api_key !== '') {
+      orgao.email_resend_api_key = this.encryptText(config.email_resend_api_key);
+    }
+    if (config.email_resend_from !== undefined) orgao.email_resend_from = config.email_resend_from;
     return await this.orgaoRepository.save(orgao);
   }
 
