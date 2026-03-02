@@ -256,7 +256,7 @@ export class RecebimentoService {
       entidade_tipo: EntidadeTipo.COMPROVACAO_ACEITE_RECEBIMENTO,
       entidade_id: rec.id,
       usuario_id: usuarioId,
-      usuario_nome: usuarioNome,
+      usuario_nome: usuario?.nome || usuarioNome,
       usuario_cpf_cnpj: cpfCnpj.length >= 11 ? cpfCnpj : '00000000000',
       usuario_cargo: cargo,
       papel_assinante: PapelAssinante.FISCAL,
