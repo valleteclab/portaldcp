@@ -377,7 +377,6 @@ export class AuthService {
         nome: `${googleUser.firstName} ${googleUser.lastName}`,
         googleId: googleUser.googleId,
         picture: googleUser.picture,
-        exp: Math.floor(Date.now() / 1000) + 600, // 10 minutos
       };
       const tempToken = this.jwtService.sign(tempPayload, { expiresIn: '10m' });
       return { status: 'PENDENTE', tempToken, email: googleUser.email };
