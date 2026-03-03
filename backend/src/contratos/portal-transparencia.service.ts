@@ -226,9 +226,11 @@ export class PortalTransparenciaService {
       valorGlobal = parseFloat(valorLimpo) || 0;
     }
 
-    // Extrair ano do número do contrato (ex: 001/2024-Contrato -> 2024)
+    // Extrair ano e sequencial do número do contrato (ex: 001/2024-Contrato -> ano=2024, sequencial=1)
     const anoMatch = contratoApi.contratoNumero.match(/\/(\d{4})/);
     const ano = anoMatch ? parseInt(anoMatch[1]) : new Date().getFullYear();
+    const sequencialMatch = contratoApi.contratoNumero.match(/^(\d{3})/);
+    const sequencial = sequencialMatch ? parseInt(sequencialMatch[1]) : 1;
 
     // Criar contrato usando o método existente
     this.logger.log(`Criando contrato: ${contratoApi.contratoNumero}`);
@@ -253,6 +255,7 @@ export class PortalTransparenciaService {
       orgao_id: orgaoId,
       numero_contrato: contratoApi.contratoNumero.replace('-Contrato', ''),
       ano,
+      sequencial,
       objeto: contratoApi.contratoObjeto,
       valor_inicial: valorGlobal,
       valor_global: valorGlobal,

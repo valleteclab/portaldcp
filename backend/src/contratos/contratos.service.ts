@@ -54,15 +54,23 @@ export class ContratosService {
   // ============ CONTRATOS ============
 
   async criar(dados: Partial<Contrato>): Promise<Contrato> {
-    // Gerar número do contrato
-    const ano = new Date().getFullYear();
-    const ultimoContrato = await this.contratoRepository.findOne({
-      where: { orgao_id: dados.orgao_id, ano },
-      order: { sequencial: 'DESC' }
-    });
+    // Se já tem número e sequencial (importação), usar os valores fornecidos
+    // Senão, gerar novo número sequencial
+    let numeroContrato = dados.numero_contrato;
+    let sequencial = dados.sequencial;
+    let ano = dados.ano || new Date().getFullYear();
 
-    const sequencial = ultimoContrato ? ultimoContrato.sequencial + 1 : 1;
-    const numeroContrato = `${String(sequencial).padStart(3, '0')}/${ano}`;
+    if (!numeroContrato || !sequencial) {
+      // Gerar número do contrato automaticamente
+      ano = new Date().getFullYear();
+      const ultimoContrato = await this.contratoRepository.findOne({
+        where: { orgao_id: dados.orgao_id, ano },
+        order: { sequencial: 'DESC' }
+      });
+
+      sequencial = ultimoContrato ? ultimoContrato.sequencial + 1 : 1;
+      numeroContrato = `${String(sequencial).padStart(3, '0')}/${ano}`;
+    }
 
     const contrato = this.contratoRepository.create({
       ...dados,
