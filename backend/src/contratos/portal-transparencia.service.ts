@@ -258,6 +258,8 @@ export class PortalTransparenciaService {
       data_inicio: contratoApi.vigencia_inicio ? this.parseDataBrasileira(contratoApi.vigencia_inicio) : new Date(),
       data_fim: dataVigencia,
       fornecedor_id: fornecedor.id,
+      fornecedor_cnpj: cnpjLimpo,
+      fornecedor_razao_social: contratoApi.favorecido,
       modalidade: 'CONTRATACAO_DIRETA',
       situacao: 'VIGENTE',
       origem: 'IMPORTADO_PORTAL_TRANSPARENCIA',
