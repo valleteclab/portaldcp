@@ -236,8 +236,8 @@ export class PortalTransparenciaService {
     // Buscar se contrato já existe
     try {
       const contratoExistente = await this.contratosService.findByNumero(
-        orgaoId,
-        contratoApi.contratoNumero
+        contratoApi.contratoNumero,
+        orgaoId
       );
       
       if (contratoExistente) {
@@ -420,8 +420,8 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
       
       // Buscar contrato criado
       const contratoCriado = await this.contratosService.findByNumero(
-        orgaoId,
-        contratoApi.contratoNumero
+        contratoApi.contratoNumero,
+        orgaoId
       );
       
       if (!contratoCriado) {
