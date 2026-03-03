@@ -1,0 +1,6 @@
+[Cursor] fix: reverter aceites parciais ao cancelar recebimento
+
+Ao cancelar recebimento com aceite parcial (almoxarifado ou patrimonio),
+agora reverte baixa no contrato, zera quantidade_aceita, chama
+reverterAtendimento e limpa todos os campos de aceite. Assim a substituicao
+de NF passa na validacao (temAceite = false).

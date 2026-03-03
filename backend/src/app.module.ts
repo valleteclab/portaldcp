@@ -44,6 +44,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { AssinaturasModule } from './assinaturas/assinaturas.module';
 import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { AgenteContratosModule } from './agente-contratos/agente-contratos.module';
 
 @Module({
   imports: [
@@ -115,6 +116,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     AssinaturasModule,
     PortalAssinaturasModule,
     WhatsAppModule,
+    AgenteContratosModule,
   ],
   controllers: [HealthController],
   providers: [

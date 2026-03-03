@@ -2,7 +2,43 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ContratosService } from './contratos.service';
+import { IaService } from '../ia/ia.service';
+import { MedicaoService } from './medicao.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
+
+// Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
+async function extrairTextoPdf(buffer: Buffer): Promise<string> {
+  // Tentativa 1: pdfjs-dist (mais robusto, suporta PDFs complexos)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+    const pdfDoc = await loadingTask.promise;
+    let text = '';
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((item: any) => item.str || '').join(' ');
+      text += pageText + '\n';
+    }
+    if (text.trim().length > 0) return text;
+  } catch (e: any) {
+    // fallback para pdf-parse
+  }
+
+  // Tentativa 2: pdf-parse
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('pdf-parse');
+    const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
+    if (fn) {
+      const result = await fn(buffer);
+      if (result?.text?.trim().length > 0) return result.text;
+    }
+  } catch { /* ignora */ }
+
+  return '';
+}
 
 export interface PortalTransparenciaContrato {
   contratoNumero: string;
@@ -13,6 +49,8 @@ export interface PortalTransparenciaContrato {
   vigencia_inicio?: string;
   aditivos_valor_total?: string | null;
   valor_contrato?: string;
+  url?: string;
+  fiscal?: string;
 }
 
 export interface PortalTransparenciaResponse {
@@ -30,6 +68,8 @@ export class PortalTransparenciaService {
     private readonly httpService: HttpService,
     private readonly contratosService: ContratosService,
     private readonly fornecedoresService: FornecedoresService,
+    private readonly iaService: IaService,
+    private readonly medicaoService: MedicaoService,
   ) {}
 
   /**
@@ -223,6 +263,216 @@ export class PortalTransparenciaService {
     };
 
     await this.contratosService.criar(createDto);
+  }
+
+  /**
+   * Baixa o PDF do contrato a partir da URL
+   */
+  async baixarPdfContrato(url: string): Promise<Buffer> {
+    try {
+      this.logger.log(`Baixando PDF: ${url}`);
+      
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
+          responseType: 'arraybuffer',
+          timeout: 30000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        })
+      );
+      
+      const contentType = response.headers['content-type'];
+      if (contentType && contentType.includes('pdf')) {
+        return Buffer.from(response.data);
+      }
+      
+      // Se não detectou pelo content-type, tenta verificar se é PDF pelo magic number
+      const buffer = Buffer.from(response.data);
+      if (buffer.toString('hex', 0, 4) === '25504446') { // %PDF
+        return buffer;
+      }
+      
+      throw new Error('Resposta não é um PDF válido');
+    } catch (error) {
+      this.logger.error(`Erro ao baixar PDF: ${error.message}`);
+      throw new Error(`Falha ao baixar PDF do contrato: ${error.message}`);
+    }
+  }
+
+  /**
+   * Extrai itens do PDF usando IA
+   */
+  async extrairItensDoPdf(pdfBuffer: Buffer): Promise<Array<{
+    descricao: string;
+    unidade_medida: string;
+    quantidade: number;
+    valor_unitario: number;
+    quantidade_meses?: number | null;
+    valor_total?: number;
+  }>> {
+    try {
+      this.logger.log('Extraindo texto do PDF...');
+      const textoExtraido = await extrairTextoPdf(pdfBuffer);
+      
+      if (textoExtraido.trim().length < 200) {
+        this.logger.warn('Texto extraído muito curto, PDF pode ser escaneado');
+        return [];
+      }
+
+      this.logger.log(`Texto extraído: ${textoExtraido.length} caracteres`);
+      
+      // Prompt específico para extrair apenas itens
+      const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+
+REGRAS:
+- Extraia APENAS a lista de itens do contrato
+- NUNCA invente dados - use apenas o que está no documento
+- Cada item deve ter: descrição, unidade de medida, quantidade, valor unitário
+- Para contratos contínuos (mensais), use quantidade_meses
+- Retorne APENAS JSON válido, sem texto adicional
+
+Schema de retorno:
+{
+  "itens": [
+    {
+      "descricao": "descrição completa do item",
+      "unidade_medida": "UNIDADE", 
+      "quantidade": 10,
+      "valor_unitario": 100.00,
+      "quantidade_meses": null,
+      "valor_total": 1000.00
+    }
+  ],
+  "observacoes": "descrição breve do que foi encontrado"
+}
+
+Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item encontrado"}`;
+
+      const respostaIA = await this.iaService.chatComArquivo(
+        promptExtracaoItens,
+        undefined,
+        undefined,
+        textoExtraido
+      );
+
+      // Limpar e parsear JSON
+      const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
+      const dadosExtraidos = JSON.parse(jsonLimpo);
+      
+      if (!Array.isArray(dadosExtraidos.itens)) {
+        this.logger.warn('IA não retornou lista de itens válida');
+        return [];
+      }
+
+      this.logger.log(`Itens extraídos: ${dadosExtraidos.itens.length}`);
+      return dadosExtraidos.itens;
+    } catch (error) {
+      this.logger.error(`Erro ao extrair itens do PDF: ${error.message}`);
+      return []; // Retorna array vazio em caso de erro, não quebra o fluxo
+    }
+  }
+
+  /**
+   * Importa contrato com itens (fluxo completo do agente autônomo)
+   */
+  async importarContratoCompleto(
+    orgaoId: string,
+    contratoApi: PortalTransparenciaContrato
+  ): Promise<{
+    contrato_id?: string;
+    itens_criados: number;
+    pdf_baixado: boolean;
+    itens_extraidos: boolean;
+    mensagem: string;
+  }> {
+    const resultado = {
+      contrato_id: undefined as string | undefined,
+      itens_criados: 0,
+      pdf_baixado: false,
+      itens_extraidos: false,
+      mensagem: ''
+    };
+
+    try {
+      // 1. Verificar se contrato já existe
+      try {
+        const contratoExistente = await this.contratosService.findByNumero(
+          orgaoId,
+          contratoApi.contratoNumero
+        );
+        
+        if (contratoExistente) {
+          resultado.mensagem = `Contrato ${contratoApi.contratoNumero} já existe`;
+          return resultado;
+        }
+      } catch {
+        // Contrato não existe, continuar
+      }
+
+      // 2. Importar contrato base (fornecedor + contrato)
+      await this.importarContratoIndividual(orgaoId, contratoApi);
+      
+      // Buscar contrato criado
+      const contratoCriado = await this.contratosService.findByNumero(
+        orgaoId,
+        contratoApi.contratoNumero
+      );
+      
+      if (!contratoCriado) {
+        throw new Error('Contrato não foi criado');
+      }
+      
+      resultado.contrato_id = contratoCriado.id;
+      resultado.mensagem = `Contrato ${contratoApi.contratoNumero} importado com sucesso`;
+
+      // 3. Baixar PDF se tiver URL
+      if (contratoApi.url) {
+        try {
+          const pdfBuffer = await this.baixarPdfContrato(contratoApi.url);
+          resultado.pdf_baixado = true;
+          this.logger.log(`PDF baixado: ${pdfBuffer.length} bytes`);
+
+          // 4. Extrair itens do PDF
+          const itens = await this.extrairItensDoPdf(pdfBuffer);
+          
+          if (itens.length > 0) {
+            resultado.itens_extraidos = true;
+            
+            // 5. Criar itens no cronograma
+            for (const item of itens) {
+              try {
+                await this.medicaoService.criarItemCronograma(contratoCriado.id, {
+                  descricao: item.descricao,
+                  unidade_medida: item.unidade_medida,
+                  quantidade: item.quantidade,
+                  valor_unitario: item.valor_unitario,
+                  quantidade_meses: item.quantidade_meses || null,
+                } as any);
+                resultado.itens_criados++;
+              } catch (err) {
+                this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
+              }
+            }
+            
+            resultado.mensagem += ` + ${resultado.itens_criados} itens extraídos do PDF`;
+          } else {
+            resultado.mensagem += ' (sem itens no PDF)';
+          }
+        } catch (pdfError) {
+          this.logger.warn(`PDF não processado: ${pdfError.message}`);
+          resultado.mensagem += ' (PDF não disponível)';
+        }
+      } else {
+        resultado.mensagem += ' (sem URL de PDF)';
+      }
+
+      return resultado;
+    } catch (error) {
+      this.logger.error(`Erro na importação completa: ${error.message}`);
+      resultado.mensagem = `Erro: ${error.message}`;
+      throw error;
+    }
   }
 
   /**
