@@ -59,6 +59,6 @@ import { ImportarContratoIaService } from './importar-contrato-ia.service';
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, PortalTransparenciaController],
   providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, PortalTransparenciaService],
-  exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService]
+  exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService]
 })
 export class ContratosModule {}
