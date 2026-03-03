@@ -250,6 +250,7 @@ export class PortalTransparenciaService {
 
     // Criar DTO para o contrato
     const createDto = {
+      orgao_id: orgaoId,
       numero_contrato: contratoApi.contratoNumero.replace('-Contrato', ''),
       ano,
       objeto: contratoApi.contratoObjeto,
