@@ -501,12 +501,17 @@ Gere a versão revisada e melhorada:`;
    * Extrai texto de um PDF usando pdfjs-dist ou pdf-parse
    */
   async extrairTextoDoPdf(buffer: Buffer): Promise<string> {
+    this.logger.log(`[extrairTextoDoPdf] Iniciando extração. Tamanho: ${buffer.length} bytes`);
+
     // Tentativa 1: pdfjs-dist
     try {
+      this.logger.log('[extrairTextoDoPdf] Tentando pdfjs-dist...');
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
       const pdfDoc = await loadingTask.promise;
+      this.logger.log(`[extrairTextoDoPdf] PDF carregado: ${pdfDoc.numPages} páginas`);
+      
       let text = '';
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const page = await pdfDoc.getPage(i);
@@ -514,20 +519,34 @@ Gere a versão revisada e melhorada:`;
         const pageText = content.items.map((item: any) => item.str || '').join(' ');
         text += pageText + '\n';
       }
-      if (text.trim().length > 0) return text;
-    } catch { /* fallback */ }
+      
+      const textoLimpo = text.trim();
+      this.logger.log(`[extrairTextoDoPdf] pdfjs-dist extraído: ${textoLimpo.length} caracteres`);
+      
+      if (textoLimpo.length > 0) {
+        return textoLimpo;
+      }
+    } catch (err: any) {
+      this.logger.warn(`[extrairTextoDoPdf] pdfjs-dist falhou: ${err.message}`);
+    }
 
     // Tentativa 2: pdf-parse
     try {
+      this.logger.log('[extrairTextoDoPdf] Tentando pdf-parse...');
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const mod = require('pdf-parse');
       const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
       if (fn) {
         const result = await fn(buffer);
-        if (result?.text?.trim().length > 0) return result.text;
+        const textoLimpo = result?.text?.trim() || '';
+        this.logger.log(`[extrairTextoDoPdf] pdf-parse extraído: ${textoLimpo.length} caracteres`);
+        if (textoLimpo.length > 0) return textoLimpo;
       }
-    } catch { /* ignora */ }
+    } catch (err: any) {
+      this.logger.warn(`[extrairTextoDoPdf] pdf-parse falhou: ${err.message}`);
+    }
 
+    this.logger.warn('[extrairTextoDoPdf] Nenhum texto extraído');
     return '';
   }
 
@@ -550,8 +569,8 @@ Gere a versão revisada e melhorada:`;
       let messages: Array<{ role: string; content: any }> = [];
 
       // Se tem texto suficiente no PDF, usar texto em vez de Vision
-      if (pdfTexto && pdfTexto.length >= 200) {
-        this.logger.log('[analisarContrato] Usando modo TEXTO (PDF digital)');
+      if (pdfTexto && pdfTexto.length >= 50) {
+        this.logger.log('[analisarContrato] Usando modo TEXTO (PDF pesquisável)');
         
         const promptTexto = `Você é um especialista em análise de contratos administrativos brasileiros (Lei 14.133/2021).
 
