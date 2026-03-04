@@ -560,8 +560,8 @@ Gere a versão revisada e melhorada:`;
     historico?: Array<{ role: string; content: string }>,
   ): Promise<string> {
     const apiKey = await this.getApiKey();
-    // Forçar modelo que suporta Vision para PDFs
-    const model = 'anthropic/claude-3.5-sonnet';
+    // Usar modelo que suporta PDF nativamente (não Bedrock)
+    const model = 'anthropic/claude-3.5-sonnet:beta';
 
     this.logger.log(`[analisarContrato] Iniciando análise. PDF tem texto: ${pdfTexto ? pdfTexto.length : 0} chars. Modelo: ${model}`);
 
@@ -590,36 +590,30 @@ Use formatação markdown para estruturar a resposta.`;
           { role: 'user', content: promptTexto }
         ];
       } else {
-        // PDF escaneado - usar Vision com formato image_url (mais compatível)
+        // PDF escaneado - usar formato nativo de documento do Claude
         this.logger.log('[analisarContrato] Usando modo VISION (PDF escaneado)');
         
-        // Verificar tamanho do base64 (limitar a ~5MB para não estourar)
-        const maxBase64Length = 5 * 1024 * 1024 * 1.33; // ~5MB em base64
-        let truncatedBase64 = pdfBase64;
-        if (pdfBase64.length > maxBase64Length) {
-          this.logger.warn(`[analisarContrato] PDF muito grande (${pdfBase64.length} chars), truncando...`);
-          truncatedBase64 = pdfBase64.substring(0, Math.floor(maxBase64Length));
-        }
-        
-        // Formato image_url para OpenRouter (mais compatível que type: document)
+        // Formato nativo do Claude para documentos (funciona com :beta)
         const userContent = [
           {
             type: 'text',
-            text: `INSTRUÇÃO IMPORTANTE: Analise a IMAGEM deste contrato PDF e responda à pergunta abaixo.
+            text: `Analise o contrato PDF abaixo e responda:
 
 PERGUNTA: ${pergunta}
 
-REGRAS:
-- Leia TODO o documento na imagem antes de responder
-- Responda APENAS com base no que você vê no documento
-- Se não conseguir ver a informação, diga: "Não consigo ler esta informação no documento"
-- Para valores, cite exatamente como aparece
-- Destaque datas e valores importantes`,
+INSTRUÇÕES:
+- Leia TODO o documento antes de responder
+- Responda baseado APENAS no conteúdo do PDF
+- Se não encontrar a informação, diga explicitamente
+- Para itens/serviços, use tabela markdown
+- Destaque valores e datas em negrito`,
           },
           {
-            type: 'image_url',
-            image_url: {
-              url: `data:application/pdf;base64,${truncatedBase64}`,
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: pdfBase64,
             },
           },
         ];
