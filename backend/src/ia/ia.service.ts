@@ -503,12 +503,37 @@ Gere a versão revisada e melhorada:`;
   async extrairTextoDoPdf(buffer: Buffer): Promise<string> {
     this.logger.log(`[extrairTextoDoPdf] Iniciando extração. Tamanho: ${buffer.length} bytes`);
 
-    // Tentativa 1: pdfjs-dist - usar caminho correto para v5.x
+    // Tentativa 1: pdfjs-dist com mock do DOMMatrix (necessário para Node.js)
     try {
-      this.logger.log('[extrairTextoDoPdf] Tentando pdfjs-dist...');
+      this.logger.log('[extrairTextoDoPdf] Tentando pdfjs-dist com mock DOMMatrix...');
+      
+      // Mock de APIs do browser necessárias para pdfjs-dist no Node.js
+      if (typeof (globalThis as any).DOMMatrix === 'undefined') {
+        (globalThis as any).DOMMatrix = class DOMMatrix {
+          a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+          constructor(init?: any) {}
+          multiply() { return this; }
+          inverse() { return this; }
+          translate() { return this; }
+          scale() { return this; }
+          rotate() { return this; }
+        };
+      }
+      if (typeof (globalThis as any).Path2D === 'undefined') {
+        (globalThis as any).Path2D = class Path2D {};
+      }
+      
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const pdfjsLib = require('pdfjs-dist');
-      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+      const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+      // Desabilitar worker para Node.js
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      
+      const loadingTask = pdfjsLib.getDocument({ 
+        data: new Uint8Array(buffer),
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        useSystemFonts: true,
+      });
       const pdfDoc = await loadingTask.promise;
       this.logger.log(`[extrairTextoDoPdf] PDF carregado: ${pdfDoc.numPages} páginas`);
       
