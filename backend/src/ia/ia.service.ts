@@ -543,20 +543,37 @@ Gere a versão revisada e melhorada:`;
     const model = await this.getModel();
 
     // Prompt especializado para análise de contratos
-    const systemPrompt = `Você é um especialista em análise de contratos administrativos brasileiros.
-Você está analisando um contrato público e respondendo perguntas do usuário.
+    const systemPrompt = `Você é um especialista em análise de contratos administrativos brasileiros (Lei 14.133/2021).
 
-REGRAS:
-1. Responda com base APENAS no conteúdo do contrato fornecido
-2. Seja preciso e cite trechos quando relevante
-3. Para extração de itens, retorne em formato claro e estruturado
-4. Se a informação não estiver no contrato, diga que não foi encontrada
-5. Use linguagem técnica apropriada para contratos públicos
+SUA TAREFA:
+Analisar o contrato fornecido e responder a pergunta do usuário de forma completa e precisa.
 
-Formatação de resposta:
-- Use markdown para estruturar a resposta
-- Destaque valores, datas e informações importantes
-- Para itens, use tabela quando possível`;
+REGRAS CRÍTICAS:
+1. Leia TODO o contrato fornecido antes de responder
+2. Responda com base APENAS no conteúdo do contrato - NUNCA invente informações
+3. Se a informação solicitada NÃO estiver no contrato, diga explicitamente: "Esta informação não foi encontrada no contrato."
+4. Para extração de ITENS/SERVIÇOS, identifique:
+   - Número do item
+   - Descrição completa do serviço/produto
+   - Unidade de medida (UNIDADE, MESES, GLOBAL, etc.)
+   - Quantidade
+   - Valor unitário (se houver)
+   - Valor total
+5. Para valores, extraia o valor exto e converta para número quando possível
+6. Para datas, informe no formato DD/MM/AAAA
+
+FORMATAÇÃO DA RESPOSTA:
+- Use markdown para estruturar
+- Destaque em **negrito** valores, datas e informações críticas
+- Para lista de itens, use tabela markdown
+- Seja objetivo e direto
+
+EXEMPLO DE RESPOSTA PARA ITENS:
+| Item | Descrição | Unidade | Quant | Valor Total |
+|------|-----------|---------|-------|-------------|
+| 1 | Elaboração de projeto | UNIDADE | 1 | R$ 85.000,00 |
+
+AGORA ANALISE O CONTRATO E RESPONDA À PERGUNTA.`;
 
     // Preparar mensagens
     const messages: Array<{ role: string; content: any }> = [
@@ -574,7 +591,10 @@ Formatação de resposta:
     if (!pdfTexto || pdfTexto.length < 200) {
       // PDF escaneado ou sem texto - usar Vision com base64
       userContent = [
-        { type: 'text', text: pergunta },
+        { 
+          type: 'text', 
+          text: `INSTRUÇÃO: Analise o contrato PDF acima e responda à seguinte pergunta de forma completa e precisa:\n\nPERGUNTA: ${pergunta}\n\nIMPORTANTE:\n- Leia todo o documento antes de responder\n- Se não encontrar a informação, diga explicitamente\n- Para itens/serviços, liste em formato de tabela\n- Destaque valores e datas importantes` 
+        },
         {
           type: 'document',
           source: {
@@ -585,8 +605,8 @@ Formatação de resposta:
         },
       ];
     } else {
-      // PDF digital com texto
-      userContent = `CONTRATO:\n${pdfTexto}\n\nPERGUNTA DO USUÁRIO:\n${pergunta}`;
+      // PDF digital com texto - enviar o texto completo
+      userContent = `=== CONTRATO FORNECIDO ===\n${pdfTexto.substring(0, 15000)}\n\n=== PERGUNTA DO USUÁRIO ===\n${pergunta}\n\n=== INSTRUÇÕES ===\nResponda à pergunta acima baseado APENAS no conteúdo do contrato. Seja completo, preciso e estruture a resposta em markdown. Para itens, use tabela.`;
     }
 
     messages.push({ role: 'user', content: userContent });
