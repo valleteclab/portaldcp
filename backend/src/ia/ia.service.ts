@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SystemConfigService } from '../system-config/system-config.service';
 
@@ -225,6 +225,7 @@ Lembre-se: você está ajudando a garantir que o processo licitatório seja lega
 export class IaService {
   private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
   private readonly defaultModel = 'anthropic/claude-3.5-sonnet';
+  private readonly logger = new Logger(IaService.name);
 
   constructor(
     private configService: ConfigService,
@@ -540,78 +541,85 @@ Gere a versão revisada e melhorada:`;
     historico?: Array<{ role: string; content: string }>,
   ): Promise<string> {
     const apiKey = await this.getApiKey();
-    const model = await this.getModel();
+    // Forçar modelo que suporta Vision para PDFs
+    const model = 'anthropic/claude-3.5-sonnet';
 
-    // Prompt especializado para análise de contratos
-    const systemPrompt = `Você é um especialista em análise de contratos administrativos brasileiros (Lei 14.133/2021).
-
-SUA TAREFA:
-Analisar o contrato fornecido e responder a pergunta do usuário de forma completa e precisa.
-
-REGRAS CRÍTICAS:
-1. Leia TODO o contrato fornecido antes de responder
-2. Responda com base APENAS no conteúdo do contrato - NUNCA invente informações
-3. Se a informação solicitada NÃO estiver no contrato, diga explicitamente: "Esta informação não foi encontrada no contrato."
-4. Para extração de ITENS/SERVIÇOS, identifique:
-   - Número do item
-   - Descrição completa do serviço/produto
-   - Unidade de medida (UNIDADE, MESES, GLOBAL, etc.)
-   - Quantidade
-   - Valor unitário (se houver)
-   - Valor total
-5. Para valores, extraia o valor exto e converta para número quando possível
-6. Para datas, informe no formato DD/MM/AAAA
-
-FORMATAÇÃO DA RESPOSTA:
-- Use markdown para estruturar
-- Destaque em **negrito** valores, datas e informações críticas
-- Para lista de itens, use tabela markdown
-- Seja objetivo e direto
-
-EXEMPLO DE RESPOSTA PARA ITENS:
-| Item | Descrição | Unidade | Quant | Valor Total |
-|------|-----------|---------|-------|-------------|
-| 1 | Elaboração de projeto | UNIDADE | 1 | R$ 85.000,00 |
-
-AGORA ANALISE O CONTRATO E RESPONDA À PERGUNTA.`;
-
-    // Preparar mensagens
-    const messages: Array<{ role: string; content: any }> = [
-      { role: 'system', content: systemPrompt },
-    ];
-
-    // Adicionar histórico se existir
-    if (historico && historico.length > 0) {
-      messages.push(...historico.map(h => ({ role: h.role, content: h.content })));
-    }
-
-    // Preparar conteúdo da pergunta com o PDF
-    let userContent: any;
-    
-    if (!pdfTexto || pdfTexto.length < 200) {
-      // PDF escaneado ou sem texto - usar Vision com base64
-      userContent = [
-        { 
-          type: 'text', 
-          text: `INSTRUÇÃO: Analise o contrato PDF acima e responda à seguinte pergunta de forma completa e precisa:\n\nPERGUNTA: ${pergunta}\n\nIMPORTANTE:\n- Leia todo o documento antes de responder\n- Se não encontrar a informação, diga explicitamente\n- Para itens/serviços, liste em formato de tabela\n- Destaque valores e datas importantes` 
-        },
-        {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: pdfBase64,
-          },
-        },
-      ];
-    } else {
-      // PDF digital com texto - enviar o texto completo
-      userContent = `=== CONTRATO FORNECIDO ===\n${pdfTexto.substring(0, 15000)}\n\n=== PERGUNTA DO USUÁRIO ===\n${pergunta}\n\n=== INSTRUÇÕES ===\nResponda à pergunta acima baseado APENAS no conteúdo do contrato. Seja completo, preciso e estruture a resposta em markdown. Para itens, use tabela.`;
-    }
-
-    messages.push({ role: 'user', content: userContent });
+    this.logger.log(`[analisarContrato] Iniciando análise. PDF tem texto: ${pdfTexto ? pdfTexto.length : 0} chars. Modelo: ${model}`);
 
     try {
+      let messages: Array<{ role: string; content: any }> = [];
+
+      // Se tem texto suficiente no PDF, usar texto em vez de Vision
+      if (pdfTexto && pdfTexto.length >= 200) {
+        this.logger.log('[analisarContrato] Usando modo TEXTO (PDF digital)');
+        
+        const promptTexto = `Você é um especialista em análise de contratos administrativos brasileiros (Lei 14.133/2021).
+
+=== CONTRATO FORNECIDO ===
+${pdfTexto.substring(0, 12000)}
+
+=== PERGUNTA DO USUÁRIO ===
+${pergunta}
+
+=== INSTRUÇÕES ===
+Responda à pergunta acima baseado APENAS no conteúdo do contrato fornecido.
+Se a informação não estiver no contrato, diga explicitamente: "Esta informação não foi encontrada no contrato."
+Para extração de itens/serviços, liste em formato de tabela markdown.
+Use formatação markdown para estruturar a resposta.`;
+
+        messages = [
+          { role: 'user', content: promptTexto }
+        ];
+      } else {
+        // PDF escaneado - usar Vision com formato image_url (mais compatível)
+        this.logger.log('[analisarContrato] Usando modo VISION (PDF escaneado)');
+        
+        // Verificar tamanho do base64 (limitar a ~5MB para não estourar)
+        const maxBase64Length = 5 * 1024 * 1024 * 1.33; // ~5MB em base64
+        let truncatedBase64 = pdfBase64;
+        if (pdfBase64.length > maxBase64Length) {
+          this.logger.warn(`[analisarContrato] PDF muito grande (${pdfBase64.length} chars), truncando...`);
+          truncatedBase64 = pdfBase64.substring(0, Math.floor(maxBase64Length));
+        }
+        
+        // Formato image_url para OpenRouter (mais compatível que type: document)
+        const userContent = [
+          {
+            type: 'text',
+            text: `INSTRUÇÃO IMPORTANTE: Analise a IMAGEM deste contrato PDF e responda à pergunta abaixo.
+
+PERGUNTA: ${pergunta}
+
+REGRAS:
+- Leia TODO o documento na imagem antes de responder
+- Responda APENAS com base no que você vê no documento
+- Se não conseguir ver a informação, diga: "Não consigo ler esta informação no documento"
+- Para valores, cite exatamente como aparece
+- Destaque datas e valores importantes`,
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:application/pdf;base64,${truncatedBase64}`,
+            },
+          },
+        ];
+
+        messages = [{ role: 'user', content: userContent }];
+      }
+
+      // Adicionar histórico se existir (apenas as últimas 4 mensagens para não estourar contexto)
+      if (historico && historico.length > 0) {
+        const ultimasMensagens = historico.slice(-4);
+        // Inserir histórico antes da última mensagem
+        messages = [
+          ...ultimasMensagens.map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
+          messages[0]
+        ];
+      }
+
+      this.logger.log(`[analisarContrato] Enviando ${messages.length} mensagens para API`);
+
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
@@ -623,21 +631,25 @@ AGORA ANALISE O CONTRATO E RESPONDA À PERGUNTA.`;
         body: JSON.stringify({
           model,
           messages,
-          temperature: 0.3,
+          temperature: 0.2,
           max_tokens: 4000,
         }),
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error('Erro OpenRouter (analisarContrato):', error);
+        const errorText = await response.text();
+        this.logger.error(`[analisarContrato] Erro API: ${response.status} - ${errorText}`);
         throw new Error(`Erro na API: ${response.status}`);
       }
 
       const data = await response.json();
-      return data.choices[0]?.message?.content || 'Não foi possível analisar o contrato.';
+      const resposta = data.choices[0]?.message?.content || 'Não foi possível analisar o contrato.';
+      
+      this.logger.log(`[analisarContrato] Resposta recebida: ${resposta.length} caracteres`);
+      
+      return resposta;
     } catch (error) {
-      console.error('Erro ao analisar contrato:', error);
+      this.logger.error(`[analisarContrato] Erro: ${error.message}`);
       throw error;
     }
   }
