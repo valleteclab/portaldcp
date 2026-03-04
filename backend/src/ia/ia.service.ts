@@ -503,11 +503,11 @@ Gere a versão revisada e melhorada:`;
   async extrairTextoDoPdf(buffer: Buffer): Promise<string> {
     this.logger.log(`[extrairTextoDoPdf] Iniciando extração. Tamanho: ${buffer.length} bytes`);
 
-    // Tentativa 1: pdfjs-dist
+    // Tentativa 1: pdfjs-dist - usar caminho correto para v5.x
     try {
       this.logger.log('[extrairTextoDoPdf] Tentando pdfjs-dist...');
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+      const pdfjsLib = require('pdfjs-dist');
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
       const pdfDoc = await loadingTask.promise;
       this.logger.log(`[extrairTextoDoPdf] PDF carregado: ${pdfDoc.numPages} páginas`);
@@ -560,8 +560,8 @@ Gere a versão revisada e melhorada:`;
     historico?: Array<{ role: string; content: string }>,
   ): Promise<string> {
     const apiKey = await this.getApiKey();
-    // Usar modelo que suporta PDF nativamente (não Bedrock)
-    const model = 'anthropic/claude-3.5-sonnet:beta';
+    // Usar modelo NVIDIA que suporta PDF nativamente e funcionou nos testes
+    const model = 'nvidia/nemotron-3-nano-30b-a3b:free';
 
     this.logger.log(`[analisarContrato] Iniciando análise. PDF tem texto: ${pdfTexto ? pdfTexto.length : 0} chars. Modelo: ${model}`);
 
