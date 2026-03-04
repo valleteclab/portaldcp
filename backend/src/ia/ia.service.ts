@@ -503,9 +503,29 @@ Gere a versão revisada e melhorada:`;
   async extrairTextoDoPdf(buffer: Buffer): Promise<string> {
     this.logger.log(`[extrairTextoDoPdf] Iniciando extração. Tamanho: ${buffer.length} bytes`);
 
-    // Tentativa 1: pdfjs-dist com mock do DOMMatrix (necessário para Node.js)
+    // Tentativa 1: pdf-parse (mais compatível com Node.js)
     try {
-      this.logger.log('[extrairTextoDoPdf] Tentando pdfjs-dist com mock DOMMatrix...');
+      this.logger.log('[extrairTextoDoPdf] Tentando pdf-parse...');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pdfParse = require('pdf-parse');
+      
+      const result = await pdfParse(buffer, {
+        max: 0, // todas as páginas
+      });
+      
+      const textoLimpo = result?.text?.trim() || '';
+      this.logger.log(`[extrairTextoDoPdf] pdf-parse extraído: ${textoLimpo.length} caracteres`);
+      
+      if (textoLimpo.length > 0) {
+        return textoLimpo;
+      }
+    } catch (err: any) {
+      this.logger.warn(`[extrairTextoDoPdf] pdf-parse falhou: ${err.message}`);
+    }
+
+    // Tentativa 2: pdfjs-dist com configuração mínima
+    try {
+      this.logger.log('[extrairTextoDoPdf] Tentando pdfjs-dist...');
       
       // Mock de APIs do browser necessárias para pdfjs-dist no Node.js
       if (typeof (globalThis as any).DOMMatrix === 'undefined') {
@@ -519,21 +539,11 @@ Gere a versão revisada e melhorada:`;
           rotate() { return this; }
         };
       }
-      if (typeof (globalThis as any).Path2D === 'undefined') {
-        (globalThis as any).Path2D = class Path2D {};
-      }
       
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-      // Desabilitar worker para Node.js
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      const pdfjsLib = require('pdfjs-dist');
       
-      const loadingTask = pdfjsLib.getDocument({ 
-        data: new Uint8Array(buffer),
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        useSystemFonts: true,
-      });
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
       const pdfDoc = await loadingTask.promise;
       this.logger.log(`[extrairTextoDoPdf] PDF carregado: ${pdfDoc.numPages} páginas`);
       
@@ -555,20 +565,50 @@ Gere a versão revisada e melhorada:`;
       this.logger.warn(`[extrairTextoDoPdf] pdfjs-dist falhou: ${err.message}`);
     }
 
-    // Tentativa 2: pdf-parse
+    // Tentativa 3: Usar Python (PyPDF2) via exec - mais confiável para PDFs pesquisáveis
     try {
-      this.logger.log('[extrairTextoDoPdf] Tentando pdf-parse...');
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require('pdf-parse');
-      const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
-      if (fn) {
-        const result = await fn(buffer);
-        const textoLimpo = result?.text?.trim() || '';
-        this.logger.log(`[extrairTextoDoPdf] pdf-parse extraído: ${textoLimpo.length} caracteres`);
-        if (textoLimpo.length > 0) return textoLimpo;
+      this.logger.log('[extrairTextoDoPdf] Tentando extrair via Python...');
+      
+      // Salvar buffer em arquivo temporário
+      const os = require('os');
+      const path = require('path');
+      const fs = require('fs');
+      const { exec } = require('child_process');
+      const util = require('util');
+      const execPromise = util.promisify(exec);
+      
+      const tempDir = os.tmpdir();
+      const tempFile = path.join(tempDir, `pdf-${Date.now()}.pdf`);
+      
+      // Escrever arquivo temporário
+      fs.writeFileSync(tempFile, buffer);
+      
+      try {
+        // Chamar script Python
+        const pythonScript = '/app/docs/contratos/extrair_texto_pdf.py';
+        const { stdout, stderr } = await execPromise(`python3 ${pythonScript} "${tempFile}"`, {
+          timeout: 30000,
+          maxBuffer: 10 * 1024 * 1024, // 10MB
+        });
+        
+        if (stderr && !stdout) {
+          throw new Error(stderr);
+        }
+        
+        const textoLimpo = stdout?.trim() || '';
+        this.logger.log(`[extrairTextoDoPdf] Python extraído: ${textoLimpo.length} caracteres`);
+        
+        if (textoLimpo.length > 0) {
+          return textoLimpo;
+        }
+      } finally {
+        // Limpar arquivo temporário
+        try {
+          fs.unlinkSync(tempFile);
+        } catch { /* ignora erro de cleanup */ }
       }
     } catch (err: any) {
-      this.logger.warn(`[extrairTextoDoPdf] pdf-parse falhou: ${err.message}`);
+      this.logger.warn(`[extrairTextoDoPdf] Python falhou: ${err.message}`);
     }
 
     this.logger.warn('[extrairTextoDoPdf] Nenhum texto extraído');
