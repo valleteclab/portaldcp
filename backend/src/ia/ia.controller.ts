@@ -1,4 +1,5 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Get } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Get, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IaService } from './ia.service';
 
 interface GerarConteudoDto {
@@ -15,6 +16,13 @@ interface ChatDto {
 interface SugerirMelhoriasDto {
   tipoDocumento: string;
   conteudoAtual: string;
+}
+
+interface AnalisarContratoDto {
+  pergunta: string;
+  pdfBase64: string;
+  pdfTexto?: string;
+  historico?: Array<{ role: string; content: string }>;
 }
 
 @Controller('ia')
@@ -79,6 +87,50 @@ export class IaController {
       console.error('Erro ao sugerir melhorias:', error);
       throw new HttpException(
         'Erro ao analisar documento',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('extrair-texto-pdf')
+  @UseInterceptors(FileInterceptor('pdf'))
+  async extrairTextoPdf(@UploadedFile() file: Express.Multer.File) {
+    try {
+      if (!file) {
+        throw new HttpException('Nenhum arquivo enviado', HttpStatus.BAD_REQUEST);
+      }
+
+      const texto = await this.iaService.extrairTextoDoPdf(file.buffer);
+      
+      return { 
+        sucesso: true, 
+        texto,
+        tamanho: texto.length,
+        mensagem: texto.length > 0 ? 'Texto extraído com sucesso' : 'PDF sem texto (pode ser escaneado)'
+      };
+    } catch (error) {
+      console.error('Erro ao extrair texto do PDF:', error);
+      throw new HttpException(
+        'Erro ao processar PDF',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('analisar-contrato')
+  async analisarContrato(@Body() dto: AnalisarContratoDto) {
+    try {
+      const resposta = await this.iaService.analisarContrato(
+        dto.pergunta,
+        dto.pdfBase64,
+        dto.pdfTexto,
+        dto.historico,
+      );
+      return { sucesso: true, resposta };
+    } catch (error) {
+      console.error('Erro ao analisar contrato:', error);
+      throw new HttpException(
+        'Erro ao analisar contrato',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

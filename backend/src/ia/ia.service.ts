@@ -495,4 +495,130 @@ Gere a versão revisada e melhorada:`;
       throw error;
     }
   }
+
+  /**
+   * Extrai texto de um PDF usando pdfjs-dist ou pdf-parse
+   */
+  async extrairTextoDoPdf(buffer: Buffer): Promise<string> {
+    // Tentativa 1: pdfjs-dist
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+      const pdfDoc = await loadingTask.promise;
+      let text = '';
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((item: any) => item.str || '').join(' ');
+        text += pageText + '\n';
+      }
+      if (text.trim().length > 0) return text;
+    } catch { /* fallback */ }
+
+    // Tentativa 2: pdf-parse
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require('pdf-parse');
+      const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
+      if (fn) {
+        const result = await fn(buffer);
+        if (result?.text?.trim().length > 0) return result.text;
+      }
+    } catch { /* ignora */ }
+
+    return '';
+  }
+
+  /**
+   * Analisa contrato via chat com IA (suporta PDFs digitais e escaneados)
+   */
+  async analisarContrato(
+    pergunta: string,
+    pdfBase64: string,
+    pdfTexto?: string,
+    historico?: Array<{ role: string; content: string }>,
+  ): Promise<string> {
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
+
+    // Prompt especializado para análise de contratos
+    const systemPrompt = `Você é um especialista em análise de contratos administrativos brasileiros.
+Você está analisando um contrato público e respondendo perguntas do usuário.
+
+REGRAS:
+1. Responda com base APENAS no conteúdo do contrato fornecido
+2. Seja preciso e cite trechos quando relevante
+3. Para extração de itens, retorne em formato claro e estruturado
+4. Se a informação não estiver no contrato, diga que não foi encontrada
+5. Use linguagem técnica apropriada para contratos públicos
+
+Formatação de resposta:
+- Use markdown para estruturar a resposta
+- Destaque valores, datas e informações importantes
+- Para itens, use tabela quando possível`;
+
+    // Preparar mensagens
+    const messages: Array<{ role: string; content: any }> = [
+      { role: 'system', content: systemPrompt },
+    ];
+
+    // Adicionar histórico se existir
+    if (historico && historico.length > 0) {
+      messages.push(...historico.map(h => ({ role: h.role, content: h.content })));
+    }
+
+    // Preparar conteúdo da pergunta com o PDF
+    let userContent: any;
+    
+    if (!pdfTexto || pdfTexto.length < 200) {
+      // PDF escaneado ou sem texto - usar Vision com base64
+      userContent = [
+        { type: 'text', text: pergunta },
+        {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: pdfBase64,
+          },
+        },
+      ];
+    } else {
+      // PDF digital com texto
+      userContent = `CONTRATO:\n${pdfTexto}\n\nPERGUNTA DO USUÁRIO:\n${pergunta}`;
+    }
+
+    messages.push({ role: 'user', content: userContent });
+
+    try {
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://portaldcp.com.br',
+          'X-Title': 'Portal DCP',
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.3,
+          max_tokens: 4000,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('Erro OpenRouter (analisarContrato):', error);
+        throw new Error(`Erro na API: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0]?.message?.content || 'Não foi possível analisar o contrato.';
+    } catch (error) {
+      console.error('Erro ao analisar contrato:', error);
+      throw error;
+    }
+  }
 }
