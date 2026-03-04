@@ -311,7 +311,7 @@ export class PortalTransparenciaService {
   /**
    * Extrai itens do PDF usando IA
    */
-  async extrairItensDoPdf(pdfBuffer: Buffer): Promise<Array<{
+  async extrairItensDoPdf(pdfBuffer: Buffer, contratoNumero?: string): Promise<Array<{
     descricao: string;
     unidade_medida: string;
     quantidade: number;
@@ -324,13 +324,80 @@ export class PortalTransparenciaService {
       const textoExtraido = await extrairTextoPdf(pdfBuffer);
       
       if (textoExtraido.trim().length < 200) {
-        this.logger.warn('Texto extraído muito curto, PDF pode ser escaneado');
-        return [];
+        this.logger.warn('Texto extraído muito curto, tentando extrair via IA Vision...');
+        // PDF escaneado - usar IA com Vision
+        return await this.extrairItensViaVision(pdfBuffer);
       }
 
       this.logger.log(`Texto extraído: ${textoExtraido.length} caracteres`);
+      return await this.extrairItensViaTexto(textoExtraido);
+    } catch (error) {
+      this.logger.error(`Erro ao extrair itens do PDF: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Extrai itens usando IA com Vision (para PDFs escaneados)
+   */
+  private async extrairItensViaVision(pdfBuffer: Buffer): Promise<Array<any>> {
+    try {
+      const pdfBase64 = pdfBuffer.toString('base64');
       
-      // Prompt específico para extrair apenas itens
+      const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+Analise este PDF de contrato e extraia a tabela de itens/serviços.
+
+REGRAS:
+- Extraia APENAS a lista de itens/serviços do contrato
+- NUNCA invente dados - use apenas o que está no documento
+- Cada item deve ter: descrição completa, unidade de medida, quantidade, valor unitário, valor total
+- Para contratos de serviços, a unidade pode ser: UNIDADE, MESES, CONTRATO GLOBAL, etc.
+- Retorne APENAS JSON válido, sem texto adicional
+
+Schema de retorno:
+{
+  "itens": [
+    {
+      "descricao": "descrição completa do item/serviço",
+      "unidade_medida": "UNIDADE", 
+      "quantidade": 1,
+      "valor_unitario": 85000.00,
+      "valor_total": 85000.00,
+      "quantidade_meses": null
+    }
+  ],
+  "observacoes": "descrição breve do que foi encontrado"
+}
+
+Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item encontrado"}`;
+
+      const respostaIA = await this.iaService.chatComArquivo(
+        promptExtracaoItens,
+        pdfBase64,
+        'application/pdf'
+      );
+
+      const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
+      const dadosExtraidos = JSON.parse(jsonLimpo);
+      
+      if (!Array.isArray(dadosExtraidos.itens)) {
+        this.logger.warn('IA não retornou lista de itens válida');
+        return [];
+      }
+
+      this.logger.log(`Itens extraídos via Vision: ${dadosExtraidos.itens.length}`);
+      return dadosExtraidos.itens;
+    } catch (error) {
+      this.logger.error(`Erro na extração via Vision: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Extrai itens via texto extraído (para PDFs digitais)
+   */
+  private async extrairItensViaTexto(textoExtraido: string): Promise<Array<any>> {
+    try {
       const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
 
 REGRAS:
@@ -364,7 +431,6 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         textoExtraido
       );
 
-      // Limpar e parsear JSON
       const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
       const dadosExtraidos = JSON.parse(jsonLimpo);
       
@@ -373,11 +439,11 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         return [];
       }
 
-      this.logger.log(`Itens extraídos: ${dadosExtraidos.itens.length}`);
+      this.logger.log(`Itens extraídos via texto: ${dadosExtraidos.itens.length}`);
       return dadosExtraidos.itens;
     } catch (error) {
-      this.logger.error(`Erro ao extrair itens do PDF: ${error.message}`);
-      return []; // Retorna array vazio em caso de erro, não quebra o fluxo
+      this.logger.error(`Erro na extração via texto: ${error.message}`);
+      return [];
     }
   }
 

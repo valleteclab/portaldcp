@@ -39,6 +39,20 @@ def parse_valor(s: str) -> float:
 def parsear_itens(texto: str) -> list:
     """
     Parseia o texto do extrato e extrai itens.
+    Tenta compras primeiro, depois serviços.
+    """
+    # Tentar compras primeiro
+    itens = parsear_itens_compras(texto)
+    if itens:
+        return itens
+    
+    # Se não encontrou, tentar serviços
+    return parsear_itens_servicos(texto)
+
+
+def parsear_itens_compras(texto: str) -> list:
+    """
+    Parseia itens de COMPRAS.
     Padrao: 0,00  0,00  [preco] [qtd]  [marca]  [valor_total]  UNIDA
     """
     itens = []
@@ -72,7 +86,7 @@ def parsear_itens(texto: str) -> list:
                 r"^\d{2}/\d{2}/\d{4}\s+VALLETECLAB", r"^Licitacao\s*:", r"^Fornecedor\s*:",
                 r"^\d{2}/\d{4}\s+CONTRATO", r"^Saida\s+Marca", r"^Qtdade\s+Valor",
                 r"^Preco\s+R\$\s+Qtdade", r"^null\s*$", r"^Und\s*$",
-                r"^DE\s+[\d.,]+\s+[\d.,]+$",  # linha "DE 5,00 1.250,00"
+                r"^DE\s+[\d.,]+\s+[\d.,]+$",
             ]
             for j in range(len(descricao_buffer) - 1, -1, -1):
                 d = descricao_buffer[j].strip()
@@ -94,7 +108,7 @@ def parsear_itens(texto: str) -> list:
                 qtd_val = int(qtd) if qtd == int(qtd) else round(qtd, 2)
                 itens.append({
                     "numero_item": numero_item,
-                    "descricao": descricao or "Item " + str(numero_item),
+                    "descricao": descricao or f"Item {numero_item}",
                     "marca": marca or None,
                     "unidade_medida": "UNIDADE",
                     "valor_unitario": round(preco, 2),
@@ -108,6 +122,104 @@ def parsear_itens(texto: str) -> list:
                     descricao_buffer.append(linha)
         i += 1
 
+    return itens
+
+
+def parsear_itens_servicos(texto: str) -> list:
+    """
+    Parseia itens de SERVICOS de tabelas tipo:
+    ITEM | DESCRICAO | UNIDADE | QUANT. | VALOR TOTAL
+    
+    Suporta descricao em multiplas linhas.
+    """
+    itens = []
+    linhas = texto.split("\n")
+    
+    i = 0
+    while i < len(linhas):
+        linha = linhas[i].strip()
+        
+        # Procurar linha que começa com numero de item seguido de descricao
+        # Padrao: "1 Elaboracao..." ou "1  Elaboracao..."
+        match_inicio = re.match(r'^(\d+)\s+(.+)', linha)
+        
+        if match_inicio:
+            num_item = int(match_inicio.group(1))
+            descricao = match_inicio.group(2).strip()
+            
+            # Verificar se nesta mesma linha ja tem UNIDADE/QUANT/VALOR
+            # Padrao: descricao...UNIDADE 01 R$ 85.000,00
+            match_completo = re.search(
+                r'(.*?)\s+(UNIDADE|UN|SERVICO|MESES|HORAS|DIAS|CONTRATO|GLOBAL)\s+(\d+(?:,\d+)?)\s+R?\$?\s*([\d.,]+(?:,\d{2})?)$',
+                descricao, re.IGNORECASE
+            )
+            
+            if match_completo:
+                # Tudo na mesma linha
+                desc = match_completo.group(1).strip()
+                unidade = match_completo.group(2).upper()
+                quant = parse_valor(match_completo.group(3))
+                valor = parse_valor(match_completo.group(4))
+                
+                itens.append({
+                    "numero_item": num_item,
+                    "descricao": desc[:2000],
+                    "marca": None,
+                    "unidade_medida": unidade,
+                    "valor_unitario": round(valor / quant, 2) if quant > 0 else valor,
+                    "quantidade_contratada": int(quant) if quant == int(quant) else quant,
+                })
+            else:
+                # Descricao continua nas proximas linhas
+                # Acumular ate encontrar uma linha com UNIDADE/QUANT/VALOR
+                descricao_acumulada = [descricao]
+                j = i + 1
+                encontrado = False
+                
+                while j < len(linhas) and j < i + 20:  # limite de 20 linhas
+                    linha_seguinte = linhas[j].strip()
+                    
+                    # Verificar se esta linha contem UNIDADE/QUANT/VALOR
+                    match_fim = re.search(
+                        r'(.*?)\s+(UNIDADE|UN|SERVICO|MESES|HORAS|DIAS|CONTRATO|GLOBAL)\s+(\d+(?:,\d+)?)\s+R?\$?\s*([\d.,]+(?:,\d{2})?)',
+                        linha_seguinte, re.IGNORECASE
+                    )
+                    
+                    if match_fim:
+                        # Se tem conteudo antes da unidade, adicionar a descricao
+                        antes = match_fim.group(1).strip()
+                        if antes and not any(x in antes.upper() for x in ['CNPJ', 'RUA ', 'CONTABILIZADO', 'R$ ']):
+                            descricao_acumulada.append(antes)
+                        
+                        unidade = match_fim.group(2).upper()
+                        quant = parse_valor(match_fim.group(3))
+                        valor = parse_valor(match_fim.group(4))
+                        
+                        desc_final = ' '.join(descricao_acumulada)
+                        desc_final = re.sub(r'\s+', ' ', desc_final).strip()
+                        
+                        itens.append({
+                            "numero_item": num_item,
+                            "descricao": desc_final[:2000],
+                            "marca": None,
+                            "unidade_medida": unidade,
+                            "valor_unitario": round(valor / quant, 2) if quant > 0 else valor,
+                            "quantidade_contratada": int(quant) if quant == int(quant) else quant,
+                        })
+                        encontrado = True
+                        i = j  # Avancar para esta linha
+                        break
+                    else:
+                        # Adicionar a descricao se nao for linha de header/ruido
+                        if linha_seguinte and not any(x in linha_seguinte.upper() for x in 
+                            ['CNPJ', 'RUA ', 'CONTABILIZADO', 'TEL:', 'WWW.', 'HTTP', 'CLÁUSULA', 
+                             'ITEM ', 'TOTAL', 'REGISTRO', 'PAGINA', 'DATA:', 'ASSINATURA']):
+                            descricao_acumulada.append(linha_seguinte)
+                    
+                    j += 1
+        
+        i += 1
+    
     return itens
 
 
