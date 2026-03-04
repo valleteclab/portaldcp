@@ -507,8 +507,16 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
           resultado.pdf_baixado = true;
           this.logger.log(`PDF baixado: ${pdfBuffer.length} bytes`);
 
+          // 3.1 Salvar PDF em documentos do contrato
+          try {
+            await this.salvarPdfDocumento(contratoCriado.id, pdfBuffer, contratoApi.contratoNumero);
+            this.logger.log(`PDF salvo em documentos do contrato ${contratoApi.contratoNumero}`);
+          } catch (docError) {
+            this.logger.warn(`Erro ao salvar PDF em documentos: ${docError.message}`);
+          }
+
           // 4. Extrair itens do PDF
-          const itens = await this.extrairItensDoPdf(pdfBuffer);
+          const itens = await this.extrairItensDoPdf(pdfBuffer, contratoApi.contratoNumero);
           
           if (itens.length > 0) {
             resultado.itens_extraidos = true;
@@ -545,6 +553,39 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
     } catch (error) {
       this.logger.error(`Erro na importação completa: ${error.message}`);
       resultado.mensagem = `Erro: ${error.message}`;
+      throw error;
+    }
+  }
+
+  /**
+   * Salva o PDF baixado em documentos do contrato
+   */
+  private async salvarPdfDocumento(
+    contratoId: string,
+    pdfBuffer: Buffer,
+    contratoNumero: string
+  ): Promise<void> {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      // Criar diretório de upload para o contrato
+      const uploadPath = path.join(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), 'contratos', contratoId);
+      if (!fs.existsSync(uploadPath)) {
+        fs.mkdirSync(uploadPath, { recursive: true });
+      }
+
+      // Gerar nome único para o arquivo
+      const timestamp = Date.now();
+      const nomeArquivo = `extrato_portal_${timestamp}.pdf`;
+      const caminhoCompleto = path.join(uploadPath, nomeArquivo);
+
+      // Salvar arquivo
+      fs.writeFileSync(caminhoCompleto, pdfBuffer);
+
+      this.logger.log(`PDF salvo em: ${caminhoCompleto}`);
+    } catch (error) {
+      this.logger.error(`Erro ao salvar PDF em documentos: ${error.message}`);
       throw error;
     }
   }
