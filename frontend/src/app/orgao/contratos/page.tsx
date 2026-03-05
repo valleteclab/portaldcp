@@ -703,14 +703,14 @@ window._extraindoContratos = true;
               <table className="w-full table-fixed">
                 <thead>
                   <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-2 w-24">Contrato</th>
-                    <th className="text-left py-3 px-2 w-48">Fornecedor</th>
-                    <th className="text-left py-3 px-2 w-2/5">Objeto</th>
-                    <th className="text-center py-3 px-2 w-28">Tipo Licitação</th>
+                    <th className="text-left py-3 px-2 w-24 hidden sm:table-cell">Contrato</th>
+                    <th className="text-left py-3 px-2 w-48 hidden md:table-cell">Fornecedor</th>
+                    <th className="text-left py-3 px-2 min-w-[200px] max-w-[400px]">Objeto</th>
+                    <th className="text-center py-3 px-2 w-28 hidden lg:table-cell">Tipo Licitação</th>
                     <th className="text-right py-3 px-2 w-32">Valor</th>
-                    <th className="text-center py-3 px-2 w-28">Vigência</th>
+                    <th className="text-center py-3 px-2 w-28 hidden sm:table-cell">Vigência</th>
                     <th className="text-center py-3 px-2 w-28">Status</th>
-                    <th className="text-center py-3 px-2 w-16">PNCP</th>
+                    <th className="text-center py-3 px-2 w-16 hidden sm:table-cell">PNCP</th>
                     <th className="text-center py-3 px-2 w-32">Ações</th>
                   </tr>
                 </thead>
@@ -728,18 +728,22 @@ window._extraindoContratos = true;
 
                     return (
                       <tr key={contrato.id} className="border-b hover:bg-gray-50 align-top">
-                        <td className="py-3 px-2 align-top">
+                        <td className="py-3 px-2 align-top hidden sm:table-cell">
                           <p className="font-medium">{contrato.numero_contrato}</p>
                           <p className="text-xs text-gray-500">{contrato.numero_processo}</p>
                         </td>
-                        <td className="py-3 px-2 align-top">
+                        <td className="py-3 px-2 align-top hidden md:table-cell">
                           <p className="font-medium">{contrato.fornecedor_razao_social}</p>
                           <p className="text-xs text-gray-500">{contrato.fornecedor_cnpj}</p>
                         </td>
-                        <td className="py-3 px-2 align-top min-w-[200px]">
-                          <p className="text-sm text-gray-700 whitespace-normal break-words">{contrato.objeto}</p>
+                        <td className="py-3 px-2 align-top">
+                          <div className="sm:hidden mb-2">
+                            <p className="font-medium text-sm">{contrato.numero_contrato}</p>
+                            <p className="text-xs text-gray-500">{contrato.fornecedor_razao_social}</p>
+                          </div>
+                          <p className="text-sm text-gray-700 break-words line-clamp-3">{contrato.objeto}</p>
                         </td>
-                        <td className="py-3 px-2 text-center align-top">
+                        <td className="py-3 px-2 text-center align-top hidden lg:table-cell">
                           <span className="text-sm text-gray-600">{formatarModalidadeLicitacao(contrato.licitacao?.modalidade || contrato.modalidade_licitacao)}</span>
                         </td>
                         <td className="py-3 px-2 text-right align-top">
@@ -750,7 +754,7 @@ window._extraindoContratos = true;
                             </div>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-center align-top">
+                        <td className="py-3 px-2 text-center align-top hidden sm:table-cell">
                           <p className="text-sm">{formatarData(contrato.data_vigencia_fim)}</p>
                           {contrato.status === 'VIGENTE' && diasRestantes <= 30 && (
                             <Badge variant="secondary" className="text-xs">
@@ -761,10 +765,11 @@ window._extraindoContratos = true;
                         <td className="py-3 px-2 text-center align-top">
                           <Badge className={STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.cor || ''}>
                             <StatusIcon className="w-3 h-3 mr-1" />
-                            {STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.label || contrato.status}
+                            <span className="hidden sm:inline">{STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.label || contrato.status}</span>
+                            <span className="sm:hidden">{contrato.status}</span>
                           </Badge>
                         </td>
-                        <td className="py-3 px-2 text-center align-top">
+                        <td className="py-3 px-2 text-center align-top hidden sm:table-cell">
                           {contrato.enviado_pncp ? (
                             <CheckCircle className="w-5 h-5 text-green-500 mx-auto" />
                           ) : (
