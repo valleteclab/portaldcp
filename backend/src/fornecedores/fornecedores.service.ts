@@ -1,13 +1,16 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThan } from 'typeorm';
 import { Fornecedor, NivelCadastro, StatusCadastro, PorteEmpresa, TipoPessoa } from './entities/fornecedor.entity';
 import { FornecedorDocumento, StatusDocumento } from './entities/fornecedor-documento.entity';
 import { FornecedorSocio } from './entities/fornecedor-socio.entity';
 import { FornecedorAtividade } from './entities/fornecedor-atividade.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
 import { CnpjService, DadosCnpjFormatados } from './cnpj.service';
+import { EmailService } from '../email/email.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 // Tipo para fornecedor sem senha (segurança)
 export type FornecedorSemSenha = Omit<Fornecedor, 'senha'>;
@@ -23,7 +26,11 @@ export class FornecedoresService {
     private readonly socioRepository: Repository<FornecedorSocio>,
     @InjectRepository(FornecedorAtividade)
     private readonly atividadeRepository: Repository<FornecedorAtividade>,
+    @InjectRepository(PasswordResetToken)
+    private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
     private readonly cnpjService: CnpjService,
+    private readonly emailService: EmailService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   /**
@@ -1231,5 +1238,108 @@ export class FornecedoresService {
       fornecedor: fornecedorSemSenha as Fornecedor,
       token,
     };
+  }
+
+  // === RECUPERAÇÃO DE SENHA ===
+  async solicitarResetSenha(email: string, cpfCnpj: string): Promise<{ message: string }> {
+    const fornecedor = await this.fornecedorRepository.findOne({
+      where: { email, cpf_cnpj: cpfCnpj },
+    });
+
+    if (!fornecedor) {
+      throw new NotFoundException('Fornecedor não encontrado com este email e CPF/CNPJ');
+    }
+
+    // Gera token único
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 2); // Token válido por 2 horas
+
+    // Salva token no banco
+    const resetToken = this.passwordResetTokenRepository.create({
+      fornecedor_id: fornecedor.id,
+      token,
+      expires_at: expiresAt,
+      used: false,
+    });
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    // Monta link de reset
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/resetar-senha/${token}`;
+
+    // Envia por email (usa primeiro órgão disponível para config de email)
+    try {
+      // Busca primeiro órgão ativo para usar config de email
+      const orgaos = await this.fornecedorRepository.manager.getRepository('orgaos').find({ where: { ativo: true }, take: 1 });
+      const orgaoId = orgaos[0]?.id;
+      
+      if (orgaoId) {
+        await this.emailService.enviar(orgaoId, {
+          to: fornecedor.email,
+          subject: 'Recuperação de Senha - Portal DCP',
+          html: `
+            <h2>Recuperação de Senha</h2>
+            <p>Olá, ${fornecedor.razao_social || fornecedor.nome_fantasia},</p>
+            <p>Você solicitou a recuperação de senha no Portal DCP.</p>
+            <p>Clique no link abaixo para redefinir sua senha:</p>
+            <p><a href="${resetLink}">${resetLink}</a></p>
+            <p>Este link é válido por 2 horas.</p>
+            <p>Se você não solicitou esta recuperação, ignore este email.</p>
+          `,
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao enviar email de recuperação:', error);
+    }
+
+    // Envia por WhatsApp se tiver número cadastrado
+    if (fornecedor.telefone) {
+      try {
+        // Busca primeiro órgão com WhatsApp configurado
+        const orgaos = await this.fornecedorRepository.manager.getRepository('orgaos').find({ where: { ativo: true } });
+        const orgaoComWhatsapp = orgaos.find((o: any) => o.whatsapp_instance_id && o.whatsapp_token);
+
+        if (orgaoComWhatsapp) {
+          const telefone = fornecedor.telefone.replace(/\D/g, '');
+          const mensagem = `🔐 *Recuperação de Senha - Portal DCP*\n\nOlá, ${fornecedor.razao_social || fornecedor.nome_fantasia}!\n\nVocê solicitou a recuperação de senha.\n\nClique no link para redefinir:\n${resetLink}\n\n⏰ Válido por 2 horas.`;
+
+          await this.whatsappService.enviar(
+            orgaoComWhatsapp.id,
+            { to: telefone, mensagem }
+          );
+        }
+      } catch (error) {
+        console.error('Erro ao enviar WhatsApp de recuperação:', error);
+      }
+    }
+
+    return { message: 'Instruções de recuperação enviadas para seu email e WhatsApp (se cadastrado)' };
+  }
+
+  async resetarSenha(token: string, novaSenha: string): Promise<{ message: string }> {
+    const resetToken = await this.passwordResetTokenRepository.findOne({
+      where: { 
+        token,
+        used: false,
+        expires_at: MoreThan(new Date()),
+      },
+      relations: ['fornecedor'],
+    });
+
+    if (!resetToken) {
+      throw new BadRequestException('Token inválido ou expirado');
+    }
+
+    // Atualiza senha
+    const senhaHash = this.hashSenha(novaSenha);
+    await this.fornecedorRepository.update(resetToken.fornecedor_id, {
+      senha: senhaHash,
+    });
+
+    // Marca token como usado
+    resetToken.used = true;
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    return { message: 'Senha redefinida com sucesso' };
   }
 }

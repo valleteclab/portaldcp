@@ -204,6 +204,22 @@ export class FornecedoresController {
     };
   }
 
+  @Public()
+  @Post('esqueci-senha')
+  async esqueciSenha(
+    @Body() body: { email: string; cpfCnpj: string }
+  ): Promise<{ message: string }> {
+    return await this.fornecedoresService.solicitarResetSenha(body.email, body.cpfCnpj);
+  }
+
+  @Public()
+  @Post('resetar-senha')
+  async resetarSenha(
+    @Body() body: { token: string; novaSenha: string }
+  ): Promise<{ message: string }> {
+    return await this.fornecedoresService.resetarSenha(body.token, body.novaSenha);
+  }
+
   // === CREDENCIAMENTO ===
   @Post('completar-credenciamento')
   async completarCredenciamento(
