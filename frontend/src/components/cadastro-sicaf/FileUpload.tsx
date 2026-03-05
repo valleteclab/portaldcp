@@ -112,13 +112,27 @@ export function FileUpload({
   }
 
   const handleDownload = () => {
+    let downloadUrl: string | null = null;
+    let filename: string | null = null;
+    
     if (uploadedInfo?.url) {
-      window.open(`${API_URL}${uploadedInfo.url}`, '_blank')
+      downloadUrl = `${API_URL}${uploadedInfo.url}`;
+      filename = uploadedInfo.originalname;
     } else if (savedUrl) {
-      window.open(`${API_URL}${savedUrl}`, '_blank')
+      downloadUrl = `${API_URL}${savedUrl}`;
+      filename = savedFilename;
     } else if (file) {
-      const url = URL.createObjectURL(file)
-      window.open(url, '_blank')
+      downloadUrl = URL.createObjectURL(file);
+      filename = file.name;
+    }
+    
+    if (downloadUrl && filename) {
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   }
 
