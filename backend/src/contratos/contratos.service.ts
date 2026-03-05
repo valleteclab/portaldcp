@@ -13,7 +13,7 @@ import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { HistoricoContrato, TipoAcaoContrato } from './entities/historico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
-import { Medicao } from './entities/medicao.entity';
+import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
 
 @Injectable()
@@ -1343,5 +1343,117 @@ export class ContratosService {
     } catch (error) {
       this.logger.error(`Erro ao notificar liberadores do contrato ${contrato.numero_contrato}: ${error.message}`, error.stack);
     }
+  }
+
+  // ============ EXCLUSÃO DE CONTRATOS ============
+
+  /**
+   * Exclui um contrato e todos os seus dados relacionados.
+   * Apenas usuários com permissão pode_excluir_contratos podem executar esta ação.
+   */
+  async excluirContrato(
+    contratoId: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<void> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      relations: ['itens', 'termos_aditivos', 'documentos', 'medicoes'],
+    });
+
+    if (!contrato) {
+      throw new NotFoundException('Contrato não encontrado');
+    }
+
+    // Verificar se existem requisições vinculadas ao contrato
+    const requisicoesVinculadas = await this.contratoRepository.query(
+      `SELECT COUNT(*) as total FROM requisicoes WHERE contrato_id = $1`,
+      [contratoId],
+    );
+
+    if (requisicoesVinculadas[0]?.total > 0) {
+      throw new BadRequestException(
+        'Não é possível excluir este contrato pois existem requisições vinculadas a ele',
+      );
+    }
+
+    // Verificar se existem ordens de fornecimento vinculadas
+    const ordensVinculadas = await this.contratoRepository.query(
+      `SELECT COUNT(*) as total FROM ordens_fornecimento WHERE contrato_id = $1`,
+      [contratoId],
+    );
+
+    if (ordensVinculadas[0]?.total > 0) {
+      throw new BadRequestException(
+        'Não é possível excluir este contrato pois existem ordens de fornecimento vinculadas a ele',
+      );
+    }
+
+    // Verificar se existem medições aprovadas
+    const medicoesAprovadas = contrato.medicoes?.filter(
+      (m: Medicao) => m.status === StatusMedicao.APROVADA,
+    );
+
+    if (medicoesAprovadas?.length > 0) {
+      throw new BadRequestException(
+        'Não é possível excluir este contrato pois existem medições aprovadas vinculadas',
+      );
+    }
+
+    // Registrar histórico antes da exclusão
+    await this.registrarHistorico({
+      contrato_id: contratoId,
+      tipo_acao: TipoAcaoContrato.EXCLUIDO,
+      descricao: `Contrato ${contrato.numero_contrato} excluído por ${usuarioNome}`,
+      status_anterior: contrato.status as StatusContrato,
+      usuario_id: usuarioId,
+      usuario_nome: usuarioNome,
+    });
+
+    // Excluir documentos físicos
+    if (contrato.documentos?.length > 0) {
+      for (const doc of contrato.documentos) {
+        const caminhoArquivo = path.join(this.uploadPath, contratoId, doc.nome_arquivo);
+        if (fs.existsSync(caminhoArquivo)) {
+          fs.unlinkSync(caminhoArquivo);
+        }
+      }
+      // Remover pasta do contrato se existir
+      const pastaContrato = path.join(this.uploadPath, contratoId);
+      if (fs.existsSync(pastaContrato)) {
+        fs.rmdirSync(pastaContrato, { recursive: true });
+      }
+    }
+
+    // Excluir dados relacionados em ordem (para respeitar constraints de FK)
+    // 1. Excluir itens do contrato
+    if (contrato.itens?.length > 0) {
+      await this.itemContratoRepository.remove(contrato.itens);
+    }
+
+    // 2. Excluir termos aditivos
+    if (contrato.termos_aditivos?.length > 0) {
+      await this.termoAditivoRepository.remove(contrato.termos_aditivos);
+    }
+
+    // 3. Excluir documentos
+    if (contrato.documentos?.length > 0) {
+      await this.documentoContratoRepository.remove(contrato.documentos);
+    }
+
+    // 4. Excluir medições (que não estão aprovadas - já verificado acima)
+    if (contrato.medicoes?.length > 0) {
+      // Excluir atestações mensais primeiro (via contrato_id)
+      await this.atestacaoRepository.delete({ contrato_id: contratoId });
+      await this.medicaoRepository.remove(contrato.medicoes);
+    }
+
+    // 5. Excluir histórico do contrato
+    await this.historicoContratoRepository.delete({ contrato_id: contratoId });
+
+    // 6. Finalmente, excluir o contrato
+    await this.contratoRepository.remove(contrato);
+
+    this.logger.log(`Contrato ${contrato.numero_contrato} (ID: ${contratoId}) excluído por ${usuarioNome}`);
   }
 }

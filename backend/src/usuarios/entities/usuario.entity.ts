@@ -100,6 +100,13 @@ export class Usuario {
   pode_excluir_medicao: boolean;
 
   /**
+   * Indica se o usuário pode excluir contratos.
+   * Apenas usuários com essa permissão podem excluir contratos do sistema.
+   */
+  @Column({ default: false })
+  pode_excluir_contratos: boolean;
+
+  /**
    * Indica se o usuário é fiscal de contrato.
    * Fiscais podem atestar medições, devolver ao fornecedor e acessar o painel de medições.
    */

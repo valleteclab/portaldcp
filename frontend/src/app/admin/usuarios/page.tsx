@@ -90,6 +90,7 @@ interface Usuario {
   pode_cancelar_estornar?: boolean
   pode_liberar_contratos?: boolean
   pode_excluir_medicao?: boolean
+  pode_excluir_contratos?: boolean
   eh_fiscal_contrato?: boolean
   pode_gerenciar_os?: boolean
   pode_receber_patrimonio?: boolean
@@ -1036,6 +1037,20 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-os" className="cursor-pointer">
                       <p className="text-sm font-medium text-indigo-800">Ordens de Serviço</p>
                       <p className="text-xs text-indigo-600">Criar e gerenciar ordens de serviço de contratos</p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-lg">
+                    <Checkbox
+                      id="perm-excluir-contratos"
+                      checked={formUsuario.pode_excluir_contratos}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_excluir_contratos: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-excluir-contratos" className="cursor-pointer">
+                      <p className="text-sm font-medium text-rose-800">Excluir contratos</p>
+                      <p className="text-xs text-rose-600">Permite excluir contratos e todos os dados vinculados</p>
                     </label>
                   </div>
                   <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">

@@ -2,6 +2,10 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../../fornecedores/entities/fornecedor.entity';
+import { ItemContrato } from '../../almoxarifado/entities/item-contrato.entity';
+import { DocumentoContrato } from './documento-contrato.entity';
+import { TermoAditivo } from './termo-aditivo.entity';
+import { Medicao } from './medicao.entity';
 
 export enum TipoContrato {
   CONTRATO = 'CONTRATO',
@@ -257,6 +261,19 @@ export class Contrato {
 
   @Column({ nullable: true })
   usuario_cadastro_nome: string;
+
+  // Relações OneToMany
+  @OneToMany(() => ItemContrato, item => item.contrato)
+  itens: ItemContrato[];
+
+  @OneToMany(() => DocumentoContrato, doc => doc.contrato)
+  documentos: DocumentoContrato[];
+
+  @OneToMany(() => TermoAditivo, termo => termo.contrato)
+  termos_aditivos: TermoAditivo[];
+
+  @OneToMany(() => Medicao, medicao => medicao.contrato)
+  medicoes: Medicao[];
 
   @CreateDateColumn()
   created_at: Date;

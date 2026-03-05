@@ -196,6 +196,27 @@ export class ContratosController {
     return this.contratosService.alterarStatus(id, status, request.user.sub, userName);
   }
 
+  @Delete(':id')
+  async excluirContrato(
+    @Param('id') id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+
+    // Verifica permissão: apenas usuários com pode_excluir_contratos podem excluir
+    if (request.user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+      if (!usuario?.pode_excluir_contratos) {
+        throw new ForbiddenException('Você não tem permissão para excluir contratos');
+      }
+    }
+
+    const userName = await this.resolveUserName(request.user);
+    await this.contratosService.excluirContrato(id, request.user.sub, userName);
+    return { message: 'Contrato excluído com sucesso' };
+  }
+
   // ============ LIBERAÇÃO DE CONTRATOS ============
 
   @Post(':id/liberar')

@@ -37,9 +37,11 @@ import {
   FileCheck,
   Info,
   MessageCircle,
-  Building2
+  Building2,
+  Trash2
 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -165,6 +167,12 @@ function ContratosOrgaoPageContent() {
   const [abaImportacao, setAbaImportacao] = useState<'upload' | 'script'>('upload')
   const [scriptCopiado, setScriptCopiado] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+
+  // Estados para exclusão de contrato
+  const [contratoParaExcluir, setContratoParaExcluir] = useState<Contrato | null>(null)
+  const [showConfirmarExclusao, setShowConfirmarExclusao] = useState(false)
+  const [excluindoContrato, setExcluindoContrato] = useState(false)
+  const [podeExcluirContratos, setPodeExcluirContratos] = useState(false)
 
   const scriptExtracao = `// Script de Extração - Portal de Transparência (v4)
 // Cole no Console (F12) na página de contratos do portal
@@ -307,7 +315,29 @@ window._extraindoContratos = true;
   useEffect(() => {
     carregarDados()
     verificarWhatsapp()
+    verificarPermissaoExclusao()
   }, [])
+
+  const verificarPermissaoExclusao = () => {
+    // Verifica se usuário é admin ou tem permissão de excluir contratos
+    const userStr = localStorage.getItem('user')
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr)
+        // Admin sempre pode excluir
+        if (user.role === 'ADMIN' || user.tipo === 'ADMIN') {
+          setPodeExcluirContratos(true)
+          return
+        }
+        // Verifica permissão específica
+        if (user.pode_excluir_contratos) {
+          setPodeExcluirContratos(true)
+        }
+      } catch {
+        // ignora erro
+      }
+    }
+  }
 
   const verificarWhatsapp = async () => {
     try {
@@ -407,6 +437,34 @@ window._extraindoContratos = true;
       setErroSolicitar(e instanceof Error ? e.message : 'Erro ao enviar')
     }
     setLoadingSolicitar(false)
+  }
+
+  const handleExcluirContrato = (contrato: Contrato) => {
+    setContratoParaExcluir(contrato)
+    setShowConfirmarExclusao(true)
+  }
+
+  const confirmarExclusaoContrato = async () => {
+    if (!contratoParaExcluir) return
+    setExcluindoContrato(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoParaExcluir.id}`, {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        setShowConfirmarExclusao(false)
+        setContratoParaExcluir(null)
+        carregarDados()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.message || 'Erro ao excluir contrato')
+      }
+    } catch (error) {
+      console.error('Erro ao excluir contrato:', error)
+      alert('Erro ao excluir contrato')
+    } finally {
+      setExcluindoContrato(false)
+    }
   }
 
   const contratosFiltrados = contratos.filter(contrato => {
@@ -779,6 +837,17 @@ window._extraindoContratos = true;
                                 <Send className="w-4 h-4" />
                               </Button>
                             )}
+                            {podeExcluirContratos && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                title="Excluir contrato"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => handleExcluirContrato(contrato)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1081,6 +1150,40 @@ window._extraindoContratos = true;
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Confirmação de Exclusão */}
+      <AlertDialog open={showConfirmarExclusao} onOpenChange={setShowConfirmarExclusao}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" />
+              Confirmar Exclusão
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir o contrato{' '}
+              <strong>{contratoParaExcluir?.numero_contrato}</strong> - {contratoParaExcluir?.fornecedor_razao_social}?
+              <br /><br />
+              <span className="text-red-600 font-medium">
+                Esta ação não pode ser desfeita. Todos os dados vinculados (itens, medições, documentos) serão permanentemente excluídos.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindoContrato}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmarExclusaoContrato}
+              disabled={excluindoContrato}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {excluindoContrato ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Excluindo...</>
+              ) : (
+                <><Trash2 className="w-4 h-4 mr-2" /> Sim, excluir</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

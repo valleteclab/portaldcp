@@ -12,6 +12,7 @@ export enum TipoAcaoContrato {
   // Ciclo de vida
   CRIADO = 'CRIADO',
   EDITADO = 'EDITADO',
+  EXCLUIDO = 'EXCLUIDO',
 
   // Fluxo de liberação
   ENVIADO_LIBERACAO = 'ENVIADO_LIBERACAO',
