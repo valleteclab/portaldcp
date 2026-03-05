@@ -120,7 +120,7 @@ export function FileUpload({
       filename = uploadedInfo.originalname;
     } else if (savedUrl) {
       downloadUrl = `${API_URL}${savedUrl}`;
-      filename = savedFilename;
+      filename = savedFilename || null;
     } else if (file) {
       downloadUrl = URL.createObjectURL(file);
       filename = file.name;
