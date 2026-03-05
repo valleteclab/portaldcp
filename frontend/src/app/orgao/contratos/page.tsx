@@ -320,33 +320,22 @@ window._extraindoContratos = true;
 
   const verificarPermissaoExclusao = () => {
     // Verifica se usuário é admin ou tem permissão de excluir contratos
-    const userStr = localStorage.getItem('orgao')
-    console.log('DEBUG - localStorage orgao:', userStr)
+    const userStr = localStorage.getItem('usuario')
     if (userStr) {
       try {
         const user = JSON.parse(userStr)
-        console.log('DEBUG - user parsed:', user)
-        console.log('DEBUG - user.role:', user.role)
-        console.log('DEBUG - user.tipo:', user.tipo)
-        console.log('DEBUG - user.pode_excluir_contratos:', user.pode_excluir_contratos)
         // Admin sempre pode excluir
         if (user.role === 'ADMIN' || user.tipo === 'ADMIN') {
-          console.log('DEBUG - é admin, permitindo exclusão')
           setPodeExcluirContratos(true)
           return
         }
         // Verifica permissão específica
         if (user.pode_excluir_contratos) {
-          console.log('DEBUG - tem permissão pode_excluir_contratos')
           setPodeExcluirContratos(true)
-        } else {
-          console.log('DEBUG - NÃO tem permissão pode_excluir_contratos')
         }
-      } catch (e) {
-        console.error('DEBUG - erro ao parse user:', e)
+      } catch {
+        // ignora erro
       }
-    } else {
-      console.log('DEBUG - não encontrou orgao no localStorage')
     }
   }
 
