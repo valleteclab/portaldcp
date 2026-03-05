@@ -62,6 +62,10 @@ export class UploadController {
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
 
     const filePath = this.uploadService.getFilePath(`${safeTipo}/${safeSubdir}`, safeFilename);
+    
+    // Debug: log do caminho
+    console.log(`[DEBUG] Buscando arquivo: ${filePath}`);
+    console.log(`[DEBUG] Tipo: ${safeTipo}, Subdir: ${safeSubdir}, Filename: ${safeFilename}`);
 
     if (!existsSync(filePath)) {
       throw new NotFoundException('Arquivo não encontrado');

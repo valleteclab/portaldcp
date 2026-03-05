@@ -183,9 +183,12 @@ export class FornecedorMedicaoController {
       destination: (req: any, file, cb) => {
         const medicaoId = req.params.medicaoId;
         const dir = join(uploadDir, 'medicoes', medicaoId);
+        console.log(`[DEBUG UPLOAD] uploadDir: ${uploadDir}`);
+        console.log(`[DEBUG UPLOAD] Destino: ${dir}`);
         try {
           if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
+            console.log(`[DEBUG UPLOAD] Diretório criado: ${dir}`);
           }
           cb(null, dir);
         } catch (e) {
@@ -272,6 +275,11 @@ export class FornecedorMedicaoController {
     const tipoAnexo = tipo === 'DOCUMENTO' ? TipoAnexoMedicao.DOCUMENTO : TipoAnexoMedicao.FOTO;
     const pastaUpload = `medicoes/${medicaoId}`;
     const fileUrl = this.uploadService.getFileUrl(pastaUpload, file.filename);
+    
+    console.log(`[DEBUG UPLOAD] Arquivo salvo em: ${file.path}`);
+    console.log(`[DEBUG UPLOAD] URL gerada: ${fileUrl}`);
+    console.log(`[DEBUG UPLOAD] pastaUpload: ${pastaUpload}`);
+    console.log(`[DEBUG UPLOAD] filename: ${file.filename}`);
 
     // Salvar registro no banco
     const anexo = this.anexoRepository.create({
