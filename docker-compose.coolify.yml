@@ -1,6 +1,40 @@
 version: '3.8'
 
 services:
+  # ============ BANCO DE DADOS ============
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-portaldcp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-PortalDCP2026!Secure}
+      POSTGRES_DB: ${DB_DATABASE:-portaldcp}
+      TZ: America/Sao_Paulo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - portaldcp-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-portaldcp} -d ${DB_DATABASE:-portaldcp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ REDIS (CACHE/SESSÕES) ============
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - portaldcp-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ============ BACKEND (API NESTJS) ============
   backend:
     build:
@@ -9,21 +43,21 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_DATABASE: ${DB_DATABASE}
-      JWT_SECRET: ${JWT_SECRET}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-portaldcp}
+      DB_PASSWORD: ${DB_PASSWORD:-PortalDCP2026!Secure}
+      DB_DATABASE: ${DB_DATABASE:-portaldcp}
+      JWT_SECRET: ${JWT_SECRET:-PortalDCP2026JWTSecretKeyMuitoSegura!}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      APP_URL: ${APP_URL}
-      API_URL: ${API_URL}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:3001}
       PNCP_API_URL: ${PNCP_API_URL:-https://treina.pncp.gov.br/api/pncp/v1}
-      PNCP_LOGIN: ${PNCP_LOGIN}
-      PNCP_SENHA: ${PNCP_SENHA}
-      PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO}
+      PNCP_LOGIN: ${PNCP_LOGIN:-}
+      PNCP_SENHA: ${PNCP_SENHA:-}
+      PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO:-}
       UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-52428800}
       UPLOAD_DEST: /app/uploads
       TZ: America/Sao_Paulo
@@ -31,6 +65,11 @@ services:
       - "3001:3001"
     volumes:
       - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - portaldcp-net
     healthcheck:
@@ -67,6 +106,10 @@ services:
       start_period: 30s
 
 volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
   uploads_data:
     driver: local
 
