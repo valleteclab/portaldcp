@@ -74,7 +74,7 @@ import { AgenteContratosModule } from './agente-contratos/agente-contratos.modul
       synchronize: process.env.NODE_ENV !== 'production' && process.env.SYNCHRONIZE !== 'false',
       migrations: process.env.NODE_ENV === 'production' ? ['dist/migrations/*.js'] : [],
       migrationsRun: process.env.NODE_ENV === 'production',
-      ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+      ssl: process.env.DB_SSL === 'false' ? false : (process.env.DATABASE_URL ? { rejectUnauthorized: false } : false),
       extra: {
         options: '-c timezone=UTC',
       },
