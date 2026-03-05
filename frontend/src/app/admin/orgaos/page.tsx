@@ -370,8 +370,8 @@ export default function AdminOrgaosPage() {
           email_imap_port: cfg.email_imap_port ?? 993,
           email_imap_user: cfg.email_imap_user || '',
           email_imap_senha: '',
-          // Resend
-          email_resend_api_key: '',
+          // Resend - se retornar '***' significa que já está configurado
+          email_resend_api_key: cfg.email_resend_api_key === '***' ? '***' : '',
           email_resend_from: cfg.email_resend_from || '',
         })
       }
@@ -398,13 +398,16 @@ export default function AdminOrgaosPage() {
     
     // Validações específicas para Resend
     if (formEmail.email_metodo === 'RESEND') {
+      const temApiKey = formEmail.email_resend_api_key && formEmail.email_resend_api_key !== ''
+      const temEmailFrom = formEmail.email_resend_from && formEmail.email_resend_from !== ''
+      
       // Se não preencher nenhum campo, assume que vai usar variável global
-      if (!formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+      if (!temApiKey && !temEmailFrom) {
         // OK - vai usar variáveis de ambiente
-      } else if (formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+      } else if (temApiKey && !temEmailFrom) {
         alert('Se preencher a API Key, também preencha o email de origem.')
         return
-      } else if (!formEmail.email_resend_api_key && formEmail.email_resend_from) {
+      } else if (!temApiKey && temEmailFrom) {
         alert('Se preencher o email de origem, também preencha a API Key.')
         return
       }
@@ -419,7 +422,8 @@ export default function AdminOrgaosPage() {
           ...formEmail,
           email_smtp_senha: formEmail.email_smtp_senha || undefined,
           email_imap_senha: formEmail.email_imap_senha || undefined,
-          email_resend_api_key: formEmail.email_resend_api_key || undefined,
+          // Só envia API Key se não for o placeholder '***'
+          email_resend_api_key: (formEmail.email_resend_api_key && formEmail.email_resend_api_key !== '***') ? formEmail.email_resend_api_key : undefined,
           email_resend_from: formEmail.email_resend_from || undefined
         })
       })
@@ -456,13 +460,16 @@ export default function AdminOrgaosPage() {
     
     // Validações específicas para Resend
     if (formEmail.email_metodo === 'RESEND') {
+      const temApiKey = formEmail.email_resend_api_key && formEmail.email_resend_api_key !== ''
+      const temEmailFrom = formEmail.email_resend_from && formEmail.email_resend_from !== ''
+      
       // Se não preencher nenhum campo, assume que vai usar variável global
-      if (!formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+      if (!temApiKey && !temEmailFrom) {
         // OK - vai usar variáveis de ambiente
-      } else if (formEmail.email_resend_api_key && !formEmail.email_resend_from) {
+      } else if (temApiKey && !temEmailFrom) {
         alert('Se preencher a API Key, também preencha o email de origem.')
         return
-      } else if (!formEmail.email_resend_api_key && formEmail.email_resend_from) {
+      } else if (!temApiKey && temEmailFrom) {
         alert('Se preencher o email de origem, também preencha a API Key.')
         return
       }

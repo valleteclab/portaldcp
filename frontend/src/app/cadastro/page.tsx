@@ -13,7 +13,8 @@ import {
   ArrowRight,
   Shield,
   FileCheck,
-  Users
+  Users,
+  Phone
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -25,6 +26,7 @@ import { API_URL, getAuthHeaders } from '@/lib/api'
 export default function CadastroPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
+  const [whatsapp, setWhatsapp] = useState("")
   const [senha, setSenha] = useState("")
   const [confirmarSenha, setConfirmarSenha] = useState("")
   const [showSenha, setShowSenha] = useState(false)
@@ -37,8 +39,13 @@ export default function CadastroPage() {
     setError("")
 
     // Validações
-    if (!email || !senha || !confirmarSenha) {
+    if (!email || !whatsapp || !senha || !confirmarSenha) {
       setError("Preencha todos os campos")
+      return
+    }
+
+    if (whatsapp.replace(/\D/g, '').length < 10) {
+      setError("WhatsApp inválido. Digite com DDD (ex: 77987557764)")
       return
     }
 
@@ -58,7 +65,7 @@ export default function CadastroPage() {
       const response = await fetch(`${API_URL}/api/fornecedores/registro`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, senha }),
+        body: JSON.stringify({ email, senha, telefone: whatsapp }),
       })
 
       const data = await response.json()
@@ -203,6 +210,22 @@ export default function CadastroPage() {
                           onChange={(e) => setEmail(e.target.value)}
                         />
                       </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="whatsapp">WhatsApp *</Label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="whatsapp"
+                          type="tel"
+                          placeholder="(77) 98755-7764"
+                          className="pl-10"
+                          value={whatsapp}
+                          onChange={(e) => setWhatsapp(e.target.value)}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Usado para recuperação de senha</p>
                     </div>
 
                     <div className="space-y-2">
