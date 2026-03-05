@@ -320,7 +320,7 @@ window._extraindoContratos = true;
 
   const verificarPermissaoExclusao = () => {
     // Verifica se usuário é admin ou tem permissão de excluir contratos
-    const userStr = localStorage.getItem('user')
+    const userStr = localStorage.getItem('orgao')
     if (userStr) {
       try {
         const user = JSON.parse(userStr)
