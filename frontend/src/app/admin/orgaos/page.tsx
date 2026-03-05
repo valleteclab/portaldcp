@@ -419,7 +419,8 @@ export default function AdminOrgaosPage() {
           ...formEmail,
           email_smtp_senha: formEmail.email_smtp_senha || undefined,
           email_imap_senha: formEmail.email_imap_senha || undefined,
-          email_resend_api_key: formEmail.email_resend_api_key || undefined
+          email_resend_api_key: formEmail.email_resend_api_key || undefined,
+          email_resend_from: formEmail.email_resend_from || undefined
         })
       })
       if (res.ok) {
