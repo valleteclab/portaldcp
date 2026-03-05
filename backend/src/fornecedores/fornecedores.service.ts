@@ -1269,12 +1269,19 @@ export class FornecedoresService {
 
     // Envia por email (usa primeiro órgão disponível para config de email)
     try {
-      // Busca primeiro órgão ativo para usar config de email
-      const orgaos = await this.fornecedorRepository.manager.getRepository('orgaos').find({ where: { ativo: true }, take: 1 });
-      const orgaoId = orgaos[0]?.id;
+      // Busca primeiro órgão ativo com configuração de email (Resend ou SMTP)
+      const orgaos = await this.fornecedorRepository.manager.getRepository('orgaos').find({ 
+        where: { ativo: true },
+      });
       
-      if (orgaoId) {
-        await this.emailService.enviar(orgaoId, {
+      // Prioriza órgão com Resend configurado, depois SMTP
+      const orgaoComEmail = orgaos.find((o: any) => 
+        (o.email_metodo === 'RESEND' && o.email_resend_api_key && o.email_resend_from) ||
+        (o.email_metodo === 'SMTP' && o.email_smtp_host && o.email_smtp_user)
+      );
+      
+      if (orgaoComEmail) {
+        await this.emailService.enviar(orgaoComEmail.id, {
           to: fornecedor.email,
           subject: 'Recuperação de Senha - Portal DCP',
           html: `
