@@ -132,6 +132,9 @@ export class EmailService {
       cache: false,
     });
     
+    // Debug: log do objeto completo
+    this.logger.log(`[DEBUG] Orgao lido do banco: ${JSON.stringify(orgao)}`);
+    
     // Default to SMTP for backwards compatibility
     const metodo = orgao?.email_metodo || 'SMTP';
     this.logger.log(`Email config para orgao ${orgaoId}: metodo=${metodo}`);
