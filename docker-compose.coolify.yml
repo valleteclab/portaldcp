@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # ============ BACKEND (API NESTJS) ============
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      APP_URL: ${APP_URL}
+      API_URL: ${API_URL}
+      PNCP_API_URL: ${PNCP_API_URL:-https://treina.pncp.gov.br/api/pncp/v1}
+      PNCP_LOGIN: ${PNCP_LOGIN}
+      PNCP_SENHA: ${PNCP_SENHA}
+      PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO}
+      UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-52428800}
+      UPLOAD_DEST: /app/uploads
+      TZ: America/Sao_Paulo
+    ports:
+      - "3001:3001"
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - portaldcp-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============ FRONTEND (NEXTJS) ============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${API_URL}
+      TZ: America/Sao_Paulo
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - portaldcp-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  uploads_data:
+    driver: local
+
+networks:
+  portaldcp-net:
+    driver: bridge
