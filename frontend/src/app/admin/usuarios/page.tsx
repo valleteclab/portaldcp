@@ -157,6 +157,7 @@ export default function AdminUsuariosPage() {
     pode_cancelar_estornar: false,
     pode_liberar_contratos: false,
     pode_excluir_medicao: false,
+    pode_excluir_contratos: false,
     eh_fiscal_contrato: false,
     pode_gerenciar_os: false,
     pode_receber_patrimonio: false,
