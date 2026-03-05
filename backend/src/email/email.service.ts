@@ -71,6 +71,7 @@ export class EmailService {
     const orgao = await this.orgaoRepository.findOne({
       where: { id: orgaoId },
       select: ['id', 'email_smtp_host', 'email_smtp_port', 'email_smtp_secure', 'email_smtp_user', 'email_smtp_senha', 'email_from'],
+      cache: false,
     });
     if (!orgao?.email_smtp_host || !orgao?.email_smtp_user) return null;
     const senha = orgao.email_smtp_senha ? this.decryptText(orgao.email_smtp_senha) : '';
@@ -92,6 +93,7 @@ export class EmailService {
     const orgao = await this.orgaoRepository.findOne({
       where: { id: orgaoId },
       select: ['id', 'email_resend_api_key', 'email_resend_from'],
+      cache: false,
     });
     
     this.logger.log(`Resend config para orgao ${orgaoId}: email_resend_api_key=${orgao?.email_resend_api_key ? '***' : 'null'}, email_resend_from=${orgao?.email_resend_from || 'null'}`);
@@ -127,6 +129,7 @@ export class EmailService {
     const orgao = await this.orgaoRepository.findOne({
       where: { id: orgaoId },
       select: ['id', 'email_metodo'],
+      cache: false,
     });
     
     // Default to SMTP for backwards compatibility
