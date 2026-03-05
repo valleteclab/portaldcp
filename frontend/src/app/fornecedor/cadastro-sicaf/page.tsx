@@ -113,6 +113,7 @@ export default function CadastroSicafPage() {
                 cargo: fornecedorDb.representante_cargo || '',
                 email: fornecedorDb.representante_email || fornecedorDb.email || '',
                 telefone: fornecedorDb.representante_telefone || '',
+                whatsapp: fornecedorDb.representante_whatsapp || '',
               })
               setFiscalEstadual(prev => ({
                 ...prev,
@@ -305,7 +306,7 @@ export default function CadastroSicafPage() {
   // Estado do Credenciamento
   const [dadosCnpj, setDadosCnpj] = useState<DadosCnpj | null>(null)
   const [representante, setRepresentante] = useState<Representante>({
-    nome: '', cpf: '', cargo: '', email: '', telefone: ''
+    nome: '', cpf: '', cargo: '', email: '', telefone: '', whatsapp: ''
   })
   const [usarProcurador, setUsarProcurador] = useState(false)
   const [procurador, setProcurador] = useState<Procurador>({

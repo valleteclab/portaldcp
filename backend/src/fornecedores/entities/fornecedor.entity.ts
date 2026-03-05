@@ -93,6 +93,9 @@ export class Fornecedor {
   @Column({ nullable: true })
   representante_telefone: string;
 
+  @Column({ nullable: true })
+  representante_whatsapp: string;
+
   // === CONTROLE DE NÍVEIS ===
   @Column({
     type: 'enum',

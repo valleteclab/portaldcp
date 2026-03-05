@@ -299,6 +299,15 @@ export function CredenciamentoTab({
                 placeholder="(00) 00000-0000"
               />
             </div>
+            <div className="space-y-2">
+              <Label>WhatsApp *</Label>
+              <Input
+                value={representante.whatsapp}
+                onChange={(e) => setRepresentante({...representante, whatsapp: e.target.value})}
+                placeholder="(00) 00000-0000"
+              />
+              <p className="text-xs text-muted-foreground">Usado para recuperação de senha</p>
+            </div>
             <div className="col-span-2 space-y-2">
               <Label>E-mail</Label>
               <Input

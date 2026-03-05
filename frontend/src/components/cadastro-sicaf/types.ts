@@ -66,6 +66,7 @@ export interface Representante {
   cargo: string
   email: string
   telefone: string
+  whatsapp: string
 }
 
 export interface Procurador {

@@ -94,6 +94,10 @@ export class CreateFornecedorDto {
   @IsOptional()
   representante_telefone?: string;
 
+  @IsString()
+  @IsOptional()
+  representante_whatsapp?: string;
+
   // CNAEs
   @IsArray()
   @IsOptional()
@@ -149,6 +153,10 @@ export class UpdateFornecedorDto {
   @IsString()
   @IsOptional()
   site?: string;
+
+  @IsString()
+  @IsOptional()
+  representante_whatsapp?: string;
 
   @IsEnum(PorteEmpresa)
   @IsOptional()
