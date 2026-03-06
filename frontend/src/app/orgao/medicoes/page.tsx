@@ -17,9 +17,10 @@ import {
   ClipboardCheck, TrendingUp, Search, Building2, FileText,
   Loader2, AlertTriangle, ChevronRight, ChevronLeft, CheckCircle, Clock,
   Send, XCircle, Calendar, History, Mail, Eye, Shield, RotateCcw, ChevronDown,
-  MessageCircle,
+  MessageCircle, FileDown,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
+import { gerarPdfMedicao, type DadosMedicaoPdf } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
@@ -1412,6 +1413,64 @@ export default function MedicoesPage() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
+            {modalAteste && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
+                onClick={() => {
+                  const itensItem = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma').map((i: any) => ({
+                    numero: i.item_numero || i.etapa_numero || 0,
+                    descricao: i.item_descricao || i.etapa_descricao || '',
+                    unidade: i.item_unidade || '',
+                    quantidade_total: Number(i.item_quantidade_total || 0),
+                    quantidade_acumulada: Number(i.quantidade_medida || 0),
+                    quantidade_medida: Number(i.quantidade_medida || 0),
+                    valor_unitario: Number(i.item_valor_unitario || 0),
+                    valor_medido: Number(i.valor_medido || 0),
+                  }))
+                  const itensEtapa = (modalAteste.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({
+                    numero: i.etapa_numero || 0,
+                    descricao: i.etapa_descricao || '',
+                    percentual_fisico: Number(i.etapa_percentual_fisico || 0),
+                    percentual_executado_anterior: Number(i.percentual_executado_anterior || 0),
+                    percentual_executado_atual: Number(i.percentual_executado_atual || 0),
+                    valor_previsto: Number(i.etapa_valor_previsto || 0),
+                    valor_medido: Number(i.valor_medido || 0),
+                  }))
+                  const dadosPdf: DadosMedicaoPdf = {
+                    numero_contrato: modalAteste.contrato?.numero_contrato || modalAteste.numero_contrato || '',
+                    objeto_contrato: modalAteste.contrato?.objeto || modalAteste.objeto_contrato || '',
+                    orgao_nome: modalAteste.contrato?.orgao?.nome || '',
+                    fornecedor_nome: modalAteste.contrato?.fornecedor_razao_social || modalAteste.fornecedor_nome || '',
+                    fornecedor_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
+                    numero_medicao: modalAteste.numero_medicao,
+                    periodo_inicio: modalAteste.periodo_inicio || '',
+                    periodo_fim: modalAteste.periodo_fim || '',
+                    valor_medido: Number(modalAteste.valor_medido || 0),
+                    valor_acumulado: Number(modalAteste.valor_acumulado_atual || 0),
+                    percentual_fisico: Number(modalAteste.percentual_fisico_medido || 0),
+                    nota_fiscal_numero: modalAteste.nota_fiscal_numero || undefined,
+                    nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,
+                    itens: itensItem.length > 0 ? itensItem : undefined,
+                    etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
+                    assinatura_fornecedor: modalAteste.data_submissao ? {
+                      nome: modalAteste.fornecedor_nome || '',
+                      cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
+                      data_hora: new Date(modalAteste.data_submissao).toLocaleString('pt-BR'),
+                    } : undefined,
+                    assinatura_fiscal: modalAteste.ateste_fiscal_nome ? {
+                      nome: modalAteste.ateste_fiscal_nome,
+                      data_hora: modalAteste.ateste_data ? new Date(modalAteste.ateste_data).toLocaleString('pt-BR') : '',
+                    } : undefined,
+                  }
+                  gerarPdfMedicao(dadosPdf)
+                }}
+              >
+                <FileDown className="w-4 h-4" />
+                Baixar PDF
+              </Button>
+            )}
             {modalAteste && (() => {
               const itens = (modalAteste.itens || []) as any[]
               const temSelecionados = itens.some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)

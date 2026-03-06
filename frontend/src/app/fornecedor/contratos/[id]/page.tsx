@@ -50,8 +50,10 @@ import {
   Image,
   Download,
   Upload,
+  FileDown,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
+import { gerarPdfMedicao, type DadosMedicaoPdf } from '@/lib/pdf-medicao';
 
 // ============ INTERFACES ============
 
@@ -2113,6 +2115,72 @@ export default function FornecedorContratoDetalhePage() {
                   <p className="text-sm text-red-700">{medicaoDetalhe.observacao_aprovador}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Botão Baixar PDF */}
+          {medicaoDetalhe && (
+            <div className="flex justify-end pt-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
+                onClick={() => {
+                  const itensItem = (medicaoDetalhe.itens || [])
+                    .filter((i: any) => i.tipo_item === 'item_cronograma')
+                    .map((i: any) => ({
+                      numero: i.item_numero || i.etapa_numero || 0,
+                      descricao: i.item_descricao || i.etapa_descricao || '',
+                      unidade: i.item_unidade || '',
+                      quantidade_total: Number(i.item_quantidade_total || 0),
+                      quantidade_acumulada: Number(i.item_quantidade_total || 0) - Number(i.item_quantidade_total || 0) + Number(i.quantidade_medida || 0),
+                      quantidade_medida: Number(i.quantidade_medida || 0),
+                      valor_unitario: Number(i.item_valor_unitario || 0),
+                      valor_medido: Number(i.valor_medido || 0),
+                    }))
+                  const itensEtapa = (medicaoDetalhe.itens || [])
+                    .filter((i: any) => i.tipo_item !== 'item_cronograma')
+                    .map((i: any) => ({
+                      numero: i.etapa_numero || 0,
+                      descricao: i.etapa_descricao || '',
+                      percentual_fisico: Number(i.etapa_percentual_fisico || 0),
+                      percentual_executado_anterior: Number(i.percentual_executado_anterior || 0),
+                      percentual_executado_atual: Number(i.percentual_executado_atual || 0),
+                      valor_previsto: Number(i.etapa_valor_previsto || 0),
+                      valor_medido: Number(i.valor_medido || 0),
+                    }))
+                  const dadosPdf: DadosMedicaoPdf = {
+                    numero_contrato: contrato?.numero_contrato || '',
+                    objeto_contrato: contrato?.objeto || '',
+                    orgao_nome: contrato?.orgao?.nome || '',
+                    fornecedor_nome: fornecedor?.razao_social || fornecedor?.nome || '',
+                    fornecedor_cnpj: fornecedor?.cpf_cnpj || '',
+                    numero_medicao: medicaoDetalhe.numero_medicao,
+                    periodo_inicio: medicaoDetalhe.periodo_inicio || '',
+                    periodo_fim: medicaoDetalhe.periodo_fim || '',
+                    valor_medido: Number(medicaoDetalhe.valor_medido || 0),
+                    valor_acumulado: Number(medicaoDetalhe.valor_acumulado_atual || 0),
+                    percentual_fisico: Number(medicaoDetalhe.percentual_fisico_medido || 0),
+                    nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
+                    nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
+                    itens: itensItem.length > 0 ? itensItem : undefined,
+                    etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
+                    assinatura_fornecedor: medicaoDetalhe.data_submissao ? {
+                      nome: fornecedor?.razao_social || fornecedor?.nome || medicaoDetalhe.fornecedor_nome || '',
+                      cnpj: fornecedor?.cpf_cnpj || '',
+                      data_hora: new Date(medicaoDetalhe.data_submissao).toLocaleString('pt-BR'),
+                    } : undefined,
+                    assinatura_fiscal: medicaoDetalhe.ateste_fiscal_nome ? {
+                      nome: medicaoDetalhe.ateste_fiscal_nome,
+                      data_hora: medicaoDetalhe.ateste_data ? new Date(medicaoDetalhe.ateste_data).toLocaleString('pt-BR') : '',
+                    } : undefined,
+                  }
+                  gerarPdfMedicao(dadosPdf)
+                }}
+              >
+                <FileDown className="w-4 h-4" />
+                Baixar PDF
+              </Button>
             </div>
           )}
         </DialogContent>
