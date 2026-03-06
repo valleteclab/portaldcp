@@ -758,12 +758,12 @@ function NovaRequisicaoForm() {
     carregarCronograma();
   }, [contratoSelecionado?.id, tipo]);
 
-  // Preencher descricaoOS com objeto do contrato quando usarEtapasCronograma
+  // Preencher descricaoOS com objeto do contrato sempre que for OS e tiver contrato selecionado
   useEffect(() => {
-    if (usarEtapasCronograma && contratoSelecionado?.objeto && !descricaoOS) {
+    if (isOS && contratoSelecionado?.objeto && !descricaoOS) {
       setDescricaoOS(contratoSelecionado.objeto);
     }
-  }, [usarEtapasCronograma, contratoSelecionado?.objeto]);
+  }, [isOS, contratoSelecionado?.objeto]);
 
   // Aplicar contrato do rascunho após carregar contratos
   useEffect(() => {
@@ -2034,24 +2034,7 @@ function NovaRequisicaoForm() {
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Setor Solicitante *</Label>
-                <Input
-                  value={setorSolicitante}
-                  onChange={(e) => setSetorSolicitante(e.target.value)}
-                  placeholder="Ex: Departamento de Engenharia"
-                />
-              </div>
-              <div>
-                <Label>Código do Setor</Label>
-                <Input
-                  value={codigoSetor}
-                  onChange={(e) => setCodigoSetor(e.target.value)}
-                  placeholder="Ex: DENG-001"
-                />
-              </div>
-            </div>
+            {renderSetorFields()}
 
             <div>
               <Label>Justificativa *</Label>
@@ -2088,52 +2071,13 @@ function NovaRequisicaoForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label>Início Previsto</Label>
-                <Input
-                  type="date"
-                  value={dataInicioPrevista}
-                  onChange={(e) => setDataInicioPrevista(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label>Fim Previsto</Label>
-                <Input
-                  type="date"
-                  value={dataFimPrevista}
-                  onChange={(e) => setDataFimPrevista(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label>Prazo (dias)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  placeholder="Ex: 180"
-                  value={prazoExecucaoDias}
-                  onChange={(e) => setPrazoExecucaoDias(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Responsável Técnico</Label>
-                <Input
-                  value={responsavelTecnico}
-                  onChange={(e) => setResponsavelTecnico(e.target.value)}
-                  placeholder="Engenheiro responsável"
-                />
-              </div>
-              <div>
-                <Label>Fiscal do Contrato</Label>
-                <Input
-                  value={fiscalNome}
-                  onChange={(e) => setFiscalNome(e.target.value)}
-                  placeholder="Nome do fiscal"
-                />
-              </div>
+            <div>
+              <Label>Fiscal do Contrato</Label>
+              <Input
+                value={fiscalNome}
+                onChange={(e) => setFiscalNome(e.target.value)}
+                placeholder="Nome do fiscal"
+              />
             </div>
 
             <div>
