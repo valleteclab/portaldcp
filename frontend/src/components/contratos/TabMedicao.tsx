@@ -912,7 +912,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
-                  <TableHead>Descrição</TableHead>
+                  <TableHead className="min-w-[200px] max-w-[400px]">Descrição</TableHead>
                   <TableHead className="text-center">Unidade</TableHead>
                   <TableHead className="text-right">Quantidade</TableHead>
                   <TableHead className="text-right">Valor Unit.</TableHead>
@@ -927,14 +927,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                 {itensCronograma.map(i => (
                   <TableRow key={i.id}>
                     <TableCell className="font-medium">{i.numero_item}</TableCell>
-                    <TableCell className="break-words max-w-md">{i.descricao}</TableCell>
-                    <TableCell className="text-center">{i.unidade_medida}</TableCell>
-                    <TableCell className="text-right">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
-                    <TableCell className="text-right">{formatarMoeda(i.valor_unitario)}</TableCell>
-                    <TableCell className="text-right">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
-                    <TableCell className="text-right">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
-                    <TableCell className="text-right font-medium">{formatarMoeda(i.valor_total)}</TableCell>
-                    <TableCell className="text-center text-blue-600 font-medium">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="whitespace-normal break-words min-w-[200px] max-w-[400px]">{i.descricao}</TableCell>
+                    <TableCell className="text-center whitespace-nowrap">{i.unidade_medida}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_unitario)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
+                    <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
+                    <TableCell className="text-center text-blue-600 font-medium whitespace-nowrap">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button variant="ghost" size="icon" onClick={() => abrirModalItemCronograma(i)}>
