@@ -44,8 +44,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
       DB_USERNAME: ${DB_USERNAME:-portaldcp}
       DB_PASSWORD: ${DB_PASSWORD:-PortalDCP2026!Secure}
       DB_DATABASE: ${DB_DATABASE:-portaldcp}
@@ -74,8 +75,6 @@ services:
     volumes:
       - uploads_data:/app/uploads
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
