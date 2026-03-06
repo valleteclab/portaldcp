@@ -326,11 +326,13 @@ window._extraindoContratos = true;
 
   useEffect(() => {
     carregarDados()
-  }, [paginacao.page])
+  }, [paginacao.page, filtros.status, filtros.ano])
 
   useEffect(() => {
-    // Resetar para página 1 quando filtros mudarem
-    setPaginacao(prev => ({ ...prev, page: 1 }))
+    // Resetar para página 1 quando filtros mudarem (não quando página mudar)
+    if (paginacao.page !== 1) {
+      setPaginacao(prev => ({ ...prev, page: 1 }))
+    }
   }, [filtros.status, filtros.ano])
 
   const verificarPermissaoExclusao = () => {
