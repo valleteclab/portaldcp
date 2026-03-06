@@ -374,6 +374,43 @@ export class FornecedoresService {
   }
 
   /**
+   * Vincula o CNPJ real ao cadastro do usuário logado (que possui CNPJ TEMP_).
+   * Faz merge: atualiza o CNPJ do registro do usuário, remove o registro criado pelo órgão.
+   */
+  async vincularCnpj(fornecedorId: string, cnpj: string): Promise<Fornecedor> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+
+    const meuCadastro = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!meuCadastro) {
+      throw new NotFoundException('Cadastro do usuário não encontrado');
+    }
+
+    const registroContrato = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
+
+    if (registroContrato) {
+      if (registroContrato.id === meuCadastro.id) {
+        throw new ConflictException('Este CNPJ já está vinculado ao seu cadastro');
+      }
+      if (registroContrato.senha) {
+        throw new ConflictException('Este CNPJ já possui credenciais de acesso. Faça login com as credenciais existentes.');
+      }
+      // Copia dados úteis do registro criado pelo órgão (se não forem placeholders)
+      if (registroContrato.razao_social && registroContrato.razao_social !== 'A informar' && registroContrato.razao_social !== 'Cadastro Pendente') {
+        if (!meuCadastro.razao_social || meuCadastro.razao_social === 'Cadastro Pendente') {
+          meuCadastro.razao_social = registroContrato.razao_social;
+        }
+      }
+      // Remove o registro criado pelo órgão
+      await this.fornecedorRepository.remove(registroContrato);
+    }
+
+    // Atualiza o CNPJ do cadastro do usuário
+    meuCadastro.cpf_cnpj = cnpjLimpo;
+
+    return await this.fornecedorRepository.save(meuCadastro);
+  }
+
+  /**
    * Cria fornecedor a partir dos dados da API CNPJ
    */
   async createFromCnpj(

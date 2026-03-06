@@ -193,6 +193,15 @@ export class FornecedoresController {
     return { fornecedor: result.fornecedor as Fornecedor, token: result.token };
   }
 
+  @Post('vincular-cnpj')
+  async vincularCnpj(
+    @Body() body: { cnpj: string },
+    @Req() req: any
+  ): Promise<Fornecedor> {
+    const user: JwtPayload = req.user;
+    return await this.fornecedoresService.vincularCnpj(user.sub, body.cnpj);
+  }
+
   @Put(':id/definir-senha')
   async definirSenha(
     @Param('id') id: string,

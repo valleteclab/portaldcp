@@ -35,7 +35,11 @@ export function CredenciamentoTab({
   const router = useRouter()
   const [cnpj, setCnpj] = useState('')
   const [loading, setLoading] = useState(false)
-  // Estado para fluxo de reivindicação de conta criada pelo órgão
+  // Fluxo: usuário logado com TEMP_ CNPJ quer vincular CNPJ real (já existe sem senha)
+  const [vincularCnpj, setVincularCnpj] = useState<string | null>(null)
+  const [vincularLoading, setVincularLoading] = useState(false)
+  const [vincularErro, setVincularErro] = useState<string | null>(null)
+  // Fluxo: usuário NÃO logado quer reivindicar conta criada pelo órgão (sem senha)
   const [reivindicarCnpj, setReivindicarCnpj] = useState<string | null>(null)
   const [reivindicarEmail, setReivindicarEmail] = useState('')
   const [reivindicarSenha, setReivindicarSenha] = useState('')
@@ -63,8 +67,13 @@ export function CredenciamentoTab({
       
       if (verificaData.existe && !verificaData.proprioCadastro) {
         if (!verificaData.temSenha) {
-          // Conta criada pelo órgão sem credenciais: abrir fluxo de reivindicação
-          setReivindicarCnpj(cnpjLimpo)
+          if (emailUsuario) {
+            // Usuário já logado: vincular CNPJ diretamente sem pedir credenciais
+            setVincularCnpj(cnpjLimpo)
+          } else {
+            // Não logado: mostrar formulário para definir email e senha
+            setReivindicarCnpj(cnpjLimpo)
+          }
           setLoading(false)
           return
         }
@@ -112,6 +121,37 @@ export function CredenciamentoTab({
     onComplete()
   }
 
+  const handleVincular = async () => {
+    if (!vincularCnpj) return
+    setVincularLoading(true)
+    setVincularErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedores/vincular-cnpj`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: vincularCnpj }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Erro ao vincular CNPJ')
+      // Atualiza localStorage com o cadastro atualizado
+      const fornecedorAtual = JSON.parse(localStorage.getItem('fornecedor') || '{}')
+      localStorage.setItem('fornecedor', JSON.stringify({ ...fornecedorAtual, ...data }))
+      // Prossegue com a consulta normal do CNPJ
+      setVincularCnpj(null)
+      setCnpj(formatarCnpj(vincularCnpj))
+      // Consulta os dados do CNPJ para exibir o formulário SICAF
+      const res2 = await authFetch(`${API_URL}/api/fornecedores/consultar-cnpj/${vincularCnpj}`)
+      if (res2.ok) {
+        const dados = await res2.json()
+        setDadosCnpj(dados)
+      }
+    } catch (err: any) {
+      setVincularErro(err.message || 'Erro ao vincular CNPJ')
+    } finally {
+      setVincularLoading(false)
+    }
+  }
+
   const handleReivindicar = async () => {
     if (!reivindicarCnpj) return
     if (!reivindicarEmail || !reivindicarSenha) {
@@ -148,7 +188,48 @@ export function CredenciamentoTab({
     }
   }
 
-  // Tela de reivindicação de conta
+  // Tela de vinculação (usuário logado com TEMP_ CNPJ)
+  if (vincularCnpj) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-blue-600" />
+            Vincular CNPJ ao Seu Cadastro
+          </CardTitle>
+          <CardDescription>
+            Encontramos este CNPJ em nossa base. Clique em "Vincular" para associá-lo à sua conta.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Alert className="border-blue-200 bg-blue-50">
+            <AlertDescription>
+              CNPJ <strong>{formatarCnpj(vincularCnpj)}</strong> foi cadastrado pelo órgão público. Deseja vinculá-lo à sua conta <strong>{emailUsuario}</strong>?
+            </AlertDescription>
+          </Alert>
+          {vincularErro && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertDescription className="text-red-700">{vincularErro}</AlertDescription>
+            </Alert>
+          )}
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={() => setVincularCnpj(null)} className="flex-1">
+              <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+            </Button>
+            <Button onClick={handleVincular} disabled={vincularLoading} className="flex-1">
+              {vincularLoading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Vinculando...</>
+              ) : (
+                <><KeyRound className="mr-2 h-4 w-4" />Vincular CNPJ</>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Tela de reivindicação de conta (usuário NÃO logado)
   if (reivindicarCnpj) {
     return (
       <Card>
