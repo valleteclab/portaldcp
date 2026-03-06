@@ -400,7 +400,12 @@ export class FornecedoresService {
           meuCadastro.razao_social = registroContrato.razao_social;
         }
       }
-      // Remove o registro criado pelo órgão
+      // Transfere contratos que referenciam o registro do órgão para a conta do usuário
+      await this.fornecedorRepository.manager.query(
+        `UPDATE contratos SET "fornecedor_id" = $1 WHERE "fornecedor_id" = $2`,
+        [meuCadastro.id, registroContrato.id],
+      );
+      // Agora pode remover o registro criado pelo órgão
       await this.fornecedorRepository.remove(registroContrato);
     }
 
