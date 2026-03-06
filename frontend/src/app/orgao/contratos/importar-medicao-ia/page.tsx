@@ -63,6 +63,10 @@ export default function ImportarMedicaoIaPage() {
   const [dados, setDados] = useState<DadosExtraidos | null>(null)
   const [resultado, setResultado] = useState<{ contrato_id: string; numero_contrato: string; itens_criados: number; aviso?: string } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [criarContrato, setCriarContrato] = useState(false)
+  const [tipoContrato, setTipoContrato] = useState('CONTRATO')
+  const [categoria, setCategoria] = useState('SERVICOS')
+  const [modalidade, setModalidade] = useState('CONTINUADO')
   const [mensagens, setMensagens] = useState<Array<{ tipo: 'user' | 'agent'; texto: string }>>([])
 
   const addMensagem = (tipo: 'user' | 'agent', texto: string) => {
@@ -93,6 +97,8 @@ export default function ImportarMedicaoIaPage() {
       const saldo = calcularSaldo(json.valor_global || 0, json.valor_executado_ate_periodo || 0)
       const pct = calcularPercentual(json.valor_executado_ate_periodo || 0, json.valor_global || 0)
 
+      if (!json.contrato_ja_cadastrado) setCriarContrato(true)
+
       addMensagem('agent',
         `Analisei a planilha de medição e extraí os dados do contrato.\n\n` +
         `**Contrato:** ${json.numero_contrato || 'Não identificado'}\n` +
@@ -103,7 +109,7 @@ export default function ImportarMedicaoIaPage() {
         `✅ **Saldo restante:** ${formatCurrency(saldo)}\n\n` +
         (json.contrato_ja_cadastrado
           ? `🔗 Contrato **encontrado** no sistema. Os itens serão adicionados ao cronograma.`
-          : `⚠️ Contrato **não encontrado** no sistema. Cadastre o contrato primeiro em "Importar Contrato com IA".`) +
+          : `⚠️ Contrato **não encontrado** no sistema. Preencha os dados e clique em **Cadastrar Contrato e Importar**.`) +
         (json.pendencias?.length > 0 ? `\n\n⚠️ ${json.pendencias.length} campo(s) pendente(s) de preenchimento.` : '')
       )
     } catch (err: any) {
@@ -158,8 +164,9 @@ export default function ImportarMedicaoIaPage() {
 
   const temPendenciasNaoResolvidas = () => {
     if (!dados) return true
-    if (!dados.contrato_ja_cadastrado) return true
+    if (!dados.contrato_ja_cadastrado && !criarContrato) return true
     if (!dados.objeto?.trim()) return true
+    if (criarContrato && (!dados.fornecedor_cnpj?.trim() && !dados.fornecedor_id)) return true
     return false
   }
 
@@ -171,7 +178,7 @@ export default function ImportarMedicaoIaPage() {
     try {
       const payload = {
         contrato_id: dados.contrato_id,
-        criar_contrato: false,
+        criar_contrato: criarContrato,
         numero_contrato: dados.numero_contrato,
         fornecedor_id: dados.fornecedor_id,
         fornecedor_cnpj: dados.fornecedor_cnpj,
@@ -181,6 +188,9 @@ export default function ImportarMedicaoIaPage() {
         valor_executado_ate_periodo: dados.valor_executado_ate_periodo,
         fiscal_nome: dados.fiscal_nome,
         fiscal_portaria: dados.fiscal_portaria,
+        tipo: tipoContrato,
+        categoria: categoria,
+        modalidade_execucao: modalidade,
         itens: dados.itens,
       }
 
@@ -350,30 +360,73 @@ export default function ImportarMedicaoIaPage() {
                 <div className={`rounded-xl p-4 border flex items-start gap-3 ${
                   dados.contrato_ja_cadastrado
                     ? 'bg-green-50 border-green-200'
-                    : 'bg-red-50 border-red-200'
+                    : 'bg-amber-50 border-amber-200'
                 }`}>
                   {dados.contrato_ja_cadastrado
                     ? <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
-                    : <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+                    : <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
                   }
-                  <div>
-                    <p className={`text-sm font-semibold ${dados.contrato_ja_cadastrado ? 'text-green-800' : 'text-red-700'}`}>
+                  <div className="flex-1">
+                    <p className={`text-sm font-semibold ${dados.contrato_ja_cadastrado ? 'text-green-800' : 'text-amber-800'}`}>
                       {dados.contrato_ja_cadastrado
                         ? `Contrato ${dados.numero_contrato} encontrado no sistema ✓`
                         : `Contrato ${dados.numero_contrato} não encontrado no sistema`
                       }
                     </p>
                     {!dados.contrato_ja_cadastrado && (
-                      <p className="text-xs text-red-600 mt-1">
-                        Cadastre o contrato primeiro em{' '}
-                        <Link href="/orgao/contratos/importar-ia" className="font-semibold underline">
-                          Importar Contrato com IA
-                        </Link>
-                        , depois volte aqui.
-                      </p>
+                      <div className="mt-2">
+                        <p className="text-xs text-amber-700 mb-2">Os dados extraídos serão usados para criar um novo contrato.</p>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={criarContrato}
+                            onChange={e => setCriarContrato(e.target.checked)}
+                            className="w-4 h-4 accent-emerald-600"
+                          />
+                          <span className="text-sm font-medium text-amber-800">Cadastrar novo contrato com estes dados</span>
+                        </label>
+                      </div>
                     )}
                   </div>
                 </div>
+
+                {/* Campos extras para criação de contrato */}
+                {criarContrato && !dados.contrato_ja_cadastrado && (
+                  <Card className="border-amber-200 bg-amber-50">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base text-amber-800">Configurar Novo Contrato</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-3 gap-3">
+                      <div>
+                        <Label className="text-xs text-gray-500">Tipo</Label>
+                        <Select value={tipoContrato} onValueChange={setTipoContrato}>
+                          <SelectTrigger className="mt-1 h-9 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['CONTRATO','NOTA_EMPENHO','CARTA_CONTRATO','ATA_REGISTRO_PRECO'].map(t => <SelectItem key={t} value={t}>{t.replace('_',' ')}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-500">Categoria</Label>
+                        <Select value={categoria} onValueChange={setCategoria}>
+                          <SelectTrigger className="mt-1 h-9 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {[['COMPRAS','Compras'],['SERVICOS','Serviços'],['OBRAS','Obras'],['LOCACAO','Locação']].map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-500">Modalidade</Label>
+                        <Select value={modalidade} onValueChange={setModalidade}>
+                          <SelectTrigger className="mt-1 h-9 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {[['CONTINUADO','Continuado'],['MEDICAO','Medição'],['ITEM_QUANTIDADE','Item/Qtd'],['LICENCA','Licença']].map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Card: Execução Financeira */}
                 <Card>
@@ -530,19 +583,20 @@ export default function ImportarMedicaoIaPage() {
                 <Button
                   onClick={confirmar}
                   disabled={temPendenciasNaoResolvidas() || estado === 'confirmando'}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11"
+                  className={`w-full text-white h-11 ${
+                    criarContrato && !dados.contrato_ja_cadastrado
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
                 >
                   {estado === 'confirmando' ? (
                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Importando dados...</>
+                  ) : criarContrato && !dados.contrato_ja_cadastrado ? (
+                    <><CheckCircle className="w-4 h-4 mr-2" />Cadastrar Contrato e Importar</>
                   ) : (
                     <><CheckCircle className="w-4 h-4 mr-2" />Confirmar e Importar para o Contrato</>
                   )}
                 </Button>
-                {!dados.contrato_ja_cadastrado && (
-                  <p className="text-xs text-center text-red-600">
-                    O contrato deve estar cadastrado no sistema antes de importar a planilha de medição.
-                  </p>
-                )}
               </>
             )}
           </div>

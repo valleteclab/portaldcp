@@ -95,6 +95,18 @@ export class ConfirmarImportacaoMedicaoDto {
   @IsString()
   fiscal_portaria?: string;
 
+  @IsOptional()
+  @IsString()
+  tipo?: string;
+
+  @IsOptional()
+  @IsString()
+  categoria?: string;
+
+  @IsOptional()
+  @IsString()
+  modalidade_execucao?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemExtraidoDto)

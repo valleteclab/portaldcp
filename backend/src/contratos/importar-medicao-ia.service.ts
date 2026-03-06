@@ -3,38 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { IaService } from '../ia/ia.service';
 import { MedicaoService } from './medicao.service';
+import { ContratosService } from './contratos.service';
 import { Contrato } from './entities/contrato.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { DadosExtraidosMedicaoDto, ConfirmarImportacaoMedicaoDto } from './dto/importar-medicao-ia.dto';
-
-async function extrairTextoPdf(buffer: Buffer): Promise<string> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
-    const pdfDoc = await loadingTask.promise;
-    let text = '';
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map((item: any) => item.str || '').join(' ');
-      text += pageText + '\n';
-    }
-    if (text.trim().length > 0) return text;
-  } catch { /* fallback */ }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('pdf-parse');
-    const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
-    if (fn) {
-      const result = await fn(buffer);
-      if (result?.text?.trim().length > 0) return result.text;
-    }
-  } catch { /* ignora */ }
-
-  return '';
-}
 
 const SYSTEM_PROMPT_MEDICAO = `Você é um especialista em contratos administrativos públicos brasileiros.
 Sua tarefa é extrair dados de uma PLANILHA DE MEDIÇÃO ou RELATÓRIO DE ATIVIDADES de um contrato e retornar APENAS JSON válido, sem markdown, sem explicações.
@@ -90,6 +62,7 @@ export class ImportarMedicaoIaService {
   constructor(
     private readonly iaService: IaService,
     private readonly medicaoService: MedicaoService,
+    private readonly contratosService: ContratosService,
     @InjectRepository(Contrato)
     private readonly contratoRepo: Repository<Contrato>,
     @InjectRepository(Fornecedor)
@@ -102,7 +75,8 @@ export class ImportarMedicaoIaService {
     let respostaIA: string;
 
     if (file.mimetype === 'application/pdf') {
-      const textoExtraido = await extrairTextoPdf(file.buffer);
+      // Usa iaService.extrairTextoDoPdf que tem fallback para Python (PyPDF2)
+      const textoExtraido = await this.iaService.extrairTextoDoPdf(file.buffer);
       this.logger.log(`Texto extraído do PDF: ${textoExtraido.length} chars`);
 
       if (textoExtraido.trim().length >= 100) {
@@ -190,12 +164,55 @@ export class ImportarMedicaoIaService {
     orgaoId: string,
   ): Promise<{ contrato_id: string; numero_contrato: string; itens_criados: number; contrato_criado: boolean; aviso?: string }> {
     let contratoId = dados.contrato_id;
+    let contratoCriado = false;
 
-    // Se não tem contrato, não podemos criar aqui (planilha de medição é para contratos existentes)
-    if (!contratoId) {
-      throw new BadRequestException(
-        'Contrato não encontrado no sistema. Utilize "Importar Contrato com IA" para cadastrar o contrato primeiro.',
-      );
+    if (!contratoId && dados.criar_contrato) {
+      // Criar contrato a partir dos dados da planilha de medição
+      if (!dados.fornecedor_id && !dados.fornecedor_cnpj) {
+        throw new BadRequestException('Informe o CNPJ do fornecedor para criar o contrato.');
+      }
+
+      let fornecedorId = dados.fornecedor_id;
+      if (!fornecedorId && dados.fornecedor_cnpj) {
+        const cnpj = dados.fornecedor_cnpj.replace(/\D/g, '');
+        let fornecedor: Fornecedor | null = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: cnpj } });
+        if (!fornecedor) {
+          const novo = this.fornecedorRepo.create({
+            cpf_cnpj: cnpj,
+            razao_social: dados.fornecedor_razao_social || 'A PREENCHER',
+            nome_fantasia: dados.fornecedor_razao_social || 'A PREENCHER',
+            logradouro: 'A PREENCHER', numero: '0', bairro: 'A PREENCHER',
+            cidade: 'A PREENCHER', uf: 'XX', cep: '00000000',
+            telefone: '00000000000', email: `${cnpj}@apreencher.com`, ativo: false,
+          } as any);
+          fornecedor = await this.fornecedorRepo.save(novo as any) as unknown as Fornecedor;
+        }
+        fornecedorId = fornecedor!.id;
+      }
+
+      const novoContrato = await this.contratosService.criar({
+        orgao_id: orgaoId,
+        fornecedor_id: fornecedorId,
+        objeto: dados.objeto,
+        tipo: (dados.tipo || 'CONTRATO') as any,
+        categoria: (dados.categoria || 'SERVICOS') as any,
+        modalidade_execucao: (dados.modalidade_execucao || 'CONTINUADO') as any,
+        valor_inicial: dados.valor_global,
+        valor_global: dados.valor_global,
+        fiscal_nome: dados.fiscal_nome,
+      } as any);
+
+      contratoId = novoContrato.id;
+      contratoCriado = true;
+
+      if (dados.valor_executado_ate_periodo > 0) {
+        await this.contratoRepo.update(contratoId, { valor_executado_anterior: dados.valor_executado_ate_periodo } as any);
+      }
+      if (dados.fiscal_portaria) {
+        await this.contratoRepo.update(contratoId, { fiscal_matricula: dados.fiscal_portaria } as any);
+      }
+    } else if (!contratoId) {
+      throw new BadRequestException('Contrato não encontrado. Marque a opção de cadastrar novo contrato.');
     }
 
     const contrato = await this.contratoRepo.findOne({ where: { id: contratoId, orgao_id: orgaoId } });
@@ -203,24 +220,15 @@ export class ImportarMedicaoIaService {
       throw new BadRequestException('Contrato não encontrado ou sem permissão de acesso.');
     }
 
-    // Atualizar dados do contrato: fiscal e valor executado anterior
-    const updates: Partial<Contrato> = {};
-
-    if (dados.fiscal_nome && !contrato.fiscal_nome) {
-      updates.fiscal_nome = dados.fiscal_nome;
-    }
-    if (dados.fiscal_portaria) {
-      (updates as any).fiscal_matricula = dados.fiscal_portaria;
-    }
-    if (dados.valor_executado_ate_periodo > 0 && !contrato.valor_executado_anterior) {
-      (updates as any).valor_executado_anterior = dados.valor_executado_ate_periodo;
-    }
-    if (dados.objeto && !contrato.objeto) {
-      updates.objeto = dados.objeto;
-    }
-
-    if (Object.keys(updates).length > 0) {
-      await this.contratoRepo.update(contratoId, updates);
+    // Atualizar dados no contrato existente
+    if (!contratoCriado) {
+      const updates: Partial<Contrato> = {};
+      if (dados.fiscal_nome && !contrato.fiscal_nome) updates.fiscal_nome = dados.fiscal_nome;
+      if (dados.fiscal_portaria) (updates as any).fiscal_matricula = dados.fiscal_portaria;
+      if (dados.valor_executado_ate_periodo > 0 && !contrato.valor_executado_anterior)
+        (updates as any).valor_executado_anterior = dados.valor_executado_ate_periodo;
+      if (dados.objeto && !contrato.objeto) updates.objeto = dados.objeto;
+      if (Object.keys(updates).length > 0) await this.contratoRepo.update(contratoId, updates);
     }
 
     // Criar itens do cronograma
