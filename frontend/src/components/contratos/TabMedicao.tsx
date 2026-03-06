@@ -927,7 +927,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                 {itensCronograma.map(i => (
                   <TableRow key={i.id}>
                     <TableCell className="font-medium">{i.numero_item}</TableCell>
-                    <TableCell>{i.descricao}</TableCell>
+                    <TableCell className="break-words max-w-md">{i.descricao}</TableCell>
                     <TableCell className="text-center">{i.unidade_medida}</TableCell>
                     <TableCell className="text-right">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right">{formatarMoeda(i.valor_unitario)}</TableCell>
