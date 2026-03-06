@@ -75,7 +75,7 @@ docker-compose -f docker-compose.coolify.yml down --rmi local 2>/dev/null || tru
 
 # 7. Fazer build e subir containers
 echo "🏗️  Fazendo build e subindo containers..."
-docker-compose -f docker-compose.coolify.yml up -d --build
+docker-compose -f docker-compose.coolify.yml up -d --build --force-recreate
 
 # 8. Aguardar containers ficarem saudáveis
 echo "⏳ Aguardando containers iniciarem..."
