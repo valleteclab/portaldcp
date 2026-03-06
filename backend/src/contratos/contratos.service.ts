@@ -159,7 +159,13 @@ export class ContratosService {
         .andWhere('contrato.data_vigencia_fim >= :hoje', { hoje });
     }
 
-    query.orderBy('contrato.created_at', 'DESC');
+    // Ordenação: se filtrar por vigentes, ordena por data de vencimento (próximos primeiro)
+    // Caso contrário, ordena por data de criação (mais recentes primeiro)
+    if (filtros?.vigentes) {
+      query.orderBy('contrato.data_vigencia_fim', 'ASC');
+    } else {
+      query.orderBy('contrato.created_at', 'DESC');
+    }
 
     // Paginação
     const page = filtros?.page || 1;

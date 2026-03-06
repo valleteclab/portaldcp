@@ -328,6 +328,11 @@ window._extraindoContratos = true;
     carregarDados()
   }, [paginacao.page])
 
+  useEffect(() => {
+    // Resetar para página 1 quando filtros mudarem
+    setPaginacao(prev => ({ ...prev, page: 1 }))
+  }, [filtros.status, filtros.ano])
+
   const verificarPermissaoExclusao = () => {
     // Verifica se usuário é admin ou tem permissão de excluir contratos
     const userStr = localStorage.getItem('usuario')
@@ -372,8 +377,18 @@ window._extraindoContratos = true;
 
       const orgao = JSON.parse(orgaoData)
 
+      // Construir URL com filtros
+      const params = new URLSearchParams({
+        orgaoId: orgao.id,
+        page: paginacao.page.toString(),
+        limit: paginacao.limit.toString()
+      })
+      
+      if (filtros.status) params.append('status', filtros.status)
+      if (filtros.ano) params.append('ano', filtros.ano)
+
       const [contratosRes, aVencerRes, statsRes] = await Promise.all([
-        authFetch(`${API_URL}/api/contratos?orgaoId=${orgao.id}&page=${paginacao.page}&limit=${paginacao.limit}`),
+        authFetch(`${API_URL}/api/contratos?${params.toString()}`),
         authFetch(`${API_URL}/api/contratos/estatisticas/a-vencer?orgaoId=${orgao.id}&dias=30`),
         authFetch(`${API_URL}/api/contratos/estatisticas/status?orgaoId=${orgao.id}`)
       ])
@@ -483,6 +498,7 @@ window._extraindoContratos = true;
     }
   }
 
+  // Filtro local apenas para busca por texto (status e ano são filtrados no backend)
   const contratosFiltrados = contratos.filter(contrato => {
     if (filtros.busca) {
       const busca = filtros.busca.toLowerCase()
@@ -492,8 +508,6 @@ window._extraindoContratos = true;
         return false
       }
     }
-    if (filtros.status && contrato.status !== filtros.status) return false
-    if (filtros.ano && contrato.ano !== parseInt(filtros.ano)) return false
     return true
   })
 
