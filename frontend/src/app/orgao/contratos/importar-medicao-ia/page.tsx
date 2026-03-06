@@ -143,10 +143,12 @@ export default function ImportarMedicaoIaPage() {
       if (!prev) return prev
       const itens = [...prev.itens]
       itens[idx] = { ...itens[idx], [campo]: valor }
-      const qtd = Number(itens[idx].quantidade) || 0
-      const vUnit = Number(itens[idx].valor_unitario) || 0
-      const meses = itens[idx].quantidade_meses ? Number(itens[idx].quantidade_meses) : null
-      itens[idx].valor_total = meses ? qtd * vUnit * meses : qtd * vUnit
+      if (['quantidade', 'valor_unitario', 'quantidade_meses'].includes(campo)) {
+        const qtd = Number(itens[idx].quantidade) || 0
+        const vUnit = Number(itens[idx].valor_unitario) || 0
+        const meses = itens[idx].quantidade_meses ? Number(itens[idx].quantidade_meses) : null
+        itens[idx].valor_total = meses ? qtd * vUnit * meses : qtd * vUnit
+      }
       return { ...prev, itens }
     })
   }

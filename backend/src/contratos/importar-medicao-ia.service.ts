@@ -181,6 +181,7 @@ export class ImportarMedicaoIaService {
             cpf_cnpj: cnpj,
             razao_social: dados.fornecedor_razao_social || 'A PREENCHER',
             nome_fantasia: dados.fornecedor_razao_social || 'A PREENCHER',
+            representante_nome: 'A PREENCHER',
             logradouro: 'A PREENCHER', numero: '0', bairro: 'A PREENCHER',
             cidade: 'A PREENCHER', uf: 'XX', cep: '00000000',
             telefone: '00000000000', email: `${cnpj}@apreencher.com`, ativo: false,
