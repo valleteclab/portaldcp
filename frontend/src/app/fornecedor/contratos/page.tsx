@@ -93,7 +93,8 @@ export default function ContratosFornecedorPage() {
       ])
 
       if (contratosRes.ok) {
-        setContratos(await contratosRes.json())
+        const json = await contratosRes.json()
+        setContratos(Array.isArray(json) ? json : (json.data || []))
       }
       if (atasRes.ok) {
         setAtas(await atasRes.json())

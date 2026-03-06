@@ -356,7 +356,8 @@ export default function CentralAprovacoesPage() {
     try {
       const res = await authFetch(`${API_URL}/api/contratos?status=AGUARDANDO_LIBERACAO&orgaoId=${orgaoId}`);
       if (res.ok) {
-        setContratos(await res.json());
+        const json = await res.json();
+        setContratos(Array.isArray(json) ? json : (json.data || []));
       }
     } catch (error) {
       console.error('Erro ao carregar contratos:', error);
