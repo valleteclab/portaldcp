@@ -2166,7 +2166,7 @@ export default function FornecedorContratoDetalhePage() {
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
                     assinatura_fornecedor: medicaoDetalhe.data_submissao ? {
-                      nome: fornecedor?.razao_social || fornecedor?.nome || medicaoDetalhe.fornecedor_nome || '',
+                      nome: fornecedor?.razao_social || fornecedor?.nome || '',
                       cnpj: fornecedor?.cpf_cnpj || '',
                       data_hora: new Date(medicaoDetalhe.data_submissao).toLocaleString('pt-BR'),
                     } : undefined,
