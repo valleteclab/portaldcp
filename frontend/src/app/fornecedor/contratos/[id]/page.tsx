@@ -1230,7 +1230,7 @@ export default function FornecedorContratoDetalhePage() {
 
       {/* ============ MODAL: Nova Medição (Planilha Orçamentária) ============ */}
       <Dialog open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
-        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
