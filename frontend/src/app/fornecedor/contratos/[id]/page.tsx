@@ -1230,7 +1230,7 @@ export default function FornecedorContratoDetalhePage() {
 
       {/* ============ MODAL: Nova Medição (Planilha Orçamentária) ============ */}
       <Dialog open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
-        <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -1328,8 +1328,8 @@ export default function FornecedorContratoDetalhePage() {
                     const inicio = new Date(novaMedicao.periodo_inicio + 'T00:00:00');
                     const fim = new Date(novaMedicao.periodo_fim + 'T00:00:00');
                     const diasPeriodo = Math.round((fim.getTime() - inicio.getTime()) / 86400000) + 1;
-                    // Dias no mês de referência (mês do início do período)
-                    const diasNoMes = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0).getDate();
+                    // Convenção de mês comercial: 30 dias (padrão em contratos públicos brasileiros)
+                    const diasNoMes = 30;
                     const fator = Math.min(diasPeriodo / diasNoMes, 1);
                     const itens = itensCronograma.map((ic, idx) => {
                       const qtdTotal = Number(ic.quantidade);
@@ -1349,8 +1349,7 @@ export default function FornecedorContratoDetalhePage() {
                         const ini = new Date(novaMedicao.periodo_inicio + 'T00:00:00');
                         const fim = new Date(novaMedicao.periodo_fim + 'T00:00:00');
                         const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1;
-                        const diasMes = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
-                        return `${dias}/${diasMes} dias`;
+                        return `${dias}/30 dias`;
                       })()
                     : 'defina o período'})
                 </Button>
