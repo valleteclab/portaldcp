@@ -1468,6 +1468,8 @@ export default function MedicoesPage() {
                     orgao_nome: modalAteste.contrato?.orgao?.nome || '',
                     fornecedor_nome: modalAteste.contrato?.fornecedor_razao_social || modalAteste.fornecedor_nome || '',
                     fornecedor_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
+                    data_vigencia_inicio: modalAteste.contrato?.data_vigencia_inicio || undefined,
+                    data_vigencia_fim: modalAteste.contrato?.data_vigencia_fim || undefined,
                     numero_medicao: modalAteste.numero_medicao,
                     periodo_inicio: modalAteste.periodo_inicio || '',
                     periodo_fim: modalAteste.periodo_fim || '',

@@ -2176,6 +2176,8 @@ export default function FornecedorContratoDetalhePage() {
                     fornecedor_nome: fornecedor?.razao_social || fornecedor?.nome || '',
                     fornecedor_cnpj: fornecedor?.cpf_cnpj || '',
                     valor_total_contrato: Number(contrato?.valor_inicial || 0) || undefined,
+                    data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined,
+                    data_vigencia_fim: contrato?.data_vigencia_fim || undefined,
                     numero_medicao: medicaoDetalhe.numero_medicao,
                     periodo_inicio: medicaoDetalhe.periodo_inicio || '',
                     periodo_fim: medicaoDetalhe.periodo_fim || '',

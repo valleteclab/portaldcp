@@ -64,6 +64,8 @@ export interface DadosMedicaoPdf {
   fornecedor_nome: string
   fornecedor_cnpj: string
   valor_total_contrato?: number
+  data_vigencia_inicio?: string   // data início vigência do contrato (para cálculo fiscal)
+  data_vigencia_fim?: string      // data fim vigência do contrato (para cálculo fiscal)
   // Medição
   numero_medicao: number
   periodo_inicio: string
@@ -115,20 +117,23 @@ function fmtCnpj(cnpj: string): string {
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`
 }
 
-/** Converte quantidade para formato fiscal: ex: "21 DIAS" ou "1 MÊS 12 DIAS" quando MENSAL */
-function fmtFiscal(qty: number, unidade: string): string {
-  const u = unidade.toUpperCase()
-  if (u === 'MENSAL') {
-    const totalDias = qty * 30
-    const absDias = Math.abs(totalDias)
-    const meses = Math.floor(absDias / 30)
-    const dias = Math.round(absDias % 30)
-    const sinal = qty < 0 ? '-' : ''
-    if (meses > 0 && dias > 0) return `${sinal}${meses} MÊS ${dias} DIAS`
-    if (meses > 0) return `${sinal}${meses} MÊS`
-    return `${sinal}${dias > 0 ? dias : 0} DIAS`
-  }
-  return `${qty.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${unidade}`
+/** Dias corridos entre duas datas ISO (string) */
+function diasEntreDatas(inicio: string, fim: string): number {
+  if (!inicio || !fim) return 0
+  const d1 = new Date(inicio.split('T')[0] + 'T00:00:00')
+  const d2 = new Date(fim.split('T')[0] + 'T00:00:00')
+  return Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+/** Formata dias como "X mês/meses [e Y dia/dias]" */
+function fmtTempo(dias: number): string {
+  if (dias <= 0) return '0 dias'
+  const m = Math.floor(dias / 30)
+  const d = dias % 30
+  const pM = m === 1 ? '1 mês' : m > 1 ? `${m} meses` : ''
+  const pD = d === 1 ? '1 dia' : d > 1 ? `${d} dias` : ''
+  if (pM && pD) return `${pM} e ${pD}`
+  return pM || pD || '0 dias'
 }
 
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
@@ -421,6 +426,18 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       ],
     ]
 
+    // --- Execução Fiscal (tempo) — igual para todos os itens ---
+    const diasPeriodo = Math.max(1, diasEntreDatas(dados.periodo_inicio, dados.periodo_fim))
+    const diasAte = dados.data_vigencia_inicio
+      ? Math.max(0, diasEntreDatas(dados.data_vigencia_inicio, dados.periodo_fim))
+      : 0
+    const diasRestante = dados.data_vigencia_fim
+      ? Math.max(0, diasEntreDatas(dados.periodo_fim, dados.data_vigencia_fim))
+      : 0
+    const txtFiscalNoPeriodo   = fmtTempo(diasPeriodo)
+    const txtFiscalAtePeriodo  = diasAte > 0 ? fmtTempo(diasAte) : '-'
+    const txtFiscalAExecutar   = fmtTempo(diasRestante)
+
     let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0
 
     const body: any[][] = dados.itens.map(item => {
@@ -435,16 +452,6 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       const vlrAtePeriodo = vlrAcumAnterior + vlrNoPeriodo
       const vlrAExecutar = Math.max(0, vlrTotal - vlrAtePeriodo)
 
-      // Quantidades fiscais derivadas dos valores
-      const qtdAcumHistorico = item.valor_acumulado_anterior !== undefined && item.valor_unitario > 0
-        ? vlrAcumAnterior / item.valor_unitario
-        : item.quantidade_acumulada_aprovada
-      const qtdTotal = item.valor_total_item !== undefined && item.valor_unitario > 0
-        ? vlrTotal / item.valor_unitario
-        : item.quantidade_total_contrato
-      const qtdAtePeriodo = qtdAcumHistorico + item.quantidade_no_periodo
-      const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
-
       totalNoPeriodo += vlrNoPeriodo
       totalAteoPeriodo += vlrAtePeriodo
       totalAExecutar += vlrAExecutar
@@ -452,9 +459,9 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: item.descricao, styles: { fontSize: 6 } },
-        { content: fmtFiscal(item.quantidade_no_periodo, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: fmtFiscal(qtdAtePeriodo, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: fmtFiscal(qtdAExecutar, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: txtFiscalNoPeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: txtFiscalAtePeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: txtFiscalAExecutar, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },
