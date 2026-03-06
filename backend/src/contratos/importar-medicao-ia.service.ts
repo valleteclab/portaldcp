@@ -174,14 +174,17 @@ export class ImportarMedicaoIaService {
       }
 
       let fornecedorId = dados.fornecedor_id;
+      let fornecedorCnpj = dados.fornecedor_cnpj?.replace(/\D/g, '') || '';
+      let fornecedorRazaoSocial = dados.fornecedor_razao_social || 'A PREENCHER';
+
       if (!fornecedorId && dados.fornecedor_cnpj) {
-        const cnpj = dados.fornecedor_cnpj.replace(/\D/g, '');
+        const cnpj = fornecedorCnpj;
         let fornecedor: Fornecedor | null = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: cnpj } });
         if (!fornecedor) {
           const novo = this.fornecedorRepo.create({
             cpf_cnpj: cnpj,
-            razao_social: dados.fornecedor_razao_social || 'A PREENCHER',
-            nome_fantasia: dados.fornecedor_razao_social || 'A PREENCHER',
+            razao_social: fornecedorRazaoSocial,
+            nome_fantasia: fornecedorRazaoSocial,
             representante_nome: 'A PREENCHER',
             representante_cpf: '00000000000',
             logradouro: 'A PREENCHER', numero: '0', bairro: 'A PREENCHER',
@@ -191,11 +194,22 @@ export class ImportarMedicaoIaService {
           fornecedor = await this.fornecedorRepo.save(novo as any) as unknown as Fornecedor;
         }
         fornecedorId = fornecedor!.id;
+        fornecedorCnpj = (fornecedor as any).cpf_cnpj || cnpj;
+        fornecedorRazaoSocial = (fornecedor as any).razao_social || fornecedorRazaoSocial;
+      } else if (fornecedorId && !fornecedorCnpj) {
+        // Buscar CNPJ do fornecedor pelo ID
+        const fornecedor = await this.fornecedorRepo.findOne({ where: { id: fornecedorId } });
+        if (fornecedor) {
+          fornecedorCnpj = (fornecedor as any).cpf_cnpj || '';
+          fornecedorRazaoSocial = (fornecedor as any).razao_social || fornecedorRazaoSocial;
+        }
       }
 
       const novoContrato = await this.contratosService.criar({
         orgao_id: orgaoId,
         fornecedor_id: fornecedorId,
+        fornecedor_cnpj: fornecedorCnpj,
+        fornecedor_razao_social: fornecedorRazaoSocial,
         objeto: dados.objeto,
         tipo: (dados.tipo || 'CONTRATO') as any,
         categoria: (dados.categoria || 'SERVICOS') as any,
