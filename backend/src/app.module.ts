@@ -69,11 +69,11 @@ import { AgenteContratosModule } from './agente-contratos/agente-contratos.modul
       password: process.env.DATABASE_URL ? undefined : (process.env.DB_PASSWORD || 'admin_password'),
       database: process.env.DATABASE_URL ? undefined : (process.env.DB_DATABASE || 'licitafacil'),
       autoLoadEntities: true,
-      // ⚠️ IMPORTANTE: synchronize apenas em desenvolvimento
-      // Em produção, usar migrations para evitar perda de dados
-      synchronize: process.env.NODE_ENV !== 'production' && process.env.SYNCHRONIZE !== 'false',
-      migrations: process.env.NODE_ENV === 'production' ? ['dist/migrations/*.js'] : [],
-      migrationsRun: process.env.NODE_ENV === 'production',
+      // ⚠️ IMPORTANTE: synchronize habilitado temporariamente em produção
+      // TODO: Criar migrations e desabilitar synchronize em produção
+      synchronize: true,
+      migrations: [],
+      migrationsRun: false,
       ssl: process.env.DB_SSL === 'false' ? false : (process.env.DATABASE_URL ? { rejectUnauthorized: false } : false),
       extra: {
         options: '-c timezone=UTC',
