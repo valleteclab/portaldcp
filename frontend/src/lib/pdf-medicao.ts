@@ -24,6 +24,10 @@ export interface ItemMedicaoPdf {
   quantidade_total_contrato: number
   valor_no_periodo: number
   valor_unitario: number
+  /** Valor financeiro acumulado ANTES desta medição. Se definido, substitui quantidade_acumulada_aprovada × valor_unitario. */
+  valor_acumulado_anterior?: number
+  /** Valor total ORIGINAL do item no contrato. Se definido, substitui quantidade_total_contrato × valor_unitario. */
+  valor_total_item?: number
 }
 
 export interface ItemContratadoPdf {
@@ -128,7 +132,7 @@ function fmtFiscal(qty: number, unidade: string): string {
 }
 
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
-function derivarCompetencia(periodoInicio: string): string {
+export function derivarCompetencia(periodoInicio: string): string {
   if (!periodoInicio) return ''
   const d = new Date(periodoInicio + 'T00:00:00')
   const meses = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO',
@@ -290,6 +294,51 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   y += 3
 
   // =========================================================
+  // DISCRIMINAÇÃO DAS DESPESAS
+  // =========================================================
+  if (dados.discriminacoes && dados.discriminacoes.length > 0) {
+    doc.setFillColor(22, 60, 100)
+    doc.rect(mX, y, W - 2 * mX, 6, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.text('DISCRIMINAÇÃO DAS DESPESAS', W / 2, y + 4, { align: 'center' })
+    y += 6
+    doc.setTextColor(0, 0, 0)
+
+    const totalDisc = dados.discriminacoes.reduce((s, d) => s + d.valor, 0)
+
+    autoTable(doc, {
+      startY: y,
+      head: [[
+        { content: 'Item', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Discriminação', styles: { fontStyle: 'bold' as const } },
+        { content: 'Valor R$', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: '%', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+      ]],
+      body: [
+        ...dados.discriminacoes.map(d => [
+          { content: d.numero, styles: { halign: 'center' as const } },
+          d.descricao,
+          { content: fmt(d.valor), styles: { halign: 'right' as const } },
+          { content: `${Number(d.percentual || 0).toFixed(2)}%`, styles: { halign: 'right' as const } },
+        ]),
+        [
+          { content: 'TOTAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: fmt(totalDisc), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: '100,00%', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+        ],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
+      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 30 }, 3: { cellWidth: 18 } },
+      margin: { left: mX, right: mX },
+    })
+    y = (doc as any).lastAutoTable.finalY + 5
+  }
+
+  // =========================================================
   // ITENS CONTRATADOS (planilha completa)
   // =========================================================
   if (dados.itens_contratados && dados.itens_contratados.length > 0) {
@@ -302,6 +351,8 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
     y += 6
     doc.setTextColor(0, 0, 0)
 
+    const totalItens = dados.itens_contratados.reduce((s, ic) => s + ic.valor_total, 0)
+
     autoTable(doc, {
       startY: y,
       head: [[
@@ -309,21 +360,27 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
         { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
         { content: 'Unidade', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Qtd.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: 'Vl. Unit.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Unit. (R$)', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Total (R$)', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
-      body: dados.itens_contratados.map(ic => [
-        { content: ic.numero, styles: { halign: 'center' as const } },
-        ic.descricao,
-        { content: ic.unidade, styles: { halign: 'center' as const } },
-        { content: ic.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), styles: { halign: 'right' as const } },
-        { content: fmt(ic.valor_unitario), styles: { halign: 'right' as const } },
-        { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
-      ]),
+      body: [
+        ...dados.itens_contratados.map(ic => [
+          { content: ic.numero, styles: { halign: 'center' as const } },
+          ic.descricao,
+          { content: ic.unidade, styles: { halign: 'center' as const } },
+          { content: ic.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), styles: { halign: 'right' as const } },
+          { content: fmt(ic.valor_unitario), styles: { halign: 'right' as const } },
+          { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
+        ]),
+        [
+          { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: fmt(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+        ],
+      ],
       theme: 'grid',
       styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 80 }, 2: { cellWidth: 18 }, 3: { cellWidth: 20 }, 4: { cellWidth: 26 }, 5: { cellWidth: 26 } },
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 74 }, 2: { cellWidth: 18 }, 3: { cellWidth: 22 }, 4: { cellWidth: 30 }, 5: { cellWidth: 32 } },
       margin: { left: mX, right: mX },
     })
     y = (doc as any).lastAutoTable.finalY + 5
@@ -342,35 +399,51 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
     y += 6
     doc.setTextColor(0, 0, 0)
 
-    const fCor: [number,number,number] = [210, 228, 248]
-    const fCor2: [number,number,number] = [210, 245, 215]
+    const fCor: [number,number,number]    = [0, 70, 140]     // azul fiscal
+    const fCorSub: [number,number,number] = [60, 120, 185]   // azul fiscal (subheader)
+    const fCor2: [number,number,number]    = [0, 110, 55]    // verde financeiro
+    const fCor2Sub: [number,number,number] = [50, 150, 85]   // verde financeiro (subheader)
 
     const head: import('jspdf-autotable').RowInput[] = [
       [
         { content: 'ITEM\nNº', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
         { content: 'DESCRIÇÃO', rowSpan: 2, styles: { halign: 'left' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
-        { content: 'EXECUÇÃO FISCAL', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor } },
-        { content: 'EXECUÇÃO FINANCEIRA', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor2 } },
+        { content: 'EXECUÇÃO FISCAL', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor, textColor: [255, 255, 255] as [number,number,number] } },
+        { content: 'EXECUÇÃO FINANCEIRA', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor2, textColor: [255, 255, 255] as [number,number,number] } },
       ],
       [
-        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor } },
-        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor } },
-        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor } },
-        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2 } },
-        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2 } },
-        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2 } },
+        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCorSub, textColor: [255, 255, 255] as [number,number,number] } },
+        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCorSub, textColor: [255, 255, 255] as [number,number,number] } },
+        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCorSub, textColor: [255, 255, 255] as [number,number,number] } },
+        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2Sub, textColor: [255, 255, 255] as [number,number,number] } },
+        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2Sub, textColor: [255, 255, 255] as [number,number,number] } },
+        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2Sub, textColor: [255, 255, 255] as [number,number,number] } },
       ],
     ]
 
     let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0
 
     const body: any[][] = dados.itens.map(item => {
-      const qtdAcumComAtual = item.quantidade_acumulada_aprovada + item.quantidade_no_periodo
-      const qtdAExecutar = item.quantidade_total_contrato - qtdAcumComAtual
-
+      // Usar valor_acumulado_anterior se disponível (contratos migrados)
+      const vlrAcumAnterior = item.valor_acumulado_anterior !== undefined
+        ? item.valor_acumulado_anterior
+        : item.quantidade_acumulada_aprovada * item.valor_unitario
+      const vlrTotal = item.valor_total_item !== undefined
+        ? item.valor_total_item
+        : item.quantidade_total_contrato * item.valor_unitario
       const vlrNoPeriodo = item.valor_no_periodo
-      const vlrAtePeriodo = qtdAcumComAtual * item.valor_unitario
-      const vlrAExecutar = qtdAExecutar * item.valor_unitario
+      const vlrAtePeriodo = vlrAcumAnterior + vlrNoPeriodo
+      const vlrAExecutar = Math.max(0, vlrTotal - vlrAtePeriodo)
+
+      // Quantidades fiscais derivadas dos valores
+      const qtdAcumHistorico = item.valor_acumulado_anterior !== undefined && item.valor_unitario > 0
+        ? vlrAcumAnterior / item.valor_unitario
+        : item.quantidade_acumulada_aprovada
+      const qtdTotal = item.valor_total_item !== undefined && item.valor_unitario > 0
+        ? vlrTotal / item.valor_unitario
+        : item.quantidade_total_contrato
+      const qtdAtePeriodo = qtdAcumHistorico + item.quantidade_no_periodo
+      const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
 
       totalNoPeriodo += vlrNoPeriodo
       totalAteoPeriodo += vlrAtePeriodo
@@ -380,20 +453,19 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: item.descricao, styles: { fontSize: 6 } },
         { content: fmtFiscal(item.quantidade_no_periodo, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: fmtFiscal(qtdAcumComAtual, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fmtFiscal(qtdAtePeriodo, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmtFiscal(qtdAExecutar, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
-        { content: fmt(Math.max(vlrAExecutar, 0)), styles: { halign: 'right' as const, fontSize: 6 } },
+        { content: fmt(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },
       ]
     })
 
-    // Linha TOTAL
     body.push([
       { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
       { content: fmt(totalNoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
       { content: fmt(totalAteoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(Math.max(totalAExecutar, 0)), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalAExecutar), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
     ])
 
     autoTable(doc, {
@@ -452,51 +524,6 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       theme: 'grid',
       styles: { fontSize: 7, cellPadding: 1.5 },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      margin: { left: mX, right: mX },
-    })
-    y = (doc as any).lastAutoTable.finalY + 5
-  }
-
-  // =========================================================
-  // DISCRIMINAÇÃO DAS DESPESAS
-  // =========================================================
-  if (dados.discriminacoes && dados.discriminacoes.length > 0) {
-    doc.setFillColor(22, 60, 100)
-    doc.rect(mX, y, W - 2 * mX, 6, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7.5)
-    doc.text('DISCRIMINAÇÃO DAS DESPESAS', W / 2, y + 4, { align: 'center' })
-    y += 6
-    doc.setTextColor(0, 0, 0)
-
-    const totalDisc = dados.discriminacoes.reduce((s, d) => s + d.valor, 0)
-
-    autoTable(doc, {
-      startY: y,
-      head: [[
-        { content: 'Item', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: 'Discriminação', styles: { fontStyle: 'bold' as const } },
-        { content: 'Valor R$', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: '%', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-      ]],
-      body: [
-        ...dados.discriminacoes.map(d => [
-          { content: d.numero, styles: { halign: 'center' as const } },
-          d.descricao,
-          { content: fmt(d.valor), styles: { halign: 'right' as const } },
-          { content: `${Number(d.percentual || 0).toFixed(2)}%`, styles: { halign: 'right' as const } },
-        ]),
-        [
-          { content: 'TOTAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
-          { content: fmt(totalDisc), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
-          { content: '100,00%', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
-        ],
-      ],
-      theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
-      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 30 }, 3: { cellWidth: 18 } },
       margin: { left: mX, right: mX },
     })
     y = (doc as any).lastAutoTable.finalY + 5

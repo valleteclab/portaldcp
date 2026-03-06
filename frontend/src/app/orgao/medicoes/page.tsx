@@ -20,7 +20,7 @@ import {
   MessageCircle, FileDown,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
-import { gerarPdfMedicao, type DadosMedicaoPdf } from '@/lib/pdf-medicao'
+import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
@@ -1419,16 +1419,40 @@ export default function MedicoesPage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={() => {
-                  const itensItem = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma').map((i: any) => ({
-                    numero: i.item_numero || i.etapa_numero || 0,
-                    descricao: i.item_descricao || i.etapa_descricao || '',
-                    unidade: i.item_unidade || '',
-                    quantidade_no_periodo: Number(i.quantidade_medida || 0),
-                    quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
-                    quantidade_total_contrato: Number(i.item_quantidade_total || 0),
-                    valor_no_periodo: Number(i.valor_medido || 0),
-                    valor_unitario: Number(i.item_valor_unitario || 0),
-                  }))
+                  const competenciaDefault = derivarCompetencia(modalAteste.periodo_inicio || '')
+                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
+                  if (competencia === null) return
+
+                  const itensCron = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
+                  const somaValorItens = itensCron.reduce((s: number, i: any) => s + Number(i.item_quantidade_total || 0) * Number(i.item_valor_unitario || 0), 0)
+                  const valorInicial = Number(modalAteste.contrato?.valor_inicial || 0)
+                  const saldoDisp = Number(modalAteste.contrato?.saldo_disponivel || modalAteste.saldo_disponivel || 0)
+                  const valorJaExecutado = Math.max(0, valorInicial - saldoDisp)
+
+                  const calcAcum = (vlrRestante: number) =>
+                    somaValorItens > 0 && valorJaExecutado > 0
+                      ? (vlrRestante / somaValorItens) * valorJaExecutado
+                      : 0
+
+                  const itensItem = itensCron.map((i: any) => {
+                    const vlrUnitario = Number(i.item_valor_unitario || 0)
+                    const vlrRestante = Number(i.item_quantidade_total || 0) * vlrUnitario
+                    const vlrAcumAnterior = vlrRestante > 0 && valorJaExecutado > 0
+                      ? calcAcum(vlrRestante)
+                      : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
+                    return {
+                      numero: i.item_numero || i.etapa_numero || 0,
+                      descricao: i.item_descricao || i.etapa_descricao || '',
+                      unidade: i.item_unidade || '',
+                      quantidade_no_periodo: Number(i.quantidade_medida || 0),
+                      quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
+                      quantidade_total_contrato: Number(i.item_quantidade_total || 0),
+                      valor_no_periodo: Number(i.valor_medido || 0),
+                      valor_unitario: vlrUnitario,
+                      valor_acumulado_anterior: vlrAcumAnterior,
+                      valor_total_item: vlrRestante + vlrAcumAnterior,
+                    }
+                  })
                   const itensEtapa = (modalAteste.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({
                     numero: i.etapa_numero || 0,
                     descricao: i.etapa_descricao || '',
@@ -1447,6 +1471,7 @@ export default function MedicoesPage() {
                     numero_medicao: modalAteste.numero_medicao,
                     periodo_inicio: modalAteste.periodo_inicio || '',
                     periodo_fim: modalAteste.periodo_fim || '',
+                    competencia: competencia || competenciaDefault,
                     valor_medido: Number(modalAteste.valor_medido || 0),
                     nota_fiscal_numero: modalAteste.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,

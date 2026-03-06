@@ -53,7 +53,7 @@ import {
   FileDown,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
-import { gerarPdfMedicao, type DadosMedicaoPdf } from '@/lib/pdf-medicao';
+import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao';
 
 // ============ INTERFACES ============
 
@@ -2126,18 +2126,38 @@ export default function FornecedorContratoDetalhePage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={() => {
+                  const competenciaDefault = derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
+                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
+                  if (competencia === null) return
+
+                  const somaValorItens = itensCronograma.reduce((s: number, ic: any) => s + Number(ic.valor_total || 0), 0)
+                  const valorJaExecutado = Math.max(0, Number(contrato?.valor_inicial || 0) - Number(resumo?.saldo_disponivel || 0))
+
+                  const calcAcum = (vlrRestante: number) =>
+                    somaValorItens > 0 && valorJaExecutado > 0
+                      ? (vlrRestante / somaValorItens) * valorJaExecutado
+                      : 0
+
                   const itensItem = (medicaoDetalhe.itens || [])
                     .filter((i: any) => i.tipo_item === 'item_cronograma')
-                    .map((i: any) => ({
-                      numero: i.item_numero || i.etapa_numero || 0,
-                      descricao: i.item_descricao || i.etapa_descricao || '',
-                      unidade: i.item_unidade || '',
-                      quantidade_no_periodo: Number(i.quantidade_medida || 0),
-                      quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
-                      quantidade_total_contrato: Number(i.item_quantidade_total || 0),
-                      valor_no_periodo: Number(i.valor_medido || 0),
-                      valor_unitario: Number(i.item_valor_unitario || 0),
-                    }))
+                    .map((i: any) => {
+                      const vlrUnitario = Number(i.item_valor_unitario || 0)
+                      const ic = itensCronograma.find((c: any) => c.numero_item === i.item_numero)
+                      const vlrRestante = ic ? Number(ic.valor_total || 0) : Number(i.item_quantidade_total || 0) * vlrUnitario
+                      const vlrAcumAnterior = ic ? calcAcum(vlrRestante) : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
+                      return {
+                        numero: i.item_numero || i.etapa_numero || 0,
+                        descricao: i.item_descricao || i.etapa_descricao || '',
+                        unidade: i.item_unidade || '',
+                        quantidade_no_periodo: Number(i.quantidade_medida || 0),
+                        quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
+                        quantidade_total_contrato: Number(i.item_quantidade_total || 0),
+                        valor_no_periodo: Number(i.valor_medido || 0),
+                        valor_unitario: vlrUnitario,
+                        valor_acumulado_anterior: vlrAcumAnterior,
+                        valor_total_item: vlrRestante + vlrAcumAnterior,
+                      }
+                    })
                   const itensEtapa = (medicaoDetalhe.itens || [])
                     .filter((i: any) => i.tipo_item !== 'item_cronograma')
                     .map((i: any) => ({
@@ -2159,19 +2179,26 @@ export default function FornecedorContratoDetalhePage() {
                     numero_medicao: medicaoDetalhe.numero_medicao,
                     periodo_inicio: medicaoDetalhe.periodo_inicio || '',
                     periodo_fim: medicaoDetalhe.periodo_fim || '',
+                    competencia: competencia || competenciaDefault,
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-                    itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
-                      numero: ic.numero_item || idx + 1,
-                      descricao: ic.descricao || '',
-                      unidade: ic.unidade_medida || '',
-                      quantidade: Number(ic.quantidade || 0),
-                      valor_unitario: Number(ic.valor_unitario || 0),
-                      valor_total: Number(ic.valor_total || 0),
-                    })) : undefined,
+                    itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => {
+                      const vlrRestante = Number(ic.valor_total || 0)
+                      const vlrAcum = calcAcum(vlrRestante)
+                      const vlrTotalOriginal = vlrRestante + vlrAcum
+                      const vlrUnitario = Number(ic.valor_unitario || 0)
+                      return {
+                        numero: ic.numero_item || idx + 1,
+                        descricao: ic.descricao || '',
+                        unidade: ic.unidade_medida || '',
+                        quantidade: vlrUnitario > 0 ? vlrTotalOriginal / vlrUnitario : Number(ic.quantidade || 0),
+                        valor_unitario: vlrUnitario,
+                        valor_total: vlrTotalOriginal,
+                      }
+                    }) : undefined,
                     discriminacoes: discriminacoesDetalhe && discriminacoesDetalhe.length > 0 ? discriminacoesDetalhe.map((d: any, idx: number) => ({
                       numero: d.numero || idx + 1,
                       descricao: d.descricao || d.tipo_despesa || '',
