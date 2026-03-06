@@ -559,25 +559,29 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
   // ============ MEDIÇÕES — Ateste do Fiscal ============
 
   const abrirModalAteste = async (m: Medicao) => {
-    setModalAteste(m)
     setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
-    // Inicializar estado dos itens (itens já atestados ficam marcados e bloqueados)
-    const itensMap: Record<string, { selecionado: boolean; observacoes: string }> = {}
-    const itens = (m as any).itens || []
-    for (const item of itens) {
-      itensMap[item.id] = {
-        selecionado: !!item.atestado,
-        observacoes: item.ateste_observacoes || '',
-      }
-    }
-    setItensAteste(itensMap)
-    // Carregar anexos da medição para o fiscal visualizar
+    setItensAteste({})
     setAnexosMedicao([])
     setLoadingAnexos(true)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`)
-      if (res.ok) setAnexosMedicao(await res.json())
-    } catch { }
+      // Busca medição completa (inclui itens) + anexos em paralelo
+      const [medicaoRes, anexosRes] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`),
+      ])
+      const medicaoCompleta = medicaoRes.ok ? await medicaoRes.json() : m
+      if (anexosRes.ok) setAnexosMedicao(await anexosRes.json())
+      setModalAteste(medicaoCompleta)
+      // Inicializar estado dos itens (itens já atestados ficam marcados e bloqueados)
+      const itensMap: Record<string, { selecionado: boolean; observacoes: string }> = {}
+      for (const item of (medicaoCompleta?.itens || [])) {
+        itensMap[item.id] = {
+          selecionado: !!item.atestado,
+          observacoes: item.ateste_observacoes || '',
+        }
+      }
+      setItensAteste(itensMap)
+    } catch { setModalAteste(m) }
     setLoadingAnexos(false)
   }
 
