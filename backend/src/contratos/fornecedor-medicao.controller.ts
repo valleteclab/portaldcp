@@ -537,4 +537,27 @@ export class FornecedorMedicaoController {
   async resumoMedicoes(@Param('contratoId') contratoId: string) {
     return this.medicaoService.resumoMedicoes(contratoId);
   }
+
+  /**
+   * Registra assinatura digital para o Boletim de Medição (fornecedor).
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/assinar
+   * Usa o mesmo módulo de assinaturas das OS/OF.
+   */
+  @Post('medicoes/:medicaoId/assinar')
+  async assinarMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      usuario_nome: string;
+      usuario_cpf_cnpj?: string;
+      usuario_cargo?: string;
+    },
+  ) {
+    return this.medicaoService.registrarAssinaturaMedicao(medicaoId, {
+      papel: body.papel,
+      usuario_nome: body.usuario_nome || '',
+      usuario_cpf_cnpj: body.usuario_cpf_cnpj || '',
+      usuario_cargo: body.usuario_cargo,
+    });
+  }
 }

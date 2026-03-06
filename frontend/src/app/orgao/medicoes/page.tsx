@@ -1418,7 +1418,7 @@ export default function MedicoesPage() {
                 variant="outline"
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
-                onClick={() => {
+                onClick={async () => {
                   const competenciaDefault = derivarCompetencia(modalAteste.periodo_inicio || '')
                   const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
                   if (competencia === null) return
@@ -1479,16 +1479,52 @@ export default function MedicoesPage() {
                     nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-                    assinatura_fornecedor: modalAteste.data_submissao ? {
-                      nome: modalAteste.fornecedor_nome || '',
-                      cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                      data_hora: new Date(modalAteste.data_submissao).toLocaleString('pt-BR'),
-                    } : undefined,
-                    assinatura_fiscal: modalAteste.ateste_fiscal_nome ? {
-                      nome: modalAteste.ateste_fiscal_nome,
-                      data_hora: modalAteste.ateste_data ? new Date(modalAteste.ateste_data).toLocaleString('pt-BR') : '',
-                    } : undefined,
                   }
+
+                  // Registrar assinaturas no módulo digital (mesmo módulo OS/OF)
+                  let codigoFornecedor: string | undefined
+                  let codigoFiscal: string | undefined
+                  try {
+                    if (modalAteste.data_submissao) {
+                      const rForn = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/assinar`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          papel: 'FORNECEDOR',
+                          usuario_nome: modalAteste.fornecedor_nome || '',
+                          usuario_cpf_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
+                          usuario_cargo: 'Fornecedor / Contratado',
+                        }),
+                      })
+                      if (rForn.ok) { const d = await rForn.json(); codigoFornecedor = d.codigo_formatado }
+                    }
+                    if (modalAteste.ateste_fiscal_nome) {
+                      const rFisc = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/assinar`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          papel: 'FISCAL',
+                          usuario_nome: modalAteste.ateste_fiscal_nome,
+                          usuario_cpf_cnpj: '',
+                          usuario_cargo: 'Fiscal de Contrato',
+                        }),
+                      })
+                      if (rFisc.ok) { const d = await rFisc.json(); codigoFiscal = d.codigo_formatado }
+                    }
+                  } catch { /* sem assinatura digital, continua */ }
+
+                  dadosPdf.assinatura_fornecedor = modalAteste.data_submissao ? {
+                    nome: modalAteste.fornecedor_nome || '',
+                    cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
+                    data_hora: new Date(modalAteste.data_submissao).toLocaleString('pt-BR'),
+                    codigo_validacao: codigoFornecedor,
+                  } : undefined
+                  dadosPdf.assinatura_fiscal = modalAteste.ateste_fiscal_nome ? {
+                    nome: modalAteste.ateste_fiscal_nome,
+                    data_hora: modalAteste.ateste_data ? new Date(modalAteste.ateste_data).toLocaleString('pt-BR') : '',
+                    codigo_validacao: codigoFiscal,
+                  } : undefined
+                  dadosPdf.url_validacao = `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`
                   gerarPdfMedicao(dadosPdf)
                 }}
               >

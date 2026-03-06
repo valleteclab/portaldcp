@@ -38,6 +38,7 @@ import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medi
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { UploadModule } from '../upload/upload.module';
 import { MulterModule } from '@nestjs/platform-express';
+import { AssinaturasModule } from '../assinaturas/assinaturas.module';
 import { IaModule } from '../ia/ia.module';
 import { ImportarContratoIaController } from './importar-contrato-ia.controller';
 import { ImportarContratoIaService } from './importar-contrato-ia.service';
@@ -56,6 +57,7 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
     NotificacoesModule,
     UploadModule,
     IaModule,
+    AssinaturasModule,
     HttpModule,
     FornecedoresModule,
   ],

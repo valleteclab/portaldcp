@@ -2125,7 +2125,7 @@ export default function FornecedorContratoDetalhePage() {
                 variant="outline"
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
-                onClick={() => {
+                onClick={async () => {
                   const competenciaDefault = derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
                   const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
                   if (competencia === null) return
@@ -2201,16 +2201,52 @@ export default function FornecedorContratoDetalhePage() {
                       valor: Number(d.valor || 0),
                       percentual: Number(d.percentual || 0),
                     })) : undefined,
-                    assinatura_fornecedor: medicaoDetalhe.data_submissao ? {
-                      nome: fornecedor?.razao_social || fornecedor?.nome || '',
-                      cnpj: fornecedor?.cpf_cnpj || '',
-                      data_hora: new Date(medicaoDetalhe.data_submissao).toLocaleString('pt-BR'),
-                    } : undefined,
-                    assinatura_fiscal: medicaoDetalhe.ateste_fiscal_nome ? {
-                      nome: medicaoDetalhe.ateste_fiscal_nome,
-                      data_hora: medicaoDetalhe.ateste_data ? new Date(medicaoDetalhe.ateste_data).toLocaleString('pt-BR') : '',
-                    } : undefined,
                   }
+
+                  // Registrar assinaturas no módulo digital (mesmo módulo OS/OF)
+                  let codigoFornecedor: string | undefined
+                  let codigoFiscal: string | undefined
+                  try {
+                    if (medicaoDetalhe.data_submissao) {
+                      const rForn = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoDetalhe.id}/assinar`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          papel: 'FORNECEDOR',
+                          usuario_nome: fornecedor?.razao_social || fornecedor?.nome || '',
+                          usuario_cpf_cnpj: fornecedor?.cpf_cnpj || '',
+                          usuario_cargo: 'Fornecedor / Contratado',
+                        }),
+                      })
+                      if (rForn.ok) { const d = await rForn.json(); codigoFornecedor = d.codigo_formatado }
+                    }
+                    if (medicaoDetalhe.ateste_fiscal_nome) {
+                      const rFisc = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoDetalhe.id}/assinar`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          papel: 'FISCAL',
+                          usuario_nome: medicaoDetalhe.ateste_fiscal_nome,
+                          usuario_cpf_cnpj: '',
+                          usuario_cargo: 'Fiscal de Contrato',
+                        }),
+                      })
+                      if (rFisc.ok) { const d = await rFisc.json(); codigoFiscal = d.codigo_formatado }
+                    }
+                  } catch { /* sem assinatura digital, continua */ }
+
+                  dadosPdf.assinatura_fornecedor = medicaoDetalhe.data_submissao ? {
+                    nome: fornecedor?.razao_social || fornecedor?.nome || '',
+                    cnpj: fornecedor?.cpf_cnpj || '',
+                    data_hora: new Date(medicaoDetalhe.data_submissao).toLocaleString('pt-BR'),
+                    codigo_validacao: codigoFornecedor,
+                  } : undefined
+                  dadosPdf.assinatura_fiscal = medicaoDetalhe.ateste_fiscal_nome ? {
+                    nome: medicaoDetalhe.ateste_fiscal_nome,
+                    data_hora: medicaoDetalhe.ateste_data ? new Date(medicaoDetalhe.ateste_data).toLocaleString('pt-BR') : '',
+                    codigo_validacao: codigoFiscal,
+                  } : undefined
+                  dadosPdf.url_validacao = `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`
                   gerarPdfMedicao(dadosPdf)
                 }}
               >

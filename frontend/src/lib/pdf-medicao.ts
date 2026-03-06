@@ -88,15 +88,16 @@ export interface DadosMedicaoPdf {
     cnpj: string
     cargo?: string
     data_hora: string
-    hash?: string
+    codigo_validacao?: string      // código formatado XXXX-XXXX-XXXX-XXXX
   }
   assinatura_fiscal?: {
     nome: string
     cpf?: string
     cargo?: string
     data_hora: string
-    hash?: string
+    codigo_validacao?: string      // código formatado XXXX-XXXX-XXXX-XXXX
   }
+  url_validacao?: string           // ex: portaldcp.com.br/validar-documento
 }
 
 // ---- Helpers ----
@@ -145,76 +146,141 @@ export function derivarCompetencia(periodoInicio: string): string {
   return `${meses[d.getMonth()]}/${d.getFullYear()}`
 }
 
-/** Desenha bloco de assinatura no estilo gov.br */
-function desenharAssinatura(
+/**
+ * Desenha o quadro de assinaturas eletrônicas no estilo OS/OF (Lei 14.063/2020).
+ * Retorna a altura total desenhada.
+ */
+function desenharQuadroAssinaturas(
   doc: jsPDF,
-  x: number, y: number, w: number,
-  titulo: string,
-  corHeader: [number, number, number],
-  nome: string,
-  identificacao: string,
-  dataHora: string,
-  hash?: string,
-  pendente?: boolean,
+  y: number,
+  mX: number,
+  W: number,
+  assinaturas: Array<{
+    titulo: string
+    cor: [number, number, number]
+    nome: string
+    identificacao: string
+    cargo: string
+    dataHora: string
+    pendente: boolean
+    codigoValidacao?: string
+  }>,
+  urlValidacao?: string,
 ): number {
-  const altHeader = 7
-  const altBody = pendente ? 20 : (hash ? 34 : 28)
-  const altTotal = altHeader + altBody
+  const contentW = W - 2 * mX
+  let dy = 0
 
-  // Borda externa
-  doc.setDrawColor(...corHeader)
-  doc.setLineWidth(0.5)
-  doc.setFillColor(255, 255, 255)
-  doc.roundedRect(x, y, w, altTotal, 2, 2, 'FD')
+  // ── Linha separadora ────────────────────────────────────────────────────────
+  doc.setDrawColor(107, 114, 128)
+  doc.setLineWidth(0.8)
+  doc.line(mX, y + dy, W - mX, y + dy)
+  dy += 5
 
-  // Header colorido
-  doc.setFillColor(...corHeader)
-  doc.roundedRect(x, y, w, altHeader, 2, 2, 'F')
-  doc.setFillColor(...corHeader)
-  doc.rect(x, y + altHeader - 2, w, 2, 'F')
-
+  // ── Título do quadro ──────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(30, 64, 175)
+  doc.text('QUADRO DE ASSINATURAS ELETRÔNICAS', W / 2, y + dy, { align: 'center' })
+  dy += 5
+
+  doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  doc.setTextColor(255, 255, 255)
-  doc.text(titulo, x + w / 2, y + 4.5, { align: 'center' })
+  doc.setTextColor(55, 65, 81)
+  doc.text(
+    'Este documento foi assinado eletronicamente em conformidade com a Lei nº 14.063/2020.',
+    W / 2, y + dy, { align: 'center' },
+  )
+  dy += 6
 
-  if (pendente) {
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(7)
-    doc.setTextColor(160, 160, 160)
-    doc.text('Pendente de assinatura', x + w / 2, y + altHeader + 11, { align: 'center' })
-  } else {
-    let ly = y + altHeader + 7
+  // ── Caixas por assinante ────────────────────────────────────────────────
+  const boxW = (contentW - 6) / 2
+  const assinantesArr = assinaturas.slice(0, 2)
+
+  let maxBoxH = 0
+  const boxesInfo: { x: number; boxH: number }[] = []
+
+  for (let i = 0; i < assinantesArr.length; i++) {
+    const a = assinantesArr[i]
+    const bx = mX + i * (boxW + 6)
+    const pendente = a.pendente
+    const boxH = pendente ? 22 : 38
+    maxBoxH = Math.max(maxBoxH, boxH)
+    boxesInfo.push({ x: bx, boxH })
+
+    // Fundo + borda
+    doc.setFillColor(249, 250, 251)
+    doc.setDrawColor(a.cor[0], a.cor[1], a.cor[2])
+    doc.setLineWidth(0.4)
+    doc.rect(bx, y + dy, boxW, boxH, 'FD')
+
+    // Header colorido
+    doc.setFillColor(a.cor[0], a.cor[1], a.cor[2])
+    doc.rect(bx, y + dy, boxW, 6, 'F')
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7.5)
-    doc.setTextColor(30, 30, 30)
-    const linhasNome = doc.splitTextToSize(nome, w - 6)
-    doc.text(linhasNome.slice(0, 2), x + 3, ly)
-    ly += linhasNome.slice(0, 2).length * 4.5
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(7)
-    doc.setTextColor(60, 60, 60)
-    doc.text(identificacao, x + 3, ly)
-    ly += 4.5
-
-    doc.setTextColor(80, 80, 80)
-    doc.text(`Data/Hora: ${dataHora}`, x + 3, ly)
-    ly += 4
-
     doc.setFontSize(6)
-    doc.setTextColor(100, 100, 100)
-    doc.text('Assinado eletronicamente — Portal DCP', x + 3, ly)
+    doc.setTextColor(255, 255, 255)
+    doc.text(a.titulo, bx + boxW / 2, y + dy + 4, { align: 'center' })
 
-    if (hash) {
-      ly += 4
-      doc.setFontSize(5)
-      doc.setTextColor(140, 140, 140)
-      doc.text(`Código: ${hash}`, x + 3, ly)
+    if (pendente) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(6.5)
+      doc.setTextColor(156, 163, 175)
+      doc.text('Pendente de assinatura', bx + boxW / 2, y + dy + 6 + 8, { align: 'center' })
+    } else {
+      let ly = y + dy + 6 + 5
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7)
+      doc.setTextColor(17, 24, 39)
+      const linhasNome = doc.splitTextToSize(a.nome, boxW - 6)
+      doc.text(linhasNome.slice(0, 2), bx + 3, ly)
+      ly += linhasNome.slice(0, 2).length * 4
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      doc.setTextColor(55, 65, 81)
+      if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 3.5 }
+      if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 3.5 }
+      doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 3.5
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(6)
+      doc.setTextColor(22, 163, 74)
+      doc.text('✓  Assinatura eletrônica válida', bx + 3, ly)
+    }
+  }
+  dy += maxBoxH + 5
+
+  // ── Rodapé: URL de verificação + código ─────────────────────────────────
+  doc.setDrawColor(156, 163, 175)
+  doc.setLineWidth(0.4)
+  doc.line(mX, y + dy, W - mX, y + dy)
+  dy += 4
+
+  const baseUrl = urlValidacao || 'portaldcp.com.br/validar-documento'
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(17, 24, 39)
+  doc.text('VERIFICAR AUTENTICIDADE:', mX, y + dy)
+  dy += 4
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(55, 65, 81)
+  doc.text(`Acesse: ${baseUrl}`, mX, y + dy)
+  dy += 4
+
+  // Códigos dos assinantes
+  const codigosValidos = assinantesArr.filter(a => !a.pendente && a.codigoValidacao)
+  if (codigosValidos.length > 0) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(37, 99, 235)
+    for (const a of codigosValidos) {
+      doc.text(`Código (${a.titulo.split('—')[1]?.trim() || a.titulo}): ${a.codigoValidacao}`, mX, y + dy)
+      dy += 4
     }
   }
 
-  return altTotal
+  return dy
 }
 
 // ---- Função principal ----
@@ -555,39 +621,41 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   y += 18
 
   // =========================================================
-  // ASSINATURAS (estilo gov.br)
+  // ASSINATURAS (estilo OS/OF — Lei 14.063/2020)
   // =========================================================
-  const wBloco = (W - 2 * mX - 6) / 2
+  if (y + 70 > H - 10) { doc.addPage(); y = 15 }
 
-  if (y + 45 > H - 10) { doc.addPage(); y = 15 }
-
-  // Fornecedor
   const aForn = dados.assinatura_fornecedor
-  const altForn = desenharAssinatura(
-    doc, mX, y, wBloco,
-    'ASSINADO ELETRONICAMENTE — FORNECEDOR',
-    [22, 60, 100],
-    aForn?.nome || '',
-    aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}${aForn.cargo ? `  |  ${aForn.cargo}` : ''}` : '',
-    aForn?.data_hora || '',
-    aForn?.hash,
-    !aForn,
-  )
-
-  // Fiscal
   const aFisc = dados.assinatura_fiscal
-  desenharAssinatura(
-    doc, mX + wBloco + 6, y, wBloco,
-    'ASSINADO ELETRONICAMENTE — FISCAL',
-    [0, 100, 50],
-    aFisc?.nome || '',
-    aFisc ? `${aFisc.cpf ? `CPF: ${aFisc.cpf}` : ''}${aFisc.cargo ? `  |  ${aFisc.cargo}` : ''}` : '',
-    aFisc?.data_hora || '',
-    aFisc?.hash,
-    !aFisc,
+
+  const altQuadro = desenharQuadroAssinaturas(
+    doc, y, mX, W,
+    [
+      {
+        titulo: 'FORNECEDOR',
+        cor: [22, 60, 100] as [number, number, number],
+        nome: aForn?.nome || '',
+        identificacao: aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}` : '',
+        cargo: aForn?.cargo || '',
+        dataHora: aForn?.data_hora || '',
+        pendente: !aForn,
+        codigoValidacao: aForn?.codigo_validacao,
+      },
+      {
+        titulo: 'FISCAL DE CONTRATO',
+        cor: [0, 100, 50] as [number, number, number],
+        nome: aFisc?.nome || '',
+        identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
+        cargo: aFisc?.cargo || '',
+        dataHora: aFisc?.data_hora || '',
+        pendente: !aFisc,
+        codigoValidacao: aFisc?.codigo_validacao,
+      },
+    ],
+    dados.url_validacao,
   )
 
-  y += altForn + 6
+  y += altQuadro + 6
 
   // =========================================================
   // RODAPÉ em todas as páginas

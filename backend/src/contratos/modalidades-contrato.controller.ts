@@ -823,4 +823,39 @@ export class ModalidadesContratoController {
     const saldo = await this.osService.calcularSaldoOS(osId);
     return { saldo };
   }
+
+  // ============================================================================
+  // ASSINATURA DIGITAL — Boletim de Medição
+  // ============================================================================
+
+  /**
+   * Registra uma assinatura digital para um Boletim de Medição.
+   * Usa o mesmo módulo de assinaturas das OS/OF (assinaturas_digitais).
+   * Retorna o código de validação formatado para inclusão no PDF.
+   */
+  @Post('medicoes/:medicaoId/assinar')
+  async assinarMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      usuario_nome: string;
+      usuario_cpf_cnpj?: string;
+      usuario_cargo?: string;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const orgaoId = request.user.type === UserType.ORGAO
+      ? request.user.sub
+      : usuario?.orgao_id || '';
+
+    return this.medicaoService.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: orgaoId,
+      papel: body.papel,
+      usuario_id: request.user.sub,
+      usuario_nome: body.usuario_nome || usuario?.nome || '',
+      usuario_cpf_cnpj: body.usuario_cpf_cnpj || usuario?.cpf || '',
+      usuario_cargo: body.usuario_cargo || usuario?.cargo || '',
+    });
+  }
 }

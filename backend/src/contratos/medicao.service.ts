@@ -18,6 +18,8 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
 
 @Injectable()
 export class MedicaoService {
@@ -53,6 +55,7 @@ export class MedicaoService {
     @InjectRepository(Fornecedor)
     private fornecedorRepository: Repository<Fornecedor>,
     private notificacoesService: NotificacoesService,
+    private assinaturasService: AssinaturasService,
   ) { }
 
   // ============================================================================
@@ -2479,6 +2482,65 @@ export class MedicaoService {
         numero_medicao: medicaoAtual.numero_medicao,
         status: medicaoAtual.status,
       } : null,
+    };
+  }
+
+  // ============================================================================
+  // ASSINATURA DIGITAL DO BOLETIM DE MEDIÇÃO
+  // ============================================================================
+
+  /**
+   * Registra uma assinatura digital para o Boletim de Medição.
+   * Retorna o código de validação para inclusão no PDF.
+   * Usa o mesmo módulo de assinaturas das OS/OF.
+   */
+  async registrarAssinaturaMedicao(
+    medicaoId: string,
+    dados: {
+      orgao_id?: string;
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      usuario_id?: string;
+      usuario_nome: string;
+      usuario_cpf_cnpj: string;
+      usuario_cargo?: string;
+      ip_address?: string;
+      user_agent?: string;
+    },
+  ): Promise<{ codigo_validacao: string; codigo_formatado: string; data_assinatura: Date }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Resolve orgao_id from the medição's contract when not provided (e.g. fornecedor users)
+    const orgaoId = dados.orgao_id || (medicao as any).contrato?.orgao_id || '';
+
+    const papelMap: Record<string, PapelAssinante> = {
+      FORNECEDOR: PapelAssinante.FORNECEDOR,
+      FISCAL: PapelAssinante.FISCAL,
+      GESTOR: PapelAssinante.GESTOR,
+    };
+
+    const assinatura = await this.assinaturasService.registrarAssinatura({
+      orgao_id: orgaoId,
+      entidade_tipo: EntidadeTipo.MEDICAO,
+      entidade_id: medicaoId,
+      papel_assinante: papelMap[dados.papel] || PapelAssinante.FORNECEDOR,
+      usuario_id: dados.usuario_id,
+      usuario_nome: dados.usuario_nome,
+      usuario_cpf_cnpj: dados.usuario_cpf_cnpj,
+      usuario_cargo: dados.usuario_cargo,
+      ip_address: dados.ip_address,
+      user_agent: dados.user_agent,
+    });
+
+    this.logger.log(`Assinatura registrada para medição ${medicaoId} — código: ${assinatura.codigo_validacao}`);
+
+    return {
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: this.assinaturasService.formatarCodigoValidacao(assinatura.codigo_validacao),
+      data_assinatura: assinatura.data_assinatura,
     };
   }
 }
