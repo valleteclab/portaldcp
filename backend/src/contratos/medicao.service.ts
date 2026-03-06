@@ -597,13 +597,24 @@ export class MedicaoService {
 
     const medicaoSalva = await this.medicaoRepository.save(medicao) as unknown as Medicao;
 
-    // Salvar itens da medição (obras)
+    // Salvar itens da medição (obras/etapas)
     for (const item of itensParaSalvar) {
       const itemMedicao = this.itemMedicaoRepository.create({
         ...item,
         medicao_id: medicaoSalva.id,
       } as any);
       await this.itemMedicaoRepository.save(itemMedicao);
+    }
+
+    // Salvar itens da medição (item_cronograma)
+    for (const item of itensItemParaSalvar) {
+      const itemMedicaoItem = this.itemMedicaoItemRepository.create({
+        medicao_id: medicaoSalva.id,
+        item_cronograma_id: item.item_cronograma_id,
+        quantidade_medida: item.quantidade_medida,
+        valor_medido: item.valor_medido,
+      } as any);
+      await this.itemMedicaoItemRepository.save(itemMedicaoItem);
     }
 
     return this.buscarMedicaoCompleta(medicaoSalva.id);
@@ -1909,22 +1920,44 @@ export class MedicaoService {
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
-    // Buscar itens com dados da etapa do cronograma
-    const itens = await this.itemMedicaoRepository.find({
+    // Buscar itens baseados em etapa (obras/engenharia)
+    const itensEtapa = await this.itemMedicaoRepository.find({
       where: { medicao_id: medicaoId },
       relations: ['etapa'],
     });
-
-    // Enriquecer cada item com dados da etapa para o frontend
-    const itensEnriquecidos = itens.map(item => ({
+    const itensEtapaEnriquecidos = itensEtapa.map(item => ({
       ...item,
+      tipo_item: 'etapa',
       etapa_descricao: item.etapa?.descricao || '',
       etapa_numero: item.etapa?.numero_etapa || 0,
       etapa_valor_previsto: item.etapa ? Number(item.etapa.valor_previsto) : 0,
       etapa_percentual_fisico: item.etapa ? Number(item.etapa.percentual_fisico) : 0,
     }));
 
-    return { ...medicao, itens: itensEnriquecidos } as any;
+    // Buscar itens baseados em item_cronograma (serviços por quantidade)
+    const itensItem = await this.itemMedicaoItemRepository.find({
+      where: { medicao_id: medicaoId },
+      relations: ['itemCronograma'],
+    });
+    const itensItemEnriquecidos = itensItem.map(item => ({
+      ...item,
+      tipo_item: 'item_cronograma',
+      // campos compatíveis com o padrão do frontend (etapa_*)
+      etapa_descricao: item.itemCronograma?.descricao || '',
+      etapa_numero: item.itemCronograma?.numero_item || 0,
+      etapa_valor_previsto: item.itemCronograma ? Number(item.itemCronograma.valor_total) : 0,
+      etapa_percentual_fisico: 0,
+      // campos extras para exibição
+      item_descricao: item.itemCronograma?.descricao || '',
+      item_numero: item.itemCronograma?.numero_item || 0,
+      item_unidade: item.itemCronograma?.unidade_medida || '',
+      item_valor_unitario: item.itemCronograma ? Number(item.itemCronograma.valor_unitario) : 0,
+      item_quantidade_total: item.itemCronograma ? Number(item.itemCronograma.quantidade) : 0,
+    }));
+
+    const itens = [...itensEtapaEnriquecidos, ...itensItemEnriquecidos];
+
+    return { ...medicao, itens } as any;
   }
 
   // ============================================================================

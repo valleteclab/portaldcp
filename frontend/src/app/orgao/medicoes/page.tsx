@@ -1276,8 +1276,8 @@ export default function MedicoesPage() {
                           )
                         })()}
                       </TableHead>
-                      <TableHead className="text-xs font-bold">Etapa</TableHead>
-                      <TableHead className="text-xs font-bold text-center w-16">% Med.</TableHead>
+                      <TableHead className="text-xs font-bold">Item / Etapa</TableHead>
+                      <TableHead className="text-xs font-bold text-center w-24">Qtd / %</TableHead>
                       <TableHead className="text-xs font-bold text-right w-24">Valor</TableHead>
                       <TableHead className="text-xs font-bold w-10">Status</TableHead>
                     </TableRow>
@@ -1287,6 +1287,13 @@ export default function MedicoesPage() {
                       const jaAtestado = !!item.atestado
                       const selecionado = itensAteste[item.id]?.selecionado || false
                       const podeEditarAteste = ['SUBMETIDA', 'PARCIALMENTE_ATESTADA'].includes(modalAteste.status || '')
+                      const isItemCronograma = item.tipo_item === 'item_cronograma'
+                      const descricao = isItemCronograma
+                        ? (item.item_descricao || item.etapa_descricao || `Item ${idx + 1}`)
+                        : (item.etapa_descricao || `Etapa ${idx + 1}`)
+                      const numero = isItemCronograma
+                        ? (item.item_numero || item.etapa_numero || idx + 1)
+                        : (item.etapa_numero || idx + 1)
                       return (
                         <TableRow key={item.id || idx} className={jaAtestado && selecionado ? 'bg-green-50/50' : selecionado ? 'bg-yellow-50/50' : ''}>
                           <TableCell className="text-center">
@@ -1302,7 +1309,7 @@ export default function MedicoesPage() {
                             />
                           </TableCell>
                           <TableCell>
-                            <p className="text-sm font-medium">{item.etapa_numero || idx + 1}. {item.etapa_descricao || `Etapa ${idx + 1}`}</p>
+                            <p className="text-sm font-medium">{numero}. {descricao}</p>
                             {jaAtestado && selecionado && (
                               <p className="text-xs text-green-600 mt-0.5">Atestado por {item.ateste_fiscal_nome} em {formatarData(item.ateste_data)}</p>
                             )}
@@ -1318,8 +1325,13 @@ export default function MedicoesPage() {
                               />
                             )}
                           </TableCell>
-                          <TableCell className="text-center text-sm">{Number(item.percentual_executado_atual || 0).toFixed(1)}%</TableCell>
-                          <TableCell className="text-right text-sm">{formatarMoeda(item.valor_medido)}</TableCell>
+                          <TableCell className="text-center text-sm">
+                            {isItemCronograma
+                              ? <span className="text-blue-700">{Number(item.quantidade_medida || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {item.item_unidade || ''}</span>
+                              : <span>{Number(item.percentual_executado_atual || 0).toFixed(1)}%</span>
+                            }
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium">{formatarMoeda(item.valor_medido)}</TableCell>
                           <TableCell className="text-center">
                             {jaAtestado && selecionado ? (
                               <CheckCircle className="w-4 h-4 text-green-600 mx-auto" />
