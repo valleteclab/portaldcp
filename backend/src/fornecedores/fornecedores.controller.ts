@@ -183,6 +183,16 @@ export class FornecedoresController {
     return { fornecedor, token: result.token };
   }
 
+  @Public()
+  @Post('reivindicar-conta')
+  async reivindicarConta(
+    @Body() body: { cnpj: string; email: string; senha: string }
+  ): Promise<{ fornecedor: Fornecedor; token: string }> {
+    await this.fornecedoresService.reivindicarConta(body.cnpj, body.email, body.senha);
+    const result = await this.authService.loginFornecedorPorEmail(body.email, body.senha);
+    return { fornecedor: result.fornecedor as Fornecedor, token: result.token };
+  }
+
   @Put(':id/definir-senha')
   async definirSenha(
     @Param('id') id: string,

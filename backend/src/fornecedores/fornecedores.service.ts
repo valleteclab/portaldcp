@@ -320,8 +320,9 @@ export class FornecedoresService {
   /**
    * Verifica se CNPJ já está cadastrado
    * Se email for passado, verifica se é o próprio cadastro do usuário
+   * temSenha=false indica conta criada automaticamente pelo órgão (sem credenciais)
    */
-  async verificarCnpjExistente(cnpj: string, email?: string): Promise<{ existe: boolean; proprioCadastro: boolean; fornecedor?: FornecedorSemSenha }> {
+  async verificarCnpjExistente(cnpj: string, email?: string): Promise<{ existe: boolean; proprioCadastro: boolean; temSenha: boolean; fornecedor?: FornecedorSemSenha }> {
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     const fornecedor = await this.fornecedorRepository.findOne({
       where: { cpf_cnpj: cnpjLimpo },
@@ -332,12 +333,44 @@ export class FornecedoresService {
     if (fornecedor && email) {
       proprioCadastro = fornecedor.email === email;
     }
+
+    // temSenha: conta foi criada pelo fornecedor (tem senha real)
+    const temSenha = !!(fornecedor?.senha);
     
     return {
       existe: !!fornecedor,
       proprioCadastro,
+      temSenha,
       fornecedor: fornecedor ? this.removerSenha(fornecedor) : undefined,
     };
+  }
+
+  /**
+   * Reivindica uma conta criada automaticamente pelo órgão.
+   * Associa email e senha ao registro existente sem credenciais.
+   */
+  async reivindicarConta(cnpj: string, email: string, senha: string): Promise<Fornecedor> {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
+
+    if (!fornecedor) {
+      throw new NotFoundException('Fornecedor não encontrado com este CNPJ');
+    }
+    if (fornecedor.senha) {
+      throw new ConflictException('Esta conta já possui credenciais definidas. Use a opção de login ou recuperação de senha.');
+    }
+
+    // Verifica se o email já está em uso por outro cadastro
+    const emailExistente = await this.fornecedorRepository.findOne({ where: { email } });
+    if (emailExistente && emailExistente.id !== fornecedor.id) {
+      throw new ConflictException('Este email já está em uso por outro cadastro');
+    }
+
+    fornecedor.email = email;
+    fornecedor.senha = this.hashSenha(senha);
+    fornecedor.status = StatusCadastro.PENDENTE;
+
+    return await this.fornecedorRepository.save(fornecedor);
   }
 
   /**

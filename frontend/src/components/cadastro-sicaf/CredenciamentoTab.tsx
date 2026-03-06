@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Search, Building2, User, MapPin, Briefcase, Users, Loader2, CheckCircle2, ArrowLeft, ArrowRight } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Search, Building2, User, MapPin, Briefcase, Users, Loader2, CheckCircle2, ArrowLeft, ArrowRight, KeyRound } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,8 +32,16 @@ export function CredenciamentoTab({
   usarProcurador, setUsarProcurador, procurador, setProcurador,
   onComplete, setError, emailUsuario
 }: CredenciamentoTabProps) {
+  const router = useRouter()
   const [cnpj, setCnpj] = useState('')
   const [loading, setLoading] = useState(false)
+  // Estado para fluxo de reivindicação de conta criada pelo órgão
+  const [reivindicarCnpj, setReivindicarCnpj] = useState<string | null>(null)
+  const [reivindicarEmail, setReivindicarEmail] = useState('')
+  const [reivindicarSenha, setReivindicarSenha] = useState('')
+  const [reivindicarSenhaConf, setReivindicarSenhaConf] = useState('')
+  const [reivindicarLoading, setReivindicarLoading] = useState(false)
+  const [reivindicarErro, setReivindicarErro] = useState<string | null>(null)
 
   const consultarCnpj = async () => {
     const cnpjLimpo = cnpj.replace(/\D/g, '')
@@ -52,9 +61,15 @@ export function CredenciamentoTab({
       const verificaRes = await authFetch(verificaUrl)
       const verificaData = await verificaRes.json()
       
-      // Só bloqueia se existe E não é do próprio usuário
       if (verificaData.existe && !verificaData.proprioCadastro) {
-        setError('Este CNPJ já está cadastrado no sistema')
+        if (!verificaData.temSenha) {
+          // Conta criada pelo órgão sem credenciais: abrir fluxo de reivindicação
+          setReivindicarCnpj(cnpjLimpo)
+          setLoading(false)
+          return
+        }
+        // Conta já tem credenciais de outro usuário
+        setError('Este CNPJ já está cadastrado no sistema. Faça login ou recupere sua senha.')
         setLoading(false)
         return
       }
@@ -95,6 +110,110 @@ export function CredenciamentoTab({
     }
     setError(null)
     onComplete()
+  }
+
+  const handleReivindicar = async () => {
+    if (!reivindicarCnpj) return
+    if (!reivindicarEmail || !reivindicarSenha) {
+      setReivindicarErro('Preencha e-mail e senha')
+      return
+    }
+    if (reivindicarSenha !== reivindicarSenhaConf) {
+      setReivindicarErro('As senhas não conferem')
+      return
+    }
+    if (reivindicarSenha.length < 6) {
+      setReivindicarErro('A senha deve ter pelo menos 6 caracteres')
+      return
+    }
+    setReivindicarLoading(true)
+    setReivindicarErro(null)
+    try {
+      const res = await fetch(`${API_URL}/api/fornecedores/reivindicar-conta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: reivindicarCnpj, email: reivindicarEmail, senha: reivindicarSenha }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Erro ao reivindicar conta')
+      // Salva token e redireciona
+      localStorage.setItem('token', data.token)
+      localStorage.setItem('fornecedor', JSON.stringify(data.fornecedor))
+      router.push('/fornecedor/cadastro-sicaf')
+      router.refresh()
+    } catch (err: any) {
+      setReivindicarErro(err.message || 'Erro ao ativar conta')
+    } finally {
+      setReivindicarLoading(false)
+    }
+  }
+
+  // Tela de reivindicação de conta
+  if (reivindicarCnpj) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-blue-600" />
+            Ativar Acesso ao Portal
+          </CardTitle>
+          <CardDescription>
+            Sua empresa já está em nossa base de dados. Defina seu e-mail e senha para acessar o portal.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Alert className="border-blue-200 bg-blue-50">
+            <AlertDescription>
+              CNPJ <strong>{formatarCnpj(reivindicarCnpj)}</strong> encontrado. Crie suas credenciais de acesso.
+            </AlertDescription>
+          </Alert>
+          {reivindicarErro && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertDescription className="text-red-700">{reivindicarErro}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label>E-mail *</Label>
+            <Input
+              type="email"
+              value={reivindicarEmail}
+              onChange={(e) => setReivindicarEmail(e.target.value)}
+              placeholder="email@empresa.com.br"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Senha *</Label>
+            <Input
+              type="password"
+              value={reivindicarSenha}
+              onChange={(e) => setReivindicarSenha(e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Confirmar Senha *</Label>
+            <Input
+              type="password"
+              value={reivindicarSenhaConf}
+              onChange={(e) => setReivindicarSenhaConf(e.target.value)}
+              placeholder="Repita a senha"
+            />
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={() => setReivindicarCnpj(null)} className="flex-1">
+              <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+            </Button>
+            <Button onClick={handleReivindicar} disabled={reivindicarLoading} className="flex-1">
+              {reivindicarLoading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Ativando...</>
+              ) : (
+                <><KeyRound className="mr-2 h-4 w-4" />Ativar Acesso</>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   // Tela de consulta CNPJ
