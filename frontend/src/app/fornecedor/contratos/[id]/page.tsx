@@ -223,7 +223,7 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_valor: '',
     nota_fiscal_data: '',
     valor_medido: '',
-    itens: [] as ({ etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | { item_cronograma_id: string; quantidade_medida: number })[],
+    itens: [] as ({ etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number })[],
   });
   // Discriminação de Despesas
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
@@ -1314,50 +1314,124 @@ export default function FornecedorContratoDetalhePage() {
             {/* Planilha por Itens (quantidade medida) */}
             {!isServicoContinuado && usarItensCronograma && (
             <div className="border rounded-lg overflow-hidden">
+              {/* Barra de ações: Proporcional */}
+              <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b gap-3">
+                <p className="text-xs text-gray-500">
+                  Para períodos parciais (ex: 21 dias), use <strong>Proporcional</strong> ou informe o <strong>Valor R$</strong> diretamente.
+                </p>
+                <Button
+                  type="button" variant="outline" size="sm"
+                  disabled={!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim}
+                  title="Calcula a fração de dias do período em relação ao mês e preenche as quantidades proporcionalmente"
+                  onClick={() => {
+                    if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) return;
+                    const inicio = new Date(novaMedicao.periodo_inicio + 'T00:00:00');
+                    const fim = new Date(novaMedicao.periodo_fim + 'T00:00:00');
+                    const diasPeriodo = Math.round((fim.getTime() - inicio.getTime()) / 86400000) + 1;
+                    // Dias no mês de referência (mês do início do período)
+                    const diasNoMes = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0).getDate();
+                    const fator = Math.min(diasPeriodo / diasNoMes, 1);
+                    const itens = itensCronograma.map((ic, idx) => {
+                      const qtdTotal = Number(ic.quantidade);
+                      const qtdAprovada = Number(ic.quantidade_medida);
+                      const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
+                      const saldo = qtdTotal - qtdAprovada - emTransito;
+                      const qtdProporcional = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
+                      const valorOverride = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
+                      return { item_cronograma_id: ic.id, quantidade_medida: qtdProporcional, modo_input: 'quantidade' as const, valor_override: valorOverride };
+                    });
+                    setNovaMedicao({ ...novaMedicao, itens });
+                  }}
+                  className="text-blue-700 border-blue-300 hover:bg-blue-50 whitespace-nowrap"
+                >
+                  Proporcional ({novaMedicao.periodo_inicio && novaMedicao.periodo_fim
+                    ? (() => {
+                        const ini = new Date(novaMedicao.periodo_inicio + 'T00:00:00');
+                        const fim = new Date(novaMedicao.periodo_fim + 'T00:00:00');
+                        const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1;
+                        const diasMes = new Date(ini.getFullYear(), ini.getMonth() + 1, 0).getDate();
+                        return `${dias}/${diasMes} dias`;
+                      })()
+                    : 'defina o período'})
+                </Button>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50">
-                    <TableHead className="w-16 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="w-12 text-center font-bold text-xs uppercase">Item</TableHead>
                     <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
-                    <TableHead className="text-right font-bold text-xs uppercase w-24">Quant. Total</TableHead>
-                    <TableHead className="text-right font-bold text-xs uppercase w-24">Med. Acum.</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
-                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-blue-50">Qtd. Mês</TableHead>
-                    <TableHead className="text-right font-bold text-xs uppercase w-28 bg-blue-50">Subtotal</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-green-50">Valor R$</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24 bg-blue-50">Subtotal</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {itensCronograma.map((ic, idx) => {
-                    const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number } | undefined;
+                    const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined;
                     const qtdMedida = itemState?.quantidade_medida || 0;
+                    const valorOverride = itemState?.valor_override;
+                    const modoInput = itemState?.modo_input ?? 'quantidade';
                     const qtdTotal = Number(ic.quantidade);
                     const qtdAprovada = Number(ic.quantidade_medida);
                     const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                     const saldo = qtdTotal - qtdAprovada - emTransito;
-                    const subtotal = qtdMedida * Number(ic.valor_unitario);
+                    const valorUnit = Number(ic.valor_unitario);
+                    const subtotal = modoInput === 'valor' && valorOverride != null ? valorOverride : qtdMedida * valorUnit;
+                    const excedeSaldo = modoInput === 'valor'
+                      ? (valorOverride || 0) > saldo * valorUnit + 0.01
+                      : qtdMedida > saldo + 0.001;
                     return (
                       <TableRow key={ic.id} className="hover:bg-gray-50">
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
                         <TableCell><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
-                        <TableCell className="text-center">{ic.unidade_medida}</TableCell>
-                        <TableCell className="text-right">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
-                        <TableCell className="text-right text-blue-600">{qtdAprovada.toLocaleString('pt-BR')}{emTransito > 0 && <span className="text-amber-500 text-xs ml-0.5">+{emTransito.toLocaleString('pt-BR')}</span>}</TableCell>
-                        <TableCell className="text-right text-sm">{formatarMoeda(ic.valor_unitario)}</TableCell>
+                        <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
+                        <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className="text-right text-blue-600 text-sm">
+                          {qtdAprovada.toLocaleString('pt-BR')}
+                          {emTransito > 0 && <span className="text-amber-500 text-xs ml-0.5">+{emTransito.toLocaleString('pt-BR')}</span>}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
+                        {/* Qtd. Mês */}
                         <TableCell className="bg-blue-50/50">
                           <Input
                             type="number" step="0.001" min="0" max={saldo}
-                            placeholder="0" value={qtdMedida || ''}
+                            placeholder="0"
+                            value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
                               const itens = [...novaMedicao.itens];
-                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val };
+                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.round(val * valorUnit * 100) / 100 };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
-                            className="text-center"
+                            className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
                           />
                         </TableCell>
-                        <TableCell className="text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(subtotal)}</TableCell>
+                        {/* Valor R$ */}
+                        <TableCell className="bg-green-50/50">
+                          <Input
+                            type="number" step="0.01" min="0" max={saldo * valorUnit}
+                            placeholder="0,00"
+                            value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              const qtdCalc = valorUnit > 0 ? Math.round((val / valorUnit) * 10000) / 10000 : 0;
+                              const itens = [...novaMedicao.itens];
+                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: qtdCalc, modo_input: 'valor', valor_override: val };
+                              setNovaMedicao({ ...novaMedicao, itens });
+                            }}
+                            className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right font-medium bg-blue-50/50">
+                          <span className={`text-sm ${subtotal > 0 ? (excedeSaldo ? 'text-red-600' : 'text-blue-700') : 'text-gray-400'}`}>
+                            {formatarMoeda(subtotal)}
+                          </span>
+                          {excedeSaldo && <p className="text-xs text-red-500">Excede saldo</p>}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
