@@ -55,12 +55,19 @@ services:
       REDIS_PORT: 6379
       APP_URL: ${APP_URL:-http://localhost:3000}
       API_URL: ${API_URL:-http://localhost:3001}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       PNCP_API_URL: ${PNCP_API_URL:-https://treina.pncp.gov.br/api/pncp/v1}
       PNCP_LOGIN: ${PNCP_LOGIN:-}
       PNCP_SENHA: ${PNCP_SENHA:-}
       PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-}
       UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-52428800}
       UPLOAD_DEST: /app/uploads
+      UPLOAD_DIR: /app/uploads
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       TZ: America/Sao_Paulo
     ports:
       - "3001:3001"
