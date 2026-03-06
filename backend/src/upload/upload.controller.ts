@@ -33,6 +33,11 @@ export class UploadController {
       throw new BadRequestException('Nenhum arquivo enviado');
     }
 
+    console.log(`[DEBUG UPLOAD] Arquivo recebido: ${file.originalname}`);
+    console.log(`[DEBUG UPLOAD] Tipo: ${tipo || 'geral'}`);
+    console.log(`[DEBUG UPLOAD] Caminho: ${file.path}`);
+    console.log(`[DEBUG UPLOAD] Upload dir: ${process.env.UPLOAD_DIR || 'default'}`);
+
     return {
       success: true,
       filename: file.filename,
@@ -85,10 +90,17 @@ export class UploadController {
   ): Promise<StreamableFile> {
     const filePath = this.uploadService.getFilePath(tipo, filename);
     
+    // Debug: log do caminho
+    console.log(`[DEBUG DOWNLOAD] Buscando arquivo: ${filePath}`);
+    console.log(`[DEBUG DOWNLOAD] Tipo: ${tipo}, Filename: ${filename}`);
+    console.log(`[DEBUG DOWNLOAD] Upload dir: ${process.env.UPLOAD_DIR || 'default'}`);
+
     if (!existsSync(filePath)) {
+      console.log(`[DEBUG DOWNLOAD] Arquivo NÃO encontrado: ${filePath}`);
       throw new NotFoundException('Arquivo não encontrado');
     }
 
+    console.log(`[DEBUG DOWNLOAD] Arquivo encontrado: ${filePath}`);
     const file = createReadStream(filePath);
     this.setContentType(res, filename);
     return new StreamableFile(file);

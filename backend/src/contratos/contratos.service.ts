@@ -125,7 +125,9 @@ export class ContratosService {
     tipo?: TipoContrato;
     ano?: number;
     vigentes?: boolean;
-  }): Promise<Contrato[]> {
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: Contrato[]; total: number; page: number; limit: number; totalPages: number }> {
     const query = this.contratoRepository.createQueryBuilder('contrato')
       .leftJoinAndSelect('contrato.orgao', 'orgao')
       .leftJoinAndSelect('contrato.fornecedor', 'fornecedor')
@@ -157,7 +159,20 @@ export class ContratosService {
         .andWhere('contrato.data_vigencia_fim >= :hoje', { hoje });
     }
 
-    const contratos = await query.orderBy('contrato.created_at', 'DESC').getMany();
+    query.orderBy('contrato.created_at', 'DESC');
+
+    // Paginação
+    const page = filtros?.page || 1;
+    const limit = filtros?.limit || 20;
+    const skip = (page - 1) * limit;
+
+    // Contar total de registros
+    const total = await query.getCount();
+
+    // Aplicar paginação
+    query.skip(skip).take(limit);
+
+    const contratos = await query.getMany();
     const contratoIds = contratos.map((c) => c.id);
 
     // Batch: carregar todos os itens de uma vez
@@ -203,7 +218,15 @@ export class ContratosService {
         null;
     }
 
-    return contratos;
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: contratos,
+      total,
+      page,
+      limit,
+      totalPages
+    };
   }
 
   async findOne(id: string): Promise<Contrato> {
@@ -880,7 +903,7 @@ export class ContratosService {
     percentual_executado: number;
     contratos_vigentes: number;
   }> {
-    const contratos = await this.findAll({
+    const resultado = await this.findAll({
       orgaoId,
       status: StatusContrato.VIGENTE,
       vigentes: true,
@@ -889,7 +912,7 @@ export class ContratosService {
     let valor_total = 0;
     let valor_disponivel = 0;
 
-    for (const c of contratos) {
+    for (const c of resultado.data) {
       const valorGlobal = Number(c.valor_global || c.valor_inicial || 0);
       const saldo = Number((c as any).saldo_total_em_valor ?? valorGlobal);
       valor_total += valorGlobal;
@@ -904,7 +927,7 @@ export class ContratosService {
       valor_gasto,
       valor_disponivel,
       percentual_executado: Math.round(percentual_executado * 10) / 10,
-      contratos_vigentes: contratos.length,
+      contratos_vigentes: resultado.data.length,
     };
   }
 

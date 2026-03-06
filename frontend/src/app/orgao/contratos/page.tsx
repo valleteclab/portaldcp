@@ -148,6 +148,12 @@ function ContratosOrgaoPageContent() {
     status: '',
     ano: ''
   })
+  const [paginacao, setPaginacao] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0
+  })
 
   // Estados para modal Solicitar medição
   const [solicitarContrato, setSolicitarContrato] = useState<Contrato | null>(null)
@@ -318,6 +324,10 @@ window._extraindoContratos = true;
     verificarPermissaoExclusao()
   }, [])
 
+  useEffect(() => {
+    carregarDados()
+  }, [paginacao.page])
+
   const verificarPermissaoExclusao = () => {
     // Verifica se usuário é admin ou tem permissão de excluir contratos
     const userStr = localStorage.getItem('usuario')
@@ -363,13 +373,19 @@ window._extraindoContratos = true;
       const orgao = JSON.parse(orgaoData)
 
       const [contratosRes, aVencerRes, statsRes] = await Promise.all([
-        authFetch(`${API_URL}/api/contratos?orgaoId=${orgao.id}`),
+        authFetch(`${API_URL}/api/contratos?orgaoId=${orgao.id}&page=${paginacao.page}&limit=${paginacao.limit}`),
         authFetch(`${API_URL}/api/contratos/estatisticas/a-vencer?orgaoId=${orgao.id}&dias=30`),
         authFetch(`${API_URL}/api/contratos/estatisticas/status?orgaoId=${orgao.id}`)
       ])
 
       if (contratosRes.ok) {
-        setContratos(await contratosRes.json())
+        const resultado = await contratosRes.json()
+        setContratos(resultado.data || [])
+        setPaginacao(prev => ({
+          ...prev,
+          total: resultado.total || 0,
+          totalPages: resultado.totalPages || 0
+        }))
       }
       if (aVencerRes.ok) {
         setContratosAVencer(await aVencerRes.json())
@@ -860,6 +876,59 @@ window._extraindoContratos = true;
                   })}
                 </tbody>
               </table>
+
+              {/* Controles de Paginação */}
+              {paginacao.totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <div className="text-sm text-gray-600">
+                    Mostrando {((paginacao.page - 1) * paginacao.limit) + 1} a {Math.min(paginacao.page * paginacao.limit, paginacao.total)} de {paginacao.total} contratos
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPaginacao(prev => ({ ...prev, page: prev.page - 1 }))}
+                      disabled={paginacao.page === 1 || loading}
+                    >
+                      Anterior
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, paginacao.totalPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (paginacao.totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (paginacao.page <= 3) {
+                          pageNum = i + 1;
+                        } else if (paginacao.page >= paginacao.totalPages - 2) {
+                          pageNum = paginacao.totalPages - 4 + i;
+                        } else {
+                          pageNum = paginacao.page - 2 + i;
+                        }
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={paginacao.page === pageNum ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setPaginacao(prev => ({ ...prev, page: pageNum }))}
+                            disabled={loading}
+                            className="w-10"
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPaginacao(prev => ({ ...prev, page: prev.page + 1 }))}
+                      disabled={paginacao.page === paginacao.totalPages || loading}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

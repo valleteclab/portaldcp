@@ -83,7 +83,9 @@ export class ContratosController {
     @Query('status') status?: StatusContrato,
     @Query('tipo') tipo?: TipoContrato,
     @Query('ano') ano?: string,
-    @Query('vigentes') vigentes?: string
+    @Query('vigentes') vigentes?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
   ) {
     // Fornecedor: lista apenas seus contratos (fornecedorId = sub do JWT)
     if (request.user.type === UserType.FORNECEDOR) {
@@ -93,7 +95,9 @@ export class ContratosController {
         status,
         tipo,
         ano: ano ? parseInt(ano) : undefined,
-        vigentes: vigentes === 'true'
+        vigentes: vigentes === 'true',
+        page: page ? parseInt(page) : undefined,
+        limit: limit ? parseInt(limit) : undefined
       });
     }
     const orgaoId = request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
@@ -103,7 +107,9 @@ export class ContratosController {
       status,
       tipo,
       ano: ano ? parseInt(ano) : undefined,
-      vigentes: vigentes === 'true'
+      vigentes: vigentes === 'true',
+      page: page ? parseInt(page) : undefined,
+      limit: limit ? parseInt(limit) : undefined
     });
   }
 
