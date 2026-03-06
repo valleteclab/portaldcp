@@ -2143,8 +2143,8 @@ export default function FornecedorContratoDetalhePage() {
                     .map((i: any) => {
                       const vlrUnitario = Number(i.item_valor_unitario || 0)
                       const ic = itensCronograma.find((c: any) => c.numero_item === i.item_numero)
-                      const vlrRestante = ic ? Number(ic.valor_total || 0) : Number(i.item_quantidade_total || 0) * vlrUnitario
-                      const vlrAcumAnterior = ic ? calcAcum(vlrRestante) : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
+                      const vlrTotal = ic ? Number(ic.valor_total || 0) : Number(i.item_quantidade_total || 0) * vlrUnitario
+                      const vlrAcumAnterior = ic ? calcAcum(vlrTotal) : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
                       return {
                         numero: i.item_numero || i.etapa_numero || 0,
                         descricao: i.item_descricao || i.etapa_descricao || '',
@@ -2155,7 +2155,7 @@ export default function FornecedorContratoDetalhePage() {
                         valor_no_periodo: Number(i.valor_medido || 0),
                         valor_unitario: vlrUnitario,
                         valor_acumulado_anterior: vlrAcumAnterior,
-                        valor_total_item: vlrRestante + vlrAcumAnterior,
+                        valor_total_item: vlrTotal,
                       }
                     })
                   const itensEtapa = (medicaoDetalhe.itens || [])
@@ -2185,20 +2185,14 @@ export default function FornecedorContratoDetalhePage() {
                     nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-                    itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => {
-                      const vlrRestante = Number(ic.valor_total || 0)
-                      const vlrAcum = calcAcum(vlrRestante)
-                      const vlrTotalOriginal = vlrRestante + vlrAcum
-                      const vlrUnitario = Number(ic.valor_unitario || 0)
-                      return {
-                        numero: ic.numero_item || idx + 1,
-                        descricao: ic.descricao || '',
-                        unidade: ic.unidade_medida || '',
-                        quantidade: vlrUnitario > 0 ? vlrTotalOriginal / vlrUnitario : Number(ic.quantidade || 0),
-                        valor_unitario: vlrUnitario,
-                        valor_total: vlrTotalOriginal,
-                      }
-                    }) : undefined,
+                    itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
+                      numero: ic.numero_item || idx + 1,
+                      descricao: ic.descricao || '',
+                      unidade: ic.unidade_medida || '',
+                      quantidade: Number(ic.quantidade || 0),
+                      valor_unitario: Number(ic.valor_unitario || 0),
+                      valor_total: Number(ic.valor_total || 0),
+                    })) : undefined,
                     discriminacoes: discriminacoesDetalhe && discriminacoesDetalhe.length > 0 ? discriminacoesDetalhe.map((d: any, idx: number) => ({
                       numero: d.numero || idx + 1,
                       descricao: d.descricao || d.tipo_despesa || '',

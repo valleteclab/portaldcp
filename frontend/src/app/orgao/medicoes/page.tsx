@@ -1436,9 +1436,9 @@ export default function MedicoesPage() {
 
                   const itensItem = itensCron.map((i: any) => {
                     const vlrUnitario = Number(i.item_valor_unitario || 0)
-                    const vlrRestante = Number(i.item_quantidade_total || 0) * vlrUnitario
-                    const vlrAcumAnterior = vlrRestante > 0 && valorJaExecutado > 0
-                      ? calcAcum(vlrRestante)
+                    const vlrTotal = Number(i.item_quantidade_total || 0) * vlrUnitario
+                    const vlrAcumAnterior = vlrTotal > 0 && valorJaExecutado > 0
+                      ? calcAcum(vlrTotal)
                       : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
                     return {
                       numero: i.item_numero || i.etapa_numero || 0,
@@ -1450,7 +1450,7 @@ export default function MedicoesPage() {
                       valor_no_periodo: Number(i.valor_medido || 0),
                       valor_unitario: vlrUnitario,
                       valor_acumulado_anterior: vlrAcumAnterior,
-                      valor_total_item: vlrRestante + vlrAcumAnterior,
+                      valor_total_item: vlrTotal,
                     }
                   })
                   const itensEtapa = (modalAteste.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({
