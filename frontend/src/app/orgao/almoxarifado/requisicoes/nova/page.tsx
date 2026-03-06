@@ -778,11 +778,12 @@ function NovaRequisicaoForm() {
   const carregarContratos = async () => {
     try {
       setLoading(true);
-      const response = await authFetch(`${API_URL}/api/contratos`);
+      const response = await authFetch(`${API_URL}/api/contratos?limit=500`);
       if (response.ok) {
-        const data = await response.json();
+        const json = await response.json();
+        const lista: Contrato[] = Array.isArray(json) ? json : (json.data || []);
         // Filtra contratos ativos
-        const contratosAtivos = data.filter((c: Contrato) => 
+        const contratosAtivos = lista.filter((c: Contrato) => 
           c.status === 'ATIVO' || c.status === 'VIGENTE'
         );
         setContratos(contratosAtivos);
