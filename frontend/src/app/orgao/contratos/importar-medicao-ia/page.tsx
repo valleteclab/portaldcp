@@ -38,6 +38,9 @@ interface DadosExtraidos {
   valor_executado_ate_periodo: number
   fiscal_nome?: string
   fiscal_portaria?: string
+  data_assinatura?: string
+  data_vigencia_inicio?: string
+  data_vigencia_fim?: string
   itens: ItemContrato[]
   pendencias: string[]
 }
@@ -261,6 +264,9 @@ export default function ImportarMedicaoIaPage() {
         valor_executado_ate_periodo: dados.valor_executado_ate_periodo,
         fiscal_nome: dados.fiscal_nome,
         fiscal_portaria: dados.fiscal_portaria,
+        data_assinatura: dados.data_assinatura,
+        data_vigencia_inicio: dados.data_vigencia_inicio,
+        data_vigencia_fim: dados.data_vigencia_fim,
         tipo: tipoContrato,
         categoria: categoria,
         modalidade_execucao: modalidade,
@@ -571,6 +577,18 @@ export default function ImportarMedicaoIaPage() {
                     <div>
                       <Label className="text-xs text-gray-500">Portaria do Fiscal</Label>
                       <Input value={dados.fiscal_portaria || ''} onChange={e => atualizarDados('fiscal_portaria', e.target.value)} className="mt-1 h-9 text-sm" placeholder="Ex: Portaria nº 102/2025" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Data de Assinatura <span className="text-red-500">*</span></Label>
+                      <Input type="date" value={dados.data_assinatura || ''} onChange={e => atualizarDados('data_assinatura', e.target.value)} className="mt-1 h-9 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Vigência Início <span className="text-red-500">*</span></Label>
+                      <Input type="date" value={dados.data_vigencia_inicio || ''} onChange={e => atualizarDados('data_vigencia_inicio', e.target.value)} className="mt-1 h-9 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Vigência Fim <span className="text-red-500">*</span></Label>
+                      <Input type="date" value={dados.data_vigencia_fim || ''} onChange={e => atualizarDados('data_vigencia_fim', e.target.value)} className="mt-1 h-9 text-sm" />
                     </div>
                     <div className="md:col-span-2">
                       <Label className="text-xs text-gray-500">Objeto</Label>

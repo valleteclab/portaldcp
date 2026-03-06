@@ -45,6 +45,18 @@ export class DadosExtraidosMedicaoDto {
   @IsString()
   fiscal_portaria?: string;
 
+  @IsOptional()
+  @IsString()
+  data_assinatura?: string;
+
+  @IsOptional()
+  @IsString()
+  data_vigencia_inicio?: string;
+
+  @IsOptional()
+  @IsString()
+  data_vigencia_fim?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemExtraidoDto)
@@ -106,6 +118,18 @@ export class ConfirmarImportacaoMedicaoDto {
   @IsOptional()
   @IsString()
   modalidade_execucao?: string;
+
+  @IsOptional()
+  @IsString()
+  data_assinatura?: string;
+
+  @IsOptional()
+  @IsString()
+  data_vigencia_inicio?: string;
+
+  @IsOptional()
+  @IsString()
+  data_vigencia_fim?: string;
 
   @IsArray()
   @ValidateNested({ each: true })

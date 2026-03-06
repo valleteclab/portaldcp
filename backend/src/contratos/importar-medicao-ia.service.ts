@@ -29,6 +29,9 @@ COMO IDENTIFICAR OS CAMPOS:
 - "valor_executado_ate_periodo": valor acumulado executado até este período (coluna "ATÉ O PERÍODO" da execução financeira)
 - "fiscal_nome": nome do fiscal do contrato (quem assina como fiscal/gestor)
 - "fiscal_portaria": portaria de nomeação do fiscal (ex: "PORTARIA Nº 102 DE 13 DE JANEIRO DE 2025")
+- "data_assinatura": data de assinatura do contrato em YYYY-MM-DD (campo "DATA DE ASSINATURA" ou "ASSINADO EM")
+- "data_vigencia_inicio": data de início de vigência em YYYY-MM-DD
+- "data_vigencia_fim": data de fim de vigência em YYYY-MM-DD
 - "itens": lista de itens do contrato com seus dados de quantidade e valor
 
 Schema JSON de retorno:
@@ -42,6 +45,9 @@ Schema JSON de retorno:
   "valor_executado_ate_periodo": 417222.90,
   "fiscal_nome": "TELMA DE SOUZA",
   "fiscal_portaria": "PORTARIA Nº 102 DE 13 DE JANEIRO DE 2025",
+  "data_assinatura": "2024-01-15",
+  "data_vigencia_inicio": "2024-01-15",
+  "data_vigencia_fim": "2025-01-14",
   "itens": [
     {
       "descricao": "descrição completa do item",
@@ -147,6 +153,9 @@ export class ImportarMedicaoIaService {
       valor_executado_ate_periodo: Number(extraido.valor_executado_ate_periodo) || 0,
       fiscal_nome: extraido.fiscal_nome || undefined,
       fiscal_portaria: extraido.fiscal_portaria || undefined,
+      data_assinatura: extraido.data_assinatura || undefined,
+      data_vigencia_inicio: extraido.data_vigencia_inicio || undefined,
+      data_vigencia_fim: extraido.data_vigencia_fim || undefined,
       itens: Array.isArray(extraido.itens) ? extraido.itens.map((i: any) => ({
         descricao: i.descricao || '',
         unidade_medida: i.unidade_medida || 'UNIDADE',
@@ -205,6 +214,9 @@ export class ImportarMedicaoIaService {
         }
       }
 
+      const hoje = new Date().toISOString().split('T')[0];
+      const umAnoDepois = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0];
+
       const novoContrato = await this.contratosService.criar({
         orgao_id: orgaoId,
         fornecedor_id: fornecedorId,
@@ -217,6 +229,9 @@ export class ImportarMedicaoIaService {
         valor_inicial: dados.valor_global,
         valor_global: dados.valor_global,
         fiscal_nome: dados.fiscal_nome,
+        data_assinatura: dados.data_assinatura || hoje,
+        data_vigencia_inicio: dados.data_vigencia_inicio || hoje,
+        data_vigencia_fim: dados.data_vigencia_fim || umAnoDepois,
       } as any);
 
       contratoId = novoContrato.id;
