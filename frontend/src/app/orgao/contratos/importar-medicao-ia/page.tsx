@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Bot, Upload, FileText, CheckCircle, AlertTriangle, Loader2,
-  Plus, Trash2, ArrowLeft, ExternalLink, Search, TrendingUp
+  Plus, Trash2, ArrowLeft, ExternalLink, Search, TrendingUp, XCircle, ClipboardList
 } from 'lucide-react'
 
 type Estado = 'idle' | 'uploading' | 'revisando' | 'confirmando' | 'concluido'
@@ -164,12 +164,83 @@ export default function ImportarMedicaoIaPage() {
     } : prev)
   }
 
+  type CheckItem = { label: string; ok: boolean; aviso?: boolean; detalhe?: string }
+
+  const gerarChecklist = (): CheckItem[] => {
+    if (!dados) return []
+    const checks: CheckItem[] = []
+
+    checks.push({
+      label: 'Número do contrato identificado',
+      ok: !!dados.numero_contrato?.trim(),
+      detalhe: dados.numero_contrato || 'Não identificado',
+    })
+
+    checks.push({
+      label: dados.contrato_ja_cadastrado
+        ? 'Contrato encontrado no sistema'
+        : criarContrato
+          ? 'Criar novo contrato (dados da planilha)'
+          : 'Contrato não encontrado — marque a opção de criar',
+      ok: dados.contrato_ja_cadastrado || criarContrato,
+      detalhe: dados.contrato_ja_cadastrado ? 'Vinculado ✓' : criarContrato ? 'Será criado' : 'Necessário marcar',
+    })
+
+    checks.push({
+      label: 'Fornecedor (CNPJ)',
+      ok: !!(dados.fornecedor_id || dados.fornecedor_cnpj?.replace(/\D/g, '').length === 14),
+      detalhe: dados.fornecedor_razao_social || dados.fornecedor_cnpj || 'Não identificado',
+    })
+
+    checks.push({
+      label: 'Objeto do contrato',
+      ok: !!dados.objeto?.trim(),
+      detalhe: dados.objeto ? dados.objeto.substring(0, 60) + (dados.objeto.length > 60 ? '…' : '') : 'Não preenchido',
+    })
+
+    checks.push({
+      label: 'Valor global do contrato',
+      ok: (dados.valor_global || 0) > 0,
+      detalhe: dados.valor_global ? formatCurrency(dados.valor_global) : 'R$ 0,00 — preencha o valor',
+    })
+
+    checks.push({
+      label: 'Fiscal do contrato',
+      ok: !!dados.fiscal_nome?.trim(),
+      aviso: true,
+      detalhe: dados.fiscal_nome || 'Não identificado (recomendado)',
+    })
+
+    const itensValidos = dados.itens.filter(
+      i => i.descricao?.trim() && i.quantidade > 0 && i.valor_unitario > 0
+    )
+    checks.push({
+      label: `Itens do cronograma (${itensValidos.length}/${dados.itens.length} válidos)`,
+      ok: itensValidos.length > 0,
+      detalhe: dados.itens.length === 0
+        ? 'Nenhum item — adicione pelo menos 1'
+        : itensValidos.length < dados.itens.length
+          ? `${dados.itens.length - itensValidos.length} item(s) incompleto(s)`
+          : 'Todos os itens preenchidos',
+    })
+
+    const itensComUnidade = dados.itens.filter(i => i.unidade_medida?.trim())
+    checks.push({
+      label: 'Unidade de medida dos itens',
+      ok: dados.itens.length > 0 && itensComUnidade.length === dados.itens.length,
+      aviso: true,
+      detalhe: itensComUnidade.length < dados.itens.length
+        ? `${dados.itens.length - itensComUnidade.length} item(s) sem unidade`
+        : 'Preenchido',
+    })
+
+    return checks
+  }
+
   const temPendenciasNaoResolvidas = () => {
     if (!dados) return true
-    if (!dados.contrato_ja_cadastrado && !criarContrato) return true
-    if (!dados.objeto?.trim()) return true
-    if (criarContrato && (!dados.fornecedor_cnpj?.trim() && !dados.fornecedor_id)) return true
-    return false
+    const checks = gerarChecklist()
+    return checks.some(c => !c.ok && !c.aviso)
   }
 
   const confirmar = async () => {
@@ -580,6 +651,44 @@ export default function ImportarMedicaoIaPage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Checklist de validação */}
+                {(() => {
+                  const checks = gerarChecklist()
+                  const erros = checks.filter(c => !c.ok && !c.aviso)
+                  const avisos = checks.filter(c => !c.ok && c.aviso)
+                  return (
+                    <Card className={`border-2 ${erros.length > 0 ? 'border-red-200 bg-red-50' : avisos.length > 0 ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
+                      <CardHeader className="pb-2 pt-3 px-4">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <ClipboardList className="w-4 h-4" />
+                          Checklist de Validação
+                          {erros.length > 0 && <span className="text-red-600 font-normal">— {erros.length} campo(s) obrigatório(s) pendente(s)</span>}
+                          {erros.length === 0 && avisos.length > 0 && <span className="text-amber-600 font-normal">— {avisos.length} aviso(s)</span>}
+                          {erros.length === 0 && avisos.length === 0 && <span className="text-green-600 font-normal">— Pronto para importar</span>}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-3">
+                        <div className="grid grid-cols-1 gap-1.5">
+                          {checks.map((c, i) => (
+                            <div key={i} className="flex items-start gap-2 text-sm">
+                              {c.ok
+                                ? <CheckCircle className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                                : c.aviso
+                                  ? <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                  : <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                              }
+                              <div>
+                                <span className={`font-medium ${c.ok ? 'text-gray-700' : c.aviso ? 'text-amber-700' : 'text-red-700'}`}>{c.label}</span>
+                                {c.detalhe && <p className="text-xs text-gray-500 mt-0.5">{c.detalhe}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })()}
 
                 {/* Botão Confirmar */}
                 <Button
