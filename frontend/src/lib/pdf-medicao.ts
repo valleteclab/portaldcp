@@ -4,13 +4,53 @@
  * ============================================================================
  *
  * Gera o Boletim de Medição em PDF seguindo o modelo do órgão.
- * Inclui blocos de assinatura eletrônica do fornecedor e do fiscal.
+ * Inclui blocos de assinatura eletrônica no estilo gov.br.
  *
  * ============================================================================
  */
 
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+
+// ---- Interfaces ----
+
+export interface ItemMedicaoPdf {
+  numero: number
+  descricao: string
+  unidade: string
+  quantidade_no_periodo: number
+  /** Quantidade acumulada em medições ANTERIORES aprovadas (ItemCronograma.quantidade_medida) */
+  quantidade_acumulada_aprovada: number
+  quantidade_total_contrato: number
+  valor_no_periodo: number
+  valor_unitario: number
+}
+
+export interface ItemContratadoPdf {
+  numero: number
+  descricao: string
+  unidade: string
+  quantidade: number
+  valor_unitario: number
+  valor_total: number
+}
+
+export interface EtapaMedicaoPdf {
+  numero: number
+  descricao: string
+  percentual_fisico: number
+  percentual_executado_anterior: number
+  percentual_executado_atual: number
+  valor_previsto: number
+  valor_medido: number
+}
+
+export interface DiscriminacaoPdf {
+  numero: number
+  descricao: string
+  valor: number
+  percentual: number
+}
 
 export interface DadosMedicaoPdf {
   // Contrato
@@ -19,41 +59,24 @@ export interface DadosMedicaoPdf {
   orgao_nome: string
   fornecedor_nome: string
   fornecedor_cnpj: string
+  valor_total_contrato?: number
   // Medição
   numero_medicao: number
   periodo_inicio: string
   periodo_fim: string
+  competencia?: string          // ex: FEVEREIRO/2026 (gerado automaticamente se omitido)
   valor_medido: number
-  valor_acumulado?: number
-  percentual_fisico?: number
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
-  // Itens (item_cronograma)
-  itens?: Array<{
-    numero: number
-    descricao: string
-    unidade: string
-    quantidade_total: number
-    quantidade_acumulada: number
-    quantidade_medida: number
-    valor_unitario: number
-    valor_medido: number
-    // Execução fiscal (dias)
-    dias_periodo?: string
-    dias_acumulado?: string
-    dias_executar?: string
-  }>
-  // Etapas (obras)
-  etapas?: Array<{
-    numero: number
-    descricao: string
-    percentual_fisico: number
-    percentual_executado_anterior: number
-    percentual_executado_atual: number
-    valor_previsto: number
-    valor_medido: number
-  }>
-  // Assinatura fornecedor
+  // Itens de medição (item_cronograma)
+  itens?: ItemMedicaoPdf[]
+  // Itens contratados (planilha completa)
+  itens_contratados?: ItemContratadoPdf[]
+  // Etapas de obra
+  etapas?: EtapaMedicaoPdf[]
+  // Discriminação das despesas
+  discriminacoes?: DiscriminacaoPdf[]
+  // Assinaturas
   assinatura_fornecedor?: {
     nome: string
     cnpj: string
@@ -61,7 +84,6 @@ export interface DadosMedicaoPdf {
     data_hora: string
     hash?: string
   }
-  // Assinatura fiscal
   assinatura_fiscal?: {
     nome: string
     cpf?: string
@@ -71,140 +93,307 @@ export interface DadosMedicaoPdf {
   }
 }
 
-function formatarMoeda(v: number): string {
+// ---- Helpers ----
+
+function fmt(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function formatarData(d: string): string {
+function fmtData(d: string): string {
   if (!d) return '-'
-  const parts = d.split('T')[0].split('-')
-  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
-  return d
+  const p = d.split('T')[0].split('-')
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d
 }
 
-function formatarCnpj(cnpj: string): string {
+function fmtCnpj(cnpj: string): string {
   const c = cnpj.replace(/\D/g, '')
   if (c.length !== 14) return cnpj
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`
 }
 
+/** Converte quantidade para formato fiscal: ex: "21 DIAS" ou "1 MÊS 12 DIAS" quando MENSAL */
+function fmtFiscal(qty: number, unidade: string): string {
+  const u = unidade.toUpperCase()
+  if (u === 'MENSAL') {
+    const totalDias = qty * 30
+    const absDias = Math.abs(totalDias)
+    const meses = Math.floor(absDias / 30)
+    const dias = Math.round(absDias % 30)
+    const sinal = qty < 0 ? '-' : ''
+    if (meses > 0 && dias > 0) return `${sinal}${meses} MÊS ${dias} DIAS`
+    if (meses > 0) return `${sinal}${meses} MÊS`
+    return `${sinal}${dias > 0 ? dias : 0} DIAS`
+  }
+  return `${qty.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${unidade}`
+}
+
+/** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
+function derivarCompetencia(periodoInicio: string): string {
+  if (!periodoInicio) return ''
+  const d = new Date(periodoInicio + 'T00:00:00')
+  const meses = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO',
+                 'JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO']
+  return `${meses[d.getMonth()]}/${d.getFullYear()}`
+}
+
+/** Desenha bloco de assinatura no estilo gov.br */
+function desenharAssinatura(
+  doc: jsPDF,
+  x: number, y: number, w: number,
+  titulo: string,
+  corHeader: [number, number, number],
+  nome: string,
+  identificacao: string,
+  dataHora: string,
+  hash?: string,
+  pendente?: boolean,
+): number {
+  const altHeader = 7
+  const altBody = pendente ? 20 : (hash ? 34 : 28)
+  const altTotal = altHeader + altBody
+
+  // Borda externa
+  doc.setDrawColor(...corHeader)
+  doc.setLineWidth(0.5)
+  doc.setFillColor(255, 255, 255)
+  doc.roundedRect(x, y, w, altTotal, 2, 2, 'FD')
+
+  // Header colorido
+  doc.setFillColor(...corHeader)
+  doc.roundedRect(x, y, w, altHeader, 2, 2, 'F')
+  doc.setFillColor(...corHeader)
+  doc.rect(x, y + altHeader - 2, w, 2, 'F')
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(6.5)
+  doc.setTextColor(255, 255, 255)
+  doc.text(titulo, x + w / 2, y + 4.5, { align: 'center' })
+
+  if (pendente) {
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(7)
+    doc.setTextColor(160, 160, 160)
+    doc.text('Pendente de assinatura', x + w / 2, y + altHeader + 11, { align: 'center' })
+  } else {
+    let ly = y + altHeader + 7
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.setTextColor(30, 30, 30)
+    const linhasNome = doc.splitTextToSize(nome, w - 6)
+    doc.text(linhasNome.slice(0, 2), x + 3, ly)
+    ly += linhasNome.slice(0, 2).length * 4.5
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(60, 60, 60)
+    doc.text(identificacao, x + 3, ly)
+    ly += 4.5
+
+    doc.setTextColor(80, 80, 80)
+    doc.text(`Data/Hora: ${dataHora}`, x + 3, ly)
+    ly += 4
+
+    doc.setFontSize(6)
+    doc.setTextColor(100, 100, 100)
+    doc.text('Assinado eletronicamente — Portal DCP', x + 3, ly)
+
+    if (hash) {
+      ly += 4
+      doc.setFontSize(5)
+      doc.setTextColor(140, 140, 140)
+      doc.text(`Código: ${hash}`, x + 3, ly)
+    }
+  }
+
+  return altTotal
+}
+
+// ---- Função principal ----
+
 export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-
   const W = doc.internal.pageSize.getWidth()
-  const marginX = 14
-  let y = 14
+  const H = doc.internal.pageSize.getHeight()
+  const mX = 10   // margem lateral reduzida para caber a tabela
+  let y = 10
 
-  // ============ CABEÇALHO ============
-  doc.setFillColor(31, 78, 121)
-  doc.rect(marginX, y, W - 2 * marginX, 14, 'F')
+  const competencia = dados.competencia || derivarCompetencia(dados.periodo_inicio)
+
+  // =========================================================
+  // CABEÇALHO
+  // =========================================================
+  const hCab = 20
+  doc.setFillColor(22, 60, 100)
+  doc.rect(mX, y, W - 2 * mX, hCab, 'F')
   doc.setTextColor(255, 255, 255)
-  doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
-  doc.text('BOLETIM DE MEDIÇÃO', W / 2, y + 5.5, { align: 'center' })
+  doc.setFontSize(12)
+  doc.text('BOLETIM DE MEDIÇÃO', W / 2, y + 6, { align: 'center' })
+  doc.setFontSize(7.5)
+  doc.text('RELATÓRIO DE ATIVIDADES / MEDIÇÃO DE EXECUÇÃO DE SERVIÇOS PRESTADOS', W / 2, y + 12, { align: 'center' })
   doc.setFontSize(8)
-  doc.text(`Nº ${String(dados.numero_medicao).padStart(3, '0')}`, W / 2, y + 10.5, { align: 'center' })
-  y += 18
+  doc.text(`Nº ${String(dados.numero_medicao).padStart(3, '0')}`, W / 2, y + 18, { align: 'center' })
+  y += hCab + 5
 
-  // ============ INFORMAÇÕES DO CONTRATO ============
+  // =========================================================
+  // INFORMAÇÕES DO CONTRATO
+  // =========================================================
+  const infoX2 = mX + 22
   doc.setTextColor(0, 0, 0)
   doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.text('ÓRGÃO:', marginX, y)
-  doc.setFont('helvetica', 'normal')
-  doc.text(dados.orgao_nome, marginX + 14, y)
-  y += 5
 
-  doc.setFont('helvetica', 'bold')
-  doc.text('CONTRATO:', marginX, y)
-  doc.setFont('helvetica', 'normal')
-  doc.text(dados.numero_contrato, marginX + 20, y)
-  y += 5
-
-  doc.setFont('helvetica', 'bold')
-  doc.text('OBJETO:', marginX, y)
-  doc.setFont('helvetica', 'normal')
-  const linhasObjeto = doc.splitTextToSize(dados.objeto_contrato, W - 2 * marginX - 16)
-  doc.text(linhasObjeto.slice(0, 2), marginX + 16, y)
-  y += linhasObjeto.slice(0, 2).length * 4 + 1
-
-  doc.setFont('helvetica', 'bold')
-  doc.text('FORNECEDOR:', marginX, y)
-  doc.setFont('helvetica', 'normal')
-  doc.text(`${dados.fornecedor_nome} — CNPJ: ${formatarCnpj(dados.fornecedor_cnpj)}`, marginX + 26, y)
-  y += 5
-
-  // Período
-  const colMeio = W / 2
-  doc.setFont('helvetica', 'bold')
-  doc.text('PERÍODO:', marginX, y)
-  doc.setFont('helvetica', 'normal')
-  doc.text(`${formatarData(dados.periodo_inicio)} a ${formatarData(dados.periodo_fim)}`, marginX + 18, y)
-
-  if (dados.nota_fiscal_numero) {
+  const linhaInfo = (label: string, valor: string, negrito = true) => {
     doc.setFont('helvetica', 'bold')
-    doc.text('NF:', colMeio, y)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? ` — ${formatarMoeda(dados.nota_fiscal_valor)}` : ''}`, colMeio + 8, y)
+    doc.text(`${label}:`, mX, y)
+    doc.setFont('helvetica', negrito ? 'normal' : 'bold')
+    doc.text(valor, infoX2, y)
+    y += 5
   }
-  y += 8
 
-  // ============ TABELA DE ITENS (item_cronograma) ============
-  if (dados.itens && dados.itens.length > 0) {
-    // Título da tabela
-    doc.setFillColor(31, 78, 121)
-    doc.rect(marginX, y, W - 2 * marginX, 6, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFontSize(7.5)
+  linhaInfo('ÓRGÃO', dados.orgao_nome)
+  linhaInfo('CONTRATO', dados.numero_contrato)
+
+  // Objeto pode ser longo — quebrar em até 3 linhas
+  doc.setFont('helvetica', 'bold')
+  doc.text('OBJETO:', mX, y)
+  doc.setFont('helvetica', 'normal')
+  const linhasObj = doc.splitTextToSize(dados.objeto_contrato, W - mX - infoX2 - 2)
+  doc.text(linhasObj.slice(0, 3), infoX2, y)
+  y += Math.min(linhasObj.length, 3) * 4.5 + 1
+
+  linhaInfo('FORNECEDOR', `${dados.fornecedor_nome}  —  CNPJ: ${fmtCnpj(dados.fornecedor_cnpj)}`)
+
+  // Período + NF na mesma linha
+  doc.setFont('helvetica', 'bold')
+  doc.text('PERÍODO:', mX, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, infoX2, y)
+  if (dados.nota_fiscal_numero) {
+    const nfX = W / 2
     doc.setFont('helvetica', 'bold')
+    doc.text('NF:', nfX, y)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}`, nfX + 8, y)
+  }
+  y += 5
+
+  // Competência
+  if (competencia) {
+    doc.setFont('helvetica', 'bold')
+    doc.text('COMPETÊNCIA:', mX, y)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(22, 60, 100)
+    doc.text(competencia, infoX2, y)
+    doc.setTextColor(0, 0, 0)
+    y += 5
+  }
+  y += 3
+
+  // =========================================================
+  // ITENS CONTRATADOS (planilha completa)
+  // =========================================================
+  if (dados.itens_contratados && dados.itens_contratados.length > 0) {
+    doc.setFillColor(22, 60, 100)
+    doc.rect(mX, y, W - 2 * mX, 6, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.text('ITENS CONTRATADOS', W / 2, y + 4, { align: 'center' })
+    y += 6
+    doc.setTextColor(0, 0, 0)
+
+    autoTable(doc, {
+      startY: y,
+      head: [[
+        { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
+        { content: 'Unidade', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Qtd.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Unit.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+      ]],
+      body: dados.itens_contratados.map(ic => [
+        { content: ic.numero, styles: { halign: 'center' as const } },
+        ic.descricao,
+        { content: ic.unidade, styles: { halign: 'center' as const } },
+        { content: ic.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), styles: { halign: 'right' as const } },
+        { content: fmt(ic.valor_unitario), styles: { halign: 'right' as const } },
+        { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
+      ]),
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
+      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 80 }, 2: { cellWidth: 18 }, 3: { cellWidth: 20 }, 4: { cellWidth: 26 }, 5: { cellWidth: 26 } },
+      margin: { left: mX, right: mX },
+    })
+    y = (doc as any).lastAutoTable.finalY + 5
+  }
+
+  // =========================================================
+  // EXECUÇÃO FISCAL / FINANCEIRA (item_cronograma)
+  // =========================================================
+  if (dados.itens && dados.itens.length > 0) {
+    doc.setFillColor(22, 60, 100)
+    doc.rect(mX, y, W - 2 * mX, 6, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
     doc.text('EXECUÇÃO FISCAL / FINANCEIRA', W / 2, y + 4, { align: 'center' })
     y += 6
     doc.setTextColor(0, 0, 0)
 
+    const fCor: [number,number,number] = [210, 228, 248]
+    const fCor2: [number,number,number] = [210, 245, 215]
+
     const head: import('jspdf-autotable').RowInput[] = [
       [
-        { content: 'ITEM Nº', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 7 } },
-        { content: 'DESCRIÇÃO', rowSpan: 2, styles: { halign: 'left' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 7 } },
-        { content: 'EXECUÇÃO FISCAL', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 7, fillColor: [220, 235, 250] as [number, number, number] } },
-        { content: 'EXECUÇÃO FINANCEIRA', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 7, fillColor: [220, 250, 220] as [number, number, number] } },
+        { content: 'ITEM\nNº', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
+        { content: 'DESCRIÇÃO', rowSpan: 2, styles: { halign: 'left' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
+        { content: 'EXECUÇÃO FISCAL', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor } },
+        { content: 'EXECUÇÃO FINANCEIRA', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor2 } },
       ],
       [
-        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: [220, 235, 250] as [number, number, number] } },
-        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: [220, 235, 250] as [number, number, number] } },
-        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: [220, 235, 250] as [number, number, number] } },
-        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: [220, 250, 220] as [number, number, number] } },
-        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: [220, 250, 220] as [number, number, number] } },
-        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: [220, 250, 220] as [number, number, number] } },
+        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor } },
+        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor } },
+        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor } },
+        { content: 'NO PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2 } },
+        { content: 'ATÉ O PERÍODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2 } },
+        { content: 'A EXECUTAR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.5, fillColor: fCor2 } },
       ],
     ]
 
-    const totalMedido = dados.itens.reduce((s, i) => s + i.valor_medido, 0)
-    const totalAcumulado = dados.itens.reduce((s, i) => s + i.quantidade_acumulada * i.valor_unitario, 0)
-    const totalExecutar = dados.itens.reduce((s, i) => s + (i.quantidade_total - i.quantidade_acumulada) * i.valor_unitario - i.valor_medido, 0)
+    let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0
 
-    const body: any[][] = dados.itens.map((item) => {
-      const qtdAcumComAtual = item.quantidade_acumulada + item.quantidade_medida
-      const qtdExecutar = item.quantidade_total - qtdAcumComAtual
-      const vlrAcumComAtual = qtdAcumComAtual * item.valor_unitario
-      const vlrExecutar = qtdExecutar * item.valor_unitario
+    const body: any[][] = dados.itens.map(item => {
+      const qtdAcumComAtual = item.quantidade_acumulada_aprovada + item.quantidade_no_periodo
+      const qtdAExecutar = item.quantidade_total_contrato - qtdAcumComAtual
+
+      const vlrNoPeriodo = item.valor_no_periodo
+      const vlrAtePeriodo = qtdAcumComAtual * item.valor_unitario
+      const vlrAExecutar = qtdAExecutar * item.valor_unitario
+
+      totalNoPeriodo += vlrNoPeriodo
+      totalAteoPeriodo += vlrAtePeriodo
+      totalAExecutar += vlrAExecutar
+
       return [
-        { content: item.numero, styles: { halign: 'center' } },
-        item.descricao,
-        { content: item.dias_periodo || `${item.quantidade_medida} ${item.unidade}`, styles: { halign: 'center' } },
-        { content: item.dias_acumulado || `${qtdAcumComAtual.toLocaleString('pt-BR')} ${item.unidade}`, styles: { halign: 'center' } },
-        { content: item.dias_executar || `${qtdExecutar.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${item.unidade}`, styles: { halign: 'center' } },
-        { content: formatarMoeda(item.valor_medido), styles: { halign: 'right' } },
-        { content: formatarMoeda(vlrAcumComAtual), styles: { halign: 'right' } },
-        { content: formatarMoeda(Math.max(vlrExecutar, 0)), styles: { halign: 'right' } },
+        { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: item.descricao, styles: { fontSize: 6 } },
+        { content: fmtFiscal(item.quantidade_no_periodo, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fmtFiscal(qtdAcumComAtual, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fmtFiscal(qtdAExecutar, item.unidade), styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
+        { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
+        { content: fmt(Math.max(vlrAExecutar, 0)), styles: { halign: 'right' as const, fontSize: 6 } },
       ]
     })
 
-    // Linha de total
+    // Linha TOTAL
     body.push([
-      { content: 'TOTAL', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7, fillColor: [240, 240, 240] } },
-      { content: formatarMoeda(totalMedido), styles: { halign: 'right', fontStyle: 'bold', fontSize: 7, fillColor: [240, 240, 240] } },
-      { content: formatarMoeda(totalAcumulado + totalMedido), styles: { halign: 'right', fontStyle: 'bold', fontSize: 7, fillColor: [240, 240, 240] } },
-      { content: formatarMoeda(Math.max(totalExecutar, 0)), styles: { halign: 'right', fontStyle: 'bold', fontSize: 7, fillColor: [240, 240, 240] } },
+      { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalNoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalAteoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(Math.max(totalAExecutar, 0)), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
     ])
 
     autoTable(doc, {
@@ -212,30 +401,32 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       head,
       body,
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2, lineWidth: 0.2, lineColor: [180, 180, 180] },
-      headStyles: { fillColor: [31, 78, 121], textColor: [255, 255, 255] },
+      styles: { fontSize: 6, cellPadding: 1.5, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' },
+      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
-        0: { cellWidth: 12 },
-        1: { cellWidth: 60 },
+        0: { cellWidth: 10 },
+        1: { cellWidth: 50 },
         2: { cellWidth: 20 },
-        3: { cellWidth: 22 },
-        4: { cellWidth: 22 },
-        5: { cellWidth: 22 },
-        6: { cellWidth: 22 },
-        7: { cellWidth: 22 },
+        3: { cellWidth: 21 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 24 },
+        7: { cellWidth: 25 },
       },
-      margin: { left: marginX, right: marginX },
+      margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 6
+    y = (doc as any).lastAutoTable.finalY + 5
   }
 
-  // ============ TABELA DE ETAPAS (obras) ============
+  // =========================================================
+  // ETAPAS DE OBRA
+  // =========================================================
   if (dados.etapas && dados.etapas.length > 0) {
-    doc.setFillColor(31, 78, 121)
-    doc.rect(marginX, y, W - 2 * marginX, 6, 'F')
+    doc.setFillColor(22, 60, 100)
+    doc.rect(mX, y, W - 2 * mX, 6, 'F')
     doc.setTextColor(255, 255, 255)
-    doc.setFontSize(7.5)
     doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
     doc.text('PLANILHA ORÇAMENTÁRIA — ETAPAS', W / 2, y + 4, { align: 'center' })
     y += 6
     doc.setTextColor(0, 0, 0)
@@ -243,154 +434,142 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
     autoTable(doc, {
       startY: y,
       head: [[
-        { content: 'Nº', styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: 'Descrição da Etapa', styles: { fontStyle: 'bold' } },
-        { content: '% Físico', styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: '% Anterior', styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: '% Medido', styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: 'Valor Medido', styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
+        { content: '% Físico', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: '% Anterior', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: '% Medido', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Medido', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
       body: dados.etapas.map(e => [
-        { content: e.numero, styles: { halign: 'center' } },
+        { content: e.numero, styles: { halign: 'center' as const } },
         e.descricao,
-        { content: `${e.percentual_fisico.toFixed(1)}%`, styles: { halign: 'center' } },
-        { content: `${e.percentual_executado_anterior.toFixed(1)}%`, styles: { halign: 'center' } },
-        { content: `${e.percentual_executado_atual.toFixed(1)}%`, styles: { halign: 'center' } },
-        { content: formatarMoeda(e.valor_medido), styles: { halign: 'right' } },
+        { content: `${e.percentual_fisico.toFixed(1)}%`, styles: { halign: 'center' as const } },
+        { content: `${e.percentual_executado_anterior.toFixed(1)}%`, styles: { halign: 'center' as const } },
+        { content: `${e.percentual_executado_atual.toFixed(1)}%`, styles: { halign: 'center' as const } },
+        { content: fmt(e.valor_medido), styles: { halign: 'right' as const } },
       ]),
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2 },
-      headStyles: { fillColor: [31, 78, 121], textColor: 255 },
-      margin: { left: marginX, right: marginX },
+      styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 6
+    y = (doc as any).lastAutoTable.finalY + 5
   }
 
-  // ============ RESUMO FINANCEIRO ============
-  doc.setFillColor(240, 248, 255)
-  doc.setDrawColor(31, 78, 121)
-  doc.setLineWidth(0.3)
-  doc.rect(marginX, y, W - 2 * marginX, 12, 'FD')
-  doc.setTextColor(0, 0, 0)
-  doc.setFontSize(8)
+  // =========================================================
+  // DISCRIMINAÇÃO DAS DESPESAS
+  // =========================================================
+  if (dados.discriminacoes && dados.discriminacoes.length > 0) {
+    doc.setFillColor(22, 60, 100)
+    doc.rect(mX, y, W - 2 * mX, 6, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.text('DISCRIMINAÇÃO DAS DESPESAS', W / 2, y + 4, { align: 'center' })
+    y += 6
+    doc.setTextColor(0, 0, 0)
+
+    const totalDisc = dados.discriminacoes.reduce((s, d) => s + d.valor, 0)
+
+    autoTable(doc, {
+      startY: y,
+      head: [[
+        { content: 'Item', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Discriminação', styles: { fontStyle: 'bold' as const } },
+        { content: 'Valor R$', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: '%', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+      ]],
+      body: [
+        ...dados.discriminacoes.map(d => [
+          { content: d.numero, styles: { halign: 'center' as const } },
+          d.descricao,
+          { content: fmt(d.valor), styles: { halign: 'right' as const } },
+          { content: `${Number(d.percentual || 0).toFixed(2)}%`, styles: { halign: 'right' as const } },
+        ]),
+        [
+          { content: 'TOTAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: fmt(totalDisc), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: '100,00%', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+        ],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
+      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 30 }, 3: { cellWidth: 18 } },
+      margin: { left: mX, right: mX },
+    })
+    y = (doc as any).lastAutoTable.finalY + 5
+  }
+
+  // =========================================================
+  // RESUMO — apenas VALOR DA MEDIÇÃO (sem acumulado/% físico)
+  // =========================================================
+  if (y + 14 > H - 30) { doc.addPage(); y = 15 }
+
+  doc.setFillColor(235, 245, 255)
+  doc.setDrawColor(22, 60, 100)
+  doc.setLineWidth(0.4)
+  doc.rect(mX, y, W - 2 * mX, 14, 'FD')
   doc.setFont('helvetica', 'bold')
-  doc.text('VALOR DA MEDIÇÃO:', marginX + 4, y + 5)
-  doc.setFontSize(11)
-  doc.setTextColor(31, 78, 121)
-  doc.text(formatarMoeda(dados.valor_medido), marginX + 4, y + 11)
-
-  if (dados.valor_acumulado) {
-    doc.setFontSize(8)
-    doc.setTextColor(0, 0, 0)
-    doc.text('ACUMULADO:', W / 2, y + 5)
-    doc.setFontSize(9)
-    doc.text(formatarMoeda(dados.valor_acumulado), W / 2, y + 11)
-  }
-  if (dados.percentual_fisico != null) {
-    doc.setFontSize(8)
-    doc.setTextColor(0, 0, 0)
-    doc.text('% FÍSICO:', W - marginX - 30, y + 5)
-    doc.setFontSize(9)
-    doc.text(`${dados.percentual_fisico.toFixed(2)}%`, W - marginX - 30, y + 11)
-  }
+  doc.setFontSize(8)
+  doc.setTextColor(0, 0, 0)
+  doc.text('VALOR DA MEDIÇÃO:', mX + 4, y + 5.5)
+  doc.setFontSize(13)
+  doc.setTextColor(22, 60, 100)
+  doc.text(fmt(dados.valor_medido), mX + 4, y + 12)
   y += 18
 
-  // ============ BLOCOS DE ASSINATURA ============
-  const larguraBloco = (W - 2 * marginX - 8) / 2
-  const alturaBloco = 28
+  // =========================================================
+  // ASSINATURAS (estilo gov.br)
+  // =========================================================
+  const wBloco = (W - 2 * mX - 6) / 2
 
-  // Garante espaço na página
-  if (y + alturaBloco > doc.internal.pageSize.getHeight() - 20) {
-    doc.addPage()
-    y = 20
-  }
+  if (y + 45 > H - 10) { doc.addPage(); y = 15 }
 
-  // --- Assinatura Fornecedor ---
-  const xFornec = marginX
-  doc.setDrawColor(31, 78, 121)
-  doc.setLineWidth(0.3)
-  doc.setFillColor(248, 252, 255)
-  doc.rect(xFornec, y, larguraBloco, alturaBloco, 'FD')
+  // Fornecedor
+  const aForn = dados.assinatura_fornecedor
+  const altForn = desenharAssinatura(
+    doc, mX, y, wBloco,
+    'ASSINADO ELETRONICAMENTE — FORNECEDOR',
+    [22, 60, 100],
+    aForn?.nome || '',
+    aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}${aForn.cargo ? `  |  ${aForn.cargo}` : ''}` : '',
+    aForn?.data_hora || '',
+    aForn?.hash,
+    !aForn,
+  )
 
-  doc.setFontSize(7)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(31, 78, 121)
-  doc.text('ASSINATURA ELETRÔNICA — FORNECEDOR', xFornec + larguraBloco / 2, y + 5, { align: 'center' })
+  // Fiscal
+  const aFisc = dados.assinatura_fiscal
+  desenharAssinatura(
+    doc, mX + wBloco + 6, y, wBloco,
+    'ASSINADO ELETRONICAMENTE — FISCAL',
+    [0, 100, 50],
+    aFisc?.nome || '',
+    aFisc ? `${aFisc.cpf ? `CPF: ${aFisc.cpf}` : ''}${aFisc.cargo ? `  |  ${aFisc.cargo}` : ''}` : '',
+    aFisc?.data_hora || '',
+    aFisc?.hash,
+    !aFisc,
+  )
 
-  doc.setTextColor(0, 0, 0)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
+  y += altForn + 6
 
-  if (dados.assinatura_fornecedor) {
-    const aF = dados.assinatura_fornecedor
-    doc.setFont('helvetica', 'bold')
-    doc.text(aF.nome, xFornec + 3, y + 11)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`CNPJ: ${formatarCnpj(aF.cnpj)}`, xFornec + 3, y + 16)
-    if (aF.cargo) doc.text(`Cargo: ${aF.cargo}`, xFornec + 3, y + 20)
-    doc.text(`Assinado em: ${aF.data_hora}`, xFornec + 3, y + 24)
-    if (aF.hash) {
-      doc.setFontSize(5.5)
-      doc.setTextColor(100, 100, 100)
-      doc.text(`Hash: ${aF.hash}`, xFornec + 3, y + 27)
-    }
-  } else {
-    doc.setTextColor(150, 150, 150)
-    doc.setFontSize(7)
-    doc.text('Pendente de assinatura', xFornec + larguraBloco / 2, y + 17, { align: 'center' })
-  }
-
-  // --- Assinatura Fiscal ---
-  const xFiscal = xFornec + larguraBloco + 8
-  doc.setFillColor(248, 255, 248)
-  doc.rect(xFiscal, y, larguraBloco, alturaBloco, 'FD')
-
-  doc.setFontSize(7)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(0, 100, 0)
-  doc.text('ASSINATURA ELETRÔNICA — FISCAL', xFiscal + larguraBloco / 2, y + 5, { align: 'center' })
-
-  doc.setTextColor(0, 0, 0)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-
-  if (dados.assinatura_fiscal) {
-    const aFisc = dados.assinatura_fiscal
-    doc.setFont('helvetica', 'bold')
-    doc.text(aFisc.nome, xFiscal + 3, y + 11)
-    doc.setFont('helvetica', 'normal')
-    if (aFisc.cpf) doc.text(`CPF: ${aFisc.cpf}`, xFiscal + 3, y + 16)
-    if (aFisc.cargo) doc.text(`Cargo: ${aFisc.cargo}`, xFiscal + 3, y + 20)
-    doc.text(`Atestado em: ${aFisc.data_hora}`, xFiscal + 3, y + 24)
-    if (aFisc.hash) {
-      doc.setFontSize(5.5)
-      doc.setTextColor(100, 100, 100)
-      doc.text(`Hash: ${aFisc.hash}`, xFiscal + 3, y + 27)
-    }
-  } else {
-    doc.setTextColor(150, 150, 150)
-    doc.setFontSize(7)
-    doc.text('Pendente de assinatura', xFiscal + larguraBloco / 2, y + 17, { align: 'center' })
-  }
-
-  y += alturaBloco + 6
-
-  // ============ RODAPÉ ============
+  // =========================================================
+  // RODAPÉ em todas as páginas
+  // =========================================================
   const pages = doc.getNumberOfPages()
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
-    doc.setFontSize(6)
-    doc.setTextColor(150, 150, 150)
+    doc.setFontSize(5.5)
+    doc.setTextColor(160, 160, 160)
     doc.setFont('helvetica', 'normal')
     doc.text(
-      `Portal DCP — Boletim de Medição Nº ${dados.numero_medicao} — ${dados.numero_contrato} — Página ${i}/${pages}`,
-      W / 2,
-      doc.internal.pageSize.getHeight() - 6,
-      { align: 'center' },
+      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${dados.numero_contrato}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
+      W / 2, H - 5, { align: 'center' },
     )
   }
 
-  // Download
-  const nomeArquivo = `BM_${dados.numero_contrato.replace(/\//g, '-')}_${String(dados.numero_medicao).padStart(3, '0')}.pdf`
-  doc.save(nomeArquivo)
+  const nomeArq = `BM_${dados.numero_contrato.replace(/[/\\]/g, '-')}_${String(dados.numero_medicao).padStart(3, '0')}_${competencia.replace('/', '-')}.pdf`
+  doc.save(nomeArq)
 }

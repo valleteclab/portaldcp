@@ -1953,6 +1953,7 @@ export class MedicaoService {
       item_unidade: item.itemCronograma?.unidade_medida || '',
       item_valor_unitario: item.itemCronograma ? Number(item.itemCronograma.valor_unitario) : 0,
       item_quantidade_total: item.itemCronograma ? Number(item.itemCronograma.quantidade) : 0,
+      item_quantidade_acumulada: item.itemCronograma ? Number(item.itemCronograma.quantidade_medida) : 0,
     }));
 
     const itens = [...itensEtapaEnriquecidos, ...itensItemEnriquecidos];
