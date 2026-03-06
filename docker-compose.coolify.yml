@@ -43,6 +43,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      PORT: 3001
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USERNAME: ${DB_USERNAME:-portaldcp}
