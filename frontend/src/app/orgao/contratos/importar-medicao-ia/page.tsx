@@ -278,10 +278,12 @@ export default function ImportarMedicaoIaPage() {
       setResultado(json)
       setEstado('concluido')
       addMensagem('agent',
-        `✅ Dados importados com sucesso!\n` +
+        `✅ Importação concluída!\n` +
         `**Contrato:** ${json.numero_contrato}\n` +
-        `**Itens criados no cronograma:** ${json.itens_criados}` +
-        (json.aviso ? `\n\n📌 ${json.aviso}` : '')
+        (json.contrato_criado ? `🆕 Novo contrato cadastrado no sistema.\n` : `🔗 Contrato existente atualizado.\n`) +
+        (json.ajuste_aplicado ? `💰 Ajuste de Migração aplicado com histórico (saldo executado registrado).\n` : '') +
+        `📋 **Itens criados no cronograma:** ${json.itens_criados}` +
+        (json.aviso ? `\n\n⚠️ ${json.aviso}` : '')
       )
     } catch (err: any) {
       setErro(err.message || 'Erro ao importar')

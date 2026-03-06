@@ -162,12 +162,13 @@ export class ImportarMedicaoIaService {
   async confirmarImportacao(
     dados: ConfirmarImportacaoMedicaoDto,
     orgaoId: string,
-  ): Promise<{ contrato_id: string; numero_contrato: string; itens_criados: number; contrato_criado: boolean; aviso?: string }> {
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<{ contrato_id: string; numero_contrato: string; itens_criados: number; contrato_criado: boolean; ajuste_aplicado: boolean; aviso?: string }> {
     let contratoId = dados.contrato_id;
     let contratoCriado = false;
 
     if (!contratoId && dados.criar_contrato) {
-      // Criar contrato a partir dos dados da planilha de medição
       if (!dados.fornecedor_id && !dados.fornecedor_cnpj) {
         throw new BadRequestException('Informe o CNPJ do fornecedor para criar o contrato.');
       }
@@ -207,9 +208,6 @@ export class ImportarMedicaoIaService {
       contratoId = novoContrato.id;
       contratoCriado = true;
 
-      if (dados.valor_executado_ate_periodo > 0) {
-        await this.contratoRepo.update(contratoId, { valor_executado_anterior: dados.valor_executado_ate_periodo } as any);
-      }
       if (dados.fiscal_portaria) {
         await this.contratoRepo.update(contratoId, { fiscal_matricula: dados.fiscal_portaria } as any);
       }
@@ -222,20 +220,42 @@ export class ImportarMedicaoIaService {
       throw new BadRequestException('Contrato não encontrado ou sem permissão de acesso.');
     }
 
-    // Atualizar dados no contrato existente
-    if (!contratoCriado) {
-      const updates: Partial<Contrato> = {};
-      if (dados.fiscal_nome && !contrato.fiscal_nome) updates.fiscal_nome = dados.fiscal_nome;
-      if (dados.fiscal_portaria) (updates as any).fiscal_matricula = dados.fiscal_portaria;
-      if (dados.valor_executado_ate_periodo > 0 && !contrato.valor_executado_anterior)
-        (updates as any).valor_executado_anterior = dados.valor_executado_ate_periodo;
-      if (dados.objeto && !contrato.objeto) updates.objeto = dados.objeto;
-      if (Object.keys(updates).length > 0) await this.contratoRepo.update(contratoId, updates);
+    // Atualizar fiscal e objeto (se ainda não preenchidos)
+    const updates: Partial<Contrato> = {};
+    if (dados.fiscal_nome && !contrato.fiscal_nome) updates.fiscal_nome = dados.fiscal_nome;
+    if (dados.fiscal_portaria && !contrato.fiscal_matricula) (updates as any).fiscal_matricula = dados.fiscal_portaria;
+    if (dados.objeto && !contrato.objeto) updates.objeto = dados.objeto;
+    if (Object.keys(updates).length > 0) await this.contratoRepo.update(contratoId, updates);
+
+    // ── Ajuste de Migração via serviço oficial (registra histórico) ──────────
+    let ajusteAplicado = false;
+    const avisos: string[] = [];
+
+    if (dados.valor_executado_ate_periodo > 0) {
+      try {
+        const observacaoIA = [
+          `Importação automática via IA — planilha de medição.`,
+          `Contrato: ${dados.numero_contrato}.`,
+          `Valor executado até o período registrado na planilha: R$ ${Number(dados.valor_executado_ate_periodo).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`,
+          dados.fiscal_nome ? `Fiscal: ${dados.fiscal_nome}.` : '',
+        ].filter(Boolean).join(' ');
+
+        await this.contratosService.ajusteMigracao(
+          contratoId,
+          { valor_executado_anterior: dados.valor_executado_ate_periodo, observacao_ajuste: observacaoIA },
+          usuarioId,
+          usuarioNome,
+        );
+        ajusteAplicado = true;
+        this.logger.log(`Ajuste de migração aplicado: R$ ${dados.valor_executado_ate_periodo} — contrato ${contrato.numero_contrato}`);
+      } catch (err: any) {
+        this.logger.warn(`Ajuste de migração falhou: ${err.message}`);
+        avisos.push(`Ajuste de valor não aplicado: ${err.message}`);
+      }
     }
 
-    // Criar itens do cronograma
+    // ── Criar itens do cronograma ─────────────────────────────────────────────
     let itensCriados = 0;
-    const avisos: string[] = [];
 
     if (dados.itens?.length > 0) {
       for (const item of dados.itens) {
@@ -249,20 +269,27 @@ export class ImportarMedicaoIaService {
           } as any);
           itensCriados++;
         } catch (err: any) {
-          this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
-          avisos.push(`Item "${item.descricao.substring(0, 30)}..." não foi criado: ${err.message}`);
+          const msg = err.message || '';
+          this.logger.warn(`Item "${item.descricao?.substring(0, 40)}" não criado: ${msg}`);
+          if (msg.includes('excede o saldo') || msg.includes('excede')) {
+            avisos.push(`Item "${item.descricao?.substring(0, 40)}..." ignorado: valor excede o saldo disponível do contrato.`);
+          } else if (msg.includes('modalidade') || msg.includes('suporta')) {
+            avisos.push(`Itens de cronograma não suportados nesta modalidade (${contrato.modalidade_execucao}). Configure manualmente na aba Medição.`);
+            break;
+          } else {
+            avisos.push(`Item "${item.descricao?.substring(0, 30)}..." não criado: ${msg}`);
+          }
         }
       }
     }
-
-    const aviso = avisos.length > 0 ? avisos.join('; ') : undefined;
 
     return {
       contrato_id: contratoId,
       numero_contrato: contrato.numero_contrato,
       itens_criados: itensCriados,
-      contrato_criado: false,
-      aviso,
+      contrato_criado: contratoCriado,
+      ajuste_aplicado: ajusteAplicado,
+      aviso: avisos.length > 0 ? avisos.join(' | ') : undefined,
     };
   }
 }

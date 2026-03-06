@@ -67,6 +67,8 @@ export class ImportarMedicaoIaController {
     const orgaoId = this.getOrgaoId(req);
     await this.verificarModuloHabilitado(orgaoId);
     this.logger.log(`Confirmar importação planilha medição IA: orgaoId=${orgaoId}`);
-    return this.importarService.confirmarImportacao(body, orgaoId);
+    const usuarioId = req.user?.sub || orgaoId;
+    const usuarioNome = req.user?.email || req.user?.nome || 'Importação via IA';
+    return this.importarService.confirmarImportacao(body, orgaoId, usuarioId, usuarioNome);
   }
 }
