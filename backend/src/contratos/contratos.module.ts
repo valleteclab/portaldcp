@@ -41,6 +41,8 @@ import { MulterModule } from '@nestjs/platform-express';
 import { IaModule } from '../ia/ia.module';
 import { ImportarContratoIaController } from './importar-contrato-ia.controller';
 import { ImportarContratoIaService } from './importar-contrato-ia.service';
+import { ImportarMedicaoIaController } from './importar-medicao-ia.controller';
+import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
 
 @Module({
   imports: [
@@ -57,8 +59,8 @@ import { ImportarContratoIaService } from './importar-contrato-ia.service';
     HttpModule,
     FornecedoresModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, PortalTransparenciaController],
-  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, PortalTransparenciaService],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController],
+  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService]
 })
 export class ContratosModule {}

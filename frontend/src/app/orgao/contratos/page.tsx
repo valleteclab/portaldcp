@@ -550,12 +550,20 @@ window._extraindoContratos = true;
             </Link>
           </Button>
           {temIaContratos && (
-            <Button variant="outline" asChild>
-              <Link href="/orgao/contratos/importar-ia">
-                <Bot className="w-4 h-4 mr-2" />
-                Importar com IA
-              </Link>
-            </Button>
+            <>
+              <Button variant="outline" asChild>
+                <Link href="/orgao/contratos/importar-ia">
+                  <Bot className="w-4 h-4 mr-2" />
+                  Importar com IA
+                </Link>
+              </Button>
+              <Button variant="outline" asChild className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+                <Link href="/orgao/contratos/importar-medicao-ia">
+                  <Bot className="w-4 h-4 mr-2" />
+                  Importar Planilha de Medição
+                </Link>
+              </Button>
+            </>
           )}
           <Button asChild>
             <Link href="/orgao/contratos/novo">
