@@ -113,19 +113,34 @@ export default function ImportarPortalTransparenciaPage() {
   }
 
   const importarContratoIndividual = async (contrato: ContratoAPI, index: number) => {
+    console.log('[Importar Individual] Iniciando importação:', contrato.contratoNumero)
+    
     // Atualizar status para loading
     const novosContratos = [...contratos]
     novosContratos[index].importStatus = 'loading'
     setContratos(novosContratos)
     
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-individual`, {
+      const url = `${API_URL}/api/contratos/portal-transparencia/importar-individual`
+      console.log('[Importar Individual] URL:', url)
+      console.log('[Importar Individual] Contrato:', contrato)
+      
+      const res = await authFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(contrato)
       })
       
+      console.log('[Importar Individual] Resposta status:', res.status)
+      
+      if (!res.ok) {
+        const errorText = await res.text()
+        console.error('[Importar Individual] Erro na resposta:', res.status, errorText)
+        throw new Error(`Erro ${res.status}: ${errorText}`)
+      }
+      
       const data = await res.json()
+      console.log('[Importar Individual] Dados recebidos:', data)
       
       const atualizados = [...contratos]
       if (data.ja_existe) {
@@ -140,9 +155,10 @@ export default function ImportarPortalTransparenciaPage() {
       }
       setContratos(atualizados)
     } catch (error) {
+      console.error('[Importar Individual] Erro catch:', error)
       const atualizados = [...contratos]
       atualizados[index].importStatus = 'error'
-      atualizados[index].importMessage = 'Erro de conexão'
+      atualizados[index].importMessage = error instanceof Error ? error.message : 'Erro de conexão'
       setContratos(atualizados)
     }
   }
