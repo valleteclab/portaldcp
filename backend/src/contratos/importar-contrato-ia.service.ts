@@ -52,6 +52,16 @@ REGRAS CRÍTICAS — NUNCA INVENTE DADOS:
 - Datas: formato YYYY-MM-DD obrigatório
 - Se não encontrar a data, use null (nunca invente)
 
+REGRAS JSON — EXTREMAMENTE IMPORTANTE:
+- Retorne APENAS o objeto JSON, sem texto antes ou depois
+- O JSON deve ser 100% válido — use aspas duplas em todas as chaves e strings
+- NUNCA quebre a estrutura do JSON — cada campo deve estar no lugar correto
+- Array de itens deve ter objetos completos, um por item
+- Cada objeto de item deve ter: descricao, unidade_medida, quantidade, valor_unitario, quantidade_meses, valor_total
+- NUNCA repita campos dentro do mesmo objeto
+- NUNCA deixe vírgulas soltas no final de objetos ou arrays
+- Verifique se todas as chaves estão fechadas corretamente antes de retornar
+
 COMO IDENTIFICAR OS CAMPOS:
 - "objeto": trecho que começa com "tem por objeto" ou "cujo objeto é" ou "objeto:" no contrato
 - "fornecedor_cnpj": CNPJ da empresa contratada (não do órgão contratante)
@@ -63,41 +73,40 @@ COMO IDENTIFICAR OS CAMPOS:
 - "modalidade_execucao": ITEM_QUANTIDADE=compra de itens, MEDICAO=por medição, CONTINUADO=serviço contínuo mensal, LICENCA=licença de software, ORDEM_SERVICO=por OS
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
-- "itens": lista de produtos/serviços com quantidades, valores unitários e LOCALIZAÇÃO/DESTINO quando disponível
+- "itens": array de objetos, cada um representando um item do contrato
 
 IMPORTANTE SOBRE ITENS:
-- Na "descricao" de cada item, INCLUA a localização/destino quando disponível no documento (ex: "Persiana rolo... - Gabinete Presidente", "Cadeira... - Sala de Reuniões")
-- A localização geralmente aparece em uma coluna separada na tabela de itens ou entre parênteses após a descrição
-- Se houver múltiplas colunas de localização (prédio/andar/sala), concatene todas: "Prédio A - 2º Andar - Sala 201"
-- O objetivo é identificar ONDE cada item será instalado/entregue
+- Na "descricao" de cada item, INCLUA a localização/destino quando disponível no documento
+- A localização geralmente aparece em uma coluna separada na tabela de itens
+- Concatene a localização à descrição: "Persiana rolo... - Gabinete Presidente"
 
-Schema de retorno (JSON puro):
+Schema de retorno (JSON puro e válido):
 {
   "objeto": "texto exato do objeto do contrato",
   "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
   "fornecedor_razao_social": "nome completo ou null",
   "tipo": "CONTRATO",
-  "categoria": "LOCACAO",
-  "modalidade_execucao": "CONTINUADO",
-  "valor_inicial": 324000.00,
-  "valor_global": 324000.00,
-  "data_assinatura": "2023-03-18",
-  "data_vigencia_inicio": "2023-03-17",
-  "data_vigencia_fim": "2024-03-17",
-  "prazo_vigencia_meses": 12,
-  "numero_processo": "027/2023",
+  "categoria": "COMPRAS",
+  "modalidade_execucao": "ITEM_QUANTIDADE",
+  "valor_inicial": 27499.24,
+  "valor_global": 27499.24,
+  "data_assinatura": "2025-12-22",
+  "data_vigencia_inicio": "2025-12-22",
+  "data_vigencia_fim": "2026-03-22",
+  "prazo_vigencia_meses": 3,
+  "numero_processo": "105/2025",
   "amparo_legal": "Lei 14.133/2021",
   "itens": [
     {
-      "descricao": "descrição exata do item",
-      "unidade_medida": "UNIDADE",
-      "quantidade": 12,
-      "valor_unitario": 2250.00,
+      "descricao": "Persiana rolo... - Salão Defensoria",
+      "unidade_medida": "M2",
+      "quantidade": 6.00,
+      "valor_unitario": 114.10,
       "quantidade_meses": null,
-      "valor_total": 27000.00
+      "valor_total": 684.60
     }
   ],
-  "pendencias": ["campos obrigatorios nao encontrados no documento"]
+  "pendencias": []
 }`;
 
 @Injectable()
