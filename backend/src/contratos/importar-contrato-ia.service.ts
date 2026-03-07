@@ -63,7 +63,13 @@ COMO IDENTIFICAR OS CAMPOS:
 - "modalidade_execucao": ITEM_QUANTIDADE=compra de itens, MEDICAO=por medição, CONTINUADO=serviço contínuo mensal, LICENCA=licença de software, ORDEM_SERVICO=por OS
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
-- "itens": lista de produtos/serviços com quantidades e valores unitários
+- "itens": lista de produtos/serviços com quantidades, valores unitários e LOCALIZAÇÃO/DESTINO quando disponível
+
+IMPORTANTE SOBRE ITENS:
+- Na "descricao" de cada item, INCLUA a localização/destino quando disponível no documento (ex: "Persiana rolo... - Gabinete Presidente", "Cadeira... - Sala de Reuniões")
+- A localização geralmente aparece em uma coluna separada na tabela de itens ou entre parênteses após a descrição
+- Se houver múltiplas colunas de localização (prédio/andar/sala), concatene todas: "Prédio A - 2º Andar - Sala 201"
+- O objetivo é identificar ONDE cada item será instalado/entregue
 
 Schema de retorno (JSON puro):
 {
