@@ -23,6 +23,8 @@ const MODELOS_DISPONIVEIS = [
   { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini (OpenAI) — Econômico', descricao: 'Versão compacta do GPT-5. Bom custo-benefício.' },
   { value: 'openai/gpt-5-nano', label: 'GPT-5 Nano (OpenAI) — Ultra econômico', descricao: 'Versão mais leve do GPT-5. Custo muito baixo.' },
   { value: 'openai/gpt-4o', label: 'GPT-4o (OpenAI)', descricao: 'Modelo clássico com visão. Boa alternativa.' },
+  { value: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B (OpenAI) — FREE', descricao: 'Modelo open source da OpenAI com 120B parâmetros. Gratuito.' },
+  { value: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B (OpenAI) — FREE', descricao: 'Modelo open source da OpenAI com 20B parâmetros. Gratuito.' },
   // Google
   { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Google)', descricao: 'Modelo Google rápido e eficiente. Suporte nativo a PDF.' },
   { value: 'google/gemini-2.5-flash-lite-preview-09-2025', label: 'Gemini 2.5 Flash Lite (Google) — Econômico', descricao: 'Versão econômica do Gemini 2.5 Flash.' },
@@ -44,10 +46,19 @@ const MODELOS_DISPONIVEIS = [
   { value: 'perplexity/sonar', label: 'Sonar (Perplexity)', descricao: 'Modelo com busca em tempo real integrada.' },
   // Qwen
   { value: 'qwen/qwen3-235b-a22b', label: 'Qwen3 235B (Alibaba)', descricao: 'Modelo open source gigante da Alibaba. Altíssima capacidade.' },
+  { value: 'qwen/qwen3-coder:free', label: 'Qwen3 Coder (Alibaba) — FREE', descricao: 'Modelo especializado em código da Alibaba. Gratuito.' },
   // xAI
   { value: 'x-ai/grok-3', label: 'Grok 3 (xAI)', descricao: 'Modelo da xAI. Alto desempenho em raciocínio.' },
   { value: 'x-ai/grok-3-mini', label: 'Grok 3 Mini (xAI) — Econômico', descricao: 'Versão compacta do Grok 3.' },
   { value: 'x-ai/grok-4', label: 'Grok 4 (xAI)', descricao: 'Próxima geração do Grok.' },
+  // NVIDIA
+  { value: 'nvidia/llama-nemotron-embed-vl-1b-v2:free', label: 'Llama Nemotron Embed VL 1B (NVIDIA) — FREE', descricao: 'Modelo de embeddings multimodal da NVIDIA. Gratuito.' },
+  // Sourceful
+  { value: 'sourceful/riverflow-v2-pro', label: 'Riverflow V2 Pro (Sourceful)', descricao: 'Modelo especializado da Sourceful.' },
+  // Liquid
+  { value: 'liquid/lfm-2.5-1.2b-thinking:free', label: 'LFM 2.5 1.2B Thinking (Liquid) — FREE', descricao: 'Modelo thinking da Liquid com 1.2B parâmetros. Gratuito.' },
+  // Z-AI
+  { value: 'z-ai/glm-4.5-air:free', label: 'GLM 4.5 Air (Z-AI) — FREE', descricao: 'Modelo GLM da Z-AI. Gratuito.' },
 ]
 
 export default function IaConfigPage() {
