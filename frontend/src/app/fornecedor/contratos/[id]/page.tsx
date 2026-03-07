@@ -382,6 +382,35 @@ export default function FornecedorContratoDetalhePage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Função para calcular dias do período considerando mês comercial (30 dias)
+  const calcularDiasMesComercial = (dataInicio: string, dataFim: string): number => {
+    const inicio = new Date(dataInicio + 'T00:00:00');
+    const fim = new Date(dataFim + 'T00:00:00');
+    
+    // Verifica se é um mês completo (do dia 1 ao último dia do mês)
+    const anoInicio = inicio.getFullYear();
+    const mesInicio = inicio.getMonth(); // 0-11
+    const diaInicio = inicio.getDate();
+    
+    const anoFim = fim.getFullYear();
+    const mesFim = fim.getMonth();
+    const diaFim = fim.getDate();
+    
+    // Se for o mesmo mês e ano, e começar no dia 1
+    if (anoInicio === anoFim && mesInicio === mesFim && diaInicio === 1) {
+      // Último dia do mês
+      const ultimoDiaDoMes = new Date(anoFim, mesFim + 1, 0).getDate();
+      
+      // Se terminar no último dia do mês, é um mês completo = 30 dias (comercial)
+      if (diaFim === ultimoDiaDoMes) {
+        return 30;
+      }
+    }
+    
+    // Para períodos parciais, calcula os dias reais
+    return Math.round((fim.getTime() - inicio.getTime()) / 86400000) + 1;
+  };
+
   const handleCriarMedicao = async () => {
     if (!fornecedor) return;
     setSubmitting(true);
@@ -1289,9 +1318,7 @@ export default function FornecedorContratoDetalhePage() {
                     const novoInicio = e.target.value;
                     const novoFim = novaMedicao.periodo_fim;
                     if (usarItensCronograma && novoInicio && novoFim) {
-                      const ini = new Date(novoInicio + 'T00:00:00');
-                      const fim = new Date(novoFim + 'T00:00:00');
-                      const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1;
+                      const dias = calcularDiasMesComercial(novoInicio, novoFim);
                       const fator = Math.min(dias / 30, 1);
                       const itens = itensCronograma.map((ic) => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
@@ -1311,9 +1338,7 @@ export default function FornecedorContratoDetalhePage() {
                     const novoFim = e.target.value;
                     const novoInicio = novaMedicao.periodo_inicio;
                     if (usarItensCronograma && novoInicio && novoFim) {
-                      const ini = new Date(novoInicio + 'T00:00:00');
-                      const fim = new Date(novoFim + 'T00:00:00');
-                      const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1;
+                      const dias = calcularDiasMesComercial(novoInicio, novoFim);
                       const fator = Math.min(dias / 30, 1);
                       const itens = itensCronograma.map((ic) => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
@@ -1361,9 +1386,7 @@ export default function FornecedorContratoDetalhePage() {
                   title="Calcula a fração de dias do período em relação ao mês e preenche as quantidades proporcionalmente"
                   onClick={() => {
                     if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) return;
-                    const inicio = new Date(novaMedicao.periodo_inicio + 'T00:00:00');
-                    const fim = new Date(novaMedicao.periodo_fim + 'T00:00:00');
-                    const diasPeriodo = Math.round((fim.getTime() - inicio.getTime()) / 86400000) + 1;
+                    const diasPeriodo = calcularDiasMesComercial(novaMedicao.periodo_inicio, novaMedicao.periodo_fim);
                     // Convenção de mês comercial: 30 dias (padrão em contratos públicos brasileiros)
                     const diasNoMes = 30;
                     const fator = Math.min(diasPeriodo / diasNoMes, 1);
@@ -1381,12 +1404,7 @@ export default function FornecedorContratoDetalhePage() {
                   className="text-blue-700 border-blue-300 hover:bg-blue-50 whitespace-nowrap"
                 >
                   Proporcional ({novaMedicao.periodo_inicio && novaMedicao.periodo_fim
-                    ? (() => {
-                        const ini = new Date(novaMedicao.periodo_inicio + 'T00:00:00');
-                        const fim = new Date(novaMedicao.periodo_fim + 'T00:00:00');
-                        const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1;
-                        return `${dias}/30 dias`;
-                      })()
+                    ? `${calcularDiasMesComercial(novaMedicao.periodo_inicio, novaMedicao.periodo_fim)}/30 dias`
                     : 'defina o período'})
                 </Button>
               </div>
