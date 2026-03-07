@@ -354,17 +354,13 @@ export class ContratosService {
     };
   }
 
-  async findByNumero(numeroContrato: string, orgaoId: string): Promise<Contrato> {
+  async findByNumero(numeroContrato: string, orgaoId: string): Promise<Contrato | null> {
     const contrato = await this.contratoRepository.findOne({
       where: { numero_contrato: numeroContrato, orgao_id: orgaoId },
       relations: ['orgao', 'fornecedor', 'licitacao']
     });
 
-    if (!contrato) {
-      throw new NotFoundException('Contrato não encontrado');
-    }
-
-    return contrato;
+    return contrato || null;
   }
 
   async atualizar(id: string, dados: Partial<Contrato>, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
