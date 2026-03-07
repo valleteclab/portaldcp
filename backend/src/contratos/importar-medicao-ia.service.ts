@@ -324,28 +324,44 @@ export class ImportarMedicaoIaService {
     if (dados.itens?.length > 0) {
       for (const item of dados.itens) {
         try {
-          // Se temos dados de execução parcial (migração), usar a quantidade restante
-          // Caso contrário, usar a quantidade total do contrato
+          // Se temos dados de execução parcial (migração), converter meses para dias
+          // Isso permite quantidade inteira (21 dias) ao invés de decimal (0,7 meses)
           const isMigracaoParcial = item.quantidade_restante !== undefined && item.quantidade_restante !== null && item.quantidade_restante > 0;
           
-          const quantidade = isMigracaoParcial 
-            ? item.quantidade_restante  // Decimal months (e.g., 0.7)
-            : (item.quantidade || item.quantidade_total_contrato || 1);
+          let quantidade: number;
+          let valorUnitario: number;
+          let unidadeMedida: string;
+          let quantidadeMeses: number | null;
           
-          const quantidadeMeses = isMigracaoParcial
-            ? null  // Don't store decimal in int field - frontend will calculate days from quantidade
-            : (item.quantidade_meses || item.quantidade_total_contrato || null);
+          if (isMigracaoParcial) {
+            // Converter meses decimais para dias (0,7 meses = 21 dias)
+            const mesesRestantes = item.quantidade_restante || 0;
+            const diasRestantes = Math.round(mesesRestantes * 30);
+            
+            quantidade = diasRestantes;  // 21 dias (inteiro)
+            valorUnitario = (item.valor_unitario || 0) / 30;  // Valor diário
+            unidadeMedida = 'DIA';
+            quantidadeMeses = null;  // Não se aplica para fração
+            
+            this.logger.log(`[MIGRAÇÃO] ${item.descricao?.substring(0, 30)}: ${mesesRestantes} meses → ${diasRestantes} dias, valor unit: ${valorUnitario.toFixed(2)}`);
+          } else {
+            // Caso normal: usar valores totais
+            quantidade = item.quantidade || item.quantidade_total_contrato || 1;
+            valorUnitario = item.valor_unitario || 0;
+            unidadeMedida = item.unidade_medida || 'UNIDADE';
+            quantidadeMeses = item.quantidade_meses || item.quantidade_total_contrato || null;
+          }
 
           this.logger.log(`[DEBUG] Item ${item.descricao?.substring(0, 30)}: quantidade_restante=${item.quantidade_restante}, isMigracaoParcial=${isMigracaoParcial}`);
           this.logger.log(`[DEBUG] Calculated: quantidade=${quantidade}, quantidadeMeses=${quantidadeMeses}`);
 
-          this.logger.log(`Criando item: ${item.descricao?.substring(0, 40)}... Qtd: ${quantidade}, Valor Unit: ${item.valor_unitario}, Migracao: ${isMigracaoParcial}`);
+          this.logger.log(`Criando item: ${item.descricao?.substring(0, 40)}... Qtd: ${quantidade}, Valor Unit: ${valorUnitario.toFixed(2)}, Migracao: ${isMigracaoParcial}`);
           
           await this.medicaoService.criarItemCronograma(contratoId, {
             descricao: item.descricao,
-            unidade_medida: item.unidade_medida,
+            unidade_medida: unidadeMedida,
             quantidade: quantidade,
-            valor_unitario: item.valor_unitario,
+            valor_unitario: valorUnitario,
             quantidade_meses: quantidadeMeses,
           } as any);
           itensCriados++;
