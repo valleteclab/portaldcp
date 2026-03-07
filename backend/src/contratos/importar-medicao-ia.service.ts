@@ -286,9 +286,12 @@ export class ImportarMedicaoIaService {
     // ── Criar itens do cronograma ─────────────────────────────────────────────
     let itensCriados = 0;
 
+    this.logger.log(`Iniciando criação de itens para contrato ${contratoId}. Total de itens recebidos: ${dados.itens?.length || 0}`);
+
     if (dados.itens?.length > 0) {
       for (const item of dados.itens) {
         try {
+          this.logger.log(`Criando item: ${item.descricao?.substring(0, 40)}... Qtd: ${item.quantidade}, Valor Unit: ${item.valor_unitario}`);
           await this.medicaoService.criarItemCronograma(contratoId, {
             descricao: item.descricao,
             unidade_medida: item.unidade_medida,
@@ -297,6 +300,7 @@ export class ImportarMedicaoIaService {
             quantidade_meses: item.quantidade_meses || null,
           } as any);
           itensCriados++;
+          this.logger.log(`Item criado com sucesso: ${item.descricao?.substring(0, 40)}`);
         } catch (err: any) {
           const msg = err.message || '';
           this.logger.warn(`Item "${item.descricao?.substring(0, 40)}" não criado: ${msg}`);
@@ -310,7 +314,11 @@ export class ImportarMedicaoIaService {
           }
         }
       }
+    } else {
+      this.logger.warn(`Nenhum item recebido para criar no contrato ${contratoId}`);
     }
+
+    this.logger.log(`Finalizada criação de itens. Criados: ${itensCriados} de ${dados.itens?.length || 0}`);
 
     return {
       contrato_id: contratoId,

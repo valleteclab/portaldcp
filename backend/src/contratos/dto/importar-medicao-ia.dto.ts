@@ -131,6 +131,7 @@ export class ConfirmarImportacaoMedicaoDto {
   @IsString()
   data_vigencia_fim?: string;
 
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemExtraidoDto)
