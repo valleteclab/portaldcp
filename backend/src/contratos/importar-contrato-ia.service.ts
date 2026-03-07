@@ -109,6 +109,91 @@ Schema de retorno (JSON puro e válido):
   "pendencias": []
 }`;
 
+function corrigirJsonMalformado(jsonString: string): string {
+  // Remove texto antes do primeiro { e depois do último }
+  const inicio = jsonString.indexOf('{');
+  const fim = jsonString.lastIndexOf('}');
+  if (inicio === -1 || fim === -1) return jsonString;
+  
+  let json = jsonString.substring(inicio, fim + 1);
+  
+  // Corrige vírgulas no final de objetos e arrays
+  json = json.replace(/,\s*\}/g, '}').replace(/,\s*\]/g, ']');
+  
+  // Remove vírgulas duplas
+  json = json.replace(/,\s*,/g, ',');
+  
+  return json;
+}
+
+function tentarExtrairJson(str: string): any | null {
+  // Tentar parse direto primeiro
+  try {
+    return JSON.parse(str);
+  } catch { /* continuar */ }
+  
+  // Tentar corrigir e parsear
+  const corrigido = corrigirJsonMalformado(str);
+  try {
+    return JSON.parse(corrigido);
+  } catch { /* continuar */ }
+  
+  // Tentar extrair apenas a estrutura básica com regex
+  try {
+    const resultado: any = { itens: [] };
+    
+    // Extrai campos principais
+    const camposString = ['objeto', 'fornecedor_cnpj', 'fornecedor_razao_social', 'tipo', 'categoria', 
+                    'modalidade_execucao', 'data_assinatura', 'data_vigencia_inicio', 
+                    'data_vigencia_fim', 'numero_processo', 'amparo_legal'];
+    
+    for (const campo of camposString) {
+      const regex = new RegExp(`"${campo}":\\s*"([^"]+)"`, 'i');
+      const match = str.match(regex);
+      if (match) {
+        resultado[campo] = match[1];
+      }
+    }
+    
+    // Extrai campos numéricos
+    const camposNum = ['valor_inicial', 'valor_global'];
+    for (const campo of camposNum) {
+      const regex = new RegExp(`"${campo}":\\s*([\\d.]+)`, 'i');
+      const match = str.match(regex);
+      if (match) {
+        resultado[campo] = parseFloat(match[1]);
+      }
+    }
+    
+    // Extrai itens usando regex - busca por padrão de item completo
+    const itemRegex = /"descricao":\s*"([^"]+)"[^}]*"quantidade":\s*([\d.]+)[^}]*"valor_unitario":\s*([\d.]+)/gi;
+    let match;
+    while ((match = itemRegex.exec(str)) !== null) {
+      const descricao = match[1];
+      const quantidade = parseFloat(match[2]);
+      const valorUnitario = parseFloat(match[3]);
+      
+      // Evitar duplicatas
+      if (!resultado.itens.some((i: any) => i.descricao === descricao && i.quantidade === quantidade)) {
+        resultado.itens.push({
+          descricao: descricao,
+          unidade_medida: 'M2',
+          quantidade: quantidade,
+          valor_unitario: valorUnitario,
+          quantidade_meses: null,
+          valor_total: quantidade * valorUnitario
+        });
+      }
+    }
+    
+    if (resultado.itens.length > 0 || resultado.objeto) {
+      return resultado;
+    }
+  } catch { /* falhou */ }
+  
+  return null;
+}
+
 @Injectable()
 export class ImportarContratoIaService {
   private readonly logger = new Logger(ImportarContratoIaService.name);
@@ -154,9 +239,24 @@ export class ImportarContratoIaService {
     let dadosExtraidos: any;
     try {
       const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
-      dadosExtraidos = JSON.parse(jsonLimpo);
-    } catch {
-      this.logger.error('Resposta IA não é JSON válido:', respostaIA);
+      
+      // Tentar parse direto primeiro
+      try {
+        dadosExtraidos = JSON.parse(jsonLimpo);
+      } catch {
+        // Tentar correção automática
+        this.logger.log('Tentando corrigir JSON malformado...');
+        dadosExtraidos = tentarExtrairJson(jsonLimpo);
+        
+        if (!dadosExtraidos) {
+          this.logger.error('Resposta IA não é JSON válido:', respostaIA.substring(0, 2000));
+          throw new BadRequestException('A IA não conseguiu extrair dados estruturados do documento. Tente com uma imagem mais nítida.');
+        }
+        
+        this.logger.log(`JSON corrigido: ${dadosExtraidos.itens?.length || 0} itens extraídos`);
+      }
+    } catch (error) {
+      this.logger.error('Erro ao processar resposta da IA:', error);
       throw new BadRequestException('A IA não conseguiu extrair dados estruturados do documento. Tente com uma imagem mais nítida.');
     }
 
