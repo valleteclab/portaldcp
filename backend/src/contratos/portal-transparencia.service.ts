@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { ContratosService } from './contratos.service';
 import { IaService } from '../ia/ia.service';
 import { MedicaoService } from './medicao.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
+import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
 
 // Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
 async function extrairTextoPdf(buffer: Buffer): Promise<string> {
@@ -70,6 +73,8 @@ export class PortalTransparenciaService {
     private readonly fornecedoresService: FornecedoresService,
     private readonly iaService: IaService,
     private readonly medicaoService: MedicaoService,
+    @InjectRepository(DocumentoContrato)
+    private readonly documentoContratoRepository: Repository<DocumentoContrato>,
   ) {}
 
   /**
@@ -663,13 +668,13 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
   }
 
   /**
-   * Salva o PDF baixado em documentos do contrato
+   * Salva o PDF baixado em documentos do contrato (arquivo físico + registro no banco)
    */
   private async salvarPdfDocumento(
     contratoId: string,
     pdfBuffer: Buffer,
     contratoNumero: string
-  ): Promise<void> {
+  ): Promise<DocumentoContrato> {
     try {
       const fs = require('fs');
       const path = require('path');
@@ -685,10 +690,27 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
       const nomeArquivo = `extrato_portal_${timestamp}.pdf`;
       const caminhoCompleto = path.join(uploadPath, nomeArquivo);
 
-      // Salvar arquivo
+      // Salvar arquivo físico
       fs.writeFileSync(caminhoCompleto, pdfBuffer);
-
       this.logger.log(`PDF salvo em: ${caminhoCompleto}`);
+
+      // Criar registro no banco de dados
+      const documento = this.documentoContratoRepository.create({
+        contrato_id: contratoId,
+        tipo: TipoDocumentoContrato.EXTRATO,
+        titulo: `Extrato do Portal da Transparência - ${contratoNumero}`,
+        descricao: 'Documento importado automaticamente do Portal da Transparência',
+        nome_arquivo: nomeArquivo,
+        nome_original: `${contratoNumero}.pdf`,
+        caminho_arquivo: caminhoCompleto,
+        mime_type: 'application/pdf',
+        tamanho_bytes: pdfBuffer.length,
+      });
+
+      const docSalvo = await this.documentoContratoRepository.save(documento);
+      this.logger.log(`Registro do documento criado no banco: ${docSalvo.id}`);
+
+      return docSalvo;
     } catch (error) {
       this.logger.error(`Erro ao salvar PDF em documentos: ${error.message}`);
       throw error;
