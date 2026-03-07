@@ -164,13 +164,6 @@ function formatarMoeda(v: number | string) {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-// Converte meses para dias para exibição (0.7 meses = 21 dias)
-function mesesParaDias(meses: number | null | undefined): string {
-  if (meses == null) return '-'
-  const dias = Math.round(meses * 30)
-  return `${dias} dias`
-}
-
 function formatarData(d: string | null | undefined) {
   if (!d) return '-'
   // Se for formato YYYY-MM-DD (date-only), faz split para evitar problema de timezone UTC
@@ -942,7 +935,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                     <TableCell className="text-center whitespace-nowrap">{i.unidade_medida}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_unitario)}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">{mesesParaDias(i.quantidade_meses ?? i.quantidade)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
                     <TableCell className="text-center text-blue-600 font-medium whitespace-nowrap">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>

@@ -278,25 +278,14 @@ export class MedicaoService {
       throw new BadRequestException('Contrato já possui etapas. Use etapas ou itens, não ambos.');
     }
 
-    this.logger.log(`[DEBUG] criarItemCronograma - dados recebidos: ${JSON.stringify(dados)}`);
-
     const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
     const itensExistentes = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
     const somaValorExistente = itensExistentes.reduce((sum, i) => sum + Number(i.valor_total), 0);
     const quantidade = Number(dados.quantidade) || 0;
     const valorUnitario = Number(dados.valor_unitario) || 0;
-    
-    this.logger.log(`[DEBUG] quantidade bruta: ${dados.quantidade}, convertida: ${quantidade}`);
-    this.logger.log(`[DEBUG] quantidade_meses bruta: ${dados.quantidade_meses}`);
-    
     const quantidadeMeses = dados.quantidade_meses ? Number(dados.quantidade_meses) : null;
-    
-    this.logger.log(`[DEBUG] quantidadeMeses após conversão: ${quantidadeMeses}`);
-    
     const valorMensal = quantidade * valorUnitario;
     const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
-
-    this.logger.log(`[DEBUG] valorMensal: ${valorMensal}, valorTotal: ${valorTotal}`);
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
