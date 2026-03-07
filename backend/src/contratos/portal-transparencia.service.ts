@@ -236,12 +236,34 @@ export class PortalTransparenciaService {
       }
 
       this.logger.log(`[Importar Individual] Sucesso! ID: ${contratoCriado.id}`);
+
+      // Baixar PDF se tiver URL
+      let pdfBaixado = false;
+      if (contratoApi.url) {
+        try {
+          this.logger.log(`[Importar Individual] Baixando PDF: ${contratoApi.url}`);
+          const pdfBuffer = await this.baixarPdfContrato(contratoApi.url);
+          pdfBaixado = true;
+          this.logger.log(`[Importar Individual] PDF baixado: ${pdfBuffer.length} bytes`);
+
+          // Salvar PDF em documentos do contrato
+          try {
+            await this.salvarPdfDocumento(contratoCriado.id, pdfBuffer, contratoApi.contratoNumero);
+            this.logger.log(`[Importar Individual] PDF salvo em documentos`);
+          } catch (docError) {
+            this.logger.warn(`[Importar Individual] Erro ao salvar PDF: ${docError.message}`);
+          }
+        } catch (pdfError) {
+          this.logger.warn(`[Importar Individual] PDF não baixado: ${pdfError.message}`);
+        }
+      }
+
       return {
         sucesso: true,
         ja_existe: false,
         contrato_id: contratoCriado.id,
         numero: contratoApi.contratoNumero,
-        mensagem: 'Contrato importado com sucesso'
+        mensagem: pdfBaixado ? 'Contrato e PDF importados com sucesso' : 'Contrato importado com sucesso'
       };
     } catch (error) {
       this.logger.error(`[Importar Individual] Erro: ${error.message}`, error.stack);
