@@ -193,14 +193,18 @@ export class PortalTransparenciaService {
     numero: string;
     mensagem?: string;
   }> {
+    this.logger.log(`[Importar Individual] Iniciando: ${contratoApi.contratoNumero}, orgaoId: ${orgaoId}`);
+    
     try {
       // Verificar se contrato já existe
+      this.logger.log(`[Importar Individual] Verificando se contrato existe...`);
       const contratoExistente = await this.contratosService.findByNumero(
         contratoApi.contratoNumero,
         orgaoId
       );
       
       if (contratoExistente) {
+        this.logger.log(`[Importar Individual] Contrato já existe: ${contratoExistente.id}`);
         return {
           sucesso: false,
           ja_existe: true,
@@ -210,22 +214,36 @@ export class PortalTransparenciaService {
       }
 
       // Importar contrato
+      this.logger.log(`[Importar Individual] Chamando importarContratoIndividual...`);
       await this.importarContratoIndividual(orgaoId, contratoApi);
       
       // Buscar contrato criado para retornar ID
+      this.logger.log(`[Importar Individual] Buscando contrato criado...`);
       const contratoCriado = await this.contratosService.findByNumero(
         contratoApi.contratoNumero,
         orgaoId
       );
 
+      if (!contratoCriado) {
+        this.logger.error(`[Importar Individual] Contrato não encontrado após criação!`);
+        return {
+          sucesso: false,
+          ja_existe: false,
+          numero: contratoApi.contratoNumero,
+          mensagem: 'Contrato criado mas não encontrado no banco de dados'
+        };
+      }
+
+      this.logger.log(`[Importar Individual] Sucesso! ID: ${contratoCriado.id}`);
       return {
         sucesso: true,
         ja_existe: false,
-        contrato_id: contratoCriado?.id,
+        contrato_id: contratoCriado.id,
         numero: contratoApi.contratoNumero,
         mensagem: 'Contrato importado com sucesso'
       };
     } catch (error) {
+      this.logger.error(`[Importar Individual] Erro: ${error.message}`, error.stack);
       return {
         sucesso: false,
         ja_existe: false,
@@ -238,36 +256,44 @@ export class PortalTransparenciaService {
     orgaoId: string,
     contratoApi: PortalTransparenciaContrato
   ): Promise<void> {
+    this.logger.log(`[importarContratoIndividual] Iniciando: ${contratoApi.contratoNumero}`);
+    
     // Limpar CNPJ (remover formatação)
     const cnpjLimpo = contratoApi.documento.replace(/\D/g, '');
+    this.logger.log(`[importarContratoIndividual] CNPJ limpo: ${cnpjLimpo}`);
     
     // Buscar ou criar fornecedor usando métodos existentes
     let fornecedor;
     try {
+      this.logger.log(`[importarContratoIndividual] Verificando fornecedor...`);
       const verificacao = await this.fornecedoresService.verificarCnpjExistente(cnpjLimpo);
       if (verificacao.existe && verificacao.fornecedor) {
         fornecedor = verificacao.fornecedor;
+        this.logger.log(`[importarContratoIndividual] Fornecedor existente: ${fornecedor.id}`);
       }
     } catch (e) {
-      // Fornecedor não existe
+      this.logger.log(`[importarContratoIndividual] Fornecedor não encontrado, será criado`);
     }
     
     if (!fornecedor) {
-      this.logger.log(`Criando fornecedor: ${contratoApi.favorecido} - ${cnpjLimpo}`);
+      this.logger.log(`[importarContratoIndividual] Criando fornecedor: ${contratoApi.favorecido} - ${cnpjLimpo}`);
       // Usar cadastro rápido que já existe no sistema
       fornecedor = await this.fornecedoresService.cadastroRapidoOrgao(
         cnpjLimpo,
         contratoApi.favorecido
       );
+      this.logger.log(`[importarContratoIndividual] Fornecedor criado: ${fornecedor.id}`);
     }
 
     // Converter vigência para data
+    this.logger.log(`[importarContratoIndividual] Parsing data vigência: ${contratoApi.vigencia}`);
     const dataVigencia = this.parseDataBrasileira(contratoApi.vigencia);
     
     // Converter valor - usar aditivos_valor_total se existir, senão valor_contrato
     let valorGlobal = 0;
     if (contratoApi.aditivos_valor_total) {
       valorGlobal = parseFloat(contratoApi.aditivos_valor_total) || 0;
+      this.logger.log(`[importarContratoIndividual] Valor aditivos: ${valorGlobal}`);
     } else if (contratoApi.valor_contrato) {
       // Remover 'R$' e converter formato brasileiro (1.234,56 -> 1234.56)
       const valorLimpo = contratoApi.valor_contrato
@@ -275,6 +301,7 @@ export class PortalTransparenciaService {
         .replace(/\./g, '')
         .replace(',', '.');
       valorGlobal = parseFloat(valorLimpo) || 0;
+      this.logger.log(`[importarContratoIndividual] Valor contrato: ${valorGlobal}`);
     }
 
     // Extrair ano e sequencial do número do contrato (ex: 001/2024-Contrato -> ano=2024, sequencial=1)
@@ -282,9 +309,10 @@ export class PortalTransparenciaService {
     const ano = anoMatch ? parseInt(anoMatch[1]) : new Date().getFullYear();
     const sequencialMatch = contratoApi.contratoNumero.match(/^(\d{3})/);
     const sequencial = sequencialMatch ? parseInt(sequencialMatch[1]) : 1;
+    this.logger.log(`[importarContratoIndividual] Ano: ${ano}, Sequencial: ${sequencial}`);
 
     // Criar contrato usando o método existente
-    this.logger.log(`Criando contrato: ${contratoApi.contratoNumero}`);
+    this.logger.log(`[importarContratoIndividual] Verificando se contrato já existe...`);
     
     // Buscar se contrato já existe
     try {
@@ -294,14 +322,15 @@ export class PortalTransparenciaService {
       );
       
       if (contratoExistente) {
-        this.logger.log(`Contrato ${contratoApi.contratoNumero} já existe, pulando...`);
+        this.logger.log(`[importarContratoIndividual] Contrato ${contratoApi.contratoNumero} já existe, pulando...`);
         return;
       }
     } catch (e) {
-      // Contrato não existe, continuar
+      this.logger.log(`[importarContratoIndividual] Contrato não existe, vai criar`);
     }
 
     // Criar DTO para o contrato
+    this.logger.log(`[importarContratoIndividual] Criando DTO...`);
     const createDto = {
       orgao_id: orgaoId,
       numero_contrato: contratoApi.contratoNumero.replace('-Contrato', ''),
@@ -321,7 +350,9 @@ export class PortalTransparenciaService {
       origem: 'IMPORTADO_PORTAL_TRANSPARENCIA',
     };
 
+    this.logger.log(`[importarContratoIndividual] Chamando contratosService.criar...`);
     await this.contratosService.criar(createDto);
+    this.logger.log(`[importarContratoIndividual] Contrato criado com sucesso!`);
   }
 
   /**
