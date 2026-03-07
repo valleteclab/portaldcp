@@ -32,7 +32,23 @@ COMO IDENTIFICAR OS CAMPOS:
 - "data_assinatura": data de assinatura do contrato em YYYY-MM-DD (campo "DATA DE ASSINATURA" ou "ASSINADO EM")
 - "data_vigencia_inicio": data de início de vigência em YYYY-MM-DD
 - "data_vigencia_fim": data de fim de vigência em YYYY-MM-DD
+
+**CAMPOS DE PERÍODO PARCIAL (para contratos em execução/migração):**
+- "periodo_inicio": data de início do período da medição (YYYY-MM-DD) - campo "DATA INÍCIO PERÍODO"
+- "periodo_fim": data de fim do período da medição (YYYY-MM-DD) - campo "DATA FIM PERÍODO"
+- "dias_periodo": número de dias do período - campo "DIAS DO PERÍODO"
 - "itens": lista de itens do contrato com seus dados de quantidade e valor
+
+**CAMPOS DE CADA ITEM (atenção aos valores parciais):**
+- "descricao": descrição completa do item
+- "unidade_medida": MÊS, UNIDADE, etc.
+- "quantidade_total_contrato": quantidade total prevista no contrato (ex: 12 meses)
+- "valor_unitario": valor unitário do item
+- "valor_total_contrato": valor total do item no contrato (quantidade_total_contrato × valor_unitario)
+- **"quantidade_executada_ate_periodo"**: quantidade já executada até este período (ex: se já passaram 11 meses e 9 dias, use 11.3 ou o valor exato da planilha)
+- **"valor_executado_ate_periodo"**: valor já executado até este período (coluna "VALOR JÁ EXECUTADO POR ITEM")
+- "quantidade_restante": quantidade ainda não executada (calcular: total - executado)
+- "valor_restante": valor ainda não executado (calcular: total - executado)
 
 Schema JSON de retorno:
 {
@@ -48,14 +64,20 @@ Schema JSON de retorno:
   "data_assinatura": "2024-01-15",
   "data_vigencia_inicio": "2024-01-15",
   "data_vigencia_fim": "2025-01-14",
+  "periodo_inicio": "2024-12-01",
+  "periodo_fim": "2024-12-31",
+  "dias_periodo": 31,
   "itens": [
     {
-      "descricao": "descrição completa do item",
+      "descricao": "SISTEMA DE CONTROLE E GERENCIAMENTO DE RISCOS E OPORTUNIDADES",
       "unidade_medida": "MÊS",
-      "quantidade": 12,
-      "valor_unitario": 36598.50,
-      "quantidade_meses": 12,
-      "valor_total": 439182.00
+      "quantidade_total_contrato": 12,
+      "valor_unitario": 379.54,
+      "valor_total_contrato": 4554.48,
+      "quantidade_executada_ate_periodo": 11.3,
+      "valor_executado_ate_periodo": 51465.62,
+      "quantidade_restante": 0.7,
+      "valor_restante": 265.68
     }
   ],
   "pendencias": ["campos obrigatórios não encontrados"]
@@ -156,13 +178,24 @@ export class ImportarMedicaoIaService {
       data_assinatura: extraido.data_assinatura || undefined,
       data_vigencia_inicio: extraido.data_vigencia_inicio || undefined,
       data_vigencia_fim: extraido.data_vigencia_fim || undefined,
+      periodo_inicio: extraido.periodo_inicio || undefined,
+      periodo_fim: extraido.periodo_fim || undefined,
+      dias_periodo: extraido.dias_periodo ? Number(extraido.dias_periodo) : undefined,
       itens: Array.isArray(extraido.itens) ? extraido.itens.map((i: any) => ({
         descricao: i.descricao || '',
         unidade_medida: i.unidade_medida || 'UNIDADE',
-        quantidade: Number(i.quantidade) || 1,
+        quantidade: i.quantidade ? Number(i.quantidade) : undefined,
+        quantidade_total_contrato: i.quantidade_total_contrato ? Number(i.quantidade_total_contrato) : undefined,
+        quantidade_executada_ate_periodo: i.quantidade_executada_ate_periodo ? Number(i.quantidade_executada_ate_periodo) : undefined,
+        quantidade_restante: i.quantidade_restante ? Number(i.quantidade_restante) : undefined,
         valor_unitario: Number(i.valor_unitario) || 0,
-        quantidade_meses: i.quantidade_meses ? Number(i.quantidade_meses) : null,
-        valor_total: Number(i.valor_total) || 0,
+        valor_total: i.valor_total ? Number(i.valor_total) : undefined,
+        valor_total_contrato: i.valor_total_contrato ? Number(i.valor_total_contrato) : undefined,
+        valor_executado_ate_periodo: i.valor_executado_ate_periodo ? Number(i.valor_executado_ate_periodo) : undefined,
+        valor_restante: i.valor_restante ? Number(i.valor_restante) : undefined,
+        quantidade_meses: i.quantidade_meses ? Number(i.quantidade_meses) : 
+                         (i.quantidade_restante ? Number(i.quantidade_restante) : 
+                          (i.quantidade_total_contrato ? Number(i.quantidade_total_contrato) : null)),
       })) : [],
       pendencias: Array.isArray(extraido.pendencias) ? extraido.pendencias : [],
     };
@@ -291,16 +324,29 @@ export class ImportarMedicaoIaService {
     if (dados.itens?.length > 0) {
       for (const item of dados.itens) {
         try {
-          this.logger.log(`Criando item: ${item.descricao?.substring(0, 40)}... Qtd: ${item.quantidade}, Valor Unit: ${item.valor_unitario}`);
+          // Se temos dados de execução parcial (migração), usar a quantidade restante
+          // Caso contrário, usar a quantidade total do contrato
+          const isMigracaoParcial = item.quantidade_restante !== undefined && item.quantidade_restante !== null && item.quantidade_restante > 0;
+          
+          const quantidade = isMigracaoParcial 
+            ? item.quantidade_restante 
+            : (item.quantidade || item.quantidade_total_contrato || 1);
+          
+          const quantidadeMeses = isMigracaoParcial
+            ? item.quantidade_restante
+            : (item.quantidade_meses || item.quantidade_total_contrato || null);
+
+          this.logger.log(`Criando item: ${item.descricao?.substring(0, 40)}... Qtd: ${quantidade}, Valor Unit: ${item.valor_unitario}, Migracao: ${isMigracaoParcial}`);
+          
           await this.medicaoService.criarItemCronograma(contratoId, {
             descricao: item.descricao,
             unidade_medida: item.unidade_medida,
-            quantidade: item.quantidade,
+            quantidade: quantidade,
             valor_unitario: item.valor_unitario,
-            quantidade_meses: item.quantidade_meses || null,
+            quantidade_meses: quantidadeMeses,
           } as any);
           itensCriados++;
-          this.logger.log(`Item criado com sucesso: ${item.descricao?.substring(0, 40)}`);
+          this.logger.log(`Item criado com sucesso: ${item.descricao?.substring(0, 40)} (Qtd: ${quantidade})`);
         } catch (err: any) {
           const msg = err.message || '';
           this.logger.warn(`Item "${item.descricao?.substring(0, 40)}" não criado: ${msg}`);

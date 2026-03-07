@@ -57,6 +57,19 @@ export class DadosExtraidosMedicaoDto {
   @IsString()
   data_vigencia_fim?: string;
 
+  @IsOptional()
+  @IsString()
+  periodo_inicio?: string;
+
+  @IsOptional()
+  @IsString()
+  periodo_fim?: string;
+
+  @IsOptional()
+  @IsNumber()
+  dias_periodo?: number;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemExtraidoDto)
@@ -130,6 +143,18 @@ export class ConfirmarImportacaoMedicaoDto {
   @IsOptional()
   @IsString()
   data_vigencia_fim?: string;
+
+  @IsOptional()
+  @IsString()
+  periodo_inicio?: string;
+
+  @IsOptional()
+  @IsString()
+  periodo_fim?: string;
+
+  @IsOptional()
+  @IsNumber()
+  dias_periodo?: number;
 
   @IsOptional()
   @IsArray()

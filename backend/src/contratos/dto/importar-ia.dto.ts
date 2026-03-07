@@ -8,18 +8,44 @@ export class ItemExtraidoDto {
   @IsString()
   unidade_medida: string;
 
+  @IsOptional()
   @IsNumber()
-  quantidade: number;
+  quantidade?: number;
+
+  @IsOptional()
+  @IsNumber()
+  quantidade_total_contrato?: number;
+
+  @IsOptional()
+  @IsNumber()
+  quantidade_executada_ate_periodo?: number;
+
+  @IsOptional()
+  @IsNumber()
+  quantidade_restante?: number;
 
   @IsNumber()
   valor_unitario: number;
 
   @IsOptional()
   @IsNumber()
-  quantidade_meses?: number;
+  valor_total?: number;
 
+  @IsOptional()
   @IsNumber()
-  valor_total: number;
+  valor_total_contrato?: number;
+
+  @IsOptional()
+  @IsNumber()
+  valor_executado_ate_periodo?: number;
+
+  @IsOptional()
+  @IsNumber()
+  valor_restante?: number;
+
+  @IsOptional()
+  @IsNumber()
+  quantidade_meses?: number;
 }
 
 export class DadosExtradiosDto {
