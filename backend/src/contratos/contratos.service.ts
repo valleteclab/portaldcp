@@ -54,6 +54,20 @@ export class ContratosService {
   // ============ CONTRATOS ============
 
   async criar(dados: Partial<Contrato>): Promise<Contrato> {
+    // Log dos dados recebidos para debug
+    this.logger.log(`[criar] Dados recebidos: ${JSON.stringify({
+      orgao_id: dados.orgao_id,
+      numero_contrato: dados.numero_contrato,
+      fornecedor_id: dados.fornecedor_id,
+      objeto: dados.objeto?.substring(0, 50)
+    })}`);
+
+    // Validar orgao_id
+    if (!dados.orgao_id) {
+      this.logger.error(`[criar] orgao_id é obrigatório mas está null/undefined`);
+      throw new BadRequestException('orgao_id é obrigatório para criar contrato');
+    }
+
     // Se já tem número e sequencial (importação), usar os valores fornecidos
     // Senão, gerar novo número sequencial
     let numeroContrato = dados.numero_contrato;

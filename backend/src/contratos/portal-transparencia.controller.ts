@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Query, UseGuards, Request, Body } from '@nestjs/common';
+import { Controller, Post, Get, Query, UseGuards, Request, Body, BadRequestException, Logger } from '@nestjs/common';
 import { PortalTransparenciaService, PortalTransparenciaResponse } from './portal-transparencia.service';
 import type { PortalTransparenciaContrato } from './portal-transparencia.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -6,6 +6,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('contratos/portal-transparencia')
 @UseGuards(JwtAuthGuard)
 export class PortalTransparenciaController {
+  private readonly logger = new Logger(PortalTransparenciaController.name);
+
   constructor(private readonly portalTransparenciaService: PortalTransparenciaService) {}
 
   @Get('buscar')
@@ -46,7 +48,19 @@ export class PortalTransparenciaController {
     @Request() req: any,
     @Body() contratoApi: any,
   ) {
-    const orgaoId = req.user.orgao_id;
+    // Log completo do req.user para debug
+    this.logger.log('[Controller] req.user completo:', JSON.stringify(req.user));
+    
+    // Extrair orgaoId de várias possíveis propriedades
+    const orgaoId = req.user?.orgao_id || req.user?.orgaoId || req.user?.sub;
+    
+    this.logger.log(`[Controller] orgaoId extraído: ${orgaoId}`);
+    
+    if (!orgaoId) {
+      this.logger.error('[Controller] orgaoId não encontrado no req.user');
+      throw new BadRequestException('Órgão não identificado. Verifique se o usuário está logado corretamente.');
+    }
+    
     return this.portalTransparenciaService.importarContratoIndividualPublico(orgaoId, contratoApi as PortalTransparenciaContrato);
   }
 }
