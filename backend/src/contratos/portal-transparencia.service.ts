@@ -181,8 +181,59 @@ export class PortalTransparenciaService {
   }
 
   /**
-   * Importa um contrato individual
+   * Importa um contrato individual e retorna status detalhado
    */
+  async importarContratoIndividualPublico(
+    orgaoId: string,
+    contratoApi: PortalTransparenciaContrato
+  ): Promise<{
+    sucesso: boolean;
+    ja_existe: boolean;
+    contrato_id?: string;
+    numero: string;
+    mensagem?: string;
+  }> {
+    try {
+      // Verificar se contrato já existe
+      const contratoExistente = await this.contratosService.findByNumero(
+        contratoApi.contratoNumero,
+        orgaoId
+      );
+      
+      if (contratoExistente) {
+        return {
+          sucesso: false,
+          ja_existe: true,
+          numero: contratoApi.contratoNumero,
+          mensagem: 'Contrato já existe no sistema'
+        };
+      }
+
+      // Importar contrato
+      await this.importarContratoIndividual(orgaoId, contratoApi);
+      
+      // Buscar contrato criado para retornar ID
+      const contratoCriado = await this.contratosService.findByNumero(
+        contratoApi.contratoNumero,
+        orgaoId
+      );
+
+      return {
+        sucesso: true,
+        ja_existe: false,
+        contrato_id: contratoCriado?.id,
+        numero: contratoApi.contratoNumero,
+        mensagem: 'Contrato importado com sucesso'
+      };
+    } catch (error) {
+      return {
+        sucesso: false,
+        ja_existe: false,
+        numero: contratoApi.contratoNumero,
+        mensagem: error.message
+      };
+    }
+  }
   private async importarContratoIndividual(
     orgaoId: string,
     contratoApi: PortalTransparenciaContrato

@@ -17,7 +17,11 @@ import {
   CheckCircle,
   AlertTriangle,
   ExternalLink,
-  Building2
+  Building2,
+  Check,
+  X,
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -30,6 +34,8 @@ interface ContratoAPI {
   vigencia_inicio?: string
   aditivos_valor_total?: string | null
   valor_contrato?: string
+  importStatus?: 'idle' | 'loading' | 'success' | 'already_exists' | 'error'
+  importMessage?: string
 }
 
 interface ResultadoImportacao {
@@ -103,6 +109,91 @@ export default function ImportarPortalTransparenciaPage() {
       setErro('Erro ao importar contratos')
     } finally {
       setImportando(false)
+    }
+  }
+
+  const importarContratoIndividual = async (contrato: ContratoAPI, index: number) => {
+    // Atualizar status para loading
+    const novosContratos = [...contratos]
+    novosContratos[index].importStatus = 'loading'
+    setContratos(novosContratos)
+    
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-individual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contrato)
+      })
+      
+      const data = await res.json()
+      
+      const atualizados = [...contratos]
+      if (data.ja_existe) {
+        atualizados[index].importStatus = 'already_exists'
+        atualizados[index].importMessage = data.mensagem
+      } else if (data.sucesso) {
+        atualizados[index].importStatus = 'success'
+        atualizados[index].importMessage = data.mensagem
+      } else {
+        atualizados[index].importStatus = 'error'
+        atualizados[index].importMessage = data.mensagem || 'Erro ao importar'
+      }
+      setContratos(atualizados)
+    } catch (error) {
+      const atualizados = [...contratos]
+      atualizados[index].importStatus = 'error'
+      atualizados[index].importMessage = 'Erro de conexão'
+      setContratos(atualizados)
+    }
+  }
+
+  const renderBotaoImportar = (contrato: ContratoAPI, index: number) => {
+    switch (contrato.importStatus) {
+      case 'loading':
+        return (
+          <Button size="sm" disabled variant="outline" className="bg-gray-50">
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            Importando...
+          </Button>
+        )
+      case 'success':
+        return (
+          <Button size="sm" disabled variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            <Check className="w-4 h-4 mr-2" />
+            Importado
+          </Button>
+        )
+      case 'already_exists':
+        return (
+          <Button size="sm" disabled variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">
+            <X className="w-4 h-4 mr-2" />
+            Já existe
+          </Button>
+        )
+      case 'error':
+        return (
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+            onClick={() => importarContratoIndividual(contrato, index)}
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Erro — Tentar
+          </Button>
+        )
+      default:
+        return (
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+            onClick={() => importarContratoIndividual(contrato, index)}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Importar
+          </Button>
+        )
     }
   }
 
@@ -277,6 +368,7 @@ export default function ImportarPortalTransparenciaPage() {
                     <th className="text-left py-3 px-2">Objeto</th>
                     <th className="text-right py-3 px-2">Valor</th>
                     <th className="text-center py-3 px-2">Vigência</th>
+                    <th className="text-center py-3 px-2">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -301,6 +393,9 @@ export default function ImportarPortalTransparenciaPage() {
                         <Badge variant="outline">
                           {contrato.vigencia}
                         </Badge>
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        {renderBotaoImportar(contrato, index)}
                       </td>
                     </tr>
                   ))}

@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Get, Query, UseGuards, Request, Body } from '@nestjs/common';
 import { PortalTransparenciaService, PortalTransparenciaResponse } from './portal-transparencia.service';
+import type { PortalTransparenciaContrato } from './portal-transparencia.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('contratos/portal-transparencia')
@@ -38,5 +39,14 @@ export class PortalTransparenciaController {
       offset: offset ? parseInt(offset, 10) : undefined,
       apenas_vigentes: apenasVigentes === 'true',
     });
+  }
+
+  @Post('importar-individual')
+  async importarContratoIndividual(
+    @Request() req: any,
+    @Body() contratoApi: any,
+  ) {
+    const orgaoId = req.user.orgao_id;
+    return this.portalTransparenciaService.importarContratoIndividualPublico(orgaoId, contratoApi as PortalTransparenciaContrato);
   }
 }
