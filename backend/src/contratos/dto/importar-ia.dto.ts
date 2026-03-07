@@ -22,7 +22,7 @@ export class ItemExtraidoDto {
 
   @IsOptional()
   @IsNumber()
-  dias_restantes?: number;
+  quantidade_restante?: number;
 
   @IsNumber()
   valor_unitario: number;
