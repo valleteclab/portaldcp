@@ -414,9 +414,14 @@ export class MedicaoService {
       const dataFimPeriodo = new Date(dados.periodo_fim);
       const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
       if (dataFimPeriodo > dataVigenciaFim) {
+        // Formatador de data no padrão brasileiro
+        const formatarDataBR = (dataStr: string | Date) => {
+          const data = typeof dataStr === 'string' ? new Date(dataStr) : dataStr;
+          return data.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        };
         throw new BadRequestException(
           `O período de medição não pode ultrapassar a data de vigência do contrato. ` +
-          `Período informado: ${dados.periodo_fim}, Vigência do contrato: ${contrato.data_vigencia_fim}`
+          `Período informado: ${formatarDataBR(dados.periodo_fim)}, Vigência do contrato: ${formatarDataBR(contrato.data_vigencia_fim)}`
         );
       }
     }
@@ -434,8 +439,7 @@ export class MedicaoService {
       osVinculada = await this.getOSAtiva(contratoId);
       if (!osVinculada) {
         throw new BadRequestException(
-          'Não é possível criar medição sem uma Ordem de Serviço autorizada. ' +
-          'Crie e autorize uma OS no módulo de Ordens de Serviço antes de registrar medições.'
+          'Aguarde o órgão enviar uma Ordem de Serviço autorizada para emitir a medição.'
         );
       }
 

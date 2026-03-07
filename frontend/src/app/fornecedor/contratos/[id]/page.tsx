@@ -438,7 +438,7 @@ export default function FornecedorContratoDetalhePage() {
         const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
         const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
         if (dataFimPeriodo > dataVigenciaFim) {
-          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\nPeríodo informado: ${novaMedicao.periodo_fim}\nVigência do contrato: ${contrato.data_vigencia_fim}`);
+          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\n\nPeríodo informado: ${formatarData(novaMedicao.periodo_fim)}\nVigência do contrato: ${formatarData(contrato.data_vigencia_fim)}`);
           setSubmitting(false);
           return;
         }
@@ -539,7 +539,7 @@ export default function FornecedorContratoDetalhePage() {
         const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
         const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
         if (dataFimPeriodo > dataVigenciaFim) {
-          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\nPeríodo informado: ${novaMedicao.periodo_fim}\nVigência do contrato: ${contrato.data_vigencia_fim}`);
+          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\n\nPeríodo informado: ${formatarData(novaMedicao.periodo_fim)}\nVigência do contrato: ${formatarData(contrato.data_vigencia_fim)}`);
           setSubmitting(false);
           return;
         }
