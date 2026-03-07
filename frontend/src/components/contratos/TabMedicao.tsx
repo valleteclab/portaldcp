@@ -942,7 +942,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                     <TableCell className="text-center whitespace-nowrap">{i.unidade_medida}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_unitario)}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">{mesesParaDias(i.quantidade_meses)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{mesesParaDias(i.quantidade_meses ?? i.quantidade)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
                     <TableCell className="text-center text-blue-600 font-medium whitespace-nowrap">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>

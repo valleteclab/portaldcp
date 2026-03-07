@@ -329,12 +329,15 @@ export class ImportarMedicaoIaService {
           const isMigracaoParcial = item.quantidade_restante !== undefined && item.quantidade_restante !== null && item.quantidade_restante > 0;
           
           const quantidade = isMigracaoParcial 
-            ? item.quantidade_restante 
+            ? item.quantidade_restante  // Decimal months (e.g., 0.7)
             : (item.quantidade || item.quantidade_total_contrato || 1);
           
           const quantidadeMeses = isMigracaoParcial
-            ? item.quantidade_restante
+            ? null  // Don't store decimal in int field - frontend will calculate days from quantidade
             : (item.quantidade_meses || item.quantidade_total_contrato || null);
+
+          this.logger.log(`[DEBUG] Item ${item.descricao?.substring(0, 30)}: quantidade_restante=${item.quantidade_restante}, isMigracaoParcial=${isMigracaoParcial}`);
+          this.logger.log(`[DEBUG] Calculated: quantidade=${quantidade}, quantidadeMeses=${quantidadeMeses}`);
 
           this.logger.log(`Criando item: ${item.descricao?.substring(0, 40)}... Qtd: ${quantidade}, Valor Unit: ${item.valor_unitario}, Migracao: ${isMigracaoParcial}`);
           
