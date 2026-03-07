@@ -508,7 +508,9 @@ export class PortalAssinaturasService {
     }
 
     const pdfBytes = readFileSync(originalPath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pdfDoc = await PDFDocument.load(pdfBytes, {
+      standardFontDataUrl: 'https://unpkg.com/pdf-lib@1.17.1/dist/standard-fonts/',
+    });
     const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
