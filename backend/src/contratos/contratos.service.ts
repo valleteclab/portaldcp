@@ -370,6 +370,18 @@ export class ContratosService {
   async atualizar(id: string, dados: Partial<Contrato>, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
     const eraEnviadoPncp = contrato.enviado_pncp;
+    
+    // Se o valor_inicial foi alterado, precisamos recalcular o valor_global
+    const valorInicialAnterior = Number(contrato.valor_inicial) || 0;
+    const novoValorInicial = dados.valor_inicial !== undefined ? Number(dados.valor_inicial) : valorInicialAnterior;
+    
+    if (dados.valor_inicial !== undefined && novoValorInicial !== valorInicialAnterior) {
+      // Recalcular valor_global: valor_inicial + acrescimos - supressoes
+      const acrescimos = Number(contrato.valor_acrescimos) || 0;
+      const supressoes = Number(contrato.valor_supressoes) || 0;
+      dados.valor_global = Math.max(0, novoValorInicial + acrescimos - supressoes);
+    }
+    
     Object.assign(contrato, dados);
     const salvo = await this.contratoRepository.save(contrato);
 
