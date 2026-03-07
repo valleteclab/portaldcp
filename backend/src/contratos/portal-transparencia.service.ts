@@ -217,10 +217,11 @@ export class PortalTransparenciaService {
       this.logger.log(`[Importar Individual] Chamando importarContratoIndividual...`);
       await this.importarContratoIndividual(orgaoId, contratoApi);
       
-      // Buscar contrato criado para retornar ID
-      this.logger.log(`[Importar Individual] Buscando contrato criado...`);
+      // Buscar contrato criado para retornar ID (usar mesmo número formatado usado na criação)
+      const numeroFormatado = contratoApi.contratoNumero.replace('-Contrato', '');
+      this.logger.log(`[Importar Individual] Buscando contrato criado com número: ${numeroFormatado}`);
       const contratoCriado = await this.contratosService.findByNumero(
-        contratoApi.contratoNumero,
+        numeroFormatado,
         orgaoId
       );
 
