@@ -433,6 +433,17 @@ export default function FornecedorContratoDetalhePage() {
         return;
       }
 
+      // Validar que período da medição não ultrapassa a data de vigência fim do contrato
+      if (contrato?.data_vigencia_fim) {
+        const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
+        const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
+        if (dataFimPeriodo > dataVigenciaFim) {
+          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\nPeríodo informado: ${novaMedicao.periodo_fim}\nVigência do contrato: ${contrato.data_vigencia_fim}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
       const payload: any = {
         periodo_inicio: novaMedicao.periodo_inicio || undefined,
         periodo_fim: novaMedicao.periodo_fim || undefined,
@@ -521,6 +532,17 @@ export default function FornecedorContratoDetalhePage() {
         alert('Informe o período de início e fim da medição');
         setSubmitting(false);
         return;
+      }
+
+      // Validar que período da medição não ultrapassa a data de vigência fim do contrato
+      if (contrato?.data_vigencia_fim) {
+        const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
+        const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
+        if (dataFimPeriodo > dataVigenciaFim) {
+          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\nPeríodo informado: ${novaMedicao.periodo_fim}\nVigência do contrato: ${contrato.data_vigencia_fim}`);
+          setSubmitting(false);
+          return;
+        }
       }
 
       const payload: any = {

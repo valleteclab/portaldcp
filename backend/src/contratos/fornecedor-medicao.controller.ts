@@ -526,7 +526,7 @@ export class FornecedorMedicaoController {
       ...dados,
       usuario_cadastro_id: dados.fornecedor_id,
       usuario_cadastro_nome: dados.fornecedor_nome,
-    }, { skipOSCheck: true });
+    });
   }
 
   /**

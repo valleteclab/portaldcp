@@ -409,6 +409,18 @@ export class MedicaoService {
     const contrato = await this.validarContratoMedicao(contratoId);
     const servicoContinuado = this.isServicoContinuado(contrato);
 
+    // Validar que período da medição não ultrapassa a data de vigência fim do contrato
+    if (contrato.data_vigencia_fim) {
+      const dataFimPeriodo = new Date(dados.periodo_fim);
+      const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
+      if (dataFimPeriodo > dataVigenciaFim) {
+        throw new BadRequestException(
+          `O período de medição não pode ultrapassar a data de vigência do contrato. ` +
+          `Período informado: ${dados.periodo_fim}, Vigência do contrato: ${contrato.data_vigencia_fim}`
+        );
+      }
+    }
+
     let osVinculada: OrdemServicoContrato | null = null;
 
     if (!servicoContinuado) {
