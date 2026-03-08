@@ -9,7 +9,7 @@ import { IaService } from '../ia/ia.service';
 import { MedicaoService } from './medicao.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
 import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
-import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
+import { CategoriaContrato, Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { ItemContrato, TipoItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 
 function corrigirJsonMalformado(jsonString: string): string {
@@ -455,6 +455,35 @@ function inferirModalidadeExecucaoContrato(params: {
   return ModalidadeExecucao.ITEM_QUANTIDADE;
 }
 
+function inferirCategoriaContrato(params: {
+  objeto?: string;
+  itens?: Array<{
+    descricao?: string;
+    unidade_medida?: string;
+  }>;
+}): CategoriaContrato {
+  const objeto = String(params.objeto || '').toLowerCase();
+  const itens = params.itens || [];
+  const textoItens = itens
+    .map((item) => `${item?.descricao || ''} ${item?.unidade_medida || ''}`.toLowerCase())
+    .join(' ');
+  const textoBase = `${objeto} ${textoItens}`;
+
+  if (/(obra|reforma|amplia[cç][aã]o|constru[cç][aã]o)/i.test(textoBase)) {
+    return CategoriaContrato.OBRAS;
+  }
+
+  if (/(engenharia|projeto executivo|projeto b[aá]sico|servi[cç]os? de engenharia)/i.test(textoBase)) {
+    return CategoriaContrato.SERVICOS_ENGENHARIA;
+  }
+
+  if (/(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|mensalidade|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos)/i.test(textoBase)) {
+    return CategoriaContrato.SERVICOS;
+  }
+
+  return CategoriaContrato.COMPRAS;
+}
+
 export interface PortalTransparenciaContrato {
   contratoNumero: string;
   documento: string;
@@ -884,6 +913,10 @@ export class PortalTransparenciaService {
       objeto: contratoApi.contratoObjeto,
       itens: [],
     });
+    const categoriaContrato = inferirCategoriaContrato({
+      objeto: contratoApi.contratoObjeto,
+      itens: [],
+    });
     const createDto = {
       orgao_id: orgaoId,
       numero_contrato: contratoApi.contratoNumero.replace('-Contrato', ''),
@@ -898,6 +931,7 @@ export class PortalTransparenciaService {
       fornecedor_id: fornecedor.id,
       fornecedor_cnpj: cnpjLimpo,
       fornecedor_razao_social: contratoApi.favorecido,
+      categoria: categoriaContrato,
       modalidade: 'CONTRATACAO_DIRETA',
       modalidade_execucao: modalidadeExecucao,
       situacao: 'VIGENTE',
@@ -1360,11 +1394,22 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
             objeto: contratoCompleto.objeto,
             itens,
           });
+          const categoriaInferida = inferirCategoriaContrato({
+            objeto: contratoCompleto.objeto,
+            itens,
+          });
 
           if (contratoCompleto.modalidade_execucao !== modalidadeInferida) {
             contratoCompleto.modalidade_execucao = modalidadeInferida;
+          }
+
+          if (contratoCompleto.categoria !== categoriaInferida) {
+            contratoCompleto.categoria = categoriaInferida;
+          }
+
+          if (contratoCompleto.modalidade_execucao !== modalidadeInferida || contratoCompleto.categoria !== categoriaInferida) {
             await this.contratoRepository.save(contratoCompleto);
-            this.logger.log(`Modalidade de execução inferida/atualizada para ${modalidadeInferida} no contrato ${contratoCompleto.numero_contrato}`);
+            this.logger.log(`Classificação inferida/atualizada para contrato ${contratoCompleto.numero_contrato}: categoria=${categoriaInferida}, modalidade=${modalidadeInferida}`);
           }
 
           const valorContratoReferencia = Number(contratoCompleto.valor_global) || Number(contratoCompleto.valor_inicial) || 0;

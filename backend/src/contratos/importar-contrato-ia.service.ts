@@ -70,6 +70,7 @@ COMO IDENTIFICAR OS CAMPOS:
 - "valor_inicial": mesmo que valor_global se não especificado separadamente
 - "tipo": analise o cabeçalho do documento (CONTRATO, NOTA_EMPENHO, ORDEM_SERVICO, ORDEM_FORNECIMENTO, CARTA_CONTRATO, TERMO_ADESAO, ATA_REGISTRO_PRECO)
 - "categoria": COMPRAS=produtos físicos, SERVICOS=serviços gerais, OBRAS=construção, SERVICOS_ENGENHARIA=eng, LOCACAO=aluguel/locação, ALIENACAO=venda
+- Para software, licença, implantação, suporte técnico, automação e locação de sistema, escolha SERVICOS
 - "modalidade_execucao": use SOMENTE ITEM_QUANTIDADE ou MEDICAO
 - Escolha ITEM_QUANTIDADE para compras, locação, licença, mensalidade, implantação, software e serviços com itens/parcelas
 - Escolha MEDICAO apenas para contratos com cronograma, etapas, boletim de medição, obra ou execução medida
@@ -88,7 +89,7 @@ Schema de retorno (JSON puro e válido):
   "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
   "fornecedor_razao_social": "nome completo ou null",
   "tipo": "CONTRATO",
-  "categoria": "COMPRAS",
+  "categoria": "SERVICOS",
   "modalidade_execucao": "ITEM_QUANTIDADE",
   "valor_inicial": 27499.24,
   "valor_global": 27499.24,
@@ -265,6 +266,37 @@ function tentarExtrairJson(str: string): any | null {
   return null;
 }
 
+function normalizarCategoriaContrato(categoria: any, objeto?: string): string {
+  const categoriaTexto = String(categoria || '').trim().toUpperCase();
+  const objetoTexto = String(objeto || '').toLowerCase();
+
+  if (['COMPRAS', 'SERVICOS', 'OBRAS', 'SERVICOS_ENGENHARIA', 'LOCACAO', 'ALIENACAO'].includes(categoriaTexto)) {
+    if (categoriaTexto === 'COMPRAS' && /(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos)/i.test(objetoTexto)) {
+      return 'SERVICOS';
+    }
+
+    if (categoriaTexto === 'LOCACAO' && /(software|sistema|licen[cç]a|m[oó]dulo|api|mos)/i.test(objetoTexto)) {
+      return 'SERVICOS';
+    }
+
+    return categoriaTexto;
+  }
+
+  if (/(obra|reforma|amplia[cç][aã]o|constru[cç][aã]o)/i.test(objetoTexto)) {
+    return 'OBRAS';
+  }
+
+  if (/(engenharia|projeto executivo|projeto b[aá]sico|servi[cç]os? de engenharia)/i.test(objetoTexto)) {
+    return 'SERVICOS_ENGENHARIA';
+  }
+
+  if (/(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos)/i.test(objetoTexto)) {
+    return 'SERVICOS';
+  }
+
+  return 'SERVICOS';
+}
+
 @Injectable()
 export class ImportarContratoIaService {
   private readonly logger = new Logger(ImportarContratoIaService.name);
@@ -350,7 +382,7 @@ export class ImportarContratoIaService {
       fornecedor_id,
       fornecedor_ja_cadastrado,
       tipo: dadosExtraidos.tipo || 'CONTRATO',
-      categoria: dadosExtraidos.categoria || 'SERVICOS',
+      categoria: normalizarCategoriaContrato(dadosExtraidos.categoria, dadosExtraidos.objeto),
       modalidade_execucao: dadosExtraidos.modalidade_execucao === 'MEDICAO' ? 'MEDICAO' : 'ITEM_QUANTIDADE',
       valor_inicial: Number(dadosExtraidos.valor_inicial) || 0,
       valor_global: Number(dadosExtraidos.valor_global) || 0,
