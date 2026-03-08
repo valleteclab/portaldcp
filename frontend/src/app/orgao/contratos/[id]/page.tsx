@@ -236,6 +236,13 @@ export default function DetalheContratoOrgaoPage() {
   
   const [paginaItens, setPaginaItens] = useState(1)
   const itensPorPagina = 15
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [duplicados, setDuplicados] = useState<{
+    grupos: Array<{ descricao: string; valor_unitario: number; quantidade: number; ids: string[]; manter_id: string; remover_ids: string[] }>;
+    total_duplicados: number;
+  } | null>(null)
+  const [modalDuplicados, setModalDuplicados] = useState(false)
+  const [removendoDuplicados, setRemovendoDuplicados] = useState(false)
 
   const [modalTermo, setModalTermo] = useState(false)
   const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
@@ -301,6 +308,7 @@ export default function DetalheContratoOrgaoPage() {
     try {
       const u = JSON.parse(localStorage.getItem('usuario') || '{}')
       setPodeFazerAjuste(u.pode_liberar_contratos === true)
+      if (u.role === 'ADMIN' || u.tipo === 'ADMIN' || u.papel === 'ADMIN') setIsAdmin(true)
     } catch { setPodeFazerAjuste(false) }
   }, [])
 
@@ -697,6 +705,33 @@ export default function DetalheContratoOrgaoPage() {
   const getTipoTermoLabel = (tipo: string) => {
     const t = TIPOS_TERMO.find(t => t.value === tipo)
     return t?.label || tipo
+  }
+
+  const verificarDuplicados = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/itens-duplicados`)
+      if (res.ok) {
+        const data = await res.json()
+        setDuplicados(data)
+        if (data.total_duplicados > 0) setModalDuplicados(true)
+        else alert('Nenhum item duplicado encontrado.')
+      }
+    } catch { /* ignora */ }
+  }
+
+  const removerDuplicados = async () => {
+    setRemovendoDuplicados(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/itens-duplicados`, { method: 'DELETE' })
+      if (res.ok) {
+        const data = await res.json()
+        setModalDuplicados(false)
+        setDuplicados(null)
+        carregarDados()
+        alert(`${data.removidos} item(ns) duplicado(s) removido(s) de ${data.grupos} grupo(s).`)
+      }
+    } catch { /* ignora */ }
+    setRemovendoDuplicados(false)
   }
 
   const abrirModalNovoItem = () => {
@@ -1356,6 +1391,11 @@ export default function DetalheContratoOrgaoPage() {
               </p>
             </div>
             <div className="flex gap-2">
+              {isAdmin && contrato.itens && contrato.itens.length > 1 && (
+                <Button variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50" onClick={verificarDuplicados}>
+                  <Search className="w-4 h-4 mr-2" />Remover Duplicados
+                </Button>
+              )}
               <Button variant="outline" onClick={() => { setCsvItens([]); setResultadoImportacao(null); setModalImportarCSV(true) }}>
                 <Upload className="w-4 h-4 mr-2" />Importar CSV
               </Button>
@@ -1930,6 +1970,43 @@ export default function DetalheContratoOrgaoPage() {
             <Button variant="outline" onClick={() => setModalStatus(false)}>Cancelar</Button>
             <Button onClick={handleAlterarStatus} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Confirmar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Remover Duplicados */}
+      <Dialog open={modalDuplicados} onOpenChange={setModalDuplicados}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Itens Duplicados Detectados</DialogTitle>
+            <DialogDescription>
+              {duplicados?.total_duplicados || 0} item(ns) duplicado(s) em {duplicados?.grupos.length || 0} grupo(s). Revise antes de confirmar a remo{'\u00E7\u00E3'}o.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {duplicados?.grupos.map((grupo, i) => (
+              <div key={i} className="border rounded-lg p-3 text-sm">
+                <p className="font-medium">{grupo.descricao}</p>
+                <div className="flex gap-4 text-gray-500 mt-1">
+                  <span>Qtd: {grupo.quantidade}</span>
+                  <span>Unit: R$ {grupo.valor_unitario.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  <span>{grupo.ids.length} ocorr{'\u00EA'}ncias</span>
+                </div>
+                <p className="text-xs text-amber-600 mt-1">
+                  Manter 1, remover {grupo.remover_ids.length}
+                </p>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalDuplicados(false)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              disabled={removendoDuplicados}
+              onClick={removerDuplicados}
+            >
+              {removendoDuplicados ? 'Removendo...' : `Remover ${duplicados?.total_duplicados || 0} duplicado(s)`}
             </Button>
           </DialogFooter>
         </DialogContent>

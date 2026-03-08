@@ -431,6 +431,28 @@ export class ContratosController {
     return { message: 'Documento excluído com sucesso' };
   }
 
+  // ============ ITENS DUPLICADOS ============
+
+  @Get(':contratoId/itens-duplicados')
+  async detectarItensDuplicados(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.detectarItensDuplicados(contratoId);
+  }
+
+  @Delete(':contratoId/itens-duplicados')
+  async removerItensDuplicados(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.removerItensDuplicados(contratoId);
+  }
+
   // ============ HELPERS ============
 
   private async resolveUserName(user: JwtPayload): Promise<string> {

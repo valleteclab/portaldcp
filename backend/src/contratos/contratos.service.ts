@@ -377,6 +377,69 @@ export class ContratosService {
     return contrato || null;
   }
 
+  async detectarItensDuplicados(contratoId: string): Promise<{
+    grupos: Array<{
+      descricao: string;
+      valor_unitario: number;
+      quantidade: number;
+      ids: string[];
+      manter_id: string;
+      remover_ids: string[];
+    }>;
+    total_duplicados: number;
+  }> {
+    const itens = await this.itemContratoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_item: 'ASC', created_at: 'ASC' },
+    });
+
+    const agrupados = new Map<string, typeof itens>();
+    for (const item of itens) {
+      const descNorm = (item.descricao || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const chave = `${descNorm}|${Number(item.valor_unitario)}|${Number(item.quantidade_contratada)}`;
+      if (!agrupados.has(chave)) agrupados.set(chave, []);
+      agrupados.get(chave)!.push(item);
+    }
+
+    const grupos: Array<{
+      descricao: string;
+      valor_unitario: number;
+      quantidade: number;
+      ids: string[];
+      manter_id: string;
+      remover_ids: string[];
+    }> = [];
+
+    for (const [, grupo] of agrupados) {
+      if (grupo.length <= 1) continue;
+      const manter = grupo[0];
+      const remover = grupo.slice(1);
+      grupos.push({
+        descricao: manter.descricao,
+        valor_unitario: Number(manter.valor_unitario),
+        quantidade: Number(manter.quantidade_contratada),
+        ids: grupo.map((i) => i.id),
+        manter_id: manter.id,
+        remover_ids: remover.map((i) => i.id),
+      });
+    }
+
+    return {
+      grupos,
+      total_duplicados: grupos.reduce((s, g) => s + g.remover_ids.length, 0),
+    };
+  }
+
+  async removerItensDuplicados(contratoId: string): Promise<{ removidos: number; grupos: number }> {
+    const { grupos } = await this.detectarItensDuplicados(contratoId);
+    if (grupos.length === 0) return { removidos: 0, grupos: 0 };
+
+    const idsRemover = grupos.flatMap((g) => g.remover_ids);
+    await this.itemContratoRepository.delete(idsRemover);
+
+    return { removidos: idsRemover.length, grupos: grupos.length };
+  }
+
   async buscarTermoAditivoPorNome(contratoId: string, nome: string): Promise<TermoAditivo | null> {
     return this.termoAditivoRepository.findOne({
       where: { contrato_id: contratoId, objeto: nome },
