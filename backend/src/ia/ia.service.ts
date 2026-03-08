@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SystemConfigService } from '../system-config/system-config.service';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 // Prompts especializados para cada tipo de documento da Lei 14.133/2021
 const PROMPTS_DOCUMENTOS: Record<string, string> = {
@@ -423,6 +426,166 @@ Gere a versão revisada e melhorada:`;
       console.error('Erro ao revisar documento:', error);
       throw error;
     }
+  }
+
+  /**
+   * Converte PDF em imagens (PNG) por página
+   */
+  private async converterPdfParaImagens(pdfBuffer: Buffer): Promise<Array<{ buffer: Buffer; pagina: number }>> {
+    this.logger.log('[converterPdfParaImagens] Iniciando conversão do PDF para imagens');
+    
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-imagens-'));
+    const tempPdfPath = path.join(tempDir, 'temp.pdf');
+    
+    try {
+      fs.writeFileSync(tempPdfPath, pdfBuffer);
+      
+      // Import dinâmico para pdf-poppler
+      const { convert } = await import('pdf-poppler');
+      
+      const options = {
+        format: 'png',
+        out_dir: tempDir,
+        out_prefix: 'page',
+        page: null // todas as páginas
+      };
+      
+      const results = await convert(tempPdfPath, options);
+      this.logger.log(`[converterPdfParaImagens] PDF convertido em ${results.length} imagens`);
+      
+      const imagens: Array<{ buffer: Buffer; pagina: number }> = [];
+      for (let i = 0; i < results.length; i++) {
+        const imagePath = path.join(tempDir, `page-${i + 1}.png`);
+        if (fs.existsSync(imagePath)) {
+          const imageBuffer = fs.readFileSync(imagePath);
+          imagens.push({ buffer: imageBuffer, pagina: i + 1 });
+        }
+      }
+      
+      return imagens;
+    } catch (error: any) {
+      this.logger.error(`[converterPdfParaImagens] Erro na conversão: ${error.message}`);
+      throw error;
+    } finally {
+      // Limpar arquivos temporários
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch { /* ignora erro de cleanup */ }
+    }
+  }
+
+  /**
+   * Extrai itens de PDF escaneado convertendo páginas em imagens e analisando uma a uma
+   */
+  async extrairItensPdfEscaneado(pdfBuffer: Buffer, prompt: string): Promise<string> {
+    this.logger.log('[extrairItensPdfEscaneado] Iniciando extração via imagens das páginas');
+    
+    try {
+      const imagens = await this.converterPdfParaImagens(pdfBuffer);
+      
+      if (imagens.length === 0) {
+        throw new Error('Nenhuma imagem foi gerada a partir do PDF');
+      }
+      
+      // Analisar páginas em lotes para não sobrecarregar a API
+      const batchSize = 3;
+      const todosItens: any[] = [];
+      
+      for (let i = 0; i < imagens.length; i += batchSize) {
+        const lote = imagens.slice(i, i + batchSize);
+        this.logger.log(`[extrairItensPdfEscaneado] Analisando lote ${Math.floor(i / batchSize) + 1}: páginas ${lote.map(img => img.pagina).join(', ')}`);
+        
+        const promptLote = `${prompt}
+
+ANALISE ESTAS PÁGINAS DO CONTRATO:
+- Páginas: ${lote.map(img => img.pagina).join(', ')}
+- Extraia TODOS os itens/serviços encontrados
+- Se uma tabela continuar em outra página, inclua todos os itens
+- Retorne SOMENTE JSON válido
+
+Se não encontrar itens nesta lote, retorne: {"itens": [], "observacoes": "Nenhum item nesta lote"}`;
+
+        const conteudoLote = [
+          { type: 'text', text: promptLote },
+          ...lote.map(img => ({
+            type: 'image_url',
+            image_url: {
+              url: `data:image/png;base64,${img.buffer.toString('base64')}`
+            }
+          }))
+        ];
+
+        const resposta = await this.chamarApiDireta(conteudoLote);
+        const itensLote = this.extrairItensDaResposta(resposta);
+        
+        if (itensLote.length > 0) {
+          todosItens.push(...itensLote);
+        }
+      }
+      
+      this.logger.log(`[extrairItensPdfEscaneado] Total de itens extraídos: ${todosItens.length}`);
+      
+      // Retornar resultado consolidado
+      return JSON.stringify({
+        itens: todosItens,
+        observacoes: `Extraído de ${imagens.length} páginas via análise de imagem`
+      });
+      
+    } catch (error: any) {
+      this.logger.error(`[extrairItensPdfEscaneado] Erro: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Extrai itens da resposta JSON da IA
+   */
+  private extrairItensDaResposta(resposta: string): any[] {
+    try {
+      // Limpar resposta e extrair JSON
+      const jsonLimpo = resposta
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      
+      const parsed = JSON.parse(jsonLimpo);
+      return parsed.itens || [];
+    } catch (error: any) {
+      this.logger.warn(`[extrairItensDaResposta] Erro ao parsear resposta: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Chamada direta à API OpenRouter (reutilizada)
+   */
+  private async chamarApiDireta(messages: any[]): Promise<string> {
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
+    
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.com.br',
+        'X-Title': 'Portal DCP',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: messages }],
+        temperature: 0.2,
+        max_tokens: 4000,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Erro na API: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || '';
   }
 
   async chatComArquivo(
