@@ -138,7 +138,26 @@ function normalizarItensExtraidos(itens: any[]): Array<{
         valor_total = Number((valor_unitario * quantidade).toFixed(2));
       }
 
-      return { descricao, unidade_medida, quantidade, valor_unitario, quantidade_meses, valor_total: valor_total || undefined };
+      // Evitar dupla multiplicação: quando valor_total ≈ valor_unitario × quantidade
+      // e quantidade_meses é igual à quantidade, a IA interpretou "Quantidade (Mês)"
+      // como ambos campos. Downstream o sistema calcularia unitário × quantidade × meses,
+      // dobrando o valor. Neste caso, quantidade_meses deve ser null.
+      let quantidade_meses_final = quantidade_meses;
+      if (quantidade_meses && quantidade > 0 && valor_unitario > 0 && valor_total > 0) {
+        const totalSemMeses = Number((valor_unitario * quantidade).toFixed(2));
+        const totalComMeses = Number((valor_unitario * quantidade * quantidade_meses).toFixed(2));
+        const tolerancia = Math.max(valor_total * 0.02, 1);
+
+        if (Math.abs(totalSemMeses - valor_total) <= tolerancia) {
+          // valor_total = unitário × quantidade (meses já está embutido na quantidade)
+          quantidade_meses_final = null;
+        } else if (Math.abs(totalComMeses - valor_total) > tolerancia && quantidade_meses === quantidade) {
+          // Nem com nem sem meses bate — e meses == quantidade → provavelmente duplicou
+          quantidade_meses_final = null;
+        }
+      }
+
+      return { descricao, unidade_medida, quantidade, valor_unitario, quantidade_meses: quantidade_meses_final, valor_total: valor_total || undefined };
     })
     .filter((item) => item.descricao && (item.valor_total || (item.quantidade > 0 && item.valor_unitario > 0)));
 }
