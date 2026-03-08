@@ -396,6 +396,11 @@ export interface ImportacaoContratoJobStatus {
   mensagem: string;
   contrato_id?: string;
   itens_criados?: number;
+  valor_contrato_referencia?: number;
+  valor_itens_importados?: number;
+  divergencia_valor?: number;
+  percentual_divergencia?: number;
+  aviso_conferencia?: string;
   concluido: boolean;
   erro?: string;
   atualizado_em: string;
@@ -690,6 +695,11 @@ export class PortalTransparenciaService {
         mensagem: resultado.mensagem,
         contrato_id: resultado.contrato_id,
         itens_criados: resultado.itens_criados,
+        valor_contrato_referencia: resultado.valor_contrato_referencia,
+        valor_itens_importados: resultado.valor_itens_importados,
+        divergencia_valor: resultado.divergencia_valor,
+        percentual_divergencia: resultado.percentual_divergencia,
+        aviso_conferencia: resultado.aviso_conferencia,
         concluido: true,
       });
     } catch (error) {
@@ -1148,13 +1158,23 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
     pdf_baixado: boolean;
     itens_extraidos: boolean;
     mensagem: string;
+    valor_contrato_referencia?: number;
+    valor_itens_importados?: number;
+    divergencia_valor?: number;
+    percentual_divergencia?: number;
+    aviso_conferencia?: string;
   }> {
     const resultado = {
       contrato_id: undefined as string | undefined,
       itens_criados: 0,
       pdf_baixado: false,
       itens_extraidos: false,
-      mensagem: ''
+      mensagem: '',
+      valor_contrato_referencia: undefined as number | undefined,
+      valor_itens_importados: undefined as number | undefined,
+      divergencia_valor: undefined as number | undefined,
+      percentual_divergencia: undefined as number | undefined,
+      aviso_conferencia: undefined as string | undefined,
     };
 
     try {
@@ -1244,7 +1264,30 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
             throw new Error('Contrato criado não encontrado para salvar itens');
           }
 
+          const valorContratoReferencia = Number(contratoCompleto.valor_global) || Number(contratoCompleto.valor_inicial) || 0;
+          resultado.valor_contrato_referencia = valorContratoReferencia;
+
           if (itens.length > 0) {
+            const valorItensImportados = Number(itens
+              .reduce((total, item) => {
+                const quantidade = Number(item.quantidade) || 0;
+                const valorUnitario = Number(item.valor_unitario) || 0;
+                const valorTotal = Number(item.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
+                return total + valorTotal;
+              }, 0)
+              .toFixed(2));
+            resultado.valor_itens_importados = valorItensImportados;
+
+            const divergenciaValor = Number((valorItensImportados - valorContratoReferencia).toFixed(2));
+            resultado.divergencia_valor = divergenciaValor;
+            resultado.percentual_divergencia = valorContratoReferencia > 0
+              ? Number(((Math.abs(divergenciaValor) / valorContratoReferencia) * 100).toFixed(2))
+              : undefined;
+
+            if (Math.abs(divergenciaValor) > 0.01) {
+              resultado.aviso_conferencia = `A soma dos itens importados (${valorItensImportados.toFixed(2)}) difere do valor do contrato (${valorContratoReferencia.toFixed(2)}) em ${Math.abs(divergenciaValor).toFixed(2)}.`;
+            }
+
             // 5. Criar itens conforme a modalidade do contrato
             onProgress?.({
               progresso: 85,
@@ -1260,6 +1303,11 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                 mensagem: `${resultado.itens_criados} itens salvos no contrato`,
                 contrato_id: contratoCriado.id,
                 itens_criados: resultado.itens_criados,
+                valor_contrato_referencia: resultado.valor_contrato_referencia,
+                valor_itens_importados: resultado.valor_itens_importados,
+                divergencia_valor: resultado.divergencia_valor,
+                percentual_divergencia: resultado.percentual_divergencia,
+                aviso_conferencia: resultado.aviso_conferencia,
               });
             } else {
               for (let i = 0; i < itens.length; i++) {
@@ -1279,6 +1327,11 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                     mensagem: `Cadastrando item ${i + 1} de ${itens.length}`,
                     contrato_id: contratoCriado.id,
                     itens_criados: resultado.itens_criados,
+                    valor_contrato_referencia: resultado.valor_contrato_referencia,
+                    valor_itens_importados: resultado.valor_itens_importados,
+                    divergencia_valor: resultado.divergencia_valor,
+                    percentual_divergencia: resultado.percentual_divergencia,
+                    aviso_conferencia: resultado.aviso_conferencia,
                   });
                 } catch (err) {
                   this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);

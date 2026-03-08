@@ -8,6 +8,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
@@ -42,6 +51,11 @@ interface ContratoAPI {
   importStep?: string
   importJobId?: string
   contratoId?: string
+  valorContratoReferencia?: number
+  valorItensImportados?: number
+  divergenciaValor?: number
+  percentualDivergencia?: number
+  avisoConferencia?: string
 }
 
 interface ImportacaoIndividualStatus {
@@ -52,9 +66,25 @@ interface ImportacaoIndividualStatus {
   mensagem: string
   contrato_id?: string
   itens_criados?: number
+  valor_contrato_referencia?: number
+  valor_itens_importados?: number
+  divergencia_valor?: number
+  percentual_divergencia?: number
+  aviso_conferencia?: string
   concluido: boolean
   erro?: string
   atualizado_em: string
+}
+
+interface AvisoImportacao {
+  open: boolean
+  contratoNumero: string
+  contratoId?: string
+  avisoConferencia: string
+  valorContratoReferencia?: number
+  valorItensImportados?: number
+  divergenciaValor?: number
+  percentualDivergencia?: number
 }
 
 interface ResultadoImportacao {
@@ -73,6 +103,7 @@ export default function ImportarPortalTransparenciaPage() {
   const [numeroBusca, setNumeroBusca] = useState('')
   const [limite, setLimite] = useState(50)
   const [apenasVigentes, setApenasVigentes] = useState(true)
+  const [avisoImportacao, setAvisoImportacao] = useState<AvisoImportacao | null>(null)
   const pollersRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
@@ -81,6 +112,10 @@ export default function ImportarPortalTransparenciaPage() {
       pollersRef.current = {}
     }
   }, [])
+
+  const formatCurrency = (value?: number) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))
+  }
 
   const buscarContratos = async () => {
     setBuscando(true)
@@ -200,6 +235,11 @@ export default function ImportarPortalTransparenciaPage() {
               importMessage: status.mensagem,
               importJobId: data.job_id,
               contratoId: status.contrato_id,
+              valorContratoReferencia: status.valor_contrato_referencia,
+              valorItensImportados: status.valor_itens_importados,
+              divergenciaValor: status.divergencia_valor,
+              percentualDivergencia: status.percentual_divergencia,
+              avisoConferencia: status.aviso_conferencia,
             }
 
             if (status.status === 'concluido') {
@@ -220,9 +260,22 @@ export default function ImportarPortalTransparenciaPage() {
             }
 
             if (status.status === 'concluido' && status.contrato_id) {
-              window.setTimeout(() => {
-                router.push(`/orgao/contratos/${status.contrato_id}`)
-              }, 1200)
+              if (status.aviso_conferencia) {
+                setAvisoImportacao({
+                  open: true,
+                  contratoNumero: contratoNumero,
+                  contratoId: status.contrato_id,
+                  avisoConferencia: status.aviso_conferencia,
+                  valorContratoReferencia: status.valor_contrato_referencia,
+                  valorItensImportados: status.valor_itens_importados,
+                  divergenciaValor: status.divergencia_valor,
+                  percentualDivergencia: status.percentual_divergencia,
+                })
+              } else {
+                window.setTimeout(() => {
+                  router.push(`/orgao/contratos/${status.contrato_id}`)
+                }, 1200)
+              }
             }
           }
         } catch (pollError) {
@@ -344,6 +397,61 @@ export default function ImportarPortalTransparenciaPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      <AlertDialog
+        open={Boolean(avisoImportacao?.open)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAvisoImportacao(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Conferir itens importados</AlertDialogTitle>
+            <AlertDialogDescription>
+              {avisoImportacao?.avisoConferencia}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-2 text-sm text-gray-700">
+            <div className="flex items-center justify-between gap-4">
+              <span>Contrato</span>
+              <span className="font-medium">{avisoImportacao?.contratoNumero}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span>Valor de referência</span>
+              <span className="font-medium">{formatCurrency(avisoImportacao?.valorContratoReferencia)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span>Soma dos itens importados</span>
+              <span className="font-medium">{formatCurrency(avisoImportacao?.valorItensImportados)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span>Diferença</span>
+              <span className="font-medium text-amber-700">{formatCurrency(Math.abs(Number(avisoImportacao?.divergenciaValor || 0)))}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span>Divergência percentual</span>
+              <span className="font-medium text-amber-700">{Number(avisoImportacao?.percentualDivergencia || 0).toFixed(2)}%</span>
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                const contratoId = avisoImportacao?.contratoId
+                setAvisoImportacao(null)
+                if (contratoId) {
+                  router.push(`/orgao/contratos/${contratoId}`)
+                }
+              }}
+            >
+              Conferir contrato importado
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
