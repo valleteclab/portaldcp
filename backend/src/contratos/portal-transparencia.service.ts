@@ -148,12 +148,24 @@ function limparTextoTabelaItens(texto: string): string {
 }
 
 function extrairTrechoBrutoTabelaItens(texto: string): string {
-  const inicio = texto.search(/ITEM\s+DESCRIÇÃO\s*LOCAL\s+DE\s+INSTALAÇÃO/i);
+  const inicioCabecalho = texto.search(/ITEM\s+DESCRIÇÃO\s*LOCAL\s+DE\s+INSTALAÇÃO/i);
+  const inicioPrimeiroItem = texto.search(/(?:^|\s)1\s*(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/im);
+  const inicio = inicioCabecalho >= 0
+    ? inicioCabecalho
+    : inicioPrimeiroItem;
+
   if (inicio === -1) {
     return '';
   }
 
-  return texto.slice(inicio);
+  const trecho = texto.slice(inicio);
+  const fimValorGlobal = trecho.search(/O valor global do contrato/i);
+  const fimClausula = trecho.search(/\b\d+\.\s*CL[ÁA]USULA\b/i);
+
+  const fimCandidatos = [fimValorGlobal, fimClausula].filter((valor) => valor > 0);
+  const fim = fimCandidatos.length ? Math.min(...fimCandidatos) : trecho.length;
+
+  return trecho.slice(0, fim);
 }
 
 function extrairBlocosTabelaItens(texto: string): Array<{ numero_item: number; bloco: string }> {
@@ -162,13 +174,19 @@ function extrairBlocosTabelaItens(texto: string): Array<{ numero_item: number; b
     return [];
   }
 
-  const itemStartPattern = /^\s*(\d{1,3})(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gim;
+  const itemStartPattern = /(?:^|\s)(\d{1,3})\s*(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gim;
   const inicios = Array.from(trechoBruto.matchAll(itemStartPattern));
 
   return inicios.map((match, indice) => {
-    const inicioBloco = match.index ?? 0;
+    const numeroCapturado = match[1] || '';
+    const posicaoNumero = match[0].lastIndexOf(numeroCapturado);
+    const inicioBloco = (match.index ?? 0) + Math.max(posicaoNumero, 0);
     const fimBloco = indice + 1 < inicios.length
-      ? (inicios[indice + 1].index ?? trechoBruto.length)
+      ? (() => {
+          const proximoNumero = inicios[indice + 1][1] || '';
+          const proximaPosicaoNumero = inicios[indice + 1][0].lastIndexOf(proximoNumero);
+          return (inicios[indice + 1].index ?? trechoBruto.length) + Math.max(proximaPosicaoNumero, 0);
+        })()
       : trechoBruto.length;
 
     return {
