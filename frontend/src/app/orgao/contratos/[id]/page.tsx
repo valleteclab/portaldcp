@@ -700,7 +700,8 @@ export default function DetalheContratoOrgaoPage() {
   }
 
   const abrirModalNovoItem = () => {
-    const proximoNumero = (contrato?.itens?.length || 0) + 1
+    const maxNumero = contrato?.itens?.reduce((max, i) => Math.max(max, i.numero_item || 0), 0) || 0
+    const proximoNumero = maxNumero + 1
     setEditandoItem(null)
     setBuscaCatalogo('')
     setResultadosCatalogo([])

@@ -1417,10 +1417,11 @@ ${textoRetry}`;
       const quantidade = Number(itemAjustado.quantidade) || 1;
       const valorUnitario = Number(itemAjustado.valor_unitario) || 0;
       const valorTotal = Number(itemAjustado.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
+      const numeroItemOriginal = (item as any).numero_item;
 
       return this.itemContratoRepository.create({
         contrato_id: contratoId,
-        numero_item: index + 1,
+        numero_item: numeroItemOriginal > 0 ? numeroItemOriginal : index + 1,
         descricao: itemAjustado.descricao,
         descricao_detalhada: itemAjustado.descricao,
         tipo_item: TipoItemContrato.CONSUMO,
@@ -1818,6 +1819,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                 const item = ajustarItemParaPersistencia(itens[i]);
                 try {
                   await this.medicaoService.criarItemCronograma(contratoCriado.id, {
+                    numero_item: (itens[i] as any).numero_item || i + 1,
                     descricao: item.descricao,
                     unidade_medida: item.unidade_medida,
                     quantidade: item.quantidade,

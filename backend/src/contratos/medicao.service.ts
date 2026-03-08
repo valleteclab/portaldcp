@@ -296,9 +296,10 @@ export class MedicaoService {
       );
     }
 
-    const numeroItem = itensExistentes.length > 0
+    const proximoNumero = itensExistentes.length > 0
       ? Math.max(...itensExistentes.map(i => i.numero_item)) + 1
       : 1;
+    const numeroItem = (dados as any).numero_item > 0 ? (dados as any).numero_item : proximoNumero;
 
     const item = this.itemCronogramaRepository.create({
       contrato_id: contratoId,
