@@ -9,6 +9,8 @@ import { IaService } from '../ia/ia.service';
 import { MedicaoService } from './medicao.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
 import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
+import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
+import { ItemContrato, TipoItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 
 function corrigirJsonMalformado(jsonString: string): string {
   const inicio = jsonString.indexOf('{');
@@ -122,6 +124,30 @@ function extrairItensDaRespostaIA(respostaIA: string): Array<any> {
   return normalizarItensExtraidos(dadosExtraidos.itens);
 }
 
+function mapearUnidadeMedidaContrato(unidade?: string | null): UnidadeMedidaContrato {
+  const valor = String(unidade || '').trim().toUpperCase();
+
+  if (!valor) return UnidadeMedidaContrato.UNIDADE;
+  if (['UN', 'UND', 'UNIDADE', 'UNIDADES'].includes(valor)) return UnidadeMedidaContrato.UNIDADE;
+  if (['PECA', 'PEÇA', 'PECAS', 'PEÇAS'].includes(valor)) return UnidadeMedidaContrato.PECA;
+  if (['CX', 'CAIXA', 'CAIXAS'].includes(valor)) return UnidadeMedidaContrato.CAIXA;
+  if (['PCT', 'PACOTE', 'PACOTES'].includes(valor)) return UnidadeMedidaContrato.PACOTE;
+  if (['M', 'MT', 'METRO', 'METROS'].includes(valor)) return UnidadeMedidaContrato.METRO;
+  if (['M2', 'M²', 'METRO_QUADRADO', 'METROS_QUADRADOS'].includes(valor)) return UnidadeMedidaContrato.METRO_QUADRADO;
+  if (['M3', 'M³', 'METRO_CUBICO', 'METRO_CÚBICO', 'METROS_CUBICOS', 'METROS_CÚBICOS'].includes(valor)) return UnidadeMedidaContrato.METRO_CUBICO;
+  if (['L', 'LT', 'LITRO', 'LITROS'].includes(valor)) return UnidadeMedidaContrato.LITRO;
+  if (['KG', 'KILO', 'QUILO', 'QUILOGRAMA', 'QUILOGRAMAS'].includes(valor)) return UnidadeMedidaContrato.QUILOGRAMA;
+  if (['T', 'TON', 'TONELADA', 'TONELADAS'].includes(valor)) return UnidadeMedidaContrato.TONELADA;
+  if (['H', 'HR', 'HORA', 'HORAS'].includes(valor)) return UnidadeMedidaContrato.HORA;
+  if (['DIARIA', 'DIÁRIA', 'DIARIAS', 'DIÁRIAS'].includes(valor)) return UnidadeMedidaContrato.DIARIA;
+  if (['MES', 'MÊS', 'MESES'].includes(valor)) return UnidadeMedidaContrato.MES;
+  if (['ANO', 'ANOS'].includes(valor)) return UnidadeMedidaContrato.ANO;
+  if (['SERVICO', 'SERVIÇO', 'SERVICOS', 'SERVIÇOS'].includes(valor)) return UnidadeMedidaContrato.SERVICO;
+  if (['GLOBAL', 'CONTRATO GLOBAL'].includes(valor)) return UnidadeMedidaContrato.GLOBAL;
+
+  return UnidadeMedidaContrato.UNIDADE;
+}
+
 export interface PortalTransparenciaContrato {
   contratoNumero: string;
   documento: string;
@@ -166,6 +192,10 @@ export class PortalTransparenciaService {
     private readonly fornecedoresService: FornecedoresService,
     private readonly iaService: IaService,
     private readonly medicaoService: MedicaoService,
+    @InjectRepository(Contrato)
+    private readonly contratoRepository: Repository<Contrato>,
+    @InjectRepository(ItemContrato)
+    private readonly itemContratoRepository: Repository<ItemContrato>,
     @InjectRepository(DocumentoContrato)
     private readonly documentoContratoRepository: Repository<DocumentoContrato>,
   ) {}
@@ -624,6 +654,44 @@ export class PortalTransparenciaService {
     }
   }
 
+  private async salvarItensContrato(contratoId: string, itens: Array<{
+    descricao: string;
+    unidade_medida: string;
+    quantidade: number;
+    valor_unitario: number;
+    quantidade_meses?: number | null;
+    valor_total?: number;
+  }>): Promise<number> {
+    if (!itens.length) return 0;
+
+    await this.itemContratoRepository.delete({ contrato_id: contratoId });
+
+    const registros = itens.map((item, index) => {
+      const quantidade = Number(item.quantidade) || 1;
+      const valorUnitario = Number(item.valor_unitario) || 0;
+      const valorTotal = Number(item.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
+
+      return this.itemContratoRepository.create({
+        contrato_id: contratoId,
+        numero_item: index + 1,
+        descricao: item.descricao,
+        descricao_detalhada: item.descricao,
+        tipo_item: TipoItemContrato.CONSUMO,
+        unidade_medida: mapearUnidadeMedidaContrato(item.unidade_medida),
+        valor_unitario: valorUnitario,
+        valor_total: valorTotal,
+        quantidade_contratada: quantidade,
+        quantidade_empenhada: 0,
+        quantidade_entregue: 0,
+        saldo_disponivel: quantidade,
+        observacoes: 'Item importado automaticamente do Portal da Transparência',
+      });
+    });
+
+    await this.itemContratoRepository.save(registros);
+    return registros.length;
+  }
+
   /**
    * Extrai itens usando IA com Vision (para PDFs escaneados)
    */
@@ -847,46 +915,58 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
           });
           const itens = await this.extrairItensDoPdf(pdfBuffer, contratoApi.contratoNumero);
           
+          const contratoCompleto = await this.contratoRepository.findOne({ where: { id: contratoCriado.id } });
+          if (!contratoCompleto) {
+            throw new Error('Contrato criado não encontrado para salvar itens');
+          }
+
           if (itens.length > 0) {
-            resultado.itens_extraidos = true;
-            
-            // 5. Criar itens no cronograma
+            // 5. Criar itens conforme a modalidade do contrato
             onProgress?.({
               progresso: 85,
               etapa: 'Cadastrando itens',
               mensagem: `Cadastrando ${itens.length} itens extraídos no contrato`,
             });
 
-            for (let i = 0; i < itens.length; i++) {
-              const item = itens[i];
-              try {
-                await this.medicaoService.criarItemCronograma(contratoCriado.id, {
-                  descricao: item.descricao,
-                  unidade_medida: item.unidade_medida,
-                  quantidade: item.quantidade,
-                  valor_unitario: item.valor_unitario,
-                  quantidade_meses: item.quantidade_meses || null,
-                } as any);
-                resultado.itens_criados++;
-                onProgress?.({
-                  progresso: Math.min(98, 85 + Math.round(((i + 1) / itens.length) * 13)),
-                  etapa: 'Cadastrando itens',
-                  mensagem: `Cadastrando item ${i + 1} de ${itens.length}`,
-                  contrato_id: contratoCriado.id,
-                  itens_criados: resultado.itens_criados,
-                });
-              } catch (err) {
-                this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
+            if (contratoCompleto.modalidade_execucao === ModalidadeExecucao.ITEM_QUANTIDADE) {
+              resultado.itens_criados = await this.salvarItensContrato(contratoCriado.id, itens);
+              onProgress?.({
+                progresso: 98,
+                etapa: 'Cadastrando itens',
+                mensagem: `${resultado.itens_criados} itens salvos no contrato`,
+                contrato_id: contratoCriado.id,
+                itens_criados: resultado.itens_criados,
+              });
+            } else {
+              for (let i = 0; i < itens.length; i++) {
+                const item = itens[i];
+                try {
+                  await this.medicaoService.criarItemCronograma(contratoCriado.id, {
+                    descricao: item.descricao,
+                    unidade_medida: item.unidade_medida,
+                    quantidade: item.quantidade,
+                    valor_unitario: item.valor_unitario,
+                    quantidade_meses: item.quantidade_meses || null,
+                  } as any);
+                  resultado.itens_criados++;
+                  onProgress?.({
+                    progresso: Math.min(98, 85 + Math.round(((i + 1) / itens.length) * 13)),
+                    etapa: 'Cadastrando itens',
+                    mensagem: `Cadastrando item ${i + 1} de ${itens.length}`,
+                    contrato_id: contratoCriado.id,
+                    itens_criados: resultado.itens_criados,
+                  });
+                } catch (err) {
+                  this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
+                }
               }
             }
-            
-            resultado.mensagem += ` + ${resultado.itens_criados} itens extraídos do PDF`;
           } else {
             resultado.mensagem += ' (sem itens no PDF)';
           }
         } catch (pdfError) {
-          this.logger.warn(`PDF não processado: ${pdfError.message}`);
-          resultado.mensagem += ' (PDF não disponível)';
+          this.logger.warn(`Erro no processamento do PDF: ${pdfError.message}`);
+          resultado.mensagem += ' (erro ao processar PDF)';
         }
       } else {
         resultado.mensagem += ' (sem URL de PDF)';
@@ -938,7 +1018,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
       // Criar registro no banco de dados
       const documento = this.documentoContratoRepository.create({
         contrato_id: contratoId,
-        tipo: TipoDocumentoContrato.EXTRATO,
+        tipo: TipoDocumentoContrato.ANEXO,
         titulo: `Extrato do Portal da Transparência - ${contratoNumero}`,
         descricao: 'Documento importado automaticamente do Portal da Transparência',
         nome_arquivo: nomeArquivo,
