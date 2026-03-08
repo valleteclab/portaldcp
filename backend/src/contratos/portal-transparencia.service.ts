@@ -460,7 +460,7 @@ function inferirCategoriaContrato(params: {
     return CategoriaContrato.SERVICOS_ENGENHARIA;
   }
 
-  if (/(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|mensalidade|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos)/i.test(textoBase)) {
+  if (/(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|mensalidade|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos|servi[cç]o|substitui[cç][aã]o|instala[cç][aã]o|reparo|abertura|c[oó]pias? de chaves|fechadura)/i.test(textoBase)) {
     return CategoriaContrato.SERVICOS;
   }
 
@@ -1379,16 +1379,18 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
           const modalidadeInferida = inferirModalidadeExecucaoContrato({
             categoria: categoriaInferida,
           });
+          const modalidadeAlterada = contratoCompleto.modalidade_execucao !== modalidadeInferida;
+          const categoriaAlterada = contratoCompleto.categoria !== categoriaInferida;
 
-          if (contratoCompleto.modalidade_execucao !== modalidadeInferida) {
+          if (modalidadeAlterada) {
             contratoCompleto.modalidade_execucao = modalidadeInferida;
           }
 
-          if (contratoCompleto.categoria !== categoriaInferida) {
+          if (categoriaAlterada) {
             contratoCompleto.categoria = categoriaInferida;
           }
 
-          if (contratoCompleto.modalidade_execucao !== modalidadeInferida || contratoCompleto.categoria !== categoriaInferida) {
+          if (modalidadeAlterada || categoriaAlterada) {
             await this.contratoRepository.save(contratoCompleto);
             this.logger.log(`Classificação inferida/atualizada para contrato ${contratoCompleto.numero_contrato}: categoria=${categoriaInferida}, modalidade=${modalidadeInferida}`);
           }
