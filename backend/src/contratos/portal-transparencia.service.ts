@@ -156,6 +156,28 @@ function extrairTrechoBrutoTabelaItens(texto: string): string {
   return texto.slice(inicio);
 }
 
+function extrairBlocosTabelaItens(texto: string): Array<{ numero_item: number; bloco: string }> {
+  const trechoBruto = extrairTrechoBrutoTabelaItens(texto);
+  if (!trechoBruto) {
+    return [];
+  }
+
+  const itemStartPattern = /^\s*(\d{1,3})(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gim;
+  const inicios = Array.from(trechoBruto.matchAll(itemStartPattern));
+
+  return inicios.map((match, indice) => {
+    const inicioBloco = match.index ?? 0;
+    const fimBloco = indice + 1 < inicios.length
+      ? (inicios[indice + 1].index ?? trechoBruto.length)
+      : trechoBruto.length;
+
+    return {
+      numero_item: Number(match[1]),
+      bloco: trechoBruto.slice(inicioBloco, fimBloco).trim(),
+    };
+  });
+}
+
 function normalizarBlocoItemTabela(bloco: string): string {
   return bloco
     .replace(/Rua Octogonal[\s\S]*?www\.cmlem\.ba\.qov\.br/gi, '\n')
@@ -210,13 +232,10 @@ function extrairItensTabelaTexto(textoExtraido: string): Array<{
   quantidade_meses?: number | null;
   valor_total?: number;
 }> {
-  const trechoBruto = extrairTrechoBrutoTabelaItens(textoExtraido);
-  if (!trechoBruto) {
+  const blocos = extrairBlocosTabelaItens(textoExtraido);
+  if (!blocos.length) {
     return [];
   }
-
-  const itemStartPattern = /^\s*(\d{1,3})(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gim;
-  const inicios = Array.from(trechoBruto.matchAll(itemStartPattern));
 
   const itens = new Map<number, {
     descricao: string;
@@ -227,15 +246,9 @@ function extrairItensTabelaTexto(textoExtraido: string): Array<{
     valor_total?: number;
   }>();
 
-  for (let indice = 0; indice < inicios.length; indice++) {
-    const match = inicios[indice];
-    const numeroItem = Number(match[1]);
-    const inicioBloco = match.index ?? 0;
-    const fimBloco = indice + 1 < inicios.length
-      ? (inicios[indice + 1].index ?? trechoBruto.length)
-      : trechoBruto.length;
-
-    const blocoOriginal = trechoBruto.slice(inicioBloco, fimBloco);
+  for (const blocoItem of blocos) {
+    const numeroItem = blocoItem.numero_item;
+    const blocoOriginal = blocoItem.bloco;
     let bloco = normalizarBlocoItemTabela(blocoOriginal)
       .replace(/^\s*\d{1,3}/, '')
       .replace(/O valor global do contrato[\s\S]*$/i, ' ')
@@ -271,6 +284,47 @@ function extrairItensTabelaTexto(textoExtraido: string): Array<{
   return Array.from(itens.entries())
     .sort((a, b) => a[0] - b[0])
     .map(([, item]) => item);
+}
+
+function normalizarItensExtraidosComNumero(itens: any[]): Array<{
+  numero_item: number;
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  quantidade_meses?: number | null;
+  valor_total?: number;
+}> {
+  return itens
+    .map((item) => ({
+      numero_item: Number(item?.numero_item) || 0,
+      descricao: String(item?.descricao || '').trim(),
+      unidade_medida: String(item?.unidade_medida || 'UNIDADE').trim() || 'UNIDADE',
+      quantidade: Number(item?.quantidade) || 0,
+      valor_unitario: Number(item?.valor_unitario) || 0,
+      quantidade_meses: item?.quantidade_meses != null ? Number(item.quantidade_meses) || null : null,
+      valor_total: Number(item?.valor_total) || undefined,
+    }))
+    .filter((item) => item.numero_item > 0 && item.descricao && (item.valor_total || (item.quantidade > 0 && item.valor_unitario > 0)));
+}
+
+function extrairItensNumeradosDaRespostaIA(respostaIA: string): Array<{
+  numero_item: number;
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  quantidade_meses?: number | null;
+  valor_total?: number;
+}> {
+  const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
+  const dadosExtraidos = tentarExtrairJson(jsonLimpo);
+
+  if (!dadosExtraidos || !Array.isArray(dadosExtraidos.itens)) {
+    return [];
+  }
+
+  return normalizarItensExtraidosComNumero(dadosExtraidos.itens);
 }
 
 function mapearUnidadeMedidaContrato(unidade?: string | null): UnidadeMedidaContrato {
@@ -788,10 +842,21 @@ export class PortalTransparenciaService {
 
       if (textoExtraido.trim().length >= 100) {
         this.logger.log(`Texto extraído: ${textoExtraido.length} caracteres`);
+        const blocosTabela = extrairBlocosTabelaItens(textoExtraido);
+        this.logger.log(`Blocos de itens detectados na tabela: ${blocosTabela.length}`);
+
         const itensViaParser = extrairItensTabelaTexto(textoExtraido);
         if (itensViaParser.length > 0) {
           this.logger.log(`Itens extraídos via parser textual: ${itensViaParser.length}`);
-          return itensViaParser;
+          if (blocosTabela.length > 0 && itensViaParser.length >= Math.max(10, blocosTabela.length - 3)) {
+            return itensViaParser;
+          }
+          this.logger.warn(`Parser textual cobriu apenas ${itensViaParser.length}/${blocosTabela.length} blocos; tentando chunks via IA...`);
+        }
+
+        const itensViaChunks = await this.extrairItensViaTabelaChunked(textoExtraido, contratoNumero);
+        if (itensViaChunks.length > 0) {
+          return itensViaChunks;
         }
 
         const itensViaTexto = await this.extrairItensViaTexto(textoExtraido, contratoNumero);
@@ -805,6 +870,91 @@ export class PortalTransparenciaService {
       return await this.extrairItensViaVision(pdfBuffer, contratoNumero, textoExtraido);
     } catch (error) {
       this.logger.error(`Erro ao extrair itens do PDF: ${error.message}`);
+      return [];
+    }
+  }
+
+  private async extrairItensViaTabelaChunked(textoExtraido: string, contratoNumero?: string): Promise<Array<any>> {
+    try {
+      const blocos = extrairBlocosTabelaItens(textoExtraido);
+      if (!blocos.length) {
+        this.logger.warn('Nenhum bloco de item foi detectado para chunking da tabela');
+        return [];
+      }
+
+      const tamanhoChunk = 10;
+      const itensMap = new Map<number, any>();
+
+      for (let indice = 0; indice < blocos.length; indice += tamanhoChunk) {
+        const chunk = blocos.slice(indice, indice + tamanhoChunk);
+        const textoChunk = chunk
+          .map((item) => normalizarBlocoItemTabela(item.bloco))
+          .join('\n');
+
+        const promptExtracaoChunk = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+
+CONTRATO: ${contratoNumero || 'não informado'}
+
+Você receberá APENAS um trecho da tabela de itens do contrato, com itens numerados.
+
+REGRAS:
+- Extraia TODOS os itens presentes neste trecho
+- Preserve o numero_item exatamente como aparece
+- Cada linha numerada da tabela é um item separado
+- NUNCA agrupe itens diferentes
+- NUNCA invente dados
+- Retorne SOMENTE JSON válido
+
+Schema de retorno:
+{
+  "itens": [
+    {
+      "numero_item": 1,
+      "descricao": "descrição completa do item",
+      "unidade_medida": "M2",
+      "quantidade": 6.00,
+      "valor_unitario": 114.10,
+      "valor_total": 684.60,
+      "quantidade_meses": null
+    }
+  ]
+}
+
+TRECHO DA TABELA:
+${textoChunk}`;
+
+        const respostaIA = await this.iaService.chat([
+          { role: 'user', content: promptExtracaoChunk },
+        ]);
+
+        const itensChunk = extrairItensNumeradosDaRespostaIA(respostaIA);
+        this.logger.log(`Chunk ${Math.floor(indice / tamanhoChunk) + 1}: IA retornou ${itensChunk.length} itens para ${chunk.length} blocos`);
+
+        for (const item of itensChunk) {
+          if (!itensMap.has(item.numero_item)) {
+            itensMap.set(item.numero_item, {
+              descricao: item.descricao,
+              unidade_medida: item.unidade_medida,
+              quantidade: item.quantidade,
+              valor_unitario: item.valor_unitario,
+              quantidade_meses: item.quantidade_meses ?? null,
+              valor_total: item.valor_total,
+            });
+          }
+        }
+      }
+
+      const itens = Array.from(itensMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([, item]) => item);
+
+      if (itens.length > 0) {
+        this.logger.log(`Itens extraídos via tabela chunked: ${itens.length}`);
+      }
+
+      return itens;
+    } catch (error) {
+      this.logger.error(`Erro na extração via tabela chunked: ${error.message}`);
       return [];
     }
   }
@@ -915,6 +1065,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
    */
   private async extrairItensViaTexto(textoExtraido: string, contratoNumero?: string): Promise<Array<any>> {
     try {
+      const trechoTabela = extrairTrechoBrutoTabelaItens(textoExtraido);
       const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
 
 CONTRATO: ${contratoNumero || 'não informado'}
@@ -949,7 +1100,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         promptExtracaoItens,
         undefined,
         undefined,
-        textoExtraido
+        trechoTabela || textoExtraido
       );
 
       const itens = extrairItensDaRespostaIA(respostaIA);
