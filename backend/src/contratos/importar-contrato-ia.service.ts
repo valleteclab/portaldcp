@@ -117,11 +117,31 @@ function corrigirJsonMalformado(jsonString: string): string {
   
   let json = jsonString.substring(inicio, fim + 1);
   
+  // Remove campos com valor null (descricao: null, etc)
+  json = json.replace(/"\w+":\s*null\s*,?/g, '');
+  
+  // Corrige campos fora de ordem - move campos soltos para dentro de objetos
+  // Padrão: } "campo": valor { vira } {
+  json = json.replace(/\}\s*"([^"]+)":\s*([^,\{\}]+)\s*,?\s*\{/g, '}, {');
+  json = json.replace(/\}\s*"([^"]+)":\s*([^,\{\}]+)\s*\{/g, '}, {');
+  
+  // Corrige múltiplos valores para o mesmo campo em um objeto (mantém o primeiro)
+  json = json.replace(/("\w+":\s*[^,\{\}]+)\s*,\s*"\w+":\s*[^,\{\}]+\s*,?/g, '$1,');
+  
+  // Corrige campos duplicados (mantém o primeiro valor)
+  json = json.replace(/("\w+":\s*[^,\{\}]+)(\s*,\s*\1)+/g, '$1');
+  
   // Corrige vírgulas no final de objetos e arrays
   json = json.replace(/,\s*\}/g, '}').replace(/,\s*\]/g, ']');
   
-  // Remove vírgulas duplas
+  // Corrige vírgulas duplas
   json = json.replace(/,\s*,/g, ',');
+  
+  // Remove objetos vazios {}
+  json = json.replace(/\{\s*\}/g, '');
+  
+  // Remove vírgulas antes do fechamento do array
+  json = json.replace(/,\s*\]/g, ']');
   
   return json;
 }
@@ -157,7 +177,7 @@ function tentarExtrairJson(str: string): any | null {
     }
     
     // Extrai campos numéricos
-    const numFields = ['valor_inicial', 'valor_global', 'valor_global'];
+    const numFields = ['valor_inicial', 'valor_global'];
     for (const campo of numFields) {
       const regex = new RegExp(`"${campo}":\\s*([\\d.]+)`, 'gi');
       const matches = [...str.matchAll(regex)];
@@ -168,37 +188,36 @@ function tentarExtrairJson(str: string): any | null {
       }
     }
     
-    // Extrai itens - estratégia: cada descrição única vira um item
-    const descRegex = /"descricao":\s*"([^"]+)"/gi;
-    const descricoesEncontradas = new Map<string, any>();
+    // ESTRATÉGIA 1: Extrai itens por descrição
+    const descRegex = /"descricao":\s*"([^"]*)"/gi;
+    const itensEncontrados = new Map<string, any>();
     
     let match;
     while ((match = descRegex.exec(str)) !== null) {
       const descricao = match[1].trim();
-      if (descricao.length < 10) continue;
       
-      // Para cada descrição, busca campos próximos (até 300 chars depois)
+      // Para cada descrição (mesmo vazia), busca campos próximos
       const posicao = match.index;
-      const contexto = str.substring(posicao, posicao + 400);
+      const contexto = str.substring(posicao, posicao + 500);
       
       const item: any = {
-        descricao: descricao,
-        unidade_medida: 'M2',
+        descricao: descricao || 'Item sem descrição',
+        unidade_medida: 'UNIDADE',
         quantidade: 1,
-        valor_unitario: 114.10,
+        valor_unitario: 0,
         quantidade_meses: null,
-        valor_total: 114.10
+        valor_total: 0
       };
       
       // Extrai quantidade
-      const qtdMatch = contexto.match(/"quantidade":\s*([\d.]+)/);
-      if (qtdMatch) {
+      const qtdMatch = contexto.match(/"quantidade":\s*([\d.]+|null)/);
+      if (qtdMatch && qtdMatch[1] !== 'null') {
         item.quantidade = parseFloat(qtdMatch[1]);
       }
       
       // Extrai valor unitário
-      const unitMatch = contexto.match(/"valor_unitario":\s*([\d.]+)/);
-      if (unitMatch) {
+      const unitMatch = contexto.match(/"valor_unitario":\s*([\d.]+|null)/);
+      if (unitMatch && unitMatch[1] !== 'null') {
         item.valor_unitario = parseFloat(unitMatch[1]);
       }
       
@@ -206,7 +225,7 @@ function tentarExtrairJson(str: string): any | null {
       const totalMatch = contexto.match(/"valor_total":\s*([\d.]+)/);
       if (totalMatch) {
         item.valor_total = parseFloat(totalMatch[1]);
-      } else {
+      } else if (item.quantidade && item.valor_unitario) {
         item.valor_total = item.quantidade * item.valor_unitario;
       }
       
@@ -216,14 +235,23 @@ function tentarExtrairJson(str: string): any | null {
         item.unidade_medida = unidMatch[1];
       }
       
-      // Chave única: descrição + quantidade
-      const chave = `${descricao}|${item.quantidade}`;
-      if (!descricoesEncontradas.has(chave)) {
-        descricoesEncontradas.set(chave, item);
+      // Extrai quantidade_meses
+      const mesesMatch = contexto.match(/"quantidade_meses":\s*(\d+|null)/);
+      if (mesesMatch && mesesMatch[1] !== 'null') {
+        item.quantidade_meses = parseInt(mesesMatch[1]);
+      }
+      
+      // Só adiciona se tiver valor_total ou (quantidade e valor_unitario)
+      if (item.valor_total > 0 || (item.quantidade > 0 && item.valor_unitario > 0)) {
+        // Chave única: descrição + quantidade + valor
+        const chave = `${item.descricao}|${item.quantidade}|${item.valor_total}`;
+        if (!itensEncontrados.has(chave)) {
+          itensEncontrados.set(chave, item);
+        }
       }
     }
     
-    resultado.itens = Array.from(descricoesEncontradas.values());
+    resultado.itens = Array.from(itensEncontrados.values());
     
     if (resultado.itens.length > 0 || resultado.objeto) {
       return resultado;
