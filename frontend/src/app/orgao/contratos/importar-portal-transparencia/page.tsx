@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Progress } from '@/components/ui/progress'
 import { 
   ArrowLeft,
   Search,
@@ -36,6 +38,23 @@ interface ContratoAPI {
   valor_contrato?: string
   importStatus?: 'idle' | 'loading' | 'success' | 'already_exists' | 'error'
   importMessage?: string
+  importProgress?: number
+  importStep?: string
+  importJobId?: string
+  contratoId?: string
+}
+
+interface ImportacaoIndividualStatus {
+  job_id: string
+  status: 'pendente' | 'processando' | 'concluido' | 'erro'
+  progresso: number
+  etapa: string
+  mensagem: string
+  contrato_id?: string
+  itens_criados?: number
+  concluido: boolean
+  erro?: string
+  atualizado_em: string
 }
 
 interface ResultadoImportacao {
@@ -45,6 +64,7 @@ interface ResultadoImportacao {
 }
 
 export default function ImportarPortalTransparenciaPage() {
+  const router = useRouter()
   const [buscando, setBuscando] = useState(false)
   const [importando, setImportando] = useState(false)
   const [contratos, setContratos] = useState<ContratoAPI[]>([])
@@ -53,6 +73,14 @@ export default function ImportarPortalTransparenciaPage() {
   const [numeroBusca, setNumeroBusca] = useState('')
   const [limite, setLimite] = useState(50)
   const [apenasVigentes, setApenasVigentes] = useState(true)
+  const pollersRef = useRef<Record<string, number>>({})
+
+  useEffect(() => {
+    return () => {
+      Object.values(pollersRef.current).forEach((poller) => window.clearInterval(poller))
+      pollersRef.current = {}
+    }
+  }, [])
 
   const buscarContratos = async () => {
     setBuscando(true)
@@ -113,53 +141,126 @@ export default function ImportarPortalTransparenciaPage() {
   }
 
   const importarContratoIndividual = async (contrato: ContratoAPI, index: number) => {
-    console.log('[Importar Individual] Iniciando importação:', contrato.contratoNumero)
-    
-    // Atualizar status para loading
-    const novosContratos = [...contratos]
-    novosContratos[index].importStatus = 'loading'
-    setContratos(novosContratos)
+    const contratoNumero = contrato.contratoNumero
+
+    setContratos((atuais) => {
+      const novos = [...atuais]
+      novos[index] = {
+        ...novos[index],
+        importStatus: 'loading',
+        importMessage: 'Preparando importação completa com IA...',
+        importProgress: 0,
+        importStep: 'Fila',
+      }
+      return novos
+    })
     
     try {
-      const url = `${API_URL}/api/contratos/portal-transparencia/importar-individual`
-      console.log('[Importar Individual] URL:', url)
-      console.log('[Importar Individual] Contrato:', contrato)
-      
-      const res = await authFetch(url, {
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-individual-completo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(contrato)
       })
-      
-      console.log('[Importar Individual] Resposta status:', res.status)
-      
+
       if (!res.ok) {
         const errorText = await res.text()
-        console.error('[Importar Individual] Erro na resposta:', res.status, errorText)
         throw new Error(`Erro ${res.status}: ${errorText}`)
       }
-      
-      const data = await res.json()
-      console.log('[Importar Individual] Dados recebidos:', data)
-      
-      const atualizados = [...contratos]
-      if (data.ja_existe) {
-        atualizados[index].importStatus = 'already_exists'
-        atualizados[index].importMessage = data.mensagem
-      } else if (data.sucesso) {
-        atualizados[index].importStatus = 'success'
-        atualizados[index].importMessage = data.mensagem
-      } else {
-        atualizados[index].importStatus = 'error'
-        atualizados[index].importMessage = data.mensagem || 'Erro ao importar'
+
+      const data = await res.json() as { job_id: string }
+
+      setContratos((atuais) => {
+        const novos = [...atuais]
+        novos[index] = {
+          ...novos[index],
+          importJobId: data.job_id,
+          importMessage: 'Importação iniciada. Acompanhando progresso...',
+        }
+        return novos
+      })
+
+      const pollStatus = async () => {
+        try {
+          const statusRes = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-individual-status/${data.job_id}`)
+          if (!statusRes.ok) {
+            throw new Error('Não foi possível consultar o status da importação')
+          }
+
+          const status = await statusRes.json() as ImportacaoIndividualStatus
+
+          setContratos((atuais) => {
+            const posicao = atuais.findIndex((item) => item.contratoNumero === contratoNumero)
+            if (posicao === -1) return atuais
+
+            const novos = [...atuais]
+            novos[posicao] = {
+              ...novos[posicao],
+              importProgress: status.progresso,
+              importStep: status.etapa,
+              importMessage: status.mensagem,
+              importJobId: data.job_id,
+              contratoId: status.contrato_id,
+            }
+
+            if (status.status === 'concluido') {
+              novos[posicao].importStatus = 'success'
+            } else if (status.status === 'erro') {
+              novos[posicao].importStatus = 'error'
+              novos[posicao].importMessage = status.erro || status.mensagem || 'Erro ao importar'
+            }
+
+            return novos
+          })
+
+          if (status.concluido) {
+            const intervalId = pollersRef.current[data.job_id]
+            if (intervalId) {
+              window.clearInterval(intervalId)
+              delete pollersRef.current[data.job_id]
+            }
+
+            if (status.status === 'concluido' && status.contrato_id) {
+              window.setTimeout(() => {
+                router.push(`/orgao/contratos/${status.contrato_id}`)
+              }, 1200)
+            }
+          }
+        } catch (pollError) {
+          const intervalId = pollersRef.current[data.job_id]
+          if (intervalId) {
+            window.clearInterval(intervalId)
+            delete pollersRef.current[data.job_id]
+          }
+
+          setContratos((atuais) => {
+            const posicao = atuais.findIndex((item) => item.contratoNumero === contratoNumero)
+            if (posicao === -1) return atuais
+
+            const novos = [...atuais]
+            novos[posicao] = {
+              ...novos[posicao],
+              importStatus: 'error',
+              importMessage: pollError instanceof Error ? pollError.message : 'Erro ao acompanhar importação',
+            }
+            return novos
+          })
+        }
       }
-      setContratos(atualizados)
+
+      await pollStatus()
+      if (!pollersRef.current[data.job_id]) {
+        pollersRef.current[data.job_id] = window.setInterval(pollStatus, 1500)
+      }
     } catch (error) {
-      console.error('[Importar Individual] Erro catch:', error)
-      const atualizados = [...contratos]
-      atualizados[index].importStatus = 'error'
-      atualizados[index].importMessage = error instanceof Error ? error.message : 'Erro de conexão'
-      setContratos(atualizados)
+      setContratos((atuais) => {
+        const novos = [...atuais]
+        novos[index] = {
+          ...novos[index],
+          importStatus: 'error',
+          importMessage: error instanceof Error ? error.message : 'Erro de conexão',
+        }
+        return novos
+      })
     }
   }
 
@@ -167,24 +268,41 @@ export default function ImportarPortalTransparenciaPage() {
     switch (contrato.importStatus) {
       case 'loading':
         return (
-          <Button size="sm" disabled variant="outline" className="bg-gray-50">
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Importando...
-          </Button>
+          <div className="min-w-[280px] space-y-2 text-left">
+            <div className="flex items-center gap-2 text-blue-700 text-sm font-medium">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>{contrato.importStep || 'Importando...'}</span>
+            </div>
+            <Progress value={contrato.importProgress || 0} className="h-2" />
+            <p className="text-xs text-gray-500">
+              {contrato.importMessage || 'Executando importação completa com IA'}
+            </p>
+          </div>
         )
       case 'success':
         return (
-          <Button size="sm" disabled variant="outline" className="bg-green-50 text-green-700 border-green-200">
-            <Check className="w-4 h-4 mr-2" />
-            Importado
-          </Button>
+          <div className="min-w-[280px] space-y-2 text-left">
+            <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
+              <Check className="w-4 h-4" />
+              <span>Importação concluída</span>
+            </div>
+            <Progress value={100} className="h-2" />
+            <p className="text-xs text-gray-500">
+              {contrato.importMessage || 'Contrato importado com sucesso. Redirecionando...'}
+            </p>
+          </div>
         )
       case 'already_exists':
         return (
-          <Button size="sm" disabled variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">
-            <X className="w-4 h-4 mr-2" />
-            Já existe
-          </Button>
+          <div className="min-w-[280px] space-y-2 text-left">
+            <div className="flex items-center gap-2 text-gray-700 text-sm font-medium">
+              <X className="w-4 h-4" />
+              <span>Contrato já existe</span>
+            </div>
+            <p className="text-xs text-gray-500">
+              {contrato.importMessage || 'O contrato já existe no sistema.'}
+            </p>
+          </div>
         )
       case 'error':
         return (
@@ -207,7 +325,7 @@ export default function ImportarPortalTransparenciaPage() {
             onClick={() => importarContratoIndividual(contrato, index)}
           >
             <Download className="w-4 h-4 mr-2" />
-            Importar
+            Importar com IA
           </Button>
         )
     }
@@ -410,7 +528,7 @@ export default function ImportarPortalTransparenciaPage() {
                           {contrato.vigencia}
                         </Badge>
                       </td>
-                      <td className="py-3 px-2 text-center">
+                      <td className="py-3 px-2 text-center align-top">
                         {renderBotaoImportar(contrato, index)}
                       </td>
                     </tr>

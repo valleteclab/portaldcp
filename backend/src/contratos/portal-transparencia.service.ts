@@ -3,6 +3,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { ContratosService } from './contratos.service';
 import { IaService } from '../ia/ia.service';
 import { MedicaoService } from './medicao.service';
@@ -62,10 +63,24 @@ export interface PortalTransparenciaResponse {
   data: PortalTransparenciaContrato[];
 }
 
+export interface ImportacaoContratoJobStatus {
+  job_id: string;
+  status: 'pendente' | 'processando' | 'concluido' | 'erro';
+  progresso: number;
+  etapa: string;
+  mensagem: string;
+  contrato_id?: string;
+  itens_criados?: number;
+  concluido: boolean;
+  erro?: string;
+  atualizado_em: string;
+}
+
 @Injectable()
 export class PortalTransparenciaService {
   private readonly logger = new Logger(PortalTransparenciaService.name);
   private readonly baseUrl = 'https://portaldatransparencia.cmlem.ba.gov.br/api';
+  private readonly importacoesIndividuais = new Map<string, ImportacaoContratoJobStatus>();
 
   constructor(
     private readonly httpService: HttpService,
@@ -280,6 +295,87 @@ export class PortalTransparenciaService {
       };
     }
   }
+
+  iniciarImportacaoContratoCompletoJob(
+    orgaoId: string,
+    contratoApi: PortalTransparenciaContrato,
+  ): { job_id: string } {
+    const jobId = randomUUID();
+
+    this.importacoesIndividuais.set(jobId, {
+      job_id: jobId,
+      status: 'pendente',
+      progresso: 0,
+      etapa: 'Fila',
+      mensagem: 'Importação adicionada à fila',
+      concluido: false,
+      atualizado_em: new Date().toISOString(),
+    });
+
+    void this.processarImportacaoContratoCompleta(jobId, orgaoId, contratoApi);
+
+    return { job_id: jobId };
+  }
+
+  obterStatusImportacaoContratoCompleto(jobId: string): ImportacaoContratoJobStatus | null {
+    return this.importacoesIndividuais.get(jobId) || null;
+  }
+
+  private atualizarStatusImportacao(
+    jobId: string,
+    dados: Partial<ImportacaoContratoJobStatus>,
+  ): void {
+    const atual = this.importacoesIndividuais.get(jobId);
+    if (!atual) return;
+
+    this.importacoesIndividuais.set(jobId, {
+      ...atual,
+      ...dados,
+      atualizado_em: new Date().toISOString(),
+    });
+  }
+
+  private async processarImportacaoContratoCompleta(
+    jobId: string,
+    orgaoId: string,
+    contratoApi: PortalTransparenciaContrato,
+  ): Promise<void> {
+    try {
+      this.atualizarStatusImportacao(jobId, {
+        status: 'processando',
+        progresso: 5,
+        etapa: 'Validando contrato',
+        mensagem: `Preparando importação do contrato ${contratoApi.contratoNumero}`,
+      });
+
+      const resultado = await this.importarContratoCompleto(
+        orgaoId,
+        contratoApi,
+        (status) => this.atualizarStatusImportacao(jobId, status),
+      );
+
+      this.atualizarStatusImportacao(jobId, {
+        status: 'concluido',
+        progresso: 100,
+        etapa: 'Concluído',
+        mensagem: resultado.mensagem,
+        contrato_id: resultado.contrato_id,
+        itens_criados: resultado.itens_criados,
+        concluido: true,
+      });
+    } catch (error) {
+      this.logger.error(`[Importação Job ${jobId}] ${error.message}`, error.stack);
+      this.atualizarStatusImportacao(jobId, {
+        status: 'erro',
+        progresso: 100,
+        etapa: 'Erro',
+        mensagem: error.message || 'Erro ao importar contrato',
+        erro: error.message || 'Erro ao importar contrato',
+        concluido: true,
+      });
+    }
+  }
+
   private async importarContratoIndividual(
     orgaoId: string,
     contratoApi: PortalTransparenciaContrato
@@ -562,7 +658,8 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
    */
   async importarContratoCompleto(
     orgaoId: string,
-    contratoApi: PortalTransparenciaContrato
+    contratoApi: PortalTransparenciaContrato,
+    onProgress?: (status: Partial<ImportacaoContratoJobStatus>) => void,
   ): Promise<{
     contrato_id?: string;
     itens_criados: number;
@@ -579,14 +676,21 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
     };
 
     try {
+      onProgress?.({
+        progresso: 10,
+        etapa: 'Verificando contrato existente',
+        mensagem: 'Validando se o contrato já está cadastrado',
+      });
+
       // 1. Verificar se contrato já existe
       try {
         const contratoExistente = await this.contratosService.findByNumero(
-          orgaoId,
-          contratoApi.contratoNumero
+          contratoApi.contratoNumero,
+          orgaoId
         );
         
         if (contratoExistente) {
+          resultado.contrato_id = contratoExistente.id;
           resultado.mensagem = `Contrato ${contratoApi.contratoNumero} já existe`;
           return resultado;
         }
@@ -595,11 +699,21 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
       }
 
       // 2. Importar contrato base (fornecedor + contrato)
+      onProgress?.({
+        progresso: 25,
+        etapa: 'Cadastrando contrato',
+        mensagem: 'Criando fornecedor e contrato base no sistema',
+      });
       await this.importarContratoIndividual(orgaoId, contratoApi);
       
       // Buscar contrato criado
+      onProgress?.({
+        progresso: 40,
+        etapa: 'Buscando contrato criado',
+        mensagem: 'Obtendo o contrato criado para vincular documentos e itens',
+      });
       const contratoCriado = await this.contratosService.findByNumero(
-        contratoApi.contratoNumero,
+        contratoApi.contratoNumero.replace('-Contrato', ''),
         orgaoId
       );
       
@@ -613,12 +727,22 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
       // 3. Baixar PDF se tiver URL
       if (contratoApi.url) {
         try {
+          onProgress?.({
+            progresso: 55,
+            etapa: 'Baixando PDF',
+            mensagem: 'Baixando PDF do contrato no Portal da Transparência',
+          });
           const pdfBuffer = await this.baixarPdfContrato(contratoApi.url);
           resultado.pdf_baixado = true;
           this.logger.log(`PDF baixado: ${pdfBuffer.length} bytes`);
 
           // 3.1 Salvar PDF em documentos do contrato
           try {
+            onProgress?.({
+              progresso: 65,
+              etapa: 'Salvando PDF',
+              mensagem: 'Salvando PDF nos documentos do contrato',
+            });
             await this.salvarPdfDocumento(contratoCriado.id, pdfBuffer, contratoApi.contratoNumero);
             this.logger.log(`PDF salvo em documentos do contrato ${contratoApi.contratoNumero}`);
           } catch (docError) {
@@ -626,13 +750,25 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
           }
 
           // 4. Extrair itens do PDF
+          onProgress?.({
+            progresso: 75,
+            etapa: 'IA analisando PDF',
+            mensagem: 'Agente de IA está lendo o PDF e extraindo os itens do contrato',
+          });
           const itens = await this.extrairItensDoPdf(pdfBuffer, contratoApi.contratoNumero);
           
           if (itens.length > 0) {
             resultado.itens_extraidos = true;
             
             // 5. Criar itens no cronograma
-            for (const item of itens) {
+            onProgress?.({
+              progresso: 85,
+              etapa: 'Cadastrando itens',
+              mensagem: `Cadastrando ${itens.length} itens extraídos no contrato`,
+            });
+
+            for (let i = 0; i < itens.length; i++) {
+              const item = itens[i];
               try {
                 await this.medicaoService.criarItemCronograma(contratoCriado.id, {
                   descricao: item.descricao,
@@ -642,6 +778,13 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                   quantidade_meses: item.quantidade_meses || null,
                 } as any);
                 resultado.itens_criados++;
+                onProgress?.({
+                  progresso: Math.min(98, 85 + Math.round(((i + 1) / itens.length) * 13)),
+                  etapa: 'Cadastrando itens',
+                  mensagem: `Cadastrando item ${i + 1} de ${itens.length}`,
+                  contrato_id: contratoCriado.id,
+                  itens_criados: resultado.itens_criados,
+                });
               } catch (err) {
                 this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
               }
@@ -658,6 +801,14 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
       } else {
         resultado.mensagem += ' (sem URL de PDF)';
       }
+
+      onProgress?.({
+        progresso: 99,
+        etapa: 'Finalizando',
+        mensagem: 'Finalizando importação e preparando redirecionamento',
+        contrato_id: resultado.contrato_id,
+        itens_criados: resultado.itens_criados,
+      });
 
       return resultado;
     } catch (error) {

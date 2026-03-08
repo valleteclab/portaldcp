@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Query, UseGuards, Request, Body, BadRequestException, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Query, UseGuards, Request, Body, BadRequestException, Logger, Param, NotFoundException } from '@nestjs/common';
 import { PortalTransparenciaService, PortalTransparenciaResponse } from './portal-transparencia.service';
 import type { PortalTransparenciaContrato } from './portal-transparencia.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -62,5 +62,35 @@ export class PortalTransparenciaController {
     }
     
     return this.portalTransparenciaService.importarContratoIndividualPublico(orgaoId, contratoApi as PortalTransparenciaContrato);
+  }
+
+  @Post('importar-individual-completo')
+  async iniciarImportacaoContratoIndividualCompleto(
+    @Request() req: any,
+    @Body() contratoApi: any,
+  ) {
+    const orgaoId = req.user?.orgao_id || req.user?.orgaoId || req.user?.sub;
+
+    if (!orgaoId) {
+      throw new BadRequestException('Órgão não identificado. Verifique se o usuário está logado corretamente.');
+    }
+
+    return this.portalTransparenciaService.iniciarImportacaoContratoCompletoJob(
+      orgaoId,
+      contratoApi as PortalTransparenciaContrato,
+    );
+  }
+
+  @Get('importar-individual-status/:jobId')
+  async obterStatusImportacaoContratoIndividualCompleto(
+    @Param('jobId') jobId: string,
+  ) {
+    const status = this.portalTransparenciaService.obterStatusImportacaoContratoCompleto(jobId);
+
+    if (!status) {
+      throw new NotFoundException('Importação não encontrada');
+    }
+
+    return status;
   }
 }
