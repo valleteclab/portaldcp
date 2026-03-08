@@ -200,6 +200,9 @@ export class OrdemFornecimento {
   usuario_emitente_nome: string;
 
   @Column({ type: 'varchar', nullable: true })
+  usuario_autorizador_nome: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
   usuario_fiscal_id: string | null;
 
   @Column({ type: 'varchar', nullable: true })

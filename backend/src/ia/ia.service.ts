@@ -565,54 +565,219 @@ Gere a versão revisada e melhorada:`;
       this.logger.warn(`[extrairTextoDoPdf] pdfjs-dist falhou: ${err.message}`);
     }
 
-    // Tentativa 3: Usar Python (PyPDF2) via exec - mais confiável para PDFs pesquisáveis
+    // Tentativa 3: Usar Python (PyPDF2) via exec
     try {
       this.logger.log('[extrairTextoDoPdf] Tentando extrair via Python...');
-      
-      // Salvar buffer em arquivo temporário
-      const os = require('os');
-      const path = require('path');
-      const fs = require('fs');
-      const { exec } = require('child_process');
-      const util = require('util');
-      const execPromise = util.promisify(exec);
-      
-      const tempDir = os.tmpdir();
-      const tempFile = path.join(tempDir, `pdf-${Date.now()}.pdf`);
-      
-      // Escrever arquivo temporário
-      fs.writeFileSync(tempFile, buffer);
-      
-      try {
-        // Chamar script Python
-        const pythonScript = '/app/docs/contratos/extrair_texto_pdf.py';
-        const { stdout, stderr } = await execPromise(`python3 ${pythonScript} "${tempFile}"`, {
-          timeout: 30000,
-          maxBuffer: 10 * 1024 * 1024, // 10MB
-        });
-        
-        if (stderr && !stdout) {
-          throw new Error(stderr);
-        }
-        
-        const textoLimpo = stdout?.trim() || '';
-        this.logger.log(`[extrairTextoDoPdf] Python extraído: ${textoLimpo.length} caracteres`);
-        
-        if (textoLimpo.length > 0) {
-          return textoLimpo;
-        }
-      } finally {
-        // Limpar arquivo temporário
-        try {
-          fs.unlinkSync(tempFile);
-        } catch { /* ignora erro de cleanup */ }
+      const textoViaPython = await this.extrairViaPython(buffer);
+      if (textoViaPython.length > 0) {
+        return textoViaPython;
       }
     } catch (err: any) {
       this.logger.warn(`[extrairTextoDoPdf] Python falhou: ${err.message}`);
     }
 
-    this.logger.warn('[extrairTextoDoPdf] Nenhum texto extraído');
+    this.logger.warn('[extrairTextoDoPdf] ⚠️ PDF ESCANEADO DETECTADO: Nenhum texto nativo extraído — todas as 3 tentativas retornaram vazio. Este PDF provavelmente contém apenas imagens escaneadas.');
     return '';
+  }
+
+  /**
+   * Extrai texto via script Python (PyPDF2) com resolução robusta de path e binário.
+   */
+  private async extrairViaPython(buffer: Buffer): Promise<string> {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    const tempDir = os.tmpdir();
+    const tempFile = path.join(tempDir, `pdf-${Date.now()}.pdf`);
+    fs.writeFileSync(tempFile, buffer);
+
+    try {
+      const scriptCandidates = [
+        path.resolve(__dirname, '../../docs/contratos/extrair_texto_pdf.py'),
+        path.resolve(process.cwd(), 'docs/contratos/extrair_texto_pdf.py'),
+        '/app/docs/contratos/extrair_texto_pdf.py',
+      ];
+
+      let pythonScript: string | null = null;
+      for (const candidate of scriptCandidates) {
+        if (fs.existsSync(candidate)) {
+          pythonScript = candidate;
+          break;
+        }
+      }
+
+      if (!pythonScript) {
+        throw new Error(`Script Python não encontrado. Candidatos: ${scriptCandidates.join(', ')}`);
+      }
+
+      const pythonBinaries = ['python3', 'python'];
+      let lastError: Error | null = null;
+
+      for (const bin of pythonBinaries) {
+        try {
+          const { stdout, stderr } = await execPromise(`${bin} "${pythonScript}" "${tempFile}"`, {
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024,
+          });
+
+          if (stderr && !stdout) {
+            throw new Error(stderr);
+          }
+
+          const textoLimpo = stdout?.trim() || '';
+          this.logger.log(`[extrairViaPython] ${bin} extraído: ${textoLimpo.length} caracteres`);
+          return textoLimpo;
+        } catch (err: any) {
+          lastError = err;
+          this.logger.warn(`[extrairViaPython] ${bin} falhou: ${err.message}`);
+        }
+      }
+
+      throw lastError || new Error('Nenhum binário Python disponível');
+    } finally {
+      try { fs.unlinkSync(tempFile); } catch { /* ignora */ }
+    }
+  }
+
+  /**
+   * Converte páginas de PDF em imagens PNG usando pdftoppm (poppler-utils).
+   * Retorna array de strings base64 (uma por página).
+   * Retorna array vazio se pdftoppm não estiver disponível.
+   */
+  async converterPdfParaImagens(buffer: Buffer, maxPaginas = 10): Promise<string[]> {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-img-'));
+    const tempPdf = path.join(tempDir, 'input.pdf');
+    const outputPrefix = path.join(tempDir, 'page');
+
+    fs.writeFileSync(tempPdf, buffer);
+
+    try {
+      await execPromise(
+        `pdftoppm -png -r 200 -l ${maxPaginas} "${tempPdf}" "${outputPrefix}"`,
+        { timeout: 60000 },
+      );
+
+      const files = fs.readdirSync(tempDir)
+        .filter((f: string) => f.startsWith('page') && f.endsWith('.png'))
+        .sort();
+
+      const imagens: string[] = [];
+      for (const file of files) {
+        const imgBuffer = fs.readFileSync(path.join(tempDir, file));
+        imagens.push(imgBuffer.toString('base64'));
+      }
+
+      this.logger.log(`[converterPdfParaImagens] Convertidas ${imagens.length} páginas para PNG`);
+      return imagens;
+    } catch (err: any) {
+      this.logger.warn(`[converterPdfParaImagens] pdftoppm não disponível ou falhou: ${err.message}`);
+      return [];
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignora */ }
+    }
+  }
+
+  /**
+   * Envia múltiplas imagens (páginas de PDF) para a IA Vision e concatena respostas.
+   * Usado como fallback para PDFs escaneados que não possuem texto extraível.
+   */
+  async chatComImagensPdf(
+    systemPrompt: string,
+    imagensBase64: string[],
+  ): Promise<string> {
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
+
+    if (imagensBase64.length === 0) {
+      throw new Error('Nenhuma imagem fornecida para Vision');
+    }
+
+    const maxPorRequisicao = 5;
+    const partes: string[] = [];
+
+    for (let i = 0; i < imagensBase64.length; i += maxPorRequisicao) {
+      const lote = imagensBase64.slice(i, i + maxPorRequisicao);
+      const numeroParte = Math.floor(i / maxPorRequisicao) + 1;
+      const totalPartes = Math.ceil(imagensBase64.length / maxPorRequisicao);
+
+      const userContent: Array<any> = [
+        {
+          type: 'text',
+          text: totalPartes > 1
+            ? `${systemPrompt}\n\n[Parte ${numeroParte} de ${totalPartes} — páginas ${i + 1} a ${i + lote.length}]`
+            : systemPrompt,
+        },
+        ...lote.map((img) => ({
+          type: 'image_url',
+          image_url: { url: `data:image/png;base64,${img}` },
+        })),
+      ];
+
+      this.logger.log(`[chatComImagensPdf] Enviando lote ${numeroParte}/${totalPartes} (${lote.length} imagens)`);
+
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://portaldcp.com.br',
+          'X-Title': 'Portal DCP',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: userContent }],
+          temperature: 0.2,
+          max_tokens: 4000,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        this.logger.error(`[chatComImagensPdf] Erro API lote ${numeroParte}: ${response.status} — ${error}`);
+        throw new Error(`Erro na API: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const resposta = data.choices[0]?.message?.content || '';
+      if (resposta) partes.push(resposta);
+    }
+
+    return partes.join('\n\n');
+  }
+
+  /**
+   * Fallback completo para PDFs escaneados:
+   * 1. Tenta converter PDF em imagens via pdftoppm
+   * 2. Envia imagens para Vision AI página por página
+   * 3. Se pdftoppm não disponível, envia PDF como document (comportamento atual)
+   */
+  async chatComPdfEscaneado(
+    systemPrompt: string,
+    pdfBuffer: Buffer,
+  ): Promise<string> {
+    this.logger.log('[chatComPdfEscaneado] PDF escaneado detectado — tentando fallback via imagens');
+
+    const imagens = await this.converterPdfParaImagens(pdfBuffer);
+
+    if (imagens.length > 0) {
+      this.logger.log(`[chatComPdfEscaneado] Usando Vision com ${imagens.length} imagens PNG`);
+      return this.chatComImagensPdf(systemPrompt, imagens);
+    }
+
+    this.logger.warn('[chatComPdfEscaneado] pdftoppm indisponível — enviando PDF como document (fallback)');
+    const pdfBase64 = pdfBuffer.toString('base64');
+    return this.chatComArquivo(systemPrompt, pdfBase64, 'application/pdf');
   }
 
   /**
@@ -655,14 +820,9 @@ Use formatação markdown para estruturar a resposta.`;
           { role: 'user', content: promptTexto }
         ];
       } else {
-        // PDF escaneado - usar formato nativo de documento do Claude
-        this.logger.log('[analisarContrato] Usando modo VISION (PDF escaneado)');
-        
-        // Formato nativo do Claude para documentos (funciona com :beta)
-        const userContent = [
-          {
-            type: 'text',
-            text: `Analise o contrato PDF abaixo e responda:
+        this.logger.log('[analisarContrato] Usando modo VISION (PDF escaneado) — tentando conversão para imagens');
+
+        const promptVision = `Analise o contrato PDF abaixo e responda:
 
 PERGUNTA: ${pergunta}
 
@@ -671,19 +831,36 @@ INSTRUÇÕES:
 - Responda baseado APENAS no conteúdo do PDF
 - Se não encontrar a informação, diga explicitamente
 - Para itens/serviços, use tabela markdown
-- Destaque valores e datas em negrito`,
-          },
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: pdfBase64,
-            },
-          },
-        ];
+- Destaque valores e datas em negrito`;
 
-        messages = [{ role: 'user', content: userContent }];
+        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+        const imagens = await this.converterPdfParaImagens(pdfBuffer);
+
+        if (imagens.length > 0) {
+          this.logger.log(`[analisarContrato] Usando ${imagens.length} imagens PNG para Vision`);
+          const userContent: Array<any> = [
+            { type: 'text', text: promptVision },
+            ...imagens.map((img) => ({
+              type: 'image_url',
+              image_url: { url: `data:image/png;base64,${img}` },
+            })),
+          ];
+          messages = [{ role: 'user', content: userContent }];
+        } else {
+          this.logger.warn('[analisarContrato] pdftoppm indisponível — enviando PDF como document (fallback)');
+          const userContent = [
+            { type: 'text', text: promptVision },
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: pdfBase64,
+              },
+            },
+          ];
+          messages = [{ role: 'user', content: userContent }];
+        }
       }
 
       // Adicionar histórico se existir (apenas as últimas 4 mensagens para não estourar contexto)
