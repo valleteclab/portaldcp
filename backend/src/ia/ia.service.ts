@@ -507,7 +507,12 @@ Gere a versão revisada e melhorada:`;
     try {
       this.logger.log('[extrairTextoDoPdf] Tentando pdf-parse...');
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const pdfParse = require('pdf-parse');
+      const pdfParseModule = require('pdf-parse');
+      const pdfParse = pdfParseModule?.default || pdfParseModule;
+
+      if (typeof pdfParse !== 'function') {
+        throw new Error('pdf-parse não exporta uma função válida');
+      }
       
       const result = await pdfParse(buffer, {
         max: 0, // todas as páginas
@@ -585,8 +590,9 @@ Gere a versão revisada e melhorada:`;
       
       try {
         // Chamar script Python
-        const pythonScript = '/app/docs/contratos/extrair_texto_pdf.py';
-        const { stdout, stderr } = await execPromise(`python3 ${pythonScript} "${tempFile}"`, {
+        const pythonScript = path.join(process.cwd(), 'docs', 'contratos', 'extrair_texto_pdf.py');
+        const pythonBin = process.platform === 'win32' ? 'python' : 'python3';
+        const { stdout, stderr } = await execPromise(`${pythonBin} "${pythonScript}" "${tempFile}"`, {
           timeout: 30000,
           maxBuffer: 10 * 1024 * 1024, // 10MB
         });

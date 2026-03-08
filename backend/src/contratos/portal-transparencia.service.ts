@@ -147,6 +147,61 @@ function limparTextoTabelaItens(texto: string): string {
     .trim();
 }
 
+function extrairTrechoBrutoTabelaItens(texto: string): string {
+  const inicio = texto.search(/ITEM\s+DESCRIÇÃO\s*LOCAL\s+DE\s+INSTALAÇÃO/i);
+  if (inicio === -1) {
+    return '';
+  }
+
+  return texto.slice(inicio);
+}
+
+function normalizarBlocoItemTabela(bloco: string): string {
+  return bloco
+    .replace(/Rua Octogonal[\s\S]*?www\.cmlem\.ba\.qov\.br/gi, '\n')
+    .replace(/CNPJ\s+[\d./-]+[\s\S]*?www\.cmlem\.ba\.qov\.br/gi, '\n')
+    .replace(/^[^\n]*(?:maGALHAES|MAGALHÃES|ARDü|kv>m\||LÉ\s+Eduardo|V'U\s*v)[^\n]*$/gim, ' ')
+    .replace(/\b\d{6}\b/g, ' ')
+    .replace(/\bRS\b/g, 'R$')
+    .replace(/R\s*S\s*/g, 'R$ ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tentarExtrairCamposBlocoTabela(bloco: string): {
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+} | null {
+  const regexPadrao = /^(.*?)\s+(M2|M²|M3|M³|UNIDADE|UNID\.?|UND\.?|UN|M|METRO|METROS|MES|MÊS|MESES|DIARIA|DIÁRIA|HORA|HORAS|KG|QUILOGRAMA|LITRO|LITROS)\s+(\d+(?:,\d+)?)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)/i;
+  const matchPadrao = bloco.match(regexPadrao);
+  if (matchPadrao) {
+    return {
+      descricao: matchPadrao[1].replace(/\s+/g, ' ').trim(),
+      unidade_medida: matchPadrao[2].trim(),
+      quantidade: parseNumeroBrasileiro(matchPadrao[3]),
+      valor_unitario: parseNumeroBrasileiro(matchPadrao[4]),
+      valor_total: parseNumeroBrasileiro(matchPadrao[5]),
+    };
+  }
+
+  const regexComSobra = /^(.*?)\s+(M2|M²|M3|M³|UNIDADE|UNID\.?|UND\.?|UN|M|METRO|METROS|MES|MÊS|MESES|DIARIA|DIÁRIA|HORA|HORAS|KG|QUILOGRAMA|LITRO|LITROS)\s+(\d+(?:,\d+)?)\s+R\$\s*([\d.,]+)\s+R\$\s*([\d.,]+)(.*)$/i;
+  const matchComSobra = bloco.match(regexComSobra);
+  if (matchComSobra) {
+    return {
+      descricao: `${matchComSobra[1]} ${matchComSobra[6]}`.replace(/\s+/g, ' ').trim(),
+      unidade_medida: matchComSobra[2].trim(),
+      quantidade: parseNumeroBrasileiro(matchComSobra[3]),
+      valor_unitario: parseNumeroBrasileiro(matchComSobra[4]),
+      valor_total: parseNumeroBrasileiro(matchComSobra[5]),
+    };
+  }
+
+  return null;
+}
+
 function extrairItensTabelaTexto(textoExtraido: string): Array<{
   descricao: string;
   unidade_medida: string;
@@ -155,12 +210,13 @@ function extrairItensTabelaTexto(textoExtraido: string): Array<{
   quantidade_meses?: number | null;
   valor_total?: number;
 }> {
-  const textoLimpo = limparTextoTabelaItens(textoExtraido);
-  const inicioTabela = textoLimpo.search(/1\s*Persiana|1\s*Cortina|1\s*[A-ZÁ-Úa-zá-ú]/i);
-  const texto = inicioTabela >= 0 ? textoLimpo.slice(inicioTabela) : textoLimpo;
-  const itemStartPattern = /(?:^|\s)(\d{1,3})(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gi;
-  const valorPattern = /^(.*?)\s+(M2|M²|M3|M³|UNIDADE|UNID\.?|UND\.?|UN|M|METRO|METROS|MES|MÊS|MESES|DIARIA|DIÁRIA|HORA|HORAS|KG|QUILOGRAMA|LITRO|LITROS)\s+([\d.,\s]+)\s+R\s*\$?\s*([\d.,\s]+)\s+R\s*(?:\$|S)?\s*([\d.,\s]+)/i;
-  const inicios = Array.from(texto.matchAll(itemStartPattern));
+  const trechoBruto = extrairTrechoBrutoTabelaItens(textoExtraido);
+  if (!trechoBruto) {
+    return [];
+  }
+
+  const itemStartPattern = /^\s*(\d{1,3})(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gim;
+  const inicios = Array.from(trechoBruto.matchAll(itemStartPattern));
 
   const itens = new Map<number, {
     descricao: string;
@@ -176,26 +232,27 @@ function extrairItensTabelaTexto(textoExtraido: string): Array<{
     const numeroItem = Number(match[1]);
     const inicioBloco = match.index ?? 0;
     const fimBloco = indice + 1 < inicios.length
-      ? (inicios[indice + 1].index ?? texto.length)
-      : texto.length;
+      ? (inicios[indice + 1].index ?? trechoBruto.length)
+      : trechoBruto.length;
 
-    let bloco = texto.slice(inicioBloco, fimBloco)
+    const blocoOriginal = trechoBruto.slice(inicioBloco, fimBloco);
+    let bloco = normalizarBlocoItemTabela(blocoOriginal)
       .replace(/^\s*\d{1,3}/, '')
       .replace(/O valor global do contrato[\s\S]*$/i, ' ')
       .replace(/\d+\.\s*CL[ÁA]USULA[\s\S]*$/i, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
-    const partes = bloco.match(valorPattern);
-    if (!partes) {
+    const campos = tentarExtrairCamposBlocoTabela(bloco);
+    if (!campos) {
       continue;
     }
 
-    const descricao = partes[1].replace(/\s+/g, ' ').trim();
-    const unidade = partes[2].replace(/\.+$/g, '').trim();
-    const quantidade = parseNumeroBrasileiro(partes[3]);
-    const valorUnitario = parseNumeroBrasileiro(partes[4]);
-    const valorTotal = parseNumeroBrasileiro(partes[5]);
+    const descricao = campos.descricao;
+    const unidade = campos.unidade_medida.replace(/\.+$/g, '').trim();
+    const quantidade = campos.quantidade;
+    const valorUnitario = campos.valor_unitario;
+    const valorTotal = campos.valor_total;
 
     if (!descricao || !quantidade || !valorUnitario) {
       continue;
