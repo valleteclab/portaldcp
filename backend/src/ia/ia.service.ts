@@ -653,7 +653,7 @@ Gere a versão revisada e melhorada:`;
    * Retorna array de strings base64 (uma por página).
    * Retorna array vazio se pdftoppm não estiver disponível.
    */
-  async converterPdfParaImagens(buffer: Buffer, maxPaginas = 10): Promise<string[]> {
+  async converterPdfParaImagens(buffer: Buffer, maxPaginas = 15): Promise<string[]> {
     const os = require('os');
     const path = require('path');
     const fs = require('fs');
@@ -694,8 +694,8 @@ Gere a versão revisada e melhorada:`;
   }
 
   /**
-   * Envia múltiplas imagens (páginas de PDF) para a IA Vision e concatena respostas.
-   * Usado como fallback para PDFs escaneados que não possuem texto extraível.
+   * Envia múltiplas imagens (páginas de PDF) para a IA Vision.
+   * Tenta enviar todas de uma vez; se exceder limite, divide em lotes e faz merge de JSON.
    */
   async chatComImagensPdf(
     systemPrompt: string,
@@ -708,7 +708,13 @@ Gere a versão revisada e melhorada:`;
       throw new Error('Nenhuma imagem fornecida para Vision');
     }
 
-    const maxPorRequisicao = 5;
+    const maxPorRequisicao = 10;
+
+    if (imagensBase64.length <= maxPorRequisicao) {
+      return this.enviarLoteImagens(apiKey, model, systemPrompt, imagensBase64);
+    }
+
+    this.logger.log(`[chatComImagensPdf] PDF com ${imagensBase64.length} páginas — dividindo em lotes de ${maxPorRequisicao}`);
     const partes: string[] = [];
 
     for (let i = 0; i < imagensBase64.length; i += maxPorRequisicao) {
@@ -716,46 +722,95 @@ Gere a versão revisada e melhorada:`;
       const numeroParte = Math.floor(i / maxPorRequisicao) + 1;
       const totalPartes = Math.ceil(imagensBase64.length / maxPorRequisicao);
 
-      const userContent: Array<any> = [
-        {
-          type: 'text',
-          text: totalPartes > 1
-            ? `${systemPrompt}\n\n[Parte ${numeroParte} de ${totalPartes} — páginas ${i + 1} a ${i + lote.length}]`
-            : systemPrompt,
-        },
-        ...lote.map((img) => ({
-          type: 'image_url',
-          image_url: { url: `data:image/png;base64,${img}` },
-        })),
-      ];
+      const promptLote = `${systemPrompt}\n\n[Parte ${numeroParte} de ${totalPartes} — páginas ${i + 1} a ${i + lote.length} de ${imagensBase64.length}. Extraia TODOS os itens que encontrar nestas páginas.]`;
 
       this.logger.log(`[chatComImagensPdf] Enviando lote ${numeroParte}/${totalPartes} (${lote.length} imagens)`);
-
-      const response = await fetch(this.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://portaldcp.com.br',
-          'X-Title': 'Portal DCP',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: userContent }],
-          temperature: 0.2,
-          max_tokens: 4000,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        this.logger.error(`[chatComImagensPdf] Erro API lote ${numeroParte}: ${response.status} — ${error}`);
-        throw new Error(`Erro na API: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const resposta = data.choices[0]?.message?.content || '';
+      const resposta = await this.enviarLoteImagens(apiKey, model, promptLote, lote);
       if (resposta) partes.push(resposta);
+    }
+
+    return this.mergeRespostasJson(partes);
+  }
+
+  /**
+   * Envia um lote de imagens para a API Vision.
+   */
+  private async enviarLoteImagens(
+    apiKey: string,
+    model: string,
+    prompt: string,
+    imagens: string[],
+  ): Promise<string> {
+    const userContent: Array<any> = [
+      { type: 'text', text: prompt },
+      ...imagens.map((img) => ({
+        type: 'image_url',
+        image_url: { url: `data:image/png;base64,${img}` },
+      })),
+    ];
+
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.com.br',
+        'X-Title': 'Portal DCP',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: userContent }],
+        temperature: 0.2,
+        max_tokens: 4000,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      this.logger.error(`[enviarLoteImagens] Erro API: ${response.status} — ${error}`);
+      throw new Error(`Erro na API: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || '';
+  }
+
+  /**
+   * Faz merge inteligente de respostas JSON de múltiplos lotes.
+   * Junta arrays de "itens" de cada resposta em um único JSON.
+   * Se não for JSON, concatena como texto.
+   */
+  private mergeRespostasJson(partes: string[]): string {
+    if (partes.length === 1) return partes[0];
+
+    const todosItens: any[] = [];
+    let observacoes: string[] = [];
+    let algumJsonParsed = false;
+
+    for (const parte of partes) {
+      try {
+        const jsonLimpo = parte.replace(/```json\n?|```/g, '').trim();
+        const parsed = JSON.parse(jsonLimpo);
+        algumJsonParsed = true;
+
+        if (Array.isArray(parsed.itens)) {
+          todosItens.push(...parsed.itens);
+        }
+        if (parsed.observacoes) {
+          observacoes.push(parsed.observacoes);
+        }
+      } catch {
+        this.logger.warn(`[mergeRespostasJson] Lote não é JSON válido, incluindo como texto`);
+        observacoes.push(parte.substring(0, 200));
+      }
+    }
+
+    if (algumJsonParsed) {
+      this.logger.log(`[mergeRespostasJson] Merge de ${partes.length} lotes → ${todosItens.length} itens total`);
+      return JSON.stringify({
+        itens: todosItens,
+        observacoes: observacoes.join(' | '),
+      });
     }
 
     return partes.join('\n\n');
