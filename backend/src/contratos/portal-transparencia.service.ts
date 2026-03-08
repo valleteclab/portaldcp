@@ -113,6 +113,65 @@ function normalizarItensExtraidos(itens: any[]): Array<{
     .filter((item) => item.descricao && (item.valor_total || (item.quantidade > 0 && item.valor_unitario > 0)));
 }
 
+function ajustarItemParaPersistencia(item: {
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  quantidade_meses?: number | null;
+  valor_total?: number;
+}): {
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  quantidade_meses?: number | null;
+  valor_total?: number;
+} {
+  const descricao = String(item.descricao || '').trim();
+  const unidadeMedida = String(item.unidade_medida || 'UNIDADE').trim() || 'UNIDADE';
+  const quantidadeOriginal = Number(item.quantidade) || 0;
+  const valorUnitarioOriginal = Number(item.valor_unitario) || 0;
+  const quantidadeMesesOriginal = item.quantidade_meses != null ? Number(item.quantidade_meses) || null : null;
+  const valorTotalOriginal = Number(item.valor_total) || 0;
+  const textoBase = `${descricao} ${unidadeMedida}`.toLowerCase();
+
+  let quantidade = quantidadeOriginal > 0 ? quantidadeOriginal : 1;
+  let valorUnitario = valorUnitarioOriginal;
+  let quantidade_meses = quantidadeMesesOriginal;
+  let valor_total = valorTotalOriginal || Number((quantidade * valorUnitario).toFixed(2));
+
+  const itemRecorrente = /(licen[cç]a|mensal|mensalidade|loca[cç][aã]o|sustenta[cç][aã]o|suporte t[eé]cnico|manuten[cç][aã]o)/i.test(textoBase);
+  const valorCalculadoComMeses = quantidade_meses ? Number((quantidade * valorUnitario * quantidade_meses).toFixed(2)) : Number((quantidade * valorUnitario).toFixed(2));
+
+  if (valor_total > 0 && itemRecorrente) {
+    const divergenciaRelevante = valorCalculadoComMeses > 0 && Math.abs(valorCalculadoComMeses - valor_total) > 0.01;
+    if (divergenciaRelevante) {
+      if (quantidade_meses && quantidade_meses > 1) {
+        const valorMensalInferido = Number((valor_total / quantidade_meses).toFixed(2));
+        if (valorMensalInferido > 0) {
+          quantidade = 1;
+          valorUnitario = valorMensalInferido;
+        }
+      } else if (quantidade > 1) {
+        const valorUnitarioInferido = Number((valor_total / quantidade).toFixed(2));
+        if (valorUnitarioInferido > 0) {
+          valorUnitario = valorUnitarioInferido;
+        }
+      }
+    }
+  }
+
+  return {
+    descricao,
+    unidade_medida: unidadeMedida,
+    quantidade,
+    valor_unitario: valorUnitario,
+    quantidade_meses,
+    valor_total: valor_total > 0 ? valor_total : undefined,
+  };
+}
+
 function extrairItensDaRespostaIA(respostaIA: string): Array<any> {
   const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
   const dadosExtraidos = tentarExtrairJson(jsonLimpo);
@@ -1045,17 +1104,18 @@ ${textoChunk}`;
     await this.itemContratoRepository.delete({ contrato_id: contratoId });
 
     const registros = itens.map((item, index) => {
-      const quantidade = Number(item.quantidade) || 1;
-      const valorUnitario = Number(item.valor_unitario) || 0;
-      const valorTotal = Number(item.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
+      const itemAjustado = ajustarItemParaPersistencia(item);
+      const quantidade = Number(itemAjustado.quantidade) || 1;
+      const valorUnitario = Number(itemAjustado.valor_unitario) || 0;
+      const valorTotal = Number(itemAjustado.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
 
       return this.itemContratoRepository.create({
         contrato_id: contratoId,
         numero_item: index + 1,
-        descricao: item.descricao,
-        descricao_detalhada: item.descricao,
+        descricao: itemAjustado.descricao,
+        descricao_detalhada: itemAjustado.descricao,
         tipo_item: TipoItemContrato.CONSUMO,
-        unidade_medida: mapearUnidadeMedidaContrato(item.unidade_medida),
+        unidade_medida: mapearUnidadeMedidaContrato(itemAjustado.unidade_medida),
         valor_unitario: valorUnitario,
         valor_total: valorTotal,
         quantidade_contratada: quantidade,
@@ -1326,9 +1386,10 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
           if (itens.length > 0) {
             const valorItensImportados = Number(itens
               .reduce((total, item) => {
-                const quantidade = Number(item.quantidade) || 0;
-                const valorUnitario = Number(item.valor_unitario) || 0;
-                const valorTotal = Number(item.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
+                const itemAjustado = ajustarItemParaPersistencia(item);
+                const quantidade = Number(itemAjustado.quantidade) || 0;
+                const valorUnitario = Number(itemAjustado.valor_unitario) || 0;
+                const valorTotal = Number(itemAjustado.valor_total) || Number((quantidade * valorUnitario).toFixed(2));
                 return total + valorTotal;
               }, 0)
               .toFixed(2));
@@ -1372,7 +1433,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                 this.logger.warn(`Contrato ${contratoCompleto.numero_contrato} está na modalidade ${contratoCompleto.modalidade_execucao} e já possui ${etapasExistentes.length} etapas. Importação automática de itens de cronograma ignorada.`);
               } else {
               for (let i = 0; i < itens.length; i++) {
-                const item = itens[i];
+                const item = ajustarItemParaPersistencia(itens[i]);
                 try {
                   await this.medicaoService.criarItemCronograma(contratoCriado.id, {
                     descricao: item.descricao,
