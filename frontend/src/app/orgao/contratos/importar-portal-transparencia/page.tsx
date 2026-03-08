@@ -45,6 +45,8 @@ interface ContratoAPI {
   vigencia_inicio?: string
   aditivos_valor_total?: string | null
   valor_contrato?: string
+  ja_cadastrado?: boolean
+  contrato_id_existente?: string
   importStatus?: 'idle' | 'loading' | 'success' | 'already_exists' | 'error'
   importMessage?: string
   importProgress?: number
@@ -318,6 +320,20 @@ export default function ImportarPortalTransparenciaPage() {
   }
 
   const renderBotaoImportar = (contrato: ContratoAPI, index: number) => {
+    if (contrato.ja_cadastrado && !contrato.importStatus) {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+          onClick={() => router.push(`/orgao/contratos/${contrato.contrato_id_existente}`)}
+        >
+          <CheckCircle className="w-4 h-4 mr-2 text-green-500" />
+          Ver contrato
+        </Button>
+      )
+    }
+
     switch (contrato.importStatus) {
       case 'loading':
         return (
@@ -579,25 +595,48 @@ export default function ImportarPortalTransparenciaPage() {
                 <CardTitle>Contratos Encontrados</CardTitle>
                 <CardDescription>
                   {contratos.length} contratos encontrados no Portal de Transparência
+                  {contratos.some(c => c.ja_cadastrado) && (
+                    <>
+                      {' — '}
+                      <span className="text-green-600 font-medium">
+                        {contratos.filter(c => c.ja_cadastrado).length} já cadastrado(s)
+                      </span>
+                      {contratos.filter(c => !c.ja_cadastrado).length > 0 && (
+                        <>
+                          {', '}
+                          <span className="text-blue-600 font-medium">
+                            {contratos.filter(c => !c.ja_cadastrado).length} novo(s)
+                          </span>
+                        </>
+                      )}
+                    </>
+                  )}
                 </CardDescription>
               </div>
-              <Button 
-                onClick={importarContratos} 
-                disabled={importando}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                {importando ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Importando...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    Importar Todos
-                  </>
-                )}
-              </Button>
+              {contratos.filter(c => !c.ja_cadastrado).length > 0 ? (
+                <Button 
+                  onClick={importarContratos} 
+                  disabled={importando}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {importando ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importando...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 mr-2" />
+                      Importar Todos ({contratos.filter(c => !c.ja_cadastrado).length} novos)
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Badge className="bg-green-100 text-green-700 border-green-200 px-4 py-2">
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Todos já cadastrados
+                </Badge>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -615,9 +654,17 @@ export default function ImportarPortalTransparenciaPage() {
                 </thead>
                 <tbody>
                   {contratos.map((contrato, index) => (
-                    <tr key={index} className="border-b hover:bg-gray-50">
+                    <tr key={index} className={`border-b hover:bg-gray-50 ${contrato.ja_cadastrado ? 'bg-green-50/50' : ''}`}>
                       <td className="py-3 px-2 font-medium">
-                        {contrato.contratoNumero}
+                        <div className="flex flex-col gap-1">
+                          {contrato.contratoNumero}
+                          {contrato.ja_cadastrado && (
+                            <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] w-fit">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Já cadastrado
+                            </Badge>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-2">
                         <p className="font-medium">{contrato.favorecido}</p>

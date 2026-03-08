@@ -478,6 +478,8 @@ export interface PortalTransparenciaContrato {
   valor_contrato?: string;
   url?: string;
   fiscal?: string;
+  ja_cadastrado?: boolean;
+  contrato_id_existente?: string;
 }
 
 export interface PortalTransparenciaResponse {
@@ -572,6 +574,33 @@ export class PortalTransparenciaService {
       this.logger.error(`Erro ao buscar contratos na API: ${error.message}`, error.stack);
       throw new Error(`Falha ao consultar API do Portal de Transparência: ${error.message}`);
     }
+  }
+
+  /**
+   * Cruza contratos da API com os já cadastrados no banco e marca duplicados.
+   */
+  async marcarContratosJaCadastrados(
+    contratosApi: PortalTransparenciaContrato[],
+    orgaoId: string,
+  ): Promise<PortalTransparenciaContrato[]> {
+    const numerosParaBuscar = contratosApi.map((c) => c.contratoNumero.replace('-Contrato', ''));
+
+    const contratosExistentes = await this.contratosService.findByNumeros(numerosParaBuscar, orgaoId);
+
+    const mapaExistentes = new Map<string, string>();
+    for (const c of contratosExistentes) {
+      mapaExistentes.set(c.numero_contrato, c.id);
+    }
+
+    return contratosApi.map((c) => {
+      const numeroLimpo = c.contratoNumero.replace('-Contrato', '');
+      const idExistente = mapaExistentes.get(numeroLimpo);
+      return {
+        ...c,
+        ja_cadastrado: !!idExistente,
+        contrato_id_existente: idExistente || undefined,
+      };
+    });
   }
 
   /**

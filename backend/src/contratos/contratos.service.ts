@@ -377,6 +377,14 @@ export class ContratosService {
     return contrato || null;
   }
 
+  async findByNumeros(numeros: string[], orgaoId: string): Promise<Contrato[]> {
+    if (numeros.length === 0) return [];
+    return this.contratoRepository.find({
+      where: numeros.map((n) => ({ numero_contrato: n, orgao_id: orgaoId })),
+      select: ['id', 'numero_contrato'],
+    });
+  }
+
   async atualizar(id: string, dados: Partial<Contrato>, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
     const contrato = await this.findOne(id);
     const eraEnviadoPncp = contrato.enviado_pncp;

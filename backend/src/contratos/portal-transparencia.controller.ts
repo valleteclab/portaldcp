@@ -12,17 +12,28 @@ export class PortalTransparenciaController {
 
   @Get('buscar')
   async buscarContratos(
+    @Request() req: any,
     @Query('numero') numero?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('apenas_vigentes') apenasVigentes?: string,
-  ): Promise<PortalTransparenciaResponse> {
-    return this.portalTransparenciaService.buscarContratos({
+  ) {
+    const orgaoId = req.user?.orgao_id || req.user?.orgaoId || req.user?.sub;
+    const resultado = await this.portalTransparenciaService.buscarContratos({
       numero,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
       apenas_vigentes: apenasVigentes === 'true',
     });
+
+    if (orgaoId && resultado.data?.length > 0) {
+      resultado.data = await this.portalTransparenciaService.marcarContratosJaCadastrados(
+        resultado.data,
+        orgaoId,
+      );
+    }
+
+    return resultado;
   }
 
   @Post('importar')
