@@ -740,18 +740,18 @@ window._extraindoContratos = true;
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed">
+              <table className="w-full">
                 <thead>
                   <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-2 w-24 hidden sm:table-cell">Contrato</th>
-                    <th className="text-left py-3 px-2 w-48 hidden md:table-cell">Fornecedor</th>
-                    <th className="text-left py-3 px-2 min-w-[200px] max-w-[400px]">Objeto</th>
-                    <th className="text-center py-3 px-2 w-28 hidden lg:table-cell">Tipo Licitação</th>
-                    <th className="text-right py-3 px-2 w-32">Valor</th>
-                    <th className="text-center py-3 px-2 w-28 hidden sm:table-cell">Vigência</th>
-                    <th className="text-center py-3 px-2 w-28">Status</th>
-                    <th className="text-center py-3 px-2 w-16 hidden sm:table-cell">PNCP</th>
-                    <th className="text-center py-3 px-2 w-32">Ações</th>
+                    <th className="text-left py-3 px-2 whitespace-nowrap hidden sm:table-cell">Contrato</th>
+                    <th className="text-left py-3 px-2 hidden md:table-cell">Fornecedor</th>
+                    <th className="text-left py-3 px-2">Objeto</th>
+                    <th className="text-center py-3 px-2 whitespace-nowrap hidden lg:table-cell">Tipo Licitação</th>
+                    <th className="text-right py-3 px-2 whitespace-nowrap">Valor</th>
+                    <th className="text-center py-3 px-2 whitespace-nowrap hidden sm:table-cell">Vigência</th>
+                    <th className="text-center py-3 px-2 whitespace-nowrap">Status</th>
+                    <th className="text-center py-3 px-2 whitespace-nowrap hidden sm:table-cell">PNCP</th>
+                    <th className="text-center py-3 px-2 whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody>

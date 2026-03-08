@@ -1502,12 +1502,15 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         return itens;
       }
 
-      // Texto longo — dividir em partes de ~12k chars e juntar resultados
-      this.logger.log(`[extrairItensViaTexto] Texto longo (${textoParaIA.length} chars), dividindo em chunks`);
-      const chunkSize = 12000;
+      // Texto longo — dividir em partes com overlap para não perder itens na fronteira
+      const chunkSize = 10000;
+      const overlap = 2000;
+      const step = chunkSize - overlap;
+      this.logger.log(`[extrairItensViaTexto] Texto longo (${textoParaIA.length} chars), dividindo em chunks de ${chunkSize} com overlap ${overlap}`);
       const chunks: string[] = [];
-      for (let i = 0; i < textoParaIA.length; i += chunkSize) {
+      for (let i = 0; i < textoParaIA.length; i += step) {
         chunks.push(textoParaIA.slice(i, i + chunkSize));
+        if (i + chunkSize >= textoParaIA.length) break;
       }
 
       const todosItens: any[] = [];

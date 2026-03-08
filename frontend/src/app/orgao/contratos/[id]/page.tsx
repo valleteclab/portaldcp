@@ -234,6 +234,9 @@ export default function DetalheContratoOrgaoPage() {
   const [loading, setLoading] = useState(true)
   const [loadingAction, setLoadingAction] = useState(false)
   
+  const [paginaItens, setPaginaItens] = useState(1)
+  const itensPorPagina = 15
+
   const [modalTermo, setModalTermo] = useState(false)
   const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
   const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
@@ -1398,7 +1401,9 @@ export default function DetalheContratoOrgaoPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {contrato.itens.map((item) => (
+                      {contrato.itens
+                        .slice((paginaItens - 1) * itensPorPagina, paginaItens * itensPorPagina)
+                        .map((item) => (
                         <tr key={item.id} className="border-b hover:bg-gray-50">
                           <td className="py-3 px-3 font-medium">{item.numero_item}</td>
                           <td className="py-3 px-3 text-xs">
@@ -1408,8 +1413,8 @@ export default function DetalheContratoOrgaoPage() {
                               </span>
                             ) : <span className="text-gray-300">-</span>}
                           </td>
-                          <td className="py-3 px-3 max-w-[220px]">
-                            <p className="font-medium truncate" title={item.descricao}>{item.descricao}</p>
+                          <td className="py-3 px-3 max-w-md">
+                            <p className="font-medium break-words whitespace-normal">{item.descricao}</p>
                             <div className="flex gap-1 mt-0.5">
                               {item.codigo_catalogo_proprio && <span className="text-[10px] bg-purple-50 text-purple-600 px-1 rounded">Cat: {item.codigo_catalogo_proprio}</span>}
                               {item.codigo_catalogo && <span className="text-[10px] bg-gray-100 text-gray-500 px-1 rounded">CATMAT: {item.codigo_catalogo}</span>}
@@ -1459,6 +1464,36 @@ export default function DetalheContratoOrgaoPage() {
                     </tfoot>
                   </table>
                 </div>
+                {(contrato.itens?.length ?? 0) > itensPorPagina && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t">
+                    {(() => {
+                      const totalItens = contrato.itens?.length ?? 0;
+                      const totalPaginas = Math.ceil(totalItens / itensPorPagina);
+                      return (
+                        <>
+                          <p className="text-sm text-gray-500">
+                            Mostrando {((paginaItens - 1) * itensPorPagina) + 1} a {Math.min(paginaItens * itensPorPagina, totalItens)} de {totalItens} itens
+                          </p>
+                          <div className="flex gap-1">
+                            <Button variant="outline" size="sm" disabled={paginaItens <= 1} onClick={() => setPaginaItens(1)}>
+                              {'\u00AB'}
+                            </Button>
+                            <Button variant="outline" size="sm" disabled={paginaItens <= 1} onClick={() => setPaginaItens(p => p - 1)}>
+                              Anterior
+                            </Button>
+                            <span className="flex items-center px-3 text-sm">{paginaItens} / {totalPaginas}</span>
+                            <Button variant="outline" size="sm" disabled={paginaItens >= totalPaginas} onClick={() => setPaginaItens(p => p + 1)}>
+                              Próximo
+                            </Button>
+                            <Button variant="outline" size="sm" disabled={paginaItens >= totalPaginas} onClick={() => setPaginaItens(totalPaginas)}>
+                              {'\u00BB'}
+                            </Button>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
