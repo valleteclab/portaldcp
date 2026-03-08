@@ -425,11 +425,22 @@ Gere a versão revisada e melhorada:`;
     }
   }
 
+  async chatComArquivoComMaxTokens(
+    systemPrompt: string,
+    imagemBase64?: string,
+    mimeType?: string,
+    textoExtraido?: string,
+    maxTokens = 4000,
+  ): Promise<string> {
+    return this.chatComArquivo(systemPrompt, imagemBase64, mimeType, textoExtraido, maxTokens);
+  }
+
   async chatComArquivo(
     systemPrompt: string,
     imagemBase64?: string,
     mimeType?: string,
     textoExtraido?: string,
+    maxTokens = 4000,
   ): Promise<string> {
     const apiKey = await this.getApiKey();
     const model = await this.getModel();
@@ -438,7 +449,6 @@ Gere a versão revisada e melhorada:`;
 
     if (imagemBase64 && mimeType) {
       if (mimeType === 'application/pdf') {
-        // Claude/OpenRouter aceita PDF como tipo "document"
         userContent = [
           {
             type: 'text',
@@ -454,7 +464,6 @@ Gere a versão revisada e melhorada:`;
           },
         ];
       } else {
-        // Imagem (JPG, PNG, etc.)
         userContent = [
           { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imagemBase64}` } },
           { type: 'text', text: systemPrompt },
@@ -479,7 +488,7 @@ Gere a versão revisada e melhorada:`;
             { role: 'user', content: userContent },
           ],
           temperature: 0.2,
-          max_tokens: 4000,
+          max_tokens: maxTokens,
         }),
       });
 

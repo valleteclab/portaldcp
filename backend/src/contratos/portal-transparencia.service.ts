@@ -104,7 +104,28 @@ function normalizarItensExtraidos(itens: any[]): Array<{
   return itens
     .map((item) => {
       const descricao = String(item?.descricao || '').trim();
-      const unidade_medida = String(item?.unidade_medida || 'UNIDADE').trim() || 'UNIDADE';
+      let unidade_medida = String(item?.unidade_medida || 'UNIDADE').trim() || 'UNIDADE';
+
+      // Normalizar unidades longas que a IA retorna (ex: "PACOTE COM 8 UNIDADES" → "PCT")
+      // O campo no banco é varchar(20)
+      const mapaUnidades: Record<string, string> = {
+        'PACOTE': 'PCT', 'PACOTES': 'PCT', 'CAIXA': 'CX', 'CAIXAS': 'CX',
+        'UNIDADE': 'UN', 'UNIDADES': 'UN', 'LITRO': 'LT', 'LITROS': 'LT',
+        'GALÃO': 'GL', 'GALÕES': 'GL', 'GARRAFA': 'GF', 'GARRAFAS': 'GF',
+        'FRASCO': 'FR', 'FRASCOS': 'FR', 'ROLO': 'RL', 'ROLOS': 'RL',
+        'RESMA': 'RM', 'RESMAS': 'RM', 'BALDE': 'BD', 'BALDES': 'BD',
+      };
+      const unidadeUpper = unidade_medida.toUpperCase();
+      const primeiraP = unidadeUpper.split(/\s+/)[0];
+      if (mapaUnidades[primeiraP]) {
+        unidade_medida = mapaUnidades[primeiraP];
+      } else if (mapaUnidades[unidadeUpper]) {
+        unidade_medida = mapaUnidades[unidadeUpper];
+      }
+      if (unidade_medida.length > 20) {
+        unidade_medida = unidade_medida.substring(0, 20);
+      }
+
       const quantidade = Number(item?.quantidade) || 0;
       let valor_unitario = Number(item?.valor_unitario) || 0;
       const quantidade_meses = item?.quantidade_meses != null ? Number(item.quantidade_meses) || null : null;
@@ -495,22 +516,42 @@ function inferirCategoriaContrato(params: {
   }>;
 }): CategoriaContrato {
   const objeto = String(params.objeto || '').toLowerCase();
+
+  // Prioridade 1: objeto do contrato indica claramente COMPRAS (aquisição de produtos/materiais)
+  if (/(aquisi[cç][aã]o|fornecimento de (material|produto|equipamento|m[oó]vel)|compra de)/i.test(objeto)) {
+    return CategoriaContrato.COMPRAS;
+  }
+
+  // Prioridade 2: objeto indica OBRAS
+  if (/(obra|reforma|amplia[cç][aã]o|constru[cç][aã]o)/i.test(objeto)) {
+    return CategoriaContrato.OBRAS;
+  }
+
+  // Prioridade 3: objeto indica ENGENHARIA
+  if (/(engenharia|projeto executivo|projeto b[aá]sico|servi[cç]os? de engenharia)/i.test(objeto)) {
+    return CategoriaContrato.SERVICOS_ENGENHARIA;
+  }
+
+  // Prioridade 4: objeto indica SERVIÇOS
+  if (/(presta[cç][aã]o de servi[cç]o|assessoria|consultoria|software|sistema|licen[cç]a|loca[cç][aã]o|manuten[cç][aã]o|suporte t[eé]cnico)/i.test(objeto)) {
+    return CategoriaContrato.SERVICOS;
+  }
+
+  // Fallback: analisar itens (só se o objeto não foi conclusivo)
   const itens = params.itens || [];
   const textoItens = itens
     .map((item) => `${item?.descricao || ''} ${item?.unidade_medida || ''}`.toLowerCase())
     .join(' ');
-  const textoBase = `${objeto} ${textoItens}`;
 
-  if (/(obra|reforma|amplia[cç][aã]o|constru[cç][aã]o)/i.test(textoBase)) {
+  if (/(obra|reforma|constru[cç][aã]o)/i.test(textoItens)) {
     return CategoriaContrato.OBRAS;
   }
 
-  if (/(engenharia|projeto executivo|projeto b[aá]sico|servi[cç]os? de engenharia)/i.test(textoBase)) {
-    return CategoriaContrato.SERVICOS_ENGENHARIA;
-  }
-
-  if (/(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|mensalidade|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos|servi[cç]o|substitui[cç][aã]o|instala[cç][aã]o|reparo|abertura|c[oó]pias? de chaves|fechadura)/i.test(textoBase)) {
-    return CategoriaContrato.SERVICOS;
+  // Heurística: unidades como UN, PCT, CX, KG, LT indicam compras
+  const unidades = itens.map((i) => (i?.unidade_medida || '').toUpperCase());
+  const unidadesCompra = unidades.filter((u) => /^(UN|UND|UNID|UNIDADE|PCT|PACOTE|CX|CAIXA|KG|LT|ML|LITRO|ROLO|FRASCO|GALÃO|GARRAFA|BALDE|SACO|RESMA|PAR|POTE)$/i.test(u));
+  if (unidadesCompra.length > itens.length * 0.5) {
+    return CategoriaContrato.COMPRAS;
   }
 
   return CategoriaContrato.COMPRAS;
@@ -1413,22 +1454,25 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
   }
 
   /**
-   * Extrai itens via texto extraído (para PDFs digitais)
+   * Extrai itens via texto extraído (para PDFs digitais).
+   * Quando o texto é muito longo, divide em partes e faz múltiplas chamadas à IA.
    */
   private async extrairItensViaTexto(textoExtraido: string, contratoNumero?: string): Promise<Array<any>> {
     try {
       const trechoTabela = extrairTrechoBrutoTabelaItens(textoExtraido);
-      const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+      const textoParaIA = trechoTabela || textoExtraido;
+
+      const promptBase = `Você é um especialista em extrair itens de contratos públicos brasileiros.
 
 CONTRATO: ${contratoNumero || 'não informado'}
 
 REGRAS:
-- Extraia APENAS a lista de itens do contrato
+- Extraia TODOS os itens do contrato — não pare antes de listar todos
 - NUNCA invente dados - use apenas o que está no documento
-- Cada item deve ter: descrição, unidade de medida, quantidade, valor unitário
+- Cada item deve ter: descrição, unidade de medida (abreviada: UN, PCT, CX, KG, LT, RL, FR, GL), quantidade, valor unitário
+- Para unidade de medida, use abreviações curtas (máximo 10 caracteres)
 - Para contratos contínuos (mensais), use quantidade_meses
 - Se houver tabela, preserve cada linha como um item separado
-- Se a resposta inicial não ficar em JSON perfeito, ainda assim você deve retornar SOMENTE JSON válido
 - Retorne APENAS JSON válido, sem texto adicional
 
 Schema de retorno:
@@ -1436,7 +1480,7 @@ Schema de retorno:
   "itens": [
     {
       "descricao": "descrição completa do item",
-      "unidade_medida": "UNIDADE", 
+      "unidade_medida": "UN", 
       "quantidade": 10,
       "valor_unitario": 100.00,
       "quantidade_meses": null,
@@ -1448,21 +1492,50 @@ Schema de retorno:
 
 Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item encontrado"}`;
 
-      const respostaIA = await this.iaService.chatComArquivo(
-        promptExtracaoItens,
-        undefined,
-        undefined,
-        trechoTabela || textoExtraido
-      );
-
-      const itens = extrairItensDaRespostaIA(respostaIA);
-      if (itens.length === 0) {
-        this.logger.warn('IA não retornou lista de itens válida');
-        return [];
+      // Se texto curto (< 15k chars), envia tudo de uma vez com max_tokens maior
+      if (textoParaIA.length < 15000) {
+        const respostaIA = await this.iaService.chatComArquivoComMaxTokens(
+          promptBase, undefined, undefined, textoParaIA, 8000,
+        );
+        const itens = extrairItensDaRespostaIA(respostaIA);
+        this.logger.log(`Itens extraídos via texto: ${itens.length}`);
+        return itens;
       }
 
-      this.logger.log(`Itens extraídos via texto: ${itens.length}`);
-      return itens;
+      // Texto longo — dividir em partes de ~12k chars e juntar resultados
+      this.logger.log(`[extrairItensViaTexto] Texto longo (${textoParaIA.length} chars), dividindo em chunks`);
+      const chunkSize = 12000;
+      const chunks: string[] = [];
+      for (let i = 0; i < textoParaIA.length; i += chunkSize) {
+        chunks.push(textoParaIA.slice(i, i + chunkSize));
+      }
+
+      const todosItens: any[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkPrompt = chunks.length > 1
+          ? `${promptBase}\n\n[Parte ${i + 1} de ${chunks.length} do texto do contrato. Extraia TODOS os itens desta parte.]`
+          : promptBase;
+
+        this.logger.log(`[extrairItensViaTexto] Enviando chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
+        const respostaIA = await this.iaService.chatComArquivoComMaxTokens(
+          chunkPrompt, undefined, undefined, chunks[i], 8000,
+        );
+        const itens = extrairItensDaRespostaIA(respostaIA);
+        this.logger.log(`[extrairItensViaTexto] Chunk ${i + 1}: ${itens.length} itens`);
+        todosItens.push(...itens);
+      }
+
+      // Deduplicar por descrição + valor
+      const vistos = new Set<string>();
+      const itensDedupados = todosItens.filter((item) => {
+        const chave = `${item.descricao}|${item.valor_unitario}|${item.quantidade}`;
+        if (vistos.has(chave)) return false;
+        vistos.add(chave);
+        return true;
+      });
+
+      this.logger.log(`Itens extraídos via texto: ${itensDedupados.length} (de ${todosItens.length} brutos, ${chunks.length} chunks)`);
+      return itensDedupados;
     } catch (error) {
       this.logger.error(`Erro na extração via texto: ${error.message}`);
       return [];
