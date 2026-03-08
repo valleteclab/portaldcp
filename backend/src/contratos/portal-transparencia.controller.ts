@@ -92,6 +92,23 @@ export class PortalTransparenciaController {
     );
   }
 
+  @Get('aditivos/:portalContratoId')
+  async buscarAditivos(
+    @Param('portalContratoId') portalContratoId: string,
+  ) {
+    return this.portalTransparenciaService.buscarAditivosPortal(portalContratoId);
+  }
+
+  @Post('importar-aditivos')
+  async importarAditivos(
+    @Body() body: { contrato_id: string; aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }> },
+  ) {
+    if (!body.contrato_id || !body.aditivos?.length) {
+      throw new BadRequestException('contrato_id e aditivos são obrigatórios');
+    }
+    return this.portalTransparenciaService.importarAditivos(body.contrato_id, body.aditivos);
+  }
+
   @Get('importar-individual-status/:jobId')
   async obterStatusImportacaoContratoIndividualCompleto(
     @Param('jobId') jobId: string,

@@ -37,6 +37,7 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 
 interface ContratoAPI {
+  id?: string
   contratoNumero: string
   documento: string
   favorecido: string
@@ -58,6 +59,15 @@ interface ContratoAPI {
   divergenciaValor?: number
   percentualDivergencia?: number
   avisoConferencia?: string
+}
+
+interface AditivoPortal {
+  nome: string
+  tipo: string
+  valor: string
+  vigencia: string
+  fiscal: string
+  pdf_url: string
 }
 
 interface ImportacaoIndividualStatus {
@@ -106,6 +116,16 @@ export default function ImportarPortalTransparenciaPage() {
   const [limite, setLimite] = useState(50)
   const [apenasVigentes, setApenasVigentes] = useState(true)
   const [avisoImportacao, setAvisoImportacao] = useState<AvisoImportacao | null>(null)
+  const [aditivosModal, setAditivosModal] = useState<{
+    open: boolean
+    portalId: string
+    contratoNumero: string
+    contratoIdSistema?: string
+    aditivos: AditivoPortal[]
+    loading: boolean
+    importando: boolean
+    resultado?: { importados: number; ja_existentes: number; erros: number }
+  } | null>(null)
   const pollersRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
@@ -400,6 +420,56 @@ export default function ImportarPortalTransparenciaPage() {
     }
   }
 
+  const abrirAditivos = async (contrato: ContratoAPI) => {
+    if (!contrato.id) return
+    setAditivosModal({
+      open: true,
+      portalId: contrato.id,
+      contratoNumero: contrato.contratoNumero,
+      contratoIdSistema: contrato.contrato_id_existente,
+      aditivos: [],
+      loading: true,
+      importando: false,
+    })
+
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/aditivos/${contrato.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAditivosModal((prev) => prev ? { ...prev, aditivos: data.aditivos || [], loading: false } : null)
+      } else {
+        setAditivosModal((prev) => prev ? { ...prev, loading: false } : null)
+      }
+    } catch {
+      setAditivosModal((prev) => prev ? { ...prev, loading: false } : null)
+    }
+  }
+
+  const importarAditivos = async () => {
+    if (!aditivosModal?.contratoIdSistema || !aditivosModal.aditivos.length) return
+    setAditivosModal((prev) => prev ? { ...prev, importando: true } : null)
+
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-aditivos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contrato_id: aditivosModal.contratoIdSistema,
+          aditivos: aditivosModal.aditivos,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setAditivosModal((prev) => prev ? { ...prev, importando: false, resultado: data } : null)
+      } else {
+        setAditivosModal((prev) => prev ? { ...prev, importando: false } : null)
+      }
+    } catch {
+      setAditivosModal((prev) => prev ? { ...prev, importando: false } : null)
+    }
+  }
+
   const formatarValor = (contrato: ContratoAPI) => {
     // Tentar usar aditivos_valor_total primeiro, senão valor_contrato
     if (contrato.aditivos_valor_total) {
@@ -464,6 +534,88 @@ export default function ImportarPortalTransparenciaPage() {
             >
               Conferir contrato importado
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Modal Aditivos */}
+      <AlertDialog
+        open={Boolean(aditivosModal?.open)}
+        onOpenChange={(open) => { if (!open) setAditivosModal(null) }}
+      >
+        <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Aditivos — {aditivosModal?.contratoNumero}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {aditivosModal?.loading
+                ? 'Buscando aditivos no Portal de Transparência...'
+                : `${aditivosModal?.aditivos.length || 0} aditivo(s) encontrado(s)`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {aditivosModal?.loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {aditivosModal?.aditivos.map((aditivo, i) => (
+                <div key={i} className="border rounded-lg p-3 text-sm space-y-1">
+                  <div className="font-medium">{aditivo.nome}</div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-600">
+                    <span>Tipo: <strong>{aditivo.tipo || '—'}</strong></span>
+                    <span>Valor: <strong>{aditivo.valor || '—'}</strong></span>
+                    <span>Vigência: <strong>{aditivo.vigencia}</strong></span>
+                    <span>Fiscal: {aditivo.fiscal}</span>
+                  </div>
+                  {aditivo.pdf_url && (
+                    <a href={aditivo.pdf_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs inline-flex items-center gap-1">
+                      <Download className="w-3 h-3" /> Baixar PDF
+                    </a>
+                  )}
+                </div>
+              ))}
+
+              {aditivosModal?.resultado && (
+                <Alert className="bg-green-50 border-green-200">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <AlertDescription>
+                    <strong>{aditivosModal.resultado.importados}</strong> importado(s)
+                    {aditivosModal.resultado.ja_existentes > 0 && (
+                      <>, <strong>{aditivosModal.resultado.ja_existentes}</strong> já existente(s)</>
+                    )}
+                    {aditivosModal.resultado.erros > 0 && (
+                      <>, <strong className="text-red-600">{aditivosModal.resultado.erros}</strong> erro(s)</>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            {aditivosModal?.contratoIdSistema && (aditivosModal?.aditivos.length ?? 0) > 0 && !aditivosModal?.resultado && (
+              <Button
+                onClick={importarAditivos}
+                disabled={aditivosModal?.importando}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {aditivosModal?.importando ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Importando...</>
+                ) : (
+                  <><Download className="w-4 h-4 mr-2" /> Importar {aditivosModal?.aditivos.length} aditivo(s)</>
+                )}
+              </Button>
+            )}
+            {!aditivosModal?.contratoIdSistema && (aditivosModal?.aditivos.length ?? 0) > 0 && (
+              <p className="text-sm text-amber-600 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                Importe o contrato primeiro para poder importar os aditivos.
+              </p>
+            )}
+            <AlertDialogAction>Fechar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -676,7 +828,16 @@ export default function ImportarPortalTransparenciaPage() {
                         </p>
                       </td>
                       <td className="py-3 px-2 text-right font-medium">
-                        {formatarValor(contrato)}
+                        <div>{formatarValor(contrato)}</div>
+                        {contrato.aditivos_valor_total && parseFloat(contrato.aditivos_valor_total) > 0 && (
+                          <button
+                            onClick={() => abrirAditivos(contrato)}
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1 inline-flex items-center gap-1"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Aditivos: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(contrato.aditivos_valor_total))}
+                          </button>
+                        )}
                       </td>
                       <td className="py-3 px-2 text-center">
                         <Badge variant="outline">

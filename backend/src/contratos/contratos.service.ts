@@ -377,6 +377,12 @@ export class ContratosService {
     return contrato || null;
   }
 
+  async buscarTermoAditivoPorNome(contratoId: string, nome: string): Promise<TermoAditivo | null> {
+    return this.termoAditivoRepository.findOne({
+      where: { contrato_id: contratoId, objeto: nome },
+    }) as Promise<TermoAditivo | null>;
+  }
+
   async findByNumeros(numeros: string[], orgaoId: string): Promise<Contrato[]> {
     if (numeros.length === 0) return [];
     return this.contratoRepository.find({

@@ -527,6 +527,145 @@ export class PortalTransparenciaService {
   ) {}
 
   /**
+   * Busca aditivos de um contrato no Portal de Transparência via scraping HTML.
+   */
+  async buscarAditivosPortal(portalContratoId: string): Promise<{
+    contrato_numero: string;
+    aditivos: Array<{
+      nome: string;
+      tipo: string;
+      valor: string;
+      vigencia: string;
+      fiscal: string;
+      pdf_url: string;
+    }>;
+  }> {
+    const url = `https://portaldatransparencia.cmlem.ba.gov.br/aditivos/?id=${portalContratoId}`;
+    this.logger.log(`[buscarAditivosPortal] Scraping: ${url}`);
+
+    const response = await firstValueFrom(
+      this.httpService.get(url, { responseType: 'text', timeout: 15000 }),
+    );
+    const html: string = response.data;
+
+    const contratoMatch = html.match(/<h3[^>]*>.*?Contrato.*?<\/h3>\s*<table[^>]*>([\s\S]*?)<\/table>/i);
+    let contratoNumero = '';
+    if (contratoMatch) {
+      const firstTd = contratoMatch[1].match(/<td[^>]*>([\s\S]*?)<\/td>/);
+      contratoNumero = firstTd ? firstTd[1].replace(/<[^>]+>/g, '').trim() : '';
+    }
+
+    const aditivosMatch = html.match(/Aditivos do contrato[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/i);
+    const aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }> = [];
+
+    if (aditivosMatch) {
+      const tableHtml = aditivosMatch[1];
+      const rows = [...tableHtml.matchAll(/<tr>([\s\S]*?)<\/tr>/gi)];
+
+      for (const row of rows) {
+        const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => m[1]);
+        if (cells.length < 5) continue;
+
+        const clean = (s: string) => s.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+        const pdfMatch = cells[cells.length - 1]?.match(/href="([^"]+)"/);
+
+        aditivos.push({
+          nome: clean(cells[0]),
+          tipo: clean(cells[1]),
+          valor: clean(cells[2]),
+          vigencia: clean(cells[3]),
+          fiscal: clean(cells[4]),
+          pdf_url: pdfMatch ? pdfMatch[1] : '',
+        });
+      }
+    }
+
+    this.logger.log(`[buscarAditivosPortal] Encontrados ${aditivos.length} aditivos para contrato ${contratoNumero}`);
+    return { contrato_numero: contratoNumero, aditivos };
+  }
+
+  /**
+   * Importa aditivos do Portal de Transparência para um contrato existente no sistema.
+   */
+  async importarAditivos(
+    contratoId: string,
+    aditivos: Array<{
+      nome: string;
+      tipo: string;
+      valor: string;
+      vigencia: string;
+      fiscal: string;
+      pdf_url: string;
+    }>,
+  ): Promise<{ importados: number; ja_existentes: number; erros: number; detalhes: Array<{ nome: string; status: string; mensagem?: string }> }> {
+    const resultado = { importados: 0, ja_existentes: 0, erros: 0, detalhes: [] as Array<{ nome: string; status: string; mensagem?: string }> };
+
+    for (const aditivo of aditivos) {
+      try {
+        const existente = await this.contratosService.buscarTermoAditivoPorNome(contratoId, aditivo.nome);
+        if (existente) {
+          resultado.ja_existentes++;
+          resultado.detalhes.push({ nome: aditivo.nome, status: 'ja_existe' });
+          continue;
+        }
+
+        const tipoTexto = (aditivo.tipo || '').toLowerCase();
+        let tipo: string;
+        if (tipoTexto.includes('prazo') && (tipoTexto.includes('valor') || tipoTexto.includes('acréscimo'))) {
+          tipo = 'ADITIVO_PRAZO_VALOR';
+        } else if (tipoTexto.includes('prazo')) {
+          tipo = 'ADITIVO_PRAZO';
+        } else if (tipoTexto.includes('acréscimo') || tipoTexto.includes('valor') || tipoTexto.includes('acresc')) {
+          tipo = 'ADITIVO_VALOR';
+        } else if (tipoTexto.includes('supressão') || tipoTexto.includes('supress')) {
+          tipo = 'ADITIVO_VALOR';
+        } else if (tipoTexto.includes('apostil')) {
+          tipo = 'APOSTILAMENTO';
+        } else if (tipoTexto.includes('rescis')) {
+          tipo = 'RESCISAO';
+        } else if (tipoTexto.includes('reajuste')) {
+          tipo = 'REAJUSTE';
+        } else {
+          tipo = 'ADITIVO_PRAZO_VALOR';
+        }
+
+        let valorNum = 0;
+        if (aditivo.valor) {
+          valorNum = parseFloat(aditivo.valor.replace(/^R\$\s*/, '').replace(/\./g, '').replace(',', '.')) || 0;
+        }
+
+        const datas = aditivo.vigencia.match(/(\d{2}\/\d{2}\/\d{4})/g) || [];
+        const parseData = (d: string) => {
+          const [dia, mes, ano] = d.split('/').map(Number);
+          return new Date(ano, mes - 1, dia);
+        };
+        const dataInicio = datas[0] ? parseData(datas[0]) : new Date();
+        const dataFim = datas[1] ? parseData(datas[1]) : undefined;
+
+        await this.contratosService.criarTermoAditivo(contratoId, {
+          tipo: tipo as any,
+          objeto: `${aditivo.nome} — importado do Portal de Transparência`,
+          valor_acrescimo: valorNum > 0 ? valorNum : undefined,
+          data_assinatura: dataInicio,
+          data_vigencia_inicio: dataInicio,
+          data_vigencia_fim: dataFim,
+          nova_data_vigencia_fim: dataFim,
+          observacoes: `Fiscal: ${aditivo.fiscal}. Importado automaticamente do Portal de Transparência.`,
+        } as any);
+
+        resultado.importados++;
+        resultado.detalhes.push({ nome: aditivo.nome, status: 'importado' });
+      } catch (err: any) {
+        resultado.erros++;
+        resultado.detalhes.push({ nome: aditivo.nome, status: 'erro', mensagem: err.message });
+        this.logger.warn(`[importarAditivos] Erro no aditivo "${aditivo.nome}": ${err.message}`);
+      }
+    }
+
+    return resultado;
+  }
+
+  /**
    * Busca contratos na API do Portal de Transparência
    */
   async buscarContratos(params: {
