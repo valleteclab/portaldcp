@@ -78,6 +78,8 @@ interface ImportacaoIndividualStatus {
   mensagem: string
   contrato_id?: string
   itens_criados?: number
+  itens_total_pdf?: number
+  itens_faltantes?: number[]
   valor_contrato_referencia?: number
   valor_itens_importados?: number
   divergencia_valor?: number
@@ -97,6 +99,8 @@ interface AvisoImportacao {
   valorItensImportados?: number
   divergenciaValor?: number
   percentualDivergencia?: number
+  itensTotalPdf?: number
+  itensFaltantes?: number[]
 }
 
 interface ResultadoImportacao {
@@ -282,16 +286,18 @@ export default function ImportarPortalTransparenciaPage() {
             }
 
             if (status.status === 'concluido' && status.contrato_id) {
-              if (status.aviso_conferencia) {
+              if (status.aviso_conferencia || (status.itens_faltantes && status.itens_faltantes.length > 0)) {
                 setAvisoImportacao({
                   open: true,
                   contratoNumero: contratoNumero,
                   contratoId: status.contrato_id,
-                  avisoConferencia: status.aviso_conferencia,
+                  avisoConferencia: status.aviso_conferencia || '',
                   valorContratoReferencia: status.valor_contrato_referencia,
                   valorItensImportados: status.valor_itens_importados,
                   divergenciaValor: status.divergencia_valor,
                   percentualDivergencia: status.percentual_divergencia,
+                  itensTotalPdf: status.itens_total_pdf,
+                  itensFaltantes: status.itens_faltantes,
                 })
               } else {
                 window.setTimeout(() => {
@@ -504,22 +510,50 @@ export default function ImportarPortalTransparenciaPage() {
               <span>Contrato</span>
               <span className="font-medium">{avisoImportacao?.contratoNumero}</span>
             </div>
-            <div className="flex items-center justify-between gap-4">
-              <span>Valor de referência</span>
-              <span className="font-medium">{formatCurrency(avisoImportacao?.valorContratoReferencia)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span>Soma dos itens importados</span>
-              <span className="font-medium">{formatCurrency(avisoImportacao?.valorItensImportados)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span>Diferença</span>
-              <span className="font-medium text-amber-700">{formatCurrency(Math.abs(Number(avisoImportacao?.divergenciaValor || 0)))}</span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span>Divergência percentual</span>
-              <span className="font-medium text-amber-700">{Number(avisoImportacao?.percentualDivergencia || 0).toFixed(2)}%</span>
-            </div>
+            {avisoImportacao?.itensTotalPdf && (
+              <div className="flex items-center justify-between gap-4">
+                <span>Itens no PDF</span>
+                <span className="font-medium">{avisoImportacao.itensTotalPdf}</span>
+              </div>
+            )}
+            {(avisoImportacao?.valorContratoReferencia ?? 0) > 0 && (
+              <>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Valor de referência</span>
+                  <span className="font-medium">{formatCurrency(avisoImportacao?.valorContratoReferencia)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Soma dos itens importados</span>
+                  <span className="font-medium">{formatCurrency(avisoImportacao?.valorItensImportados)}</span>
+                </div>
+              </>
+            )}
+            {(avisoImportacao?.divergenciaValor ?? 0) !== 0 && (
+              <>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Diferença</span>
+                  <span className="font-medium text-amber-700">{formatCurrency(Math.abs(Number(avisoImportacao?.divergenciaValor || 0)))}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Divergência percentual</span>
+                  <span className="font-medium text-amber-700">{Number(avisoImportacao?.percentualDivergencia || 0).toFixed(2)}%</span>
+                </div>
+              </>
+            )}
+            {avisoImportacao?.itensFaltantes && avisoImportacao.itensFaltantes.length > 0 && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="font-medium text-amber-800 mb-1">
+                  <AlertCircle className="w-4 h-4 inline mr-1" />
+                  {avisoImportacao.itensFaltantes.length} item(ns) n{'\u00E3'}o extra{'\u00ED'}do(s):
+                </p>
+                <p className="text-amber-700">
+                  Itens n{'\u00BA'} {avisoImportacao.itensFaltantes.join(', ')}
+                </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  Adicione-os manualmente na aba Itens do contrato.
+                </p>
+              </div>
+            )}
           </div>
 
           <AlertDialogFooter>

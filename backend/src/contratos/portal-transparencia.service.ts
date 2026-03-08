@@ -586,6 +586,8 @@ export interface ImportacaoContratoJobStatus {
   mensagem: string;
   contrato_id?: string;
   itens_criados?: number;
+  itens_total_pdf?: number;
+  itens_faltantes?: number[];
   valor_contrato_referencia?: number;
   valor_itens_importados?: number;
   divergencia_valor?: number;
@@ -1387,11 +1389,24 @@ ${textoRetry}`;
 
       const itens = Array.from(itensMap.entries())
         .sort((a, b) => a[0] - b[0])
-        .map(([, item]) => item);
+        .map(([numItem, item]) => ({ ...item, numero_item: numItem }));
+
+      const faltantesFinais = blocos
+        .filter((b) => !itensMap.has(b.numero_item))
+        .map((b) => b.numero_item);
 
       if (itens.length > 0) {
         this.logger.log(`Itens extraídos via tabela chunked: ${itens.length} de ${blocos.length} blocos`);
+        if (faltantesFinais.length > 0) {
+          this.logger.warn(`Itens NÃO extraídos (${faltantesFinais.length}): ${faltantesFinais.join(', ')}`);
+        }
       }
+
+      // Anexar metadata ao array para o caller
+      (itens as any)._meta = {
+        total_blocos: blocos.length,
+        faltantes: faltantesFinais,
+      };
 
       return itens;
     } catch (error) {
@@ -1603,6 +1618,8 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
   ): Promise<{
     contrato_id?: string;
     itens_criados: number;
+    itens_total_pdf?: number;
+    itens_faltantes?: number[];
     pdf_baixado: boolean;
     itens_extraidos: boolean;
     mensagem: string;
@@ -1615,6 +1632,8 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
     const resultado = {
       contrato_id: undefined as string | undefined,
       itens_criados: 0,
+      itens_total_pdf: undefined as number | undefined,
+      itens_faltantes: undefined as number[] | undefined,
       pdf_baixado: false,
       itens_extraidos: false,
       mensagem: '',
@@ -1706,7 +1725,12 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
             mensagem: 'Agente de IA está lendo o PDF e extraindo os itens do contrato',
           });
           const itens = await this.extrairItensDoPdf(pdfBuffer, contratoApi.contratoNumero);
-          
+          const metaItens = (itens as any)?._meta as { total_blocos?: number; faltantes?: number[] } | undefined;
+          if (metaItens?.total_blocos) {
+            resultado.itens_total_pdf = metaItens.total_blocos;
+            resultado.itens_faltantes = metaItens.faltantes;
+          }
+
           const contratoCompleto = await this.contratoRepository.findOne({ where: { id: contratoCriado.id } });
           if (!contratoCompleto) {
             throw new Error('Contrato criado não encontrado para salvar itens');
@@ -1859,12 +1883,23 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         resultado.mensagem += ' (sem URL de PDF)';
       }
 
+      // Aviso sobre itens faltantes
+      if (resultado.itens_faltantes && resultado.itens_faltantes.length > 0) {
+        const avisoFaltantes = `${resultado.itens_faltantes.length} item(ns) não foram extraídos automaticamente (nº ${resultado.itens_faltantes.join(', ')}). Adicione-os manualmente na aba Itens.`;
+        resultado.aviso_conferencia = resultado.aviso_conferencia
+          ? `${resultado.aviso_conferencia} | ${avisoFaltantes}`
+          : avisoFaltantes;
+      }
+
       onProgress?.({
         progresso: 99,
         etapa: 'Finalizando',
         mensagem: 'Finalizando importação e preparando redirecionamento',
         contrato_id: resultado.contrato_id,
         itens_criados: resultado.itens_criados,
+        itens_total_pdf: resultado.itens_total_pdf,
+        itens_faltantes: resultado.itens_faltantes,
+        aviso_conferencia: resultado.aviso_conferencia,
       });
 
       return resultado;
