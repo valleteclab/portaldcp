@@ -517,8 +517,8 @@ function inferirCategoriaContrato(params: {
 }): CategoriaContrato {
   const objeto = String(params.objeto || '').toLowerCase();
 
-  // Prioridade 1: objeto do contrato indica claramente COMPRAS (aquisição de produtos/materiais)
-  if (/(aquisi[cç][aã]o|fornecimento de (material|produto|equipamento|m[oó]vel)|compra de)/i.test(objeto)) {
+  // Prioridade 1: objeto do contrato indica claramente COMPRAS (aquisição/fornecimento de produtos/materiais)
+  if (/(aquisi[cç][aã]o|fornecimento de (materia|produto|equipamento|m[oó]ve)[a-zà-ú]*|compra de)/i.test(objeto)) {
     return CategoriaContrato.COMPRAS;
   }
 
