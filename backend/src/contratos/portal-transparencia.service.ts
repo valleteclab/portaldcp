@@ -124,6 +124,98 @@ function extrairItensDaRespostaIA(respostaIA: string): Array<any> {
   return normalizarItensExtraidos(dadosExtraidos.itens);
 }
 
+function parseNumeroBrasileiro(valor?: string | null): number {
+  if (!valor) return 0;
+  const normalizado = String(valor)
+    .replace(/R\$/gi, '')
+    .replace(/\s+/g, '')
+    .replace(/\./g, '')
+    .replace(/,/g, '.');
+
+  return Number(normalizado) || 0;
+}
+
+function limparTextoTabelaItens(texto: string): string {
+  return texto
+    .replace(/\r/g, ' ')
+    .replace(/\n/g, ' ')
+    .replace(/Rua Octogonal[\s\S]*?www\.cmlem\.ba\.qov\.br/gi, ' ')
+    .replace(/CNPJ\s+[\d./-]+[\s\S]*?www\.cmlem\.ba\.qov\.br/gi, ' ')
+    .replace(/\b\d{6}\b/g, ' ')
+    .replace(/ITEM\s+DESCRIÇÃO\s*LOCAL\s+DE\s+INSTALAÇÃO\s*UNID\.?\s*Q[UÜ]ANT\.?\s*VALOR[\s\S]*?TOTAL/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extrairItensTabelaTexto(textoExtraido: string): Array<{
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  quantidade_meses?: number | null;
+  valor_total?: number;
+}> {
+  const textoLimpo = limparTextoTabelaItens(textoExtraido);
+  const inicioTabela = textoLimpo.search(/1\s*Persiana|1\s*Cortina|1\s*[A-ZÁ-Úa-zá-ú]/i);
+  const texto = inicioTabela >= 0 ? textoLimpo.slice(inicioTabela) : textoLimpo;
+  const itemStartPattern = /(?:^|\s)(\d{1,3})(?=Persiana|Cortina|Pel[ií]cula|Fornecimento|Servi[cç]o)/gi;
+  const valorPattern = /^(.*?)\s+(M2|M²|M3|M³|UNIDADE|UNID\.?|UND\.?|UN|M|METRO|METROS|MES|MÊS|MESES|DIARIA|DIÁRIA|HORA|HORAS|KG|QUILOGRAMA|LITRO|LITROS)\s+([\d.,\s]+)\s+R\s*\$?\s*([\d.,\s]+)\s+R\s*(?:\$|S)?\s*([\d.,\s]+)/i;
+  const inicios = Array.from(texto.matchAll(itemStartPattern));
+
+  const itens = new Map<number, {
+    descricao: string;
+    unidade_medida: string;
+    quantidade: number;
+    valor_unitario: number;
+    quantidade_meses?: number | null;
+    valor_total?: number;
+  }>();
+
+  for (let indice = 0; indice < inicios.length; indice++) {
+    const match = inicios[indice];
+    const numeroItem = Number(match[1]);
+    const inicioBloco = match.index ?? 0;
+    const fimBloco = indice + 1 < inicios.length
+      ? (inicios[indice + 1].index ?? texto.length)
+      : texto.length;
+
+    let bloco = texto.slice(inicioBloco, fimBloco)
+      .replace(/^\s*\d{1,3}/, '')
+      .replace(/O valor global do contrato[\s\S]*$/i, ' ')
+      .replace(/\d+\.\s*CL[ÁA]USULA[\s\S]*$/i, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const partes = bloco.match(valorPattern);
+    if (!partes) {
+      continue;
+    }
+
+    const descricao = partes[1].replace(/\s+/g, ' ').trim();
+    const unidade = partes[2].replace(/\.+$/g, '').trim();
+    const quantidade = parseNumeroBrasileiro(partes[3]);
+    const valorUnitario = parseNumeroBrasileiro(partes[4]);
+    const valorTotal = parseNumeroBrasileiro(partes[5]);
+
+    if (!descricao || !quantidade || !valorUnitario) {
+      continue;
+    }
+
+    itens.set(numeroItem, {
+      descricao,
+      unidade_medida: unidade,
+      quantidade,
+      valor_unitario: valorUnitario,
+      quantidade_meses: null,
+      valor_total: valorTotal || Number((quantidade * valorUnitario).toFixed(2)),
+    });
+  }
+
+  return Array.from(itens.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, item]) => item);
+}
+
 function mapearUnidadeMedidaContrato(unidade?: string | null): UnidadeMedidaContrato {
   const valor = String(unidade || '').trim().toUpperCase();
 
@@ -639,6 +731,12 @@ export class PortalTransparenciaService {
 
       if (textoExtraido.trim().length >= 100) {
         this.logger.log(`Texto extraído: ${textoExtraido.length} caracteres`);
+        const itensViaParser = extrairItensTabelaTexto(textoExtraido);
+        if (itensViaParser.length > 0) {
+          this.logger.log(`Itens extraídos via parser textual: ${itensViaParser.length}`);
+          return itensViaParser;
+        }
+
         const itensViaTexto = await this.extrairItensViaTexto(textoExtraido, contratoNumero);
         if (itensViaTexto.length > 0) {
           return itensViaTexto;
