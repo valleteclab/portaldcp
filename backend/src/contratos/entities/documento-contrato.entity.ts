@@ -8,6 +8,7 @@ export enum TipoDocumentoContrato {
   APOSTILAMENTO = 'APOSTILAMENTO',
   ANEXO = 'ANEXO',
   ATA = 'ATA',
+  EXTRATO = 'EXTRATO',
   OUTROS = 'OUTROS',
 }
 

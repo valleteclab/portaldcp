@@ -88,12 +88,13 @@ export class ImportarMedicaoIaService {
       if (textoExtraido.trim().length >= 100) {
         respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_MEDICAO, undefined, undefined, textoExtraido);
       } else {
-        const pdfBase64 = file.buffer.toString('base64');
+        this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
         try {
-          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_MEDICAO, pdfBase64, 'application/pdf');
+          respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_MEDICAO, file.buffer);
         } catch {
           throw new BadRequestException(
-            'PDF escaneado sem texto digital. Tire uma foto/screenshot e envie como imagem JPG ou PNG.',
+            'PDF escaneado sem texto digital. O sistema tentou converter para imagens mas falhou. ' +
+            'Tire uma foto/screenshot e envie como imagem JPG ou PNG.',
           );
         }
       }

@@ -339,17 +339,15 @@ export class ImportarContratoIaService {
       this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
       if (textoExtraido.trim().length >= 200) {
-        // PDF digital com texto — envia apenas o texto (sem visão)
         respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
       } else {
-        // PDF escaneado sem texto — tenta via image_url base64
-        this.logger.log('PDF escaneado: tentando via Vision base64');
-        const pdfBase64 = file.buffer.toString('base64');
+        this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
         try {
-          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, pdfBase64, 'application/pdf');
+          respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_EXTRACAO, file.buffer);
         } catch (visionErr: any) {
           throw new BadRequestException(
             'Este PDF parece ser escaneado (sem texto digital). ' +
+            'O sistema tentou converter para imagens mas falhou. ' +
             'Tire uma foto/screenshot do contrato e envie como imagem JPG ou PNG.',
           );
         }

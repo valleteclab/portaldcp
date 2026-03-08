@@ -1134,12 +1134,11 @@ ${textoChunk}`;
   }
 
   /**
-   * Extrai itens usando IA com Vision (para PDFs escaneados)
+   * Extrai itens usando IA com Vision (para PDFs escaneados).
+   * Usa conversão PDF→imagens (pdftoppm) + Vision por página quando disponível.
    */
   private async extrairItensViaVision(pdfBuffer: Buffer, contratoNumero?: string, textoFallback?: string): Promise<Array<any>> {
     try {
-      const pdfBase64 = pdfBuffer.toString('base64');
-      
       const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
 Analise este PDF de contrato e extraia a tabela de itens/serviços do contrato ${contratoNumero || ''}.
 
@@ -1168,10 +1167,9 @@ Schema de retorno:
 
 Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item encontrado"}`;
 
-      const respostaIA = await this.iaService.chatComArquivo(
+      const respostaIA = await this.iaService.chatComPdfEscaneado(
         promptExtracaoItens,
-        pdfBase64,
-        'application/pdf'
+        pdfBuffer,
       );
 
       const itens = extrairItensDaRespostaIA(respostaIA);
