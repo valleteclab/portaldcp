@@ -369,6 +369,46 @@ function mapearUnidadeMedidaContrato(unidade?: string | null): UnidadeMedidaCont
   return UnidadeMedidaContrato.UNIDADE;
 }
 
+function inferirModalidadeExecucaoContrato(params: {
+  objeto?: string;
+  itens?: Array<{
+    descricao?: string;
+    unidade_medida?: string;
+    quantidade?: number;
+    quantidade_meses?: number | null;
+  }>;
+}): ModalidadeExecucao {
+  const objeto = String(params.objeto || '').toLowerCase();
+  const itens = params.itens || [];
+  const textoItens = itens
+    .map((item) => `${item?.descricao || ''} ${item?.unidade_medida || ''}`.toLowerCase())
+    .join(' ');
+  const textoBase = `${objeto} ${textoItens}`;
+
+  if (/(licen[cç]a|software|saas|sistema|subscri[cç][aã]o|assinatura digital|nuvem)/i.test(textoBase)) {
+    return ModalidadeExecucao.LICENCA;
+  }
+
+  if (/(ordem de servi[cç]o|sob demanda|demanda|chamado|postos? de servi[cç]o|banco de horas|banco de m[eé]tricas)/i.test(textoBase)) {
+    return ModalidadeExecucao.ORDEM_SERVICO;
+  }
+
+  if (/(medi[cç][aã]o|cronograma|etapa|percentual f[ií]sico|boletim|obra|reforma|engenharia|execu[cç][aã]o de servi[cç]os de engenharia)/i.test(textoBase)) {
+    return ModalidadeExecucao.MEDICAO;
+  }
+
+  if (/(mensal|mensais|continuad|limpeza|vigil[aâ]ncia|portaria|recep[cç][aã]o|copeiragem|manuten[cç][aã]o preventiva|loca[cç][aã]o|aluguel|suporte t[eé]cnico)/i.test(textoBase)) {
+    return ModalidadeExecucao.CONTINUADO;
+  }
+
+  const possuiQuantidadeMeses = itens.some((item) => Number(item?.quantidade_meses) > 0);
+  if (possuiQuantidadeMeses) {
+    return ModalidadeExecucao.CONTINUADO;
+  }
+
+  return ModalidadeExecucao.ITEM_QUANTIDADE;
+}
+
 export interface PortalTransparenciaContrato {
   contratoNumero: string;
   documento: string;
@@ -794,6 +834,10 @@ export class PortalTransparenciaService {
 
     // Criar DTO para o contrato
     this.logger.log(`[importarContratoIndividual] Criando DTO...`);
+    const modalidadeExecucao = inferirModalidadeExecucaoContrato({
+      objeto: contratoApi.contratoObjeto,
+      itens: [],
+    });
     const createDto = {
       orgao_id: orgaoId,
       numero_contrato: contratoApi.contratoNumero.replace('-Contrato', ''),
@@ -809,6 +853,7 @@ export class PortalTransparenciaService {
       fornecedor_cnpj: cnpjLimpo,
       fornecedor_razao_social: contratoApi.favorecido,
       modalidade: 'CONTRATACAO_DIRETA',
+      modalidade_execucao: modalidadeExecucao,
       situacao: 'VIGENTE',
       origem: 'IMPORTADO_PORTAL_TRANSPARENCIA',
     };
@@ -1264,6 +1309,17 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
             throw new Error('Contrato criado não encontrado para salvar itens');
           }
 
+          const modalidadeInferida = inferirModalidadeExecucaoContrato({
+            objeto: contratoCompleto.objeto,
+            itens,
+          });
+
+          if (contratoCompleto.modalidade_execucao !== modalidadeInferida) {
+            contratoCompleto.modalidade_execucao = modalidadeInferida;
+            await this.contratoRepository.save(contratoCompleto);
+            this.logger.log(`Modalidade de execução inferida/atualizada para ${modalidadeInferida} no contrato ${contratoCompleto.numero_contrato}`);
+          }
+
           const valorContratoReferencia = Number(contratoCompleto.valor_global) || Number(contratoCompleto.valor_inicial) || 0;
           resultado.valor_contrato_referencia = valorContratoReferencia;
 
@@ -1309,7 +1365,12 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                 percentual_divergencia: resultado.percentual_divergencia,
                 aviso_conferencia: resultado.aviso_conferencia,
               });
-            } else {
+            } else if ([ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA].includes(contratoCompleto.modalidade_execucao)) {
+              const etapasExistentes = await this.medicaoService.listarEtapas(contratoCriado.id);
+              if (etapasExistentes.length > 0) {
+                resultado.mensagem += ' (contrato com etapas existentes; revise o cronograma manualmente)';
+                this.logger.warn(`Contrato ${contratoCompleto.numero_contrato} está na modalidade ${contratoCompleto.modalidade_execucao} e já possui ${etapasExistentes.length} etapas. Importação automática de itens de cronograma ignorada.`);
+              } else {
               for (let i = 0; i < itens.length; i++) {
                 const item = itens[i];
                 try {
@@ -1337,6 +1398,10 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                   this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
                 }
               }
+              }
+            } else {
+              resultado.mensagem += ` (modalidade ${contratoCompleto.modalidade_execucao} exige conferência manual dos itens)`;
+              this.logger.warn(`Contrato ${contratoCompleto.numero_contrato} inferido como ${contratoCompleto.modalidade_execucao}; itens não foram cadastrados automaticamente.`);
             }
           } else {
             resultado.mensagem += ' (sem itens no PDF)';
