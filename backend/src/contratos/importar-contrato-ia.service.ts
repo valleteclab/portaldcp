@@ -70,7 +70,9 @@ COMO IDENTIFICAR OS CAMPOS:
 - "valor_inicial": mesmo que valor_global se não especificado separadamente
 - "tipo": analise o cabeçalho do documento (CONTRATO, NOTA_EMPENHO, ORDEM_SERVICO, ORDEM_FORNECIMENTO, CARTA_CONTRATO, TERMO_ADESAO, ATA_REGISTRO_PRECO)
 - "categoria": COMPRAS=produtos físicos, SERVICOS=serviços gerais, OBRAS=construção, SERVICOS_ENGENHARIA=eng, LOCACAO=aluguel/locação, ALIENACAO=venda
-- "modalidade_execucao": ITEM_QUANTIDADE=compra de itens, MEDICAO=por medição, CONTINUADO=serviço contínuo mensal, LICENCA=licença de software, ORDEM_SERVICO=por OS
+- "modalidade_execucao": use SOMENTE ITEM_QUANTIDADE ou MEDICAO
+- Escolha ITEM_QUANTIDADE para compras, locação, licença, mensalidade, implantação, software e serviços com itens/parcelas
+- Escolha MEDICAO apenas para contratos com cronograma, etapas, boletim de medição, obra ou execução medida
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
 - "itens": array de objetos, cada um representando um item do contrato
@@ -349,7 +351,7 @@ export class ImportarContratoIaService {
       fornecedor_ja_cadastrado,
       tipo: dadosExtraidos.tipo || 'CONTRATO',
       categoria: dadosExtraidos.categoria || 'SERVICOS',
-      modalidade_execucao: dadosExtraidos.modalidade_execucao || 'ITEM_QUANTIDADE',
+      modalidade_execucao: dadosExtraidos.modalidade_execucao === 'MEDICAO' ? 'MEDICAO' : 'ITEM_QUANTIDADE',
       valor_inicial: Number(dadosExtraidos.valor_inicial) || 0,
       valor_global: Number(dadosExtraidos.valor_global) || 0,
       data_assinatura: dadosExtraidos.data_assinatura || undefined,
@@ -416,23 +418,27 @@ export class ImportarContratoIaService {
       amparo_legal: dados.amparo_legal,
     } as any);
 
-    const modalidade = dados.modalidade_execucao;
+    const modalidade = dados.modalidade_execucao === 'MEDICAO' ? 'MEDICAO' : 'ITEM_QUANTIDADE';
     let itensCriados = 0;
     let aviso: string | undefined;
 
-    if (modalidade === 'CONTINUADO' || modalidade === 'LICENCA') {
-      aviso = 'Modalidade contínua/licença: itens de medição serão cadastrados conforme execução do contrato.';
-    } else if ((modalidade === 'MEDICAO' || modalidade === 'ITEM_QUANTIDADE' || modalidade === 'ORDEM_SERVICO') && dados.itens?.length > 0) {
+    if (dados.modalidade_execucao && !['ITEM_QUANTIDADE', 'MEDICAO'].includes(dados.modalidade_execucao)) {
+      aviso = `Modalidade "${dados.modalidade_execucao}" foi padronizada automaticamente para "${modalidade}".`;
+    }
+
+    if ((modalidade === 'MEDICAO' || modalidade === 'ITEM_QUANTIDADE') && dados.itens?.length > 0) {
       for (const item of dados.itens) {
         try {
-          await this.medicaoService.criarItemCronograma(contrato.id, {
-            descricao: item.descricao,
-            unidade_medida: item.unidade_medida,
-            quantidade: item.quantidade,
-            valor_unitario: item.valor_unitario,
-            quantidade_meses: item.quantidade_meses || null,
-          } as any);
-          itensCriados++;
+          if (modalidade === 'MEDICAO') {
+            await this.medicaoService.criarItemCronograma(contrato.id, {
+              descricao: item.descricao,
+              unidade_medida: item.unidade_medida,
+              quantidade: item.quantidade,
+              valor_unitario: item.valor_unitario,
+              quantidade_meses: item.quantidade_meses || null,
+            } as any);
+            itensCriados++;
+          }
         } catch (err) {
           this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
         }

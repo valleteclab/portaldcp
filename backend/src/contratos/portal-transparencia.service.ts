@@ -444,25 +444,12 @@ function inferirModalidadeExecucaoContrato(params: {
     .join(' ');
   const textoBase = `${objeto} ${textoItens}`;
 
-  if (/(licen[cç]a|software|saas|sistema|subscri[cç][aã]o|assinatura digital|nuvem)/i.test(textoBase)) {
-    return ModalidadeExecucao.LICENCA;
-  }
-
-  if (/(ordem de servi[cç]o|sob demanda|demanda|chamado|postos? de servi[cç]o|banco de horas|banco de m[eé]tricas)/i.test(textoBase)) {
-    return ModalidadeExecucao.ORDEM_SERVICO;
-  }
-
   if (/(medi[cç][aã]o|cronograma|etapa|percentual f[ií]sico|boletim|obra|reforma|engenharia|execu[cç][aã]o de servi[cç]os de engenharia)/i.test(textoBase)) {
     return ModalidadeExecucao.MEDICAO;
   }
 
-  if (/(mensal|mensais|continuad|limpeza|vigil[aâ]ncia|portaria|recep[cç][aã]o|copeiragem|manuten[cç][aã]o preventiva|loca[cç][aã]o|aluguel|suporte t[eé]cnico)/i.test(textoBase)) {
-    return ModalidadeExecucao.CONTINUADO;
-  }
-
-  const possuiQuantidadeMeses = itens.some((item) => Number(item?.quantidade_meses) > 0);
-  if (possuiQuantidadeMeses) {
-    return ModalidadeExecucao.CONTINUADO;
+  if (/(mensal|mensais|continuad|limpeza|vigil[aâ]ncia|portaria|recep[cç][aã]o|copeiragem|manuten[cç][aã]o preventiva|loca[cç][aã]o|aluguel|suporte t[eé]cnico|licen[cç]a|software|saas|sistema|subscri[cç][aã]o|assinatura digital|nuvem|ordem de servi[cç]o|sob demanda|demanda|chamado|postos? de servi[cç]o|banco de horas|banco de m[eé]tricas)/i.test(textoBase)) {
+    return ModalidadeExecucao.ITEM_QUANTIDADE;
   }
 
   return ModalidadeExecucao.ITEM_QUANTIDADE;
@@ -1426,7 +1413,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
                 percentual_divergencia: resultado.percentual_divergencia,
                 aviso_conferencia: resultado.aviso_conferencia,
               });
-            } else if ([ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA].includes(contratoCompleto.modalidade_execucao)) {
+            } else if (contratoCompleto.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
               const etapasExistentes = await this.medicaoService.listarEtapas(contratoCriado.id);
               if (etapasExistentes.length > 0) {
                 resultado.mensagem += ' (contrato com etapas existentes; revise o cronograma manualmente)';
@@ -1461,8 +1448,8 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
               }
               }
             } else {
-              resultado.mensagem += ` (modalidade ${contratoCompleto.modalidade_execucao} exige conferência manual dos itens)`;
-              this.logger.warn(`Contrato ${contratoCompleto.numero_contrato} inferido como ${contratoCompleto.modalidade_execucao}; itens não foram cadastrados automaticamente.`);
+              resultado.mensagem += ` (modalidade inválida para importação automática: ${contratoCompleto.modalidade_execucao})`;
+              this.logger.warn(`Contrato ${contratoCompleto.numero_contrato} está com modalidade fora do padrão esperado (${contratoCompleto.modalidade_execucao}).`);
             }
           } else {
             resultado.mensagem += ' (sem itens no PDF)';
