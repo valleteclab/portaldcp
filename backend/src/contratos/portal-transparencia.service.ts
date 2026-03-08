@@ -102,14 +102,44 @@ function normalizarItensExtraidos(itens: any[]): Array<{
   valor_total?: number;
 }> {
   return itens
-    .map((item) => ({
-      descricao: String(item?.descricao || '').trim(),
-      unidade_medida: String(item?.unidade_medida || 'UNIDADE').trim() || 'UNIDADE',
-      quantidade: Number(item?.quantidade) || 0,
-      valor_unitario: Number(item?.valor_unitario) || 0,
-      quantidade_meses: item?.quantidade_meses != null ? Number(item.quantidade_meses) || null : null,
-      valor_total: Number(item?.valor_total) || undefined,
-    }))
+    .map((item) => {
+      const descricao = String(item?.descricao || '').trim();
+      const unidade_medida = String(item?.unidade_medida || 'UNIDADE').trim() || 'UNIDADE';
+      const quantidade = Number(item?.quantidade) || 0;
+      let valor_unitario = Number(item?.valor_unitario) || 0;
+      const quantidade_meses = item?.quantidade_meses != null ? Number(item.quantidade_meses) || null : null;
+      let valor_total = Number(item?.valor_total) || 0;
+
+      // Validar coerência: valor_total deve ser ≈ valor_unitario × quantidade
+      // A IA frequentemente confunde "Valor Total" com "Valor Unitário" em tabelas de PDF
+      if (quantidade > 0 && valor_unitario > 0 && valor_total > 0) {
+        const calculado = Number((valor_unitario * quantidade).toFixed(2));
+        const tolerancia = Math.max(calculado * 0.02, 1); // 2% ou R$1
+
+        if (Math.abs(calculado - valor_total) > tolerancia) {
+          // valor_unitario × quantidade ≠ valor_total — tentar corrigir
+          const unitarioInferido = Number((valor_total / quantidade).toFixed(2));
+          const calculadoInverso = Number((unitarioInferido * quantidade).toFixed(2));
+
+          if (Math.abs(calculadoInverso - valor_total) <= tolerancia) {
+            // valor_total / quantidade = unitário correto → IA confundiu unitário com total
+            valor_unitario = unitarioInferido;
+          }
+        }
+      }
+
+      // Se temos valor_total mas não valor_unitario, inferir
+      if (valor_total > 0 && valor_unitario === 0 && quantidade > 0) {
+        valor_unitario = Number((valor_total / quantidade).toFixed(2));
+      }
+
+      // Se temos valor_unitario mas não valor_total, calcular
+      if (valor_unitario > 0 && valor_total === 0 && quantidade > 0) {
+        valor_total = Number((valor_unitario * quantidade).toFixed(2));
+      }
+
+      return { descricao, unidade_medida, quantidade, valor_unitario, quantidade_meses, valor_total: valor_total || undefined };
+    })
     .filter((item) => item.descricao && (item.valor_total || (item.quantidade > 0 && item.valor_unitario > 0)));
 }
 
@@ -1018,19 +1048,20 @@ export class PortalTransparenciaService {
     this.logger.log(`[importarContratoIndividual] Parsing data vigência: ${contratoApi.vigencia}`);
     const dataVigencia = this.parseDataBrasileira(contratoApi.vigencia);
     
-    // Converter valor - usar aditivos_valor_total se existir, senão valor_contrato
+    // Converter valor — priorizar valor_contrato (valor original), ignorar aditivos_valor_total
+    // pois a API do portal pode ter aditivos vinculados ao contrato errado (ex: 015/2024 vs 015/2025)
     let valorGlobal = 0;
-    if (contratoApi.aditivos_valor_total) {
-      valorGlobal = parseFloat(contratoApi.aditivos_valor_total) || 0;
-      this.logger.log(`[importarContratoIndividual] Valor aditivos: ${valorGlobal}`);
-    } else if (contratoApi.valor_contrato) {
-      // Remover 'R$' e converter formato brasileiro (1.234,56 -> 1234.56)
+    if (contratoApi.valor_contrato) {
       const valorLimpo = contratoApi.valor_contrato
         .replace(/^R\$\s*/, '')
         .replace(/\./g, '')
         .replace(',', '.');
       valorGlobal = parseFloat(valorLimpo) || 0;
-      this.logger.log(`[importarContratoIndividual] Valor contrato: ${valorGlobal}`);
+      this.logger.log(`[importarContratoIndividual] Valor contrato (original): ${valorGlobal}`);
+    }
+    if (valorGlobal === 0 && contratoApi.aditivos_valor_total) {
+      valorGlobal = parseFloat(contratoApi.aditivos_valor_total) || 0;
+      this.logger.log(`[importarContratoIndividual] Usando valor aditivos como fallback: ${valorGlobal}`);
     }
 
     // Extrair ano e sequencial do número do contrato (ex: 001/2024-Contrato -> ano=2024, sequencial=1)
@@ -1561,8 +1592,7 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
             this.logger.log(`Classificação inferida/atualizada para contrato ${contratoCompleto.numero_contrato}: categoria=${categoriaInferida}, modalidade=${modalidadeInferida}`);
           }
 
-          const valorContratoReferencia = Number(contratoCompleto.valor_global) || Number(contratoCompleto.valor_inicial) || 0;
-          resultado.valor_contrato_referencia = valorContratoReferencia;
+          let valorContratoReferencia = Number(contratoCompleto.valor_global) || Number(contratoCompleto.valor_inicial) || 0;
 
           if (itens.length > 0) {
             const valorItensImportados = Number(itens
@@ -1576,13 +1606,42 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
               .toFixed(2));
             resultado.valor_itens_importados = valorItensImportados;
 
+            // Se a soma dos itens do PDF diverge muito do valor da API,
+            // provavelmente a API tem dados incorretos (aditivo vinculado ao contrato errado, etc.)
+            // Neste caso, atualizar o valor do contrato para refletir o PDF
+            if (valorItensImportados > 0 && valorContratoReferencia > 0) {
+              const divergencia = Math.abs(valorItensImportados - valorContratoReferencia);
+              const percentualDiv = (divergencia / valorContratoReferencia) * 100;
+
+              if (percentualDiv > 20 && valorItensImportados > valorContratoReferencia) {
+                this.logger.warn(
+                  `[importarContratoCompleto] ⚠️ DIVERGÊNCIA API vs PDF detectada! ` +
+                  `Valor API: R$ ${valorContratoReferencia.toFixed(2)}, ` +
+                  `Soma itens PDF: R$ ${valorItensImportados.toFixed(2)} (${percentualDiv.toFixed(1)}% maior). ` +
+                  `Atualizando valor do contrato para refletir o PDF.`,
+                );
+
+                contratoCompleto.valor_global = valorItensImportados;
+                contratoCompleto.valor_inicial = valorItensImportados;
+                await this.contratoRepository.save(contratoCompleto);
+                valorContratoReferencia = valorItensImportados;
+
+                resultado.aviso_conferencia =
+                  `O valor do Portal de Transparência (R$ ${(Number(contratoCompleto.valor_global) || 0).toFixed(2)}) ` +
+                  `estava incorreto (possível aditivo vinculado ao contrato errado). ` +
+                  `O valor foi corrigido para R$ ${valorItensImportados.toFixed(2)} conforme o PDF do contrato.`;
+              }
+            }
+
+            resultado.valor_contrato_referencia = valorContratoReferencia;
+
             const divergenciaValor = Number((valorItensImportados - valorContratoReferencia).toFixed(2));
             resultado.divergencia_valor = divergenciaValor;
             resultado.percentual_divergencia = valorContratoReferencia > 0
               ? Number(((Math.abs(divergenciaValor) / valorContratoReferencia) * 100).toFixed(2))
               : undefined;
 
-            if (Math.abs(divergenciaValor) > 0.01) {
+            if (Math.abs(divergenciaValor) > 0.01 && !resultado.aviso_conferencia) {
               resultado.aviso_conferencia = `A soma dos itens importados (${valorItensImportados.toFixed(2)}) difere do valor do contrato (${valorContratoReferencia.toFixed(2)}) em ${Math.abs(divergenciaValor).toFixed(2)}.`;
             }
 
