@@ -1338,12 +1338,59 @@ ${textoChunk}`;
         }
       }
 
+      // Retry: reenviar blocos cujo numero_item não foi extraído
+      const blocosFaltantes = blocos.filter((b) => !itensMap.has(b.numero_item));
+      if (blocosFaltantes.length > 0 && blocosFaltantes.length <= 15) {
+        this.logger.log(`[retry] ${blocosFaltantes.length} itens faltantes (${blocosFaltantes.map(b => b.numero_item).join(', ')}), reenviando...`);
+        const textoRetry = blocosFaltantes
+          .map((item) => normalizarBlocoItemTabela(item.bloco))
+          .join('\n');
+
+        const promptRetry = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+
+CONTRATO: ${contratoNumero || 'não informado'}
+
+ATENÇÃO: Estes itens não foram extraídos na primeira tentativa. Extraia CADA UM obrigatoriamente.
+
+REGRAS:
+- Extraia TODOS os ${blocosFaltantes.length} itens abaixo — é obrigatório retornar exatamente ${blocosFaltantes.length} itens
+- Preserve o numero_item exatamente como aparece
+- NUNCA invente dados
+- Retorne SOMENTE JSON válido
+
+Schema: { "itens": [{ "numero_item": 1, "descricao": "...", "unidade_medida": "UN", "quantidade": 1, "valor_unitario": 0, "valor_total": 0, "quantidade_meses": null }] }
+
+TRECHO DA TABELA:
+${textoRetry}`;
+
+        try {
+          const respostaRetry = await this.iaService.chat([{ role: 'user', content: promptRetry }]);
+          const itensRetry = extrairItensNumeradosDaRespostaIA(respostaRetry);
+          this.logger.log(`[retry] IA retornou ${itensRetry.length} de ${blocosFaltantes.length} itens faltantes`);
+
+          for (const item of itensRetry) {
+            if (!itensMap.has(item.numero_item)) {
+              itensMap.set(item.numero_item, {
+                descricao: item.descricao,
+                unidade_medida: item.unidade_medida,
+                quantidade: item.quantidade,
+                valor_unitario: item.valor_unitario,
+                quantidade_meses: item.quantidade_meses ?? null,
+                valor_total: item.valor_total,
+              });
+            }
+          }
+        } catch (retryErr: any) {
+          this.logger.warn(`[retry] Falhou: ${retryErr.message}`);
+        }
+      }
+
       const itens = Array.from(itensMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([, item]) => item);
 
       if (itens.length > 0) {
-        this.logger.log(`Itens extraídos via tabela chunked: ${itens.length}`);
+        this.logger.log(`Itens extraídos via tabela chunked: ${itens.length} de ${blocos.length} blocos`);
       }
 
       return itens;
