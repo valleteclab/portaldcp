@@ -1001,62 +1001,10 @@ export class PortalTransparenciaService {
         this.logger.warn('Extração via texto não encontrou itens válidos, tentando via IA Vision...');
       }
 
-      this.logger.warn('Texto extraído muito curto ou sem itens válidos, tentando extrair via conversão para imagens...');
-      return await this.extrairItensViaImagens(pdfBuffer, contratoNumero);
+      this.logger.warn('Texto extraído muito curto ou sem itens válidos, tentando extrair via IA Vision...');
+      return await this.extrairItensViaVision(pdfBuffer, contratoNumero, textoExtraido);
     } catch (error) {
       this.logger.error(`Erro ao extrair itens do PDF: ${error.message}`);
-      return [];
-    }
-  }
-
-  /**
-   * Extrai itens convertendo PDF em imagens e analisando página por página (fallback para PDFs escaneados)
-   */
-  private async extrairItensViaImagens(pdfBuffer: Buffer, contratoNumero?: string): Promise<Array<any>> {
-    try {
-      this.logger.log('[extrairItensViaImagens] Iniciando extração via imagens das páginas');
-      
-      const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
-Analise estas páginas do contrato ${contratoNumero || ''} e extraia a tabela de itens/serviços.
-
-REGRAS:
-- Extraia APENAS a lista de itens/serviços do contrato
-- NUNCA invente dados - use apenas o que está visível nas imagens
-- Cada item deve ter: descrição completa, unidade de medida, quantidade, valor unitário, valor total
-- Para contratos de serviços, a unidade pode ser: UNIDADE, MESES, CONTRATO GLOBAL, etc.
-- Se uma tabela continuar em outra página, inclua todos os itens
-- Retorne SOMENTE JSON válido, sem texto adicional
-
-Schema de retorno:
-{
-  "itens": [
-    {
-      "descricao": "descrição completa do item/serviço",
-      "unidade_medida": "UNIDADE", 
-      "quantidade": 1,
-      "valor_unitario": 85000.00,
-      "valor_total": 85000.00,
-      "quantidade_meses": null
-    }
-  ],
-  "observacoes": "descrição breve do que foi encontrado"
-}
-
-Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item encontrado"}`;
-
-      const resultadoJson = await this.iaService.extrairItensPdfEscaneado(pdfBuffer, promptExtracaoItens);
-      const resultado = JSON.parse(resultadoJson);
-      const itens = resultado.itens || [];
-      
-      if (itens.length === 0) {
-        this.logger.warn('[extrairItensViaImagens] Nenhum item encontrado via análise de imagens');
-        return [];
-      }
-
-      this.logger.log(`[extrairItensViaImagens] Itens extraídos via imagens: ${itens.length}`);
-      return itens;
-    } catch (error) {
-      this.logger.error(`[extrairItensViaImagens] Erro na extração via imagens: ${error.message}`);
       return [];
     }
   }
@@ -1183,6 +1131,69 @@ ${textoChunk}`;
 
     await this.itemContratoRepository.save(registros);
     return registros.length;
+  }
+
+  /**
+   * Extrai itens usando IA com Vision (para PDFs escaneados)
+   */
+  private async extrairItensViaVision(pdfBuffer: Buffer, contratoNumero?: string, textoFallback?: string): Promise<Array<any>> {
+    try {
+      const pdfBase64 = pdfBuffer.toString('base64');
+      
+      const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+Analise este PDF de contrato e extraia a tabela de itens/serviços do contrato ${contratoNumero || ''}.
+
+REGRAS:
+- Extraia APENAS a lista de itens/serviços do contrato
+- NUNCA invente dados - use apenas o que está no documento
+- Cada item deve ter: descrição completa, unidade de medida, quantidade, valor unitário, valor total
+- Para contratos de serviços, a unidade pode ser: UNIDADE, MESES, CONTRATO GLOBAL, etc.
+- Se houver resposta fora de JSON, converta mentalmente e retorne SOMENTE JSON válido
+- Retorne APENAS JSON válido, sem texto adicional
+
+Schema de retorno:
+{
+  "itens": [
+    {
+      "descricao": "descrição completa do item/serviço",
+      "unidade_medida": "UNIDADE", 
+      "quantidade": 1,
+      "valor_unitario": 85000.00,
+      "valor_total": 85000.00,
+      "quantidade_meses": null
+    }
+  ],
+  "observacoes": "descrição breve do que foi encontrado"
+}
+
+Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item encontrado"}`;
+
+      const respostaIA = await this.iaService.chatComArquivo(
+        promptExtracaoItens,
+        pdfBase64,
+        'application/pdf'
+      );
+
+      const itens = extrairItensDaRespostaIA(respostaIA);
+      if (itens.length === 0) {
+        this.logger.warn('IA não retornou lista de itens válida');
+        if (textoFallback?.trim()) {
+          this.logger.warn('Tentando fallback final via texto após falha no Vision...');
+          return await this.extrairItensViaTexto(textoFallback, contratoNumero);
+        }
+        return [];
+      }
+
+      this.logger.log(`Itens extraídos via Vision: ${itens.length}`);
+      return itens;
+    } catch (error) {
+      this.logger.error(`Erro na extração via Vision: ${error.message}`);
+      if (textoFallback?.trim()) {
+        this.logger.warn('Vision falhou, tentando fallback final via texto...');
+        return await this.extrairItensViaTexto(textoFallback, contratoNumero);
+      }
+      return [];
+    }
   }
 
   /**
