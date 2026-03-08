@@ -10,38 +10,116 @@ import { MedicaoService } from './medicao.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
 import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
 
-// Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
-async function extrairTextoPdf(buffer: Buffer): Promise<string> {
-  // Tentativa 1: pdfjs-dist (mais robusto, suporta PDFs complexos)
+function corrigirJsonMalformado(jsonString: string): string {
+  const inicio = jsonString.indexOf('{');
+  const fim = jsonString.lastIndexOf('}');
+  if (inicio === -1 || fim === -1) return jsonString;
+
+  let json = jsonString.substring(inicio, fim + 1);
+  json = json.replace(/"\w+":\s*null\s*,?/g, '');
+  json = json.replace(/\}\s*"([^"]+)":\s*([^,\{\}]+)\s*,?\s*\{/g, '}, {');
+  json = json.replace(/\}\s*"([^"]+)":\s*([^,\{\}]+)\s*\{/g, '}, {');
+  json = json.replace(/("\w+":\s*[^,\{\}]+)\s*,\s*"\w+":\s*[^,\{\}]+\s*,?/g, '$1,');
+  json = json.replace(/("\w+":\s*[^,\{\}]+)(\s*,\s*\1)+/g, '$1');
+  json = json.replace(/,\s*\}/g, '}').replace(/,\s*\]/g, ']');
+  json = json.replace(/,\s*,/g, ',');
+  json = json.replace(/\{\s*\}/g, '');
+  json = json.replace(/,\s*\]/g, ']');
+
+  return json;
+}
+
+function tentarExtrairJson(str: string): any | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
-    const pdfDoc = await loadingTask.promise;
-    let text = '';
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map((item: any) => item.str || '').join(' ');
-      text += pageText + '\n';
+    return JSON.parse(str);
+  } catch { /* continuar */ }
+
+  const corrigido = corrigirJsonMalformado(str);
+  try {
+    return JSON.parse(corrigido);
+  } catch { /* continuar */ }
+
+  try {
+    const resultado: any = { itens: [] };
+    const descRegex = /"descricao":\s*"([^"]*)"/gi;
+    const itensEncontrados = new Map<string, any>();
+
+    let match;
+    while ((match = descRegex.exec(str)) !== null) {
+      const descricao = match[1].trim();
+      const posicao = match.index;
+      const contexto = str.substring(posicao, posicao + 800);
+
+      const item: any = {
+        descricao: descricao || 'Item sem descrição',
+        unidade_medida: 'UNIDADE',
+        quantidade: 1,
+        valor_unitario: 0,
+        quantidade_meses: null,
+        valor_total: 0,
+      };
+
+      const qtdMatch = contexto.match(/"quantidade":\s*([\d.]+|null)/);
+      if (qtdMatch && qtdMatch[1] !== 'null') item.quantidade = parseFloat(qtdMatch[1]);
+
+      const unitMatch = contexto.match(/"valor_unitario":\s*([\d.]+|null)/);
+      if (unitMatch && unitMatch[1] !== 'null') item.valor_unitario = parseFloat(unitMatch[1]);
+
+      const totalMatch = contexto.match(/"valor_total":\s*([\d.]+)/);
+      if (totalMatch) {
+        item.valor_total = parseFloat(totalMatch[1]);
+      } else if (item.quantidade && item.valor_unitario) {
+        item.valor_total = item.quantidade * item.valor_unitario;
+      }
+
+      const unidMatch = contexto.match(/"unidade_medida":\s*"([^"]+)"/);
+      if (unidMatch) item.unidade_medida = unidMatch[1];
+
+      const mesesMatch = contexto.match(/"quantidade_meses":\s*(\d+|null)/);
+      if (mesesMatch && mesesMatch[1] !== 'null') item.quantidade_meses = parseInt(mesesMatch[1]);
+
+      if (item.valor_total > 0 || (item.quantidade > 0 && item.valor_unitario > 0)) {
+        const chave = `${item.descricao}|${item.quantidade}|${item.valor_total}`;
+        if (!itensEncontrados.has(chave)) itensEncontrados.set(chave, item);
+      }
     }
-    if (text.trim().length > 0) return text;
-  } catch (e: any) {
-    // fallback para pdf-parse
+
+    resultado.itens = Array.from(itensEncontrados.values());
+    if (resultado.itens.length > 0) return resultado;
+  } catch { /* continuar */ }
+
+  return null;
+}
+
+function normalizarItensExtraidos(itens: any[]): Array<{
+  descricao: string;
+  unidade_medida: string;
+  quantidade: number;
+  valor_unitario: number;
+  quantidade_meses?: number | null;
+  valor_total?: number;
+}> {
+  return itens
+    .map((item) => ({
+      descricao: String(item?.descricao || '').trim(),
+      unidade_medida: String(item?.unidade_medida || 'UNIDADE').trim() || 'UNIDADE',
+      quantidade: Number(item?.quantidade) || 0,
+      valor_unitario: Number(item?.valor_unitario) || 0,
+      quantidade_meses: item?.quantidade_meses != null ? Number(item.quantidade_meses) || null : null,
+      valor_total: Number(item?.valor_total) || undefined,
+    }))
+    .filter((item) => item.descricao && (item.valor_total || (item.quantidade > 0 && item.valor_unitario > 0)));
+}
+
+function extrairItensDaRespostaIA(respostaIA: string): Array<any> {
+  const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
+  const dadosExtraidos = tentarExtrairJson(jsonLimpo);
+
+  if (!dadosExtraidos || !Array.isArray(dadosExtraidos.itens)) {
+    return [];
   }
 
-  // Tentativa 2: pdf-parse
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('pdf-parse');
-    const fn = typeof mod === 'function' ? mod : (mod.default ?? null);
-    if (fn) {
-      const result = await fn(buffer);
-      if (result?.text?.trim().length > 0) return result.text;
-    }
-  } catch { /* ignora */ }
-
-  return '';
+  return normalizarItensExtraidos(dadosExtraidos.itens);
 }
 
 export interface PortalTransparenciaContrato {
@@ -527,16 +605,19 @@ export class PortalTransparenciaService {
   }>> {
     try {
       this.logger.log('Extraindo texto do PDF...');
-      const textoExtraido = await extrairTextoPdf(pdfBuffer);
-      
-      if (textoExtraido.trim().length < 200) {
-        this.logger.warn('Texto extraído muito curto, tentando extrair via IA Vision...');
-        // PDF escaneado - usar IA com Vision
-        return await this.extrairItensViaVision(pdfBuffer);
+      const textoExtraido = await this.iaService.extrairTextoDoPdf(pdfBuffer);
+
+      if (textoExtraido.trim().length >= 100) {
+        this.logger.log(`Texto extraído: ${textoExtraido.length} caracteres`);
+        const itensViaTexto = await this.extrairItensViaTexto(textoExtraido, contratoNumero);
+        if (itensViaTexto.length > 0) {
+          return itensViaTexto;
+        }
+        this.logger.warn('Extração via texto não encontrou itens válidos, tentando via IA Vision...');
       }
 
-      this.logger.log(`Texto extraído: ${textoExtraido.length} caracteres`);
-      return await this.extrairItensViaTexto(textoExtraido);
+      this.logger.warn('Texto extraído muito curto ou sem itens válidos, tentando extrair via IA Vision...');
+      return await this.extrairItensViaVision(pdfBuffer, contratoNumero, textoExtraido);
     } catch (error) {
       this.logger.error(`Erro ao extrair itens do PDF: ${error.message}`);
       return [];
@@ -546,18 +627,19 @@ export class PortalTransparenciaService {
   /**
    * Extrai itens usando IA com Vision (para PDFs escaneados)
    */
-  private async extrairItensViaVision(pdfBuffer: Buffer): Promise<Array<any>> {
+  private async extrairItensViaVision(pdfBuffer: Buffer, contratoNumero?: string, textoFallback?: string): Promise<Array<any>> {
     try {
       const pdfBase64 = pdfBuffer.toString('base64');
       
       const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
-Analise este PDF de contrato e extraia a tabela de itens/serviços.
+Analise este PDF de contrato e extraia a tabela de itens/serviços do contrato ${contratoNumero || ''}.
 
 REGRAS:
 - Extraia APENAS a lista de itens/serviços do contrato
 - NUNCA invente dados - use apenas o que está no documento
 - Cada item deve ter: descrição completa, unidade de medida, quantidade, valor unitário, valor total
 - Para contratos de serviços, a unidade pode ser: UNIDADE, MESES, CONTRATO GLOBAL, etc.
+- Se houver resposta fora de JSON, converta mentalmente e retorne SOMENTE JSON válido
 - Retorne APENAS JSON válido, sem texto adicional
 
 Schema de retorno:
@@ -583,18 +665,24 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         'application/pdf'
       );
 
-      const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
-      const dadosExtraidos = JSON.parse(jsonLimpo);
-      
-      if (!Array.isArray(dadosExtraidos.itens)) {
+      const itens = extrairItensDaRespostaIA(respostaIA);
+      if (itens.length === 0) {
         this.logger.warn('IA não retornou lista de itens válida');
+        if (textoFallback?.trim()) {
+          this.logger.warn('Tentando fallback final via texto após falha no Vision...');
+          return await this.extrairItensViaTexto(textoFallback, contratoNumero);
+        }
         return [];
       }
 
-      this.logger.log(`Itens extraídos via Vision: ${dadosExtraidos.itens.length}`);
-      return dadosExtraidos.itens;
+      this.logger.log(`Itens extraídos via Vision: ${itens.length}`);
+      return itens;
     } catch (error) {
       this.logger.error(`Erro na extração via Vision: ${error.message}`);
+      if (textoFallback?.trim()) {
+        this.logger.warn('Vision falhou, tentando fallback final via texto...');
+        return await this.extrairItensViaTexto(textoFallback, contratoNumero);
+      }
       return [];
     }
   }
@@ -602,15 +690,19 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
   /**
    * Extrai itens via texto extraído (para PDFs digitais)
    */
-  private async extrairItensViaTexto(textoExtraido: string): Promise<Array<any>> {
+  private async extrairItensViaTexto(textoExtraido: string, contratoNumero?: string): Promise<Array<any>> {
     try {
       const promptExtracaoItens = `Você é um especialista em extrair itens de contratos públicos brasileiros.
+
+CONTRATO: ${contratoNumero || 'não informado'}
 
 REGRAS:
 - Extraia APENAS a lista de itens do contrato
 - NUNCA invente dados - use apenas o que está no documento
 - Cada item deve ter: descrição, unidade de medida, quantidade, valor unitário
 - Para contratos contínuos (mensais), use quantidade_meses
+- Se houver tabela, preserve cada linha como um item separado
+- Se a resposta inicial não ficar em JSON perfeito, ainda assim você deve retornar SOMENTE JSON válido
 - Retorne APENAS JSON válido, sem texto adicional
 
 Schema de retorno:
@@ -637,16 +729,14 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
         textoExtraido
       );
 
-      const jsonLimpo = respostaIA.replace(/```json\n?|```/g, '').trim();
-      const dadosExtraidos = JSON.parse(jsonLimpo);
-      
-      if (!Array.isArray(dadosExtraidos.itens)) {
+      const itens = extrairItensDaRespostaIA(respostaIA);
+      if (itens.length === 0) {
         this.logger.warn('IA não retornou lista de itens válida');
         return [];
       }
 
-      this.logger.log(`Itens extraídos via texto: ${dadosExtraidos.itens.length}`);
-      return dadosExtraidos.itens;
+      this.logger.log(`Itens extraídos via texto: ${itens.length}`);
+      return itens;
     } catch (error) {
       this.logger.error(`Erro na extração via texto: ${error.message}`);
       return [];
