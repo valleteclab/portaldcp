@@ -72,8 +72,10 @@ COMO IDENTIFICAR OS CAMPOS:
 - "categoria": COMPRAS=produtos físicos, SERVICOS=serviços gerais, OBRAS=construção, SERVICOS_ENGENHARIA=eng, LOCACAO=aluguel/locação, ALIENACAO=venda
 - Para software, licença, implantação, suporte técnico, automação e locação de sistema, escolha SERVICOS
 - "modalidade_execucao": use SOMENTE ITEM_QUANTIDADE ou MEDICAO
-- Escolha ITEM_QUANTIDADE para compras, locação, licença, mensalidade, implantação, software e serviços com itens/parcelas
-- Escolha MEDICAO apenas para contratos com cronograma, etapas, boletim de medição, obra ou execução medida
+- Se a categoria for SERVICOS, a modalidade_execucao deve ser MEDICAO
+- Use MEDICAO para serviços em geral, inclusive software, licença, implantação, locação de sistema, suporte e mensalidade
+- Dentro de MEDICAO: obra/engenharia normalmente usa etapas; demais serviços usam itens
+- Use ITEM_QUANTIDADE apenas para COMPRAS de produtos físicos
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
 - "itens": array de objetos, cada um representando um item do contrato
@@ -297,6 +299,24 @@ function normalizarCategoriaContrato(categoria: any, objeto?: string): string {
   return 'SERVICOS';
 }
 
+function normalizarModalidadeExecucao(modalidade: any, categoria: string): string {
+  const modalidadeTexto = String(modalidade || '').trim().toUpperCase();
+
+  if (categoria === 'SERVICOS' || categoria === 'OBRAS' || categoria === 'SERVICOS_ENGENHARIA') {
+    return 'MEDICAO';
+  }
+
+  if (categoria === 'COMPRAS') {
+    return 'ITEM_QUANTIDADE';
+  }
+
+  if (modalidadeTexto === 'MEDICAO') {
+    return 'MEDICAO';
+  }
+
+  return 'ITEM_QUANTIDADE';
+}
+
 @Injectable()
 export class ImportarContratoIaService {
   private readonly logger = new Logger(ImportarContratoIaService.name);
@@ -375,6 +395,9 @@ export class ImportarContratoIaService {
       }
     }
 
+    const categoriaNormalizada = normalizarCategoriaContrato(dadosExtraidos.categoria, dadosExtraidos.objeto);
+    const modalidadeNormalizada = normalizarModalidadeExecucao(dadosExtraidos.modalidade_execucao, categoriaNormalizada);
+
     return {
       objeto: dadosExtraidos.objeto || '',
       fornecedor_cnpj,
@@ -382,8 +405,8 @@ export class ImportarContratoIaService {
       fornecedor_id,
       fornecedor_ja_cadastrado,
       tipo: dadosExtraidos.tipo || 'CONTRATO',
-      categoria: normalizarCategoriaContrato(dadosExtraidos.categoria, dadosExtraidos.objeto),
-      modalidade_execucao: dadosExtraidos.modalidade_execucao === 'MEDICAO' ? 'MEDICAO' : 'ITEM_QUANTIDADE',
+      categoria: categoriaNormalizada,
+      modalidade_execucao: modalidadeNormalizada,
       valor_inicial: Number(dadosExtraidos.valor_inicial) || 0,
       valor_global: Number(dadosExtraidos.valor_global) || 0,
       data_assinatura: dadosExtraidos.data_assinatura || undefined,
@@ -401,6 +424,8 @@ export class ImportarContratoIaService {
     dados: ConfirmarImportacaoDto,
     orgaoId: string,
   ): Promise<{ contrato_id: string; numero_contrato: string; itens_criados: number; aviso?: string }> {
+    const categoriaNormalizada = normalizarCategoriaContrato(dados.categoria, dados.objeto);
+    const modalidadeNormalizada = normalizarModalidadeExecucao(dados.modalidade_execucao, categoriaNormalizada);
     let fornecedorId = dados.fornecedor_id;
 
     if (!fornecedorId && dados.fornecedor_cnpj) {
@@ -438,8 +463,8 @@ export class ImportarContratoIaService {
       fornecedor_id: fornecedorId,
       objeto: dados.objeto,
       tipo: dados.tipo as any,
-      categoria: dados.categoria as any,
-      modalidade_execucao: dados.modalidade_execucao as any,
+      categoria: categoriaNormalizada as any,
+      modalidade_execucao: modalidadeNormalizada as any,
       valor_inicial: dados.valor_inicial,
       valor_global: dados.valor_global,
       data_assinatura: dados.data_assinatura ? new Date(dados.data_assinatura) : undefined,
@@ -450,11 +475,11 @@ export class ImportarContratoIaService {
       amparo_legal: dados.amparo_legal,
     } as any);
 
-    const modalidade = dados.modalidade_execucao === 'MEDICAO' ? 'MEDICAO' : 'ITEM_QUANTIDADE';
+    const modalidade = modalidadeNormalizada;
     let itensCriados = 0;
     let aviso: string | undefined;
 
-    if (dados.modalidade_execucao && !['ITEM_QUANTIDADE', 'MEDICAO'].includes(dados.modalidade_execucao)) {
+    if (dados.modalidade_execucao !== modalidade) {
       aviso = `Modalidade "${dados.modalidade_execucao}" foi padronizada automaticamente para "${modalidade}".`;
     }
 

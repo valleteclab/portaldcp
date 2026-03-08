@@ -429,27 +429,10 @@ function mapearUnidadeMedidaContrato(unidade?: string | null): UnidadeMedidaCont
 }
 
 function inferirModalidadeExecucaoContrato(params: {
-  objeto?: string;
-  itens?: Array<{
-    descricao?: string;
-    unidade_medida?: string;
-    quantidade?: number;
-    quantidade_meses?: number | null;
-  }>;
+  categoria?: CategoriaContrato;
 }): ModalidadeExecucao {
-  const objeto = String(params.objeto || '').toLowerCase();
-  const itens = params.itens || [];
-  const textoItens = itens
-    .map((item) => `${item?.descricao || ''} ${item?.unidade_medida || ''}`.toLowerCase())
-    .join(' ');
-  const textoBase = `${objeto} ${textoItens}`;
-
-  if (/(medi[cç][aã]o|cronograma|etapa|percentual f[ií]sico|boletim|obra|reforma|engenharia|execu[cç][aã]o de servi[cç]os de engenharia)/i.test(textoBase)) {
+  if (params.categoria === CategoriaContrato.SERVICOS || params.categoria === CategoriaContrato.OBRAS || params.categoria === CategoriaContrato.SERVICOS_ENGENHARIA) {
     return ModalidadeExecucao.MEDICAO;
-  }
-
-  if (/(mensal|mensais|continuad|limpeza|vigil[aâ]ncia|portaria|recep[cç][aã]o|copeiragem|manuten[cç][aã]o preventiva|loca[cç][aã]o|aluguel|suporte t[eé]cnico|licen[cç]a|software|saas|sistema|subscri[cç][aã]o|assinatura digital|nuvem|ordem de servi[cç]o|sob demanda|demanda|chamado|postos? de servi[cç]o|banco de horas|banco de m[eé]tricas)/i.test(textoBase)) {
-    return ModalidadeExecucao.ITEM_QUANTIDADE;
   }
 
   return ModalidadeExecucao.ITEM_QUANTIDADE;
@@ -909,13 +892,12 @@ export class PortalTransparenciaService {
 
     // Criar DTO para o contrato
     this.logger.log(`[importarContratoIndividual] Criando DTO...`);
-    const modalidadeExecucao = inferirModalidadeExecucaoContrato({
-      objeto: contratoApi.contratoObjeto,
-      itens: [],
-    });
     const categoriaContrato = inferirCategoriaContrato({
       objeto: contratoApi.contratoObjeto,
       itens: [],
+    });
+    const modalidadeExecucao = inferirModalidadeExecucaoContrato({
+      categoria: categoriaContrato,
     });
     const createDto = {
       orgao_id: orgaoId,
@@ -1390,13 +1372,12 @@ Se não encontrar itens, retorne: {"itens": [], "observacoes": "Nenhum item enco
             throw new Error('Contrato criado não encontrado para salvar itens');
           }
 
-          const modalidadeInferida = inferirModalidadeExecucaoContrato({
-            objeto: contratoCompleto.objeto,
-            itens,
-          });
           const categoriaInferida = inferirCategoriaContrato({
             objeto: contratoCompleto.objeto,
             itens,
+          });
+          const modalidadeInferida = inferirModalidadeExecucaoContrato({
+            categoria: categoriaInferida,
           });
 
           if (contratoCompleto.modalidade_execucao !== modalidadeInferida) {
