@@ -2460,7 +2460,7 @@ export class MedicaoService {
       };
     });
 
-    // Calcular execução temporal (fiscal)
+    // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
     const vigenciaInicio = contrato.data_vigencia_inicio
       ? new Date(contrato.data_vigencia_inicio as any)
       : null;
@@ -2471,10 +2471,13 @@ export class MedicaoService {
     let execucaoFiscal: any = null;
     if (vigenciaInicio && vigenciaFim) {
       const hoje = new Date();
+      
+      // Calcular diferença em meses comerciais (30 dias cada)
       const totalDias = Math.max(1, Math.ceil((vigenciaFim.getTime() - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
       const diasExecutados = Math.max(0, Math.ceil((Math.min(hoje.getTime(), vigenciaFim.getTime()) - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
       const diasRestantes = Math.max(0, totalDias - diasExecutados);
 
+      // Usar ano comercial: 12 meses de 30 dias = 360 dias
       execucaoFiscal = {
         vigencia_inicio: vigenciaInicio.toISOString().split('T')[0],
         vigencia_fim: vigenciaFim.toISOString().split('T')[0],
@@ -2485,6 +2488,7 @@ export class MedicaoService {
         dias_executados_extra: diasExecutados % 30,
         meses_restantes: Math.floor(diasRestantes / 30),
         dias_restantes_extra: diasRestantes % 30,
+        ano_comercial: true, // Flag para indicar uso de ano comercial
       };
     }
 
