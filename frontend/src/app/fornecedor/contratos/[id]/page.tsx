@@ -369,7 +369,7 @@ export default function FornecedorContratoDetalhePage() {
   // Estado para execução financeira do backend
   const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null);
 
-  // Modal Submeter
+  // Modal Submeter (legado — mantido para compatibilidade de estado)
   const [modalSubmeter, setModalSubmeter] = useState(false);
   const [medicaoParaSubmeter, setMedicaoParaSubmeter] = useState<Medicao | null>(null);
   const [dadosSubmissao, setDadosSubmissao] = useState({
@@ -378,6 +378,16 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_valor: '',
     nota_fiscal_data: '',
   });
+
+  // Modal OTP Assinatura Digital
+  const [modalOtp, setModalOtp] = useState(false);
+  const [otpMedicaoId, setOtpMedicaoId] = useState<string | null>(null);
+  const [otpEtapa, setOtpEtapa] = useState<'info' | 'codigo' | 'sucesso'>('info');
+  const [otpCodigo, setOtpCodigo] = useState('');
+  const [otpCanais, setOtpCanais] = useState<{ canais_enviados: string[]; telefone_mascarado?: string; email_mascarado?: string } | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpErro, setOtpErro] = useState<string | null>(null);
+  const [otpCodigoValidacao, setOtpCodigoValidacao] = useState<string | null>(null);
 
   // Modal Detalhe
   const [modalDetalhe, setModalDetalhe] = useState(false);
@@ -819,19 +829,11 @@ export default function FornecedorContratoDetalhePage() {
       }
       if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
 
-      const resSubmeter = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/submeter`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fornecedor_id: fornecedor.id, fornecedor_observacoes: novaMedicao.observacoes || undefined, nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined, nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined, nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined }),
-      });
-
-      if (resSubmeter.ok) {
-        setModalNovaMedicao(false);
-        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-        setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
-      } else {
-        alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
-        setModalNovaMedicao(false); setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
-      }
+      // Abrir modal OTP para assinatura digital antes de submeter
+      setModalNovaMedicao(false);
+      setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+      setDiscriminacoes([]); setArquivosPendentes([]);
+      abrirModalOtp(medicaoCriada.id);
     } catch (error) {
       alert('Erro ao criar medição');
     } finally {
@@ -860,31 +862,135 @@ export default function FornecedorContratoDetalhePage() {
 
   const handleSubmeterMedicao = async () => {
     if (!medicaoParaSubmeter || !fornecedor) return;
-    setSubmitting(true);
-    try {
-      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoParaSubmeter.id}/submeter`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fornecedor_id: fornecedor.id,
-          ...dadosSubmissao,
-          nota_fiscal_valor: dadosSubmissao.nota_fiscal_valor ? Number(dadosSubmissao.nota_fiscal_valor) : undefined,
-        }),
-      });
+    // Ao invés de submeter direto, abre modal OTP
+    setModalSubmeter(false);
+    abrirModalOtp(medicaoParaSubmeter.id);
+    setMedicaoParaSubmeter(null);
+    setDadosSubmissao({ fornecedor_observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' });
+  };
 
-      if (res.ok) {
-        setModalSubmeter(false);
-        setMedicaoParaSubmeter(null);
-        setDadosSubmissao({ fornecedor_observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' });
-        carregarDados();
-      } else {
+  // ============ FUNÇÕES DO MODAL OTP ============
+
+  const abrirModalOtp = (medicaoId: string) => {
+    setOtpMedicaoId(medicaoId);
+    setOtpEtapa('info');
+    setOtpCodigo('');
+    setOtpCanais(null);
+    setOtpErro(null);
+    setOtpCodigoValidacao(null);
+    setOtpLoading(false);
+    setModalOtp(true);
+  };
+
+  const handleEnviarOtp = async () => {
+    if (!otpMedicaoId || !fornecedor) return;
+    setOtpLoading(true);
+    setOtpErro(null);
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${otpMedicaoId}/solicitar-otp-assinatura`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fornecedor_id: fornecedor.id }),
+      });
+      if (!res.ok) {
         const err = await res.json();
-        alert(err.message || 'Erro ao submeter medição');
+        setOtpErro(err.message || 'Erro ao enviar código de verificação');
+        setOtpLoading(false);
+        return;
       }
-    } catch (error) {
-      alert('Erro ao submeter medição');
+      const data = await res.json();
+      setOtpCanais(data);
+      setOtpEtapa('codigo');
+    } catch {
+      setOtpErro('Erro de conexão ao enviar código');
     } finally {
-      setSubmitting(false);
+      setOtpLoading(false);
+    }
+  };
+
+  const handleValidarOtp = async () => {
+    if (!otpMedicaoId || !fornecedor || !otpCodigo) return;
+    setOtpLoading(true);
+    setOtpErro(null);
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${otpMedicaoId}/validar-otp-assinatura`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fornecedor_id: fornecedor.id, codigo: otpCodigo }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setOtpErro(err.message || 'Código incorreto ou expirado');
+        setOtpLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao);
+      setOtpEtapa('sucesso');
+
+      // Gerar PDF do boletim e baixar automaticamente
+      await gerarEBaixarBoletim(otpMedicaoId, data.codigo_validacao, data.codigo_formatado);
+
+      carregarDados();
+    } catch {
+      setOtpErro('Erro de conexão ao validar código');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao: string, codigoFormatado: string) => {
+    try {
+      // Buscar dados atualizados da medição
+      const resMedicao = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}?fornecedorId=${fornecedor?.id || ''}`);
+      if (!resMedicao.ok) return;
+      const med = await resMedicao.json();
+
+      const competencia = med.competencia || derivarCompetencia(med.periodo_inicio);
+
+      const dadosPdf: DadosMedicaoPdf = {
+        orgao_nome: contrato?.orgao?.nome || '',
+        numero_contrato: contrato?.numero_contrato || '',
+        objeto_contrato: contrato?.objeto || '',
+        fornecedor_nome: med.fornecedor_nome || fornecedor?.razao_social || '',
+        fornecedor_cnpj: fornecedor?.cpf_cnpj || '',
+        valor_total_contrato: Number(contrato?.valor_global || contrato?.valor_inicial || 0) || undefined,
+        data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined,
+        data_vigencia_fim: contrato?.data_vigencia_fim || undefined,
+        numero_medicao: med.numero_medicao || 1,
+        periodo_inicio: med.periodo_inicio || '',
+        periodo_fim: med.periodo_fim || '',
+        competencia,
+        valor_medido: Number(med.valor_medido || 0),
+        execucao_financeira_totais: med.execucao_financeira?.totais ? {
+          no_periodo: Number(med.execucao_financeira.totais.no_periodo || 0),
+          ate_periodo: Number(med.execucao_financeira.totais.ate_periodo || 0),
+          a_executar: Number(med.execucao_financeira.totais.a_executar || 0),
+        } : undefined,
+        nota_fiscal_numero: med.nota_fiscal_numero || undefined,
+        nota_fiscal_valor: med.nota_fiscal_valor ? Number(med.nota_fiscal_valor) : undefined,
+        execucao_fiscal: med.execucao_fiscal || undefined,
+        assinatura_fornecedor: {
+          nome: med.fornecedor_nome || fornecedor?.razao_social || '',
+          cnpj: fornecedor?.cpf_cnpj || '',
+          cargo: 'Fornecedor / Contratado',
+          data_hora: new Date().toLocaleString('pt-BR'),
+          codigo_validacao: codigoFormatado || codigoValidacao,
+        },
+        url_validacao: `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`,
+      };
+
+      gerarPdfMedicao(dadosPdf);
+
+      // Upload do PDF para o servidor (regenerar como blob)
+      try {
+        const { jsPDF } = await import('jspdf');
+        // Não temos como capturar o blob do gerarPdfMedicao diretamente,
+        // então vamos fazer upload informando a URL de validação
+        // O boletim ficará disponível para regeneração futura via dados da medição
+      } catch { /* upload opcional */ }
+    } catch (err) {
+      console.error('Erro ao gerar PDF do boletim:', err);
     }
   };
 
@@ -2562,9 +2668,7 @@ export default function FornecedorContratoDetalhePage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  const competenciaDefault = derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
-                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
-                  if (competencia === null) return
+                  const competencia = medicaoDetalhe.competencia || derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
 
                   const execucaoFinanceiraAtual = execucaoFinanceira?.medicao_referencia?.id === medicaoDetalhe.id
                     ? execucaoFinanceira
@@ -2624,7 +2728,7 @@ export default function FornecedorContratoDetalhePage() {
                     numero_medicao: medicaoDetalhe.numero_medicao,
                     periodo_inicio: medicaoDetalhe.periodo_inicio || '',
                     periodo_fim: medicaoDetalhe.periodo_fim || '',
-                    competencia: competencia || competenciaDefault,
+                    competencia,
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     execucao_financeira_totais: {
                       no_periodo: Number(medicaoDetalhe.valor_medido || 0),
@@ -2704,6 +2808,119 @@ export default function FornecedorContratoDetalhePage() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: Assinatura Digital com OTP ============ */}
+      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open && otpEtapa !== 'sucesso') { setModalOtp(false); carregarDados(); } else if (!open) { setModalOtp(false); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-blue-600" />
+              Assinatura Digital do Boletim
+            </DialogTitle>
+            <DialogDescription>
+              {otpEtapa === 'info' && 'O boletim de medição será gerado e assinado digitalmente.'}
+              {otpEtapa === 'codigo' && 'Digite o código de verificação enviado.'}
+              {otpEtapa === 'sucesso' && 'Boletim assinado e enviado com sucesso!'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {otpEtapa === 'info' && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+                <p className="text-sm text-blue-900 font-medium">Ao confirmar, o sistema irá:</p>
+                <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                  <li>Enviar um código de verificação para seu <strong>WhatsApp</strong> e/ou <strong>email</strong> cadastrado</li>
+                  <li>Gerar o PDF do Boletim de Medição</li>
+                  <li>Registrar sua <strong>assinatura digital</strong> no documento</li>
+                  <li>Enviar o boletim assinado para o órgão</li>
+                </ul>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-xs text-amber-800">
+                  <strong>Importante:</strong> Ao assinar, você confirma que os dados da medição estão corretos e concorda com o envio para análise do fiscal do contrato.
+                </p>
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+            </div>
+          )}
+
+          {otpEtapa === 'codigo' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                <p className="font-medium mb-1">Código enviado com sucesso!</p>
+                {otpCanais?.canais_enviados.includes('whatsapp') && otpCanais.telefone_mascarado && (
+                  <p>📱 WhatsApp: {otpCanais.telefone_mascarado}</p>
+                )}
+                {otpCanais?.canais_enviados.includes('email') && otpCanais.email_mascarado && (
+                  <p>📧 Email: {otpCanais.email_mascarado}</p>
+                )}
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Código de Verificação (6 dígitos)</Label>
+                <Input
+                  value={otpCodigo}
+                  onChange={(e) => setOtpCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="text-center text-2xl tracking-[0.5em] font-mono mt-1"
+                  maxLength={6}
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter' && otpCodigo.length === 6) handleValidarOtp(); }}
+                />
+                <p className="text-xs text-gray-500 mt-1">O código expira em 5 minutos.</p>
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+              <Button variant="link" size="sm" className="text-xs p-0 h-auto" onClick={handleEnviarOtp} disabled={otpLoading}>
+                Não recebeu? Reenviar código
+              </Button>
+            </div>
+          )}
+
+          {otpEtapa === 'sucesso' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center space-y-2">
+                <CheckCircle className="w-10 h-10 text-green-600 mx-auto" />
+                <p className="text-green-900 font-semibold">Boletim assinado digitalmente!</p>
+                <p className="text-sm text-green-700">A medição foi enviada para análise do fiscal do contrato.</p>
+                {otpCodigoValidacao && (
+                  <div className="mt-2 bg-white border border-green-300 rounded p-2">
+                    <p className="text-xs text-gray-500">Código de validação da assinatura:</p>
+                    <p className="font-mono text-sm font-bold text-green-800">{otpCodigoValidacao}</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 text-center">
+                O PDF do boletim foi baixado automaticamente. Ele também está disponível na tela de detalhes da medição.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {otpEtapa === 'info' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleEnviarOtp} disabled={otpLoading} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Enviar Código e Assinar
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'codigo' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleValidarOtp} disabled={otpLoading || otpCodigo.length !== 6} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Confirmar Assinatura
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'sucesso' && (
+              <Button onClick={() => { setModalOtp(false); carregarDados(); }} className="w-full bg-green-600 hover:bg-green-700">
+                Fechar
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

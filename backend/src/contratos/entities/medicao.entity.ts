@@ -241,6 +241,11 @@ export class Medicao {
   @Column({ type: 'text', nullable: true })
   documentos: string; // JSON array de URLs de documentos
 
+  // ============ BOLETIM PDF ASSINADO ============
+
+  @Column({ type: 'text', nullable: true })
+  boletim_pdf_url: string; // URL/caminho do PDF do boletim assinado digitalmente
+
   // ============ DEVOLUÇÃO (quando fiscal devolve ao fornecedor) ============
 
   @Column({ type: 'text', nullable: true })

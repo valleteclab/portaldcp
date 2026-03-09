@@ -1424,9 +1424,7 @@ export default function MedicoesPage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  const competenciaDefault = derivarCompetencia(modalAteste.periodo_inicio || '')
-                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
-                  if (competencia === null) return
+                  const competencia = modalAteste.competencia || derivarCompetencia(modalAteste.periodo_inicio || '')
 
                   let execucaoFinanceiraPdf: any = null
                   try {
@@ -1479,7 +1477,7 @@ export default function MedicoesPage() {
                     numero_medicao: modalAteste.numero_medicao,
                     periodo_inicio: modalAteste.periodo_inicio || '',
                     periodo_fim: modalAteste.periodo_fim || '',
-                    competencia: competencia || competenciaDefault,
+                    competencia,
                     valor_medido: Number(modalAteste.valor_medido || 0),
                     nota_fiscal_numero: modalAteste.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,

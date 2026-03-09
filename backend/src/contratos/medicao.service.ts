@@ -3075,4 +3075,197 @@ export class MedicaoService {
       data_assinatura: assinatura.data_assinatura,
     };
   }
+
+  // =========================================================
+  // OTP — Assinatura Digital para Boletim de Medição
+  // =========================================================
+
+  /**
+   * Solicita envio de OTP para o fornecedor via WhatsApp e/ou email.
+   * Retorna os canais utilizados e dados mascarados.
+   */
+  async solicitarOtpAssinaturaMedicao(
+    medicaoId: string,
+    fornecedorId: string,
+  ): Promise<{
+    canais_enviados: string[];
+    telefone_mascarado?: string;
+    email_mascarado?: string;
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    if (contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para assinar esta medição');
+    }
+
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    const orgaoId = contrato.orgao_id || '';
+    const usuarioNome = fornecedor.razao_social || fornecedor.nome_fantasia || '';
+
+    // Gerar código OTP único para ambos os canais
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const canaisEnviados: string[] = [];
+    let telefoneMascarado: string | undefined;
+    let emailMascarado: string | undefined;
+
+    // Enviar via WhatsApp
+    const telefone = fornecedor.representante_whatsapp || fornecedor.telefone || '';
+    if (telefone && telefone.replace(/\D/g, '').length >= 10) {
+      try {
+        await this.assinaturasService.solicitarOtp(orgaoId, telefone, usuarioNome);
+        // Sobrescrever o código do cache de WhatsApp para usar o mesmo código
+        const telefoneLimpo = telefone.replace(/\D/g, '');
+        (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefoneLimpo}`, {
+          codigo,
+          expiracao: Date.now() + 5 * 60 * 1000,
+          tentativas: 1,
+        });
+        canaisEnviados.push('whatsapp');
+        telefoneMascarado = telefone.replace(/\D/g, '').replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+
+        // Re-enviar via WhatsApp com o código correto
+        const mensagem = `Olá, *${usuarioNome}*.\n\nSeu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
+        try {
+          await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+            to: telefoneLimpo,
+            mensagem,
+          });
+        } catch { /* já tentou acima */ }
+      } catch (err) {
+        this.logger.warn(`Falha ao enviar OTP WhatsApp para medição ${medicaoId}: ${err.message}`);
+      }
+    }
+
+    // Enviar via Email
+    const email = fornecedor.representante_email || fornecedor.email || '';
+    if (email && email.includes('@')) {
+      try {
+        await this.assinaturasService.solicitarOtpEmail(orgaoId, email, usuarioNome, codigo);
+        canaisEnviados.push('email');
+        emailMascarado = email.replace(/^(.)(.*)(@.*)$/, '$1***$3');
+      } catch (err) {
+        this.logger.warn(`Falha ao enviar OTP email para medição ${medicaoId}: ${err.message}`);
+      }
+    }
+
+    if (canaisEnviados.length === 0) {
+      throw new BadRequestException(
+        'Não foi possível enviar o código de verificação. Verifique se o fornecedor possui email ou WhatsApp cadastrado.',
+      );
+    }
+
+    // Também salvar no cache genérico por medicaoId (para validação flexível)
+    (this.assinaturasService as any).otpCache?.set(`otp_medicao_${medicaoId}`, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    this.logger.log(`OTP enviado para medição ${medicaoId} via: ${canaisEnviados.join(', ')}`);
+
+    return { canais_enviados: canaisEnviados, telefone_mascarado: telefoneMascarado, email_mascarado: emailMascarado };
+  }
+
+  /**
+   * Valida OTP, registra assinatura digital e submete a medição.
+   */
+  async validarOtpAssinaturaMedicao(
+    medicaoId: string,
+    fornecedorId: string,
+    codigoOtp: string,
+  ): Promise<{
+    sucesso: boolean;
+    codigo_validacao: string;
+    codigo_formatado: string;
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato && contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para assinar esta medição');
+    }
+
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    // Tentar validar pelo cache genérico por medicaoId
+    const cacheKeyMedicao = `otp_medicao_${medicaoId}`;
+    const otpMedicao = (this.assinaturasService as any).otpCache?.get(cacheKeyMedicao);
+
+    let otpValido = false;
+    if (otpMedicao && otpMedicao.expiracao > Date.now() && otpMedicao.codigo === codigoOtp) {
+      otpValido = true;
+      (this.assinaturasService as any).otpCache?.delete(cacheKeyMedicao);
+    }
+
+    if (!otpValido) {
+      // Tentar validar via email ou WhatsApp
+      const orgaoId = contrato?.orgao_id || '';
+      const email = fornecedor.representante_email || fornecedor.email || '';
+      const telefone = (fornecedor.representante_whatsapp || fornecedor.telefone || '').replace(/\D/g, '');
+
+      try {
+        if (email) await this.assinaturasService.validarOtpEmail(orgaoId, email, codigoOtp);
+        otpValido = true;
+      } catch {
+        try {
+          if (telefone) await this.assinaturasService.validarOtp(orgaoId, telefone, codigoOtp);
+          otpValido = true;
+        } catch { /* nenhum canal validou */ }
+      }
+    }
+
+    if (!otpValido) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+
+    // Registrar assinatura digital
+    const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: contrato?.orgao_id || '',
+      papel: 'FORNECEDOR',
+      usuario_nome: fornecedor.razao_social || fornecedor.nome_fantasia || '',
+      usuario_cpf_cnpj: fornecedor.cpf_cnpj || '',
+      usuario_cargo: 'Fornecedor / Contratado',
+    });
+
+    // Submeter a medição (se ainda não submetida)
+    if (medicao.status === StatusMedicao.RASCUNHO || medicao.status === StatusMedicao.DEVOLVIDA) {
+      try {
+        await this.submeterMedicao(medicaoId, fornecedorId);
+      } catch (err) {
+        this.logger.warn(`Assinatura OK mas falha ao submeter medição ${medicaoId}: ${err.message}`);
+        throw err;
+      }
+    }
+
+    this.logger.log(`Medição ${medicaoId} assinada e submetida com OTP pelo fornecedor ${fornecedorId}`);
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+    };
+  }
+
+  /**
+   * Salva a URL do boletim PDF assinado na medição.
+   */
+  async salvarBoletimPdf(medicaoId: string, pdfUrl: string): Promise<void> {
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+    this.logger.log(`Boletim PDF salvo para medição ${medicaoId}: ${pdfUrl}`);
+  }
 }

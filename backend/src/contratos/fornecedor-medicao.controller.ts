@@ -562,6 +562,62 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Solicita envio de OTP para assinatura do boletim de medição.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/solicitar-otp-assinatura
+   */
+  @Post('medicoes/:medicaoId/solicitar-otp-assinatura')
+  async solicitarOtpAssinatura(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fornecedor_id: string },
+  ) {
+    if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
+    return this.medicaoService.solicitarOtpAssinaturaMedicao(medicaoId, body.fornecedor_id);
+  }
+
+  /**
+   * Valida OTP, registra assinatura digital e submete a medição.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/validar-otp-assinatura
+   */
+  @Post('medicoes/:medicaoId/validar-otp-assinatura')
+  async validarOtpAssinatura(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fornecedor_id: string; codigo: string },
+  ) {
+    if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
+    if (!body.codigo) throw new BadRequestException('codigo é obrigatório');
+    return this.medicaoService.validarOtpAssinaturaMedicao(medicaoId, body.fornecedor_id, body.codigo);
+  }
+
+  /**
+   * Upload do boletim PDF assinado.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/upload-boletim
+   */
+  @Post('medicoes/:medicaoId/upload-boletim')
+  @UseInterceptors(FileInterceptor('arquivo', {
+    storage: diskStorage({
+      destination: (req, file, cb) => {
+        const dir = join(process.cwd(), 'uploads', 'boletins');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      },
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        cb(null, `boletim-${uniqueSuffix}${extname(file.originalname)}`);
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+  }))
+  async uploadBoletim(
+    @Param('medicaoId') medicaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
+    const pdfUrl = `/uploads/boletins/${file.filename}`;
+    await this.medicaoService.salvarBoletimPdf(medicaoId, pdfUrl);
+    return { url: pdfUrl, filename: file.filename };
+  }
+
+  /**
    * Retorna o resumo de execução fiscal/financeira por item do contrato para o fornecedor.
    * GET /api/fornecedor/contratos/:contratoId/execucao-financeira?fornecedorId=xxx&medicaoId=xxx
    */
