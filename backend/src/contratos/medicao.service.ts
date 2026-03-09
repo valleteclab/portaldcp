@@ -20,6 +20,8 @@ import { Orgao } from '../orgaos/entities/orgao.entity';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class MedicaoService {
@@ -3262,10 +3264,32 @@ export class MedicaoService {
   }
 
   /**
-   * Salva a URL do boletim PDF assinado na medição.
+   * Salva arquivo PDF do boletim em disco e atualiza a URL na medição.
    */
-  async salvarBoletimPdf(medicaoId: string, pdfUrl: string): Promise<void> {
+  async salvarBoletimPdf(medicaoId: string, pdfBuffer: Buffer): Promise<string> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Criar diretório se não existir
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'boletins');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // Nome do arquivo: boletim_medicaoId_timestamp.pdf
+    const filename = `boletim_${medicaoId}_${Date.now()}.pdf`;
+    const filepath = path.join(uploadsDir, filename);
+
+    // Salvar arquivo
+    fs.writeFileSync(filepath, pdfBuffer);
+
+    // URL relativa para acesso
+    const pdfUrl = `/uploads/boletins/${filename}`;
+
+    // Atualizar medição
     await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+
     this.logger.log(`Boletim PDF salvo para medição ${medicaoId}: ${pdfUrl}`);
+    return pdfUrl;
   }
 }

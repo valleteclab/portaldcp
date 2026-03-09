@@ -362,7 +362,7 @@ boxesInfo.push({ x: bx, boxH })
 
 // ---- Função principal ----
 
-export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
+export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
@@ -766,5 +766,10 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   }
 
   const nomeArq = `BM_${dados.numero_contrato.replace(/[/\\]/g, '-')}_${String(dados.numero_medicao).padStart(3, '0')}_${competencia.replace('/', '-')}.pdf`
+  
+  // Fazer download do PDF
   doc.save(nomeArq)
+  
+  // Retornar blob para upload
+  return doc.output('blob')
 }

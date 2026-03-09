@@ -939,6 +939,27 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  const baixarPdfArmazenado = async (medicaoId: string): Promise<boolean> => {
+    try {
+      const resMedicao = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}?fornecedorId=${fornecedor?.id || ''}`);
+      if (!resMedicao.ok) return false;
+      const med = await resMedicao.json();
+      
+      if (med.boletim_pdf_url) {
+        // Baixar PDF armazenado
+        const pdfUrl = `${API_URL}${med.boletim_pdf_url}`;
+        const link = document.createElement('a');
+        link.href = pdfUrl;
+        link.download = `boletim_medicao_${med.numero_medicao}.pdf`;
+        link.click();
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao: string, codigoFormatado: string) => {
     try {
       // Buscar dados atualizados da medição e discriminações
@@ -1036,15 +1057,25 @@ export default function FornecedorContratoDetalhePage() {
         url_validacao: `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`,
       };
 
-      gerarPdfMedicao(dadosPdf);
+      const pdfBlob = gerarPdfMedicao(dadosPdf);
 
-      // Upload do PDF para o servidor (regenerar como blob)
+      // Upload do PDF para o servidor
       try {
-        const { jsPDF } = await import('jspdf');
-        // Não temos como capturar o blob do gerarPdfMedicao diretamente,
-        // então vamos fazer upload informando a URL de validação
-        // O boletim ficará disponível para regeneração futura via dados da medição
-      } catch { /* upload opcional */ }
+        const formData = new FormData();
+        formData.append('arquivo', pdfBlob, `boletim_${medicaoId}.pdf`);
+        
+        const uploadRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/upload-boletim`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          console.log('PDF armazenado com sucesso:', uploadData.url);
+        }
+      } catch (err) {
+        console.warn('Erro ao fazer upload do PDF (continuando):', err);
+      }
     } catch (err) {
       console.error('Erro ao gerar PDF do boletim:', err);
     }
@@ -1424,6 +1455,11 @@ export default function FornecedorContratoDetalhePage() {
                           )}
                           {medicao.data_submissao && (
                             <Button size="sm" variant="outline" className="gap-1 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={async () => {
+                              // Tentar baixar PDF armazenado primeiro
+                              const pdfArmazenadoBaixado = await baixarPdfArmazenado(medicao.id);
+                              if (pdfArmazenadoBaixado) return; // PDF armazenado baixado com sucesso
+                              
+                              // Se não houver PDF armazenado, gerar novo
                               // Buscar discriminações da medição
                               let discriminacoesPdf: any[] = [];
                               try {

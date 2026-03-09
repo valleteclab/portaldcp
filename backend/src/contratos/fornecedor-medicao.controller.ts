@@ -594,17 +594,6 @@ export class FornecedorMedicaoController {
    */
   @Post('medicoes/:medicaoId/upload-boletim')
   @UseInterceptors(FileInterceptor('arquivo', {
-    storage: diskStorage({
-      destination: (req, file, cb) => {
-        const dir = join(process.cwd(), 'uploads', 'boletins');
-        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-      },
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, `boletim-${uniqueSuffix}${extname(file.originalname)}`);
-      },
-    }),
     limits: { fileSize: 10 * 1024 * 1024 },
   }))
   async uploadBoletim(
@@ -612,8 +601,10 @@ export class FornecedorMedicaoController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
-    const pdfUrl = `/uploads/boletins/${file.filename}`;
-    await this.medicaoService.salvarBoletimPdf(medicaoId, pdfUrl);
+    
+    // Salvar PDF usando o service (que gerencia o armazenamento)
+    const pdfUrl = await this.medicaoService.salvarBoletimPdf(medicaoId, file.buffer);
+    
     return { url: pdfUrl, filename: file.filename };
   }
 
