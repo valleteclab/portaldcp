@@ -837,7 +837,7 @@ export default function FornecedorContratoDetalhePage() {
 
   const abrirModalNovaMedicao = async () => {
     setNovaMedicao({
-      periodo_inicio: '', periodo_fim: '', observacoes: '',
+      periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       valor_medido: '',
       itens: isServicoContinuado ? [] : usarItensCronograma
