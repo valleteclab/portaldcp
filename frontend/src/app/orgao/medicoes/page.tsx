@@ -1428,23 +1428,24 @@ export default function MedicoesPage() {
                   const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
                   if (competencia === null) return
 
-                  const itensCron = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
-                  const somaValorItens = itensCron.reduce((s: number, i: any) => s + Number(i.item_quantidade_total || 0) * Number(i.item_valor_unitario || 0), 0)
-                  const valorInicial = Number(modalAteste.contrato?.valor_inicial || 0)
-                  const saldoDisp = Number(modalAteste.contrato?.saldo_disponivel || modalAteste.saldo_disponivel || 0)
-                  const valorJaExecutado = Math.max(0, valorInicial - saldoDisp)
+                  let execucaoFinanceiraPdf: any = null
+                  try {
+                    const execRes = await authFetch(`${API_URL}/api/contratos/${modalAteste.contrato_id}/execucao-financeira?medicaoId=${modalAteste.id}`)
+                    if (execRes.ok) {
+                      execucaoFinanceiraPdf = await execRes.json()
+                    }
+                  } catch { }
 
-                  const calcAcum = (vlrRestante: number) =>
-                    somaValorItens > 0 && valorJaExecutado > 0
-                      ? (vlrRestante / somaValorItens) * valorJaExecutado
-                      : 0
+                  const itensCron = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
+                  const itensExecucaoFinanceira = execucaoFinanceiraPdf?.itens || []
 
                   const itensItem = itensCron.map((i: any) => {
                     const vlrUnitario = Number(i.item_valor_unitario || 0)
+                    const itemExecucao = itensExecucaoFinanceira.find((item: any) => Number(item.numero_etapa) === Number(i.item_numero))
                     const vlrTotal = Number(i.item_quantidade_total || 0) * vlrUnitario
-                    const vlrAcumAnterior = vlrTotal > 0 && valorJaExecutado > 0
-                      ? calcAcum(vlrTotal)
-                      : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
+                    const vlrNoPeriodo = Number(itemExecucao?.no_periodo ?? i.valor_medido ?? 0)
+                    const vlrAtePeriodo = Number(itemExecucao?.ate_periodo ?? 0)
+                    const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
                     return {
                       numero: i.item_numero || i.etapa_numero || 0,
                       descricao: i.item_descricao || i.etapa_descricao || '',
@@ -1452,7 +1453,7 @@ export default function MedicoesPage() {
                       quantidade_no_periodo: Number(i.quantidade_medida || 0),
                       quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
                       quantidade_total_contrato: Number(i.item_quantidade_total || 0),
-                      valor_no_periodo: Number(i.valor_medido || 0),
+                      valor_no_periodo: vlrNoPeriodo,
                       valor_unitario: vlrUnitario,
                       valor_acumulado_anterior: vlrAcumAnterior,
                       valor_total_item: vlrTotal,
@@ -1482,6 +1483,7 @@ export default function MedicoesPage() {
                     valor_medido: Number(modalAteste.valor_medido || 0),
                     nota_fiscal_numero: modalAteste.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,
+                    execucao_fiscal: execucaoFinanceiraPdf?.execucao_fiscal || undefined,
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
                   }
