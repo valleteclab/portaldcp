@@ -835,7 +835,6 @@ export default function FornecedorContratoDetalhePage() {
         
         // Preparar nova medição com os dados da devolvida
         setNovaMedicao({
-          numero_medicao: medicao.numero_medicao,
           periodo_inicio: medicao.periodo_inicio,
           periodo_fim: medicao.periodo_fim,
           observacoes: medicao.fornecedor_observacoes || '',
