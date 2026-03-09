@@ -632,15 +632,20 @@ export class MedicaoService {
     // Calcular e salvar execução fiscal (temporal) com ano comercial
     try {
       const execucaoFinanceira = await this.calcularExecucaoFinanceira(contratoId, '', medicaoSalva.id);
-      if (execucaoFinanceira && execucaoFinanceira.execucao_fiscal) {
+      if (execucaoFinanceira) {
         await this.medicaoRepository.update(medicaoSalva.id, {
           execucao_fiscal: execucaoFinanceira.execucao_fiscal,
+          execucao_financeira: {
+            itens: execucaoFinanceira.itens || [],
+            totais: execucaoFinanceira.totais || null,
+            ajuste_migracao: execucaoFinanceira.ajuste_migracao || 0,
+          },
         });
-        this.logger.log(`Execução fiscal calculada e salva para medição ${medicaoSalva.id}`);
+        this.logger.log(`Execução fiscal/financeira calculada e salva para medição ${medicaoSalva.id}`);
       }
     } catch (error) {
-      this.logger.warn(`Erro ao calcular execução fiscal para medição ${medicaoSalva.id}: ${error.message}`);
-      // Não falhar a criação da medição se der erro na execução fiscal
+      this.logger.warn(`Erro ao calcular execução fiscal/financeira para medição ${medicaoSalva.id}: ${error.message}`);
+      // Não falhar a criação da medição se der erro no snapshot de execução
     }
 
     // Salvar itens da medição (obras/etapas)
@@ -837,6 +842,18 @@ export class MedicaoService {
     // Limpar dados de devolução anterior
     medicao.motivo_devolucao = null as any;
     medicao.data_devolucao = null as any;
+
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicao.id);
+      medicao.execucao_fiscal = execucaoFinanceira?.execucao_fiscal || null as any;
+      medicao.execucao_financeira = execucaoFinanceira ? {
+        itens: execucaoFinanceira.itens || [],
+        totais: execucaoFinanceira.totais || null,
+        ajuste_migracao: execucaoFinanceira.ajuste_migracao || 0,
+      } as any : null as any;
+    } catch (error) {
+      this.logger.warn(`Erro ao persistir snapshot de execução da medição ${medicao.id} na submissão: ${error.message}`);
+    }
 
     await this.medicaoRepository.save(medicao);
     this.logger.log(`Medição #${medicao.numero_medicao} submetida pelo fornecedor ${fornecedorId}`);

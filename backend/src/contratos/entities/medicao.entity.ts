@@ -130,6 +130,27 @@ export class Medicao {
     ano_comercial: boolean;
   };
 
+  @Column({ type: 'json', nullable: true })
+  execucao_financeira: {
+    itens: Array<{
+      etapa_id: string;
+      numero_etapa: number;
+      descricao: string;
+      valor_previsto: number;
+      percentual_fisico: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    }>;
+    totais: {
+      valor_previsto: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    };
+    ajuste_migracao?: number;
+  };
+
   // ============ FORNECEDOR (quem submete) ============
 
   @Column({ type: 'text', nullable: true })

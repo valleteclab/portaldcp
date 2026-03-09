@@ -138,6 +138,25 @@ interface Medicao {
     dias_restantes_extra: number;
     ano_comercial: boolean;
   };
+  execucao_financeira?: {
+    itens: Array<{
+      etapa_id: string;
+      numero_etapa: number;
+      descricao: string;
+      valor_previsto: number;
+      percentual_fisico: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    }>;
+    totais: {
+      valor_previsto: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    };
+    ajuste_migracao?: number;
+  };
 }
 
 interface Resumo {
@@ -2541,7 +2560,7 @@ export default function FornecedorContratoDetalhePage() {
                   const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
                   if (competencia === null) return
 
-                  const itensExecucaoFinanceira = execucaoFinanceira?.itens || []
+                  const itensExecucaoFinanceira = medicaoDetalhe.execucao_financeira?.itens || execucaoFinanceira?.itens || []
                   const itensMedicaoCronograma = (medicaoDetalhe.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
 
                   const itensItem = itensExecucaoFinanceira.map((itemExecucao: any) => {
@@ -2599,7 +2618,7 @@ export default function FornecedorContratoDetalhePage() {
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
-                    execucao_fiscal: medicaoDetalhe.execucao_fiscal || undefined,
+                    execucao_fiscal: medicaoDetalhe.execucao_fiscal || execucaoFinanceira?.execucao_fiscal || undefined,
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
                     itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
