@@ -125,6 +125,18 @@ interface Medicao {
   data_devolucao?: string;
   created_at: string;
   itens?: any[];
+  execucao_fiscal?: {
+    vigencia_inicio: string;
+    vigencia_fim: string;
+    total_dias: number;
+    dias_executados: number;
+    dias_restantes: number;
+    meses_executados: number;
+    dias_executados_extra: number;
+    meses_restantes: number;
+    dias_restantes_extra: number;
+    ano_comercial: boolean;
+  };
 }
 
 interface Resumo {
