@@ -2528,6 +2528,7 @@ export class MedicaoService {
       const itens = usarItensCronograma
         ? await this.itemMedicaoItemRepository.find({
             where: { medicao_id: m.id },
+            relations: ['itemCronograma'],
           })
         : await this.itemMedicaoRepository.find({
             where: { medicao_id: m.id },
@@ -2548,6 +2549,7 @@ export class MedicaoService {
       itensMedicaoAtual = usarItensCronograma
         ? await this.itemMedicaoItemRepository.find({
             where: { medicao_id: medicaoAtual.id },
+            relations: ['itemCronograma'],
           })
         : await this.itemMedicaoRepository.find({
             where: { medicao_id: medicaoAtual.id },
@@ -2568,14 +2570,24 @@ export class MedicaoService {
           const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
           console.log(`DEBUG: Calculando item ${item.numero_item} (${item.descricao}): valor_previsto=${valorPrevisto}`);
 
+          const obterValorBrutoItemMedicao = (itemMedicao: any): number => {
+            const quantidadeMedida = Number(itemMedicao?.quantidade_medida) || 0;
+            const valorUnitario = Number(itemMedicao?.itemCronograma?.valor_unitario ?? item.valor_unitario) || 0;
+            if (quantidadeMedida > 0 && valorUnitario > 0) {
+              return quantidadeMedida * valorUnitario;
+            }
+            return Number(itemMedicao?.valor_medido) || 0;
+          };
+
           let valorAnterior = 0;
           for (const m of medicoesAprovadas) {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
             const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
             if (itemMedicao) {
-              valorAnterior += Number(itemMedicao.valor_medido) || 0;
-              console.log(`DEBUG: Adicionando valorAnterior=${Number(itemMedicao.valor_medido)} da medição ${m.numero_medicao} para item ${item.numero_item}`);
+              const valorItemBruto = obterValorBrutoItemMedicao(itemMedicao);
+              valorAnterior += valorItemBruto;
+              console.log(`DEBUG: Adicionando valorAnterior=${valorItemBruto} da medição ${m.numero_medicao} para item ${item.numero_item}`);
             }
           }
 
@@ -2585,13 +2597,13 @@ export class MedicaoService {
               const itensM = itensPorMedicao[medicaoAtual.id] || [];
               const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
               if (itemMedicao) {
-                noPeriodo = Number(itemMedicao.valor_medido) || 0;
+                noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
                 console.log(`DEBUG: noPeriodo (APROVADA)=${noPeriodo} da medição ${medicaoAtual.numero_medicao} para item ${item.numero_item}`);
               }
             } else {
               const itemMedicao = itensMedicaoAtual.find(i => (i as any).item_cronograma_id === item.id);
               if (itemMedicao) {
-                noPeriodo = Number(itemMedicao.valor_medido) || 0;
+                noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
                 console.log(`DEBUG: noPeriodo (NÃO APROVADA)=${noPeriodo} da medição atual para item ${item.numero_item}`);
               }
             }
