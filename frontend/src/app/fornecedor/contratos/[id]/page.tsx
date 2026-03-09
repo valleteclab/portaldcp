@@ -148,6 +148,12 @@ interface Medicao {
       no_periodo: number;
       ate_periodo: number;
       a_executar: number;
+      no_periodo_item?: number;
+      ate_periodo_item?: number;
+      a_executar_item?: number;
+      no_periodo_global?: number;
+      ate_periodo_global?: number;
+      a_executar_global?: number;
     }>;
     totais: {
       valor_previsto: number;
@@ -2560,7 +2566,10 @@ export default function FornecedorContratoDetalhePage() {
                   const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
                   if (competencia === null) return
 
-                  const itensExecucaoFinanceira = medicaoDetalhe.execucao_financeira?.itens || execucaoFinanceira?.itens || []
+                  const execucaoFinanceiraAtual = execucaoFinanceira?.medicao_referencia?.id === medicaoDetalhe.id
+                    ? execucaoFinanceira
+                    : null
+                  const itensExecucaoFinanceira = execucaoFinanceiraAtual?.itens || medicaoDetalhe.execucao_financeira?.itens || execucaoFinanceira?.itens || []
                   const itensMedicaoCronograma = (medicaoDetalhe.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
 
                   const itensItem = itensExecucaoFinanceira.map((itemExecucao: any) => {
@@ -2574,8 +2583,8 @@ export default function FornecedorContratoDetalhePage() {
                     )
                     const vlrUnitario = Number(ic?.valor_unitario || itemMedicao?.item_valor_unitario || 0)
                     const vlrTotal = Number(ic?.valor_total || itemExecucao.valor_previsto || (itemMedicao?.item_quantidade_total || 0) * vlrUnitario)
-                    const vlrNoPeriodo = Number(itemExecucao.no_periodo || 0)
-                    const vlrAtePeriodo = Number(itemExecucao.ate_periodo || 0)
+                    const vlrNoPeriodo = Number(itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo || 0)
+                    const vlrAtePeriodo = Number(itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo || 0)
                     const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
 
                     return {
@@ -2602,7 +2611,7 @@ export default function FornecedorContratoDetalhePage() {
                       valor_previsto: Number(i.etapa_valor_previsto || 0),
                       valor_medido: Number(i.valor_medido || 0),
                     }))
-                  const totaisExecucaoFinanceira = medicaoDetalhe.execucao_financeira?.totais || execucaoFinanceira?.totais
+                  const totaisExecucaoFinanceira = execucaoFinanceiraAtual?.totais || medicaoDetalhe.execucao_financeira?.totais || execucaoFinanceira?.totais
                   const dadosPdf: DadosMedicaoPdf = {
                     numero_contrato: contrato?.numero_contrato || '',
                     objeto_contrato: contrato?.objeto || '',

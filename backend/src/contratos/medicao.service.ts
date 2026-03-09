@@ -2024,6 +2024,12 @@ export class MedicaoService {
       no_periodo?: number;
       ate_periodo?: number;
       a_executar?: number;
+      no_periodo_item?: number;
+      ate_periodo_item?: number;
+      a_executar_item?: number;
+      no_periodo_global?: number;
+      ate_periodo_global?: number;
+      a_executar_global?: number;
     }> = Array.isArray(execucaoFinanceira?.itens) ? execucaoFinanceira.itens : [];
     const totalPrevisto = Number(execucaoFinanceira?.totais?.valor_previsto);
     const totalNoPeriodo = Number(execucaoFinanceira?.totais?.no_periodo);
@@ -2750,6 +2756,40 @@ export class MedicaoService {
     const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
     const totalAExecutar = Math.max(0, totalPrevisto - totalAtePeriodoComAjuste);
 
+    const baseRateio = resultado.map((item) => ({
+      valor_previsto: Number(item.valor_previsto) || 0,
+    }));
+    const totalBaseRateio = baseRateio.reduce((s, item) => s + item.valor_previsto, 0);
+    let ajusteRateadoAcumulado = 0;
+
+    const resultadoComVisoes = resultado.map((item, index) => {
+      const valorPrevistoItem = Number(item.valor_previsto) || 0;
+      const proporcao = totalBaseRateio > 0 ? valorPrevistoItem / totalBaseRateio : 0;
+      const ajusteRateado = index === resultado.length - 1
+        ? ajusteMigracao - ajusteRateadoAcumulado
+        : Math.round((ajusteMigracao * proporcao) * 100) / 100;
+      ajusteRateadoAcumulado += ajusteRateado;
+
+      const noPeriodoItem = Math.round((Number(item.no_periodo) || 0) * 100) / 100;
+      const atePeriodoItem = Math.round((Number(item.ate_periodo) || 0) * 100) / 100;
+      const aExecutarItem = Math.round(Math.max(0, valorPrevistoItem - atePeriodoItem) * 100) / 100;
+      const atePeriodoGlobal = Math.round((atePeriodoItem + ajusteRateado) * 100) / 100;
+      const aExecutarGlobal = Math.round(Math.max(0, valorPrevistoItem - atePeriodoGlobal) * 100) / 100;
+
+      return {
+        ...item,
+        no_periodo: noPeriodoItem,
+        ate_periodo: atePeriodoItem,
+        a_executar: aExecutarItem,
+        no_periodo_item: noPeriodoItem,
+        ate_periodo_item: atePeriodoItem,
+        a_executar_item: aExecutarItem,
+        no_periodo_global: noPeriodoItem,
+        ate_periodo_global: atePeriodoGlobal,
+        a_executar_global: aExecutarGlobal,
+      };
+    });
+
     console.log('DEBUG: Totais execução financeira fornecedor:', {
       total_previsto: totalPrevisto,
       total_no_periodo: totalNoPeriodo,
@@ -2761,7 +2801,7 @@ export class MedicaoService {
 
     return {
       contrato_id: contratoId,
-      itens: resultado,
+      itens: resultadoComVisoes,
       totais: {
         valor_previsto: Math.round(totalPrevisto * 100) / 100,
         no_periodo: Math.round(totalNoPeriodo * 100) / 100,
