@@ -835,7 +835,6 @@ export default function FornecedorContratoDetalhePage() {
         
         // Preparar nova medição com os dados da devolvida
         setNovaMedicao({
-          contrato_id: medicao.contrato_id,
           numero_medicao: medicao.numero_medicao,
           periodo_inicio: medicao.periodo_inicio,
           periodo_fim: medicao.periodo_fim,
@@ -843,6 +842,7 @@ export default function FornecedorContratoDetalhePage() {
           nota_fiscal_numero: medicao.nota_fiscal_numero || '',
           nota_fiscal_valor: medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : '',
           nota_fiscal_data: medicao.nota_fiscal_data || '',
+          valor_medido: String(medicao.valor_medido || ''),
           itens: medicaoCompleta.itens?.map((item: any) => {
             if (item.tipo_item === 'item_cronograma') {
               return {
