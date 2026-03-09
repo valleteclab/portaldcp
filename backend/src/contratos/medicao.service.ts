@@ -3122,25 +3122,25 @@ export class MedicaoService {
     const telefone = fornecedor.representante_whatsapp || fornecedor.telefone || '';
     if (telefone && telefone.replace(/\D/g, '').length >= 10) {
       try {
-        await this.assinaturasService.solicitarOtp(orgaoId, telefone, usuarioNome);
-        // Sobrescrever o código do cache de WhatsApp para usar o mesmo código
         const telefoneLimpo = telefone.replace(/\D/g, '');
+        
+        // Salvar no cache de WhatsApp
         (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefoneLimpo}`, {
           codigo,
           expiracao: Date.now() + 5 * 60 * 1000,
-          tentativas: 1,
+          tentativas: 0,
         });
-        canaisEnviados.push('whatsapp');
-        telefoneMascarado = telefone.replace(/\D/g, '').replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
 
-        // Re-enviar via WhatsApp com o código correto
+        // Enviar via WhatsApp
         const mensagem = `Olá, *${usuarioNome}*.\n\nSeu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
-        try {
-          await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
-            to: telefoneLimpo,
-            mensagem,
-          });
-        } catch { /* já tentou acima */ }
+        await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+          to: telefoneLimpo,
+          mensagem,
+        });
+        
+        canaisEnviados.push('whatsapp');
+        telefoneMascarado = telefoneLimpo.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+        this.logger.log(`OTP WhatsApp enviado para medição ${medicaoId}: ${telefoneMascarado}`);
       } catch (err) {
         this.logger.warn(`Falha ao enviar OTP WhatsApp para medição ${medicaoId}: ${err.message}`);
       }
