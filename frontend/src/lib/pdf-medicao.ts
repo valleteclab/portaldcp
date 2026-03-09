@@ -235,28 +235,28 @@ function desenharQuadroAssinaturas(
 
   // ── Linha separadora ────────────────────────────────────────────────────────
   doc.setDrawColor(107, 114, 128)
-  doc.setLineWidth(0.8)
+  doc.setLineWidth(0.6)
   doc.line(mX, y + dy, W - mX, y + dy)
-  dy += 5
+  dy += 3.5
 
   // ── Título do quadro ──────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
+  doc.setFontSize(8)
   doc.setTextColor(30, 64, 175)
   doc.text('QUADRO DE ASSINATURAS ELETRÔNICAS', W / 2, y + dy, { align: 'center' })
-  dy += 5
+  dy += 4
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(6)
   doc.setTextColor(55, 65, 81)
   doc.text(
     'Este documento foi assinado eletronicamente em conformidade com a Lei nº 14.063/2020.',
     W / 2, y + dy, { align: 'center' },
   )
-  dy += 6
+  dy += 4.5
 
   // ── Caixas por assinante ────────────────────────────────────────────────
-  const boxW = (contentW - 6) / 2
+  const boxW = (contentW - 4) / 2
   const assinantesArr = assinaturas.slice(0, 2)
 
   let maxBoxH = 0
@@ -264,9 +264,9 @@ function desenharQuadroAssinaturas(
 
   for (let i = 0; i < assinantesArr.length; i++) {
     const a = assinantesArr[i]
-    const bx = mX + i * (boxW + 6)
+    const bx = mX + i * (boxW + 4)
     const pendente = a.pendente
-    const boxH = pendente ? 22 : 38
+    const boxH = pendente ? 18 : 31
     maxBoxH = Math.max(maxBoxH, boxH)
     boxesInfo.push({ x: bx, boxH })
 
@@ -278,68 +278,68 @@ function desenharQuadroAssinaturas(
 
     // Header colorido
     doc.setFillColor(a.cor[0], a.cor[1], a.cor[2])
-    doc.rect(bx, y + dy, boxW, 6, 'F')
+    doc.rect(bx, y + dy, boxW, 5, 'F')
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(6)
+    doc.setFontSize(5.5)
     doc.setTextColor(255, 255, 255)
-    doc.text(a.titulo, bx + boxW / 2, y + dy + 4, { align: 'center' })
+    doc.text(a.titulo, bx + boxW / 2, y + dy + 3.4, { align: 'center' })
 
     if (pendente) {
       doc.setFont('helvetica', 'italic')
-      doc.setFontSize(6.5)
+      doc.setFontSize(6)
       doc.setTextColor(156, 163, 175)
-      doc.text('Pendente de assinatura', bx + boxW / 2, y + dy + 6 + 8, { align: 'center' })
+      doc.text('Pendente de assinatura', bx + boxW / 2, y + dy + 11.5, { align: 'center' })
     } else {
-      let ly = y + dy + 6 + 5
+      let ly = y + dy + 8.5
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(7)
+      doc.setFontSize(6.2)
       doc.setTextColor(17, 24, 39)
-      const linhasNome = doc.splitTextToSize(a.nome, boxW - 6)
+      const linhasNome = doc.splitTextToSize(a.nome, boxW - 5)
       doc.text(linhasNome.slice(0, 2), bx + 3, ly)
-      ly += linhasNome.slice(0, 2).length * 4
+      ly += linhasNome.slice(0, 2).length * 3.1
 
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
+      doc.setFontSize(5.8)
       doc.setTextColor(55, 65, 81)
-      if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 3.5 }
-      if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 3.5 }
-      doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 3.5
+      if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 2.8 }
+      if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 2.8 }
+      doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 2.8
 
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(6)
+      doc.setFontSize(5.5)
       doc.setTextColor(22, 163, 74)
       doc.text('✓  Assinatura eletrônica válida', bx + 3, ly)
     }
   }
-  dy += maxBoxH + 5
+  dy += maxBoxH + 3
 
   // ── Rodapé: URL de verificação + código ─────────────────────────────────
   doc.setDrawColor(156, 163, 175)
   doc.setLineWidth(0.4)
   doc.line(mX, y + dy, W - mX, y + dy)
-  dy += 4
+  dy += 3
 
   const baseUrl = urlValidacao || 'portaldcp.com.br/validar-documento'
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7)
+  doc.setFontSize(6.3)
   doc.setTextColor(17, 24, 39)
   doc.text('VERIFICAR AUTENTICIDADE:', mX, y + dy)
-  dy += 4
+  dy += 3.2
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(5.8)
   doc.setTextColor(55, 65, 81)
   doc.text(`Acesse: ${baseUrl}`, mX, y + dy)
-  dy += 4
+  dy += 3.2
 
   // Códigos dos assinantes
   const codigosValidos = assinantesArr.filter(a => !a.pendente && a.codigoValidacao)
   if (codigosValidos.length > 0) {
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7)
+    doc.setFontSize(6.1)
     doc.setTextColor(37, 99, 235)
     for (const a of codigosValidos) {
       doc.text(`Código (${a.titulo.split('—')[1]?.trim() || a.titulo}): ${a.codigoValidacao}`, mX, y + dy)
-      dy += 4
+      dy += 3.2
     }
   }
 
@@ -352,8 +352,8 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
-  const mX = 10   // margem lateral reduzida para caber a tabela
-  let y = 10
+  const mX = 7
+  let y = 8
 
   const competencia = dados.competencia || derivarCompetencia(dados.periodo_inicio)
 
@@ -469,7 +469,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 30 }, 3: { cellWidth: 18 } },
       margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 4
   }
 
   // =========================================================
@@ -512,12 +512,12 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
         ],
       ],
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
+      styles: { fontSize: 6.5, cellPadding: 1.1, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 74 }, 2: { cellWidth: 18 }, 3: { cellWidth: 22 }, 4: { cellWidth: 30 }, 5: { cellWidth: 32 } },
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 82 }, 2: { cellWidth: 21 }, 3: { cellWidth: 18 }, 4: { cellWidth: 30 }, 5: { cellWidth: 31 } },
       margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 4
   }
 
   // =========================================================
@@ -625,21 +625,21 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       head,
       body,
       theme: 'grid',
-      styles: { fontSize: 6, cellPadding: 1.5, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' },
+      styles: { fontSize: 5.8, cellPadding: 1.1, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 10 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 21 },
-        4: { cellWidth: 20 },
-        5: { cellWidth: 20 },
-        6: { cellWidth: 24 },
-        7: { cellWidth: 25 },
+        1: { cellWidth: 54 },
+        2: { cellWidth: 19 },
+        3: { cellWidth: 19 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 19 },
+        6: { cellWidth: 23 },
+        7: { cellWidth: 22 },
       },
       margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 4
   }
 
   // =========================================================
@@ -684,7 +684,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   // =========================================================
   // RESUMO — apenas VALOR DA MEDIÇÃO (sem acumulado/% físico)
   // =========================================================
-  if (y + 14 > H - 30) { doc.addPage(); y = 15 }
+  if (y + 14 > H - 24) { doc.addPage(); y = 10 }
 
   doc.setFillColor(235, 245, 255)
   doc.setDrawColor(22, 60, 100)
@@ -697,12 +697,12 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   doc.setFontSize(13)
   doc.setTextColor(22, 60, 100)
   doc.text(fmt(dados.valor_medido), mX + 4, y + 12)
-  y += 18
+  y += 16
 
   // =========================================================
   // ASSINATURAS (estilo OS/OF — Lei 14.063/2020)
   // =========================================================
-  if (y + 70 > H - 10) { doc.addPage(); y = 15 }
+  if (y + 52 > H - 8) { doc.addPage(); y = 10 }
 
   const aForn = dados.assinatura_fornecedor
   const aFisc = dados.assinatura_fiscal
@@ -734,7 +734,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
     dados.url_validacao,
   )
 
-  y += altQuadro + 6
+  y += altQuadro + 4
 
   // =========================================================
   // RODAPÉ em todas as páginas
