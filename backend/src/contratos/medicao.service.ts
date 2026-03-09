@@ -19,7 +19,9 @@ import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import { PortalAssinaturasService } from '../portal-assinaturas/portal-assinaturas.service';
 
 @Injectable()
 export class MedicaoService {
@@ -56,6 +58,8 @@ export class MedicaoService {
     private fornecedorRepository: Repository<Fornecedor>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
+    private geradorPdfService: GeradorPdfService,
+    private portalAssinaturasService: PortalAssinaturasService,
   ) { }
 
   // ============================================================================
@@ -763,7 +767,8 @@ export class MedicaoService {
     nota_fiscal_numero?: string;
     nota_fiscal_valor?: number;
     nota_fiscal_data?: string;
-  }): Promise<Medicao> {
+    competencia?: string;
+  }): Promise<any> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
@@ -833,6 +838,11 @@ export class MedicaoService {
       if (dados.nota_fiscal_numero) medicao.nota_fiscal_numero = dados.nota_fiscal_numero;
       if (dados.nota_fiscal_valor) medicao.nota_fiscal_valor = dados.nota_fiscal_valor;
       if (dados.nota_fiscal_data) medicao.nota_fiscal_data = dados.nota_fiscal_data as any;
+      if (dados.competencia) medicao.competencia = dados.competencia;
+    }
+
+    if (!medicao.competencia) {
+      medicao.competencia = this.derivarCompetencia(medicao.periodo_inicio);
     }
 
     // Limpar dados de devolução anterior
@@ -857,7 +867,23 @@ export class MedicaoService {
       this.logger.error(`Erro ao enviar notificações de submissão: ${e.message}`),
     );
 
-    return this.buscarMedicaoCompleta(medicaoId);
+    let assinaturaDigital: {
+      boletim_pdf_url?: string;
+      documento_assinatura_id?: string;
+      assinatura_url?: string;
+      canais_envio: string[];
+    } = { canais_envio: [] };
+
+    try {
+      assinaturaDigital = await this.prepararBoletimParaAssinatura(medicaoId);
+    } catch (error) {
+      this.logger.warn(`Erro ao preparar boletim para assinatura da medição ${medicaoId}: ${(error as Error).message}`);
+    }
+
+    return {
+      medicao: await this.buscarMedicaoCompleta(medicaoId),
+      assinatura_digital: assinaturaDigital,
+    };
   }
 
   /**
@@ -2018,6 +2044,17 @@ export class MedicaoService {
     return { ...medicao, itens } as any;
   }
 
+  private derivarCompetencia(periodoInicio?: string | Date | null): string {
+    if (!periodoInicio) return '';
+    const data = new Date(periodoInicio);
+    if (Number.isNaN(data.getTime())) return '';
+    const meses = [
+      'JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO',
+      'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO',
+    ];
+    return `${meses[data.getMonth()]}/${data.getFullYear()}`;
+  }
+
   private montarSnapshotExecucaoFinanceira(execucaoFinanceira: any) {
     const itens: Array<{
       valor_previsto?: number;
@@ -3020,6 +3057,109 @@ export class MedicaoService {
   // ============================================================================
   // ASSINATURA DIGITAL DO BOLETIM DE MEDIÇÃO
   // ============================================================================
+
+  private getFrontendUrl(): string {
+    return (process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/$/, '');
+  }
+
+  private async prepararBoletimParaAssinatura(medicaoId: string): Promise<{
+    boletim_pdf_url?: string;
+    documento_assinatura_id?: string;
+    assinatura_url?: string;
+    canais_envio: string[];
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao || !medicao.contrato) {
+      throw new NotFoundException('Medição não encontrada para gerar boletim.');
+    }
+
+    const contrato = medicao.contrato;
+    const fornecedor = contrato.fornecedor_id
+      ? await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } })
+      : null;
+    const orgao = contrato.orgao_id
+      ? await this.orgaoRepository.findOne({ where: { id: contrato.orgao_id } })
+      : null;
+
+    if (!fornecedor?.cpf_cnpj) {
+      return { canais_envio: [] };
+    }
+
+    const competencia = medicao.competencia || this.derivarCompetencia(medicao.periodo_inicio);
+    const caminhoPdf = await this.geradorPdfService.gerarPdfMedicao(
+      {
+        numero_medicao: medicao.numero_medicao,
+        periodo_inicio: medicao.periodo_inicio,
+        periodo_fim: medicao.periodo_fim,
+        competencia,
+        valor_medido: Number(medicao.valor_medido || 0),
+        percentual_fisico_medido: Number(medicao.percentual_fisico_medido || 0),
+        contrato: {
+          numero_contrato: contrato.numero_contrato,
+          objeto: contrato.objeto,
+          fornecedor: {
+            razao_social: fornecedor.razao_social || medicao.fornecedor_nome || '',
+            cpf_cnpj: fornecedor.cpf_cnpj || '',
+          },
+        },
+        orgao: orgao ? { nome: orgao.nome, logo_url: (orgao as any).logo_url } : undefined,
+      },
+      [],
+      `${this.getFrontendUrl()}/validar-documento`,
+    );
+
+    const boletimPdfUrl = caminhoPdf.replace(/^.*[\\/]uploads[\\/]/, '').replace(/\\/g, '/');
+    const documento = await this.portalAssinaturasService.criarDocumento(
+      contrato.orgao_id,
+      medicao.usuario_cadastro_id || contrato.orgao_id,
+      {
+        titulo: `Boletim de Medição Nº ${medicao.numero_medicao} - Contrato ${contrato.numero_contrato}`,
+        descricao: `Boletim da competência ${competencia}`,
+        signatarios: [
+          {
+            nome: fornecedor.razao_social || medicao.fornecedor_nome || 'Fornecedor',
+            cpf_cnpj: fornecedor.cpf_cnpj,
+            email: fornecedor.representante_email || fornecedor.email || undefined,
+            telefone: fornecedor.representante_telefone || fornecedor.telefone || undefined,
+            pagina_assinatura: 1,
+            pos_x: 0.08,
+            pos_y: 0.82,
+            is_orgao_user: false,
+          },
+        ],
+      },
+      boletimPdfUrl,
+    );
+
+    await this.medicaoRepository.update(medicao.id, {
+      competencia,
+      boletim_pdf_url: boletimPdfUrl,
+      boletim_pdf_assinado_url: null as any,
+      documento_assinatura_id: documento.id,
+    });
+
+    try {
+      await this.portalAssinaturasService.dispararNotificacoesAssinatura(documento.id);
+    } catch (error) {
+      this.logger.warn(`Erro ao disparar notificações de assinatura da medição ${medicao.id}: ${(error as Error).message}`);
+    }
+
+    const signatario = Array.isArray(documento.signatarios) ? documento.signatarios[0] : null;
+    return {
+      boletim_pdf_url: boletimPdfUrl,
+      documento_assinatura_id: documento.id,
+      assinatura_url: signatario?.token_acesso
+        ? `${this.getFrontendUrl()}/assinar-documento/${signatario.token_acesso}`
+        : undefined,
+      canais_envio: [
+        ...(fornecedor.representante_telefone || fornecedor.telefone ? ['whatsapp'] : []),
+        ...(fornecedor.representante_email || fornecedor.email ? ['email'] : []),
+      ],
+    };
+  }
 
   /**
    * Registra uma assinatura digital para o Boletim de Medição.

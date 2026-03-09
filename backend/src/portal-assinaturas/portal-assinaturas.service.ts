@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { DocumentoAssinatura, StatusDocumentoAssinatura } from '../assinaturas/entities/documento-assinatura.entity';
 import { SignatarioDocumento, StatusAssinaturaSignatario } from '../assinaturas/entities/signatario-documento.entity';
+import { Medicao } from '../contratos/entities/medicao.entity';
 import { CriarDocumentoDto } from './dto/criar-documento.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
@@ -23,10 +24,25 @@ export class PortalAssinaturasService {
     private readonly documentoRepository: Repository<DocumentoAssinatura>,
     @InjectRepository(SignatarioDocumento)
     private readonly signatarioRepository: Repository<SignatarioDocumento>,
+    @InjectRepository(Medicao)
+    private readonly medicaoRepository: Repository<Medicao>,
     private readonly dataSource: DataSource,
     private readonly notificacoesService: NotificacoesService,
     private readonly assinaturasService: AssinaturasService,
   ) {}
+
+  private async sincronizarMedicaoComDocumentoAssinado(documentoId: string, pdfUrl: string): Promise<void> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { documento_assinatura_id: documentoId },
+    });
+
+    if (!medicao) {
+      return;
+    }
+
+    medicao.boletim_pdf_assinado_url = pdfUrl;
+    await this.medicaoRepository.save(medicao);
+  }
 
   // =============================================
   // GESTÃO DE DOCUMENTOS (Órgão)
@@ -297,6 +313,7 @@ export class PortalAssinaturasService {
         status: StatusDocumentoAssinatura.CONCLUIDO,
         arquivo_assinado_url: pdfUrl,
       });
+      await this.sincronizarMedicaoComDocumentoAssinado(signatario.documento.id, pdfUrl);
     }
 
     // Notificar após assinatura (assíncrono)
@@ -434,6 +451,7 @@ export class PortalAssinaturasService {
         status: StatusDocumentoAssinatura.CONCLUIDO,
         arquivo_assinado_url: pdfUrl,
       });
+      await this.sincronizarMedicaoComDocumentoAssinado(signatario.documento.id, pdfUrl);
     }
 
     // Notificar após assinatura (assíncrono)

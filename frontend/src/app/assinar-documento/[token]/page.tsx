@@ -116,6 +116,16 @@ export default function AssinarDocumentoPage() {
     }
   }
 
+  useEffect(() => {
+    if (etapa !== 'sucesso' || !pdfAssinadoUrl) return
+
+    const link = document.createElement('a')
+    link.href = `${baseUpload}${pdfAssinadoUrl}`
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.click()
+  }, [etapa, pdfAssinadoUrl])
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   const baseUpload = API_URL + '/api/uploads/'

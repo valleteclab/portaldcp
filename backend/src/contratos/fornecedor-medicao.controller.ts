@@ -149,6 +149,7 @@ export class FornecedorMedicaoController {
     @Param('medicaoId') medicaoId: string,
     @Body() body: {
       fornecedor_id: string;
+      competencia?: string;
       fornecedor_observacoes?: string;
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number;
