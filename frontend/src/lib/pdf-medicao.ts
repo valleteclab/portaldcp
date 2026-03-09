@@ -118,11 +118,47 @@ function fmtCnpj(cnpj: string): string {
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`
 }
 
-/** Dias corridos entre duas datas ISO (string) */
-function diasEntreDatas(inicio: string, fim: string): number {
-  if (!inicio || !fim) return 0
-  const d1 = new Date(inicio.split('T')[0] + 'T00:00:00')
-  const d2 = new Date(fim.split('T')[0] + 'T00:00:00')
+/** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias) */
+function diasEntreDatasComercial(data1: string, data2: string): number {
+  const d1 = new Date(data1)
+  const d2 = new Date(data2)
+  
+  // Usar UTC para evitar problemas de timezone
+  const ano1 = d1.getUTCFullYear()
+  const mes1 = d1.getUTCMonth()
+  const dia1 = d1.getUTCDate()
+  
+  const ano2 = d2.getUTCFullYear()
+  const mes2 = d2.getUTCMonth()
+  const dia2 = d2.getUTCDate()
+  
+  let dias = 0
+  
+  // Se mesmo mês
+  if (ano1 === ano2 && mes1 === mes2) {
+    dias = Math.min(dia2 - dia1 + 1, 30)
+  } else {
+    // Dias no primeiro mês (ano comercial)
+    const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30)
+    
+    // Meses completos no meio
+    let mesesCompletos = 0
+    if (ano2 > ano1 || mes2 > mes1 + 1) {
+      mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1)
+    }
+    
+    // Dias no último mês (ano comercial)
+    const diasUltimoMes = Math.min(dia2, 30)
+    
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes
+  }
+  
+  return Math.min(dias, 360)
+}
+
+function diasEntreDatas(data1: string, data2: string): number {
+  const d1 = new Date(data1)
+  const d2 = new Date(data2)
   return Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
 }
 
@@ -493,12 +529,13 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
     ]
 
     // --- Execução Fiscal (tempo) — igual para todos os itens ---
-    const diasPeriodo = Math.max(1, diasEntreDatas(dados.periodo_inicio, dados.periodo_fim))
+    // USAR ANO COMERCIAL DE 360 DIAS (12 meses x 30 dias)
+    const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim))
     const diasAte = dados.data_vigencia_inicio
-      ? Math.max(0, diasEntreDatas(dados.data_vigencia_inicio, dados.periodo_fim))
+      ? Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim))
       : 0
     const diasRestante = dados.data_vigencia_fim
-      ? Math.max(0, diasEntreDatas(dados.periodo_fim, dados.data_vigencia_fim))
+      ? Math.max(0, diasEntreDatasComercial(dados.periodo_fim, dados.data_vigencia_fim))
       : 0
     const txtFiscalNoPeriodo   = fmtTempo(diasPeriodo)
     const txtFiscalAtePeriodo  = diasAte > 0 ? fmtTempo(diasAte) : '-'
