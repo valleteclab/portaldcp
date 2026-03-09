@@ -974,6 +974,7 @@ export default function FornecedorContratoDetalhePage() {
         setNovaMedicao({
           periodo_inicio: medicao.periodo_inicio,
           periodo_fim: medicao.periodo_fim,
+          competencia: medicao.competencia || '',
           observacoes: medicao.fornecedor_observacoes || '',
           nota_fiscal_numero: medicao.nota_fiscal_numero || '',
           nota_fiscal_valor: medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : '',
