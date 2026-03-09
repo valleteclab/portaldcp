@@ -2025,18 +2025,26 @@ export class MedicaoService {
       ate_periodo?: number;
       a_executar?: number;
     }> = Array.isArray(execucaoFinanceira?.itens) ? execucaoFinanceira.itens : [];
-    const totalPrevisto = itens.reduce((s: number, item) => s + (Number(item.valor_previsto) || 0), 0);
-    const totalNoPeriodo = itens.reduce((s: number, item) => s + (Number(item.no_periodo) || 0), 0);
-    const totalAtePeriodo = itens.reduce((s: number, item) => s + (Number(item.ate_periodo) || 0), 0);
-    const totalAExecutar = itens.reduce((s: number, item) => s + (Number(item.a_executar) || 0), 0);
+    const totalPrevisto = Number(execucaoFinanceira?.totais?.valor_previsto);
+    const totalNoPeriodo = Number(execucaoFinanceira?.totais?.no_periodo);
+    const totalAtePeriodo = Number(execucaoFinanceira?.totais?.ate_periodo);
+    const totalAExecutar = Number(execucaoFinanceira?.totais?.a_executar);
 
     return {
       itens,
       totais: {
-        valor_previsto: Math.round(totalPrevisto * 100) / 100,
-        no_periodo: Math.round(totalNoPeriodo * 100) / 100,
-        ate_periodo: Math.round(totalAtePeriodo * 100) / 100,
-        a_executar: Math.round(totalAExecutar * 100) / 100,
+        valor_previsto: Number.isFinite(totalPrevisto)
+          ? Math.round(totalPrevisto * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.valor_previsto) || 0), 0) * 100) / 100,
+        no_periodo: Number.isFinite(totalNoPeriodo)
+          ? Math.round(totalNoPeriodo * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.no_periodo) || 0), 0) * 100) / 100,
+        ate_periodo: Number.isFinite(totalAtePeriodo)
+          ? Math.round(totalAtePeriodo * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.ate_periodo) || 0), 0) * 100) / 100,
+        a_executar: Number.isFinite(totalAExecutar)
+          ? Math.round(totalAExecutar * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.a_executar) || 0), 0) * 100) / 100,
       },
       ajuste_migracao: Math.round((Number(execucaoFinanceira?.ajuste_migracao) || 0) * 100) / 100,
     };
