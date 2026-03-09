@@ -2472,9 +2472,16 @@ export class MedicaoService {
     if (vigenciaInicio && vigenciaFim) {
       const hoje = new Date();
       
-      // Calcular diferença em meses comerciais (30 dias cada)
-      const totalDias = Math.max(1, Math.ceil((vigenciaFim.getTime() - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
-      const diasExecutados = Math.max(0, Math.ceil((Math.min(hoje.getTime(), vigenciaFim.getTime()) - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
+      // Para ano comercial: calcular diferença em meses e converter para dias (30 dias por mês)
+      const diffMeses = (vigenciaFim.getFullYear() - vigenciaInicio.getFullYear()) * 12 + 
+                       (vigenciaFim.getMonth() - vigenciaInicio.getMonth()) + 1; // +1 para incluir o mês final
+      
+      const totalDias = diffMeses * 30; // Ano comercial: 30 dias por mês
+      
+      // Calcular dias executados usando a mesma lógica
+      const diffMesesExecutados = (Math.min(hoje.getFullYear(), vigenciaFim.getFullYear()) - vigenciaInicio.getFullYear()) * 12 + 
+                                 (Math.min(hoje.getMonth(), vigenciaFim.getMonth()) - vigenciaInicio.getMonth()) + 1;
+      const diasExecutados = Math.max(0, Math.min(diffMesesExecutados, diffMeses) * 30);
       const diasRestantes = Math.max(0, totalDias - diasExecutados);
 
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
