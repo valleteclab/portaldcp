@@ -2472,26 +2472,53 @@ export class MedicaoService {
     if (vigenciaInicio && vigenciaFim) {
       const hoje = new Date();
       
-      // Para ano comercial: calcular diferença em meses e converter para dias (30 dias por mês)
-      const diffMeses = (vigenciaFim.getFullYear() - vigenciaInicio.getFullYear()) * 12 + 
-                       (vigenciaFim.getMonth() - vigenciaInicio.getMonth()) + 1; // +1 para incluir o mês final
+      // Para ano comercial: total sempre 360 dias para contratos anuais
+      const totalDias = 360;
       
-      // Para ano comercial, forçar 12 meses para contratos anuais
-      const totalDias = diffMeses === 13 ? 360 : diffMeses * 30; // Ano comercial: 30 dias por mês
+      // Calcular dias executados usando ano comercial
+      let diasExecutados = 0;
       
-      // Calcular meses executados (apenas meses completos)
-      let mesesExecutados = (hoje.getFullYear() - vigenciaInicio.getFullYear()) * 12 + 
-                           (hoje.getMonth() - vigenciaInicio.getMonth());
-      
-      // Se estamos no mesmo mês do início e já passou do dia, contar como 1 mês
-      if (mesesExecutados === 0 && hoje.getDate() >= vigenciaInicio.getDate()) {
-        mesesExecutados = 1;
+      if (hoje >= vigenciaInicio) {
+        const dataFimExecucao = hoje > vigenciaFim ? vigenciaFim : hoje;
+        
+        // Calcular diferença em meses e dias usando ano comercial
+        let mesesCompletos = 0;
+        let diasParciais = 0;
+        
+        // Se mesmo mês
+        if (vigenciaInicio.getFullYear() === dataFimExecucao.getFullYear() && 
+            vigenciaInicio.getMonth() === dataFimExecucao.getMonth()) {
+          diasParciais = Math.min(dataFimExecucao.getDate() - vigenciaInicio.getDate() + 1, 30);
+        } else {
+          // Calcular meses completos entre as datas
+          const anoInicio = vigenciaInicio.getFullYear();
+          const mesInicio = vigenciaInicio.getMonth();
+          const diaInicio = vigenciaInicio.getDate();
+          
+          const anoFim = dataFimExecucao.getFullYear();
+          const mesFim = dataFimExecucao.getMonth();
+          const diaFim = dataFimExecucao.getDate();
+          
+          // Dias no primeiro mês (limitado a 30)
+          const diasPrimeiroMes = Math.min(30 - diaInicio + 1, 30);
+          
+          // Meses completos no meio
+          if (anoFim > anoInicio || mesFim > mesInicio + 1) {
+            const mesesMeio = (anoFim - anoInicio) * 12 + (mesFim - mesInicio - 1);
+            mesesCompletos = Math.max(0, mesesMeio);
+          }
+          
+          // Dias no último mês
+          const diasUltimoMes = Math.min(diaFim, 30);
+          
+          diasExecutados = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+        }
+        
+        // Limitar a 360 dias
+        diasExecutados = Math.min(diasExecutados, 360);
       }
       
-      // Garantir que não ultrapasse o total de meses do contrato
-      const mesesExecutadosLimitados = Math.min(mesesExecutados, 12); // Forçar limite de 12 para ano comercial
-      const diasExecutados = mesesExecutadosLimitados * 30;
-      const diasRestantes = 360 - diasExecutados; // Total fixo de 360 dias
+      const diasRestantes = 360 - diasExecutados;
 
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
       execucaoFiscal = {
