@@ -51,6 +51,7 @@ import {
   Download,
   Upload,
   FileDown,
+  Edit,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao';
