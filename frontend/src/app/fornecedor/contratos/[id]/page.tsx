@@ -116,8 +116,6 @@ interface Medicao {
   nota_fiscal_valor?: number;
   nota_fiscal_data?: string;
   data_submissao?: string;
-  boletim_pdf_url?: string;
-  boletim_pdf_assinado_url?: string;
   ateste_fiscal_nome?: string;
   ateste_data?: string;
   ateste_observacoes?: string;
@@ -823,18 +821,13 @@ export default function FornecedorContratoDetalhePage() {
 
       const resSubmeter = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/submeter`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fornecedor_id: fornecedor.id, competencia: novaMedicao.competencia || undefined, fornecedor_observacoes: novaMedicao.observacoes || undefined, nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined, nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined, nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined }),
+        body: JSON.stringify({ fornecedor_id: fornecedor.id, fornecedor_observacoes: novaMedicao.observacoes || undefined, nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined, nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined, nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined }),
       });
 
       if (resSubmeter.ok) {
-        const retornoSubmissao = await resSubmeter.json().catch(() => null)
-        const canais = retornoSubmissao?.assinatura_digital?.canais_envio || []
         setModalNovaMedicao(false);
         setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
         setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
-        if (canais.length > 0) {
-          alert(`Medição enviada com sucesso. O token de assinatura do boletim foi enviado por ${canais.join(' e ')} ao fornecedor cadastrado.`)
-        }
       } else {
         alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
         setModalNovaMedicao(false); setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
@@ -874,22 +867,16 @@ export default function FornecedorContratoDetalhePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fornecedor_id: fornecedor.id,
-          competencia: medicaoParaSubmeter.competencia || undefined,
           ...dadosSubmissao,
           nota_fiscal_valor: dadosSubmissao.nota_fiscal_valor ? Number(dadosSubmissao.nota_fiscal_valor) : undefined,
         }),
       });
 
       if (res.ok) {
-        const retornoSubmissao = await res.json().catch(() => null)
-        const canais = retornoSubmissao?.assinatura_digital?.canais_envio || []
         setModalSubmeter(false);
         setMedicaoParaSubmeter(null);
         setDadosSubmissao({ fornecedor_observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' });
         carregarDados();
-        if (canais.length > 0) {
-          alert(`Medição enviada com sucesso. O token de assinatura do boletim foi enviado por ${canais.join(' e ')}.`)
-        }
       } else {
         const err = await res.json();
         alert(err.message || 'Erro ao submeter medição');
@@ -2313,7 +2300,7 @@ export default function FornecedorContratoDetalhePage() {
           <DialogHeader>
             <DialogTitle>Submeter {medicaoParaSubmeter?.numero_medicao}ª Medição</DialogTitle>
             <DialogDescription>
-              Ao submeter, o sistema vai gerar o boletim da medição e enviar um token de assinatura digital por e-mail e/ou WhatsApp ao fornecedor cadastrado.
+              Ao submeter, a medição será enviada para análise do fiscal do contrato.
               Valor: {formatarMoeda(medicaoParaSubmeter?.valor_medido)}
             </DialogDescription>
           </DialogHeader>
@@ -2575,13 +2562,9 @@ export default function FornecedorContratoDetalhePage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  const boletimDisponivel = medicaoDetalhe.boletim_pdf_assinado_url || medicaoDetalhe.boletim_pdf_url
-                  if (boletimDisponivel) {
-                    window.open(`${API_URL}/api/uploads/${boletimDisponivel}`, '_blank')
-                    return
-                  }
-
-                  const competencia = medicaoDetalhe.competencia || derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
+                  const competenciaDefault = derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
+                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
+                  if (competencia === null) return
 
                   const execucaoFinanceiraAtual = execucaoFinanceira?.medicao_referencia?.id === medicaoDetalhe.id
                     ? execucaoFinanceira
@@ -2641,7 +2624,7 @@ export default function FornecedorContratoDetalhePage() {
                     numero_medicao: medicaoDetalhe.numero_medicao,
                     periodo_inicio: medicaoDetalhe.periodo_inicio || '',
                     periodo_fim: medicaoDetalhe.periodo_fim || '',
-                    competencia,
+                    competencia: competencia || competenciaDefault,
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     execucao_financeira_totais: {
                       no_periodo: Number(medicaoDetalhe.valor_medido || 0),

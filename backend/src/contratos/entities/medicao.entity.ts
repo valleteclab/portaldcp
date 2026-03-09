@@ -168,15 +168,6 @@ export class Medicao {
   @Column({ type: 'timestamp', nullable: true })
   data_submissao: Date; // Quando o fornecedor submeteu
 
-  @Column({ type: 'uuid', nullable: true })
-  documento_assinatura_id?: string;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  boletim_pdf_url?: string;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  boletim_pdf_assinado_url?: string;
-
   // ============ NOTA FISCAL ============
 
   @Column({ nullable: true })

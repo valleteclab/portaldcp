@@ -39,7 +39,6 @@ import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-me
 import { UploadModule } from '../upload/upload.module';
 import { MulterModule } from '@nestjs/platform-express';
 import { AssinaturasModule } from '../assinaturas/assinaturas.module';
-import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { IaModule } from '../ia/ia.module';
 import { ImportarContratoIaController } from './importar-contrato-ia.controller';
 import { ImportarContratoIaService } from './importar-contrato-ia.service';
@@ -59,7 +58,6 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
     UploadModule,
     IaModule,
     AssinaturasModule,
-    PortalAssinaturasModule,
     HttpModule,
     FornecedoresModule,
   ],
