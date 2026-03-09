@@ -74,6 +74,19 @@ export interface DadosMedicaoPdf {
   valor_medido: number
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
+  // Execução fiscal (calculada no backend com ano comercial)
+  execucao_fiscal?: {
+    vigencia_inicio: string;
+    vigencia_fim: string;
+    total_dias: number;
+    dias_executados: number;
+    dias_restantes: number;
+    meses_executados: number;
+    dias_executados_extra: number;
+    meses_restantes: number;
+    dias_restantes_extra: number;
+    ano_comercial: boolean;
+  };
   // Itens de medição (item_cronograma)
   itens?: ItemMedicaoPdf[]
   // Itens contratados (planilha completa)
@@ -528,18 +541,30 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       ],
     ]
 
-    // --- Execução Fiscal (tempo) — igual para todos os itens ---
-    // USAR ANO COMERCIAL DE 360 DIAS (12 meses x 30 dias)
-    const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim))
-    const diasAte = dados.data_vigencia_inicio
-      ? Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim))
-      : 0
-    const diasRestante = dados.data_vigencia_fim
-      ? Math.max(0, diasEntreDatasComercial(dados.periodo_fim, dados.data_vigencia_fim))
-      : 0
-    const txtFiscalNoPeriodo   = fmtTempo(diasPeriodo)
-    const txtFiscalAtePeriodo  = diasAte > 0 ? fmtTempo(diasAte) : '-'
-    const txtFiscalAExecutar   = fmtTempo(diasRestante)
+    // --- Execução Fiscal (tempo) ---
+    // Usar dados salvos na medição se existirem, senão calcular
+    let txtFiscalNoPeriodo, txtFiscalAtePeriodo, txtFiscalAExecutar;
+    
+    if (dados.execucao_fiscal && dados.execucao_fiscal.dias_executados !== undefined) {
+      // Usar dados salvos na medição (ano comercial)
+      const exec = dados.execucao_fiscal;
+      const diasPeriodo = Math.max(1, exec.dias_executados - (exec.dias_executados - (exec.dias_executados % 30 || 30)));
+      txtFiscalNoPeriodo = `${exec.meses_executados}m ${exec.dias_executados_extra}d`;
+      txtFiscalAtePeriodo = `${exec.meses_executados}m ${exec.dias_executados_extra}d`;
+      txtFiscalAExecutar = `${exec.meses_restantes}m ${exec.dias_restantes_extra}d`;
+    } else {
+      // Fallback: calcular com ano comercial (método antigo)
+      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim));
+      const diasAte = dados.data_vigencia_inicio
+        ? Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim))
+        : 0;
+      const diasRestante = dados.data_vigencia_fim
+        ? Math.max(0, diasEntreDatasComercial(dados.periodo_fim, dados.data_vigencia_fim))
+        : 0;
+      txtFiscalNoPeriodo   = fmtTempo(diasPeriodo);
+      txtFiscalAtePeriodo  = diasAte > 0 ? fmtTempo(diasAte) : '-';
+      txtFiscalAExecutar   = fmtTempo(diasRestante);
+    }
 
     let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0
 

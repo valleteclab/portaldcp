@@ -627,6 +627,20 @@ export class MedicaoService {
 
     const medicaoSalva = await this.medicaoRepository.save(medicao) as unknown as Medicao;
 
+    // Calcular e salvar execução fiscal (temporal) com ano comercial
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceira(contratoId, '', medicaoSalva.id);
+      if (execucaoFinanceira && execucaoFinanceira.execucao_fiscal) {
+        await this.medicaoRepository.update(medicaoSalva.id, {
+          execucao_fiscal: execucaoFinanceira.execucao_fiscal,
+        });
+        this.logger.log(`Execução fiscal calculada e salva para medição ${medicaoSalva.id}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao calcular execução fiscal para medição ${medicaoSalva.id}: ${error.message}`);
+      // Não falhar a criação da medição se der erro na execução fiscal
+    }
+
     // Salvar itens da medição (obras/etapas)
     for (const item of itensParaSalvar) {
       const itemMedicao = this.itemMedicaoRepository.create({

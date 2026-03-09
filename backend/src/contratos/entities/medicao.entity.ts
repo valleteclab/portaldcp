@@ -113,6 +113,23 @@ export class Medicao {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   percentual_fisico_acumulado: number; // % físico acumulado total
 
+  // ============ EXECUÇÃO FISCAL (TEMPORAL) ============
+  // Dados calculados com ano comercial (360 dias)
+
+  @Column({ type: 'json', nullable: true })
+  execucao_fiscal: {
+    vigencia_inicio: string;
+    vigencia_fim: string;
+    total_dias: number;
+    dias_executados: number;
+    dias_restantes: number;
+    meses_executados: number;
+    dias_executados_extra: number;
+    meses_restantes: number;
+    dias_restantes_extra: number;
+    ano_comercial: boolean;
+  };
+
   // ============ FORNECEDOR (quem submete) ============
 
   @Column({ nullable: true })

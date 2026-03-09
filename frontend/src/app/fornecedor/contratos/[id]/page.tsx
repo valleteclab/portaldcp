@@ -2331,6 +2331,7 @@ export default function FornecedorContratoDetalhePage() {
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
+                    execucao_fiscal: medicaoDetalhe.execucao_fiscal || undefined,
                     itens: itensItem.length > 0 ? itensItem : undefined,
                     etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
                     itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
