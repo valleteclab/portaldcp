@@ -2541,21 +2541,18 @@ export default function FornecedorContratoDetalhePage() {
                   const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
                   if (competencia === null) return
 
-                  const somaValorItens = itensCronograma.reduce((s: number, ic: any) => s + Number(ic.valor_total || 0), 0)
-                  const valorJaExecutado = Math.max(0, Number(contrato?.valor_inicial || 0) - Number(resumo?.saldo_disponivel || 0))
-
-                  const calcAcum = (vlrRestante: number) =>
-                    somaValorItens > 0 && valorJaExecutado > 0
-                      ? (vlrRestante / somaValorItens) * valorJaExecutado
-                      : 0
+                  const itensExecucaoFinanceira = execucaoFinanceira?.itens || []
 
                   const itensItem = (medicaoDetalhe.itens || [])
                     .filter((i: any) => i.tipo_item === 'item_cronograma')
                     .map((i: any) => {
                       const vlrUnitario = Number(i.item_valor_unitario || 0)
                       const ic = itensCronograma.find((c: any) => c.numero_item === i.item_numero)
+                      const itemExecucao = itensExecucaoFinanceira.find((item: any) => Number(item.numero_etapa) === Number(i.item_numero))
                       const vlrTotal = ic ? Number(ic.valor_total || 0) : Number(i.item_quantidade_total || 0) * vlrUnitario
-                      const vlrAcumAnterior = ic ? calcAcum(vlrTotal) : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
+                      const vlrNoPeriodo = Number(itemExecucao?.no_periodo ?? i.valor_medido ?? 0)
+                      const vlrAtePeriodo = Number(itemExecucao?.ate_periodo ?? 0)
+                      const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
                       return {
                         numero: i.item_numero || i.etapa_numero || 0,
                         descricao: i.item_descricao || i.etapa_descricao || '',
@@ -2563,7 +2560,7 @@ export default function FornecedorContratoDetalhePage() {
                         quantidade_no_periodo: Number(i.quantidade_medida || 0),
                         quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
                         quantidade_total_contrato: Number(i.item_quantidade_total || 0),
-                        valor_no_periodo: Number(i.valor_medido || 0),
+                        valor_no_periodo: vlrNoPeriodo,
                         valor_unitario: vlrUnitario,
                         valor_acumulado_anterior: vlrAcumAnterior,
                         valor_total_item: vlrTotal,
