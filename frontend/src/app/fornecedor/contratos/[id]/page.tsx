@@ -2602,6 +2602,7 @@ export default function FornecedorContratoDetalhePage() {
                       valor_previsto: Number(i.etapa_valor_previsto || 0),
                       valor_medido: Number(i.valor_medido || 0),
                     }))
+                  const totaisExecucaoFinanceira = medicaoDetalhe.execucao_financeira?.totais || execucaoFinanceira?.totais
                   const dadosPdf: DadosMedicaoPdf = {
                     numero_contrato: contrato?.numero_contrato || '',
                     objeto_contrato: contrato?.objeto || '',
@@ -2618,8 +2619,8 @@ export default function FornecedorContratoDetalhePage() {
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     execucao_financeira_totais: {
                       no_periodo: Number(medicaoDetalhe.valor_medido || 0),
-                      ate_periodo: Number(medicaoDetalhe.valor_acumulado_atual || 0),
-                      a_executar: Math.max(0, Number((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(medicaoDetalhe.valor_acumulado_atual || 0))),
+                      ate_periodo: Number(totaisExecucaoFinanceira?.ate_periodo || medicaoDetalhe.valor_acumulado_atual || 0),
+                      a_executar: Math.max(0, Number(totaisExecucaoFinanceira?.a_executar ?? ((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(totaisExecucaoFinanceira?.ate_periodo || medicaoDetalhe.valor_acumulado_atual || 0)))),
                     },
                     nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
