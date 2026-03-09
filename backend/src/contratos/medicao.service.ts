@@ -2411,16 +2411,22 @@ export class MedicaoService {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
-    const etapas = await this.etapaRepository.find({
-      where: { contrato_id: contratoId },
-      order: { numero_etapa: 'ASC' },
+    console.log('DEBUG: Contrato encontrado:', {
+      id: contrato.id,
+      modalidade_execucao: contrato.modalidade_execucao,
+      valor_global: contrato.valor_global
     });
+
+    // Verificar se é serviço continuado
+    const servicoContinuado = this.isServicoContinuado(contrato);
+    console.log('DEBUG: É serviço continuado?', servicoContinuado);
 
     // Buscar todas as medições aprovadas
     const medicoesAprovadas = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
+    console.log('DEBUG: Medições aprovadas encontradas:', medicoesAprovadas.length);
 
     // Buscar a medição atual (se informada)
     let medicaoAtual = null;
@@ -2428,24 +2434,66 @@ export class MedicaoService {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
       });
+      console.log('DEBUG: Medição atual:', medicaoAtual ? {
+        id: medicaoAtual.id,
+        numero: medicaoAtual.numero_medicao,
+        status: medicaoAtual.status,
+        valor_medido: medicaoAtual.valor_medido
+      } : null);
     }
 
-    // Continuar com a lógica existente...
-    // (copiar o resto do método calcularExecucaoFinanceira)
-    
-    const itensPorMedicao: Record<string, ItemMedicao[]> = {};
-    for (const m of medicoesAprovadas) {
-      const itens = await this.itemMedicaoRepository.find({
-        where: { medicao_id: m.id },
-      });
-      itensPorMedicao[m.id] = itens;
-    }
-
+    let itensPorMedicao: Record<string, ItemMedicao[]> = {};
     let itensMedicaoAtual: ItemMedicao[] = [];
-    if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
-      itensMedicaoAtual = await this.itemMedicaoRepository.find({
-        where: { medicao_id: medicaoAtual.id },
+    
+    if (!servicoContinuado) {
+      // Apenas para obras, buscar itens das medições
+      for (const m of medicoesAprovadas) {
+        const itens = await this.itemMedicaoRepository.find({
+          where: { medicao_id: m.id },
+        });
+        itensPorMedicao[m.id] = itens;
+        console.log(`DEBUG: Itens da medição ${m.id}:`, itens.length);
+      }
+
+      if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
+        itensMedicaoAtual = await this.itemMedicaoRepository.find({
+          where: { medicao_id: medicaoAtual.id },
+        });
+        console.log('DEBUG: Itens da medição atual:', itensMedicaoAtual.length);
+      }
+    }
+
+    // Preparar itens para cálculo
+    let itensCalculo: any[] = [];
+    
+    if (servicoContinuado) {
+      // Para serviços continuados, criar um item único com o valor global do contrato
+      itensCalculo = [{
+        etapa_id: 'servico-continuado',
+        numero_etapa: 1,
+        descricao: 'Serviço Continuado',
+        valor_previsto: Number(contrato.valor_global) || 0,
+        percentual_fisico: 100,
+      }];
+      console.log('DEBUG: Criado item para serviço continuado, valor:', itensCalculo[0].valor_previsto);
+    } else {
+      // Para obras/engenharia, buscar as etapas
+      const etapas = await this.etapaRepository.find({
+        where: { contrato_id: contratoId },
+        order: { numero_etapa: 'ASC' },
       });
+      
+      console.log('DEBUG: Etapas encontradas:', etapas.length);
+      
+      itensCalculo = etapas.map(etapa => ({
+        etapa_id: etapa.id,
+        numero_etapa: etapa.numero_etapa,
+        descricao: etapa.descricao,
+        valor_previsto: Number(etapa.valor_previsto) || 0,
+        percentual_fisico: Number(etapa.percentual_fisico) || 0,
+      }));
+      
+      console.log('DEBUG: Itens para cálculo:', itensCalculo.length);
     }
 
     // Calcular execução por etapa
