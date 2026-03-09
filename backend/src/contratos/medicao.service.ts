@@ -2755,6 +2755,8 @@ export class MedicaoService {
     const ajusteMigracao = Number(contrato.valor_executado_anterior) || 0;
     const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
     const totalAExecutar = Math.max(0, totalPrevisto - totalAtePeriodoComAjuste);
+    const totalAtePeriodoGlobalExibicao = Math.min(totalPrevisto, totalAtePeriodoComAjuste);
+    const ajusteGlobalParaDistribuir = totalAtePeriodoGlobalExibicao - totalAtePeriodo;
 
     const baseRateio = resultado.map((item) => ({
       valor_previsto: Number(item.valor_previsto) || 0,
@@ -2766,8 +2768,8 @@ export class MedicaoService {
       const valorPrevistoItem = Number(item.valor_previsto) || 0;
       const proporcao = totalBaseRateio > 0 ? valorPrevistoItem / totalBaseRateio : 0;
       const ajusteRateado = index === resultado.length - 1
-        ? ajusteMigracao - ajusteRateadoAcumulado
-        : Math.round((ajusteMigracao * proporcao) * 100) / 100;
+        ? ajusteGlobalParaDistribuir - ajusteRateadoAcumulado
+        : Math.round((ajusteGlobalParaDistribuir * proporcao) * 100) / 100;
       ajusteRateadoAcumulado += ajusteRateado;
 
       const noPeriodoItem = Math.round((Number(item.no_periodo) || 0) * 100) / 100;
@@ -2796,6 +2798,8 @@ export class MedicaoService {
       total_ate_periodo_sem_ajuste: totalAtePeriodo,
       ajuste_migracao: ajusteMigracao,
       total_ate_periodo: totalAtePeriodoComAjuste,
+      total_ate_periodo_global_exibicao: totalAtePeriodoGlobalExibicao,
+      ajuste_global_para_distribuir: ajusteGlobalParaDistribuir,
       total_a_executar: totalAExecutar,
     });
 
