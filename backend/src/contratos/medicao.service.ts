@@ -2478,11 +2478,19 @@ export class MedicaoService {
       
       const totalDias = diffMeses * 30; // Ano comercial: 30 dias por mês
       
-      // Calcular dias executados usando a mesma lógica
-      const diffMesesExecutados = (Math.min(hoje.getFullYear(), vigenciaFim.getFullYear()) - vigenciaInicio.getFullYear()) * 12 + 
-                                 (Math.min(hoje.getMonth(), vigenciaFim.getMonth()) - vigenciaInicio.getMonth()) + 1;
-      const diasExecutados = Math.max(0, Math.min(diffMesesExecutados, diffMeses) * 30);
-      const diasRestantes = Math.max(0, totalDias - diasExecutados);
+      // Calcular meses executados (apenas meses completos)
+      let mesesExecutados = (hoje.getFullYear() - vigenciaInicio.getFullYear()) * 12 + 
+                           (hoje.getMonth() - vigenciaInicio.getMonth());
+      
+      // Se estamos no mesmo mês do início e já passou do dia, contar como 1 mês
+      if (mesesExecutados === 0 && hoje.getDate() >= vigenciaInicio.getDate()) {
+        mesesExecutados = 1;
+      }
+      
+      // Garantir que não ultrapasse o total de meses do contrato
+      const mesesExecutadosLimitados = Math.min(mesesExecutados, diffMeses);
+      const diasExecutados = mesesExecutadosLimitados * 30;
+      const diasRestantes = totalDias - diasExecutados;
 
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
       execucaoFiscal = {
