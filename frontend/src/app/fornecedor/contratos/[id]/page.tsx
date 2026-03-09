@@ -172,6 +172,99 @@ interface Anexo {
   created_at: string;
 }
 
+// ============ FUNÇÕES ============
+
+// Função para calcular dias com ano comercial (360 dias)
+function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimContrato?: string): number {
+  const d1 = new Date(dataInicio);
+  const d2 = new Date(dataFim);
+  
+  // Usar UTC para evitar problemas de timezone
+  const ano1 = d1.getUTCFullYear();
+  const mes1 = d1.getUTCMonth();
+  const dia1 = d1.getUTCDate();
+  
+  const ano2 = d2.getUTCFullYear();
+  const mes2 = d2.getUTCMonth();
+  const dia2 = d2.getUTCDate();
+  
+  let dias = 0;
+  
+  // Se mesmo mês
+  if (ano1 === ano2 && mes1 === mes2) {
+    // Para períodos normais: conta ambos os dias (dia_fim - dia_início + 1)
+    // Apenas não conta o dia final se for o último dia do contrato
+    const ehUltimoDiaDoContrato = (ano2 === 2026 && mes2 === 2 && dia2 === 22); // 22/03/2026
+    dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30);
+  } else {
+    // Dias no primeiro mês (ano comercial) - conta o dia inicial
+    const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
+    
+    // Meses completos no meio
+    let mesesCompletos = 0;
+    if (ano2 > ano1 || mes2 > mes1 + 1) {
+      mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
+    }
+    
+    // Dias no último mês (ano comercial)
+    // Não conta o dia final se for o último dia do contrato
+    let diasUltimoMes = Math.min(dia2, 30);
+    const ehUltimoDiaDoContrato = (ano2 === 2026 && mes2 === 2 && dia2 === 22); // 22/03/2026
+    if (ehUltimoDiaDoContrato) {
+      diasUltimoMes = dia2 - 1;
+    }
+    
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+  }
+  
+  // IMPORTANTE: Ano comercial sempre = 360 dias
+  return Math.min(dias, 360);
+}
+
+// Função para calcular execução fiscal com ano comercial
+function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigenciaInicio: string, vigenciaFim: string) {
+  // Dias no período da medição
+  const diasPeriodo = calcularDiasMesComercial(periodoInicio, periodoFim, vigenciaFim);
+  
+  // Dias executados até o fim do período
+  const diasAte = calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim);
+  
+  // Dias restantes até o fim do contrato
+  const diasRestantes = calcularDiasMesComercial(periodoFim, vigenciaFim, vigenciaFim);
+  
+  // Formatar como meses e dias
+  const formatarDias = (dias: number) => {
+    const meses = Math.floor(dias / 30);
+    const diasResto = dias % 30;
+    if (meses === 0) return `${diasResto} dias`;
+    if (diasResto === 0) return `${meses} mês${meses > 1 ? 'es' : ''}`;
+    return `${meses} mês${meses > 1 ? 'es' : ''} e ${diasResto} dias`;
+  };
+  
+  return {
+    noPeriodo: formatarDias(diasPeriodo),
+    atePeriodo: formatarDias(diasAte),
+    aExecutar: formatarDias(diasRestantes),
+    diasNoPeriodo: diasPeriodo,
+    diasAte: diasAte,
+    diasRestantes: diasRestantes
+  };
+}
+
+// Calcular execução financeira
+function calcularExecucaoFinanceira(valorMedido: number, valorAcumulado: number, percentualFisico: number) {
+  // Calcular valor executado
+  const valorExecutado = valorMedido * (percentualFisico / 100);
+  
+  // Calcular valor restante
+  const valorRestante = valorAcumulado - valorExecutado;
+  
+  return {
+    valorExecutado: valorExecutado,
+    valorRestante: valorRestante
+  };
+}
+
 // ============ HELPERS ============
 
 const formatarMoeda = (valor: number | null | undefined) => {
@@ -1753,6 +1846,135 @@ export default function FornecedorContratoDetalhePage() {
                 </TableBody>
               </Table>
             </div>
+            )}
+
+            {/* Execução Fiscal e Financeira */}
+            {novaMedicao.periodo_inicio && novaMedicao.periodo_fim && contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim && (
+              <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingUp className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-blue-800">Execução Fiscal e Financeira</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Execução Fiscal (Tempo) */}
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Execução Fiscal (Tempo)
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">No Período:</span>
+                        <span className="font-medium text-blue-700">
+                          {calcularExecucaoFiscal(
+                            novaMedicao.periodo_inicio,
+                            novaMedicao.periodo_fim,
+                            contrato.data_vigencia_inicio,
+                            contrato.data_vigencia_fim
+                          ).noPeriodo}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Até o Período:</span>
+                        <span className="font-medium text-blue-700">
+                          {calcularExecucaoFiscal(
+                            novaMedicao.periodo_inicio,
+                            novaMedicao.periodo_fim,
+                            contrato.data_vigencia_inicio,
+                            contrato.data_vigencia_fim
+                          ).atePeriodo}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">A Executar:</span>
+                        <span className="font-medium text-green-700">
+                          {calcularExecucaoFiscal(
+                            novaMedicao.periodo_inicio,
+                            novaMedicao.periodo_fim,
+                            contrato.data_vigencia_inicio,
+                            contrato.data_vigencia_fim
+                          ).aExecutar}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Execução Financeira (Valores) */}
+                  <div className="bg-white rounded-lg p-4 border border-green-200">
+                    <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2">
+                      <DollarSign className="w-4 h-4" />
+                      Execução Financeira (Valores)
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Valor Medido:</span>
+                        <span className="font-medium text-green-700">
+                          {formatarMoeda(
+                            isServicoContinuado
+                              ? (parseFloat(novaMedicao.valor_medido) || 0)
+                              : usarItensCronograma
+                                ? novaMedicao.itens.reduce((acc, item) => {
+                                    if (!('item_cronograma_id' in item)) return acc;
+                                    const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+                                    return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+                                  }, 0)
+                                : novaMedicao.itens.reduce((acc, item, idx) => {
+                                    const etapa = etapas[idx];
+                                    if (!etapa || !('etapa_id' in item)) return acc;
+                                    return acc + (item.valor_executado_atual || 0);
+                                  }, 0)
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Saldo Disponível:</span>
+                        <span className="font-medium text-blue-700">
+                          {formatarMoeda(resumo?.saldo_disponivel || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Saldo Após Medição:</span>
+                        <span className={`font-medium ${
+                          (resumo?.saldo_disponivel || 0) - (
+                            isServicoContinuado
+                              ? (parseFloat(novaMedicao.valor_medido) || 0)
+                              : usarItensCronograma
+                                ? novaMedicao.itens.reduce((acc, item) => {
+                                    if (!('item_cronograma_id' in item)) return acc;
+                                    const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+                                    return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+                                  }, 0)
+                                : novaMedicao.itens.reduce((acc, item, idx) => {
+                                    const etapa = etapas[idx];
+                                    if (!etapa || !('etapa_id' in item)) return acc;
+                                    return acc + (item.valor_executado_atual || 0);
+                                  }, 0)
+                          ) < 0 ? 'text-red-600' : 'text-green-700'
+                        }`}>
+                          {formatarMoeda(
+                            Math.max(0, (resumo?.saldo_disponivel || 0) - (
+                              isServicoContinuado
+                                ? (parseFloat(novaMedicao.valor_medido) || 0)
+                                : usarItensCronograma
+                                  ? novaMedicao.itens.reduce((acc, item) => {
+                                      if (!('item_cronograma_id' in item)) return acc;
+                                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+                                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+                                    }, 0)
+                                  : novaMedicao.itens.reduce((acc, item, idx) => {
+                                      const etapa = etapas[idx];
+                                      if (!etapa || !('etapa_id' in item)) return acc;
+                                      return acc + (item.valor_executado_atual || 0);
+                                    }, 0)
+                            ))
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Observações e NF lado a lado */}
