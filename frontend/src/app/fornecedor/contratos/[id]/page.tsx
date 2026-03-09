@@ -250,6 +250,9 @@ export default function FornecedorContratoDetalhePage() {
   const [editandoItensDetalhe, setEditandoItensDetalhe] = useState(false);
   const [itensEditados, setItensEditados] = useState<Record<string, { percentual_executado_atual: number; valor_executado_atual: number }>>({});
 
+  // Modo de edição de medição devolvida
+  const [medicaoParaEditar, setMedicaoParaEditar] = useState<Medicao | null>(null);
+
   // Anexos
   const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
@@ -500,24 +503,37 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComValor;
       }
 
-      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-      });
+      let res;
+      if (medicaoParaEditar) {
+        // Atualizar medição existente
+        res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoParaEditar.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+      } else {
+        // Criar nova medição
+        res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+      }
 
       if (res.ok) {
-        const medicaoCriada = await res.json();
-        if (discriminacoes.length > 0 && medicaoCriada?.id) {
-          try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
+        const medicaoSalva = await res.json();
+        if (discriminacoes.length > 0 && medicaoSalva?.id) {
+          try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
         }
-        if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
+        if (arquivosPendentes.length > 0 && medicaoSalva?.id) { await uploadArquivosPendentes(medicaoSalva.id); }
         setModalNovaMedicao(false);
         setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-        setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
+        setDiscriminacoes([]); setArquivosPendentes([]); setMedicaoParaEditar(null); carregarDados();
+        
+        if (medicaoParaEditar) {
+          alert('Medição atualizada com sucesso! Clique em "Submeter" para reenviar.');
+        }
       } else {
-        const err = await res.json(); alert(err.message || 'Erro ao criar medição');
+        const err = await res.json(); alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
       }
     } catch (error) {
-      alert('Erro ao criar medição');
+      alert(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
@@ -809,6 +825,51 @@ export default function FornecedorContratoDetalhePage() {
     setModalSubmeter(true);
   };
 
+  // Carregar dados da medição devolvida para edição
+  const carregarDadosMedicao = async (medicao: Medicao) => {
+    try {
+      // Buscar itens da medição
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`);
+      if (res.ok) {
+        const medicaoCompleta = await res.json();
+        
+        // Preparar nova medição com os dados da devolvida
+        setNovaMedicao({
+          contrato_id: medicao.contrato_id,
+          numero_medicao: medicao.numero_medicao,
+          periodo_inicio: medicao.periodo_inicio,
+          periodo_fim: medicao.periodo_fim,
+          observacoes: medicao.fornecedor_observacoes || '',
+          nota_fiscal_numero: medicao.nota_fiscal_numero || '',
+          nota_fiscal_valor: medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : '',
+          nota_fiscal_data: medicao.nota_fiscal_data || '',
+          itens: medicaoCompleta.itens?.map((item: any) => {
+            if (item.tipo_item === 'item_cronograma') {
+              return {
+                item_cronograma_id: item.item_cronograma_id,
+                quantidade_medida: item.quantidade_medida || 0,
+                modo_input: 'quantidade',
+              };
+            } else {
+              return {
+                etapa_id: item.etapa_id,
+                percentual_executado_atual: item.percentual_executado_atual || 0,
+                valor_executado_atual: item.valor_executado_atual || 0,
+                modo_input: 'percentual',
+              };
+            }
+          }) || [],
+        });
+        
+        // Setar a medição original para atualização
+        setMedicaoParaEditar(medicao);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar medição:', error);
+      alert('Erro ao carregar dados da medição para edição.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1010,21 +1071,36 @@ export default function FornecedorContratoDetalhePage() {
                             </>
                           )}
                           <Button size="sm" variant="outline" onClick={async () => {
-                            setModalDetalhe(true);
-                            setMedicaoDetalhe(medicao);
-                            setDiscriminacoesDetalhe([]);
-                            setEditandoItensDetalhe(false);
-                            setItensEditados({});
-                            try {
-                              const [medRes, dRes] = await Promise.all([
-                                authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
-                                authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
-                              ]);
-                              if (medRes.ok) setMedicaoDetalhe(await medRes.json());
-                              if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
-                            } catch {}
+                            if (medicao.status === 'DEVOLVIDA') {
+                              // Abrir modal de criação com dados da medição devolvida
+                              await carregarDadosMedicao(medicao);
+                              setModalNovaMedicao(true);
+                            } else {
+                              // Abrir modal de detalhes para outros status
+                              setModalDetalhe(true);
+                              setMedicaoDetalhe(medicao);
+                              setDiscriminacoesDetalhe([]);
+                              setEditandoItensDetalhe(false);
+                              setItensEditados({});
+                              try {
+                                const [medRes, dRes] = await Promise.all([
+                                  authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
+                                  authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
+                                ]);
+                                if (medRes.ok) setMedicaoDetalhe(await medRes.json());
+                                if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
+                              } catch {}
+                            }
                           }}>
-                            <Eye className="w-3 h-3 mr-1" />Ver
+                            {medicao.status === 'DEVOLVIDA' ? (
+                              <>
+                                <Edit className="w-3 h-3 mr-1" />Editar
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-3 h-3 mr-1" />Ver
+                              </>
+                            )}
                           </Button>
                         </div>
                       </div>
@@ -1294,13 +1370,28 @@ export default function FornecedorContratoDetalhePage() {
       </Tabs>
 
       {/* ============ MODAL: Nova Medição (Planilha Orçamentária) ============ */}
-      <Dialog open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
+      <Dialog open={modalNovaMedicao} onOpenChange={(open) => {
+        setModalNovaMedicao(open);
+        if (!open) {
+          setMedicaoParaEditar(null);
+          setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+          setDiscriminacoes([]);
+          setArquivosPendentes([]);
+        }
+      }}>
         <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle className="text-xl">
-                  Boletim de Medição #{(medicoes.length || 0) + 1}
+                  {medicaoParaEditar ? (
+                    <>
+                      Editar Medição #{medicaoParaEditar.numero_medicao}
+                      <Badge className="ml-2 bg-amber-100 text-amber-800 text-xs">Devolvida</Badge>
+                    </>
+                  ) : (
+                    <>Boletim de Medição #{(medicoes.length || 0) + 1}</>
+                  )}
                 </DialogTitle>
                 <DialogDescription>
                   {novaMedicao.periodo_inicio && novaMedicao.periodo_fim
