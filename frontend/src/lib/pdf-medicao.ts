@@ -514,7 +514,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       theme: 'grid',
       styles: { fontSize: 6.5, cellPadding: 1.1, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 82 }, 2: { cellWidth: 21 }, 3: { cellWidth: 18 }, 4: { cellWidth: 30 }, 5: { cellWidth: 31 } },
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 86 }, 2: { cellWidth: 21 }, 3: { cellWidth: 18 }, 4: { cellWidth: 30 }, 5: { cellWidth: 31 } },
       margin: { left: mX, right: mX },
     })
     y = (doc as any).lastAutoTable.finalY + 4
@@ -629,7 +629,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 10 },
-        1: { cellWidth: 54 },
+        1: { cellWidth: 66 },
         2: { cellWidth: 19 },
         3: { cellWidth: 19 },
         4: { cellWidth: 18 },
