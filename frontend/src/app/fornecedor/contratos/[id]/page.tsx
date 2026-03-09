@@ -1451,7 +1451,7 @@ export default function FornecedorContratoDetalhePage() {
                     <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
-                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-28 bg-green-50">Valor R$</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24 bg-blue-50">Subtotal</TableHead>
                   </TableRow>
@@ -1496,8 +1496,8 @@ export default function FornecedorContratoDetalhePage() {
                             }}
                             className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
                           />
-                          {qtdMedida > 0 && qtdMedida < 1 && (ic.unidade_medida === 'MES' || ic.unidade_medida === 'MÊS') && (
-                            <p className="text-[10px] text-blue-600 text-center mt-0.5">{Math.round(qtdMedida * 30)} dias</p>
+                          {qtdMedida > 0 && qtdMedida !== 1 && (ic.unidade_medida === 'MES' || ic.unidade_medida === 'MÊS') && (
+                            <p className="text-xs text-blue-700 font-medium text-center mt-0.5">= {Math.round(qtdMedida * 30)} dias</p>
                           )}
                         </TableCell>
                         {/* Valor R$ */}

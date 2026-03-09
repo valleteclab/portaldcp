@@ -444,10 +444,19 @@ export class MedicaoService {
         );
       }
 
-      if (osVinculada.status === StatusOrdemServico.AUTORIZADA) {
-        osVinculada.status = StatusOrdemServico.EM_EXECUCAO;
-        await this.ordemServicoRepository.save(osVinculada);
-        this.logger.log(`OS ${osVinculada.numero_os} movida para EM_EXECUCAO ao criar medição`);
+      const statusAtual = String(osVinculada.status);
+      if (statusAtual === StatusOrdemServico.AUTORIZADA || statusAtual === 'AUTORIZADA') {
+        const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
+        if (fluxoOs === 'REQUISICAO') {
+          await this.requisicaoRepository.update(osVinculada.id, {
+            status: StatusRequisicao.ORDEM_GERADA,
+          });
+          this.logger.log(`Requisição OS ${osVinculada.numero_os} atualizada para ORDEM_GERADA ao criar medição`);
+        } else {
+          osVinculada.status = StatusOrdemServico.EM_EXECUCAO;
+          await this.ordemServicoRepository.save(osVinculada);
+          this.logger.log(`OS ${osVinculada.numero_os} movida para EM_EXECUCAO ao criar medição`);
+        }
       }
     }
 
