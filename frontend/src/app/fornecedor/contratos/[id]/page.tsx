@@ -440,6 +440,11 @@ export default function FornecedorContratoDetalhePage() {
       const res = await authFetch(url);
       if (res.ok) {
         const data = await res.json();
+        console.log('DEBUG: Execução financeira recebida:', data);
+        console.log('DEBUG: totais:', data.totais);
+        console.log('DEBUG: no_periodo:', data.totais?.no_periodo);
+        console.log('DEBUG: ate_periodo:', data.totais?.ate_periodo);
+        console.log('DEBUG: a_executar:', data.totais?.a_executar);
         setExecucaoFinanceira(data);
       }
     } catch (error) {
