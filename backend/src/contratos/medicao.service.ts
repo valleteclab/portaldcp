@@ -635,11 +635,7 @@ export class MedicaoService {
       if (execucaoFinanceira) {
         await this.medicaoRepository.update(medicaoSalva.id, {
           execucao_fiscal: execucaoFinanceira.execucao_fiscal,
-          execucao_financeira: {
-            itens: execucaoFinanceira.itens || [],
-            totais: execucaoFinanceira.totais || null,
-            ajuste_migracao: execucaoFinanceira.ajuste_migracao || 0,
-          },
+          execucao_financeira: this.montarSnapshotExecucaoFinanceira(execucaoFinanceira),
         });
         this.logger.log(`Execução fiscal/financeira calculada e salva para medição ${medicaoSalva.id}`);
       }
@@ -846,11 +842,9 @@ export class MedicaoService {
     try {
       const execucaoFinanceira = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicao.id);
       medicao.execucao_fiscal = execucaoFinanceira?.execucao_fiscal || null as any;
-      medicao.execucao_financeira = execucaoFinanceira ? {
-        itens: execucaoFinanceira.itens || [],
-        totais: execucaoFinanceira.totais || null,
-        ajuste_migracao: execucaoFinanceira.ajuste_migracao || 0,
-      } as any : null as any;
+      medicao.execucao_financeira = execucaoFinanceira
+        ? this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any
+        : null as any;
     } catch (error) {
       this.logger.warn(`Erro ao persistir snapshot de execução da medição ${medicao.id} na submissão: ${error.message}`);
     }
@@ -2022,6 +2016,30 @@ export class MedicaoService {
     const itens = [...itensEtapaEnriquecidos, ...itensItemEnriquecidos];
 
     return { ...medicao, itens } as any;
+  }
+
+  private montarSnapshotExecucaoFinanceira(execucaoFinanceira: any) {
+    const itens: Array<{
+      valor_previsto?: number;
+      no_periodo?: number;
+      ate_periodo?: number;
+      a_executar?: number;
+    }> = Array.isArray(execucaoFinanceira?.itens) ? execucaoFinanceira.itens : [];
+    const totalPrevisto = itens.reduce((s: number, item) => s + (Number(item.valor_previsto) || 0), 0);
+    const totalNoPeriodo = itens.reduce((s: number, item) => s + (Number(item.no_periodo) || 0), 0);
+    const totalAtePeriodo = itens.reduce((s: number, item) => s + (Number(item.ate_periodo) || 0), 0);
+    const totalAExecutar = itens.reduce((s: number, item) => s + (Number(item.a_executar) || 0), 0);
+
+    return {
+      itens,
+      totais: {
+        valor_previsto: Math.round(totalPrevisto * 100) / 100,
+        no_periodo: Math.round(totalNoPeriodo * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodo * 100) / 100,
+        a_executar: Math.round(totalAExecutar * 100) / 100,
+      },
+      ajuste_migracao: Math.round((Number(execucaoFinanceira?.ajuste_migracao) || 0) * 100) / 100,
+    };
   }
 
   // ============================================================================
