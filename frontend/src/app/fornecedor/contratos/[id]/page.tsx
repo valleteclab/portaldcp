@@ -339,6 +339,9 @@ export default function FornecedorContratoDetalhePage() {
   // Arquivos pendentes para upload após criação da medição
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
 
+  // Estado para execução financeira do backend
+  const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null);
+
   // Modal Submeter
   const [modalSubmeter, setModalSubmeter] = useState(false);
   const [medicaoParaSubmeter, setMedicaoParaSubmeter] = useState<Medicao | null>(null);
@@ -420,6 +423,25 @@ export default function FornecedorContratoDetalhePage() {
       }
     } catch (error) {
       console.error('Erro ao carregar anexos:', error);
+    }
+  };
+
+  // Função para buscar execução financeira do backend
+  const carregarExecucaoFinanceira = async (medicaoId?: string) => {
+    if (!contrato) return;
+    
+    try {
+      const url = medicaoId 
+        ? `${API_URL}/api/contratos/${contrato.id}/execucao-financeira?medicaoId=${medicaoId}`
+        : `${API_URL}/api/contratos/${contrato.id}/execucao-financeira`;
+      
+      const res = await authFetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setExecucaoFinanceira(data);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar execução financeira:', error);
     }
   };
 
@@ -1559,6 +1581,10 @@ export default function FornecedorContratoDetalhePage() {
                     } else {
                       setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio });
                     }
+                    // Recarregar execução financeira quando mudar o período
+                    if (novoInicio && novaMedicao.periodo_fim) {
+                      carregarExecucaoFinanceira();
+                    }
                   }} />
               </div>
               <div>
@@ -1578,6 +1604,10 @@ export default function FornecedorContratoDetalhePage() {
                       setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim, itens });
                     } else {
                       setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim });
+                    }
+                    // Recarregar execução financeira quando mudar o período
+                    if (novaMedicao.periodo_inicio && novoFim) {
+                      carregarExecucaoFinanceira();
                     }
                   }} />
               </div>
@@ -1908,10 +1938,11 @@ export default function FornecedorContratoDetalhePage() {
                     </h4>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Valor Medido:</span>
+                        <span className="text-gray-600">No Período:</span>
                         <span className="font-medium text-green-700">
                           {formatarMoeda(
-                            isServicoContinuado
+                            execucaoFinanceira?.resumo?.no_periodo || 
+                            (isServicoContinuado
                               ? (parseFloat(novaMedicao.valor_medido) || 0)
                               : usarItensCronograma
                                 ? novaMedicao.itens.reduce((acc, item) => {
@@ -1923,51 +1954,25 @@ export default function FornecedorContratoDetalhePage() {
                                     const etapa = etapas[idx];
                                     if (!etapa || !('etapa_id' in item)) return acc;
                                     return acc + (item.valor_executado_atual || 0);
-                                  }, 0)
+                                  }, 0))
                           )}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Saldo Disponível:</span>
+                        <span className="text-gray-600">Até o Período:</span>
                         <span className="font-medium text-blue-700">
-                          {formatarMoeda(resumo?.saldo_disponivel || 0)}
+                          {formatarMoeda(
+                            execucaoFinanceira?.resumo?.ate_periodo || 
+                            (resumo?.valor_medido_total || 0)
+                          )}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Saldo Após Medição:</span>
-                        <span className={`font-medium ${
-                          (resumo?.saldo_disponivel || 0) - (
-                            isServicoContinuado
-                              ? (parseFloat(novaMedicao.valor_medido) || 0)
-                              : usarItensCronograma
-                                ? novaMedicao.itens.reduce((acc, item) => {
-                                    if (!('item_cronograma_id' in item)) return acc;
-                                    const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
-                                    return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
-                                  }, 0)
-                                : novaMedicao.itens.reduce((acc, item, idx) => {
-                                    const etapa = etapas[idx];
-                                    if (!etapa || !('etapa_id' in item)) return acc;
-                                    return acc + (item.valor_executado_atual || 0);
-                                  }, 0)
-                          ) < 0 ? 'text-red-600' : 'text-green-700'
-                        }`}>
+                        <span className="text-gray-600">A Executar:</span>
+                        <span className="font-medium text-orange-700">
                           {formatarMoeda(
-                            Math.max(0, (resumo?.saldo_disponivel || 0) - (
-                              isServicoContinuado
-                                ? (parseFloat(novaMedicao.valor_medido) || 0)
-                                : usarItensCronograma
-                                  ? novaMedicao.itens.reduce((acc, item) => {
-                                      if (!('item_cronograma_id' in item)) return acc;
-                                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
-                                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
-                                    }, 0)
-                                  : novaMedicao.itens.reduce((acc, item, idx) => {
-                                      const etapa = etapas[idx];
-                                      if (!etapa || !('etapa_id' in item)) return acc;
-                                      return acc + (item.valor_executado_atual || 0);
-                                    }, 0)
-                            ))
+                            execucaoFinanceira?.resumo?.a_executar || 
+                            Math.max(0, (contrato?.valor_global || 0) - (execucaoFinanceira?.resumo?.ate_periodo || 0) - (execucaoFinanceira?.resumo?.no_periodo || 0))
                           )}
                         </span>
                       </div>
