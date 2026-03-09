@@ -430,12 +430,12 @@ export default function FornecedorContratoDetalhePage() {
 
   // Função para buscar execução financeira do backend
   const carregarExecucaoFinanceira = async (medicaoId?: string) => {
-    if (!contrato) return;
+    if (!contrato || !fornecedor) return;
     
     try {
       const url = medicaoId 
-        ? `${API_URL}/api/contratos/${contrato.id}/execucao-financeira?medicaoId=${medicaoId}`
-        : `${API_URL}/api/contratos/${contrato.id}/execucao-financeira`;
+        ? `${API_URL}/api/fornecedor/contratos/${contrato.id}/execucao-financeira?fornecedorId=${fornecedor.id}&medicaoId=${medicaoId}`
+        : `${API_URL}/api/fornecedor/contratos/${contrato.id}/execucao-financeira?fornecedorId=${fornecedor.id}`;
       
       const res = await authFetch(url);
       if (res.ok) {

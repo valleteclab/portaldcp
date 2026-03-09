@@ -560,4 +560,22 @@ export class FornecedorMedicaoController {
       usuario_cargo: body.usuario_cargo,
     });
   }
+
+  /**
+   * Retorna o resumo de execução fiscal/financeira por item do contrato para o fornecedor.
+   * GET /api/fornecedor/contratos/:contratoId/execucao-financeira?fornecedorId=xxx&medicaoId=xxx
+   */
+  @Get(':contratoId/execucao-financeira')
+  async execucaoFinanceira(
+    @Param('contratoId') contratoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+    @Query('medicaoId') medicaoId: string,
+  ) {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    // Validar acesso do fornecedor
+    await this.validarAcessoFornecedor(contratoId, fornecedorId);
+    return this.medicaoService.calcularExecucaoFinanceira(contratoId, '', medicaoId || undefined);
+  }
 }
