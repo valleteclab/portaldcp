@@ -368,6 +368,32 @@ export default function FornecedorContratoDetalhePage() {
   const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
 
+  const valorMedicaoAtual = isServicoContinuado
+    ? (parseFloat(novaMedicao.valor_medido) || 0)
+    : usarItensCronograma
+      ? novaMedicao.itens.reduce((acc, item) => {
+          if (!('item_cronograma_id' in item)) return acc;
+          const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+          return acc + (ic ? Number(item.quantidade_medida || 0) * Number(ic.valor_unitario) : 0);
+        }, 0)
+      : novaMedicao.itens.reduce((acc, item, idx) => {
+          const etapa = etapas[idx];
+          if (!etapa || !('etapa_id' in item)) return acc;
+          if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
+          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+        }, 0);
+
+  const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
+  const noPeriodoExibicao = Number(execucaoFinanceira?.totais?.no_periodo || valorMedicaoAtual || 0);
+  const atePeriodoExibicao = Number(
+    execucaoFinanceira?.totais?.ate_periodo ||
+    (valorAprovadoAnterior + valorMedicaoAtual)
+  );
+  const aExecutarExibicao = Math.max(
+    0,
+    Number(execucaoFinanceira?.totais?.a_executar || ((contrato?.valor_global || 0) - atePeriodoExibicao))
+  );
+
   useEffect(() => {
     const fornecedorData = localStorage.getItem('fornecedor');
     if (fornecedorData) {
@@ -739,7 +765,7 @@ export default function FornecedorContratoDetalhePage() {
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
-            return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+            return item.modo_input === 'valor' && item.valor_executado_atual ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
           }, 0);
           if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
@@ -1264,9 +1290,9 @@ export default function FornecedorContratoDetalhePage() {
                       {/* Seção de Anexos (Fotos e Documentos) */}
                       <div className="mt-3 pt-3 border-t">
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                            <Paperclip className="w-3 h-3" /> Evidências e Documentos
-                            {anexos[medicao.id] && anexos[medicao.id].length > 0 && (
+                          <p className="text-xs text-gray-500 mb-1">Evidências e Documentos</p>
+                          <p className="text-xs text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                            <Paperclip className="w-3 h-3" />{anexos[medicao.id] && anexos[medicao.id].length > 0 && (
                               <Badge variant="outline" className="ml-1 text-xs px-1.5 py-0">{anexos[medicao.id].length}</Badge>
                             )}
                           </p>
@@ -1699,7 +1725,6 @@ export default function FornecedorContratoDetalhePage() {
                     <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
-                    <TableHead className="text-right font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-28 bg-green-50">Valor R$</TableHead>
@@ -1727,10 +1752,6 @@ export default function FornecedorContratoDetalhePage() {
                         <TableCell><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
                         <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
                         <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
-                        <TableCell className="text-right text-blue-600 text-sm">
-                          {qtdAprovada.toLocaleString('pt-BR')}
-                          {emTransito > 0 && <span className="text-amber-500 text-xs ml-0.5">+{emTransito.toLocaleString('pt-BR')}</span>}
-                        </TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
                         {/* Qtd. Mês */}
                         <TableCell className="bg-blue-50/50">
@@ -1964,40 +1985,19 @@ export default function FornecedorContratoDetalhePage() {
                       <div className="flex justify-between">
                         <span className="text-gray-600">No Período:</span>
                         <span className="font-medium text-green-700">
-                          {formatarMoeda(
-                            execucaoFinanceira?.totais?.no_periodo || 
-                            (isServicoContinuado
-                              ? (parseFloat(novaMedicao.valor_medido) || 0)
-                              : usarItensCronograma
-                                ? novaMedicao.itens.reduce((acc, item) => {
-                                    if (!('item_cronograma_id' in item)) return acc;
-                                    const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
-                                    return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
-                                  }, 0)
-                                : novaMedicao.itens.reduce((acc, item, idx) => {
-                                    const etapa = etapas[idx];
-                                    if (!etapa || !('etapa_id' in item)) return acc;
-                                    return acc + (item.valor_executado_atual || 0);
-                                  }, 0))
-                          )}
+                          {formatarMoeda(noPeriodoExibicao)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Até o Período:</span>
                         <span className="font-medium text-blue-700">
-                          {formatarMoeda(
-                            execucaoFinanceira?.totais?.ate_periodo || 
-                            (resumo?.valor_medido_total || 0)
-                          )}
+                          {formatarMoeda(atePeriodoExibicao)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">A Executar:</span>
                         <span className="font-medium text-orange-700">
-                          {formatarMoeda(
-                            execucaoFinanceira?.totais?.a_executar || 
-                            Math.max(0, (contrato?.valor_global || 0) - (execucaoFinanceira?.totais?.ate_periodo || 0) - (execucaoFinanceira?.totais?.no_periodo || 0))
-                          )}
+                          {formatarMoeda(aExecutarExibicao)}
                         </span>
                       </div>
                     </div>
