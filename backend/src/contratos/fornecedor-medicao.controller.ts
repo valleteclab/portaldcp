@@ -571,11 +571,24 @@ export class FornecedorMedicaoController {
     @Query('fornecedorId') fornecedorId: string,
     @Query('medicaoId') medicaoId: string,
   ) {
+    console.log('DEBUG: Endpoint execucaoFinanceira chamado');
+    console.log('DEBUG: contratoId:', contratoId);
+    console.log('DEBUG: fornecedorId:', fornecedorId);
+    console.log('DEBUG: medicaoId:', medicaoId);
+    
     if (!fornecedorId) {
+      console.log('DEBUG: fornecedorId não fornecido');
       throw new BadRequestException('fornecedorId é obrigatório');
     }
+    
     // Validar acesso do fornecedor
+    console.log('DEBUG: Validando acesso do fornecedor...');
     await this.validarAcessoFornecedor(contratoId, fornecedorId);
-    return this.medicaoService.calcularExecucaoFinanceira(contratoId, '', medicaoId || undefined);
+    console.log('DEBUG: Acesso validado com sucesso');
+    
+    const resultado = await this.medicaoService.calcularExecucaoFinanceiraFornecedor(contratoId, medicaoId || undefined);
+    console.log('DEBUG: Resultado calculado:', resultado);
+    
+    return resultado;
   }
 }

@@ -2385,6 +2385,217 @@ export class MedicaoService {
    *   - a_executar: valor_previsto - ate_periodo - no_periodo
    *   - execução temporal baseada nas datas de vigência do contrato
    */
+  /**
+   * Calcula execução financeira para o FORNECEDOR (sem validar orgaoId).
+   * Retorna valores por item e totais.
+   * 
+   * Estrutura de retorno:
+   * {
+   *   contrato_id: string,
+   *   itens: [{
+   *     etapa_id: string,
+   *     no_periodo: number,
+   *     ate_periodo: number,
+   *     a_executar: number
+   *   }],
+   *   totais: {
+   *     valor_previsto: number,
+   *     no_periodo: number,
+   *     ate_periodo: number,
+   *     a_executar: number
+   *   },
+   *   execucao_fiscal: {...}
+   * }
+   */
+  async calcularExecucaoFinanceiraFornecedor(contratoId: string, medicaoId?: string): Promise<any> {
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const etapas = await this.etapaRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_etapa: 'ASC' },
+    });
+
+    // Buscar todas as medições aprovadas
+    const medicoesAprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      order: { numero_medicao: 'ASC' },
+    });
+
+    // Buscar a medição atual (se informada)
+    let medicaoAtual = null;
+    if (medicaoId) {
+      medicaoAtual = await this.medicaoRepository.findOne({
+        where: { id: medicaoId },
+      });
+    }
+
+    // Continuar com a lógica existente...
+    // (copiar o resto do método calcularExecucaoFinanceira)
+    
+    const itensPorMedicao: Record<string, ItemMedicao[]> = {};
+    for (const m of medicoesAprovadas) {
+      const itens = await this.itemMedicaoRepository.find({
+        where: { medicao_id: m.id },
+      });
+      itensPorMedicao[m.id] = itens;
+    }
+
+    let itensMedicaoAtual: ItemMedicao[] = [];
+    if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
+      itensMedicaoAtual = await this.itemMedicaoRepository.find({
+        where: { medicao_id: medicaoAtual.id },
+      });
+    }
+
+    // Calcular execução por etapa
+    const resultado = etapas.map(etapa => {
+      const valorPrevisto = Number(etapa.valor_previsto) || 0;
+
+      // Somar valores aprovados para esta etapa
+      let atePeríodo = 0;
+      for (const m of medicoesAprovadas) {
+        // Se a medição atual é aprovada, tratar no_periodo separado
+        if (medicaoAtual && m.id === medicaoAtual.id) continue;
+        const itensM = itensPorMedicao[m.id] || [];
+        const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+        if (itemEtapa) {
+          atePeríodo += Number(itemEtapa.valor_medido) || 0;
+        }
+      }
+
+      // Valor no período (medição atual)
+      let noPeriodo = 0;
+      if (medicaoAtual) {
+        if (medicaoAtual.status === StatusMedicao.APROVADA) {
+          // Se aprovada, buscar dos itens aprovados
+          const itensM = itensPorMedicao[medicaoAtual.id] || [];
+          const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+          if (itemEtapa) {
+            noPeriodo = Number(itemEtapa.valor_medido) || 0;
+          }
+        } else {
+          // Se não aprovada, buscar dos itens da medição atual
+          const itemEtapa = itensMedicaoAtual.find(i => i.etapa_id === etapa.id);
+          if (itemEtapa) {
+            noPeriodo = Number(itemEtapa.valor_medido) || 0;
+          }
+        }
+      }
+
+      const aExecutar = Math.max(0, valorPrevisto - atePeríodo - noPeriodo);
+
+      return {
+        etapa_id: etapa.id,
+        numero_etapa: etapa.numero_etapa,
+        descricao: etapa.descricao,
+        valor_previsto: valorPrevisto,
+        percentual_fisico: Number(etapa.percentual_fisico) || 0,
+        // Execução financeira
+        no_periodo: Math.round(noPeriodo * 100) / 100,
+        ate_periodo: Math.round(atePeríodo * 100) / 100,
+        a_executar: Math.round(aExecutar * 100) / 100,
+      };
+    });
+
+    // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
+    const vigenciaInicio = contrato.data_vigencia_inicio
+      ? new Date(contrato.data_vigencia_inicio as any)
+      : null;
+    const vigenciaFim = contrato.data_vigencia_fim
+      ? new Date(contrato.data_vigencia_fim as any)
+      : null;
+
+    let execucaoFiscal: any = null;
+    if (vigenciaInicio && vigenciaFim) {
+      // Para execução temporal, usar data final da medição atual se existir, senão data atual
+      let dataReferencia = new Date();
+      
+      // Se temos uma medição, usar o período_fim dela como referência
+      if (medicaoAtual && medicaoAtual.periodo_fim) {
+        dataReferencia = new Date(medicaoAtual.periodo_fim);
+        console.log('Usando data da medição:', dataReferencia.toISOString());
+      } else {
+        console.log('Usando data atual do servidor:', dataReferencia.toISOString());
+      }
+      
+      // Para ano comercial: total sempre 360 dias para contratos anuais
+      const totalDias = 360;
+      
+      // Calcular dias executados usando ano comercial (360 dias)
+      // Função inline para calcular dias comerciais
+      const calcularDiasComercial = (inicio: Date, fim: Date): number => {
+        const ano1 = inicio.getFullYear();
+        const mes1 = inicio.getMonth();
+        const dia1 = inicio.getDate();
+        
+        const ano2 = fim.getFullYear();
+        const mes2 = fim.getMonth();
+        const dia2 = fim.getDate();
+        
+        let dias = 0;
+        
+        if (ano1 === ano2 && mes1 === mes2) {
+          dias = Math.min(dia2 - dia1 + 1, 30);
+        } else {
+          const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
+          
+          let mesesCompletos = 0;
+          if (ano2 > ano1 || mes2 > mes1 + 1) {
+            mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
+          }
+          
+          const diasUltimoMes = Math.min(dia2, 30);
+          
+          dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+        }
+        
+        return Math.min(dias, 360);
+      };
+      
+      const diasExecutados = calcularDiasComercial(vigenciaInicio, dataReferencia);
+      const diasRestantes = Math.max(0, totalDias - diasExecutados);
+      
+      // Usar ano comercial: 12 meses de 30 dias = 360 dias
+      execucaoFiscal = {
+        vigencia_inicio: vigenciaInicio.toISOString().split('T')[0],
+        vigencia_fim: vigenciaFim.toISOString().split('T')[0],
+        total_dias: totalDias,
+        dias_executados: diasExecutados,
+        dias_restantes: diasRestantes,
+        meses_executados: Math.floor(diasExecutados / 30),
+        dias_executados_extra: diasExecutados % 30,
+        meses_restantes: Math.floor(diasRestantes / 30),
+        dias_restantes_extra: diasRestantes % 30,
+        ano_comercial: true, // Flag para indicar uso de ano comercial
+      };
+    }
+
+    // Totais
+    const totalNoPeriodo = resultado.reduce((s, r) => s + r.no_periodo, 0);
+    const totalAtePeriodo = resultado.reduce((s, r) => s + r.ate_periodo, 0);
+    const totalAExecutar = resultado.reduce((s, r) => s + r.a_executar, 0);
+    const totalPrevisto = resultado.reduce((s, r) => s + r.valor_previsto, 0);
+
+    return {
+      contrato_id: contratoId,
+      itens: resultado,
+      totais: {
+        valor_previsto: Math.round(totalPrevisto * 100) / 100,
+        no_periodo: Math.round(totalNoPeriodo * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodo * 100) / 100,
+        a_executar: Math.round(totalAExecutar * 100) / 100,
+      },
+      execucao_fiscal: execucaoFiscal,
+      medicao_referencia: medicaoAtual ? {
+        id: medicaoAtual.id,
+        numero_medicao: medicaoAtual.numero_medicao,
+        periodo_inicio: medicaoAtual.periodo_inicio,
+        periodo_fim: medicaoAtual.periodo_fim,
+      } : null,
+    };
+  }
+
   async calcularExecucaoFinanceira(contratoId: string, orgaoId: string, medicaoId?: string): Promise<any> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
