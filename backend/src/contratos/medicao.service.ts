@@ -2809,8 +2809,8 @@ export class MedicaoService {
       totais: {
         valor_previsto: Math.round(totalPrevisto * 100) / 100,
         no_periodo: Math.round(totalNoPeriodo * 100) / 100,
-        ate_periodo: Math.round(totalAtePeriodoComAjuste * 100) / 100,
-        a_executar: Math.round(totalAExecutar * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodoGlobalExibicao * 100) / 100,
+        a_executar: Math.round(Math.max(0, totalPrevisto - totalAtePeriodoGlobalExibicao) * 100) / 100,
       },
       ajuste_migracao: Math.round(ajusteMigracao * 100) / 100,
       execucao_fiscal: execucaoFiscal,
