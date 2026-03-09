@@ -1941,7 +1941,7 @@ export default function FornecedorContratoDetalhePage() {
                         <span className="text-gray-600">No Período:</span>
                         <span className="font-medium text-green-700">
                           {formatarMoeda(
-                            execucaoFinanceira?.resumo?.no_periodo || 
+                            execucaoFinanceira?.totais?.no_periodo || 
                             (isServicoContinuado
                               ? (parseFloat(novaMedicao.valor_medido) || 0)
                               : usarItensCronograma
@@ -1962,7 +1962,7 @@ export default function FornecedorContratoDetalhePage() {
                         <span className="text-gray-600">Até o Período:</span>
                         <span className="font-medium text-blue-700">
                           {formatarMoeda(
-                            execucaoFinanceira?.resumo?.ate_periodo || 
+                            execucaoFinanceira?.totais?.ate_periodo || 
                             (resumo?.valor_medido_total || 0)
                           )}
                         </span>
@@ -1971,8 +1971,8 @@ export default function FornecedorContratoDetalhePage() {
                         <span className="text-gray-600">A Executar:</span>
                         <span className="font-medium text-orange-700">
                           {formatarMoeda(
-                            execucaoFinanceira?.resumo?.a_executar || 
-                            Math.max(0, (contrato?.valor_global || 0) - (execucaoFinanceira?.resumo?.ate_periodo || 0) - (execucaoFinanceira?.resumo?.no_periodo || 0))
+                            execucaoFinanceira?.totais?.a_executar || 
+                            Math.max(0, (contrato?.valor_global || 0) - (execucaoFinanceira?.totais?.ate_periodo || 0) - (execucaoFinanceira?.totais?.no_periodo || 0))
                           )}
                         </span>
                       </div>
