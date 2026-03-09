@@ -72,6 +72,11 @@ export interface DadosMedicaoPdf {
   periodo_fim: string
   competencia?: string          // ex: FEVEREIRO/2026 (gerado automaticamente se omitido)
   valor_medido: number
+  execucao_financeira_totais?: {
+    no_periodo: number
+    ate_periodo: number
+    a_executar: number
+  }
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
   // Execução fiscal (calculada no backend com ano comercial)
@@ -604,11 +609,15 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       ]
     })
 
+    const totalNoPeriodoExibicao = dados.execucao_financeira_totais?.no_periodo ?? totalNoPeriodo
+    const totalAtePeriodoExibicao = dados.execucao_financeira_totais?.ate_periodo ?? totalAteoPeriodo
+    const totalAExecutarExibicao = dados.execucao_financeira_totais?.a_executar ?? totalAExecutar
+
     body.push([
       { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalNoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalAteoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalAExecutar), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalNoPeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalAtePeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalAExecutarExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
     ])
 
     autoTable(doc, {

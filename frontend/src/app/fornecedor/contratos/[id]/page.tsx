@@ -2616,6 +2616,11 @@ export default function FornecedorContratoDetalhePage() {
                     periodo_fim: medicaoDetalhe.periodo_fim || '',
                     competencia: competencia || competenciaDefault,
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
+                    execucao_financeira_totais: {
+                      no_periodo: Number(medicaoDetalhe.valor_medido || 0),
+                      ate_periodo: Number(medicaoDetalhe.valor_acumulado_atual || 0),
+                      a_executar: Math.max(0, Number((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(medicaoDetalhe.valor_acumulado_atual || 0))),
+                    },
                     nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
                     nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
                     execucao_fiscal: medicaoDetalhe.execucao_fiscal || execucaoFinanceira?.execucao_fiscal || undefined,
