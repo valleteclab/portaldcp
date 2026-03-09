@@ -2583,8 +2583,8 @@ export default function FornecedorContratoDetalhePage() {
                     )
                     const vlrUnitario = Number(ic?.valor_unitario || itemMedicao?.item_valor_unitario || 0)
                     const vlrTotal = Number(ic?.valor_total || itemExecucao.valor_previsto || (itemMedicao?.item_quantidade_total || 0) * vlrUnitario)
-                    const vlrNoPeriodo = Number(itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo || 0)
-                    const vlrAtePeriodo = Number(itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo || 0)
+                    const vlrNoPeriodo = Number((itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo) || 0)
+                    const vlrAtePeriodo = Number((itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo) || 0)
                     const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
 
                     return {
