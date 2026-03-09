@@ -2690,8 +2690,19 @@ export class MedicaoService {
     // Totais
     const totalNoPeriodo = resultado.reduce((s, r) => s + r.no_periodo, 0);
     const totalAtePeriodo = resultado.reduce((s, r) => s + r.ate_periodo, 0);
-    const totalAExecutar = resultado.reduce((s, r) => s + r.a_executar, 0);
     const totalPrevisto = resultado.reduce((s, r) => s + r.valor_previsto, 0);
+    const ajusteMigracao = Number(contrato.valor_executado_anterior) || 0;
+    const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
+    const totalAExecutar = Math.max(0, totalPrevisto - totalAtePeriodoComAjuste);
+
+    console.log('DEBUG: Totais execução financeira fornecedor:', {
+      total_previsto: totalPrevisto,
+      total_no_periodo: totalNoPeriodo,
+      total_ate_periodo_sem_ajuste: totalAtePeriodo,
+      ajuste_migracao: ajusteMigracao,
+      total_ate_periodo: totalAtePeriodoComAjuste,
+      total_a_executar: totalAExecutar,
+    });
 
     return {
       contrato_id: contratoId,
@@ -2699,9 +2710,10 @@ export class MedicaoService {
       totais: {
         valor_previsto: Math.round(totalPrevisto * 100) / 100,
         no_periodo: Math.round(totalNoPeriodo * 100) / 100,
-        ate_periodo: Math.round(totalAtePeriodo * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodoComAjuste * 100) / 100,
         a_executar: Math.round(totalAExecutar * 100) / 100,
       },
+      ajuste_migracao: Math.round(ajusteMigracao * 100) / 100,
       execucao_fiscal: execucaoFiscal,
       medicao_referencia: medicaoAtual ? {
         id: medicaoAtual.id,
