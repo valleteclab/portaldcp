@@ -1496,6 +1496,9 @@ export default function FornecedorContratoDetalhePage() {
                             }}
                             className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
                           />
+                          {qtdMedida > 0 && qtdMedida < 1 && (ic.unidade_medida === 'MES' || ic.unidade_medida === 'MÊS') && (
+                            <p className="text-[10px] text-blue-600 text-center mt-0.5">{Math.round(qtdMedida * 30)} dias</p>
+                          )}
                         </TableCell>
                         {/* Valor R$ */}
                         <TableCell className="bg-green-50/50">

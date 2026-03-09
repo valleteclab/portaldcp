@@ -1328,7 +1328,12 @@ export default function MedicoesPage() {
                           </TableCell>
                           <TableCell className="text-center text-sm">
                             {isItemCronograma
-                              ? <span className="text-blue-700">{Number(item.quantidade_medida || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {item.item_unidade || ''}</span>
+                              ? <span className="text-blue-700">
+                                  {Number(item.quantidade_medida || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {item.item_unidade || ''}
+                                  {Number(item.quantidade_medida || 0) > 0 && Number(item.quantidade_medida || 0) < 1 && (item.item_unidade === 'MES' || item.item_unidade === 'MÊS') && (
+                                    <span className="text-[10px] text-blue-500 ml-1">({Math.round(Number(item.quantidade_medida) * 30)}d)</span>
+                                  )}
+                                </span>
                               : <span>{Number(item.percentual_executado_atual || 0).toFixed(1)}%</span>
                             }
                           </TableCell>
