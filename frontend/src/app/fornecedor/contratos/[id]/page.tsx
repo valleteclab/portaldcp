@@ -2545,10 +2545,16 @@ export default function FornecedorContratoDetalhePage() {
                   const itensMedicaoCronograma = (medicaoDetalhe.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
 
                   const itensItem = itensExecucaoFinanceira.map((itemExecucao: any) => {
-                    const itemMedicao = itensMedicaoCronograma.find((i: any) => Number(i.item_numero) === Number(itemExecucao.numero_etapa))
-                    const ic = itensCronograma.find((c: any) => Number(c.numero_item) === Number(itemExecucao.numero_etapa))
+                    const itemMedicao = itensMedicaoCronograma.find((i: any) =>
+                      Number(i.item_numero) === Number(itemExecucao.numero_etapa) ||
+                      i.item_cronograma_id === itemExecucao.etapa_id
+                    )
+                    const ic = itensCronograma.find((c: any) =>
+                      Number(c.numero_item) === Number(itemExecucao.numero_etapa) ||
+                      c.id === itemExecucao.etapa_id
+                    )
                     const vlrUnitario = Number(ic?.valor_unitario || itemMedicao?.item_valor_unitario || 0)
-                    const vlrTotal = Number(ic?.valor_total || (itemMedicao?.item_quantidade_total || 0) * vlrUnitario)
+                    const vlrTotal = Number(ic?.valor_total || itemExecucao.valor_previsto || (itemMedicao?.item_quantidade_total || 0) * vlrUnitario)
                     const vlrNoPeriodo = Number(itemExecucao.no_periodo || 0)
                     const vlrAtePeriodo = Number(itemExecucao.ate_periodo || 0)
                     const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
@@ -2558,14 +2564,14 @@ export default function FornecedorContratoDetalhePage() {
                       descricao: itemExecucao.descricao || itemMedicao?.item_descricao || itemMedicao?.etapa_descricao || '',
                       unidade: itemMedicao?.item_unidade || ic?.unidade_medida || '',
                       quantidade_no_periodo: Number(itemMedicao?.quantidade_medida || 0),
-                      quantidade_acumulada_aprovada: Number(itemMedicao?.item_quantidade_acumulada || 0),
+                      quantidade_acumulada_aprovada: Number(itemMedicao?.item_quantidade_acumulada || ic?.quantidade_medida || 0),
                       quantidade_total_contrato: Number(ic?.quantidade || itemMedicao?.item_quantidade_total || 0),
                       valor_no_periodo: vlrNoPeriodo,
                       valor_unitario: vlrUnitario,
                       valor_acumulado_anterior: vlrAcumAnterior,
-                      valor_total_item: vlrTotal || Number(itemExecucao.valor_previsto || 0),
+                      valor_total_item: vlrTotal,
                     }
-                  })
+                  }).filter((item: any) => item.numero > 0 || item.descricao || item.valor_no_periodo > 0 || item.valor_total_item > 0)
                   const itensEtapa = (medicaoDetalhe.itens || [])
                     .filter((i: any) => i.tipo_item !== 'item_cronograma')
                     .map((i: any) => ({
