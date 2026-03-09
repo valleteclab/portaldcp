@@ -374,6 +374,7 @@ export class MedicaoService {
   async criarMedicao(contratoId: string, dados: {
     periodo_inicio: string;
     periodo_fim: string;
+    competencia?: string;
     valor_medido?: number;
     fornecedor_id?: string;
     fornecedor_nome?: string;
@@ -606,6 +607,7 @@ export class MedicaoService {
       numero_medicao: numeroMedicao,
       periodo_inicio: dados.periodo_inicio,
       periodo_fim: dados.periodo_fim,
+      competencia: dados.competencia || null,
       valor_medido: valorMedido,
       valor_acumulado_anterior: valorAcumuladoAnterior,
       valor_acumulado_atual: valorAcumuladoAnterior + valorMedido,

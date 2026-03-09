@@ -105,6 +105,7 @@ interface Medicao {
   numero_medicao: number;
   periodo_inicio: string;
   periodo_fim: string;
+  competencia?: string;
   valor_medido: number;
   valor_acumulado_atual: number;
   percentual_fisico_medido: number;
@@ -326,6 +327,7 @@ export default function FornecedorContratoDetalhePage() {
   const [novaMedicao, setNovaMedicao] = useState({
     periodo_inicio: '',
     periodo_fim: '',
+    competencia: '',
     observacoes: '',
     nota_fiscal_numero: '',
     nota_fiscal_valor: '',
@@ -578,6 +580,7 @@ export default function FornecedorContratoDetalhePage() {
       const payload: any = {
         periodo_inicio: novaMedicao.periodo_inicio || undefined,
         periodo_fim: novaMedicao.periodo_fim || undefined,
+        competencia: novaMedicao.competencia || undefined,
         observacoes: novaMedicao.observacoes || undefined,
         nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
         nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
@@ -651,7 +654,7 @@ export default function FornecedorContratoDetalhePage() {
         }
         if (arquivosPendentes.length > 0 && medicaoSalva?.id) { await uploadArquivosPendentes(medicaoSalva.id); }
         setModalNovaMedicao(false);
-        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
         setDiscriminacoes([]); setArquivosPendentes([]); setMedicaoParaEditar(null); carregarDados();
         
         if (medicaoParaEditar) {
@@ -692,6 +695,7 @@ export default function FornecedorContratoDetalhePage() {
       const payload: any = {
         periodo_inicio: novaMedicao.periodo_inicio || undefined,
         periodo_fim: novaMedicao.periodo_fim || undefined,
+        competencia: novaMedicao.competencia || undefined,
         observacoes: novaMedicao.observacoes || undefined,
         nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
         nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
@@ -764,7 +768,7 @@ export default function FornecedorContratoDetalhePage() {
 
       if (resSubmeter.ok) {
         setModalNovaMedicao(false);
-        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
         setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
       } else {
         alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
@@ -1501,7 +1505,7 @@ export default function FornecedorContratoDetalhePage() {
         setModalNovaMedicao(open);
         if (!open) {
           setMedicaoParaEditar(null);
-          setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+          setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
           setDiscriminacoes([]);
           setArquivosPendentes([]);
         }
@@ -1611,6 +1615,20 @@ export default function FornecedorContratoDetalhePage() {
                     }
                   }} />
               </div>
+            </div>
+
+            {/* Competência */}
+            <div>
+              <Label>Competência *</Label>
+              <Input 
+                value={novaMedicao.competencia}
+                onChange={(e) => setNovaMedicao({ ...novaMedicao, competencia: e.target.value })}
+                placeholder="Ex: FEVEREIRO/2026"
+                className="uppercase"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Informe a competência no formato MÊS/ANO (ex: FEVEREIRO/2026)
+              </p>
             </div>
 
             {/* Valor Medido (serviços continuados) */}

@@ -132,8 +132,11 @@ export class Medicao {
 
   // ============ FORNECEDOR (quem submete) ============
 
-  @Column({ nullable: true })
-  fornecedor_id: string;
+  @Column({ type: 'text', nullable: true })
+  competencia?: string; // ex: FEVEREIRO/2026
+
+  @Column({ type: 'text', nullable: true })
+  fornecedor_id?: string;
 
   @Column({ nullable: true })
   fornecedor_nome: string;
