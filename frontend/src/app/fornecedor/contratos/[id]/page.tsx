@@ -384,14 +384,16 @@ export default function FornecedorContratoDetalhePage() {
         }, 0);
 
   const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
-  const noPeriodoExibicao = Number(execucaoFinanceira?.totais?.no_periodo || valorMedicaoAtual || 0);
-  const atePeriodoExibicao = Number(
-    execucaoFinanceira?.totais?.ate_periodo ||
-    (valorAprovadoAnterior + valorMedicaoAtual)
-  );
+  const noPeriodoBackend = Number(execucaoFinanceira?.totais?.no_periodo || 0);
+  const atePeriodoBackend = Number(execucaoFinanceira?.totais?.ate_periodo || 0);
+  const noPeriodoExibicao = Math.max(noPeriodoBackend, valorMedicaoAtual || 0);
+  const valorLocalNaoPersistido = Math.max(0, noPeriodoExibicao - noPeriodoBackend);
+  const atePeriodoExibicao = atePeriodoBackend > 0
+    ? atePeriodoBackend + valorLocalNaoPersistido
+    : (valorAprovadoAnterior + noPeriodoExibicao);
   const aExecutarExibicao = Math.max(
     0,
-    Number(execucaoFinanceira?.totais?.a_executar || ((contrato?.valor_global || 0) - atePeriodoExibicao))
+    Number((contrato?.valor_global || 0) - atePeriodoExibicao)
   );
 
   useEffect(() => {
