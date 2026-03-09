@@ -2411,7 +2411,14 @@ export class MedicaoService {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
+    console.log('DEBUG: Contrato encontrado:', {
+      id: contrato.id,
+      modalidade_execucao: contrato.modalidade_execucao,
+      valor_global: contrato.valor_global
+    });
+
     const usarItensCronograma = await this.usarItensCronograma(contratoId);
+    console.log('DEBUG: Usar itens do cronograma?', usarItensCronograma);
 
     const etapas = usarItensCronograma
       ? []
@@ -2426,18 +2433,47 @@ export class MedicaoService {
           order: { numero_item: 'ASC' },
         })
       : [];
+    
+    console.log('DEBUG: Etapas encontradas:', etapas.length);
+    console.log('DEBUG: Itens do cronograma encontrados:', itensCronograma.length);
+    
+    if (usarItensCronograma) {
+      console.log('DEBUG: Itens do cronograma:', itensCronograma.map(i => ({
+        id: i.id,
+        numero_item: i.numero_item,
+        descricao: i.descricao,
+        valor_unitario: i.valor_unitario,
+        quantidade: i.quantidade,
+        valor_total: i.valor_total
+      })));
+    }
 
     // Buscar todas as medições aprovadas
     const medicoesAprovadas = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
+    console.log('DEBUG: Medições aprovadas encontradas:', medicoesAprovadas.length);
 
     // Buscar a medição atual (se informada)
     let medicaoAtual = null;
     if (medicaoId) {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
+      });
+      console.log('DEBUG: Medição atual:', medicaoAtual ? {
+        id: medicaoAtual.id,
+        numero: medicaoAtual.numero_medicao,
+        status: medicaoAtual.status,
+        valor_medido: medicaoAtual.valor_medido
+      } : null);
+    } else if (medicoesAprovadas.length > 0) {
+      medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
+      console.log('DEBUG: Medição de referência automática:', {
+        id: medicaoAtual.id,
+        numero: medicaoAtual.numero_medicao,
+        status: medicaoAtual.status,
+        valor_medido: medicaoAtual.valor_medido,
       });
     }
 
@@ -2454,6 +2490,14 @@ export class MedicaoService {
             where: { medicao_id: m.id },
           });
       itensPorMedicao[m.id] = itens;
+      console.log(`DEBUG: Itens da medição ${m.id} (${m.numero_medicao}):`, itens.length);
+      if (usarItensCronograma && itens.length > 0) {
+        console.log(`DEBUG: Itens da medição ${m.id}:`, itens.map(i => ({
+          item_cronograma_id: (i as any).item_cronograma_id,
+          valor_medido: (i as any).valor_medido,
+          quantidade_medida: (i as any).quantidade_medida
+        })));
+      }
     }
 
     let itensMedicaoAtual: any[] = [];
@@ -2465,20 +2509,30 @@ export class MedicaoService {
         : await this.itemMedicaoRepository.find({
             where: { medicao_id: medicaoAtual.id },
           });
+      console.log(`DEBUG: Itens da medição atual ${medicaoAtual.id}:`, itensMedicaoAtual.length);
+      if (usarItensCronograma && itensMedicaoAtual.length > 0) {
+        console.log(`DEBUG: Itens da medição atual:`, itensMedicaoAtual.map(i => ({
+          item_cronograma_id: (i as any).item_cronograma_id,
+          valor_medido: (i as any).valor_medido,
+          quantidade_medida: (i as any).quantidade_medida
+        })));
+      }
     }
 
     // Calcular execução por etapa/item
     const resultado = usarItensCronograma
       ? itensCronograma.map((item) => {
           const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
+          console.log(`DEBUG: Calculando item ${item.numero_item} (${item.descricao}): valor_previsto=${valorPrevisto}`);
 
-          let atePeriodo = 0;
+          let valorAnterior = 0;
           for (const m of medicoesAprovadas) {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
-            const itemMedicao = itensM.find(i => i.item_cronograma_id === item.id);
+            const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
             if (itemMedicao) {
-              atePeriodo += Number(itemMedicao.valor_medido) || 0;
+              valorAnterior += Number(itemMedicao.valor_medido) || 0;
+              console.log(`DEBUG: Adicionando valorAnterior=${Number(itemMedicao.valor_medido)} da medição ${m.numero_medicao} para item ${item.numero_item}`);
             }
           }
 
@@ -2486,19 +2540,24 @@ export class MedicaoService {
           if (medicaoAtual) {
             if (medicaoAtual.status === StatusMedicao.APROVADA) {
               const itensM = itensPorMedicao[medicaoAtual.id] || [];
-              const itemMedicao = itensM.find(i => i.item_cronograma_id === item.id);
+              const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
               if (itemMedicao) {
                 noPeriodo = Number(itemMedicao.valor_medido) || 0;
+                console.log(`DEBUG: noPeriodo (APROVADA)=${noPeriodo} da medição ${medicaoAtual.numero_medicao} para item ${item.numero_item}`);
               }
             } else {
-              const itemMedicao = itensMedicaoAtual.find(i => i.item_cronograma_id === item.id);
+              const itemMedicao = itensMedicaoAtual.find(i => (i as any).item_cronograma_id === item.id);
               if (itemMedicao) {
                 noPeriodo = Number(itemMedicao.valor_medido) || 0;
+                console.log(`DEBUG: noPeriodo (NÃO APROVADA)=${noPeriodo} da medição atual para item ${item.numero_item}`);
               }
             }
           }
 
-          const aExecutar = Math.max(0, valorPrevisto - atePeriodo - noPeriodo);
+          const atePeriodo = valorAnterior + noPeriodo;
+          const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
+          
+          console.log(`DEBUG: Item ${item.numero_item} - valor_previsto=${valorPrevisto}, valor_anterior=${valorAnterior}, no_periodo=${noPeriodo}, ate_periodo=${atePeriodo}, a_executar=${aExecutar}`);
 
           return {
             etapa_id: item.id,
@@ -2514,13 +2573,13 @@ export class MedicaoService {
       : etapas.map((etapa) => {
           const valorPrevisto = Number(etapa.valor_previsto) || 0;
 
-          let atePeriodo = 0;
+          let valorAnterior = 0;
           for (const m of medicoesAprovadas) {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
             const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
             if (itemEtapa) {
-              atePeriodo += Number(itemEtapa.valor_medido) || 0;
+              valorAnterior += Number(itemEtapa.valor_medido) || 0;
             }
           }
 
@@ -2540,7 +2599,8 @@ export class MedicaoService {
             }
           }
 
-          const aExecutar = Math.max(0, valorPrevisto - atePeriodo - noPeriodo);
+          const atePeriodo = valorAnterior + noPeriodo;
+          const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
 
           return {
             etapa_id: etapa.id,
