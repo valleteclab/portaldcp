@@ -1366,6 +1366,41 @@ export default function FornecedorContratoDetalhePage() {
                               </Button>
                             </>
                           )}
+                          {medicao.data_submissao && (
+                            <Button size="sm" variant="outline" className="gap-1 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={async () => {
+                              const competencia = medicao.competencia || derivarCompetencia(medicao.periodo_inicio || '')
+                              const execucaoFinanceiraAtual = execucaoFinanceira?.medicao_referencia?.id === medicao.id ? execucaoFinanceira : null
+                              const itensExecucaoFinanceira = execucaoFinanceiraAtual?.itens || medicao.execucao_financeira?.itens || execucaoFinanceira?.itens || []
+                              const itensMedicaoCronograma = (medicao.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
+                              const itensItem = itensExecucaoFinanceira.map((itemExecucao: any) => {
+                                const itemMedicao = itensMedicaoCronograma.find((i: any) => Number(i.item_numero) === Number(itemExecucao.numero_etapa) || i.item_cronograma_id === itemExecucao.etapa_id)
+                                const ic = itensCronograma.find((c: any) => Number(c.numero_item) === Number(itemExecucao.numero_etapa) || c.id === itemExecucao.etapa_id)
+                                const vlrUnitario = Number(ic?.valor_unitario || itemMedicao?.item_valor_unitario || 0)
+                                const vlrTotal = Number(ic?.valor_total || itemExecucao.valor_previsto || (itemMedicao?.item_quantidade_total || 0) * vlrUnitario)
+                                const vlrNoPeriodo = Number((itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo) || 0)
+                                const vlrAtePeriodo = Number((itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo) || 0)
+                                const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
+                                return { numero: Number(itemExecucao.numero_etapa || 0), descricao: itemExecucao.descricao || itemMedicao?.item_descricao || itemMedicao?.etapa_descricao || '', unidade: itemMedicao?.item_unidade || ic?.unidade_medida || '', quantidade_no_periodo: Number(itemMedicao?.quantidade_medida || 0), quantidade_acumulada_aprovada: Number(itemMedicao?.item_quantidade_acumulada || ic?.quantidade_medida || 0), quantidade_total_contrato: Number(ic?.quantidade || itemMedicao?.item_quantidade_total || 0), valor_no_periodo: vlrNoPeriodo, valor_unitario: vlrUnitario, valor_acumulado_anterior: vlrAcumAnterior, valor_total_item: vlrTotal }
+                              }).filter((item: any) => item.numero > 0 || item.descricao || item.valor_no_periodo > 0 || item.valor_total_item > 0)
+                              const itensEtapa = (medicao.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({ numero: i.etapa_numero || 0, descricao: i.etapa_descricao || '', percentual_fisico: Number(i.etapa_percentual_fisico || 0), percentual_executado_anterior: Number(i.percentual_executado_anterior || 0), percentual_executado_atual: Number(i.percentual_executado_atual || 0), valor_previsto: Number(i.etapa_valor_previsto || 0), valor_medido: Number(i.valor_medido || 0) }))
+                              const totaisExecucaoFinanceira = execucaoFinanceiraAtual?.totais || medicao.execucao_financeira?.totais || execucaoFinanceira?.totais
+                              const dadosPdf: DadosMedicaoPdf = { numero_contrato: contrato?.numero_contrato || '', objeto_contrato: contrato?.objeto || '', orgao_nome: contrato?.orgao?.nome || '', fornecedor_nome: fornecedor?.razao_social || fornecedor?.nome || '', fornecedor_cnpj: fornecedor?.cpf_cnpj || '', valor_total_contrato: Number(contrato?.valor_inicial || 0) || undefined, data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined, data_vigencia_fim: contrato?.data_vigencia_fim || undefined, numero_medicao: medicao.numero_medicao, periodo_inicio: medicao.periodo_inicio || '', periodo_fim: medicao.periodo_fim || '', competencia, valor_medido: Number(medicao.valor_medido || 0), execucao_financeira_totais: { no_periodo: Number(medicao.valor_medido || 0), ate_periodo: Number(totaisExecucaoFinanceira?.ate_periodo || medicao.valor_acumulado_atual || 0), a_executar: Math.max(0, Number(totaisExecucaoFinanceira?.a_executar ?? ((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(totaisExecucaoFinanceira?.ate_periodo || medicao.valor_acumulado_atual || 0)))) }, nota_fiscal_numero: medicao.nota_fiscal_numero || undefined, nota_fiscal_valor: medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined, execucao_fiscal: medicao.execucao_fiscal || execucaoFinanceira?.execucao_fiscal || undefined, itens: itensItem.length > 0 ? itensItem : undefined, etapas: itensEtapa.length > 0 ? itensEtapa : undefined, itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({ numero: ic.numero_item || idx + 1, descricao: ic.descricao || '', unidade: ic.unidade_medida || '', quantidade: Number(ic.quantidade || 0), valor_unitario: Number(ic.valor_unitario || 0), valor_total: Number(ic.valor_total || 0) })) : undefined }
+                              try {
+                                if (medicao.data_submissao) {
+                                  const rForn = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/assinar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ papel: 'FORNECEDOR', usuario_nome: fornecedor?.razao_social || fornecedor?.nome || '', usuario_cpf_cnpj: fornecedor?.cpf_cnpj || '', usuario_cargo: 'Fornecedor / Contratado' }) })
+                                  if (rForn.ok) { const d = await rForn.json(); dadosPdf.assinatura_fornecedor = { nome: fornecedor?.razao_social || fornecedor?.nome || '', cnpj: fornecedor?.cpf_cnpj || '', data_hora: new Date(medicao.data_submissao).toLocaleString('pt-BR'), codigo_validacao: d.codigo_formatado } }
+                                }
+                                if (medicao.ateste_fiscal_nome) {
+                                  const rFisc = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/assinar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ papel: 'FISCAL', usuario_nome: medicao.ateste_fiscal_nome, usuario_cpf_cnpj: '', usuario_cargo: 'Fiscal de Contrato' }) })
+                                  if (rFisc.ok) { const d = await rFisc.json(); dadosPdf.assinatura_fiscal = { nome: medicao.ateste_fiscal_nome, data_hora: medicao.ateste_data ? new Date(medicao.ateste_data).toLocaleString('pt-BR') : '', codigo_validacao: d.codigo_formatado } }
+                                }
+                              } catch { }
+                              dadosPdf.url_validacao = `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`
+                              gerarPdfMedicao(dadosPdf)
+                            }}>
+                              <FileDown className="w-3 h-3" />PDF
+                            </Button>
+                          )}
                           <Button size="sm" variant="outline" onClick={async () => {
                             if (medicao.status === 'DEVOLVIDA') {
                               // Abrir modal de criação com dados da medição devolvida
@@ -2450,7 +2485,7 @@ export default function FornecedorContratoDetalhePage() {
 
       {/* ============ MODAL: Detalhe da Medição ============ */}
       <Dialog open={modalDetalhe} onOpenChange={setModalDetalhe}>
-        <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="w-[98vw] max-w-7xl max-h-[96vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{medicaoDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>
           </DialogHeader>
