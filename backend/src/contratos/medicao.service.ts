@@ -2470,45 +2470,49 @@ export class MedicaoService {
 
     let execucaoFiscal: any = null;
     if (vigenciaInicio && vigenciaFim) {
-      const hoje = new Date();
+      // Para execução temporal, usar data final da medição atual se existir, senão data atual
+      let dataReferencia = new Date();
+      
+      // Se temos uma medição, usar o período_fim dela como referência
+      if (medicaoAtual && medicaoAtual.periodo_fim) {
+        dataReferencia = new Date(medicaoAtual.periodo_fim);
+        console.log('Usando data da medição:', dataReferencia.toISOString());
+      } else {
+        console.log('Usando data atual do servidor:', dataReferencia.toISOString());
+      }
       
       // Para ano comercial: total sempre 360 dias para contratos anuais
       const totalDias = 360;
       
-      // Calcular dias executados usando ano comercial
+      // Calcular dias executados usando ano comercial com UTC para evitar timezone issues
       let diasExecutados = 0;
       
-      if (hoje >= vigenciaInicio) {
-        const dataFimExecucao = hoje > vigenciaFim ? vigenciaFim : hoje;
+      if (dataReferencia >= vigenciaInicio) {
+        const dataFimExecucao = dataReferencia > vigenciaFim ? vigenciaFim : dataReferencia;
         
-        // Calcular diferença em meses e dias usando ano comercial
-        let mesesCompletos = 0;
-        let diasParciais = 0;
+        // Usar métodos UTC para evitar problemas de timezone
+        const anoInicio = vigenciaInicio.getUTCFullYear();
+        const mesInicio = vigenciaInicio.getUTCMonth();
+        const diaInicio = vigenciaInicio.getUTCDate();
+        
+        const anoFim = dataFimExecucao.getUTCFullYear();
+        const mesFim = dataFimExecucao.getUTCMonth();
+        const diaFim = dataFimExecucao.getUTCDate();
         
         // Se mesmo mês
-        if (vigenciaInicio.getFullYear() === dataFimExecucao.getFullYear() && 
-            vigenciaInicio.getMonth() === dataFimExecucao.getMonth()) {
-          diasParciais = Math.min(dataFimExecucao.getDate() - vigenciaInicio.getDate() + 1, 30);
+        if (anoInicio === anoFim && mesInicio === mesFim) {
+          diasExecutados = Math.min(diaFim - diaInicio + 1, 30);
         } else {
-          // Calcular meses completos entre as datas
-          const anoInicio = vigenciaInicio.getFullYear();
-          const mesInicio = vigenciaInicio.getMonth();
-          const diaInicio = vigenciaInicio.getDate();
-          
-          const anoFim = dataFimExecucao.getFullYear();
-          const mesFim = dataFimExecucao.getMonth();
-          const diaFim = dataFimExecucao.getDate();
-          
-          // Dias no primeiro mês (limitado a 30)
+          // Dias no primeiro mês (ano comercial)
           const diasPrimeiroMes = Math.min(30 - diaInicio + 1, 30);
           
           // Meses completos no meio
+          let mesesCompletos = 0;
           if (anoFim > anoInicio || mesFim > mesInicio + 1) {
-            const mesesMeio = (anoFim - anoInicio) * 12 + (mesFim - mesInicio - 1);
-            mesesCompletos = Math.max(0, mesesMeio);
+            mesesCompletos = (anoFim - anoInicio) * 12 + (mesFim - mesInicio - 1);
           }
           
-          // Dias no último mês
+          // Dias no último mês (ano comercial)
           const diasUltimoMes = Math.min(diaFim, 30);
           
           diasExecutados = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
