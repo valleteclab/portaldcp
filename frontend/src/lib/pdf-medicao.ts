@@ -266,10 +266,24 @@ function desenharQuadroAssinaturas(
     const a = assinantesArr[i]
     const bx = mX + i * (boxW + 4)
     const pendente = a.pendente
-    const boxH = pendente ? 18 : 31
-    maxBoxH = Math.max(maxBoxH, boxH)
-    boxesInfo.push({ x: bx, boxH })
-
+    // DEPOIS — altura dinâmica baseada no conteúdo
+let boxH: number
+if (pendente) {
+  boxH = 18
+} else {
+  const linhasNome = doc.splitTextToSize(a.nome, boxW - 5)
+  const numLinhasNome = Math.min(linhasNome.length, 2)
+  // header(5) + topo(3.5) + nome + cargo + id + data + válida + padding
+  boxH = 5 + 3.5
+    + numLinhasNome * 3.1
+    + (a.cargo ? 2.8 : 0)
+    + (a.identificacao ? 2.8 : 0)
+    + 2.8   // data/hora
+    + 2.8   // ✓ assinatura válida
+    + 2.5   // padding inferior
+}
+maxBoxH = Math.max(maxBoxH, boxH)
+boxesInfo.push({ x: bx, boxH })
     // Fundo + borda
     doc.setFillColor(249, 250, 251)
     doc.setDrawColor(a.cor[0], a.cor[1], a.cor[2])
