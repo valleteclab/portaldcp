@@ -2411,22 +2411,27 @@ export class MedicaoService {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
-    console.log('DEBUG: Contrato encontrado:', {
-      id: contrato.id,
-      modalidade_execucao: contrato.modalidade_execucao,
-      valor_global: contrato.valor_global
-    });
+    const usarItensCronograma = await this.usarItensCronograma(contratoId);
 
-    // Verificar se é serviço continuado
-    const servicoContinuado = this.isServicoContinuado(contrato);
-    console.log('DEBUG: É serviço continuado?', servicoContinuado);
+    const etapas = usarItensCronograma
+      ? []
+      : await this.etapaRepository.find({
+          where: { contrato_id: contratoId },
+          order: { numero_etapa: 'ASC' },
+        });
+
+    const itensCronograma = usarItensCronograma
+      ? await this.itemCronogramaRepository.find({
+          where: { contrato_id: contratoId },
+          order: { numero_item: 'ASC' },
+        })
+      : [];
 
     // Buscar todas as medições aprovadas
     const medicoesAprovadas = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
-    console.log('DEBUG: Medições aprovadas encontradas:', medicoesAprovadas.length);
 
     // Buscar a medição atual (se informada)
     let medicaoAtual = null;
@@ -2434,117 +2439,120 @@ export class MedicaoService {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
       });
-      console.log('DEBUG: Medição atual:', medicaoAtual ? {
-        id: medicaoAtual.id,
-        numero: medicaoAtual.numero_medicao,
-        status: medicaoAtual.status,
-        valor_medido: medicaoAtual.valor_medido
-      } : null);
     }
 
-    let itensPorMedicao: Record<string, ItemMedicao[]> = {};
-    let itensMedicaoAtual: ItemMedicao[] = [];
+    // Continuar com a lógica existente...
+    // (copiar o resto do método calcularExecucaoFinanceira)
     
-    if (!servicoContinuado) {
-      // Apenas para obras, buscar itens das medições
-      for (const m of medicoesAprovadas) {
-        const itens = await this.itemMedicaoRepository.find({
-          where: { medicao_id: m.id },
-        });
-        itensPorMedicao[m.id] = itens;
-        console.log(`DEBUG: Itens da medição ${m.id}:`, itens.length);
-      }
-
-      if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
-        itensMedicaoAtual = await this.itemMedicaoRepository.find({
-          where: { medicao_id: medicaoAtual.id },
-        });
-        console.log('DEBUG: Itens da medição atual:', itensMedicaoAtual.length);
-      }
+    const itensPorMedicao: Record<string, any[]> = {};
+    for (const m of medicoesAprovadas) {
+      const itens = usarItensCronograma
+        ? await this.itemMedicaoItemRepository.find({
+            where: { medicao_id: m.id },
+          })
+        : await this.itemMedicaoRepository.find({
+            where: { medicao_id: m.id },
+          });
+      itensPorMedicao[m.id] = itens;
     }
 
-    // Preparar itens para cálculo
-    let itensCalculo: any[] = [];
-    
-    if (servicoContinuado) {
-      // Para serviços continuados, criar um item único com o valor global do contrato
-      itensCalculo = [{
-        etapa_id: 'servico-continuado',
-        numero_etapa: 1,
-        descricao: 'Serviço Continuado',
-        valor_previsto: Number(contrato.valor_global) || 0,
-        percentual_fisico: 100,
-      }];
-      console.log('DEBUG: Criado item para serviço continuado, valor:', itensCalculo[0].valor_previsto);
-    } else {
-      // Para obras/engenharia, buscar as etapas
-      const etapas = await this.etapaRepository.find({
-        where: { contrato_id: contratoId },
-        order: { numero_etapa: 'ASC' },
-      });
-      
-      console.log('DEBUG: Etapas encontradas:', etapas.length);
-      
-      itensCalculo = etapas.map(etapa => ({
-        etapa_id: etapa.id,
-        numero_etapa: etapa.numero_etapa,
-        descricao: etapa.descricao,
-        valor_previsto: Number(etapa.valor_previsto) || 0,
-        percentual_fisico: Number(etapa.percentual_fisico) || 0,
-      }));
-      
-      console.log('DEBUG: Itens para cálculo:', itensCalculo.length);
+    let itensMedicaoAtual: any[] = [];
+    if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
+      itensMedicaoAtual = usarItensCronograma
+        ? await this.itemMedicaoItemRepository.find({
+            where: { medicao_id: medicaoAtual.id },
+          })
+        : await this.itemMedicaoRepository.find({
+            where: { medicao_id: medicaoAtual.id },
+          });
     }
 
-    // Calcular execução por etapa
-    const resultado = etapas.map(etapa => {
-      const valorPrevisto = Number(etapa.valor_previsto) || 0;
+    // Calcular execução por etapa/item
+    const resultado = usarItensCronograma
+      ? itensCronograma.map((item) => {
+          const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
 
-      // Somar valores aprovados para esta etapa
-      let atePeríodo = 0;
-      for (const m of medicoesAprovadas) {
-        // Se a medição atual é aprovada, tratar no_periodo separado
-        if (medicaoAtual && m.id === medicaoAtual.id) continue;
-        const itensM = itensPorMedicao[m.id] || [];
-        const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
-        if (itemEtapa) {
-          atePeríodo += Number(itemEtapa.valor_medido) || 0;
-        }
-      }
-
-      // Valor no período (medição atual)
-      let noPeriodo = 0;
-      if (medicaoAtual) {
-        if (medicaoAtual.status === StatusMedicao.APROVADA) {
-          // Se aprovada, buscar dos itens aprovados
-          const itensM = itensPorMedicao[medicaoAtual.id] || [];
-          const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
-          if (itemEtapa) {
-            noPeriodo = Number(itemEtapa.valor_medido) || 0;
+          let atePeriodo = 0;
+          for (const m of medicoesAprovadas) {
+            if (medicaoAtual && m.id === medicaoAtual.id) continue;
+            const itensM = itensPorMedicao[m.id] || [];
+            const itemMedicao = itensM.find(i => i.item_cronograma_id === item.id);
+            if (itemMedicao) {
+              atePeriodo += Number(itemMedicao.valor_medido) || 0;
+            }
           }
-        } else {
-          // Se não aprovada, buscar dos itens da medição atual
-          const itemEtapa = itensMedicaoAtual.find(i => i.etapa_id === etapa.id);
-          if (itemEtapa) {
-            noPeriodo = Number(itemEtapa.valor_medido) || 0;
+
+          let noPeriodo = 0;
+          if (medicaoAtual) {
+            if (medicaoAtual.status === StatusMedicao.APROVADA) {
+              const itensM = itensPorMedicao[medicaoAtual.id] || [];
+              const itemMedicao = itensM.find(i => i.item_cronograma_id === item.id);
+              if (itemMedicao) {
+                noPeriodo = Number(itemMedicao.valor_medido) || 0;
+              }
+            } else {
+              const itemMedicao = itensMedicaoAtual.find(i => i.item_cronograma_id === item.id);
+              if (itemMedicao) {
+                noPeriodo = Number(itemMedicao.valor_medido) || 0;
+              }
+            }
           }
-        }
-      }
 
-      const aExecutar = Math.max(0, valorPrevisto - atePeríodo - noPeriodo);
+          const aExecutar = Math.max(0, valorPrevisto - atePeriodo - noPeriodo);
 
-      return {
-        etapa_id: etapa.id,
-        numero_etapa: etapa.numero_etapa,
-        descricao: etapa.descricao,
-        valor_previsto: valorPrevisto,
-        percentual_fisico: Number(etapa.percentual_fisico) || 0,
-        // Execução financeira
-        no_periodo: Math.round(noPeriodo * 100) / 100,
-        ate_periodo: Math.round(atePeríodo * 100) / 100,
-        a_executar: Math.round(aExecutar * 100) / 100,
-      };
-    });
+          return {
+            etapa_id: item.id,
+            numero_etapa: item.numero_item,
+            descricao: item.descricao,
+            valor_previsto: valorPrevisto,
+            percentual_fisico: 0,
+            no_periodo: Math.round(noPeriodo * 100) / 100,
+            ate_periodo: Math.round(atePeriodo * 100) / 100,
+            a_executar: Math.round(aExecutar * 100) / 100,
+          };
+        })
+      : etapas.map((etapa) => {
+          const valorPrevisto = Number(etapa.valor_previsto) || 0;
+
+          let atePeriodo = 0;
+          for (const m of medicoesAprovadas) {
+            if (medicaoAtual && m.id === medicaoAtual.id) continue;
+            const itensM = itensPorMedicao[m.id] || [];
+            const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+            if (itemEtapa) {
+              atePeriodo += Number(itemEtapa.valor_medido) || 0;
+            }
+          }
+
+          let noPeriodo = 0;
+          if (medicaoAtual) {
+            if (medicaoAtual.status === StatusMedicao.APROVADA) {
+              const itensM = itensPorMedicao[medicaoAtual.id] || [];
+              const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+              if (itemEtapa) {
+                noPeriodo = Number(itemEtapa.valor_medido) || 0;
+              }
+            } else {
+              const itemEtapa = itensMedicaoAtual.find(i => i.etapa_id === etapa.id);
+              if (itemEtapa) {
+                noPeriodo = Number(itemEtapa.valor_medido) || 0;
+              }
+            }
+          }
+
+          const aExecutar = Math.max(0, valorPrevisto - atePeriodo - noPeriodo);
+
+          return {
+            etapa_id: etapa.id,
+            numero_etapa: etapa.numero_etapa,
+            descricao: etapa.descricao,
+            valor_previsto: valorPrevisto,
+            percentual_fisico: Number(etapa.percentual_fisico) || 0,
+            no_periodo: Math.round(noPeriodo * 100) / 100,
+            ate_periodo: Math.round(atePeriodo * 100) / 100,
+            a_executar: Math.round(aExecutar * 100) / 100,
+          };
+        });
 
     // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
     const vigenciaInicio = contrato.data_vigencia_inicio
