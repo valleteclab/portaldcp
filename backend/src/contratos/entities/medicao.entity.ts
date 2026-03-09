@@ -39,6 +39,7 @@ import {
 } from 'typeorm';
 import { Contrato } from './contrato.entity';
 import { OrdemServicoContrato } from './ordem-servico-contrato.entity';
+import { Requisicao } from '../../almoxarifado/entities/requisicao.entity';
 
 export enum StatusMedicao {
   RASCUNHO = 'RASCUNHO',                         // Fornecedor ainda editando
@@ -71,6 +72,14 @@ export class Medicao {
 
   @Column({ type: 'varchar', nullable: true })
   ordem_servico_id: string;
+
+  // Vinculação com Requisição (quando fluxo for REQUISICAO)
+  @ManyToOne(() => Requisicao, { nullable: true })
+  @JoinColumn({ name: 'requisicao_id' })
+  requisicao: Requisicao;
+
+  @Column({ type: 'varchar', nullable: true })
+  requisicao_id: string;
 
   // ============ IDENTIFICAÇÃO ============
 

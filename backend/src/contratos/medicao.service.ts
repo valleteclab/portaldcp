@@ -428,6 +428,7 @@ export class MedicaoService {
     }
 
     let osVinculada: OrdemServicoContrato | null = null;
+    const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
 
     if (!servicoContinuado) {
       if (!dados.itens || !Array.isArray(dados.itens) || dados.itens.length === 0) {
@@ -446,7 +447,6 @@ export class MedicaoService {
 
       const statusAtual = String(osVinculada.status);
       if (statusAtual === StatusOrdemServico.AUTORIZADA || statusAtual === 'AUTORIZADA') {
-        const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
         if (fluxoOs === 'REQUISICAO') {
           await this.requisicaoRepository.update(osVinculada.id, {
             status: StatusRequisicao.ORDEM_GERADA,
@@ -601,7 +601,8 @@ export class MedicaoService {
 
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
-      ordem_servico_id: osVinculada?.id || null,
+      ordem_servico_id: (fluxoOs === 'REQUISICAO') ? null : osVinculada?.id || null,
+      requisicao_id: (fluxoOs === 'REQUISICAO') ? osVinculada?.id || null : null,
       numero_medicao: numeroMedicao,
       periodo_inicio: dados.periodo_inicio,
       periodo_fim: dados.periodo_fim,
