@@ -40,7 +40,7 @@ export default function Home() {
             <span className="text-[11.5px] text-[#168821] font-semibold">🔒 Site oficial</span>
           </div>
           <a
-            href="https://cmlem.ba.gov.br/"
+            href="#"
             className="text-[13px] font-medium text-[#1351B4] px-4 py-[7px] rounded border border-transparent hover:bg-[#EAF0FB] hover:border-[#1351B4]/20 transition-all"
           >
             Ajuda
