@@ -946,10 +946,18 @@ export default function FornecedorContratoDetalhePage() {
       const boletim = await resBoletim.json();
       if (!boletim?.pdf_url) return false;
 
+      const arquivoRes = await authFetch(`${API_URL}${boletim.pdf_url}`);
+      if (!arquivoRes.ok) return false;
+
+      const pdfBlob = await arquivoRes.blob();
+      const objectUrl = window.URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
-      link.href = `${API_URL}${boletim.pdf_url}`;
+      link.href = objectUrl;
       link.download = boletim.filename || `boletim_medicao_${medicaoId}.pdf`;
+      document.body.appendChild(link);
       link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
       return true;
     } catch {
       return false;
