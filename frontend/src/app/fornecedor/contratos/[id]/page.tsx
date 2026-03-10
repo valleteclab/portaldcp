@@ -2014,7 +2014,9 @@ export default function FornecedorContratoDetalhePage() {
                     return (
                       <TableRow key={ic.id} className="hover:bg-gray-50">
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
-                        <TableCell><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
+                        <TableCell className="whitespace-normal break-words align-top min-w-[320px] max-w-[520px]">
+                          <p className="text-sm font-medium whitespace-normal break-words">{ic.descricao}</p>
+                        </TableCell>
                         <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
                         <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
@@ -2648,7 +2650,7 @@ export default function FornecedorContratoDetalhePage() {
                         {medicaoDetalhe.itens.map((item: any, idx: number) => (
                           <TableRow key={item.id || idx} className={item.atestado === false ? 'bg-amber-50/50' : ''}>
                             <TableCell className="text-sm font-mono">{item.etapa_numero || idx + 1}</TableCell>
-                            <TableCell className="text-sm">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
+                            <TableCell className="text-sm whitespace-normal break-words align-top min-w-[280px] max-w-[480px]">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.etapa_valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-center text-gray-500">{Number(item.percentual_executado_anterior || 0).toFixed(1)}%</TableCell>
                             <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">
