@@ -623,7 +623,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       ]
     })
 
-    const totalNoPeriodoExibicao = dados.execucao_financeira_totais?.no_periodo ?? totalNoPeriodo
+    const totalNoPeriodoExibicao = dados.valor_medido ?? dados.execucao_financeira_totais?.no_periodo ?? totalNoPeriodo
     const totalAtePeriodoExibicao = dados.execucao_financeira_totais?.ate_periodo ?? totalAteoPeriodo
     const totalAExecutarExibicao = dados.execucao_financeira_totais?.a_executar ?? totalAExecutar
 
