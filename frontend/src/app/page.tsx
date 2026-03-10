@@ -10,7 +10,7 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <span className="text-base leading-none">🇧🇷</span>
           <span className="text-[11.5px] text-white/65">
-            Governo do Estado da <strong className="text-[#FFCD07] font-bold">Bahia</strong>
+            Câmara Municipal de  <strong className="text-[#FFCD07] font-bold">Luis Eduardo Magalhães</strong>
             &nbsp;·&nbsp; Poder Legislativo Municipal
           </span>
         </div>
@@ -40,7 +40,7 @@ export default function Home() {
             <span className="text-[11.5px] text-[#168821] font-semibold">🔒 Site oficial</span>
           </div>
           <a
-            href="#"
+            href="https://cmlem.ba.gov.br/"
             className="text-[13px] font-medium text-[#1351B4] px-4 py-[7px] rounded border border-transparent hover:bg-[#EAF0FB] hover:border-[#1351B4]/20 transition-all"
           >
             Ajuda
