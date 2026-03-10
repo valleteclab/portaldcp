@@ -204,6 +204,7 @@ interface Anexo {
 function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimContrato?: string): number {
   const d1 = new Date(dataInicio);
   const d2 = new Date(dataFim);
+  const dataFimContratoDate = dataFimContrato ? new Date(dataFimContrato) : null;
   
   // Usar UTC para evitar problemas de timezone
   const ano1 = d1.getUTCFullYear();
@@ -213,6 +214,11 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
   const ano2 = d2.getUTCFullYear();
   const mes2 = d2.getUTCMonth();
   const dia2 = d2.getUTCDate();
+  const ehUltimoDiaDoContrato = dataFimContratoDate
+    ? d2.getUTCFullYear() === dataFimContratoDate.getUTCFullYear() &&
+      d2.getUTCMonth() === dataFimContratoDate.getUTCMonth() &&
+      d2.getUTCDate() === dataFimContratoDate.getUTCDate()
+    : false;
   
   let dias = 0;
   
@@ -220,7 +226,6 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
   if (ano1 === ano2 && mes1 === mes2) {
     // Para períodos normais: conta ambos os dias (dia_fim - dia_início + 1)
     // Apenas não conta o dia final se for o último dia do contrato
-    const ehUltimoDiaDoContrato = (ano2 === 2026 && mes2 === 2 && dia2 === 22); // 22/03/2026
     dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30);
   } else {
     // Dias no primeiro mês (ano comercial) - conta o dia inicial
@@ -235,7 +240,6 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
     // Dias no último mês (ano comercial)
     // Não conta o dia final se for o último dia do contrato
     let diasUltimoMes = Math.min(dia2, 30);
-    const ehUltimoDiaDoContrato = (ano2 === 2026 && mes2 === 2 && dia2 === 22); // 22/03/2026
     if (ehUltimoDiaDoContrato) {
       diasUltimoMes = dia2 - 1;
     }
@@ -244,7 +248,7 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
   }
   
   // IMPORTANTE: Ano comercial sempre = 360 dias
-  return Math.min(dias, 360);
+  return Math.max(0, Math.min(dias, 360));
 }
 
 // Função para calcular execução fiscal com ano comercial
@@ -256,7 +260,7 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
   const diasAte = calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim);
   
   // Dias restantes até o fim do contrato
-  const diasRestantes = calcularDiasMesComercial(periodoFim, vigenciaFim, vigenciaFim);
+  const diasRestantes = Math.max(0, 360 - diasAte);
   
   // Formatar como meses e dias
   const formatarDias = (dias: number) => {
