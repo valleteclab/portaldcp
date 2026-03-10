@@ -210,16 +210,17 @@ function QuantidadeInput({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    // Permite campo vazio ou números
-    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+    // Permite campo vazio, ponto ou vírgula decimal
+    if (val === '' || /^\d*([\.,]\d*)?$/.test(val)) {
       setInputValue(val);
     }
   };
 
   const handleBlur = () => {
-    let numValue = parseFloat(inputValue) || 0;
-    // Garante mínimo 1 e máximo = saldo
-    numValue = Math.max(1, Math.min(numValue, max));
+    const valorNormalizado = inputValue.replace(',', '.');
+    let numValue = parseFloat(valorNormalizado) || 0;
+    // Garante mínimo > 0 e máximo = saldo
+    numValue = Math.max(0.01, Math.min(numValue, max));
     setInputValue(String(numValue));
     onChange(numValue);
   };
@@ -930,7 +931,7 @@ function NovaRequisicaoForm() {
   const handleAlterarQuantidade = (itemContratoId: string, quantidade: number) => {
     setItensRequisicao(prev => prev.map(item => {
       if (item.item_contrato_id === itemContratoId) {
-        const qtd = Math.max(1, Math.min(quantidade, item.saldo_disponivel));
+        const qtd = Math.max(0.01, Math.min(quantidade, item.saldo_disponivel));
         return {
           ...item,
           quantidade_solicitada: qtd,
