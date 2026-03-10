@@ -486,6 +486,42 @@ export class OrgaosController {
     };
   }
 
+  @Post('convite-fornecedor-whatsapp')
+  async enviarConviteFornecedorWhatsApp(
+    @Req() req: { user: JwtPayload },
+    @Body() body: { telefone: string; nome?: string; orgaoId: string }
+  ) {
+    if (req.user.type !== UserType.ADMIN) {
+      throw new UnauthorizedException('Apenas administradores podem enviar convites');
+    }
+
+    const { telefone, nome, orgaoId } = body;
+    if (!telefone || !orgaoId) {
+      throw new UnauthorizedException('Telefone e órgão são obrigatórios');
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.portaldcp.com.br';
+    const mensagem =
+      `Olá${nome ? `, ${nome}` : ''}! 👋\n\n` +
+      `Você está recebendo esta mensagem porque a *Câmara Municipal de Luís Eduardo Magalhães – BA* identificou contratos em seu nome ou empresa em nossos registros.\n\n` +
+      `Gostaríamos de convidá-lo(a) a se cadastrar no nosso *Portal de Compras Públicas*, onde você poderá acompanhar contratos, processos licitatórios e receber comunicações oficiais de forma rápida e segura.\n\n` +
+      `📋 *Como se cadastrar:*\n` +
+      `1️⃣ Acesse o link abaixo\n` +
+      `2️⃣ Clique em *"Criar conta"* e preencha seus dados\n` +
+      `3️⃣ Informe o CNPJ da sua empresa para vincular seus contratos\n` +
+      `4️⃣ Aguarde a confirmação de cadastro ✅\n\n` +
+      `🔗 *Acesse o portal:*\n${frontendUrl}/login\n\n` +
+      `💾 *IMPORTANTE:* Salve este número em seus contatos! As notificações oficiais da Câmara Municipal de Luís Eduardo Magalhães serão enviadas pelo WhatsApp por este número.\n\n` +
+      `Em caso de dúvidas, entre em contato diretamente por este WhatsApp.`;
+
+    const enviado = await this.whatsappService.enviar(orgaoId, { to: telefone, mensagem });
+
+    return {
+      success: enviado,
+      mensagem: enviado ? 'Convite enviado com sucesso!' : 'Falha ao enviar. Verifique se o WhatsApp está configurado para este órgão.',
+    };
+  }
+
   @Post(':id/emails/:uid/responder')
   async responderEmail(
     @Param('id') id: string,
