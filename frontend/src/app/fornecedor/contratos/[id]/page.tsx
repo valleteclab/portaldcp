@@ -425,6 +425,7 @@ export default function FornecedorContratoDetalhePage() {
   const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
   const noPeriodoBackend = Number(execucaoFinanceira?.totais?.no_periodo || 0);
   const atePeriodoBackend = Number(execucaoFinanceira?.totais?.ate_periodo || 0);
+  const aExecutarBackend = Number(execucaoFinanceira?.totais?.a_executar || 0);
   const noPeriodoExibicao = Math.max(noPeriodoBackend, valorMedicaoAtual || 0);
   const valorLocalNaoPersistido = Math.max(0, noPeriodoExibicao - noPeriodoBackend);
   const atePeriodoExibicao = atePeriodoBackend > 0
@@ -432,7 +433,9 @@ export default function FornecedorContratoDetalhePage() {
     : (valorAprovadoAnterior + noPeriodoExibicao);
   const aExecutarExibicao = Math.max(
     0,
-    Number((contrato?.valor_global || 0) - atePeriodoExibicao)
+    aExecutarBackend > 0 || atePeriodoBackend > 0
+      ? aExecutarBackend - valorLocalNaoPersistido
+      : Number((contrato?.valor_global || 0) - atePeriodoExibicao)
   );
 
   useEffect(() => {
@@ -1288,6 +1291,7 @@ export default function FornecedorContratoDetalhePage() {
         
         // Setar a medição original para atualização
         setMedicaoParaEditar(medicao);
+        await carregarExecucaoFinanceira(medicao.id);
       }
     } catch (error) {
       console.error('Erro ao carregar medição:', error);
@@ -1888,7 +1892,7 @@ export default function FornecedorContratoDetalhePage() {
                     }
                     // Recarregar execução financeira quando mudar o período
                     if (novoInicio && novaMedicao.periodo_fim) {
-                      carregarExecucaoFinanceira();
+                      carregarExecucaoFinanceira(medicaoParaEditar?.id);
                     }
                   }} />
               </div>
@@ -1912,7 +1916,7 @@ export default function FornecedorContratoDetalhePage() {
                     }
                     // Recarregar execução financeira quando mudar o período
                     if (novaMedicao.periodo_inicio && novoFim) {
-                      carregarExecucaoFinanceira();
+                      carregarExecucaoFinanceira(medicaoParaEditar?.id);
                     }
                   }} />
               </div>
