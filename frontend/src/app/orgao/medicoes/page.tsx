@@ -1429,7 +1429,7 @@ export default function MedicoesPage() {
                   const boletim = await resBoletim.json()
                   if (!boletim?.pdf_url) return
 
-                  const arquivoRes = await authFetch(`${API_URL}${boletim.pdf_url}`)
+                  const arquivoRes = await fetch(`${API_URL}${boletim.pdf_url}`)
                   if (!arquivoRes.ok) return
 
                   const pdfBlob = await arquivoRes.blob()
@@ -1437,10 +1437,13 @@ export default function MedicoesPage() {
                   const link = document.createElement('a')
                   link.href = objectUrl
                   link.download = boletim.filename || `boletim_medicao_${modalAteste.id}.pdf`
+                  link.style.display = 'none'
                   document.body.appendChild(link)
                   link.click()
-                  link.remove()
-                  window.URL.revokeObjectURL(objectUrl)
+                  setTimeout(() => {
+                    link.remove()
+                    window.URL.revokeObjectURL(objectUrl)
+                  }, 1000)
                 }}
               >
                 <FileDown className="w-4 h-4" />
