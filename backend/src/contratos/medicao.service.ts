@@ -2774,9 +2774,10 @@ export class MedicaoService {
         : Math.round((ajusteGlobalParaDistribuir * proporcao) * 100) / 100;
       ajusteRateadoAcumulado += ajusteRateado;
 
-      const noPeriodoItem = Math.round((Number(item.no_periodo) || 0) * 100) / 100;
-      const atePeriodoItem = Math.round((Number(item.ate_periodo) || 0) * 100) / 100;
-      const aExecutarItem = Math.round(Math.max(0, valorPrevistoItem - atePeriodoItem) * 100) / 100;
+      // Usar valores já arredondados do item (não arredondar novamente)
+      const noPeriodoItem = Number(item.no_periodo) || 0;
+      const atePeriodoItem = Number(item.ate_periodo) || 0;
+      const aExecutarItem = Number(item.a_executar) || 0;
       const atePeriodoGlobal = Math.round((atePeriodoItem + ajusteRateado) * 100) / 100;
       const aExecutarGlobal = Math.round(Math.max(0, valorPrevistoItem - atePeriodoGlobal) * 100) / 100;
 
