@@ -3122,11 +3122,11 @@ export class MedicaoService {
     let emailMascarado: string | undefined;
 
     // Enviar via WhatsApp
-    const telefone = fornecedor.representante_whatsapp || fornecedor.telefone || '';
+    const telefone = fornecedor.representante_whatsapp || fornecedor.representante_telefone || fornecedor.telefone || '';
     if (telefone && telefone.replace(/\D/g, '').length >= 10) {
       try {
         const telefoneLimpo = telefone.replace(/\D/g, '');
-        
+
         // Salvar no cache de WhatsApp
         (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefoneLimpo}`, {
           codigo,
@@ -3136,14 +3136,19 @@ export class MedicaoService {
 
         // Enviar via WhatsApp
         const mensagem = `Olá, *${usuarioNome}*.\n\nSeu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
-        await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+        const whatsappEnviado = await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
           to: telefoneLimpo,
           mensagem,
         });
-        
-        canaisEnviados.push('whatsapp');
-        telefoneMascarado = telefoneLimpo.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
-        this.logger.log(`OTP WhatsApp enviado para medição ${medicaoId}: ${telefoneMascarado}`);
+
+        if (whatsappEnviado) {
+          canaisEnviados.push('whatsapp');
+          telefoneMascarado = telefoneLimpo.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+          this.logger.log(`OTP WhatsApp enviado para medição ${medicaoId}: ${telefoneMascarado}`);
+        } else {
+          (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${telefoneLimpo}`);
+          this.logger.warn(`WhatsApp configurado mas não confirmou envio do OTP para medição ${medicaoId}`);
+        }
       } catch (err) {
         this.logger.warn(`Falha ao enviar OTP WhatsApp para medição ${medicaoId}: ${err.message}`);
       }
@@ -3219,7 +3224,7 @@ export class MedicaoService {
       // Tentar validar via email ou WhatsApp
       const orgaoId = contrato?.orgao_id || '';
       const email = fornecedor.representante_email || fornecedor.email || '';
-      const telefone = (fornecedor.representante_whatsapp || fornecedor.telefone || '').replace(/\D/g, '');
+      const telefone = (fornecedor.representante_whatsapp || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
 
       try {
         if (email) await this.assinaturasService.validarOtpEmail(orgaoId, email, codigoOtp);
