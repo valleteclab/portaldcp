@@ -941,6 +941,9 @@ export default function FornecedorContratoDetalhePage() {
   const baixarPdfArmazenado = async (medicaoId: string): Promise<boolean> => {
     try {
       const resBoletim = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/boletim-oficial?fornecedorId=${fornecedor?.id || ''}`);
+      if (resBoletim.status === 404) {
+        return await gerarEBaixarBoletim(medicaoId);
+      }
       if (!resBoletim.ok) return false;
 
       const boletim = await resBoletim.json();
@@ -967,14 +970,14 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
-  const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao?: string, codigoFormatado?: string) => {
+  const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao?: string, codigoFormatado?: string): Promise<boolean> => {
     try {
       // Buscar dados atualizados da medição e discriminações
       const [resMedicao, resDiscriminacoes] = await Promise.all([
         authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}?fornecedorId=${fornecedor?.id || ''}`),
         authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
       ]);
-      if (!resMedicao.ok) return;
+      if (!resMedicao.ok) return false;
       const med = await resMedicao.json();
       const discriminacoesMed = resDiscriminacoes.ok ? await resDiscriminacoes.json() : [];
 
@@ -1080,6 +1083,17 @@ export default function FornecedorContratoDetalhePage() {
       }
 
       const pdfBlob = gerarPdfMedicao(dadosPdf);
+      const objectUrl = window.URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `boletim_medicao_${medicaoId}.pdf`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        link.remove();
+        window.URL.revokeObjectURL(objectUrl);
+      }, 1000);
 
       // Upload do PDF para o servidor
       try {
@@ -1098,8 +1112,10 @@ export default function FornecedorContratoDetalhePage() {
       } catch (err) {
         console.warn('Erro ao fazer upload do PDF (continuando):', err);
       }
+      return true;
     } catch (err) {
       console.error('Erro ao gerar PDF do boletim:', err);
+      return false;
     }
   };
 
