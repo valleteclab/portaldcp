@@ -137,9 +137,10 @@ function fmtCnpj(cnpj: string): string {
 }
 
 /** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias) */
-function diasEntreDatasComercial(data1: string, data2: string): number {
+function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?: string): number {
   const d1 = new Date(data1)
   const d2 = new Date(data2)
+  const dataFimContratoDate = dataFimContrato ? new Date(dataFimContrato) : null
   
   // Usar UTC para evitar problemas de timezone
   const ano1 = d1.getUTCFullYear()
@@ -156,7 +157,11 @@ function diasEntreDatasComercial(data1: string, data2: string): number {
   if (ano1 === ano2 && mes1 === mes2) {
     // Para períodos normais: conta ambos os dias (dia_fim - dia_início + 1)
     // Apenas não conta o dia final se for o último dia do contrato
-    const ehUltimoDiaDoContrato = (ano2 === 2026 && mes2 === 2 && dia2 === 22) // 22/03/2026
+    const ehUltimoDiaDoContrato = dataFimContratoDate
+      ? ano2 === dataFimContratoDate.getUTCFullYear() &&
+        mes2 === dataFimContratoDate.getUTCMonth() &&
+        dia2 === dataFimContratoDate.getUTCDate()
+      : false
     dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30)
   } else {
     // Dias no primeiro mês (ano comercial) - conta o dia inicial
@@ -171,7 +176,11 @@ function diasEntreDatasComercial(data1: string, data2: string): number {
     // Dias no último mês (ano comercial)
     // Não conta o dia final se for o último dia do contrato
     let diasUltimoMes = Math.min(dia2, 30)
-    const ehUltimoDiaDoContrato = (ano2 === 2026 && mes2 === 2 && dia2 === 22) // 22/03/2026
+    const ehUltimoDiaDoContrato = dataFimContratoDate
+      ? ano2 === dataFimContratoDate.getUTCFullYear() &&
+        mes2 === dataFimContratoDate.getUTCMonth() &&
+        dia2 === dataFimContratoDate.getUTCDate()
+      : false
     if (ehUltimoDiaDoContrato) {
       diasUltimoMes = dia2 - 1
     }
@@ -180,7 +189,7 @@ function diasEntreDatasComercial(data1: string, data2: string): number {
   }
   
   // IMPORTANTE: Ano comercial sempre = 360 dias
-  return Math.min(dias, 360)
+  return Math.max(0, Math.min(dias, 360))
 }
 
 function diasEntreDatas(data1: string, data2: string): number {
@@ -574,20 +583,27 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     let txtFiscalNoPeriodo, txtFiscalAtePeriodo, txtFiscalAExecutar;
     
     // NO PERÍODO: dias do período da medição
-    const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim));
+    const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
     txtFiscalNoPeriodo = fmtTempo(diasPeriodo);
     
     // ATÉ O PERÍODO: dias executados até o fim do período da medição
-    if (dados.data_vigencia_inicio) {
-      const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim));
+    if (dados.execucao_fiscal) {
+      txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados);
+    } else if (dados.data_vigencia_inicio) {
+      const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim));
       txtFiscalAtePeriodo = fmtTempo(diasAte);
     } else {
       txtFiscalAtePeriodo = '-';
     }
     
     // A EXECUTAR: dias restantes até o fim do contrato
-    if (dados.data_vigencia_fim) {
-      const diasRestante = Math.max(0, diasEntreDatasComercial(dados.periodo_fim, dados.data_vigencia_fim));
+    if (dados.execucao_fiscal) {
+      txtFiscalAExecutar = fmtTempo(dados.execucao_fiscal.dias_restantes);
+    } else if (dados.data_vigencia_fim) {
+      const diasAte = dados.data_vigencia_inicio
+        ? Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim))
+        : 0
+      const diasRestante = Math.max(0, 360 - diasAte)
       txtFiscalAExecutar = fmtTempo(diasRestante);
     } else {
       txtFiscalAExecutar = '-';
