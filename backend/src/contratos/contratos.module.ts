@@ -39,6 +39,7 @@ import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-me
 import { UploadModule } from '../upload/upload.module';
 import { MulterModule } from '@nestjs/platform-express';
 import { AssinaturasModule } from '../assinaturas/assinaturas.module';
+import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
 import { IaModule } from '../ia/ia.module';
 import { ImportarContratoIaController } from './importar-contrato-ia.controller';
 import { ImportarContratoIaService } from './importar-contrato-ia.service';
@@ -52,7 +53,7 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao,
+      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao, AssinaturaDigital,
     ]),
     NotificacoesModule,
     UploadModule,

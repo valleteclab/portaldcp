@@ -426,6 +426,24 @@ export class ModalidadesContratoController {
     return this.medicaoService.buscarMedicao(medicaoId);
   }
 
+  @Get('medicoes/:medicaoId/boletim-oficial')
+  async obterBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+
+    return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+  }
+
   @Patch('medicoes/:medicaoId/submeter')
   async submeterMedicao(
     @Param('medicaoId') medicaoId: string,

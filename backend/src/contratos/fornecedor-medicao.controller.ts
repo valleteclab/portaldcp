@@ -123,6 +123,23 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Obtém ou gera o boletim PDF oficial persistido da medição.
+   * GET /api/fornecedor/contratos/medicoes/:medicaoId/boletim-oficial?fornecedorId=X
+   */
+  @Get('medicoes/:medicaoId/boletim-oficial')
+  async obterBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (!fornecedorId) throw new BadRequestException('fornecedorId é obrigatório');
+
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(medicao.contrato_id, fornecedorId);
+
+    return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+  }
+
+  /**
    * Fornecedor atualiza os itens (percentuais/valores) de uma medição DEVOLVIDA.
    * PUT /api/fornecedor/contratos/medicoes/:medicaoId/itens
    */

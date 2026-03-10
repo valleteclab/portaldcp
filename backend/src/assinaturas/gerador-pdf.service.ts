@@ -460,9 +460,9 @@ export class GeradorPdfService {
   /**
    * Gera o PDF do Boletim de Medição com as assinaturas
    */
-  async gerarPdfMedicao(dadosMedicao: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<string> {
+  async gerarPdfMedicao(dadosMedicao: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string, outputPath?: string): Promise<string> {
     const filename = `Medicao_${dadosMedicao.numero_medicao}_${Date.now()}.pdf`;
-    const filePath = join(this.uploadDir, 'documentos_assinados', filename);
+    const filePath = outputPath || join(this.uploadDir, 'documentos_assinados', filename);
 
     return new Promise(async (resolve, reject) => {
       try {
@@ -496,8 +496,34 @@ export class GeradorPdfService {
           .font('Helvetica').text(`R$ ${Number(dadosMedicao.valor_medido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
         doc.moveDown(0.3);
 
+        if (dadosMedicao.execucao_financeira?.totais) {
+          const totais = dadosMedicao.execucao_financeira.totais;
+          doc.font('Helvetica-Bold').text('Execução Financeira:');
+          doc.moveDown(0.2);
+          doc.font('Helvetica-Bold').text('No período: ', { continued: true })
+            .font('Helvetica').text(`R$ ${Number(totais.no_periodo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+          doc.moveDown(0.2);
+          doc.font('Helvetica-Bold').text('Até o período: ', { continued: true })
+            .font('Helvetica').text(`R$ ${Number(totais.ate_periodo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+          doc.moveDown(0.2);
+          doc.font('Helvetica-Bold').text('A executar: ', { continued: true })
+            .font('Helvetica').text(`R$ ${Number(totais.a_executar || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+          doc.moveDown(0.3);
+        }
+
         doc.font('Helvetica-Bold').text('Percentual Físico: ', { continued: true })
           .font('Helvetica').text(`${Number(dadosMedicao.percentual_fisico_medido || 0).toFixed(2)}%`);
+
+        if (Array.isArray(dadosMedicao.discriminacoes) && dadosMedicao.discriminacoes.length > 0) {
+          doc.moveDown(0.6);
+          doc.fontSize(10).font('Helvetica-Bold').fillColor('#111827').text('Discriminação das Despesas');
+          doc.moveDown(0.2);
+          for (const discriminacao of dadosMedicao.discriminacoes) {
+            doc.fontSize(9).font('Helvetica-Bold').text(`${discriminacao.numero_item || discriminacao.numero || '-'} - `, { continued: true })
+              .font('Helvetica').text(`${discriminacao.descricao || '-'} — R$ ${Number(discriminacao.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${Number(discriminacao.percentual || 0).toFixed(2)}%)`);
+            doc.moveDown(0.15);
+          }
+        }
 
         // Quadro de assinaturas
         await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);

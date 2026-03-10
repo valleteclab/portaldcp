@@ -19,7 +19,9 @@ import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -56,8 +58,11 @@ export class MedicaoService {
     private usuarioRepository: Repository<Usuario>,
     @InjectRepository(Fornecedor)
     private fornecedorRepository: Repository<Fornecedor>,
+    @InjectRepository(AssinaturaDigital)
+    private assinaturaDigitalRepository: Repository<AssinaturaDigital>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
+    private geradorPdfService: GeradorPdfService,
   ) { }
 
   // ============================================================================
@@ -1309,10 +1314,137 @@ export class MedicaoService {
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
-  /**
-   * Lista medições pendentes de ateste do fiscal (SUBMETIDA + PARCIALMENTE_ATESTADA).
-   * Retorna dados enriquecidos para o Painel de Medições (contrato, fornecedor, itens).
-   */
+  private getBoletinsDir(): string {
+    return path.join(process.cwd(), 'uploads', 'boletins');
+  }
+
+  private getBoletimPdfFilename(medicaoId: string): string {
+    return `boletim_${medicaoId}.pdf`;
+  }
+
+  private getBoletimPdfPath(medicaoId: string): string {
+    return path.join(this.getBoletinsDir(), this.getBoletimPdfFilename(medicaoId));
+  }
+
+  private getBoletimPdfUrl(medicaoId: string): string {
+    return `/uploads/boletins/${this.getBoletimPdfFilename(medicaoId)}`;
+  }
+
+  private async registrarAssinaturaMedicaoSeAusente(
+    medicaoId: string,
+    dados: {
+      orgao_id?: string;
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      usuario_id?: string;
+      usuario_nome: string;
+      usuario_cpf_cnpj: string;
+      usuario_cargo?: string;
+      ip_address?: string;
+      user_agent?: string;
+    },
+  ): Promise<void> {
+    const papelMap: Record<string, PapelAssinante> = {
+      FORNECEDOR: PapelAssinante.FORNECEDOR,
+      FISCAL: PapelAssinante.FISCAL,
+      GESTOR: PapelAssinante.GESTOR,
+    };
+
+    const assinaturaExistente = await this.assinaturaDigitalRepository.findOne({
+      where: {
+        entidade_tipo: EntidadeTipo.MEDICAO,
+        entidade_id: medicaoId,
+        papel_assinante: papelMap[dados.papel] || PapelAssinante.FORNECEDOR,
+      },
+      order: { data_assinatura: 'ASC' },
+    });
+
+    if (!assinaturaExistente) {
+      await this.registrarAssinaturaMedicao(medicaoId, dados);
+    }
+  }
+
+  private async montarDadosPdfOficialMedicao(medicaoId: string): Promise<any> {
+    const medicao = await this.buscarMedicaoCompleta(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const fornecedor = contrato.fornecedor_id
+      ? await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } })
+      : null;
+
+    const discriminacoes = await this.listarDiscriminacoes(medicaoId);
+
+    return {
+      orgao: contrato.orgao || null,
+      contrato,
+      numero_medicao: medicao.numero_medicao,
+      periodo_inicio: medicao.periodo_inicio,
+      periodo_fim: medicao.periodo_fim,
+      valor_medido: Number(medicao.execucao_financeira?.totais?.no_periodo ?? medicao.valor_medido ?? 0),
+      percentual_fisico_medido: Number(medicao.percentual_fisico_medido || 0),
+      execucao_financeira: medicao.execucao_financeira || null,
+      discriminacoes,
+      fornecedor: fornecedor ? {
+        razao_social: fornecedor.razao_social,
+        cpf_cnpj: fornecedor.cpf_cnpj,
+      } : null,
+    };
+  }
+
+  async gerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
+    const dadosMedicao = await this.montarDadosPdfOficialMedicao(medicaoId);
+    const assinaturas = await this.assinaturaDigitalRepository.find({
+      where: {
+        entidade_tipo: EntidadeTipo.MEDICAO,
+        entidade_id: medicaoId,
+      },
+      order: { data_assinatura: 'ASC' },
+    });
+
+    const boletinsDir = this.getBoletinsDir();
+    if (!fs.existsSync(boletinsDir)) {
+      fs.mkdirSync(boletinsDir, { recursive: true });
+    }
+
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    await this.geradorPdfService.gerarPdfMedicao(
+      dadosMedicao,
+      assinaturas,
+      `${process.env.APP_URL || 'http://localhost:3000'}/validar-documento`,
+      filePath,
+    );
+
+    const pdfUrl = this.getBoletimPdfUrl(medicaoId);
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+
+    return {
+      pdf_url: pdfUrl,
+      filename: this.getBoletimPdfFilename(medicaoId),
+    };
+  }
+
+  async obterOuGerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    if (medicao.boletim_pdf_url && fs.existsSync(filePath)) {
+      return {
+        pdf_url: medicao.boletim_pdf_url,
+        filename: this.getBoletimPdfFilename(medicaoId),
+      };
+    }
+
+    return this.gerarPdfOficialMedicao(medicaoId);
+  }
+
   async listarPendentesAteste(orgaoId: string): Promise<any[]> {
     const medicoes = await this.medicaoRepository
       .createQueryBuilder('m')
@@ -1322,7 +1454,6 @@ export class MedicaoService {
       .orderBy('m.data_submissao', 'ASC')
       .getMany();
 
-    // Mapa (contrato_id|mes_referencia) -> data_solicitacao mais recente
     const pares = medicoes.map(med => {
       const inicio = med.periodo_inicio instanceof Date ? med.periodo_inicio : new Date(med.periodo_inicio as any);
       const mesRef = `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}`;
@@ -1351,7 +1482,6 @@ export class MedicaoService {
       if (!existing || dt > existing) dataSolicitacaoMap.set(key, dt);
     }
 
-    // Enriquecer com contagem de itens (total e atestados) e data_solicitacao
     const result = [];
     for (const med of medicoes) {
       const inicio = med.periodo_inicio instanceof Date ? med.periodo_inicio : new Date(med.periodo_inicio as any);
@@ -3070,6 +3200,8 @@ export class MedicaoService {
       user_agent: dados.user_agent,
     });
 
+    await this.gerarPdfOficialMedicao(medicaoId);
+
     this.logger.log(`Assinatura registrada para medição ${medicaoId} — código: ${assinatura.codigo_validacao}`);
 
     return {
@@ -3195,6 +3327,7 @@ export class MedicaoService {
     sucesso: boolean;
     codigo_validacao: string;
     codigo_formatado: string;
+    pdf_url: string;
   }> {
     const medicao = await this.medicaoRepository.findOne({
       where: { id: medicaoId },
@@ -3260,12 +3393,15 @@ export class MedicaoService {
       }
     }
 
+    const pdfOficial = await this.gerarPdfOficialMedicao(medicaoId);
+
     this.logger.log(`Medição ${medicaoId} assinada e submetida com OTP pelo fornecedor ${fornecedorId}`);
 
     return {
       sucesso: true,
       codigo_validacao: assinatura.codigo_validacao,
       codigo_formatado: assinatura.codigo_formatado,
+      pdf_url: pdfOficial.pdf_url,
     };
   }
 
@@ -3277,20 +3413,22 @@ export class MedicaoService {
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
     // Criar diretório se não existir
-    const uploadsDir = path.join(process.cwd(), 'uploads', 'boletins');
+    const uploadsDir = this.getBoletinsDir();
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
 
-    // Nome do arquivo: boletim_medicaoId_timestamp.pdf
-    const filename = `boletim_${medicaoId}_${Date.now()}.pdf`;
-    const filepath = path.join(uploadsDir, filename);
+    const filepath = this.getBoletimPdfPath(medicaoId);
+
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
 
     // Salvar arquivo
     fs.writeFileSync(filepath, pdfBuffer);
 
     // URL relativa para acesso
-    const pdfUrl = `/uploads/boletins/${filename}`;
+    const pdfUrl = this.getBoletimPdfUrl(medicaoId);
 
     // Atualizar medição
     await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
