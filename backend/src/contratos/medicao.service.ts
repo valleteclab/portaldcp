@@ -1327,7 +1327,19 @@ export class MedicaoService {
   }
 
   private getBoletimPdfUrl(medicaoId: string): string {
-    return `/uploads/boletins/${this.getBoletimPdfFilename(medicaoId)}`;
+    return `/api/uploads/boletins/${this.getBoletimPdfFilename(medicaoId)}`;
+  }
+
+  private normalizarBoletimPdfUrl(pdfUrl: string | null | undefined, medicaoId: string): string {
+    if (!pdfUrl) {
+      return this.getBoletimPdfUrl(medicaoId);
+    }
+
+    if (pdfUrl.startsWith('/uploads/')) {
+      return `/api${pdfUrl}`;
+    }
+
+    return pdfUrl;
   }
 
   private async registrarAssinaturaMedicaoSeAusente(
@@ -1436,8 +1448,13 @@ export class MedicaoService {
 
     const filePath = this.getBoletimPdfPath(medicaoId);
     if (medicao.boletim_pdf_url && fs.existsSync(filePath)) {
+      const pdfUrl = this.normalizarBoletimPdfUrl(medicao.boletim_pdf_url, medicaoId);
+      if (pdfUrl !== medicao.boletim_pdf_url) {
+        await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+      }
+
       return {
-        pdf_url: medicao.boletim_pdf_url,
+        pdf_url: pdfUrl,
         filename: this.getBoletimPdfFilename(medicaoId),
       };
     }
