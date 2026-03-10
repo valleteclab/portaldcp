@@ -1009,6 +1009,8 @@ export default function FornecedorContratoDetalhePage() {
         valor_medido: Number(i.valor_medido || 0),
       }));
 
+      const totaisExecucaoFinanceira = med.execucao_financeira?.totais;
+
       const dadosPdf: DadosMedicaoPdf = {
         orgao_nome: contrato?.orgao?.nome || '',
         numero_contrato: contrato?.numero_contrato || '',
@@ -1023,10 +1025,10 @@ export default function FornecedorContratoDetalhePage() {
         periodo_fim: med.periodo_fim || '',
         competencia,
         valor_medido: Number(med.valor_medido || 0),
-        execucao_financeira_totais: med.execucao_financeira?.totais ? {
-          no_periodo: Number(med.execucao_financeira.totais.no_periodo || 0),
-          ate_periodo: Number(med.execucao_financeira.totais.ate_periodo || 0),
-          a_executar: Number(med.execucao_financeira.totais.a_executar || 0),
+        execucao_financeira_totais: totaisExecucaoFinanceira ? {
+          no_periodo: Number(totaisExecucaoFinanceira.no_periodo || 0),
+          ate_periodo: Number(totaisExecucaoFinanceira.ate_periodo || 0),
+          a_executar: Number(totaisExecucaoFinanceira.a_executar || 0),
         } : undefined,
         nota_fiscal_numero: med.nota_fiscal_numero || undefined,
         nota_fiscal_valor: med.nota_fiscal_valor ? Number(med.nota_fiscal_valor) : undefined,
@@ -1483,7 +1485,8 @@ export default function FornecedorContratoDetalhePage() {
                               }).filter((item: any) => item.numero > 0 || item.descricao || item.valor_no_periodo > 0 || item.valor_total_item > 0)
                               const itensEtapa = (medicao.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({ numero: i.etapa_numero || 0, descricao: i.etapa_descricao || '', percentual_fisico: Number(i.etapa_percentual_fisico || 0), percentual_executado_anterior: Number(i.percentual_executado_anterior || 0), percentual_executado_atual: Number(i.percentual_executado_atual || 0), valor_previsto: Number(i.etapa_valor_previsto || 0), valor_medido: Number(i.valor_medido || 0) }))
                               const totaisExecucaoFinanceira = execucaoFinanceiraAtual?.totais || medicao.execucao_financeira?.totais || execucaoFinanceira?.totais
-                              const dadosPdf: DadosMedicaoPdf = { numero_contrato: contrato?.numero_contrato || '', objeto_contrato: contrato?.objeto || '', orgao_nome: contrato?.orgao?.nome || '', fornecedor_nome: fornecedor?.razao_social || fornecedor?.nome || '', fornecedor_cnpj: fornecedor?.cpf_cnpj || '', valor_total_contrato: Number(contrato?.valor_inicial || 0) || undefined, data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined, data_vigencia_fim: contrato?.data_vigencia_fim || undefined, numero_medicao: medicao.numero_medicao, periodo_inicio: medicao.periodo_inicio || '', periodo_fim: medicao.periodo_fim || '', competencia, valor_medido: Number(medicao.valor_medido || 0), execucao_financeira_totais: { no_periodo: Number(medicao.valor_medido || 0), ate_periodo: Number(totaisExecucaoFinanceira?.ate_periodo || medicao.valor_acumulado_atual || 0), a_executar: Math.max(0, Number(totaisExecucaoFinanceira?.a_executar ?? ((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(totaisExecucaoFinanceira?.ate_periodo || medicao.valor_acumulado_atual || 0)))) }, nota_fiscal_numero: medicao.nota_fiscal_numero || undefined, nota_fiscal_valor: medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined, execucao_fiscal: medicao.execucao_fiscal || execucaoFinanceira?.execucao_fiscal || undefined, itens: itensItem.length > 0 ? itensItem : undefined, etapas: itensEtapa.length > 0 ? itensEtapa : undefined, itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({ numero: ic.numero_item || idx + 1, descricao: ic.descricao || '', unidade: ic.unidade_medida || '', quantidade: Number(ic.quantidade || 0), valor_unitario: Number(ic.valor_unitario || 0), valor_total: Number(ic.valor_total || 0) })) : undefined, discriminacoes: discriminacoesPdf && discriminacoesPdf.length > 0 ? discriminacoesPdf.map((d: any, idx: number) => ({ numero: d.numero || idx + 1, descricao: d.descricao || d.tipo_despesa || '', valor: Number(d.valor || 0), percentual: Number(d.percentual || 0) })) : undefined }
+                              const dadosPdf: DadosMedicaoPdf = { numero_contrato: contrato?.numero_contrato || '', objeto_contrato: contrato?.objeto || '', orgao_nome: contrato?.orgao?.nome || '', fornecedor_nome: fornecedor?.razao_social || fornecedor?.nome || '', fornecedor_cnpj: fornecedor?.cpf_cnpj || '', valor_total_contrato: Number(contrato?.valor_inicial || 0) || undefined, data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined, data_vigencia_fim: contrato?.data_vigencia_fim || undefined, numero_medicao: medicao.numero_medicao, periodo_inicio: medicao.periodo_inicio || '', periodo_fim: medicao.periodo_fim || '', competencia, valor_medido: Number(medicao.valor_medido || 0), execucao_financeira_totais: { no_periodo: Number(totaisExecucaoFinanceira?.no_periodo || 0), ate_periodo: Number(totaisExecucaoFinanceira?.ate_periodo || medicao.valor_acumulado_atual || 0), a_executar: Math.max(0, Number(totaisExecucaoFinanceira?.a_executar ?? ((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(totaisExecucaoFinanceira?.ate_periodo || medicao.valor_acumulado_atual || 0)))) }, nota_fiscal_numero: medicao.nota_fiscal_numero || undefined, nota_fiscal_valor: medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined, execucao_fiscal: medicao.execucao_fiscal || execucaoFinanceira?.execucao_fiscal || undefined, itens: itensItem.length > 0 ? itensItem : undefined, etapas: itensEtapa.length > 0 ? itensEtapa : undefined, itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({ numero: ic.numero_item || idx + 1, descricao: ic.descricao || '', unidade: ic.unidade_medida || '', quantidade: Number(ic.quantidade || 0), valor_unitario: Number(ic.valor_unitario || 0), valor_total: Number(ic.valor_total || 0) })) : undefined, discriminacoes: discriminacoesPdf && discriminacoesPdf.length > 0 ? discriminacoesPdf.map((d: any, idx: number) => ({ numero: d.numero || idx + 1, descricao: d.descricao || d.tipo_despesa || '', valor:
+ Number(d.valor || 0), percentual: Number(d.percentual || 0) })) : undefined }
                               try {
                                 if (medicao.data_submissao) {
                                   const rForn = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/assinar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ papel: 'FORNECEDOR', usuario_nome: fornecedor?.razao_social || fornecedor?.nome || '', usuario_cpf_cnpj: fornecedor?.cpf_cnpj || '', usuario_cargo: 'Fornecedor / Contratado' }) })
@@ -2865,7 +2868,7 @@ export default function FornecedorContratoDetalhePage() {
                     competencia,
                     valor_medido: Number(medicaoDetalhe.valor_medido || 0),
                     execucao_financeira_totais: {
-                      no_periodo: Number(medicaoDetalhe.valor_medido || 0),
+                      no_periodo: Number(totaisExecucaoFinanceira?.no_periodo || 0),
                       ate_periodo: Number(totaisExecucaoFinanceira?.ate_periodo || medicaoDetalhe.valor_acumulado_atual || 0),
                       a_executar: Math.max(0, Number(totaisExecucaoFinanceira?.a_executar ?? ((contrato?.valor_global || contrato?.valor_inicial || 0) - Number(totaisExecucaoFinanceira?.ate_periodo || medicaoDetalhe.valor_acumulado_atual || 0)))),
                     },
