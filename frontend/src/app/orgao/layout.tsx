@@ -3,6 +3,7 @@
 import { Sidebar, Header } from "@/components/layout/navigation"
 import { AuthGuard } from "@/components/auth/auth-guard"
 import { Toaster } from "sonner"
+import { AssistenteIA } from "@/components/assistente-ia/AssistenteIA"
 
 export default function OrgaoLayout({
   children,
@@ -23,6 +24,7 @@ export default function OrgaoLayout({
         </div>
       </div>
       <Toaster />
+      <AssistenteIA />
     </AuthGuard>
   )
 }
