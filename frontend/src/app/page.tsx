@@ -1,226 +1,122 @@
 import Link from "next/link"
 import Image from "next/image"
-import { Shield, FileCheck, Users, ArrowRight, CheckCircle2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { User, Building2, ChevronRight, ShieldCheck, FileText, Users, BarChart2 } from "lucide-react"
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-sm border-b sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-3">
-            <Image 
-              src="/logo.png" 
-              alt="Portal DCP" 
-              width={55} 
-              height={55}
-              className="rounded bg-white p-1"
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Left Panel */}
+      <div className="flex-1 bg-gradient-to-br from-blue-900 via-blue-800 to-blue-900 text-white flex flex-col justify-between p-8 md:p-14 min-h-[340px] md:min-h-screen">
+        <div>
+          {/* Logo */}
+          <div className="flex items-center gap-3 mb-10">
+            <Image
+              src="/logo.png"
+              alt="Portal DCP"
+              width={52}
+              height={52}
+              className="rounded-lg bg-white/10 p-1"
             />
             <div>
-              <span className="text-xl font-bold text-slate-800">Portal DCP</span>
-              <p className="text-xs text-slate-500">O seu Diário de Compras Públicas</p>
+              <span className="text-2xl font-bold tracking-tight">Portal DCP</span>
+              <p className="text-xs text-blue-200">Diário de Compras Públicas</p>
             </div>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/login">
-              <Button variant="ghost">Entrar</Button>
-            </Link>
-            <Link href="/cadastro">
-              <Button>Criar Conta</Button>
-            </Link>
           </div>
-        </div>
-      </header>
 
-      {/* Hero */}
-      <section className="container mx-auto px-4 py-20">
-        <div className="max-w-4xl mx-auto text-center">
-          <h1 className="text-5xl font-bold text-slate-800 mb-6">
-            Participe de Licitações Públicas de Forma{" "}
-            <span className="text-blue-600">Simples e Segura</span>
+          {/* Heading */}
+          <h1 className="text-3xl md:text-4xl font-bold mb-4 leading-tight">
+            Bem-vindo ao Portal DCP!
           </h1>
-          <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Plataforma completa para fornecedores se cadastrarem e participarem de processos 
-            licitatórios com transparência e agilidade.
+
+          {/* Description */}
+          <p className="text-blue-100 text-base md:text-lg mb-4 leading-relaxed">
+            Plataforma completa para gestão de compras públicas, em conformidade com a{" "}
+            <strong className="text-white">Lei 14.133/2021</strong> (Nova Lei de Licitações).
           </p>
-          <div className="flex gap-4 justify-center">
-            <Link href="/cadastro">
-              <Button size="lg" className="text-lg px-8">
-                Começar Agora
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </Link>
-            <Link href="/login">
-              <Button size="lg" variant="outline" className="text-lg px-8">
-                Já tenho conta
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="container mx-auto px-4 py-16">
-        <h2 className="text-3xl font-bold text-center text-slate-800 mb-12">
-          Por que usar o Portal DCP?
-        </h2>
-        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          <div className="bg-white rounded-xl p-6 shadow-lg border">
-            <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center mb-4">
-              <Shield className="h-6 w-6 text-blue-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">Cadastro Unificado</h3>
-            <p className="text-muted-foreground">
-              Sistema completo com todos os níveis de habilitação para participação 
-              em licitações de prefeituras e câmaras municipais.
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-lg border">
-            <div className="h-12 w-12 rounded-lg bg-green-100 flex items-center justify-center mb-4">
-              <FileCheck className="h-6 w-6 text-green-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">Consulta Automática</h3>
-            <p className="text-muted-foreground">
-              Dados da empresa preenchidos automaticamente através da consulta à Receita Federal.
-              Economize tempo no cadastro.
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 shadow-lg border">
-            <div className="h-12 w-12 rounded-lg bg-purple-100 flex items-center justify-center mb-4">
-              <Users className="h-6 w-6 text-purple-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">Múltiplos Órgãos</h3>
-            <p className="text-muted-foreground">
-              Acesse licitações de diversos órgãos públicos em uma única plataforma.
-              Centralize sua participação.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="bg-white py-16">
-        <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center text-slate-800 mb-12">
-            Como Funciona
-          </h2>
-          <div className="grid md:grid-cols-4 gap-8 max-w-5xl mx-auto">
-            {[
-              { step: 1, title: "Crie sua conta", desc: "Informe email e crie uma senha" },
-              { step: 2, title: "Complete o cadastro", desc: "Informe o CNPJ e dados da empresa" },
-              { step: 3, title: "Envie documentos", desc: "Faça upload das certidões necessárias" },
-              { step: 4, title: "Participe", desc: "Busque licitações e envie propostas" },
-            ].map((item) => (
-              <div key={item.step} className="text-center">
-                <div className="h-12 w-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold mx-auto mb-4">
-                  {item.step}
-                </div>
-                <h3 className="font-semibold text-slate-800 mb-2">{item.title}</h3>
-                <p className="text-sm text-muted-foreground">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Benefits */}
-      <section className="container mx-auto px-4 py-16">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-slate-800 mb-12">
-            Benefícios para Fornecedores
-          </h2>
-          <div className="grid md:grid-cols-2 gap-4">
-            {[
-              "Cadastro único para múltiplos órgãos",
-              "Consulta automática de dados do CNPJ",
-              "Gestão centralizada de documentos",
-              "Alertas de novas licitações",
-              "Acompanhamento em tempo real",
-              "Histórico de participações",
-              "Suporte especializado",
-              "100% digital e seguro",
-            ].map((benefit, i) => (
-              <div key={i} className="flex items-center gap-3 p-4 bg-white rounded-lg border">
-                <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
-                <span className="text-slate-700">{benefit}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="bg-blue-600 py-16">
-        <div className="container mx-auto px-4 text-center">
-          <h2 className="text-3xl font-bold text-white mb-4">
-            Pronto para começar?
-          </h2>
-          <p className="text-blue-100 mb-8 max-w-xl mx-auto">
-            Crie sua conta gratuitamente e comece a participar de licitações públicas hoje mesmo.
+          <p className="text-blue-200 text-sm md:text-base mb-8 leading-relaxed">
+            Órgãos públicos gerenciam licitações, contratos, credenciamentos e contratações diretas.
+            Fornecedores se cadastram, enviam propostas e participam de pregões eletrônicos com
+            transparência e segurança.
           </p>
-          <Link href="/cadastro">
-            <Button size="lg" variant="secondary" className="text-lg px-8">
-              Criar Conta Grátis
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-          </Link>
-        </div>
-      </section>
 
-      {/* Footer */}
-      <footer className="bg-slate-900 text-white py-12">
-        <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-4 gap-8">
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <Image 
-                  src="/logo.png" 
-                  alt="Portal DCP" 
-                  width={45} 
-                  height={45}
-                  className="rounded bg-white p-1"
-                />
-                <div>
-                  <span className="text-lg font-bold">Portal DCP</span>
-                  <p className="text-xs text-slate-500">Diário de Compras Públicas</p>
+          {/* Features */}
+          <ul className="space-y-3">
+            {[
+              { icon: FileText, label: "Licitações e pregões eletrônicos" },
+              { icon: ShieldCheck, label: "Conformidade com a Lei 14.133/2021" },
+              { icon: Users, label: "Gestão de fornecedores e órgãos" },
+              { icon: BarChart2, label: "Transparência e publicidade dos atos" },
+            ].map(({ icon: Icon, label }) => (
+              <li key={label} className="flex items-center gap-3 text-blue-100 text-sm">
+                <div className="h-7 w-7 rounded-full bg-blue-700/60 flex items-center justify-center flex-shrink-0">
+                  <Icon className="h-3.5 w-3.5 text-blue-200" />
                 </div>
-              </div>
-              <p className="text-slate-400 text-sm">
-                Plataforma de licitações públicas para fornecedores e órgãos governamentais.
-              </p>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4">Fornecedores</h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li><Link href="/cadastro" className="hover:text-white">Criar Conta</Link></li>
-                <li><Link href="/login" className="hover:text-white">Entrar</Link></li>
-                <li><Link href="#" className="hover:text-white">Como Funciona</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4">Órgãos</h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li><Link href="/orgao-login" className="hover:text-white">Portal do Órgão</Link></li>
-                <li><Link href="#" className="hover:text-white">Solicitar Acesso</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-4">Suporte</h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li><Link href="#" className="hover:text-white">Central de Ajuda</Link></li>
-                <li><Link href="#" className="hover:text-white">Contato</Link></li>
-                <li><Link href="#" className="hover:text-white">Termos de Uso</Link></li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-sm text-slate-400">
-            © 2025 Portal DCP - Diário de Compras Públicas. Todos os direitos reservados.
-          </div>
+                {label}
+              </li>
+            ))}
+          </ul>
         </div>
-      </footer>
+
+        {/* Footer */}
+        <p className="text-blue-300 text-xs mt-10">
+          © {new Date().getFullYear()} Portal DCP — Todos os direitos reservados.
+        </p>
+      </div>
+
+      {/* Right Panel */}
+      <div className="flex-1 bg-white flex flex-col justify-center px-8 md:px-16 py-12">
+        {/* Top links */}
+        <div className="hidden md:flex justify-end gap-6 text-sm text-blue-700 font-medium mb-12">
+          <Link href="/cadastro" className="hover:underline">Criar Conta</Link>
+          <Link href="#" className="hover:underline">Perguntas Frequentes</Link>
+        </div>
+
+        <div className="max-w-sm mx-auto w-full">
+          <h2 className="text-2xl font-bold text-slate-800 mb-1">Acesse sua Conta</h2>
+          <p className="text-slate-500 text-sm mb-8">Selecione o perfil desejado</p>
+
+          {/* Profile Options */}
+          <div className="space-y-4">
+            {/* Fornecedor */}
+            <Link
+              href="/login"
+              className="flex items-center gap-4 p-4 border border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-all group"
+            >
+              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                <User className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-slate-800 group-hover:text-blue-700">Fornecedor</p>
+                <p className="text-xs text-slate-500">Empresas e pessoas físicas que participam de licitações</p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+            </Link>
+
+            {/* Governo */}
+            <Link
+              href="/orgao-login"
+              className="flex items-center gap-4 p-4 border border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-all group"
+            >
+              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                <Building2 className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-slate-800 group-hover:text-blue-700">Governo</p>
+                <p className="text-xs text-slate-500">Órgãos públicos, prefeituras e câmaras municipais</p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+            </Link>
+          </div>
+
+          {/* Register link */}
+          <p className="text-center text-sm text-slate-500 mt-8">
+            Não tem cadastro?{" "}
+            <Link href="/cadastro" className="text-blue-600 font-medium hover:underline">
+              Criar Conta de Fornecedor
+            </Link>
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
