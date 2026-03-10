@@ -949,7 +949,7 @@ export default function FornecedorContratoDetalhePage() {
       const boletim = await resBoletim.json();
       if (!boletim?.pdf_url) return false;
 
-      const arquivoRes = await fetch(`${API_URL}${boletim.pdf_url}`);
+      const arquivoRes = await fetch(boletim.pdf_url);
       if (!arquivoRes.ok) return false;
 
       const pdfBlob = await arquivoRes.blob();
