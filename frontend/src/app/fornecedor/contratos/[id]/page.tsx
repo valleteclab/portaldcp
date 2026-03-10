@@ -1493,7 +1493,7 @@ export default function FornecedorContratoDetalhePage() {
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
+                          {medicao.status === 'RASCUNHO' && (
                             <>
                               <Button size="sm" onClick={() => abrirModalSubmeter(medicao)} className="gap-1">
                                 <Send className="w-3 h-3" />Submeter
