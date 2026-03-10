@@ -334,27 +334,32 @@ export class ImportarContratoIaService {
 
     let respostaIA: string;
 
-    if (file.mimetype === 'application/pdf') {
-      const textoExtraido = await extrairTextoPdf(file.buffer);
-      this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
+    try {
+      if (file.mimetype === 'application/pdf') {
+        const textoExtraido = await extrairTextoPdf(file.buffer);
+        this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
-      if (textoExtraido.trim().length >= 200) {
-        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
-      } else {
-        this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
-        try {
-          respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_EXTRACAO, file.buffer);
-        } catch (visionErr: any) {
-          throw new BadRequestException(
-            'Este PDF parece ser escaneado (sem texto digital). ' +
-            'O sistema tentou converter para imagens mas falhou. ' +
-            'Tire uma foto/screenshot do contrato e envie como imagem JPG ou PNG.',
-          );
+        if (textoExtraido.trim().length >= 200) {
+          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
+        } else {
+          this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
+          try {
+            respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_EXTRACAO, file.buffer);
+          } catch (visionErr: any) {
+            throw new BadRequestException(
+              'Este PDF parece ser escaneado (sem texto digital). ' +
+              'O sistema tentou converter para imagens mas falhou. ' +
+              'Tire uma foto/screenshot do contrato e envie como imagem JPG ou PNG.',
+            );
+          }
         }
+      } else {
+        const imagemBase64 = file.buffer.toString('base64');
+        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
       }
-    } else {
-      const imagemBase64 = file.buffer.toString('base64');
-      respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
+    } catch (error: any) {
+      this.logger.error(`Falha ao consultar IA na importação de contrato: ${error?.message || error}`);
+      throw new BadRequestException('A IA de importação de contratos está indisponível ou retornou uma resposta inválida. Tente novamente em instantes.');
     }
 
     let dadosExtraidos: any;
