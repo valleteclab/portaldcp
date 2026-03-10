@@ -1442,7 +1442,7 @@ export class MedicaoService {
       };
     }
 
-    return this.gerarPdfOficialMedicao(medicaoId);
+    throw new NotFoundException('Boletim oficial da medição ainda não foi gerado');
   }
 
   async listarPendentesAteste(orgaoId: string): Promise<any[]> {
@@ -3200,8 +3200,6 @@ export class MedicaoService {
       user_agent: dados.user_agent,
     });
 
-    await this.gerarPdfOficialMedicao(medicaoId);
-
     this.logger.log(`Assinatura registrada para medição ${medicaoId} — código: ${assinatura.codigo_validacao}`);
 
     return {
@@ -3393,7 +3391,7 @@ export class MedicaoService {
       }
     }
 
-    const pdfOficial = await this.gerarPdfOficialMedicao(medicaoId);
+    const medicaoAtualizada = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
 
     this.logger.log(`Medição ${medicaoId} assinada e submetida com OTP pelo fornecedor ${fornecedorId}`);
 
@@ -3401,7 +3399,7 @@ export class MedicaoService {
       sucesso: true,
       codigo_validacao: assinatura.codigo_validacao,
       codigo_formatado: assinatura.codigo_formatado,
-      pdf_url: pdfOficial.pdf_url,
+      pdf_url: medicaoAtualizada?.boletim_pdf_url || '',
     };
   }
 

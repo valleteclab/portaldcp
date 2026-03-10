@@ -1466,7 +1466,7 @@ export default function FornecedorContratoDetalhePage() {
                           )}
                           {medicao.data_submissao && (
                             <Button size="sm" variant="outline" className="gap-1 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={async () => {
-                              await gerarEBaixarBoletim(medicao.id)
+                              await baixarPdfArmazenado(medicao.id)
                             }}>
                               <FileDown className="w-3 h-3" />PDF - BOLETIM DE MEDIÇÃO
                             </Button>
@@ -2773,7 +2773,7 @@ export default function FornecedorContratoDetalhePage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  await gerarEBaixarBoletim(medicaoDetalhe.id)
+                  await baixarPdfArmazenado(medicaoDetalhe.id)
                 }}
               >
                 <FileDown className="w-4 h-4" />

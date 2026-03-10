@@ -1423,108 +1423,16 @@ export default function MedicoesPage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  const competencia = modalAteste.competencia || derivarCompetencia(modalAteste.periodo_inicio || '')
+                  const resBoletim = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/boletim-oficial`)
+                  if (!resBoletim.ok) return
 
-                  let execucaoFinanceiraPdf: any = null
-                  try {
-                    const r = await authFetch(`${API_URL}/api/contratos/${modalAteste.contrato_id}/execucao-financeira?medicaoId=${modalAteste.id}`)
-                    if (r.ok) execucaoFinanceiraPdf = await r.json()
-                  } catch { }
+                  const boletim = await resBoletim.json()
+                  if (!boletim?.pdf_url) return
 
-                  const itensExecucaoFinanceira = execucaoFinanceiraPdf?.itens || modalAteste.execucao_financeira?.itens || []
-                  const itensMedicaoCronograma = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
-                  const itensItem = itensExecucaoFinanceira.map((itemExecucao: any) => {
-                    const itemMedicao = itensMedicaoCronograma.find((i: any) => Number(i.item_numero) === Number(itemExecucao.numero_etapa) || i.item_cronograma_id === itemExecucao.etapa_id)
-                    const vlrUnitario = Number(itemMedicao?.item_valor_unitario || 0)
-                    const vlrNoPeriodo = Number((itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo) || 0)
-                    const vlrAtePeriodo = Number((itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo) || 0)
-                    const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo)
-                    return {
-                      numero: Number(itemExecucao.numero_etapa || 0),
-                      descricao: itemExecucao.descricao || itemMedicao?.item_descricao || itemMedicao?.etapa_descricao || '',
-                      unidade: itemMedicao?.item_unidade || '',
-                      quantidade_no_periodo: Number(itemMedicao?.quantidade_medida || 0),
-                      quantidade_acumulada_aprovada: Number(itemMedicao?.item_quantidade_acumulada || 0),
-                      quantidade_total_contrato: Number(itemMedicao?.item_quantidade_total || 0),
-                      valor_no_periodo: vlrNoPeriodo,
-                      valor_unitario: vlrUnitario,
-                      valor_acumulado_anterior: vlrAcumAnterior,
-                      valor_total_item: Number(itemExecucao.valor_previsto || 0),
-                    }
-                  }).filter((item: any) => item.numero > 0 || item.descricao || item.valor_no_periodo > 0 || item.valor_total_item > 0)
-                  const itensEtapa = (modalAteste.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({
-                    numero: i.etapa_numero || 0,
-                    descricao: i.etapa_descricao || '',
-                    percentual_fisico: Number(i.etapa_percentual_fisico || 0),
-                    percentual_executado_anterior: Number(i.percentual_executado_anterior || 0),
-                    percentual_executado_atual: Number(i.percentual_executado_atual || 0),
-                    valor_previsto: Number(i.etapa_valor_previsto || 0),
-                    valor_medido: Number(i.valor_medido || 0),
-                  }))
-                  const dadosPdf: DadosMedicaoPdf = {
-                    numero_contrato: modalAteste.contrato?.numero_contrato || modalAteste.numero_contrato || '',
-                    objeto_contrato: modalAteste.contrato?.objeto || modalAteste.objeto_contrato || '',
-                    orgao_nome: modalAteste.contrato?.orgao?.nome || '',
-                    fornecedor_nome: modalAteste.contrato?.fornecedor_razao_social || modalAteste.fornecedor_nome || '',
-                    fornecedor_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                    data_vigencia_inicio: modalAteste.contrato?.data_vigencia_inicio || undefined,
-                    data_vigencia_fim: modalAteste.contrato?.data_vigencia_fim || undefined,
-                    numero_medicao: modalAteste.numero_medicao,
-                    periodo_inicio: modalAteste.periodo_inicio || '',
-                    periodo_fim: modalAteste.periodo_fim || '',
-                    competencia,
-                    valor_medido: Number(modalAteste.valor_medido || 0),
-                    nota_fiscal_numero: modalAteste.nota_fiscal_numero || undefined,
-                    nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,
-                    execucao_fiscal: execucaoFinanceiraPdf?.execucao_fiscal || undefined,
-                    itens: itensItem.length > 0 ? itensItem : undefined,
-                    etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-                  }
-
-                  let codigoFornecedor: string | undefined
-                  let codigoFiscal: string | undefined
-                  try {
-                    if (modalAteste.data_submissao) {
-                      const rForn = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/assinar`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          papel: 'FORNECEDOR',
-                          usuario_nome: modalAteste.fornecedor_nome || '',
-                          usuario_cpf_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                          usuario_cargo: 'Fornecedor / Contratado',
-                        }),
-                      })
-                      if (rForn.ok) { const d = await rForn.json(); codigoFornecedor = d.codigo_formatado }
-                    }
-                    if (modalAteste.ateste_fiscal_nome) {
-                      const rFisc = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/assinar`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          papel: 'FISCAL',
-                          usuario_nome: modalAteste.ateste_fiscal_nome,
-                          usuario_cpf_cnpj: '',
-                          usuario_cargo: 'Fiscal de Contrato',
-                        }),
-                      })
-                      if (rFisc.ok) { const d = await rFisc.json(); codigoFiscal = d.codigo_formatado }
-                    }
-                  } catch { }
-
-                  dadosPdf.assinatura_fornecedor = modalAteste.data_submissao ? {
-                    nome: modalAteste.fornecedor_nome || '',
-                    cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                    data_hora: new Date(modalAteste.data_submissao).toLocaleString('pt-BR'),
-                    codigo_validacao: codigoFornecedor,
-                  } : undefined
-                  dadosPdf.assinatura_fiscal = modalAteste.ateste_fiscal_nome ? {
-                    nome: modalAteste.ateste_fiscal_nome,
-                    data_hora: modalAteste.ateste_data ? new Date(modalAteste.ateste_data).toLocaleString('pt-BR') : '',
-                    codigo_validacao: codigoFiscal,
-                  } : undefined
-                  dadosPdf.url_validacao = `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`
-                  gerarPdfMedicao(dadosPdf)
+                  const link = document.createElement('a')
+                  link.href = `${API_URL}${boletim.pdf_url}`
+                  link.download = boletim.filename || `boletim_medicao_${modalAteste.id}.pdf`
+                  link.click()
                 }}
               >
                 <FileDown className="w-4 h-4" />
