@@ -941,6 +941,25 @@ function NovaRequisicaoForm() {
     }));
   };
 
+  const handleSolicitarTodosItens = () => {
+    const itensDisponiveis = itensFiltrados.filter(item => Number(item.saldo_disponivel) > 0);
+
+    setItensRequisicao(itensDisponiveis.map(item => ({
+      item_contrato_id: item.id,
+      numero_item: item.numero_item,
+      descricao: item.descricao,
+      unidade_medida: item.unidade_medida,
+      quantidade_solicitada: Number(item.saldo_disponivel),
+      valor_unitario: Number(item.valor_unitario),
+      valor_total: Number(item.saldo_disponivel) * Number(item.valor_unitario),
+      saldo_disponivel: Number(item.saldo_disponivel),
+    })));
+  };
+
+  const handleLimparSelecaoItens = () => {
+    setItensRequisicao([]);
+  };
+
   const handleAlterarQuantidadeOSDemanda = (itemCronogramaId: string, quantidade: number) => {
     setItensOSDemanda(prev => prev.map(item => {
       if (item.item_cronograma_id === itemCronogramaId) {
@@ -1498,14 +1517,36 @@ function NovaRequisicaoForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Buscar item..."
-              value={buscaItem}
-              onChange={(e) => setBuscaItem(e.target.value)}
-              className="pl-10"
-            />
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Buscar item..."
+                value={buscaItem}
+                onChange={(e) => setBuscaItem(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleLimparSelecaoItens}
+                disabled={itensRequisicao.length === 0}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Limpar seleção
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSolicitarTodosItens}
+                disabled={itensFiltrados.filter(item => Number(item.saldo_disponivel) > 0).length === 0}
+              >
+                <Package className="h-4 w-4 mr-2" />
+                Pedir tudo de vez
+              </Button>
+            </div>
           </div>
 
           {carregandoItens ? (
