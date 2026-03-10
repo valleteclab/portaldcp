@@ -928,7 +928,7 @@ export default function FornecedorContratoDetalhePage() {
       setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao);
       setOtpEtapa('sucesso');
 
-      await baixarPdfArmazenado(otpMedicaoId);
+      await gerarEBaixarBoletim(otpMedicaoId, data.codigo_validacao, data.codigo_formatado);
 
       carregarDados();
     } catch {
@@ -956,7 +956,7 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
-  const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao: string, codigoFormatado: string) => {
+  const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao?: string, codigoFormatado?: string) => {
     try {
       // Buscar dados atualizados da medição e discriminações
       const [resMedicao, resDiscriminacoes] = await Promise.all([
@@ -1045,15 +1045,28 @@ export default function FornecedorContratoDetalhePage() {
           valor: Number(d.valor || 0),
           percentual: Number(d.percentual || 0),
         })) : undefined,
-        assinatura_fornecedor: {
+        url_validacao: `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`,
+      };
+
+      if (med.data_submissao || codigoValidacao || codigoFormatado) {
+        dadosPdf.assinatura_fornecedor = {
           nome: med.fornecedor_nome || fornecedor?.razao_social || '',
           cnpj: fornecedor?.cpf_cnpj || '',
           cargo: 'Fornecedor / Contratado',
-          data_hora: new Date().toLocaleString('pt-BR'),
+          data_hora: med.data_submissao
+            ? new Date(med.data_submissao).toLocaleString('pt-BR')
+            : new Date().toLocaleString('pt-BR'),
           codigo_validacao: codigoFormatado || codigoValidacao,
-        },
-        url_validacao: `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`,
-      };
+        };
+      }
+
+      if (med.ateste_fiscal_nome) {
+        dadosPdf.assinatura_fiscal = {
+          nome: med.ateste_fiscal_nome,
+          cargo: 'Fiscal de Contrato',
+          data_hora: med.ateste_data ? new Date(med.ateste_data).toLocaleString('pt-BR') : '',
+        };
+      }
 
       const pdfBlob = gerarPdfMedicao(dadosPdf);
 
@@ -1453,7 +1466,7 @@ export default function FornecedorContratoDetalhePage() {
                           )}
                           {medicao.data_submissao && (
                             <Button size="sm" variant="outline" className="gap-1 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={async () => {
-                              await baixarPdfArmazenado(medicao.id)
+                              await gerarEBaixarBoletim(medicao.id)
                             }}>
                               <FileDown className="w-3 h-3" />PDF - BOLETIM DE MEDIÇÃO
                             </Button>
@@ -2760,7 +2773,7 @@ export default function FornecedorContratoDetalhePage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  await baixarPdfArmazenado(medicaoDetalhe.id)
+                  await gerarEBaixarBoletim(medicaoDetalhe.id)
                 }}
               >
                 <FileDown className="w-4 h-4" />
