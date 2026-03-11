@@ -9,10 +9,12 @@ import {
   Body,
   Query,
   Req,
+  Res,
   ForbiddenException,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -151,6 +153,15 @@ export class ModalidadesContratoController {
   ) {
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.medicaoService.listarPendentesAteste(orgaoId);
+  }
+
+  @Get('medicoes/aprovadas')
+  async listarAprovadas(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarAprovadas(orgaoId);
   }
 
   @Get('medicoes/devolvidas')
@@ -442,6 +453,36 @@ export class ModalidadesContratoController {
     }
 
     return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+  }
+
+  @Patch('medicoes/:medicaoId/marcar-enviado-contabilidade')
+  async marcarEnviadoContabilidade(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (request.user.type === UserType.USUARIO && !usuario?.pode_enviar_contabilidade) {
+      throw new ForbiddenException('Você não tem permissão para marcar envio para contabilidade');
+    }
+    const orgaoId = this.getOrgaoId(request.user);
+    const nomeUsuario = usuario?.nome || request.user.email || '';
+    return this.medicaoService.marcarEnviadoContabilidade(medicaoId, orgaoId, nomeUsuario);
+  }
+
+  @Get('medicoes/:medicaoId/download-zip')
+  async downloadZipMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Res() res: Response,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const buffer = await this.medicaoService.gerarZipMedicao(medicaoId, orgaoId);
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="medicao_${medicaoId}.zip"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Patch('medicoes/:medicaoId/submeter')

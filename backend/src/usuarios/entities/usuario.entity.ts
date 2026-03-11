@@ -123,6 +123,13 @@ export class Usuario {
   @Column({ default: false })
   pode_receber_patrimonio: boolean;
 
+  /**
+   * Indica se o usuário pode marcar medições como enviadas para contabilidade.
+   * Apenas usuários com essa permissão podem registrar o envio para pagamento.
+   */
+  @Column({ default: false })
+  pode_enviar_contabilidade: boolean;
+
   @Column({ nullable: true })
   google_id: string;
 
