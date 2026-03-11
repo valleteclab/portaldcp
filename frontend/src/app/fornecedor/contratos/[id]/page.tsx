@@ -198,6 +198,17 @@ interface Anexo {
   created_at: string;
 }
 
+interface AnexoReaproveitado {
+  id: string;
+  tipo: 'FOTO' | 'DOCUMENTO';
+  nome_original: string;
+  nome_arquivo: string;
+  mime_type: string;
+  tamanho_bytes: number;
+  url: string;
+  descricao: string;
+}
+
 // ============ FUNÇÕES ============
 
 // Função para calcular dias com ano comercial (360 dias)
@@ -316,7 +327,8 @@ const formatarData = (data: string | null | undefined) => {
 const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> = {
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-700', icon: FileText },
   SUBMETIDA: { label: 'Submetida', cor: 'bg-blue-100 text-blue-700', icon: Send },
-  AGUARDANDO_ATESTE: { label: 'Aguardando Ateste', cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  EM_ATESTE: { label: 'Em Ateste', cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  ATESTADA: { label: 'Atestada', cor: 'bg-indigo-100 text-indigo-700', icon: CheckCircle },
   PARCIALMENTE_ATESTADA: { label: 'Parcialmente Atestada', cor: 'bg-amber-100 text-amber-700', icon: Clock },
   AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-orange-100 text-orange-700', icon: Clock },
   APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -371,6 +383,7 @@ export default function FornecedorContratoDetalhePage() {
 
   // Arquivos pendentes para upload após criação da medição
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
+  const [anexosReaproveitados, setAnexosReaproveitados] = useState<AnexoReaproveitado[]>([]);
 
   // Estado para execução financeira do backend
   const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null);
@@ -534,6 +547,62 @@ export default function FornecedorContratoDetalhePage() {
       console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const reaproveitarAnexosExistentes = async (medicaoId: string) => {
+    let anexosOriginais = anexos[medicaoId];
+
+    if (!anexosOriginais) {
+      try {
+        const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`);
+        if (res.ok) {
+          anexosOriginais = await res.json();
+          setAnexos(prev => ({ ...prev, [medicaoId]: anexosOriginais || [] }));
+        }
+      } catch {
+        anexosOriginais = [];
+      }
+    }
+
+    setAnexosReaproveitados((anexosOriginais || []).map((anexo: Anexo) => ({
+      id: anexo.id,
+      tipo: anexo.tipo,
+      nome_original: anexo.nome_original,
+      nome_arquivo: anexo.nome_arquivo,
+      mime_type: anexo.mime_type,
+      tamanho_bytes: anexo.tamanho_bytes,
+      url: anexo.url,
+      descricao: anexo.descricao || '',
+    })));
+  };
+
+  const uploadAnexosReaproveitados = async (medicaoId: string) => {
+    if (anexosReaproveitados.length === 0 || !fornecedor) return;
+
+    for (const anexo of anexosReaproveitados) {
+      try {
+        const arquivoUrl = anexo.url.startsWith('http') ? anexo.url : `${API_URL}${anexo.url}`;
+        const arquivoRes = await fetch(arquivoUrl);
+        if (!arquivoRes.ok) continue;
+
+        const blob = await arquivoRes.blob();
+        const file = new File([blob], anexo.nome_original || anexo.nome_arquivo, { type: anexo.mime_type || blob.type });
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('tipo', anexo.tipo);
+        formData.append('fornecedor_id', fornecedor.id);
+        formData.append('fornecedor_nome', fornecedor.razao_social || fornecedor.nome);
+        if (anexo.descricao) formData.append('descricao', anexo.descricao);
+
+        await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`, {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (err) {
+        console.error('Erro ao reaproveitar anexo:', err);
+      }
     }
   };
 
@@ -778,10 +847,13 @@ export default function FornecedorContratoDetalhePage() {
         if (discriminacoes.length > 0 && medicaoSalva?.id) {
           try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
         }
-        if (arquivosPendentes.length > 0 && medicaoSalva?.id) { await uploadArquivosPendentes(medicaoSalva.id); }
+        if (medicaoSalva?.id) {
+          if (anexosReaproveitados.length > 0) { await uploadAnexosReaproveitados(medicaoSalva.id); }
+          if (arquivosPendentes.length > 0) { await uploadArquivosPendentes(medicaoSalva.id); }
+        }
         setModalNovaMedicao(false);
         setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-        setDiscriminacoes([]); setArquivosPendentes([]); setMedicaoParaEditar(null); carregarDados();
+        setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null); carregarDados();
         
         if (medicaoParaEditar) {
           alert('Medição atualizada com sucesso! Clique em "Submeter" para reenviar.');
@@ -885,12 +957,15 @@ export default function FornecedorContratoDetalhePage() {
       if (discriminacoes.length > 0 && medicaoCriada?.id) {
         try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
       }
-      if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
+      if (medicaoCriada?.id) {
+        if (anexosReaproveitados.length > 0) { await uploadAnexosReaproveitados(medicaoCriada.id); }
+        if (arquivosPendentes.length > 0) { await uploadArquivosPendentes(medicaoCriada.id); }
+      }
 
       // Abrir modal OTP para assinatura digital antes de submeter
       setModalNovaMedicao(false);
       setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-      setDiscriminacoes([]); setArquivosPendentes([]);
+      setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]);
       abrirModalOtp(medicaoCriada.id);
     } catch (error) {
       alert('Erro ao criar medição');
@@ -1191,6 +1266,7 @@ export default function FornecedorContratoDetalhePage() {
         : etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
     setArquivosPendentes([]);
+    setAnexosReaproveitados([]);
     setDiscriminacoes([]);
     setModalNovaMedicao(true);
   };
@@ -1364,6 +1440,7 @@ export default function FornecedorContratoDetalhePage() {
         
         // Setar a medição original para atualização
         setMedicaoParaEditar(medicao);
+        await reaproveitarAnexosExistentes(medicao.id);
         await carregarExecucaoFinanceira(medicao.id);
       }
     } catch (error) {
@@ -1875,6 +1952,7 @@ export default function FornecedorContratoDetalhePage() {
           setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
           setDiscriminacoes([]);
           setArquivosPendentes([]);
+          setAnexosReaproveitados([]);
         }
       }}>
         <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
@@ -2584,10 +2662,26 @@ export default function FornecedorContratoDetalhePage() {
                   </Button>
                 </div>
               </div>
-              {arquivosPendentes.length === 0 ? (
+              {anexosReaproveitados.length === 0 && arquivosPendentes.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-2">Nenhum arquivo adicionado. Você pode adicionar fotos e documentos agora ou depois.</p>
               ) : (
                 <div className="space-y-1">
+                  {anexosReaproveitados.map((arq, idx) => (
+                    <div key={arq.id} className="flex items-center justify-between bg-blue-50 rounded px-3 py-1.5 text-xs border border-blue-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{arq.tipo === 'FOTO' ? '📷' : '📄'}</span>
+                        <span className="truncate font-medium">{arq.descricao || arq.nome_original || arq.nome_arquivo}</span>
+                        <span className="text-blue-500 flex-shrink-0">(reaproveitado)</span>
+                        <span className="text-gray-400 flex-shrink-0">({(arq.tamanho_bytes / 1024).toFixed(0)} KB)</span>
+                      </div>
+                      <Button
+                        type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                        onClick={() => setAnexosReaproveitados(prev => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
                   {arquivosPendentes.map((arq, idx) => (
                     <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs border">
                       <div className="flex items-center gap-2 min-w-0">
