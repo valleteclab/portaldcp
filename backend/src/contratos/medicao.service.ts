@@ -1435,6 +1435,44 @@ export class MedicaoService {
     const asFiscal    = assinaturas.find(a => a.papel_assinante === PapelAssinante.FISCAL);
 
     const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
+    const fmtDataBR = (date: Date) =>
+      date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+    // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
+    const itensParaPdf = ((medicao as any).itens || [])
+      .filter((i: any) => i.tipo_item === 'item_cronograma')
+      .map((item: any) => {
+        const vlrUnitario  = Number(item.item_valor_unitario || 0);
+        const qtdMedida    = Number(item.quantidade_medida || 0);
+        const qtdAcumulada = Number(item.item_quantidade_acumulada || 0);
+        const qtdTotal     = Number(item.item_quantidade_total || 0);
+        return {
+          numero:                        Number(item.etapa_numero || item.item_numero || 0),
+          descricao:                     item.item_descricao || item.etapa_descricao || '',
+          unidade:                       item.item_unidade || '',
+          quantidade_no_periodo:         qtdMedida,
+          quantidade_acumulada_aprovada: qtdAcumulada,
+          quantidade_total_contrato:     qtdTotal,
+          valor_no_periodo:              qtdMedida    * vlrUnitario,
+          valor_unitario:                vlrUnitario,
+          valor_acumulado_anterior:      qtdAcumulada * vlrUnitario,
+          valor_total_item:              qtdTotal     * vlrUnitario,
+        };
+      });
+
+    // Itens contratados (para bloco ITENS CONTRATADOS)
+    const itensCronogramaContrato = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_item: 'ASC' } as any,
+    });
+    const itensContratados = itensCronogramaContrato.map((ic, idx) => ({
+      numero:         ic.numero_item || idx + 1,
+      descricao:      ic.descricao || '',
+      unidade:        ic.unidade_medida || '',
+      quantidade:     Number(ic.quantidade || 0),
+      valor_unitario: Number(ic.valor_unitario || 0),
+      valor_total:    Number(ic.valor_total || 0),
+    }));
 
     return {
       orgao_nome:           contrato.orgao?.nome || '',
@@ -1443,6 +1481,8 @@ export class MedicaoService {
       fornecedor_nome:      medicao.fornecedor_nome || fornecedor?.razao_social || '',
       fornecedor_cnpj:      fornecedor?.cpf_cnpj || '',
       valor_total_contrato: Number(contrato.valor_global || 0) || undefined,
+      data_vigencia_inicio: contrato.data_vigencia_inicio || undefined,
+      data_vigencia_fim:    contrato.data_vigencia_fim || undefined,
       numero_medicao:       medicao.numero_medicao || 1,
       periodo_inicio:       medicao.periodo_inicio || '',
       periodo_fim:          medicao.periodo_fim || '',
@@ -1452,6 +1492,8 @@ export class MedicaoService {
       nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
       nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
       execucao_fiscal:      medicao.execucao_fiscal || undefined,
+      itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
+      itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
       discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
         numero:     d.numero_item || idx + 1,
         descricao:  d.descricao || d.tipo_despesa || '',
@@ -1462,14 +1504,14 @@ export class MedicaoService {
         nome:             asFornecedor.usuario_nome,
         cnpj:             asFornecedor.usuario_cpf_cnpj,
         cargo:            asFornecedor.usuario_cargo || 'Fornecedor / Contratado',
-        data_hora:        asFornecedor.data_assinatura.toISOString(),
+        data_hora:        fmtDataBR(asFornecedor.data_assinatura),
         codigo_validacao: fmtCodigo(asFornecedor.codigo_validacao),
       } : undefined,
       assinatura_fiscal: asFiscal ? {
         nome:             asFiscal.usuario_nome,
         cpf:              asFiscal.usuario_cpf_cnpj,
         cargo:            asFiscal.usuario_cargo || 'Fiscal de Contrato',
-        data_hora:        asFiscal.data_assinatura.toISOString(),
+        data_hora:        fmtDataBR(asFiscal.data_assinatura),
         codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
       } : undefined,
       url_validacao: `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento`,
