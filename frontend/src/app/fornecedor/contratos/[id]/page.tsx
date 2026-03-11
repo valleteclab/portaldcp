@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -336,6 +336,7 @@ const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
 export default function FornecedorContratoDetalhePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const contratoId = params.id as string;
 
   const [contrato, setContrato] = useState<Contrato | null>(null);
@@ -345,6 +346,7 @@ export default function FornecedorContratoDetalhePage() {
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [loading, setLoading] = useState(true);
   const [fornecedor, setFornecedor] = useState<any>(null);
+  const [abaAtiva, setAbaAtiva] = useState(searchParams.get('tab') || 'medicoes');
 
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(contrato?.modalidade_execucao || '');
   const usarItensCronograma = itensCronograma.length > 0;
@@ -445,6 +447,55 @@ export default function FornecedorContratoDetalhePage() {
     }
     carregarDados();
   }, [contratoId]);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab) {
+      setAbaAtiva(tab);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const acao = searchParams.get('acao');
+    const medicaoId = searchParams.get('medicaoId');
+
+    if (tab === 'medicoes') {
+      setAbaAtiva('medicoes');
+    }
+
+    if (loading || tab !== 'medicoes' || !acao) return;
+
+    const executarAcao = async () => {
+      if (acao === 'nova') {
+        await abrirModalNovaMedicao();
+      } else if (acao === 'continuar') {
+        const rascunho = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes.find((medicao) => medicao.status === 'RASCUNHO');
+        if (rascunho) {
+          await carregarDadosMedicao(rascunho);
+          setModalNovaMedicao(true);
+        }
+      } else if (acao === 'editar') {
+        const medicaoEditar = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes.find((medicao) => medicao.status === 'DEVOLVIDA');
+        if (medicaoEditar) {
+          await carregarDadosMedicao(medicaoEditar);
+          setModalNovaMedicao(true);
+        }
+      } else if (acao === 'ver') {
+        const medicaoVisualizar = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes[medicoes.length - 1];
+        if (medicaoVisualizar) {
+          await abrirDetalheMedicao(medicaoVisualizar);
+        }
+      }
+
+      const novosParams = new URLSearchParams(searchParams.toString());
+      novosParams.delete('acao');
+      novosParams.delete('medicaoId');
+      router.replace(`/fornecedor/contratos/${contratoId}?${novosParams.toString()}`);
+    };
+
+    executarAcao();
+  }, [searchParams, loading, medicoes, contratoId]);
 
   const carregarDados = async () => {
     setLoading(true);
@@ -1257,6 +1308,24 @@ export default function FornecedorContratoDetalhePage() {
     setModalSubmeter(true);
   };
 
+  const abrirDetalheMedicao = async (medicao: Medicao) => {
+    setModalDetalhe(true);
+    setMedicaoDetalhe(medicao);
+    setDiscriminacoesDetalhe([]);
+    setEditandoItensDetalhe(false);
+    setItensEditados({});
+
+    try {
+      const [medRes, dRes] = await Promise.all([
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
+      ]);
+
+      if (medRes.ok) setMedicaoDetalhe(await medRes.json());
+      if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
+    } catch {}
+  };
+
   // Carregar dados da medição devolvida para edição
   const carregarDadosMedicao = async (medicao: Medicao) => {
     try {
@@ -1427,7 +1496,7 @@ export default function FornecedorContratoDetalhePage() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="medicoes">
+      <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
         <TabsList>
           <TabsTrigger value="medicoes" className="gap-2">
             <FileText className="w-4 h-4" />Medições ({medicoes.length})
@@ -1518,19 +1587,7 @@ export default function FornecedorContratoDetalhePage() {
                               setModalNovaMedicao(true);
                             } else {
                               // Abrir modal de detalhes para outros status
-                              setModalDetalhe(true);
-                              setMedicaoDetalhe(medicao);
-                              setDiscriminacoesDetalhe([]);
-                              setEditandoItensDetalhe(false);
-                              setItensEditados({});
-                              try {
-                                const [medRes, dRes] = await Promise.all([
-                                  authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
-                                  authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
-                                ]);
-                                if (medRes.ok) setMedicaoDetalhe(await medRes.json());
-                                if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
-                              } catch {}
+                              await abrirDetalheMedicao(medicao);
                             }
                           }}>
                             {medicao.status === 'DEVOLVIDA' ? (

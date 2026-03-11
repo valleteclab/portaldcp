@@ -116,6 +116,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/fornecedor/licitacoes", label: "Licitações Disponíveis", icon: Search },
     { href: "/fornecedor/participacoes", label: "Minhas Participações", icon: FileText },
     { href: "/fornecedor/propostas", label: "Minhas Propostas", icon: Gavel },
+    { href: "/fornecedor/medicoes", label: "Medições", icon: ClipboardCheck },
     { href: "/fornecedor/contratos", label: "Meus Contratos", icon: FileCheck },
     { href: "/fornecedor/ordens", label: "Ordens de Fornecimento", icon: Send },
     { href: "/fornecedor/cadastro-sicaf", label: "Meu Cadastro", icon: User },
