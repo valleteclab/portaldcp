@@ -274,6 +274,9 @@ export default function MedicoesV2Page() {
   const [etapaAssinatura, setEtapaAssinatura] = useState<'idle' | 'aguardando' | 'assinado' | 'recusado'>('idle')
   const [statusAssinatura, setStatusAssinatura] = useState<any>(null)
   const [loadingAssinatura, setLoadingAssinatura] = useState(false)
+  const [whatsappFiscal, setWhatsappFiscal] = useState('')
+  const [otpFiscal, setOtpFiscal] = useState('')
+  const [codigoAssinatura, setCodigoAssinatura] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Aba aprovadas
