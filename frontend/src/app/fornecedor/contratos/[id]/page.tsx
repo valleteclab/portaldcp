@@ -1932,6 +1932,26 @@ export default function FornecedorContratoDetalhePage() {
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-lg border bg-orange-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-700">Vigência do contrato</p>
+                <p className="mt-1 text-sm font-semibold text-orange-900">
+                  {contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim
+                    ? `${formatarData(contrato.data_vigencia_inicio)} a ${formatarData(contrato.data_vigencia_fim)}`
+                    : '-'}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-blue-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Saldo disponível</p>
+                <p className={`mt-1 text-sm font-semibold ${(resumo?.saldo_disponivel || 0) > 0 ? 'text-blue-900' : 'text-red-700'}`}>
+                  {formatarMoeda(resumo?.saldo_disponivel || 0)}
+                </p>
+                {(resumo?.valor_em_analise || 0) > 0 && (
+                  <p className="mt-1 text-xs text-amber-600">Em análise: {formatarMoeda(resumo?.valor_em_analise || 0)}</p>
+                )}
+              </div>
+            </div>
+
             {/* Período */}
             <div className="grid grid-cols-2 gap-4">
               <div>
