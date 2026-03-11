@@ -1409,6 +1409,73 @@ export class MedicaoService {
     };
   }
 
+  /**
+   * Monta dados no formato DadosMedicaoPdf (compatível com a lib jsPDF do frontend)
+   * incluindo assinaturas já registradas, para o frontend regenerar o PDF com o layout correto.
+   */
+  async montarDadosPdfFrontend(medicaoId: string): Promise<any> {
+    const medicao = await this.buscarMedicaoCompleta(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const fornecedor = contrato.fornecedor_id
+      ? await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } })
+      : null;
+
+    const discriminacoes = await this.listarDiscriminacoes(medicaoId);
+
+    const assinaturas = await this.assinaturaDigitalRepository.find({
+      where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
+      order: { data_assinatura: 'ASC' },
+    });
+    const asFornecedor = assinaturas.find(a => a.papel_assinante === PapelAssinante.FORNECEDOR);
+    const asFiscal    = assinaturas.find(a => a.papel_assinante === PapelAssinante.FISCAL);
+
+    const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
+
+    return {
+      orgao_nome:           contrato.orgao?.nome || '',
+      numero_contrato:      contrato.numero_contrato || '',
+      objeto_contrato:      contrato.objeto || '',
+      fornecedor_nome:      medicao.fornecedor_nome || fornecedor?.razao_social || '',
+      fornecedor_cnpj:      fornecedor?.cpf_cnpj || '',
+      valor_total_contrato: Number(contrato.valor_global || 0) || undefined,
+      numero_medicao:       medicao.numero_medicao || 1,
+      periodo_inicio:       medicao.periodo_inicio || '',
+      periodo_fim:          medicao.periodo_fim || '',
+      competencia:          (medicao as any).competencia || undefined,
+      valor_medido:         Number(medicao.valor_medido || 0),
+      execucao_financeira_totais: (medicao.execucao_financeira as any)?.totais || undefined,
+      nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
+      nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
+      execucao_fiscal:      medicao.execucao_fiscal || undefined,
+      discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
+        numero:     d.numero_item || idx + 1,
+        descricao:  d.descricao || d.tipo_despesa || '',
+        valor:      Number(d.valor || 0),
+        percentual: Number(d.percentual || 0),
+      })) || undefined,
+      assinatura_fornecedor: asFornecedor ? {
+        nome:             asFornecedor.usuario_nome,
+        cnpj:             asFornecedor.usuario_cpf_cnpj,
+        cargo:            asFornecedor.usuario_cargo || 'Fornecedor / Contratado',
+        data_hora:        asFornecedor.data_assinatura.toISOString(),
+        codigo_validacao: fmtCodigo(asFornecedor.codigo_validacao),
+      } : undefined,
+      assinatura_fiscal: asFiscal ? {
+        nome:             asFiscal.usuario_nome,
+        cpf:              asFiscal.usuario_cpf_cnpj,
+        cargo:            asFiscal.usuario_cargo || 'Fiscal de Contrato',
+        data_hora:        asFiscal.data_assinatura.toISOString(),
+        codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
+      } : undefined,
+      url_validacao: `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento`,
+    };
+  }
+
   async gerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
     const dadosMedicao = await this.montarDadosPdfOficialMedicao(medicaoId);
     const assinaturas = await this.assinaturaDigitalRepository.find({
@@ -3648,18 +3715,19 @@ export class MedicaoService {
 
     this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
 
-    // Regenerar PDF oficial com a assinatura do fiscal incluída
+    // Montar dados para o frontend regenerar o PDF com o layout correto (jsPDF)
+    let dados_pdf: any = null;
     try {
-      await this.gerarPdfOficialMedicao(medicaoId);
-      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${medicaoId}`);
+      dados_pdf = await this.montarDadosPdfFrontend(medicaoId);
     } catch (err) {
-      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal: ${err.message}`);
+      this.logger.warn(`Não foi possível montar dados PDF após assinatura fiscal: ${err.message}`);
     }
 
     return {
       sucesso: true,
       codigo_validacao: assinatura.codigo_validacao,
       codigo_formatado: assinatura.codigo_formatado,
+      dados_pdf,
     };
   }
 

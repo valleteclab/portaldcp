@@ -22,6 +22,7 @@ import {
   TrendingUp, FileText, Eye, Paperclip, PenLine, Archive, CheckSquare, Square,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { gerarPdfMedicao } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
@@ -1358,6 +1359,20 @@ export default function MedicoesV2Page() {
                             const data = await res.json()
                             setCodigoAssinatura(data.codigo_formatado || data.codigo_validacao || '—')
                             setEtapaAssinatura('assinado')
+                            // Regenerar boletim com mesmo layout do fornecedor (jsPDF) + assinatura fiscal
+                            try {
+                              if (data.dados_pdf) {
+                                const pdfBlob = gerarPdfMedicao(data.dados_pdf)
+                                const formData = new FormData()
+                                formData.append('arquivo', pdfBlob, `boletim_${modalAteste.id}.pdf`)
+                                await authFetch(
+                                  `${API_URL}/api/contratos/medicoes/${modalAteste.id}/upload-boletim-oficial`,
+                                  { method: 'POST', body: formData }
+                                )
+                              }
+                            } catch (e) {
+                              console.warn('Não foi possível regenerar o boletim após assinatura:', e)
+                            }
                           } else {
                             const err = await res.json().catch(() => ({}))
                             alert(err.message || 'Código inválido ou expirado.')

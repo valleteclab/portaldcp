@@ -13,7 +13,10 @@ import {
   ForbiddenException,
   BadRequestException,
   NotFoundException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
@@ -918,6 +921,17 @@ export class ModalidadesContratoController {
       usuario_cargo: usuario?.cargo || 'Fiscal',
       orgao_id: orgaoId,
     });
+  }
+
+  @Post('medicoes/:medicaoId/upload-boletim-oficial')
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  async uploadBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
+    const pdfUrl = await this.medicaoService.salvarBoletimPdf(medicaoId, file.buffer);
+    return { url: pdfUrl };
   }
 
   @Post('medicoes/:medicaoId/assinar')
