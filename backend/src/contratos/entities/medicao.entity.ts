@@ -246,6 +246,17 @@ export class Medicao {
   @Column({ type: 'text', nullable: true })
   boletim_pdf_url: string; // URL/caminho do PDF do boletim assinado digitalmente
 
+  // ============ ENVIO PARA CONTABILIDADE ============
+
+  @Column({ name: 'enviado_contabilidade', type: 'boolean', default: false })
+  enviado_contabilidade: boolean;
+
+  @Column({ name: 'data_envio_contabilidade', type: 'timestamp', nullable: true })
+  data_envio_contabilidade: Date | null;
+
+  @Column({ name: 'enviado_contabilidade_por_nome', type: 'varchar', length: 255, nullable: true })
+  enviado_contabilidade_por_nome: string | null;
+
   // ============ DEVOLUÇÃO (quando fiscal devolve ao fornecedor) ============
 
   @Column({ type: 'text', nullable: true })

@@ -19,9 +19,10 @@ import {
 import {
   ClipboardCheck, FileDown, Search, Loader2, CheckCircle, Clock,
   AlertTriangle, Shield, ChevronLeft, ChevronRight, X, Download, Plus,
-  TrendingUp, FileText, Eye, Paperclip, PenLine,
+  TrendingUp, FileText, Eye, Paperclip, PenLine, Archive, CheckSquare, Square,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { gerarPdfMedicao } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
@@ -98,7 +99,7 @@ interface ContratoResumo {
   valor_medicoes_mes?: number
 }
 
-type StatusFiltro = 'todos' | 'aguardando' | 'em_analise'
+type StatusFiltro = 'todos' | 'aguardando' | 'em_analise' | 'aprovadas'
 type TipoFiltro = 'todos' | 'servicos' | 'fornecimento' | 'obras'
 
 // ============ HELPERS ============
@@ -274,6 +275,11 @@ export default function MedicoesV2Page() {
   const [loadingAssinatura, setLoadingAssinatura] = useState(false)
   const [codigoAssinatura, setCodigoAssinatura] = useState<string | null>(null)
 
+  // Aba aprovadas
+  const [aprovadas, setAprovadas] = useState<any[]>([])
+  const [loadingAprovadas, setLoadingAprovadas] = useState(false)
+  const [downloadingZip, setDownloadingZip] = useState<string | null>(null)
+
   // Modal TabMedicao
   const [contratoAberto, setContratoAberto] = useState<ContratoResumo | null>(null)
 
@@ -311,6 +317,70 @@ export default function MedicoesV2Page() {
 
   // Reset página ao mudar filtros
   useEffect(() => { setPagina(1) }, [busca, statusFiltro, tipoFiltro, periodo])
+
+  // Carregar medições aprovadas quando a aba for selecionada
+  useEffect(() => {
+    if (statusFiltro !== 'aprovadas') return
+    const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+    const orgaoId = orgao.id
+    if (!orgaoId) return
+    setLoadingAprovadas(true)
+    authFetch(`${API_URL}/api/contratos/medicoes/aprovadas?orgaoId=${orgaoId}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setAprovadas)
+      .finally(() => setLoadingAprovadas(false))
+  }, [statusFiltro])
+
+  // ============ APROVADAS — AÇÕES ============
+
+  const baixarBoletim = async (medicao: any) => {
+    const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/boletim-oficial`)
+    if (!res.ok) { alert('Boletim não disponível'); return }
+    const { pdf_url, filename } = await res.json()
+    const fileUrl = pdf_url.startsWith('http') ? pdf_url : `${API_URL}${pdf_url}`
+    const fileRes = await fetch(fileUrl)
+    const blob = await fileRes.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename || `boletim_${medicao.numero_medicao}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href) }, 1000)
+  }
+
+  const baixarZip = async (medicaoId: string, numero: number) => {
+    setDownloadingZip(medicaoId)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/download-zip`)
+      if (!res.ok) { alert('Erro ao gerar ZIP'); return }
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `medicao_${numero}_documentos.zip`
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href) }, 1000)
+    } finally {
+      setDownloadingZip(null)
+    }
+  }
+
+  const toggleContabilidade = async (medicaoId: string) => {
+    const res = await authFetch(
+      `${API_URL}/api/contratos/medicoes/${medicaoId}/marcar-enviado-contabilidade`,
+      { method: 'PATCH' }
+    )
+    if (res.ok) {
+      const data = await res.json()
+      setAprovadas(prev => prev.map(m =>
+        m.id === medicaoId
+          ? { ...m, enviado_contabilidade: data.enviado_contabilidade, data_envio_contabilidade: data.data_envio_contabilidade }
+          : m
+      ))
+    } else {
+      alert('Sem permissão para esta ação')
+    }
+  }
 
   // ============ ATESTE ============
 
@@ -591,6 +661,7 @@ export default function MedicoesV2Page() {
               <SelectContent>
                 <SelectItem value="aguardando">Aguardando Análise</SelectItem>
                 <SelectItem value="em_analise">Em Análise</SelectItem>
+                <SelectItem value="aprovadas">Aprovadas</SelectItem>
                 <SelectItem value="todos">Todos</SelectItem>
               </SelectContent>
             </Select>
@@ -650,7 +721,134 @@ export default function MedicoesV2Page() {
         </div>
       </div>
 
-      {/* ============ TABELA ============ */}
+      {/* ============ TABELA APROVADAS ============ */}
+      {statusFiltro === 'aprovadas' && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              Medições Aprovadas
+              <Badge variant="secondary" className="ml-1">{aprovadas.length}</Badge>
+            </h2>
+            <span className="text-sm text-gray-500">{aprovadas.length} registros</span>
+          </div>
+          <div className="overflow-x-auto">
+            {loadingAprovadas ? (
+              <div className="flex items-center justify-center py-16 text-gray-400">
+                <Loader2 className="w-6 h-6 animate-spin mr-2" /> Carregando...
+              </div>
+            ) : aprovadas.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
+                <CheckCircle className="w-10 h-10 text-gray-200" />
+                <p className="text-sm">Nenhuma medição aprovada encontrada</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50 hover:bg-gray-50">
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">N° Medição / Contrato</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">Fornecedor</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">Período</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">Valor</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">Documentos</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">Contabilidade</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3 text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aprovadas.map((m) => (
+                    <TableRow key={m.id} className="hover:bg-gray-50/50">
+                      <TableCell className="py-4">
+                        <p className="font-mono text-xs font-semibold text-gray-800">
+                          MED-{new Date(m.periodo_inicio).getFullYear()}-{String(m.numero_medicao).padStart(4, '0')}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate max-w-[200px]">
+                          Contrato {m.contrato?.numero_contrato}
+                        </p>
+                      </TableCell>
+                      <TableCell className="py-4 text-sm text-gray-700 max-w-[160px] truncate">
+                        {m.fornecedor_nome}
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <p className="text-xs text-gray-600">
+                          {formatarData(m.periodo_inicio)} – {formatarData(m.periodo_fim)}
+                        </p>
+                        {m.competencia && <p className="text-xs text-gray-400">{m.competencia}</p>}
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <p className="text-sm font-semibold text-gray-800">{formatarMoeda(m.valor_medido)}</p>
+                        <p className="text-xs text-gray-400">{formatarData(m.data_aprovacao)}</p>
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {m.boletim_pdf_url ? (
+                            <Badge className="bg-green-100 text-green-700 text-xs font-normal">✓ Boletim</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs text-gray-400 font-normal">Sem boletim</Badge>
+                          )}
+                          {m.total_anexos > 0 && (
+                            <Badge variant="outline" className="text-xs font-normal flex items-center gap-0.5">
+                              <Paperclip className="w-3 h-3" />{m.total_anexos}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-4">
+                        {m.enviado_contabilidade ? (
+                          <div>
+                            <Badge className="bg-green-100 text-green-800 text-xs font-normal">Enviado</Badge>
+                            <p className="text-xs text-gray-400 mt-0.5">{formatarData(m.data_envio_contabilidade)}</p>
+                            {m.enviado_contabilidade_por_nome && (
+                              <p className="text-xs text-gray-400 truncate max-w-[120px]">{m.enviado_contabilidade_por_nome}</p>
+                            )}
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-gray-400 font-normal">Pendente</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="icon" variant="ghost" className="h-7 w-7"
+                            title="Baixar Boletim PDF"
+                            disabled={!m.boletim_pdf_url}
+                            onClick={() => baixarBoletim(m)}
+                          >
+                            <FileDown className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="icon" variant="ghost" className="h-7 w-7"
+                            title="Baixar todos os documentos (ZIP)"
+                            disabled={downloadingZip === m.id}
+                            onClick={() => baixarZip(m.id, m.numero_medicao)}
+                          >
+                            {downloadingZip === m.id
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <Archive className="w-4 h-4" />}
+                          </Button>
+                          <Button
+                            size="icon" variant="ghost"
+                            className={`h-7 w-7 ${m.enviado_contabilidade ? 'text-green-600' : 'text-gray-400'}`}
+                            title={m.enviado_contabilidade ? 'Desmarcar envio para contabilidade' : 'Marcar como impresso e enviado para contabilidade'}
+                            onClick={() => toggleContabilidade(m.id)}
+                          >
+                            {m.enviado_contabilidade
+                              ? <CheckSquare className="w-4 h-4" />
+                              : <Square className="w-4 h-4" />}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============ TABELA PENDENTES ============ */}
+      {statusFiltro !== 'aprovadas' && (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {/* Cabeçalho da seção */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -857,6 +1055,7 @@ export default function MedicoesV2Page() {
           </div>
         )}
       </div>
+      )}
 
       {/* ============ MODAL: ATESTE DIRETO ============ */}
       <Dialog open={!!modalAteste} onOpenChange={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setWhatsappFiscal(''); setOtpFiscal(''); setCodigoAssinatura(null) }}>
@@ -1160,6 +1359,20 @@ export default function MedicoesV2Page() {
                             const data = await res.json()
                             setCodigoAssinatura(data.codigo_formatado || data.codigo_validacao || '—')
                             setEtapaAssinatura('assinado')
+                            // Regenerar boletim com mesmo layout do fornecedor (jsPDF) + assinatura fiscal
+                            try {
+                              if (data.dados_pdf) {
+                                const pdfBlob = gerarPdfMedicao(data.dados_pdf)
+                                const formData = new FormData()
+                                formData.append('arquivo', pdfBlob, `boletim_${modalAteste.id}.pdf`)
+                                await authFetch(
+                                  `${API_URL}/api/contratos/medicoes/${modalAteste.id}/upload-boletim-oficial`,
+                                  { method: 'POST', body: formData }
+                                )
+                              }
+                            } catch (e) {
+                              console.warn('Não foi possível regenerar o boletim após assinatura:', e)
+                            }
                           } else {
                             const err = await res.json().catch(() => ({}))
                             alert(err.message || 'Código inválido ou expirado.')

@@ -33,6 +33,7 @@ export class UsuariosService {
     eh_fiscal_contrato?: boolean;
     pode_gerenciar_os?: boolean;
     pode_receber_patrimonio?: boolean;
+    pode_enviar_contabilidade?: boolean;
   }): Promise<Usuario> {
     const existente = await this.usuarioRepository.findOneBy({ email: data.email });
     if (existente) {
@@ -61,6 +62,7 @@ export class UsuariosService {
       eh_fiscal_contrato: data.eh_fiscal_contrato || false,
       pode_gerenciar_os: data.pode_gerenciar_os || false,
       pode_receber_patrimonio: data.pode_receber_patrimonio || false,
+      pode_enviar_contabilidade: data.pode_enviar_contabilidade || false,
     });
 
     return await this.usuarioRepository.save(usuario);
@@ -123,6 +125,7 @@ export class UsuariosService {
     eh_fiscal_contrato: boolean;
     pode_gerenciar_os: boolean;
     pode_receber_patrimonio: boolean;
+    pode_enviar_contabilidade?: boolean;
   }>): Promise<Usuario> {
     const usuario = await this.findById(id);
 
@@ -286,6 +289,7 @@ export class UsuariosService {
     eh_fiscal_contrato?: boolean;
     pode_gerenciar_os?: boolean;
     pode_receber_patrimonio?: boolean;
+    pode_enviar_contabilidade?: boolean;
   }): Promise<Usuario> {
     const usuario = await this.findById(id);
     if (usuario.status !== 'PENDENTE') {
@@ -304,6 +308,7 @@ export class UsuariosService {
       eh_fiscal_contrato: dados.eh_fiscal_contrato ?? false,
       pode_gerenciar_os: dados.pode_gerenciar_os ?? false,
       pode_receber_patrimonio: dados.pode_receber_patrimonio ?? false,
+      pode_enviar_contabilidade: dados.pode_enviar_contabilidade ?? false,
     });
     this.logger.log(`Usuário ${usuario.email} aprovado por ${adminId}`);
     return await this.usuarioRepository.save(usuario);

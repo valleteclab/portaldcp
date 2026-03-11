@@ -6,6 +6,7 @@ import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronogr
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
+import { AnexoMedicao } from './entities/anexo-medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
@@ -60,6 +61,8 @@ export class MedicaoService {
     private fornecedorRepository: Repository<Fornecedor>,
     @InjectRepository(AssinaturaDigital)
     private assinaturaDigitalRepository: Repository<AssinaturaDigital>,
+    @InjectRepository(AnexoMedicao)
+    private anexoMedicaoRepository: Repository<AnexoMedicao>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
     private geradorPdfService: GeradorPdfService,
@@ -1406,6 +1409,73 @@ export class MedicaoService {
     };
   }
 
+  /**
+   * Monta dados no formato DadosMedicaoPdf (compatível com a lib jsPDF do frontend)
+   * incluindo assinaturas já registradas, para o frontend regenerar o PDF com o layout correto.
+   */
+  async montarDadosPdfFrontend(medicaoId: string): Promise<any> {
+    const medicao = await this.buscarMedicaoCompleta(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const fornecedor = contrato.fornecedor_id
+      ? await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } })
+      : null;
+
+    const discriminacoes = await this.listarDiscriminacoes(medicaoId);
+
+    const assinaturas = await this.assinaturaDigitalRepository.find({
+      where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
+      order: { data_assinatura: 'ASC' },
+    });
+    const asFornecedor = assinaturas.find(a => a.papel_assinante === PapelAssinante.FORNECEDOR);
+    const asFiscal    = assinaturas.find(a => a.papel_assinante === PapelAssinante.FISCAL);
+
+    const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
+
+    return {
+      orgao_nome:           contrato.orgao?.nome || '',
+      numero_contrato:      contrato.numero_contrato || '',
+      objeto_contrato:      contrato.objeto || '',
+      fornecedor_nome:      medicao.fornecedor_nome || fornecedor?.razao_social || '',
+      fornecedor_cnpj:      fornecedor?.cpf_cnpj || '',
+      valor_total_contrato: Number(contrato.valor_global || 0) || undefined,
+      numero_medicao:       medicao.numero_medicao || 1,
+      periodo_inicio:       medicao.periodo_inicio || '',
+      periodo_fim:          medicao.periodo_fim || '',
+      competencia:          (medicao as any).competencia || undefined,
+      valor_medido:         Number(medicao.valor_medido || 0),
+      execucao_financeira_totais: (medicao.execucao_financeira as any)?.totais || undefined,
+      nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
+      nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
+      execucao_fiscal:      medicao.execucao_fiscal || undefined,
+      discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
+        numero:     d.numero_item || idx + 1,
+        descricao:  d.descricao || d.tipo_despesa || '',
+        valor:      Number(d.valor || 0),
+        percentual: Number(d.percentual || 0),
+      })) || undefined,
+      assinatura_fornecedor: asFornecedor ? {
+        nome:             asFornecedor.usuario_nome,
+        cnpj:             asFornecedor.usuario_cpf_cnpj,
+        cargo:            asFornecedor.usuario_cargo || 'Fornecedor / Contratado',
+        data_hora:        asFornecedor.data_assinatura.toISOString(),
+        codigo_validacao: fmtCodigo(asFornecedor.codigo_validacao),
+      } : undefined,
+      assinatura_fiscal: asFiscal ? {
+        nome:             asFiscal.usuario_nome,
+        cpf:              asFiscal.usuario_cpf_cnpj,
+        cargo:            asFiscal.usuario_cargo || 'Fiscal de Contrato',
+        data_hora:        asFiscal.data_assinatura.toISOString(),
+        codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
+      } : undefined,
+      url_validacao: `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento`,
+    };
+  }
+
   async gerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
     const dadosMedicao = await this.montarDadosPdfOficialMedicao(medicaoId);
     const assinaturas = await this.assinaturaDigitalRepository.find({
@@ -1597,6 +1667,126 @@ export class MedicaoService {
         objeto_contrato: contrato?.objeto,
       };
     });
+  }
+
+  // ============================================================================
+  // MEDIÇÕES APROVADAS — Listagem, contabilidade e ZIP
+  // ============================================================================
+
+  async listarAprovadas(orgaoId: string): Promise<any[]> {
+    const medicoes = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.contrato', 'c')
+      .innerJoin('c.orgao', 'o')
+      .where('o.id = :orgaoId', { orgaoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .orderBy('m.data_aprovacao', 'DESC')
+      .getMany();
+
+    if (medicoes.length === 0) return [];
+
+    const ids = medicoes.map(m => m.id);
+    const counts = await this.anexoMedicaoRepository
+      .createQueryBuilder('a')
+      .select('a.medicao_id', 'medicao_id')
+      .addSelect('COUNT(a.id)', 'total')
+      .where('a.medicao_id IN (:...ids)', { ids })
+      .groupBy('a.medicao_id')
+      .getRawMany();
+
+    const countMap = Object.fromEntries(counts.map(c => [c.medicao_id, Number(c.total)]));
+
+    return medicoes.map(m => {
+      const contrato = (m as any).contrato;
+      return {
+        id: m.id,
+        numero_medicao: m.numero_medicao,
+        contrato_id: m.contrato_id,
+        periodo_inicio: m.periodo_inicio,
+        periodo_fim: m.periodo_fim,
+        valor_medido: m.valor_medido,
+        boletim_pdf_url: m.boletim_pdf_url,
+        data_aprovacao: m.data_aprovacao,
+        fornecedor_nome: m.fornecedor_nome || contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
+        competencia: m.competencia,
+        enviado_contabilidade: m.enviado_contabilidade,
+        data_envio_contabilidade: m.data_envio_contabilidade,
+        enviado_contabilidade_por_nome: m.enviado_contabilidade_por_nome,
+        contrato: {
+          numero_contrato: contrato?.numero_contrato,
+          objeto_contrato: contrato?.objeto,
+          modalidade_execucao: contrato?.modalidade_execucao,
+        },
+        total_anexos: countMap[m.id] || 0,
+      };
+    });
+  }
+
+  async marcarEnviadoContabilidade(
+    medicaoId: string,
+    orgaoId: string,
+    usuarioNome: string,
+  ): Promise<{ enviado_contabilidade: boolean; data_envio_contabilidade: Date | null }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.orgao'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if ((medicao as any).contrato?.orgao?.id !== orgaoId) throw new ForbiddenException('Acesso negado');
+
+    const novoEstado = !medicao.enviado_contabilidade;
+    medicao.enviado_contabilidade = novoEstado;
+    medicao.data_envio_contabilidade = novoEstado ? new Date() : null;
+    medicao.enviado_contabilidade_por_nome = novoEstado ? usuarioNome : null;
+    await this.medicaoRepository.save(medicao);
+
+    return {
+      enviado_contabilidade: medicao.enviado_contabilidade,
+      data_envio_contabilidade: medicao.data_envio_contabilidade,
+    };
+  }
+
+  async gerarZipMedicao(medicaoId: string, orgaoId: string): Promise<Buffer> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.orgao'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if ((medicao as any).contrato?.orgao?.id !== orgaoId) throw new ForbiddenException('Acesso negado');
+
+    const anexos = await this.anexoMedicaoRepository.find({ where: { medicao_id: medicaoId } });
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const archiver = require('archiver');
+    const chunks: Buffer[] = [];
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    await new Promise<void>((resolve, reject) => {
+      archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+      archive.on('end', resolve);
+      archive.on('error', reject);
+
+      // 1. Boletim PDF assinado
+      if (medicao.boletim_pdf_url) {
+        const pdfPath = path.join(process.cwd(), medicao.boletim_pdf_url.replace(/^\/api/, ''));
+        if (fs.existsSync(pdfPath)) {
+          archive.file(pdfPath, { name: `boletim_medicao_${medicao.numero_medicao}.pdf` });
+        }
+      }
+
+      // 2. Todos os anexos (FOTO, DOCUMENTO — inclui nota fiscal se enviada como anexo)
+      for (const anexo of anexos) {
+        const filePath = path.join(process.cwd(), anexo.url.replace(/^\/api/, ''));
+        if (fs.existsSync(filePath)) {
+          const prefix = anexo.tipo === 'FOTO' ? 'foto' : 'doc';
+          archive.file(filePath, { name: `${prefix}_${anexo.nome_original}` });
+        }
+      }
+
+      archive.finalize();
+    });
+
+    return Buffer.concat(chunks);
   }
 
   /**
@@ -3525,18 +3715,19 @@ export class MedicaoService {
 
     this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
 
-    // Regenerar PDF oficial com a assinatura do fiscal incluída
+    // Montar dados para o frontend regenerar o PDF com o layout correto (jsPDF)
+    let dados_pdf: any = null;
     try {
-      await this.gerarPdfOficialMedicao(medicaoId);
-      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${medicaoId}`);
+      dados_pdf = await this.montarDadosPdfFrontend(medicaoId);
     } catch (err) {
-      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal: ${err.message}`);
+      this.logger.warn(`Não foi possível montar dados PDF após assinatura fiscal: ${err.message}`);
     }
 
     return {
       sucesso: true,
       codigo_validacao: assinatura.codigo_validacao,
       codigo_formatado: assinatura.codigo_formatado,
+      dados_pdf,
     };
   }
 
