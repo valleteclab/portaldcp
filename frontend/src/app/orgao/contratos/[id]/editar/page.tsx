@@ -235,6 +235,48 @@ export default function EditarContratoPage() {
     }
   }
 
+  const atualizarFornecedorExistente = async () => {
+    if (!fornecedorExistente) return
+    const razao = novoFornecedorRazao.trim()
+    if (!razao) {
+      setErroNovoFornecedor('Informe a razão social')
+      return
+    }
+    setSalvandoFornecedor(true)
+    setErroNovoFornecedor(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${fornecedorExistente.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ razao_social: razao }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Erro ao atualizar fornecedor')
+      }
+      const fornecedorAtualizado = await res.json()
+      setFornecedores(prev => prev.map(f => (
+        f.id === fornecedorExistente.id
+          ? { ...f, razao_social: fornecedorAtualizado.razao_social || razao }
+          : f
+      )))
+      setFormData(prev => ({
+        ...prev,
+        fornecedor_id: fornecedorExistente.id,
+        fornecedor_cnpj: fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj || prev.fornecedor_cnpj,
+        fornecedor_razao_social: fornecedorAtualizado.razao_social || razao,
+      }))
+      setFornecedorExistente(prev => prev ? { ...prev, razao_social: fornecedorAtualizado.razao_social || razao } : prev)
+      setShowNovoFornecedor(false)
+      setNovoFornecedorCnpj('')
+      setNovoFornecedorRazao('')
+    } catch (err: unknown) {
+      setErroNovoFornecedor(err instanceof Error ? err.message : 'Erro ao atualizar fornecedor')
+    } finally {
+      setSalvandoFornecedor(false)
+    }
+  }
+
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
@@ -425,6 +467,7 @@ export default function EditarContratoPage() {
                     <div className="p-3 rounded-lg bg-amber-50 text-amber-800 text-sm border border-amber-200">
                       <p className="font-medium">Fornecedor já cadastrado</p>
                       <p className="mt-1">{fornecedorExistente.razao_social} — {fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj}</p>
+                      <p className="mt-2 text-xs">Se a razão social estiver incorreta, você pode ajustá-la abaixo e salvar a correção.</p>
                       <Button type="button" size="sm" className="mt-2" onClick={() => { handleFornecedorChange(fornecedorExistente.id); setShowNovoFornecedor(false); setFornecedorExistente(null); setNovoFornecedorCnpj(''); setNovoFornecedorRazao(''); }}>Usar este fornecedor</Button>
                     </div>
                   )}
@@ -447,9 +490,15 @@ export default function EditarContratoPage() {
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setShowNovoFornecedor(false)} disabled={salvandoFornecedor}>Cancelar</Button>
-                  <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor || !!fornecedorExistente}>
-                    {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cadastrando...</> : <>Cadastrar</>}
-                  </Button>
+                  {fornecedorExistente ? (
+                    <Button type="button" onClick={atualizarFornecedorExistente} disabled={salvandoFornecedor}>
+                      {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <>Salvar correção</>}
+                    </Button>
+                  ) : (
+                    <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor}>
+                      {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cadastrando...</> : <>Cadastrar</>}
+                    </Button>
+                  )}
                 </DialogFooter>
               </DialogContent>
             </Dialog>
