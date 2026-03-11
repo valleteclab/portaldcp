@@ -1467,6 +1467,7 @@ export default function FornecedorContratoDetalhePage() {
               {medicoes.map((medicao) => {
                 const statusInfo = STATUS_MEDICAO[medicao.status] || STATUS_MEDICAO.RASCUNHO;
                 const StatusIcon = statusInfo.icon;
+                const medicaoDevolvidaSuperada = medicao.status === 'DEVOLVIDA' && medicoes.some((outraMedicao) => outraMedicao.numero_medicao > medicao.numero_medicao);
                 return (
                   <Card key={medicao.id} className={`hover:shadow-md transition-shadow ${medicao.status === 'DEVOLVIDA' ? 'border-amber-300' : ''}`}>
                     <CardContent className="pt-4 pb-4">
@@ -1510,7 +1511,7 @@ export default function FornecedorContratoDetalhePage() {
                               <FileDown className="w-3 h-3" />PDF - BOLETIM DE MEDIÇÃO
                             </Button>
                           )}
-                          <Button size="sm" variant="outline" onClick={async () => {
+                          <Button size="sm" variant="outline" disabled={medicaoDevolvidaSuperada} title={medicaoDevolvidaSuperada ? 'Esta medição devolvida já foi substituída por uma medição posterior.' : undefined} onClick={async () => {
                             if (medicao.status === 'DEVOLVIDA') {
                               // Abrir modal de criação com dados da medição devolvida
                               await carregarDadosMedicao(medicao);
@@ -1534,7 +1535,7 @@ export default function FornecedorContratoDetalhePage() {
                           }}>
                             {medicao.status === 'DEVOLVIDA' ? (
                               <>
-                                <Edit className="w-3 h-3 mr-1" />Editar
+                                <Edit className="w-3 h-3 mr-1" />{medicaoDevolvidaSuperada ? 'Corrigida' : 'Editar'}
                               </>
                             ) : (
                               <>
