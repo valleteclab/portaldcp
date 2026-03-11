@@ -1,0 +1,1095 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
+  ClipboardCheck, FileDown, Search, Loader2, CheckCircle, Clock,
+  AlertTriangle, Shield, ChevronLeft, ChevronRight, X, Download, Plus,
+  TrendingUp, FileText, Eye,
+} from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
+import dynamic from 'next/dynamic'
+
+const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+    </div>
+  ),
+  ssr: false,
+})
+
+// ============ INTERFACES ============
+
+interface MedicaoPendente {
+  id: string
+  contrato_id: string
+  numero_medicao: number
+  status: string
+  periodo_inicio: string
+  periodo_fim: string
+  valor_medido: number
+  percentual_fisico_medido: number
+  data_submissao: string
+  data_solicitacao?: string | null
+  fornecedor_nome: string
+  nota_fiscal_numero?: string
+  numero_contrato: string
+  objeto_contrato: string
+  fiscal_nome: string
+  total_itens: number
+  itens_atestados: number
+}
+
+interface MedicaoAprovacao {
+  id: string
+  contrato_id: string
+  numero_medicao: number
+  status: string
+  periodo_inicio: string
+  periodo_fim: string
+  valor_medido: number
+  percentual_fisico_medido: number
+  ateste_fiscal_nome: string
+  ateste_data: string
+  fornecedor_nome: string
+  numero_contrato: string
+  objeto_contrato: string
+}
+
+interface ContratoResumo {
+  id: string
+  numero_contrato: string
+  objeto: string
+  fornecedor_nome: string
+  fornecedor_cnpj: string
+  fornecedor_telefone?: string | null
+  valor_global: number
+  fiscal_nome: string
+  status: string
+  modalidade_execucao?: string
+  total_medicoes: number
+  submetidas: number
+  parcialmente_atestadas: number
+  aguardando_aprovacao: number
+  aprovadas: number
+  pendentes_ateste: number
+  enviou_mes?: boolean
+  solicitou_mes?: boolean
+  medicao_id?: string | null
+  numero_medicao?: number | null
+  valor_medicoes_mes?: number
+}
+
+type StatusFiltro = 'todos' | 'aguardando' | 'em_analise'
+type TipoFiltro = 'todos' | 'servicos' | 'fornecimento' | 'obras'
+
+// ============ HELPERS ============
+
+function formatarMoeda(v: number | string) {
+  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function formatarData(d: string | null | undefined) {
+  if (!d) return '-'
+  const dateOnly = d.split('T')[0]
+  const parts = dateOnly.split('-')
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
+  return new Date(d).toLocaleDateString('pt-BR')
+}
+
+function mesAtualYYYYMM(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+function navegarMes(ym: string, direcao: 1 | -1): string {
+  const [y, m] = ym.split('-').map(Number)
+  let ano = y || new Date().getFullYear()
+  let mes = m || new Date().getMonth() + 1
+  mes += direcao
+  if (mes > 12) { mes = 1; ano++ }
+  if (mes < 1) { mes = 12; ano-- }
+  return `${ano}-${String(mes).padStart(2, '0')}`
+}
+
+function formatarMesNomeCompleto(ym: string): string {
+  const [y, m] = ym.split('-')
+  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+  const idx = parseInt(m || '1', 10) - 1
+  return `${idx >= 0 && idx < 12 ? meses[idx] : m} ${y}`
+}
+
+function formatarCompetencia(periodoInicio: string): string {
+  if (!periodoInicio) return '-'
+  const dateStr = periodoInicio.split('T')[0]
+  const [y, m] = dateStr.split('-')
+  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  const idx = parseInt(m || '1', 10) - 1
+  return `${idx >= 0 && idx < 12 ? meses[idx] : m}/${y}`
+}
+
+function calcularDiasEmAberto(dataSubmissao: string): number {
+  if (!dataSubmissao) return 0
+  const submissao = new Date(dataSubmissao)
+  const hoje = new Date()
+  const diff = hoje.getTime() - submissao.getTime()
+  return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
+
+function getSubmissaoMesAno(dataSubmissao: string): string {
+  if (!dataSubmissao) return ''
+  const d = new Date(dataSubmissao)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function mapModalidadeParaTipo(modalidade?: string): string {
+  switch (modalidade) {
+    case 'MEDICAO': return 'Obras'
+    case 'CONTINUADO': return 'Serviços'
+    case 'ORDEM_SERVICO': return 'Serviços'
+    case 'ITEM_QUANTIDADE': return 'Fornecimento'
+    case 'LICENCA': return 'Fornecimento'
+    default: return 'Serviços'
+  }
+}
+
+function tipoParaFiltro(tipo: string): TipoFiltro {
+  if (tipo === 'Obras') return 'obras'
+  if (tipo === 'Fornecimento') return 'fornecimento'
+  return 'servicos'
+}
+
+function formatarNumeroMedicao(med: MedicaoPendente): string {
+  const ano = med.data_submissao
+    ? new Date(med.data_submissao).getFullYear()
+    : new Date().getFullYear()
+  return `MED-${ano}-${String(med.numero_medicao).padStart(4, '0')}`
+}
+
+// ============ BADGE DIAS EM ABERTO ============
+
+function DiasBadge({ dias }: { dias: number }) {
+  if (dias === 0) {
+    return (
+      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+        Hoje
+      </span>
+    )
+  }
+  if (dias <= 5) {
+    return (
+      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+        {dias} dia{dias > 1 ? 's' : ''}
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+      {dias} dias
+    </span>
+  )
+}
+
+// ============ STATUS BADGE ============
+
+function StatusBadge({ status, dias }: { status: string; dias: number }) {
+  if (status === 'PARCIALMENTE_ATESTADA') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+        Em Análise
+      </span>
+    )
+  }
+  if (dias > 5) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+        Atrasada
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+      Aguardando
+    </span>
+  )
+}
+
+const ITENS_POR_PAGINA = 10
+
+// ============ COMPONENTE PRINCIPAL ============
+
+export default function MedicoesV2Page() {
+  const [pendentesAteste, setPendentesAteste] = useState<MedicaoPendente[]>([])
+  const [pendentesAprovacao, setPendentesAprovacao] = useState<MedicaoAprovacao[]>([])
+  const [contratos, setContratos] = useState<ContratoResumo[]>([])
+  const [contratoMap, setContratoMap] = useState<Map<string, ContratoResumo>>(new Map())
+  const [loading, setLoading] = useState(true)
+
+  // Filtros
+  const [busca, setBusca] = useState('')
+  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('aguardando')
+  const [periodo, setPeriodo] = useState(mesAtualYYYYMM)
+  const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>('todos')
+
+  // Paginação
+  const [pagina, setPagina] = useState(1)
+
+  // Modal ateste direto
+  const [modalAteste, setModalAteste] = useState<any>(null)
+  const [loadingAteste, setLoadingAteste] = useState(false)
+  const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
+  const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
+  const [actionLoading, setActionLoading] = useState(false)
+
+  // Modal TabMedicao
+  const [contratoAberto, setContratoAberto] = useState<ContratoResumo | null>(null)
+
+  // ============ FETCH ============
+
+  const carregarDados = useCallback(async () => {
+    setLoading(true)
+    try {
+      const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+      const orgaoId = orgao.id
+      if (!orgaoId) return
+
+      const [resPendentes, resAprovacao, resContratos] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/pendentes-ateste?orgaoId=${orgaoId}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/pendentes-aprovacao?orgaoId=${orgaoId}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/resumo-fiscal?orgaoId=${orgaoId}&mes=${periodo}`),
+      ])
+
+      if (resPendentes.ok) setPendentesAteste(await resPendentes.json())
+      if (resAprovacao.ok) setPendentesAprovacao(await resAprovacao.json())
+      if (resContratos.ok) {
+        const data: ContratoResumo[] = await resContratos.json()
+        setContratos(data)
+        const map = new Map<string, ContratoResumo>()
+        data.forEach(c => map.set(c.id, c))
+        setContratoMap(map)
+      }
+    } catch (e) {
+      console.error('Erro ao carregar dados:', e)
+    }
+    setLoading(false)
+  }, [periodo])
+
+  useEffect(() => { carregarDados() }, [carregarDados])
+
+  // Reset página ao mudar filtros
+  useEffect(() => { setPagina(1) }, [busca, statusFiltro, tipoFiltro, periodo])
+
+  // ============ ATESTE ============
+
+  const abrirModalAtesteDireto = async (medicao: MedicaoPendente) => {
+    setLoadingAteste(true)
+    setModalAteste(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}`)
+      if (!res.ok) { alert('Erro ao carregar medição'); setLoadingAteste(false); return }
+      const medicaoCompleta = await res.json()
+      setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
+      const itens = medicaoCompleta.itens || []
+      const itensMap: Record<string, { selecionado: boolean; observacoes: string }> = {}
+      for (const item of itens) {
+        itensMap[item.id] = { selecionado: !!item.atestado, observacoes: item.ateste_observacoes || '' }
+      }
+      setItensAteste(itensMap)
+      setModalAteste(medicaoCompleta)
+    } catch { alert('Erro ao carregar medição') }
+    setLoadingAteste(false)
+  }
+
+  const executarAteste = async () => {
+    if (!modalAteste) return
+    const itens = (modalAteste.itens || []) as any[]
+    const itensSelecionados = itens.filter((item: any) => itensAteste[item.id]?.selecionado && !item.atestado)
+    const itensCancelarAteste = itens.filter((item: any) => item.atestado && !itensAteste[item.id]?.selecionado).map((i: any) => i.id)
+    const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
+    const todosSerao = jaAtestadosMantidos + itensSelecionados.length === itens.length && itens.length > 0
+    const temAcao = itensSelecionados.length > 0 || itensCancelarAteste.length > 0
+    if (!temAcao) { alert('Selecione itens para atestar ou desmarque itens para cancelar.'); return }
+    if (!todosSerao && itensSelecionados.length > 0) {
+      const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
+      if (itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()) {
+        alert('No ateste parcial, informe o motivo da devolução.'); return
+      }
+    }
+    setActionLoading(true)
+    try {
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/atestar-itens`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fiscal_id: usuario.id || '',
+          fiscal_nome: usuario.nome || 'Fiscal',
+          itens: itensSelecionados.map((item: any) => ({
+            item_id: item.id,
+            observacoes: itensAteste[item.id]?.observacoes || null,
+          })),
+          itens_cancelar_ateste: itensCancelarAteste.length > 0 ? itensCancelarAteste : undefined,
+          observacoes_gerais: formAteste.observacoes || null,
+          verificado_in_loco: formAteste.verificado_in_loco,
+          motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao atestar')
+        setActionLoading(false)
+        return
+      }
+      const resultado = await res.json().catch(() => ({}))
+      setModalAteste(null)
+      carregarDados()
+      if (resultado.status === 'AGUARDANDO_APROVACAO') {
+        alert('Medição atestada com sucesso! Enviada para aprovação do gestor.')
+      } else if (resultado.status === 'DEVOLVIDA') {
+        alert('Itens atestados e medição devolvida ao fornecedor!')
+      } else if (resultado.status === 'SUBMETIDA') {
+        alert('Ateste(s) cancelado(s) com sucesso!')
+      } else if (resultado.status === 'PARCIALMENTE_ATESTADA') {
+        alert('Alterações salvas com sucesso!')
+      }
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  // ============ DADOS CALCULADOS ============
+
+  const totalAprovadas = contratos.reduce((s, c) => s + (c.aprovadas || 0), 0)
+  const valorAprovadas = contratos.reduce((s, c) => s + (Number(c.valor_medicoes_mes) || 0), 0)
+
+  const medicoesEnriquecidas = pendentesAteste.map(med => {
+    const contrato = contratoMap.get(med.contrato_id)
+    const dias = calcularDiasEmAberto(med.data_submissao)
+    const tipo = mapModalidadeParaTipo(contrato?.modalidade_execucao)
+    return { ...med, cnpj: contrato?.fornecedor_cnpj || '', tipo, dias }
+  })
+
+  const totalAtrasadas = medicoesEnriquecidas.filter(m => m.dias > 5).length
+
+  // ============ FILTROS ============
+
+  const medicoesVisiveis = (() => {
+    // Determinar qual lista base usar
+    if (statusFiltro === 'em_analise') {
+      // Medições aguardando aprovação (já atestadas pelo fiscal)
+      const aprovacaoEnriquecidas = pendentesAprovacao.map(med => {
+        const contrato = contratoMap.get(med.contrato_id)
+        const tipo = mapModalidadeParaTipo(contrato?.modalidade_execucao)
+        return { ...med, cnpj: contrato?.fornecedor_cnpj || '', tipo, dias: 0, status: med.status }
+      })
+      return aprovacaoEnriquecidas.filter(med => {
+        const mesAno = getSubmissaoMesAno(med.ateste_data || '')
+        if (mesAno && mesAno !== periodo) return false
+        if (busca) {
+          const t = busca.toLowerCase()
+          if (![med.numero_contrato, med.fornecedor_nome, med.objeto_contrato].some(v => v?.toLowerCase().includes(t))) return false
+        }
+        if (tipoFiltro !== 'todos' && tipoParaFiltro(med.tipo) !== tipoFiltro) return false
+        return true
+      })
+    }
+
+    // Pendentes de ateste (SUBMETIDA + PARCIALMENTE_ATESTADA)
+    return medicoesEnriquecidas.filter(med => {
+      const mesAno = getSubmissaoMesAno(med.data_submissao)
+      if (mesAno && mesAno !== periodo) return false
+      if (busca) {
+        const t = busca.toLowerCase()
+        if (![med.numero_contrato, med.fornecedor_nome, med.objeto_contrato].some(v => v?.toLowerCase().includes(t))) return false
+      }
+      if (tipoFiltro !== 'todos' && tipoParaFiltro(med.tipo) !== tipoFiltro) return false
+      return true
+    })
+  })()
+
+  const totalPaginas = Math.max(1, Math.ceil(medicoesVisiveis.length / ITENS_POR_PAGINA))
+  const medicoesPaginadas = medicoesVisiveis.slice((pagina - 1) * ITENS_POR_PAGINA, pagina * ITENS_POR_PAGINA)
+
+  const tituloTabela = statusFiltro === 'em_analise' ? 'Medições Em Análise' : 'Medições Aguardando Análise'
+
+  const limparFiltros = () => {
+    setBusca('')
+    setStatusFiltro('aguardando')
+    setTipoFiltro('todos')
+    setPeriodo(mesAtualYYYYMM())
+  }
+
+  const temFiltrosAtivos = busca !== '' || statusFiltro !== 'aguardando' || tipoFiltro !== 'todos'
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* ============ HEADER ============ */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Medições Pendentes</h1>
+          <nav className="flex items-center gap-1 text-sm text-gray-500 mt-1">
+            <span>Início</span>
+            <span className="mx-1 text-gray-300">/</span>
+            <span>Medições</span>
+            <span className="mx-1 text-gray-300">/</span>
+            <span className="text-blue-600">Aguardando Análise</span>
+          </nav>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={carregarDados}>
+            <Download className="w-4 h-4 mr-1.5" />
+            Exportar
+          </Button>
+          <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => {
+            const c = contratos[0]
+            if (c) setContratoAberto(c)
+          }}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Nova Medição
+          </Button>
+        </div>
+      </div>
+
+      {/* ============ STAT CARDS ============ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Pendentes */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="h-1 bg-blue-500" />
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-gray-500">Total Pendentes</p>
+              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+                <ClipboardCheck className="w-5 h-5 text-blue-600" />
+              </div>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{pendentesAteste.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Aguardando análise</p>
+          </div>
+        </div>
+
+        {/* Em Análise */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="h-1 bg-orange-400" />
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-gray-500">Em Análise</p>
+              <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-orange-500" />
+              </div>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{pendentesAprovacao.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Em andamento</p>
+          </div>
+        </div>
+
+        {/* Atrasadas */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="h-1 bg-red-500" />
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-gray-500">Atrasadas</p>
+              <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{totalAtrasadas}</p>
+            <p className="text-xs text-gray-500 mt-1">Prazo vencido</p>
+          </div>
+        </div>
+
+        {/* Aprovadas (mês) */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="h-1 bg-green-500" />
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-gray-500">Aprovadas (mês)</p>
+              <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{totalAprovadas}</p>
+            {valorAprovadas > 0 && (
+              <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorAprovadas)}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ============ FILTROS ============ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Busca */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Input
+              className="pl-9 h-9"
+              placeholder="Contrato, fornecedor ou nº medição..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+          </div>
+
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <Label className="text-sm text-gray-500 whitespace-nowrap">Status</Label>
+            <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as StatusFiltro)}>
+              <SelectTrigger className="h-9 w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="aguardando">Aguardando Análise</SelectItem>
+                <SelectItem value="em_analise">Em Análise</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Período */}
+          <div className="flex items-center gap-2">
+            <Label className="text-sm text-gray-500 whitespace-nowrap">Período</Label>
+            <div className="flex items-center border rounded-md overflow-hidden h-9">
+              <button
+                type="button"
+                className="px-2 h-full hover:bg-gray-50 border-r text-gray-500"
+                onClick={() => setPeriodo(prev => navegarMes(prev, -1))}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-3 text-sm font-medium text-gray-700 whitespace-nowrap min-w-[120px] text-center">
+                {formatarMesNomeCompleto(periodo)}
+              </span>
+              <button
+                type="button"
+                className="px-2 h-full hover:bg-gray-50 border-l text-gray-500"
+                onClick={() => setPeriodo(prev => navegarMes(prev, 1))}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Tipo */}
+          <div className="flex items-center gap-2">
+            <Label className="text-sm text-gray-500 whitespace-nowrap">Tipo</Label>
+            <Select value={tipoFiltro} onValueChange={(v) => setTipoFiltro(v as TipoFiltro)}>
+              <SelectTrigger className="h-9 w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="servicos">Serviços</SelectItem>
+                <SelectItem value="fornecimento">Fornecimento</SelectItem>
+                <SelectItem value="obras">Obras</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Limpar filtros */}
+          {temFiltrosAtivos && (
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+            >
+              <X className="w-4 h-4" />
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ============ TABELA ============ */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Cabeçalho da seção */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h2 className="text-base font-semibold text-gray-900">{tituloTabela}</h2>
+          <span className="text-sm text-gray-500">{medicoesVisiveis.length} registros encontrados</span>
+        </div>
+
+        {/* Tabela */}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50 hover:bg-gray-50">
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  N° Medição / Contrato
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  Fornecedor
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  Tipo
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  Valor Medido
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  Enviado Em
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  Dias Em Aberto
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3">
+                  Status
+                </TableHead>
+                <TableHead className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-3 text-right">
+                  Ações
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {medicoesPaginadas.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-16 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <FileText className="w-10 h-10 text-gray-200" />
+                      <p className="text-sm text-gray-500">Nenhuma medição encontrada</p>
+                      {temFiltrosAtivos && (
+                        <button
+                          type="button"
+                          onClick={limparFiltros}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          Limpar filtros
+                        </button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                medicoesPaginadas.map((med: any) => {
+                  const isAprovacao = med.status === 'AGUARDANDO_APROVACAO'
+                  const numFormatado = isAprovacao
+                    ? `MED-${new Date(med.ateste_data || med.periodo_inicio || '').getFullYear() || new Date().getFullYear()}-${String(med.numero_medicao).padStart(4, '0')}`
+                    : formatarNumeroMedicao(med as MedicaoPendente)
+                  const dataEnvio = isAprovacao ? med.ateste_data : (med as MedicaoPendente).data_submissao
+                  const dias = isAprovacao ? 0 : (med as MedicaoPendente).dias
+
+                  return (
+                    <TableRow key={med.id} className="hover:bg-gray-50/70 transition-colors">
+                      {/* N° Medição / Contrato */}
+                      <TableCell className="py-4">
+                        <p className="text-sm font-semibold text-blue-600">{numFormatado}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Contrato {med.numero_contrato}
+                          {med.objeto_contrato && (
+                            <span className="text-gray-400"> · {med.objeto_contrato.slice(0, 30)}{med.objeto_contrato.length > 30 ? '...' : ''}</span>
+                          )}
+                        </p>
+                      </TableCell>
+
+                      {/* Fornecedor */}
+                      <TableCell className="py-4">
+                        <p className="text-sm font-medium text-gray-900">{med.fornecedor_nome}</p>
+                        {med.cnpj && (
+                          <p className="text-xs text-gray-500 mt-0.5">CNPJ: {med.cnpj}</p>
+                        )}
+                      </TableCell>
+
+                      {/* Tipo */}
+                      <TableCell className="py-4">
+                        <span className="text-sm text-gray-700">{med.tipo || 'Serviços'}</span>
+                      </TableCell>
+
+                      {/* Valor Medido */}
+                      <TableCell className="py-4">
+                        <p className="text-sm font-semibold text-gray-900">{formatarMoeda(med.valor_medido)}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{formatarCompetencia(med.periodo_inicio)}</p>
+                      </TableCell>
+
+                      {/* Enviado Em */}
+                      <TableCell className="py-4">
+                        <span className="text-sm text-gray-700">{formatarData(dataEnvio)}</span>
+                      </TableCell>
+
+                      {/* Dias em aberto */}
+                      <TableCell className="py-4">
+                        <DiasBadge dias={dias} />
+                      </TableCell>
+
+                      {/* Status */}
+                      <TableCell className="py-4">
+                        {isAprovacao ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                            Em Análise
+                          </span>
+                        ) : (
+                          <StatusBadge status={med.status} dias={dias} />
+                        )}
+                      </TableCell>
+
+                      {/* Ações */}
+                      <TableCell className="py-4">
+                        <div className="flex items-center justify-end gap-2">
+                          {!isAprovacao && (
+                            <Button
+                              size="sm"
+                              className="h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                              onClick={() => abrirModalAtesteDireto(med as MedicaoPendente)}
+                              disabled={loadingAteste}
+                            >
+                              {loadingAteste ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : med.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar' : 'Analisar'}
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() => {
+                              const c = contratoMap.get(med.contrato_id)
+                              if (c) setContratoAberto(c)
+                            }}
+                          >
+                            Ver
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* ============ PAGINAÇÃO ============ */}
+        {totalPaginas > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
+            <p className="text-sm text-gray-500">
+              Mostrando {((pagina - 1) * ITENS_POR_PAGINA) + 1}–{Math.min(pagina * ITENS_POR_PAGINA, medicoesVisiveis.length)} de {medicoesVisiveis.length} registros
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="w-8 h-8 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
+                onClick={() => setPagina(p => Math.max(1, p - 1))}
+                disabled={pagina === 1}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              {Array.from({ length: totalPaginas }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  className={`w-8 h-8 flex items-center justify-center rounded border text-sm font-medium transition-colors ${
+                    p === pagina
+                      ? 'bg-blue-600 border-blue-600 text-white'
+                      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                  }`}
+                  onClick={() => setPagina(p)}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="w-8 h-8 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
+                onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}
+                disabled={pagina === totalPaginas}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Rodapé simples quando há 1 página */}
+        {totalPaginas === 1 && medicoesVisiveis.length > 0 && (
+          <div className="px-6 py-3 border-t border-gray-100">
+            <p className="text-sm text-gray-500">
+              Mostrando 1–{medicoesVisiveis.length} de {medicoesVisiveis.length} registros
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ============ MODAL: ATESTE DIRETO ============ */}
+      <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-yellow-600" />
+              Atestar {modalAteste?.numero_medicao}ª Medição
+            </DialogTitle>
+            <DialogDescription>
+              Valor medido: {formatarMoeda(modalAteste?.valor_medido || 0)} — {Number(modalAteste?.percentual_fisico_medido || 0).toFixed(1)}% físico
+              {modalAteste?.status === 'PARCIALMENTE_ATESTADA' && ' — Ateste parcial em andamento'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {modalAteste && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-3 rounded-lg text-sm">
+                <span className="font-medium">{modalAteste.contrato?.numero_contrato || 'Contrato'}</span>
+                <span className="text-gray-500 mx-2">-</span>
+                <span>{modalAteste.contrato?.fornecedor_razao_social || modalAteste.fornecedor_nome || 'Fornecedor'}</span>
+              </div>
+
+              {/* Tabela de itens */}
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="w-10 text-center">
+                        {(() => {
+                          const itens = (modalAteste.itens || []) as any[]
+                          const naoAtestados = itens.filter((i: any) => !i.atestado)
+                          const todosSelecionados = naoAtestados.length > 0 && naoAtestados.every((i: any) => itensAteste[i.id]?.selecionado)
+                          if (naoAtestados.length === 0) return null
+                          return (
+                            <input
+                              type="checkbox"
+                              checked={todosSelecionados}
+                              onChange={(e) => {
+                                const checked = e.target.checked
+                                setItensAteste(prev => {
+                                  const novo = { ...prev }
+                                  for (const item of naoAtestados) {
+                                    novo[item.id] = { ...novo[item.id], selecionado: checked }
+                                  }
+                                  return novo
+                                })
+                              }}
+                              className="w-4 h-4"
+                            />
+                          )
+                        })()}
+                      </TableHead>
+                      <TableHead className="text-xs font-bold">Item / Etapa</TableHead>
+                      <TableHead className="text-xs font-bold text-center w-24">Qtd / %</TableHead>
+                      <TableHead className="text-xs font-bold text-right w-24">Valor</TableHead>
+                      <TableHead className="text-xs font-bold w-10">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(modalAteste.itens || []).map((item: any, idx: number) => {
+                      const jaAtestado = !!item.atestado
+                      const selecionado = itensAteste[item.id]?.selecionado || false
+                      const podeEditarAteste = ['SUBMETIDA', 'PARCIALMENTE_ATESTADA'].includes(modalAteste.status || '')
+                      const isItemCronograma = item.tipo_item === 'item_cronograma'
+                      const descricao = isItemCronograma
+                        ? (item.item_descricao || item.etapa_descricao || `Item ${idx + 1}`)
+                        : (item.etapa_descricao || `Etapa ${idx + 1}`)
+                      const numero = isItemCronograma
+                        ? (item.item_numero || item.etapa_numero || idx + 1)
+                        : (item.etapa_numero || idx + 1)
+                      return (
+                        <TableRow
+                          key={item.id || idx}
+                          className={jaAtestado && selecionado ? 'bg-green-50/50' : selecionado ? 'bg-yellow-50/50' : ''}
+                        >
+                          <TableCell className="text-center">
+                            <input
+                              type="checkbox"
+                              checked={selecionado}
+                              disabled={jaAtestado && !podeEditarAteste}
+                              onChange={e => setItensAteste(prev => ({
+                                ...prev,
+                                [item.id]: { ...prev[item.id], selecionado: e.target.checked },
+                              }))}
+                              className="w-4 h-4"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm font-medium">{numero}. {descricao}</p>
+                            {jaAtestado && selecionado && (
+                              <p className="text-xs text-green-600 mt-0.5">
+                                Atestado por {item.ateste_fiscal_nome} em {formatarData(item.ateste_data)}
+                              </p>
+                            )}
+                            {!jaAtestado && selecionado && (
+                              <Input
+                                placeholder="Observação sobre este item (opcional)"
+                                className="mt-1 h-7 text-xs"
+                                value={itensAteste[item.id]?.observacoes || ''}
+                                onChange={e => setItensAteste(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...prev[item.id], observacoes: e.target.value },
+                                }))}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center text-sm">
+                            {isItemCronograma
+                              ? (
+                                <span className="text-blue-700">
+                                  {Number(item.quantidade_medida || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {item.item_unidade || ''}
+                                </span>
+                              )
+                              : <span>{Number(item.percentual_executado_atual || 0).toFixed(1)}%</span>
+                            }
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium">
+                            {formatarMoeda(item.valor_medido)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {jaAtestado && selecionado ? (
+                              <CheckCircle className="w-4 h-4 text-green-600 mx-auto" />
+                            ) : selecionado ? (
+                              <ClipboardCheck className="w-4 h-4 text-yellow-600 mx-auto" />
+                            ) : (
+                              <Clock className="w-4 h-4 text-gray-300 mx-auto" />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Verificação in loco */}
+              <div className="flex items-center gap-3 p-3 border rounded-lg">
+                <input
+                  type="checkbox"
+                  id="verificado_in_loco_v2"
+                  checked={formAteste.verificado_in_loco}
+                  onChange={e => setFormAteste({ ...formAteste, verificado_in_loco: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="verificado_in_loco_v2" className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Shield className="w-4 h-4 text-green-600" />
+                  Confirmo que realizei verificação presencial (in loco)
+                </label>
+              </div>
+
+              {/* Observações */}
+              <div className="space-y-2">
+                <Label>Observações gerais do Ateste</Label>
+                <Textarea
+                  placeholder="Observações sobre a verificação técnica..."
+                  value={formAteste.observacoes}
+                  onChange={e => setFormAteste({ ...formAteste, observacoes: e.target.value })}
+                  rows={2}
+                />
+              </div>
+
+              {/* Motivo devolução parcial */}
+              {(() => {
+                const itens = (modalAteste.itens || []) as any[]
+                const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
+                const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
+                const todosSerao = jaAtestadosMantidos + novosAtestados === itens.length && itens.length > 0
+                return !todosSerao && novosAtestados > 0 ? (
+                  <div className="space-y-2 p-3 border border-amber-200 rounded-lg bg-amber-50/50">
+                    <Label className="text-amber-800">Motivo da devolução (itens não atestados) *</Label>
+                    <Textarea
+                      placeholder="Informe o motivo para devolver ao fornecedor..."
+                      value={formAteste.motivo_devolucao_parcial}
+                      onChange={e => setFormAteste({ ...formAteste, motivo_devolucao_parcial: e.target.value })}
+                      rows={2}
+                      className="border-amber-200"
+                    />
+                  </div>
+                ) : null
+              })()}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
+            {modalAteste && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
+                onClick={async () => {
+                  const resBoletim = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/boletim-oficial`)
+                  if (!resBoletim.ok) return
+                  const boletim = await resBoletim.json()
+                  if (!boletim?.pdf_url) return
+                  const arquivoRes = await fetch(boletim.pdf_url)
+                  if (!arquivoRes.ok) return
+                  const pdfBlob = await arquivoRes.blob()
+                  const objectUrl = window.URL.createObjectURL(pdfBlob)
+                  const link = document.createElement('a')
+                  link.href = objectUrl
+                  link.download = boletim.filename || `boletim_medicao_${modalAteste.id}.pdf`
+                  link.style.display = 'none'
+                  document.body.appendChild(link)
+                  link.click()
+                  setTimeout(() => { link.remove(); window.URL.revokeObjectURL(objectUrl) }, 1000)
+                }}
+              >
+                <FileDown className="w-4 h-4" />
+                Baixar PDF
+              </Button>
+            )}
+            {modalAteste && (() => {
+              const itens = (modalAteste.itens || []) as any[]
+              const temSelecionados = itens.some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)
+              const temCancelados = itens.some((i: any) => i.atestado && !itensAteste[i.id]?.selecionado)
+              const temAcao = temSelecionados || temCancelados
+              const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
+              const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
+              const todosSerao = jaAtestadosMantidos + novosAtestados === itens.length && itens.length > 0
+              const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
+              const motivoObrigatorio = !todosSerao && temSelecionados && itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()
+              return (
+                <Button
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                  onClick={executarAteste}
+                  disabled={actionLoading || !temAcao || motivoObrigatorio}
+                >
+                  {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  <ClipboardCheck className="w-4 h-4 mr-2" />
+                  {temCancelados && !temSelecionados ? 'Cancelar Atestes' : todosSerao ? 'Atestar Selecionados' : 'Atestar e Devolver'}
+                </Button>
+              )
+            })()}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: CONTRATO (TabMedicao) ============ */}
+      <Dialog open={!!contratoAberto} onOpenChange={() => setContratoAberto(null)}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-blue-600" />
+              {contratoAberto?.numero_contrato} — {contratoAberto?.fornecedor_nome}
+            </DialogTitle>
+          </DialogHeader>
+          {contratoAberto && (
+            <TabMedicao
+              contratoId={contratoAberto.id}
+              valorGlobal={contratoAberto.valor_global}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+    </div>
+  )
+}
