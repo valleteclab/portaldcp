@@ -1483,6 +1483,7 @@ export class MedicaoService {
     }));
 
     return {
+      orgao:                contrato.orgao || null,
       orgao_nome:           contrato.orgao?.nome || '',
       numero_contrato:      contrato.numero_contrato || '',
       objeto_contrato:      contrato.objeto || '',
@@ -1527,7 +1528,7 @@ export class MedicaoService {
   }
 
   async gerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
-    const dadosMedicao = await this.montarDadosPdfOficialMedicao(medicaoId);
+    const dadosMedicao = await this.montarDadosPdfFrontend(medicaoId);
     const assinaturas = await this.assinaturaDigitalRepository.find({
       where: {
         entidade_tipo: EntidadeTipo.MEDICAO,
