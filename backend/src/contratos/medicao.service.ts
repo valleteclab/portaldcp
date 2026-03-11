@@ -1438,8 +1438,13 @@ export class MedicaoService {
     const asFiscal    = assinaturas.find(a => a.papel_assinante === PapelAssinante.FISCAL);
 
     const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
-    const fmtDataBR = (date: Date) =>
-      date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    // Subtrai 3 horas explicitamente para garantir horário de Brasília
+    // independente de ICU timezone data disponível no container Docker.
+    const fmtDataBR = (date: Date) => {
+      const d = date instanceof Date ? date : new Date(date as any);
+      const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+      return brt.toLocaleString('pt-BR', { timeZone: 'UTC' });
+    };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
     const itensParaPdf = ((medicao as any).itens || [])
@@ -2641,6 +2646,16 @@ export class MedicaoService {
   }
 
   /**
+   * Lista assinaturas digitais registradas para uma medição.
+   */
+  async listarAssinaturasMedicao(medicaoId: string): Promise<any[]> {
+    return this.assinaturaDigitalRepository.find({
+      where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
+      order: { data_assinatura: 'ASC' },
+    });
+  }
+
+  /**
    * Retorna as discriminações da última medição do mesmo contrato (independente do status),
    * para pré-preencher o formulário do fornecedor (sugestão).
    */
@@ -3760,6 +3775,14 @@ export class MedicaoService {
 
     this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
 
+    // Regenerar PDF oficial no servidor com a assinatura do fiscal incluída
+    try {
+      await this.gerarPdfOficialMedicao(medicaoId);
+      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${medicaoId}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal: ${err.message}`);
+    }
+
     // Montar dados para o frontend regenerar o PDF com o layout correto (jsPDF)
     let dados_pdf: any = null;
     try {
@@ -4031,6 +4054,14 @@ export class MedicaoService {
       dados_pdf = await this.montarDadosPdfFrontend(link.medicao_id);
     } catch (err) {
       this.logger.warn(`Erro ao montar dados PDF após assinatura por link: ${err.message}`);
+    }
+
+    // Regenerar PDF oficial no servidor com a assinatura do fiscal incluída
+    try {
+      await this.gerarPdfOficialMedicao(link.medicao_id);
+      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${link.medicao_id}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal por link: ${err.message}`);
     }
 
     // Atualizar status do link

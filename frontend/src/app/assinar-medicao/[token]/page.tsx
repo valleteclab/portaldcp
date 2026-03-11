@@ -117,7 +117,7 @@ export default function AssinarMedicaoPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
           <div className="bg-blue-700 p-2 rounded-lg">
             <ShieldCheck className="h-6 w-6 text-white" />
           </div>
@@ -128,7 +128,7 @@ export default function AssinarMedicaoPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-4">
 
         {/* Carregando */}
         {etapa === 'carregando' && (
@@ -197,7 +197,7 @@ export default function AssinarMedicaoPage() {
                 <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-1.5">
                   <Paperclip className="w-4 h-4" /> Documentos Anexados ({dados.anexos.length})
                 </h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                   {dados.anexos.map((a: any) => (
                     <a key={a.id} href={`${API_URL}${a.url}`} target="_blank" rel="noopener noreferrer"
                       className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
@@ -224,7 +224,7 @@ export default function AssinarMedicaoPage() {
                 <iframe
                   src={`${API_URL}${dados.boletim_pdf_url}`}
                   className="w-full rounded border border-gray-200"
-                  style={{ height: '480px' }}
+                  style={{ height: 'min(75vh, 800px)' }}
                   title="Boletim de Medição"
                 />
               </div>

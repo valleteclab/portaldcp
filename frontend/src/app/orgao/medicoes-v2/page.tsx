@@ -1488,6 +1488,27 @@ export default function MedicoesV2Page() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } }}>Cancelar</Button>
+            {modalAteste && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
+                onClick={() => {
+                  const med = modalAteste
+                  setModalAteste(null)
+                  setAnexosAteste([])
+                  setEtapaAssinatura('idle')
+                  setFiscalSelecionado('')
+                  setStatusAssinatura(null)
+                  if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
+                  setModalDevolver(med)
+                  setMotivoDevolucao('')
+                }}
+              >
+                <RotateCcw className="w-4 h-4" />
+                Devolver
+              </Button>
+            )}
             {modalAteste && (podeExcluirMedicao) && (
               <Button
                 size="sm"
