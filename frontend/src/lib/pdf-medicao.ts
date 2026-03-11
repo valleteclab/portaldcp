@@ -737,34 +737,48 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   const aForn = dados.assinatura_fornecedor
   const aFisc = dados.assinatura_fiscal
 
-  const altQuadro = desenharQuadroAssinaturas(
-    doc, y, mX, W,
-    [
-      {
-        titulo: 'FORNECEDOR',
-        cor: [22, 60, 100] as [number, number, number],
-        nome: aForn?.nome || '',
-        identificacao: aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}` : '',
-        cargo: aForn?.cargo || '',
-        dataHora: aForn?.data_hora || '',
-        pendente: !aForn,
-        codigoValidacao: aForn?.codigo_validacao,
-      },
-      {
-        titulo: 'FISCAL DE CONTRATO',
-        cor: [0, 100, 50] as [number, number, number],
-        nome: aFisc?.nome || '',
-        identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
-        cargo: aFisc?.cargo || '',
-        dataHora: aFisc?.data_hora || '',
-        pendente: !aFisc,
-        codigoValidacao: aFisc?.codigo_validacao,
-      },
-    ],
-    dados.url_validacao,
-  )
+  const assinaturasArr: Parameters<typeof desenharQuadroAssinaturas>[4] = [
+    {
+      titulo: 'FORNECEDOR',
+      cor: [22, 60, 100] as [number, number, number],
+      nome: aForn?.nome || '',
+      identificacao: aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}` : '',
+      cargo: aForn?.cargo || '',
+      dataHora: aForn?.data_hora || '',
+      pendente: !aForn,
+      codigoValidacao: aForn?.codigo_validacao,
+    },
+    {
+      titulo: 'FISCAL DE CONTRATO',
+      cor: [0, 100, 50] as [number, number, number],
+      nome: aFisc?.nome || '',
+      identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
+      cargo: aFisc?.cargo || '',
+      dataHora: aFisc?.data_hora || '',
+      pendente: !aFisc,
+      codigoValidacao: aFisc?.codigo_validacao,
+    },
+  ]
+
+  const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao)
 
   y += altQuadro + 4
+
+  // =========================================================
+  // PÁGINA EXCLUSIVA DE ASSINATURAS
+  // =========================================================
+  doc.addPage('a4', 'portrait')
+  let yPA = 20
+  doc.setFontSize(10).setFont('helvetica', 'bold').setTextColor(22, 60, 100)
+  doc.text(
+    `BOLETIM DE MEDIÇÃO Nº ${String(dados.numero_medicao).padStart(3, '0')}`,
+    W / 2, yPA, { align: 'center' },
+  )
+  doc.setFontSize(8).setFont('helvetica', 'normal').setTextColor(55, 65, 81)
+  if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' })
+  doc.text(`Contrato: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
+  yPA += 20
+  desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao)
 
   // =========================================================
   // RODAPÉ em todas as páginas
