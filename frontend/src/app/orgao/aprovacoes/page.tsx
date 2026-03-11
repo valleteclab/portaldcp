@@ -30,6 +30,8 @@ import {
   Download,
   Mail,
   MessageCircle,
+  FileDown,
+  PenLine,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -157,6 +159,7 @@ interface MedicaoPendente {
   ateste_data?: string;
   ateste_observacoes?: string;
   ateste_verificado_in_loco?: boolean;
+  boletim_pdf_url?: string;
   created_at: string;
   contrato?: {
     id: string;
@@ -243,13 +246,16 @@ export default function CentralAprovacoesPage() {
   // Discriminação e Execução Financeira (carregados ao expandir medição)
   const [discriminacoesAprov, setDiscriminacoesAprov] = useState<Record<string, any[]>>({});
   const [execucaoAprov, setExecucaoAprov] = useState<Record<string, any>>({});
+  const [assinaturasAprov, setAssinaturasAprov] = useState<Record<string, any[]>>({});
+  const [baixandoBoletim, setBaixandoBoletim] = useState<string | null>(null);
 
   const carregarDadosMedicaoExpanded = async (medicaoId: string, contratoId: string) => {
     if (discriminacoesAprov[medicaoId]) return; // já carregado
     try {
-      const [discRes, execRes] = await Promise.all([
+      const [discRes, execRes, assinRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/discriminacoes`),
         authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${medicaoId}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/assinaturas`),
       ]);
       if (discRes.ok) {
         const discData = await discRes.json();
@@ -259,7 +265,30 @@ export default function CentralAprovacoesPage() {
         const execData = await execRes.json();
         setExecucaoAprov(prev => ({ ...prev, [medicaoId]: execData }));
       }
+      if (assinRes.ok) {
+        const assinData = await assinRes.json();
+        setAssinaturasAprov(prev => ({ ...prev, [medicaoId]: Array.isArray(assinData) ? assinData : [] }));
+      }
     } catch { /* ignore */ }
+  };
+
+  const baixarBoletimAprov = async (medicao: MedicaoPendente) => {
+    setBaixandoBoletim(medicao.id);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/boletim-oficial`);
+      if (!res.ok) { alert('Boletim não disponível'); return; }
+      const boletim = await res.json();
+      if (!boletim?.pdf_url) { alert('Boletim não disponível'); return; }
+      const fileRes = await fetch(boletim.pdf_url.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url}`);
+      if (!fileRes.ok) { alert('Erro ao baixar arquivo'); return; }
+      const blob = await fileRes.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = boletim.filename || `boletim_medicao_${medicao.numero_medicao}.pdf`;
+      a.click();
+    } finally {
+      setBaixandoBoletim(null);
+    }
   };
 
   // Modais Requisição
@@ -1370,6 +1399,20 @@ export default function CentralAprovacoesPage() {
                               {expandedId === medicao.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </Button>
                           </CollapsibleTrigger>
+                          {medicao.boletim_pdf_url && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Baixar Boletim Assinado"
+                              disabled={baixandoBoletim === medicao.id}
+                              onClick={() => baixarBoletimAprov(medicao)}
+                            >
+                              {baixandoBoletim === medicao.id
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <FileDown className="h-4 w-4" />}
+                              <span className="ml-1 hidden sm:inline">Boletim</span>
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             className="bg-green-600 hover:bg-green-700"
@@ -1477,6 +1520,55 @@ export default function CentralAprovacoesPage() {
                             )}
                           </div>
                         </div>
+
+                        {/* Assinaturas Digitais + Boletim */}
+                        {(assinaturasAprov[medicao.id] || medicao.boletim_pdf_url) && (
+                          <div className="mt-4 bg-white p-4 rounded-lg">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                              <PenLine className="h-4 w-4 text-indigo-600" />
+                              Assinaturas Digitais
+                            </h4>
+                            {assinaturasAprov[medicao.id]?.length > 0 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                {assinaturasAprov[medicao.id].map((as: any, idx: number) => (
+                                  <div key={idx} className={`p-3 rounded-lg border text-sm ${as.papel_assinante === 'FISCAL' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
+                                    <p className="font-semibold text-xs uppercase tracking-wide mb-1 text-gray-500">
+                                      {as.papel_assinante === 'FISCAL' ? 'Fiscal de Contrato' : 'Fornecedor / Contratado'}
+                                    </p>
+                                    <p className="font-medium text-gray-800">{as.usuario_nome}</p>
+                                    {as.usuario_cargo && <p className="text-gray-500 text-xs">{as.usuario_cargo}</p>}
+                                    {as.data_assinatura && (
+                                      <p className="text-gray-500 text-xs mt-1">
+                                        {new Date(as.data_assinatura).toLocaleString('pt-BR')}
+                                      </p>
+                                    )}
+                                    {as.codigo_validacao && (
+                                      <code className="text-xs font-mono text-indigo-600 mt-1 block">
+                                        {as.codigo_validacao.match(/.{1,4}/g)?.join('-')}
+                                      </code>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-400 mb-3">Nenhuma assinatura digital registrada</p>
+                            )}
+                            {medicao.boletim_pdf_url && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                disabled={baixandoBoletim === medicao.id}
+                                onClick={() => baixarBoletimAprov(medicao)}
+                              >
+                                {baixandoBoletim === medicao.id
+                                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                                  : <FileDown className="h-4 w-4" />}
+                                Baixar Boletim Assinado
+                              </Button>
+                            )}
+                          </div>
+                        )}
 
                         {/* Discriminação das Despesas */}
                         {discriminacoesAprov[medicao.id] && discriminacoesAprov[medicao.id].length > 0 && (

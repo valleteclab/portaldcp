@@ -395,6 +395,17 @@ export class ModalidadesContratoController {
   }
 
   /**
+   * Lista assinaturas digitais de uma medição.
+   * GET /api/contratos/medicoes/:medicaoId/assinaturas
+   */
+  @Get('medicoes/:medicaoId/assinaturas')
+  async listarAssinaturasMedicao(
+    @Param('medicaoId') medicaoId: string,
+  ) {
+    return this.medicaoService.listarAssinaturasMedicao(medicaoId);
+  }
+
+  /**
    * Fiscal corrige um item de discriminação.
    * PATCH /api/contratos/medicoes/:medicaoId/discriminacoes/:discriminacaoId
    */
