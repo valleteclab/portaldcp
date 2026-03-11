@@ -352,6 +352,9 @@ export async function gerarBoletimMedicaoPdf(
   }
   y += 5;
 
+  // Valor Bruto (= valor da medição)
+  linhaInfo('VALOR BRUTO', fmt(dados.valor_medido));
+
   // Competência
   if (competencia) {
     doc.setFont('helvetica', 'bold');

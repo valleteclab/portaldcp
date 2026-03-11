@@ -1438,12 +1438,21 @@ export class MedicaoService {
     const asFiscal    = assinaturas.find(a => a.papel_assinante === PapelAssinante.FISCAL);
 
     const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
-    // Subtrai 3 horas explicitamente para garantir horário de Brasília
-    // independente de ICU timezone data disponível no container Docker.
+    // timestamp without time zone: o driver pg interpreta o valor do banco
+    // como horário LOCAL do processo Node.js. Para obter o UTC real (valor
+    // armazenado pelo PostgreSQL), desfazemos o offset local e depois
+    // convertemos para BRT (UTC-3). Funciona tanto em servidor UTC quanto BRT.
     const fmtDataBR = (date: Date) => {
       const d = date instanceof Date ? date : new Date(date as any);
-      const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
-      return brt.toLocaleString('pt-BR', { timeZone: 'UTC' });
+      const trueUtcMs = d.getTime() - d.getTimezoneOffset() * 60 * 1000;
+      const brt = new Date(trueUtcMs - 3 * 60 * 60 * 1000);
+      const dd = String(brt.getUTCDate()).padStart(2, '0');
+      const mm = String(brt.getUTCMonth() + 1).padStart(2, '0');
+      const yyyy = brt.getUTCFullYear();
+      const hh = String(brt.getUTCHours()).padStart(2, '0');
+      const mi = String(brt.getUTCMinutes()).padStart(2, '0');
+      const ss = String(brt.getUTCSeconds()).padStart(2, '0');
+      return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
     };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
