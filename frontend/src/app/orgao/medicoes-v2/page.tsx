@@ -19,7 +19,7 @@ import {
 import {
   ClipboardCheck, FileDown, Search, Loader2, CheckCircle, Clock,
   AlertTriangle, Shield, ChevronLeft, ChevronRight, X, Download, Plus,
-  TrendingUp, FileText, Eye,
+  TrendingUp, FileText, Eye, Paperclip, PenLine,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import dynamic from 'next/dynamic'
@@ -264,6 +264,15 @@ export default function MedicoesV2Page() {
   const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
   const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
   const [actionLoading, setActionLoading] = useState(false)
+  // Anexos do modal de ateste
+  const [anexosAteste, setAnexosAteste] = useState<any[]>([])
+  const [loadingAnexos, setLoadingAnexos] = useState(false)
+  // Assinatura digital
+  const [etapaAssinatura, setEtapaAssinatura] = useState<'idle' | 'aguardando-otp' | 'assinado'>('idle')
+  const [whatsappFiscal, setWhatsappFiscal] = useState('')
+  const [otpFiscal, setOtpFiscal] = useState('')
+  const [loadingAssinatura, setLoadingAssinatura] = useState(false)
+  const [codigoAssinatura, setCodigoAssinatura] = useState<string | null>(null)
 
   // Modal TabMedicao
   const [contratoAberto, setContratoAberto] = useState<ContratoResumo | null>(null)
@@ -319,7 +328,19 @@ export default function MedicoesV2Page() {
         itensMap[item.id] = { selecionado: !!item.atestado, observacoes: item.ateste_observacoes || '' }
       }
       setItensAteste(itensMap)
+      setEtapaAssinatura('idle')
+      setWhatsappFiscal('')
+      setOtpFiscal('')
+      setCodigoAssinatura(null)
+      setAnexosAteste([])
       setModalAteste(medicaoCompleta)
+      // Buscar anexos em paralelo
+      setLoadingAnexos(true)
+      authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/anexos`)
+        .then(r => r.ok ? r.json() : [])
+        .then(data => setAnexosAteste(Array.isArray(data) ? data : []))
+        .catch(() => {})
+        .finally(() => setLoadingAnexos(false))
     } catch { alert('Erro ao carregar medição') }
     setLoadingAteste(false)
   }
@@ -838,7 +859,7 @@ export default function MedicoesV2Page() {
       </div>
 
       {/* ============ MODAL: ATESTE DIRETO ============ */}
-      <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
+      <Dialog open={!!modalAteste} onOpenChange={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setWhatsappFiscal(''); setOtpFiscal(''); setCodigoAssinatura(null) }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -889,7 +910,7 @@ export default function MedicoesV2Page() {
                           )
                         })()}
                       </TableHead>
-                      <TableHead className="text-xs font-bold">Item / Etapa</TableHead>
+                      <TableHead className="text-xs font-bold max-w-xs">Item / Etapa</TableHead>
                       <TableHead className="text-xs font-bold text-center w-24">Qtd / %</TableHead>
                       <TableHead className="text-xs font-bold text-right w-24">Valor</TableHead>
                       <TableHead className="text-xs font-bold w-10">Status</TableHead>
@@ -924,8 +945,8 @@ export default function MedicoesV2Page() {
                               className="w-4 h-4"
                             />
                           </TableCell>
-                          <TableCell>
-                            <p className="text-sm font-medium">{numero}. {descricao}</p>
+                          <TableCell className="min-w-0 max-w-xs">
+                            <p className="text-sm font-medium break-words whitespace-normal">{numero}. {descricao}</p>
                             {jaAtestado && selecionado && (
                               <p className="text-xs text-green-600 mt-0.5">
                                 Atestado por {item.ateste_fiscal_nome} em {formatarData(item.ateste_data)}
@@ -971,6 +992,49 @@ export default function MedicoesV2Page() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Anexos do Fornecedor */}
+              {(loadingAnexos || anexosAteste.length > 0) && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-700">Evidências do Fornecedor</span>
+                    {anexosAteste.length > 0 && (
+                      <Badge variant="outline" className="text-xs">{anexosAteste.length}</Badge>
+                    )}
+                  </div>
+                  {loadingAnexos ? (
+                    <p className="text-xs text-gray-400">Carregando anexos...</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {anexosAteste.map((anexo: any) => (
+                        <div
+                          key={anexo.id}
+                          className="border rounded-lg overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                          onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}
+                        >
+                          {anexo.tipo === 'FOTO' ? (
+                            <img
+                              src={`${API_URL}${anexo.url}`}
+                              alt={anexo.descricao || anexo.nome_original}
+                              className="w-full h-20 object-cover"
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                          ) : (
+                            <div className="w-full h-20 flex items-center justify-center bg-gray-50">
+                              <FileText className="w-8 h-8 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="p-1.5">
+                            <p className="text-xs text-gray-600 truncate">{anexo.descricao || anexo.nome_original}</p>
+                            <p className="text-xs text-gray-400">{Math.round((anexo.tamanho_bytes || 0) / 1024)} KB</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Verificação in loco */}
               <div className="flex items-center gap-3 p-3 border rounded-lg">
@@ -1020,8 +1084,116 @@ export default function MedicoesV2Page() {
             </div>
           )}
 
+          {/* Assinatura Digital do Fiscal */}
+          {modalAteste && (
+            <div className="border-t pt-4 space-y-3 px-1">
+              <div className="flex items-center gap-2">
+                <PenLine className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-semibold text-gray-800">Assinatura Digital do Fiscal</span>
+                {etapaAssinatura === 'assinado' && <CheckCircle className="w-4 h-4 text-green-600" />}
+              </div>
+
+              {etapaAssinatura === 'idle' && (
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="WhatsApp do fiscal (somente números, ex: 11999998888)"
+                    value={whatsappFiscal}
+                    onChange={e => setWhatsappFiscal(e.target.value.replace(/\D/g, ''))}
+                    className="flex-1 text-sm"
+                    maxLength={11}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={whatsappFiscal.length < 10 || loadingAssinatura}
+                    onClick={async () => {
+                      setLoadingAssinatura(true)
+                      try {
+                        const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/solicitar-otp-fiscal`, {
+                          method: 'POST',
+                          body: JSON.stringify({ telefone: whatsappFiscal }),
+                        })
+                        if (res.ok) {
+                          setEtapaAssinatura('aguardando-otp')
+                        } else {
+                          const err = await res.json().catch(() => ({}))
+                          alert(err.message || 'Erro ao enviar código. Verifique o número.')
+                        }
+                      } catch {
+                        alert('Erro ao enviar código.')
+                      }
+                      setLoadingAssinatura(false)
+                    }}
+                  >
+                    {loadingAssinatura ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enviar código'}
+                  </Button>
+                </div>
+              )}
+
+              {etapaAssinatura === 'aguardando-otp' && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500">
+                    Código enviado via WhatsApp para{' '}
+                    <strong>{whatsappFiscal.replace(/(\d{2})(\d{4,5})(\d{4})/, '($1) $2-$3')}</strong>.
+                    Insira o código de 6 dígitos abaixo.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Código OTP (6 dígitos)"
+                      value={otpFiscal}
+                      onChange={e => setOtpFiscal(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="flex-1 text-sm tracking-widest"
+                      maxLength={6}
+                    />
+                    <Button
+                      size="sm"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                      disabled={otpFiscal.length !== 6 || loadingAssinatura}
+                      onClick={async () => {
+                        setLoadingAssinatura(true)
+                        try {
+                          const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/validar-otp-fiscal`, {
+                            method: 'POST',
+                            body: JSON.stringify({ codigo: otpFiscal }),
+                          })
+                          if (res.ok) {
+                            const data = await res.json()
+                            setCodigoAssinatura(data.codigo_formatado || data.codigo_validacao || '—')
+                            setEtapaAssinatura('assinado')
+                          } else {
+                            const err = await res.json().catch(() => ({}))
+                            alert(err.message || 'Código inválido ou expirado.')
+                          }
+                        } catch {
+                          alert('Erro ao confirmar assinatura.')
+                        }
+                        setLoadingAssinatura(false)
+                      }}
+                    >
+                      {loadingAssinatura ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirmar Assinatura'}
+                    </Button>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-gray-400 underline"
+                    onClick={() => { setEtapaAssinatura('idle'); setOtpFiscal('') }}
+                  >
+                    Alterar número
+                  </button>
+                </div>
+              )}
+
+              {etapaAssinatura === 'assinado' && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  ✓ Boletim assinado digitalmente — código de validação:{' '}
+                  <code className="font-mono font-bold">{codigoAssinatura}</code>
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setWhatsappFiscal(''); setOtpFiscal(''); setCodigoAssinatura(null) }}>Cancelar</Button>
             {modalAteste && (
               <Button
                 size="sm"

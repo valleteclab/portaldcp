@@ -3420,6 +3420,118 @@ export class MedicaoService {
     };
   }
 
+  // =========================================================
+  // OTP — Assinatura Digital do Fiscal via WhatsApp
+  // =========================================================
+
+  /**
+   * Envia OTP via WhatsApp para um número informado pelo usuário.
+   * Usado pelo fiscal para assinar digitalmente o boletim.
+   */
+  async solicitarOtpAssinaturaFiscal(
+    medicaoId: string,
+    telefone: string,
+  ): Promise<{ telefone_mascarado: string }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato
+      || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+
+    const orgaoId = contrato?.orgao_id || '';
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+
+    if (telefoneLimpo.length < 10) {
+      throw new BadRequestException('Número de WhatsApp inválido.');
+    }
+
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const cacheKey = `otp_fiscal_${medicaoId}`;
+
+    (this.assinaturasService as any).otpCache?.set(cacheKey, {
+      codigo,
+      telefone: telefoneLimpo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    // Também registrar no cache por telefone para compatibilidade com validarOtp
+    (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefoneLimpo}`, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    const mensagem = `Seu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
+
+    try {
+      await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+        to: telefoneLimpo,
+        mensagem,
+      });
+    } catch (err) {
+      this.logger.warn(`Falha ao enviar OTP fiscal via WhatsApp para medição ${medicaoId}: ${err.message}`);
+      throw new BadRequestException('Não foi possível enviar o código. Verifique o número de WhatsApp.');
+    }
+
+    const telefoneMascarado = telefoneLimpo.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+    this.logger.log(`OTP fiscal enviado para medição ${medicaoId}: ${telefoneMascarado}`);
+
+    return { telefone_mascarado: telefoneMascarado };
+  }
+
+  /**
+   * Valida OTP do fiscal e registra assinatura digital como FISCAL.
+   */
+  async validarOtpAssinaturaFiscal(
+    medicaoId: string,
+    codigoOtp: string,
+    dadosFiscal: {
+      usuario_id?: string;
+      usuario_nome: string;
+      usuario_cpf_cnpj: string;
+      usuario_cargo?: string;
+      orgao_id?: string;
+    },
+  ): Promise<{ sucesso: boolean; codigo_validacao: string; codigo_formatado: string }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const cacheKey = `otp_fiscal_${medicaoId}`;
+    const otpEntry = (this.assinaturasService as any).otpCache?.get(cacheKey);
+
+    if (!otpEntry || otpEntry.expiracao <= Date.now() || otpEntry.codigo !== codigoOtp) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+
+    (this.assinaturasService as any).otpCache?.delete(cacheKey);
+    if (otpEntry.telefone) {
+      const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+      const orgaoId = dadosFiscal.orgao_id || contrato?.orgao_id || '';
+      (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${otpEntry.telefone}`);
+    }
+
+    const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: dadosFiscal.orgao_id || '',
+      papel: 'FISCAL',
+      usuario_id: dadosFiscal.usuario_id,
+      usuario_nome: dadosFiscal.usuario_nome,
+      usuario_cpf_cnpj: dadosFiscal.usuario_cpf_cnpj,
+      usuario_cargo: dadosFiscal.usuario_cargo || 'Fiscal',
+    });
+
+    this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+    };
+  }
+
   /**
    * Salva arquivo PDF do boletim em disco e atualiza a URL na medição.
    */

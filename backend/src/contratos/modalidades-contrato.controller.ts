@@ -851,6 +851,34 @@ export class ModalidadesContratoController {
    * Usa o mesmo módulo de assinaturas das OS/OF (assinaturas_digitais).
    * Retorna o código de validação formatado para inclusão no PDF.
    */
+  @Post('medicoes/:medicaoId/solicitar-otp-fiscal')
+  async solicitarOtpFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { telefone: string },
+  ) {
+    return this.medicaoService.solicitarOtpAssinaturaFiscal(medicaoId, body.telefone);
+  }
+
+  @Post('medicoes/:medicaoId/validar-otp-fiscal')
+  async validarOtpFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { codigo: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const orgaoId = request.user.type === UserType.ORGAO
+      ? request.user.sub
+      : usuario?.orgao_id || '';
+
+    return this.medicaoService.validarOtpAssinaturaFiscal(medicaoId, body.codigo, {
+      usuario_id: request.user.sub,
+      usuario_nome: usuario?.nome || '',
+      usuario_cpf_cnpj: usuario?.cpf || '',
+      usuario_cargo: usuario?.cargo || 'Fiscal',
+      orgao_id: orgaoId,
+    });
+  }
+
   @Post('medicoes/:medicaoId/assinar')
   async assinarMedicao(
     @Param('medicaoId') medicaoId: string,
