@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
+import { LinkAssinaturaFiscal } from './entities/link-assinatura-fiscal.entity';
 import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
@@ -63,6 +64,8 @@ export class MedicaoService {
     private assinaturaDigitalRepository: Repository<AssinaturaDigital>,
     @InjectRepository(AnexoMedicao)
     private anexoMedicaoRepository: Repository<AnexoMedicao>,
+    @InjectRepository(LinkAssinaturaFiscal)
+    private linkAssinaturaRepository: Repository<LinkAssinaturaFiscal>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
     private geradorPdfService: GeradorPdfService,
@@ -3803,5 +3806,296 @@ export class MedicaoService {
 
     this.logger.log(`Boletim PDF salvo para medição ${medicaoId}: ${pdfUrl}`);
     return pdfUrl;
+  }
+
+  // ============================================================================
+  // FLUXO DE ASSINATURA FISCAL VIA LINK WHATSAPP
+  // ============================================================================
+
+  /**
+   * Retorna usuários do órgão com eh_fiscal_contrato = true.
+   */
+  async listarFiscaisOrgao(orgaoId: string): Promise<any[]> {
+    return this.usuarioRepository.find({
+      where: { orgao_id: orgaoId, eh_fiscal_contrato: true, ativo: true } as any,
+      select: ['id', 'nome', 'cpf', 'cargo', 'telefone'],
+      order: { nome: 'ASC' } as any,
+    });
+  }
+
+  /**
+   * Cria um link temporário e envia WhatsApp para o fiscal assinar.
+   */
+  async solicitarAssinaturaFiscalWhatsApp(
+    medicaoId: string,
+    fiscalUsuarioId: string,
+    solicitadoPorId: string,
+  ): Promise<{ link_enviado: boolean; fiscal_nome: string; expira_em: Date }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const fiscal = await this.usuarioRepository.findOne({ where: { id: fiscalUsuarioId } });
+    if (!fiscal) throw new NotFoundException('Fiscal não encontrado');
+
+    const solicitante = await this.usuarioRepository.findOne({ where: { id: solicitadoPorId } });
+
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+
+    // Invalidar links anteriores pendentes para esta medição
+    await this.linkAssinaturaRepository.update(
+      { medicao_id: medicaoId, status: 'pendente' },
+      { status: 'expirado' } as any,
+    );
+
+    const { randomUUID } = await import('crypto');
+    const token = randomUUID();
+    const expira_em = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
+
+    const link = await this.linkAssinaturaRepository.save({
+      token,
+      medicao_id: medicaoId,
+      fiscal_usuario_id: fiscal.id,
+      fiscal_nome: fiscal.nome,
+      fiscal_telefone: fiscal.telefone || '',
+      solicitado_por_id: solicitadoPorId,
+      solicitado_por_nome: solicitante?.nome || '',
+      solicitado_por_telefone: solicitante?.telefone || '',
+      status: 'pendente',
+      expira_em,
+    });
+
+    // Montar mensagem WhatsApp
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+    const linkUrl = `${appUrl}/assinar-medicao/${token}`;
+    const orgaoNome = contrato?.orgao?.nome || 'Órgão';
+    const numContrato = contrato?.numero_contrato || '';
+    const numMedicao = String(medicao.numero_medicao || '').padStart(3, '0');
+    const periodoInicio = medicao.periodo_inicio ? new Date(medicao.periodo_inicio).toLocaleDateString('pt-BR') : '';
+    const periodoFim   = medicao.periodo_fim    ? new Date(medicao.periodo_fim).toLocaleDateString('pt-BR')    : '';
+
+    const mensagem =
+      `Olá, *${fiscal.nome}*! 👋\n\n` +
+      `Você recebeu uma solicitação de *assinatura de boletim de medição*.\n\n` +
+      `🏛️ *Órgão:* ${orgaoNome}\n` +
+      `📋 *Contrato:* ${numContrato}\n` +
+      `🔢 *Medição Nº:* ${numMedicao}\n` +
+      `🗓️ *Período:* ${periodoInicio} a ${periodoFim}\n\n` +
+      `Acesse o link abaixo para revisar os documentos e assinar digitalmente:\n` +
+      `🔗 ${linkUrl}\n\n` +
+      `⏳ Este link expira em *48 horas*.`;
+
+    if (fiscal.telefone) {
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(
+          contrato?.orgao_id || '',
+          { to: fiscal.telefone, mensagem },
+        );
+      } catch (err) {
+        this.logger.warn(`Não foi possível enviar WhatsApp para fiscal ${fiscal.nome}: ${err.message}`);
+      }
+    }
+
+    return { link_enviado: !!fiscal.telefone, fiscal_nome: fiscal.nome, expira_em };
+  }
+
+  /**
+   * Retorna o status do link de assinatura mais recente para a medição.
+   */
+  async statusAssinaturaFiscal(medicaoId: string): Promise<any> {
+    const link = await this.linkAssinaturaRepository.findOne({
+      where: { medicao_id: medicaoId },
+      order: { criado_em: 'DESC' } as any,
+    });
+    return {
+      status: link?.status || 'sem_solicitacao',
+      fiscal_nome: link?.fiscal_nome || null,
+      atualizado_em: link?.atualizado_em || null,
+    };
+  }
+
+  /**
+   * Retorna dados da medição para a página pública de assinatura.
+   * Valida que o token existe, não expirou e está pendente.
+   */
+  async obterDadosLinkPublico(token: string): Promise<any> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link) throw new NotFoundException('Link inválido');
+    if (link.status !== 'pendente') throw new BadRequestException('Este link já foi utilizado ou expirou');
+    if (new Date() > link.expira_em) {
+      await this.linkAssinaturaRepository.update(link.id, { status: 'expirado' } as any);
+      throw new BadRequestException('Este link expirou');
+    }
+
+    const medicao = await this.buscarMedicaoCompleta(link.medicao_id);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    const anexos = await this.anexoMedicaoRepository.find({ where: { medicao_id: link.medicao_id } });
+
+    return {
+      medicao_id: link.medicao_id,
+      fiscal_nome: link.fiscal_nome,
+      numero_medicao: medicao.numero_medicao,
+      periodo_inicio: medicao.periodo_inicio,
+      periodo_fim: medicao.periodo_fim,
+      valor_medido: medicao.valor_medido,
+      orgao_nome: contrato?.orgao?.nome || '',
+      numero_contrato: contrato?.numero_contrato || '',
+      fornecedor_nome: medicao.fornecedor_nome || '',
+      boletim_pdf_url: medicao.boletim_pdf_url || null,
+      anexos: anexos.map(a => ({
+        id: a.id,
+        url: a.url,
+        nome_original: a.nome_original,
+        tipo: a.tipo,
+        tamanho_bytes: a.tamanho_bytes,
+      })),
+    };
+  }
+
+  /**
+   * Envia OTP via WhatsApp para o fiscal assinar via link público.
+   */
+  async solicitarOtpLinkPublico(token: string): Promise<{ enviado: boolean }> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
+    if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
+    if (!link.fiscal_telefone) throw new BadRequestException('Fiscal não possui telefone cadastrado');
+
+    const contrato = await this.contratoRepository.findOne({ where: { id: (await this.medicaoRepository.findOne({ where: { id: link.medicao_id } }))?.contrato_id || '' } });
+    const orgaoId = contrato?.orgao_id || '';
+
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    const cacheKey = `otp_link_${token}`;
+    (this.assinaturasService as any).otpCache?.set(cacheKey, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    const mensagem =
+      `Olá, *${link.fiscal_nome}*!\n\n` +
+      `Seu código de verificação para *assinar o boletim de medição* é:\n\n` +
+      `*${codigo}*\n\n` +
+      `Este código expira em *5 minutos*. Não o compartilhe.`;
+
+    try {
+      await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
+        to: link.fiscal_telefone,
+        mensagem,
+      });
+      return { enviado: true };
+    } catch (err) {
+      this.logger.warn(`Erro ao enviar OTP para link ${token}: ${err.message}`);
+      return { enviado: false };
+    }
+  }
+
+  /**
+   * Valida OTP e registra a assinatura do fiscal via link público.
+   * Retorna dados_pdf para o frontend regenerar o PDF com o layout correto.
+   */
+  async assinarViaLinkPublico(
+    token: string,
+    codigoOtp: string,
+  ): Promise<{ sucesso: boolean; codigo_validacao: string; codigo_formatado: string; dados_pdf: any; medicao_id: string }> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
+    if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
+
+    // Validar OTP
+    const cacheKey = `otp_link_${token}`;
+    const otpEntry = (this.assinaturasService as any).otpCache?.get(cacheKey);
+    if (!otpEntry || otpEntry.expiracao <= Date.now() || otpEntry.codigo !== codigoOtp) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+    (this.assinaturasService as any).otpCache?.delete(cacheKey);
+
+    // Registrar assinatura
+    const assinatura = await this.registrarAssinaturaMedicao(link.medicao_id, {
+      orgao_id: '',
+      papel: 'FISCAL',
+      usuario_id: link.fiscal_usuario_id,
+      usuario_nome: link.fiscal_nome,
+      usuario_cpf_cnpj: (await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } }))?.cpf || '',
+      usuario_cargo: (await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } }))?.cargo || 'Fiscal de Contrato',
+    });
+
+    // Montar dados para o frontend gerar o PDF
+    let dados_pdf: any = null;
+    try {
+      dados_pdf = await this.montarDadosPdfFrontend(link.medicao_id);
+    } catch (err) {
+      this.logger.warn(`Erro ao montar dados PDF após assinatura por link: ${err.message}`);
+    }
+
+    // Atualizar status do link
+    await this.linkAssinaturaRepository.update(link.id, { status: 'assinado' } as any);
+
+    // Notificar solicitante via WhatsApp
+    if (link.solicitado_por_telefone) {
+      const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
+      const contrato = await this.contratoRepository.findOne({ where: { id: medicao?.contrato_id || '' } });
+      const orgaoId = contrato?.orgao_id || '';
+      const numMedicao = String(medicao?.numero_medicao || '').padStart(3, '0');
+      const mensagemNotif =
+        `✅ *${link.fiscal_nome}* assinou digitalmente o boletim da *Medição Nº ${numMedicao}*.\n\n` +
+        `O boletim assinado já está disponível para download.`;
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
+          to: link.solicitado_por_telefone,
+          mensagem: mensagemNotif,
+        });
+      } catch (err) {
+        this.logger.warn(`Erro ao notificar solicitante: ${err.message}`);
+      }
+    }
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+      dados_pdf,
+      medicao_id: link.medicao_id,
+    };
+  }
+
+  /**
+   * Recusa a assinatura via link público.
+   */
+  async recusarViaLinkPublico(token: string, motivo?: string): Promise<{ sucesso: boolean }> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
+    if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
+
+    await this.linkAssinaturaRepository.update(link.id, {
+      status: 'recusado',
+      motivo_recusa: motivo || null,
+    } as any);
+
+    // Notificar solicitante
+    if (link.solicitado_por_telefone) {
+      const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
+      const contrato = await this.contratoRepository.findOne({ where: { id: medicao?.contrato_id || '' } });
+      const orgaoId = contrato?.orgao_id || '';
+      const numMedicao = String(medicao?.numero_medicao || '').padStart(3, '0');
+      const motivoTxt = motivo ? `\n\nMotivo: _${motivo}_` : '';
+      const mensagem =
+        `❌ *${link.fiscal_nome}* recusou a assinatura do boletim da *Medição Nº ${numMedicao}*.${motivoTxt}`;
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
+          to: link.solicitado_por_telefone,
+          mensagem,
+        });
+      } catch (err) {
+        this.logger.warn(`Erro ao notificar solicitante de recusa: ${err.message}`);
+      }
+    }
+
+    return { sucesso: true };
   }
 }

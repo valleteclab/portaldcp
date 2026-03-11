@@ -149,6 +149,33 @@ export class ModalidadesContratoController {
   //           para evitar que NestJS interprete "resumo-fiscal" como :medicaoId
   // ============================================================================
 
+  @Get('medicoes/fiscais')
+  async listarFiscaisOrgao(
+    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const oid = orgaoId || this.getOrgaoId(request.user, undefined);
+    return this.medicaoService.listarFiscaisOrgao(oid);
+  }
+
+  @Post('medicoes/:medicaoId/solicitar-assinatura-fiscal')
+  async solicitarAssinaturaFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fiscalUsuarioId: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    return this.medicaoService.solicitarAssinaturaFiscalWhatsApp(
+      medicaoId,
+      body.fiscalUsuarioId,
+      request.user.sub,
+    );
+  }
+
+  @Get('medicoes/:medicaoId/status-assinatura-fiscal')
+  async statusAssinaturaFiscal(@Param('medicaoId') medicaoId: string) {
+    return this.medicaoService.statusAssinaturaFiscal(medicaoId);
+  }
+
   @Get('medicoes/pendentes-ateste')
   async listarPendentesAteste(
     @Req() request: { user: JwtPayload },
