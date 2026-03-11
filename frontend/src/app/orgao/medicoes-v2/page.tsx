@@ -53,6 +53,9 @@ interface MedicaoPendente {
   fiscal_nome: string
   total_itens: number
   itens_atestados: number
+  dias: number
+  cnpj: string
+  tipo: string
 }
 
 interface MedicaoAprovacao {
