@@ -175,7 +175,7 @@ function formatarData(d: string | null | undefined) {
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
-export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { contratoId: string; valorGlobal: number; modalidade?: string }) {
+export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar }: { contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([])
@@ -818,7 +818,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                   <Button size="sm" variant="outline" onClick={() => abrirDetalhe(m)}>
                     <Eye className="w-3 h-3 mr-1" />Ver
                   </Button>
-                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
+                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => onAtestar ? onAtestar(m) : abrirModalAteste(m)}>
                     <ClipboardCheck className="w-3 h-3 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                   </Button>
                   <Button size="sm" variant="outline" className="text-amber-600 border-amber-300" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
@@ -1064,7 +1064,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                       )}
                       {(m.status === 'SUBMETIDA' || m.status === 'PARCIALMENTE_ATESTADA') && (
                         <>
-                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
+                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => onAtestar ? onAtestar(m) : abrirModalAteste(m)}>
                             <ClipboardCheck className="w-3.5 h-3.5 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                           </Button>
                           <Button size="sm" variant="outline" className="text-amber-600" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>

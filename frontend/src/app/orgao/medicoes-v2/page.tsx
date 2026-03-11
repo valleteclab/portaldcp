@@ -20,6 +20,7 @@ import {
   ClipboardCheck, FileDown, Search, Loader2, CheckCircle, Clock,
   AlertTriangle, Shield, ChevronLeft, ChevronRight, X, Download, Plus,
   TrendingUp, FileText, Eye, Paperclip, PenLine, Archive, CheckSquare, Square, XCircle,
+  RotateCcw, Trash2, Send,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { gerarPdfMedicao } from '@/lib/pdf-medicao'
@@ -276,6 +277,11 @@ export default function MedicoesV2Page() {
   const [loadingAssinatura, setLoadingAssinatura] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Devolver / Excluir
+  const [modalDevolver, setModalDevolver] = useState<any>(null)
+  const [motivoDevolucao, setMotivoDevolucao] = useState('')
+  const [podeExcluirMedicao, setPodeExcluirMedicao] = useState(false)
+
   // Aba aprovadas
   const [aprovadas, setAprovadas] = useState<any[]>([])
   const [loadingAprovadas, setLoadingAprovadas] = useState(false)
@@ -315,6 +321,14 @@ export default function MedicoesV2Page() {
   }, [periodo])
 
   useEffect(() => { carregarDados() }, [carregarDados])
+
+  // Verificar permissão de excluir medição
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('usuario') || '{}')
+      setPodeExcluirMedicao(u.pode_excluir_medicao === true)
+    } catch { setPodeExcluirMedicao(false) }
+  }, [])
 
   // Reset página ao mudar filtros
   useEffect(() => { setPagina(1) }, [busca, statusFiltro, tipoFiltro, periodo])
@@ -489,6 +503,37 @@ export default function MedicoesV2Page() {
       }
     } catch (e) { console.error(e) }
     setActionLoading(false)
+  }
+
+  // ============ DEVOLVER / EXCLUIR ============
+
+  const devolverMedicao = async () => {
+    if (!modalDevolver) return
+    if (!motivoDevolucao.trim()) { alert('Informe o motivo da devolução.'); return }
+    setActionLoading(true)
+    try {
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalDevolver.id}/devolver`, {
+        method: 'PATCH',
+        body: JSON.stringify({ fiscal_id: usuario.id || '', fiscal_nome: usuario.nome || 'Fiscal', motivo: motivoDevolucao }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao devolver medição') }
+      else { setModalDevolver(null); setMotivoDevolucao(''); carregarDados(); alert('Medição devolvida ao fornecedor com sucesso!') }
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const excluirMedicaoById = async (medicaoId: string, numeroMedicao: number, statusAtual?: string) => {
+    const msgExtra = statusAtual === 'APROVADA'
+      ? '\n\n⚠️ ATENÇÃO: Esta medição já foi APROVADA. Ao excluí-la, os valores e percentuais das etapas serão revertidos.'
+      : ''
+    if (!confirm(`Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`)) return
+    try {
+      const params = podeExcluirMedicao ? '?podeExcluirMedicao=true' : ''
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}${params}`, { method: 'DELETE' })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao excluir medição') }
+      else { carregarDados() }
+    } catch (e) { console.error(e) }
   }
 
   // ============ DADOS CALCULADOS ============
@@ -1005,6 +1050,17 @@ export default function MedicoesV2Page() {
                               ) : med.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar' : 'Analisar'}
                             </Button>
                           )}
+                          {!isAprovacao && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-amber-600 border-amber-300 hover:bg-amber-50"
+                              title="Devolver ao fornecedor"
+                              onClick={() => { setModalDevolver(med); setMotivoDevolucao('') }}
+                            >
+                              <RotateCcw className="w-3 h-3 mr-1" />Devolver
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -1016,6 +1072,17 @@ export default function MedicoesV2Page() {
                           >
                             Ver
                           </Button>
+                          {(podeExcluirMedicao || !isAprovacao) && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                              title="Excluir medição"
+                              onClick={() => excluirMedicaoById(med.id, med.numero_medicao, med.status)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1079,7 +1146,7 @@ export default function MedicoesV2Page() {
       )}
 
       {/* ============ MODAL: ATESTE DIRETO ============ */}
-      <Dialog open={!!modalAteste} onOpenChange={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setWhatsappFiscal(''); setOtpFiscal(''); setCodigoAssinatura(null) }}>
+      <Dialog open={!!modalAteste} onOpenChange={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1376,12 +1443,23 @@ export default function MedicoesV2Page() {
               )}
 
               {etapaAssinatura === 'aguardando' && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
-                  <p className="text-yellow-800 font-medium flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Aguardando assinatura de <strong>{statusAssinatura?.fiscal_nome}</strong>
-                  </p>
-                  <p className="text-yellow-600 text-xs mt-1">Link enviado via WhatsApp. Verificando automaticamente a cada 30s.</p>
+                <div className="space-y-2">
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
+                    <p className="text-yellow-800 font-medium flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Aguardando assinatura de <strong>{statusAssinatura?.fiscal_nome}</strong>
+                    </p>
+                    <p className="text-yellow-600 text-xs mt-1">Link enviado via WhatsApp. Verificando automaticamente a cada 30s.</p>
+                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50" onClick={() => {
+                    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
+                    setEtapaAssinatura('idle')
+                    setFiscalSelecionado('')
+                    setStatusAssinatura(null)
+                  }}>
+                    <Send className="w-3.5 h-3.5" />
+                    Reenviar para outro fiscal
+                  </Button>
                 </div>
               )}
 
@@ -1409,7 +1487,22 @@ export default function MedicoesV2Page() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setWhatsappFiscal(''); setOtpFiscal(''); setCodigoAssinatura(null) }}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } }}>Cancelar</Button>
+            {modalAteste && (podeExcluirMedicao) && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => {
+                  const { id, numero_medicao, status } = modalAteste
+                  setModalAteste(null)
+                  excluirMedicaoById(id, numero_medicao, status)
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                Excluir
+              </Button>
+            )}
             {modalAteste && (
               <Button
                 size="sm"
@@ -1463,6 +1556,42 @@ export default function MedicoesV2Page() {
         </DialogContent>
       </Dialog>
 
+      {/* ============ MODAL: DEVOLVER ============ */}
+      <Dialog open={!!modalDevolver} onOpenChange={() => { setModalDevolver(null); setMotivoDevolucao('') }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-amber-600" />
+              Devolver Medição ao Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              {modalDevolver?.numero_medicao}ª Medição — {modalDevolver?.fornecedor_nome}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Motivo da devolução *</Label>
+            <Textarea
+              placeholder="Informe o motivo para devolver ao fornecedor..."
+              value={motivoDevolucao}
+              onChange={e => setMotivoDevolucao(e.target.value)}
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setModalDevolver(null); setMotivoDevolucao('') }}>Cancelar</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={!motivoDevolucao.trim() || actionLoading}
+              onClick={devolverMedicao}
+            >
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Devolver
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ============ MODAL: CONTRATO (TabMedicao) ============ */}
       <Dialog open={!!contratoAberto} onOpenChange={() => setContratoAberto(null)}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
@@ -1476,6 +1605,7 @@ export default function MedicoesV2Page() {
             <TabMedicao
               contratoId={contratoAberto.id}
               valorGlobal={contratoAberto.valor_global}
+              onAtestar={abrirModalAtesteDireto}
             />
           )}
         </DialogContent>
