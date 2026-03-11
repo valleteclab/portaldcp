@@ -3525,6 +3525,14 @@ export class MedicaoService {
 
     this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
 
+    // Regenerar PDF oficial com a assinatura do fiscal incluída
+    try {
+      await this.gerarPdfOficialMedicao(medicaoId);
+      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${medicaoId}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal: ${err.message}`);
+    }
+
     return {
       sucesso: true,
       codigo_validacao: assinatura.codigo_validacao,
