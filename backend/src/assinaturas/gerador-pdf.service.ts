@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as QRCode from 'qrcode';
 import { join } from 'path';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { AssinaturaDigital } from './entities/assinatura-digital.entity';
+import { gerarBoletimMedicaoPdf } from './medicao-pdf-jspdf';
 
 const PDFDocument = require('pdfkit');
 
@@ -458,210 +459,19 @@ export class GeradorPdfService {
   }
 
   /**
-   * Gera o PDF do Boletim de Medição com layout completo (compatível com dados de montarDadosPdfFrontend)
+   * Gera o PDF do Boletim de Medição usando jsPDF (layout idêntico ao frontend)
    */
   async gerarPdfMedicao(dados: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string, outputPath?: string): Promise<string> {
     const filename = `Medicao_${dados.numero_medicao}_${Date.now()}.pdf`;
     const filePath = outputPath || join(this.uploadDir, 'documentos_assinados', filename);
 
-    return new Promise(async (resolve, reject) => {
-      try {
-        const doc = new PDFDocument({ margin: 50, size: 'A4' });
-        const writeStream = createWriteStream(filePath);
-        doc.pipe(writeStream);
+    // Extrair código de validação bruto (sem formatação) da primeira assinatura
+    const codigoValidacaoRaw = assinaturas?.[0]?.codigo_validacao || undefined;
 
-        const orgao = dados.orgao || {};
-        const pageW = doc.page.width;
-        const marginL = 50;
-        const contentW = pageW - marginL * 2;
+    const buffer = await gerarBoletimMedicaoPdf(dados, codigoValidacaoRaw, urlValidacaoBase);
+    writeFileSync(filePath, buffer);
 
-        const fmtBRL = (v: number) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-        const fmtData = (d: any) => {
-          if (!d) return '-';
-          const dt = d instanceof Date ? d : new Date(d);
-          return dt.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        };
-
-        // ── CABEÇALHO: logo + dados do órgão ──────────────────────────────────
-        let logoWidth = 0;
-        const logoPath = orgao.logo_url
-          ? join(this.uploadDir, orgao.logo_url.replace(/^\/api\/uploads\//, ''))
-          : null;
-        if (logoPath && existsSync(logoPath)) {
-          try {
-            doc.image(logoPath, marginL, 40, { width: 60, height: 60 });
-            logoWidth = 70;
-          } catch (e) {
-            this.logger.warn(`Erro ao incluir logo no PDF: ${(e as Error).message}`);
-          }
-        }
-
-        const textX = marginL + logoWidth;
-        const textW = contentW - logoWidth;
-        let lineY = 40;
-
-        doc.fontSize(13).font('Helvetica-Bold').fillColor('#111827')
-          .text((orgao.nome || dados.orgao_nome || 'ÓRGÃO').toUpperCase(), textX, lineY, { width: textW });
-        lineY += 17;
-
-        if (orgao.logradouro && orgao.logradouro !== 'A definir') {
-          doc.fontSize(9).font('Helvetica').fillColor('#374151')
-            .text(orgao.logradouro.toUpperCase(), textX, lineY, { width: textW });
-          lineY += 13;
-        }
-        if (orgao.cidade) {
-          const cidadeUF = `${orgao.cidade.toUpperCase()} - ${(orgao.uf || '').toUpperCase()}`;
-          doc.fontSize(9).font('Helvetica').fillColor('#374151')
-            .text(cidadeUF, textX, lineY, { width: textW });
-          lineY += 13;
-        }
-
-        const headerBottom = Math.max(lineY + 5, 110);
-        doc.y = headerBottom;
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(1).stroke('#374151');
-        doc.moveDown(0.5);
-
-        // ── TÍTULO ──────────────────────────────────────────────────
-        const numMedicao = String(dados.numero_medicao || 1).padStart(3, '0');
-        const tituloY = doc.y;
-        doc.fontSize(14).font('Helvetica-Bold').fillColor('#1e40af')
-          .text(`BOLETIM DE MEDIÇÃO Nº ${numMedicao}`, marginL, tituloY, { width: contentW, align: 'center' });
-        doc.moveDown(0.3);
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(1).stroke('#374151');
-        doc.moveDown(0.6);
-
-        // ── DADOS DO CONTRATO ─────────────────────────────────────────────
-        const labelW = 110;
-        const col2X = marginL + contentW / 2;
-        const valueW = contentW / 2 - labelW - 10;
-
-        const campo = (label: string, valor: string, x: number, y: number, w: number) => {
-          doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151').text(label, x, y, { width: labelW });
-          doc.fontSize(9).font('Helvetica').fillColor('#111827').text(valor || '-', x + labelW, y, { width: w });
-        };
-
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
-          .text('DADOS DO CONTRATO', marginL, doc.y, { width: contentW });
-        doc.moveDown(0.3);
-
-        let rowY = doc.y;
-        campo('Contrato:', dados.numero_contrato || '-', marginL, rowY, valueW);
-        if (dados.competencia) {
-          campo('Competência:', dados.competencia, col2X, rowY, valueW);
-        }
-        rowY += 16;
-
-        const objetoStr = (dados.objeto_contrato || '-').substring(0, 120);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151').text('Objeto:', marginL, rowY, { width: labelW });
-        doc.fontSize(9).font('Helvetica').fillColor('#111827').text(objetoStr, marginL + labelW, rowY, { width: contentW - labelW });
-        const objetoH = doc.heightOfString(objetoStr, { width: contentW - labelW });
-        rowY += Math.max(objetoH + 4, 16);
-
-        campo('Fornecedor:', (dados.fornecedor_nome || '-').toUpperCase(), marginL, rowY, valueW);
-        campo('CNPJ:', dados.fornecedor_cnpj || '-', col2X, rowY, valueW);
-        rowY += 16;
-
-        campo('Vigência:', `${fmtData(dados.data_vigencia_inicio)} a ${fmtData(dados.data_vigencia_fim)}`, marginL, rowY, valueW);
-        campo('Valor Global:', fmtBRL(dados.valor_total_contrato || 0), col2X, rowY, valueW);
-        rowY += 16;
-
-        doc.y = rowY + 4;
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
-        doc.moveDown(0.6);
-
-        // ── DADOS DA MEDIÇÃO ──────────────────────────────────────────────
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
-          .text('DADOS DA MEDIÇÃO', marginL, doc.y, { width: contentW });
-        doc.moveDown(0.3);
-
-        rowY = doc.y;
-        campo('Medição Nº:', `${dados.numero_medicao}ª`, marginL, rowY, valueW);
-        campo('Valor Medido:', fmtBRL(dados.valor_medido), col2X, rowY, valueW);
-        rowY += 16;
-
-        campo('Período:', `${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, marginL, rowY, valueW);
-        if (dados.nota_fiscal_numero) {
-          const nfLabel = `${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? ` — ${fmtBRL(dados.nota_fiscal_valor)}` : ''}`;
-          campo('Nota Fiscal:', nfLabel, col2X, rowY, valueW);
-        }
-        rowY += 16;
-
-        doc.y = rowY + 4;
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
-        doc.moveDown(0.6);
-
-        // ── ITENS CONTRATADOS ─────────────────────────────────────────────
-        if (dados.itens_contratados?.length > 0) {
-          doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
-            .text('ITENS CONTRATADOS', marginL, doc.y, { width: contentW });
-          doc.moveDown(0.3);
-          this.escreverTabelaItensContratados(doc, dados.itens_contratados);
-          doc.moveDown(0.3);
-        }
-
-        // ── DISCRIMINAÇÃO DAS DESPESAS ─────────────────────────────────────
-        if (dados.discriminacoes?.length > 0) {
-          if (doc.y > doc.page.height - 120) doc.addPage();
-          doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
-            .text('DISCRIMINAÇÃO DAS DESPESAS', marginL, doc.y, { width: contentW });
-          doc.moveDown(0.3);
-          this.escreverTabelaDiscriminacoes(doc, dados.discriminacoes);
-          doc.moveDown(0.3);
-        }
-
-        // ── EXECUÇÃO FISCAL (TEMPO) ─────────────────────────────────────────
-        if (dados.execucao_fiscal) {
-          if (doc.y > doc.page.height - 100) doc.addPage();
-          doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
-            .text('EXECUÇÃO FISCAL (TEMPO)', marginL, doc.y, { width: contentW });
-          doc.moveDown(0.3);
-
-          const ef = dados.execucao_fiscal;
-          rowY = doc.y;
-          campo('No Período:', ef.noPeriodo || `${ef.diasNoPeriodo || 0} dias`, marginL, rowY, valueW);
-          rowY += 14;
-          campo('Até o Período:', ef.atePeriodo || `${ef.diasAte || 0} dias`, marginL, rowY, valueW);
-          rowY += 14;
-          campo('A Executar:', ef.aExecutar || `${ef.diasRestantes || 0} dias`, marginL, rowY, valueW);
-          rowY += 14;
-
-          doc.y = rowY + 4;
-          doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
-          doc.moveDown(0.6);
-        }
-
-        // ── EXECUÇÃO FINANCEIRA (VALORES) ────────────────────────────────────
-        if (dados.execucao_financeira_totais) {
-          if (doc.y > doc.page.height - 100) doc.addPage();
-          doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e40af')
-            .text('EXECUÇÃO FINANCEIRA (VALORES)', marginL, doc.y, { width: contentW });
-          doc.moveDown(0.3);
-
-          const totais = dados.execucao_financeira_totais;
-          rowY = doc.y;
-          campo('No Período:', fmtBRL(totais.no_periodo), marginL, rowY, valueW);
-          rowY += 14;
-          campo('Até o Período:', fmtBRL(totais.ate_periodo), marginL, rowY, valueW);
-          rowY += 14;
-          campo('A Executar:', fmtBRL(totais.a_executar), marginL, rowY, valueW);
-          rowY += 14;
-
-          doc.y = rowY + 4;
-          doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
-          doc.moveDown(0.6);
-        }
-
-        // ── ASSINATURAS ──────────────────────────────────────────────────
-        if (doc.y > doc.page.height - 200) doc.addPage();
-        await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
-
-        doc.end();
-        writeStream.on('finish', () => resolve(filePath));
-        writeStream.on('error', reject);
-      } catch (err) {
-        reject(err);
-      }
-    });
+    return filePath;
   }
 
   private escreverTabelaItensContratados(doc: any, itens: any[]): void {
