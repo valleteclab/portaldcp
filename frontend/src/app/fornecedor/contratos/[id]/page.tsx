@@ -1713,8 +1713,6 @@ export default function FornecedorContratoDetalhePage() {
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
                                 onClick={() => {
-                                  const titulo = prompt('Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):');
-                                  if (titulo === null) return; // cancelou
                                   const input = document.createElement('input');
                                   input.type = 'file';
                                   input.accept = 'image/jpeg,image/png,image/jpg';
@@ -1722,6 +1720,8 @@ export default function FornecedorContratoDetalhePage() {
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files) {
+                                      const titulo = prompt('Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):');
+                                      if (titulo === null) return;
                                       for (const file of Array.from(files)) {
                                         await handleUploadAnexo(medicao.id, file, 'FOTO', titulo || undefined);
                                       }
@@ -1736,14 +1736,14 @@ export default function FornecedorContratoDetalhePage() {
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
                                 onClick={() => {
-                                  const titulo = prompt('Título do documento (ex: Nota Fiscal, Relatório de medição):');
-                                  if (titulo === null) return;
                                   const input = document.createElement('input');
                                   input.type = 'file';
                                   input.accept = 'application/pdf,image/jpeg,image/png';
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files && files[0]) {
+                                      const titulo = prompt('Título do documento (ex: Nota Fiscal, Relatório de medição):');
+                                      if (titulo === null) return;
                                       await handleUploadAnexo(medicao.id, files[0], 'DOCUMENTO', titulo || undefined);
                                     }
                                   };
@@ -2625,7 +2625,6 @@ export default function FornecedorContratoDetalhePage() {
                   <Button
                     type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
                     onClick={() => {
-                      const titulo = prompt('Título da foto (opcional):') ?? '';
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.accept = 'image/jpeg,image/png,image/jpg';
@@ -2633,6 +2632,7 @@ export default function FornecedorContratoDetalhePage() {
                       input.onchange = (e) => {
                         const files = (e.target as HTMLInputElement).files;
                         if (files) {
+                          const titulo = prompt('Título da foto (opcional):') ?? '';
                           const novos = Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }));
                           setArquivosPendentes(prev => [...prev, ...novos]);
                         }
@@ -2645,13 +2645,13 @@ export default function FornecedorContratoDetalhePage() {
                   <Button
                     type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
                     onClick={() => {
-                      const titulo = prompt('Título do documento (opcional):') ?? '';
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.accept = 'application/pdf,image/jpeg,image/png';
                       input.onchange = (e) => {
                         const files = (e.target as HTMLInputElement).files;
                         if (files && files[0]) {
+                          const titulo = prompt('Título do documento (opcional):') ?? '';
                           setArquivosPendentes(prev => [...prev, { file: files[0], tipo: 'DOCUMENTO', descricao: titulo }]);
                         }
                       };
