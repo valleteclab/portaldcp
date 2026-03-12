@@ -1965,7 +1965,10 @@ export default function FornecedorContratoDetalhePage() {
                       const fator = Math.min(dias / 30, 1);
                       const itens = itensCronograma.map((ic) => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const qtd = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
+                        const isMensal = ic.unidade_medida === 'MENSAL';
+                        const qtd = isMensal
+                          ? Math.min(Math.round(fator * 1000) / 1000, saldo)
+                          : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                         return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
                       });
                       setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio, itens });
@@ -1989,7 +1992,10 @@ export default function FornecedorContratoDetalhePage() {
                       const fator = Math.min(dias / 30, 1);
                       const itens = itensCronograma.map((ic) => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const qtd = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
+                        const isMensal = ic.unidade_medida === 'MENSAL';
+                        const qtd = isMensal
+                          ? Math.min(Math.round(fator * 1000) / 1000, saldo)
+                          : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                         return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
                       });
                       setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim, itens });
@@ -2060,7 +2066,10 @@ export default function FornecedorContratoDetalhePage() {
                       const qtdAprovada = Number(ic.quantidade_medida);
                       const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                       const saldo = qtdTotal - qtdAprovada - emTransito;
-                      const qtdProporcional = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
+                      const isMensal = ic.unidade_medida === 'MENSAL';
+                      const qtdProporcional = isMensal
+                        ? Math.min(Math.round(fator * 1000) / 1000, saldo)
+                        : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                       const valorOverride = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
                       return { item_cronograma_id: ic.id, quantidade_medida: qtdProporcional, modo_input: 'quantidade' as const, valor_override: valorOverride };
                     });
