@@ -1461,13 +1461,31 @@ export class MedicaoService {
     };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
+    // Usa snapshot de execucao_financeira para valores financeiros (no_periodo, ate_periodo)
+    // evitando recalcular a partir de itemCronograma.quantidade_medida que pode estar desatualizado.
+    const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
+    const efItemMap = new Map<string, any>();
+    for (const ef of efItens) {
+      if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
+    }
+
     const itensParaPdf = ((medicao as any).itens || [])
       .filter((i: any) => i.tipo_item === 'item_cronograma')
+      .sort((a: any, b: any) => (Number(a.item_numero) || 0) - (Number(b.item_numero) || 0))
       .map((item: any) => {
         const vlrUnitario  = Number(item.item_valor_unitario || 0);
         const qtdMedida    = Number(item.quantidade_medida || 0);
-        const qtdAcumulada = Number(item.item_quantidade_acumulada || 0);
         const qtdTotal     = Number(item.item_quantidade_total || 0);
+
+        // Usar valores do snapshot (execucao_financeira) se disponível para garantir precisão
+        const efItem = efItemMap.get(item.item_cronograma_id || '');
+        const vlrNoPeriodo     = efItem ? Number(efItem.no_periodo   || 0) : qtdMedida * vlrUnitario;
+        const vlrAtePeriodo    = efItem ? Number(efItem.ate_periodo  || 0) : vlrNoPeriodo;
+        const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
+        const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
+
+        // Quantidade acumulada derivada do valor acumulado / valor unitário
+        const qtdAcumulada = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
         return {
           numero:                        Number(item.etapa_numero || item.item_numero || 0),
           descricao:                     item.item_descricao || item.etapa_descricao || '',
@@ -1475,10 +1493,10 @@ export class MedicaoService {
           quantidade_no_periodo:         qtdMedida,
           quantidade_acumulada_aprovada: qtdAcumulada,
           quantidade_total_contrato:     qtdTotal,
-          valor_no_periodo:              qtdMedida    * vlrUnitario,
+          valor_no_periodo:              vlrNoPeriodo,
           valor_unitario:                vlrUnitario,
-          valor_acumulado_anterior:      qtdAcumulada * vlrUnitario,
-          valor_total_item:              qtdTotal     * vlrUnitario,
+          valor_acumulado_anterior:      vlrAcumAnterior,
+          valor_total_item:              vlrTotal,
         };
       });
 
@@ -2928,14 +2946,12 @@ export class MedicaoService {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
-    console.log('DEBUG: Contrato encontrado:', {
       id: contrato.id,
       modalidade_execucao: contrato.modalidade_execucao,
       valor_global: contrato.valor_global
     });
 
     const usarItensCronograma = await this.usarItensCronograma(contratoId);
-    console.log('DEBUG: Usar itens do cronograma?', usarItensCronograma);
 
     const etapas = usarItensCronograma
       ? []
@@ -2951,11 +2967,8 @@ export class MedicaoService {
         })
       : [];
     
-    console.log('DEBUG: Etapas encontradas:', etapas.length);
-    console.log('DEBUG: Itens do cronograma encontrados:', itensCronograma.length);
     
     if (usarItensCronograma) {
-      console.log('DEBUG: Itens do cronograma:', itensCronograma.map(i => ({
         id: i.id,
         numero_item: i.numero_item,
         descricao: i.descricao,
@@ -2970,7 +2983,6 @@ export class MedicaoService {
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
-    console.log('DEBUG: Medições aprovadas encontradas:', medicoesAprovadas.length);
 
     // Buscar a medição atual (se informada)
     let medicaoAtual = null;
@@ -2978,7 +2990,6 @@ export class MedicaoService {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
       });
-      console.log('DEBUG: Medição atual:', medicaoAtual ? {
         id: medicaoAtual.id,
         numero: medicaoAtual.numero_medicao,
         status: medicaoAtual.status,
@@ -2986,7 +2997,6 @@ export class MedicaoService {
       } : null);
     } else if (medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
-      console.log('DEBUG: Medição de referência automática:', {
         id: medicaoAtual.id,
         numero: medicaoAtual.numero_medicao,
         status: medicaoAtual.status,
@@ -3008,9 +3018,7 @@ export class MedicaoService {
             where: { medicao_id: m.id },
           });
       itensPorMedicao[m.id] = itens;
-      console.log(`DEBUG: Itens da medição ${m.id} (${m.numero_medicao}):`, itens.length);
       if (usarItensCronograma && itens.length > 0) {
-        console.log(`DEBUG: Itens da medição ${m.id}:`, itens.map(i => ({
           item_cronograma_id: (i as any).item_cronograma_id,
           valor_medido: (i as any).valor_medido,
           quantidade_medida: (i as any).quantidade_medida
@@ -3028,9 +3036,7 @@ export class MedicaoService {
         : await this.itemMedicaoRepository.find({
             where: { medicao_id: medicaoAtual.id },
           });
-      console.log(`DEBUG: Itens da medição atual ${medicaoAtual.id}:`, itensMedicaoAtual.length);
       if (usarItensCronograma && itensMedicaoAtual.length > 0) {
-        console.log(`DEBUG: Itens da medição atual:`, itensMedicaoAtual.map(i => ({
           item_cronograma_id: (i as any).item_cronograma_id,
           valor_medido: (i as any).valor_medido,
           quantidade_medida: (i as any).quantidade_medida
@@ -3042,7 +3048,6 @@ export class MedicaoService {
     const resultado = usarItensCronograma
       ? itensCronograma.map((item) => {
           const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
-          console.log(`DEBUG: Calculando item ${item.numero_item} (${item.descricao}): valor_previsto=${valorPrevisto}`);
 
           const obterValorBrutoItemMedicao = (itemMedicao: any): number => {
             const quantidadeMedida = Number(itemMedicao?.quantidade_medida) || 0;
@@ -3061,7 +3066,6 @@ export class MedicaoService {
             if (itemMedicao) {
               const valorItemBruto = obterValorBrutoItemMedicao(itemMedicao);
               valorAnterior += valorItemBruto;
-              console.log(`DEBUG: Adicionando valorAnterior=${valorItemBruto} da medição ${m.numero_medicao} para item ${item.numero_item}`);
             }
           }
 
@@ -3072,13 +3076,11 @@ export class MedicaoService {
               const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
               if (itemMedicao) {
                 noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
-                console.log(`DEBUG: noPeriodo (APROVADA)=${noPeriodo} da medição ${medicaoAtual.numero_medicao} para item ${item.numero_item}`);
               }
             } else {
               const itemMedicao = itensMedicaoAtual.find(i => (i as any).item_cronograma_id === item.id);
               if (itemMedicao) {
                 noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
-                console.log(`DEBUG: noPeriodo (NÃO APROVADA)=${noPeriodo} da medição atual para item ${item.numero_item}`);
               }
             }
           }
@@ -3086,7 +3088,6 @@ export class MedicaoService {
           const atePeriodo = valorAnterior + noPeriodo;
           const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
           
-          console.log(`DEBUG: Item ${item.numero_item} - valor_previsto=${valorPrevisto}, valor_anterior=${valorAnterior}, no_periodo=${noPeriodo}, ate_periodo=${atePeriodo}, a_executar=${aExecutar}`);
 
           return {
             etapa_id: item.id,
@@ -3261,7 +3262,6 @@ export class MedicaoService {
       };
     });
 
-    console.log('DEBUG: Totais execução financeira fornecedor:', {
       total_previsto: totalPrevisto,
       total_no_periodo: totalNoPeriodo,
       total_ate_periodo_sem_ajuste: totalAtePeriodo,
