@@ -300,8 +300,11 @@ export default function ValidarDocumentoPage() {
                         <div className="flex items-start gap-2">
                           <Hash className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
                           <div>
-                            <span className="text-gray-500 block text-xs">Hash do Documento</span>
+                            <span className="text-gray-500 block text-xs">Integridade — SHA-256 do Documento</span>
                             <span className="font-mono text-xs text-gray-700 break-all">{ass.documento_hash}</span>
+                            <span className="text-gray-400 text-xs mt-0.5 block">
+                              Para verificar, calcule o SHA-256 do arquivo PDF e compare com o código acima.
+                            </span>
                           </div>
                         </div>
                       )}

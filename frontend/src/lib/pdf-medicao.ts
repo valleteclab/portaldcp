@@ -116,6 +116,7 @@ export interface DadosMedicaoPdf {
     codigo_validacao?: string      // código formatado XXXX-XXXX-XXXX-XXXX
   }
   url_validacao?: string           // ex: portaldcp.com.br/validar-documento
+  qr_code_data_url?: string        // Data URI PNG do QR Code para verificação
 }
 
 // ---- Helpers ----
@@ -238,6 +239,7 @@ function desenharQuadroAssinaturas(
     codigoValidacao?: string
   }>,
   urlValidacao?: string,
+  qrCodeDataUrl?: string,
 ): number {
   const contentW = W - 2 * mX
   let dy = 0
@@ -354,16 +356,32 @@ boxesInfo.push({ x: bx, boxH })
   doc.text(`Acesse: ${baseUrl}`, mX, y + dy)
   dy += 3.2
 
-  // Códigos dos assinantes
+  // QR Code (renderizar à direita, alinhado com os textos)
+  const qrSize = 20
+  const qrX = W - mX - qrSize
+  if (qrCodeDataUrl) {
+    try {
+      doc.addImage(qrCodeDataUrl, 'PNG', qrX, y + dy - 3, qrSize, qrSize)
+    } catch { /* ignora se falhar */ }
+  }
+
+  // Códigos dos assinantes (texto à esquerda, QR ocupa a direita)
+  const textMaxW = qrCodeDataUrl ? qrX - mX - 3 : W - 2 * mX
   const codigosValidos = assinantesArr.filter(a => !a.pendente && a.codigoValidacao)
   if (codigosValidos.length > 0) {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(6.1)
     doc.setTextColor(37, 99, 235)
     for (const a of codigosValidos) {
-      doc.text(`Código (${a.titulo.split('—')[1]?.trim() || a.titulo}): ${a.codigoValidacao}`, mX, y + dy)
+      const label = `Código (${a.titulo.split('—')[1]?.trim() || a.titulo}): ${a.codigoValidacao}`
+      doc.text(label, mX, y + dy, { maxWidth: textMaxW })
       dy += 3.2
     }
+  }
+
+  // Garantir espaço suficiente para o QR Code
+  if (qrCodeDataUrl) {
+    dy = Math.max(dy, qrSize + 3)
   }
 
   return dy
@@ -760,7 +778,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     },
   ]
 
-  const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao)
+  const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)
 
   y += altQuadro + 4
 
@@ -778,7 +796,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' })
   doc.text(`Contrato: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
   yPA += 20
-  desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao)
+  desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)
 
   // =========================================================
   // RODAPÉ em todas as páginas

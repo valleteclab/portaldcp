@@ -26,6 +26,8 @@ import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura
 import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
+import QRCode from 'qrcode';
 
 @Injectable()
 export class MedicaoService {
@@ -1523,6 +1525,19 @@ export class MedicaoService {
         codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
       } : undefined,
       url_validacao: `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento`,
+      qr_code_data_url: await (async () => {
+        const primeiroCodigoValido = (asFiscal || asFornecedor)?.codigo_validacao;
+        if (!primeiroCodigoValido) return undefined;
+        const appUrl = process.env.APP_URL || 'https://portaldcp.com.br';
+        try {
+          return await QRCode.toDataURL(
+            `${appUrl}/validar-documento/${primeiroCodigoValido}`,
+            { width: 80, margin: 1, color: { dark: '#000000', light: '#ffffff' } },
+          );
+        } catch {
+          return undefined;
+        }
+      })(),
     };
   }
 
@@ -1552,6 +1567,19 @@ export class MedicaoService {
       `${process.env.APP_URL || 'http://localhost:3000'}/validar-documento`,
       filePath,
     );
+
+    // Calcular SHA-256 do PDF gerado e gravar nas assinaturas
+    try {
+      const pdfBuffer = fs.readFileSync(filePath);
+      const documentoHash = createHash('sha256').update(pdfBuffer).digest('hex');
+      await this.assinaturaDigitalRepository.update(
+        { entidade_id: medicaoId, entidade_tipo: EntidadeTipo.MEDICAO },
+        { documento_hash: documentoHash } as any,
+      );
+      this.logger.log(`Hash SHA-256 gravado (gerador oficial) para medição ${medicaoId}: ${documentoHash.slice(0, 16)}...`);
+    } catch (e) {
+      this.logger.warn(`Erro ao gravar hash do boletim oficial ${medicaoId}: ${e.message}`);
+    }
 
     const pdfUrl = this.getBoletimPdfUrl(medicaoId);
     await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
@@ -3820,6 +3848,18 @@ export class MedicaoService {
 
     // Salvar arquivo
     fs.writeFileSync(filepath, pdfBuffer);
+
+    // Calcular SHA-256 e gravar nas assinaturas digitais desta medição
+    try {
+      const documentoHash = createHash('sha256').update(pdfBuffer).digest('hex');
+      await this.assinaturaDigitalRepository.update(
+        { entidade_id: medicaoId, entidade_tipo: EntidadeTipo.MEDICAO },
+        { documento_hash: documentoHash } as any,
+      );
+      this.logger.log(`Hash SHA-256 gravado para medição ${medicaoId}: ${documentoHash.slice(0, 16)}...`);
+    } catch (e) {
+      this.logger.warn(`Erro ao gravar hash do boletim ${medicaoId}: ${e.message}`);
+    }
 
     // URL relativa para acesso
     const pdfUrl = this.getBoletimPdfUrl(medicaoId);
