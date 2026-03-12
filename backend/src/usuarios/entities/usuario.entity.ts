@@ -39,6 +39,19 @@ export class Usuario {
   @Column({ nullable: true })
   cargo: string;
 
+  /**
+   * Matrícula funcional do servidor.
+   */
+  @Column({ nullable: true })
+  matricula: string;
+
+  /**
+   * Portaria que designou o usuário como fiscal de contrato.
+   * Ex: "102/2025", "Portaria nº 12/2024"
+   */
+  @Column({ nullable: true })
+  portaria_fiscal: string;
+
   @Column({
     type: 'enum',
     enum: RoleUsuario,

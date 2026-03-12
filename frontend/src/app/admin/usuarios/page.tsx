@@ -76,6 +76,8 @@ interface Usuario {
   cpf?: string
   telefone?: string
   cargo?: string
+  matricula?: string
+  portaria_fiscal?: string
   role: 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO'
   orgao_id?: string
   orgao?: Orgao
@@ -151,6 +153,8 @@ export default function AdminUsuariosPage() {
     cpf: '',
     telefone: '',
     cargo: '',
+    matricula: '',
+    portaria_fiscal: '',
     role: 'PREGOEIRO' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO',
     orgao_id: '',
     pode_aprovar_requisicoes: false,
@@ -201,6 +205,8 @@ export default function AdminUsuariosPage() {
       cpf: '',
       telefone: '',
       cargo: '',
+      matricula: '',
+      portaria_fiscal: '',
       role: 'PREGOEIRO',
       orgao_id: '',
       pode_aprovar_requisicoes: false,
@@ -224,6 +230,8 @@ export default function AdminUsuariosPage() {
       cpf: usuario.cpf || '',
       telefone: usuario.telefone || '',
       cargo: usuario.cargo || '',
+      matricula: usuario.matricula || '',
+      portaria_fiscal: usuario.portaria_fiscal || '',
       role: usuario.role,
       orgao_id: usuario.orgao_id || '',
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
@@ -270,6 +278,8 @@ export default function AdminUsuariosPage() {
         cpf: formUsuario.cpf || undefined,
         telefone: formUsuario.telefone || undefined,
         cargo: formUsuario.cargo || undefined,
+        matricula: formUsuario.matricula || undefined,
+        portaria_fiscal: formUsuario.portaria_fiscal || undefined,
         role: formUsuario.role,
         orgao_id: formUsuario.orgao_id,
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
@@ -953,6 +963,28 @@ export default function AdminUsuariosPage() {
                   onChange={(e) => setFormUsuario({ ...formUsuario, cargo: e.target.value })}
                   placeholder="Ex: Pregoeiro Oficial"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Matrícula</Label>
+                  <Input
+                    value={formUsuario.matricula}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, matricula: e.target.value })}
+                    placeholder="Ex: 36912"
+                  />
+                </div>
+                <div>
+                  <Label>
+                    Portaria Fiscal
+                    <span className="ml-1 text-xs text-gray-400 font-normal">(opcional, para fiscais de contrato)</span>
+                  </Label>
+                  <Input
+                    value={formUsuario.portaria_fiscal}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, portaria_fiscal: e.target.value })}
+                    placeholder="Ex: 102/2025"
+                  />
+                </div>
               </div>
 
               {/* Permissões */}
