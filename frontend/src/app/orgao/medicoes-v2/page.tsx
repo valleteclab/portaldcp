@@ -1438,9 +1438,22 @@ export default function MedicoesV2Page() {
                             <Button
                               size="icon" variant="ghost" className="h-8 w-8"
                               title="Baixar Boletim PDF"
+                              disabled={!med.boletim_pdf_url}
                               onClick={() => baixarBoletim(med)}
                             >
                               <FileDown className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {isAprovada && (
+                            <Button
+                              size="icon" variant="ghost" className="h-8 w-8"
+                              title="Baixar todos os documentos (ZIP)"
+                              disabled={downloadingZip === med.id}
+                              onClick={() => baixarZip(med.id, med.numero_medicao)}
+                            >
+                              {downloadingZip === med.id
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : <Archive className="w-4 h-4" />}
                             </Button>
                           )}
                           {!isAprovacao && !isAprovada && (
@@ -1966,11 +1979,13 @@ export default function MedicoesV2Page() {
               const todosSerao = jaAtestadosMantidos + novosAtestados === itens.length && itens.length > 0
               const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
               const motivoObrigatorio = !todosSerao && temSelecionados && itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()
+              const fiscalNaoAssinou = etapaAssinatura !== 'assinado'
               return (
                 <Button
                   className="bg-yellow-600 hover:bg-yellow-700 text-white"
                   onClick={executarAteste}
-                  disabled={actionLoading || !temAcao || motivoObrigatorio}
+                  disabled={actionLoading || !temAcao || motivoObrigatorio || fiscalNaoAssinou}
+                  title={fiscalNaoAssinou ? 'Aguardando assinatura digital do fiscal' : undefined}
                 >
                   {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   <ClipboardCheck className="w-4 h-4 mr-2" />

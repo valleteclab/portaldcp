@@ -5,6 +5,7 @@ import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { LinkAssinaturaFiscal } from './entities/link-assinatura-fiscal.entity';
+import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
 import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
@@ -68,6 +69,8 @@ export class MedicaoService {
     private anexoMedicaoRepository: Repository<AnexoMedicao>,
     @InjectRepository(LinkAssinaturaFiscal)
     private linkAssinaturaRepository: Repository<LinkAssinaturaFiscal>,
+    @InjectRepository(DocumentoContrato)
+    private documentoContratoRepository: Repository<DocumentoContrato>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
     private geradorPdfService: GeradorPdfService,
@@ -1845,6 +1848,17 @@ export class MedicaoService {
 
     const anexos = await this.anexoMedicaoRepository.find({ where: { medicao_id: medicaoId } });
 
+    // Documentos do contrato: tipo CONTRATO e último TERMO_ADITIVO
+    const docContrato = await this.documentoContratoRepository.findOne({
+      where: { contrato_id: (medicao as any).contrato?.id, tipo: TipoDocumentoContrato.CONTRATO },
+      order: { created_at: 'ASC' },
+    });
+    const docsAditivos = await this.documentoContratoRepository.find({
+      where: { contrato_id: (medicao as any).contrato?.id, tipo: TipoDocumentoContrato.TERMO_ADITIVO },
+      order: { created_at: 'DESC' },
+    });
+    const ultimoAditivo = docsAditivos.length > 0 ? docsAditivos[0] : null;
+
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const archiver = require('archiver');
     const chunks: Buffer[] = [];
@@ -1863,7 +1877,23 @@ export class MedicaoService {
         }
       }
 
-      // 2. Todos os anexos (FOTO, DOCUMENTO — inclui nota fiscal se enviada como anexo)
+      // 2. Documento do contrato (tipo CONTRATO)
+      if (docContrato) {
+        const filePath = path.join(process.cwd(), docContrato.caminho_arquivo);
+        if (fs.existsSync(filePath)) {
+          archive.file(filePath, { name: `contrato_${docContrato.nome_original}` });
+        }
+      }
+
+      // 3. Último termo aditivo (se houver)
+      if (ultimoAditivo) {
+        const filePath = path.join(process.cwd(), ultimoAditivo.caminho_arquivo);
+        if (fs.existsSync(filePath)) {
+          archive.file(filePath, { name: `ultimo_aditivo_${ultimoAditivo.nome_original}` });
+        }
+      }
+
+      // 4. Todos os anexos da medição (FOTO, DOCUMENTO — inclui nota fiscal se enviada como anexo)
       for (const anexo of anexos) {
         const filePath = path.join(process.cwd(), anexo.url.replace(/^\/api/, ''));
         if (fs.existsSync(filePath)) {
