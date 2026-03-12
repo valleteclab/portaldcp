@@ -1247,7 +1247,21 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Unidade de Medida</Label>
-                <Select value={formItemCronograma.unidade_medida} onValueChange={v => setFormItemCronograma({ ...formItemCronograma, unidade_medida: v })}>
+                <Select value={formItemCronograma.unidade_medida} onValueChange={v => {
+                  // Ao trocar para MENSAL, limpa quantidade_meses e recalcula
+                  const q = parseFloat(formItemCronograma.quantidade) || 0
+                  const vl = parseFloat(formItemCronograma.valor_unitario) || 0
+                  const isMensal = v === 'MENSAL'
+                  const mensal = isMensal ? (vl ? vl.toFixed(2) : '') : (q && vl ? (q * vl).toFixed(2) : '')
+                  const total = isMensal ? (q && vl ? (q * vl).toFixed(2) : '') : mensal
+                  setFormItemCronograma({
+                    ...formItemCronograma,
+                    unidade_medida: v,
+                    quantidade_meses: isMensal ? '' : formItemCronograma.quantidade_meses,
+                    valor_mensal: mensal,
+                    valor_total: total,
+                  })
+                }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {unidadesCronograma.map(u => (
@@ -1257,16 +1271,24 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Quantidade *</Label>
+                <Label>Quantidade {formItemCronograma.unidade_medida === 'MENSAL' ? '(Meses) *' : '*'}</Label>
                 <Input
-                  type="number" step="0.0001" min="0" placeholder="0"
+                  type="number" step="0.0001" min="0"
+                  placeholder={formItemCronograma.unidade_medida === 'MENSAL' ? 'Ex: 12' : '0'}
                   value={formItemCronograma.quantidade}
                   onChange={e => {
                     const q = e.target.value
                     const vl = parseFloat(formItemCronograma.valor_unitario) || 0
-                    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
-                    const mensal = q && vl ? (parseFloat(q) * vl).toFixed(2) : ''
-                    const total = mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal
+                    const isMensal = formItemCronograma.unidade_medida === 'MENSAL'
+                    const meses = isMensal ? null : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null)
+                    // MENSAL: Valor Mensal = Valor Unitário (por mês); Valor Total = Qtd. meses × Valor Unitário
+                    // OUTROS: Valor Mensal = Qtd × Valor Unitário; Valor Total = Valor Mensal × Qtd.Meses
+                    const mensal = isMensal
+                      ? (vl ? vl.toFixed(2) : '')
+                      : (q && vl ? (parseFloat(q) * vl).toFixed(2) : '')
+                    const total = isMensal
+                      ? (q && vl ? (parseFloat(q) * vl).toFixed(2) : '')
+                      : (mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal)
                     setFormItemCronograma({ ...formItemCronograma, quantidade: q, valor_mensal: mensal, valor_total: total })
                   }}
                 />
@@ -1274,33 +1296,41 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Valor Unitário (R$) *</Label>
+                <Label>Valor Unitário {formItemCronograma.unidade_medida === 'MENSAL' ? '(R$/mês) *' : '(R$) *'}</Label>
                 <Input
                   type="number" step="0.01" min="0" placeholder="0,00"
                   value={formItemCronograma.valor_unitario}
                   onChange={e => {
                     const v = e.target.value
                     const q = parseFloat(formItemCronograma.quantidade) || 0
-                    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
-                    const mensal = v && q ? (parseFloat(v) * q).toFixed(2) : ''
-                    const total = mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal
+                    const isMensal = formItemCronograma.unidade_medida === 'MENSAL'
+                    const meses = isMensal ? null : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null)
+                    const mensal = isMensal
+                      ? (v ? parseFloat(v).toFixed(2) : '')
+                      : (v && q ? (parseFloat(v) * q).toFixed(2) : '')
+                    const total = isMensal
+                      ? (q && v ? (q * parseFloat(v)).toFixed(2) : '')
+                      : (mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal)
                     setFormItemCronograma({ ...formItemCronograma, valor_unitario: v, valor_mensal: mensal, valor_total: total })
                   }}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Qtd. Meses</Label>
-                <Input
-                  type="number" step="1" min="1" placeholder="Ex: 12"
-                  value={formItemCronograma.quantidade_meses}
-                  onChange={e => {
-                    const m = e.target.value
-                    const mensal = parseFloat(formItemCronograma.valor_mensal) || 0
-                    const total = m && mensal ? (parseInt(m) * mensal).toFixed(2) : formItemCronograma.valor_mensal
-                    setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
-                  }}
-                />
-              </div>
+              {/* Qtd. Meses: oculto para unidade MENSAL (quantidade já representa os meses) */}
+              {formItemCronograma.unidade_medida !== 'MENSAL' && (
+                <div className="space-y-2">
+                  <Label>Qtd. Meses</Label>
+                  <Input
+                    type="number" step="1" min="1" placeholder="Ex: 12"
+                    value={formItemCronograma.quantidade_meses}
+                    onChange={e => {
+                      const m = e.target.value
+                      const mensal = parseFloat(formItemCronograma.valor_mensal) || 0
+                      const total = m && mensal ? (parseInt(m) * mensal).toFixed(2) : formItemCronograma.valor_mensal
+                      setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
+                    }}
+                  />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
