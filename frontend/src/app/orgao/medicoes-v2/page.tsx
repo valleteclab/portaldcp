@@ -20,7 +20,7 @@ import {
   ClipboardCheck, FileDown, Search, Loader2, CheckCircle, Clock,
   AlertTriangle, Shield, ChevronLeft, ChevronRight, X, Download, Plus,
   TrendingUp, FileText, Eye, Paperclip, PenLine, Archive, CheckSquare, Square, XCircle,
-  RotateCcw, Trash2, Send,
+  RotateCcw, Trash2, Send, Mail, MessageCircle, Bell,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { gerarPdfMedicao } from '@/lib/pdf-medicao'
@@ -253,7 +253,7 @@ export default function MedicoesV2Page() {
 
   // Filtros
   const [busca, setBusca] = useState('')
-  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('aguardando')
+  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('todos')
   const [periodo, setPeriodo] = useState(mesAtualYYYYMM)
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>('todos')
 
@@ -290,6 +290,17 @@ export default function MedicoesV2Page() {
   // Modal TabMedicao
   const [contratoAberto, setContratoAberto] = useState<ContratoResumo | null>(null)
 
+  // Lembrar Fornecedor
+  const [historico, setHistorico] = useState<any[]>([])
+  const [solicitarContrato, setSolicitarContrato] = useState<ContratoResumo | null>(null)
+  const [mensagemSolicitar, setMensagemSolicitar] = useState('')
+  const [loadingSolicitar, setLoadingSolicitar] = useState(false)
+  const [erroSolicitar, setErroSolicitar] = useState<string | null>(null)
+  const [enviarWhatsappIndividual, setEnviarWhatsappIndividual] = useState(false)
+  const [telefoneWhatsappIndividual, setTelefoneWhatsappIndividual] = useState('')
+  const [whatsappConfigurado, setWhatsappConfigurado] = useState(false)
+  const [aguardandoFornecedorAberto, setAguardandoFornecedorAberto] = useState(true)
+
   // ============ FETCH ============
 
   const carregarDados = useCallback(async () => {
@@ -299,14 +310,16 @@ export default function MedicoesV2Page() {
       const orgaoId = orgao.id
       if (!orgaoId) return
 
-      const [resPendentes, resAprovacao, resContratos] = await Promise.all([
+      const [resPendentes, resAprovacao, resContratos, resHistorico] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/pendentes-ateste?orgaoId=${orgaoId}`),
         authFetch(`${API_URL}/api/contratos/medicoes/pendentes-aprovacao?orgaoId=${orgaoId}`),
         authFetch(`${API_URL}/api/contratos/medicoes/resumo-fiscal?orgaoId=${orgaoId}&mes=${periodo}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/solicitacoes-enviadas?orgaoId=${orgaoId}`),
       ])
 
       if (resPendentes.ok) setPendentesAteste(await resPendentes.json())
       if (resAprovacao.ok) setPendentesAprovacao(await resAprovacao.json())
+      if (resHistorico.ok) setHistorico(await resHistorico.json())
       if (resContratos.ok) {
         const data: ContratoResumo[] = await resContratos.json()
         setContratos(data)
@@ -321,6 +334,16 @@ export default function MedicoesV2Page() {
   }, [periodo])
 
   useEffect(() => { carregarDados() }, [carregarDados])
+
+  useEffect(() => {
+    const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
+    const orgaoId = orgao.id
+    if (!orgaoId) return
+    authFetch(`${API_URL}/api/orgaos/${orgaoId}/whatsapp-config`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setWhatsappConfigurado(!!(data.whatsapp_instance_id || data.configurado)) })
+      .catch(() => {})
+  }, [])
 
   // Verificar permissão de excluir medição
   useEffect(() => {
@@ -536,6 +559,38 @@ export default function MedicoesV2Page() {
     } catch (e) { console.error(e) }
   }
 
+  // ============ LEMBRAR FORNECEDOR ============
+
+  const enviarSolicitacao = async () => {
+    if (!solicitarContrato) return
+    setErroSolicitar(null)
+    setLoadingSolicitar(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${solicitarContrato.id}/medicoes/solicitar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mes_referencia: periodo,
+          mensagem: mensagemSolicitar.trim() || undefined,
+          enviar_whatsapp: enviarWhatsappIndividual || undefined,
+          telefone_whatsapp: enviarWhatsappIndividual && telefoneWhatsappIndividual.trim() ? telefoneWhatsappIndividual.trim() : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.message || `Erro ${res.status}`)
+      }
+      setSolicitarContrato(null)
+      setMensagemSolicitar('')
+      setEnviarWhatsappIndividual(false)
+      setTelefoneWhatsappIndividual('')
+      carregarDados()
+    } catch (e) {
+      setErroSolicitar(e instanceof Error ? e.message : 'Erro ao enviar')
+    }
+    setLoadingSolicitar(false)
+  }
+
   // ============ DADOS CALCULADOS ============
 
   const totalAprovadas = contratos.reduce((s, c) => s + (c.aprovadas || 0), 0)
@@ -550,55 +605,71 @@ export default function MedicoesV2Page() {
 
   const totalAtrasadas = medicoesEnriquecidas.filter(m => m.dias > 5).length
 
+  // Aguardando Fornecedor: solicitados mas ainda não enviaram
+  const contratosAguardandoFornecedor = contratos.filter(c => c.solicitou_mes && c.enviou_mes === false)
+
   // ============ FILTROS ============
 
+  const aprovacaoEnriquecidas = pendentesAprovacao.map(med => {
+    const contrato = contratoMap.get(med.contrato_id)
+    const tipo = mapModalidadeParaTipo(contrato?.modalidade_execucao)
+    return { ...med, cnpj: contrato?.fornecedor_cnpj || '', tipo, dias: 0, status: med.status }
+  })
+
   const medicoesVisiveis = (() => {
-    // Determinar qual lista base usar
+    const filtrarBusca = (med: any) => {
+      if (!busca) return true
+      const t = busca.toLowerCase()
+      return [med.numero_contrato, med.fornecedor_nome, med.objeto_contrato].some(v => v?.toLowerCase().includes(t))
+    }
+    const filtrarTipo = (med: any) => tipoFiltro === 'todos' || tipoParaFiltro(med.tipo) === tipoFiltro
+
     if (statusFiltro === 'em_analise') {
-      // Medições aguardando aprovação (já atestadas pelo fiscal)
-      const aprovacaoEnriquecidas = pendentesAprovacao.map(med => {
-        const contrato = contratoMap.get(med.contrato_id)
-        const tipo = mapModalidadeParaTipo(contrato?.modalidade_execucao)
-        return { ...med, cnpj: contrato?.fornecedor_cnpj || '', tipo, dias: 0, status: med.status }
-      })
       return aprovacaoEnriquecidas.filter(med => {
         const mesAno = getSubmissaoMesAno(med.ateste_data || '')
         if (mesAno && mesAno !== periodo) return false
-        if (busca) {
-          const t = busca.toLowerCase()
-          if (![med.numero_contrato, med.fornecedor_nome, med.objeto_contrato].some(v => v?.toLowerCase().includes(t))) return false
-        }
-        if (tipoFiltro !== 'todos' && tipoParaFiltro(med.tipo) !== tipoFiltro) return false
-        return true
+        return filtrarBusca(med) && filtrarTipo(med)
       })
     }
 
-    // Pendentes de ateste (SUBMETIDA + PARCIALMENTE_ATESTADA)
+    if (statusFiltro === 'todos') {
+      // Combina pendentes de ateste + em análise
+      const ateste = medicoesEnriquecidas.filter(med => {
+        const mesAno = getSubmissaoMesAno(med.data_submissao)
+        if (mesAno && mesAno !== periodo) return false
+        return filtrarBusca(med) && filtrarTipo(med)
+      })
+      const analise = aprovacaoEnriquecidas.filter(med => {
+        const mesAno = getSubmissaoMesAno(med.ateste_data || '')
+        if (mesAno && mesAno !== periodo) return false
+        return filtrarBusca(med) && filtrarTipo(med)
+      })
+      return [...ateste, ...analise]
+    }
+
+    // Pendentes de ateste (aguardando / padrão)
     return medicoesEnriquecidas.filter(med => {
       const mesAno = getSubmissaoMesAno(med.data_submissao)
       if (mesAno && mesAno !== periodo) return false
-      if (busca) {
-        const t = busca.toLowerCase()
-        if (![med.numero_contrato, med.fornecedor_nome, med.objeto_contrato].some(v => v?.toLowerCase().includes(t))) return false
-      }
-      if (tipoFiltro !== 'todos' && tipoParaFiltro(med.tipo) !== tipoFiltro) return false
-      return true
+      return filtrarBusca(med) && filtrarTipo(med)
     })
   })()
 
   const totalPaginas = Math.max(1, Math.ceil(medicoesVisiveis.length / ITENS_POR_PAGINA))
   const medicoesPaginadas = medicoesVisiveis.slice((pagina - 1) * ITENS_POR_PAGINA, pagina * ITENS_POR_PAGINA)
 
-  const tituloTabela = statusFiltro === 'em_analise' ? 'Medições Em Análise' : 'Medições Aguardando Análise'
+  const tituloTabela = statusFiltro === 'em_analise' ? 'Medições Em Análise'
+    : statusFiltro === 'todos' ? 'Todas as Medições'
+    : 'Medições Aguardando Análise'
 
   const limparFiltros = () => {
     setBusca('')
-    setStatusFiltro('aguardando')
+    setStatusFiltro('todos')
     setTipoFiltro('todos')
     setPeriodo(mesAtualYYYYMM())
   }
 
-  const temFiltrosAtivos = busca !== '' || statusFiltro !== 'aguardando' || tipoFiltro !== 'todos'
+  const temFiltrosAtivos = busca !== '' || statusFiltro !== 'todos' || tipoFiltro !== 'todos'
 
   if (loading) {
     return (
@@ -703,6 +774,66 @@ export default function MedicoesV2Page() {
         </div>
       </div>
 
+      {/* ============ AGUARDANDO FORNECEDOR ============ */}
+      {contratosAguardandoFornecedor.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-amber-100/50 transition-colors"
+            onClick={() => setAguardandoFornecedorAberto(p => !p)}
+          >
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-amber-600" />
+              <span className="text-sm font-semibold text-amber-800">
+                Aguardando Fornecedor ({contratosAguardandoFornecedor.length})
+              </span>
+              <span className="text-xs text-amber-600">— Solicitação enviada, medição ainda não enviada</span>
+            </div>
+            <ChevronLeft className={`w-4 h-4 text-amber-500 transition-transform ${aguardandoFornecedorAberto ? '-rotate-90' : 'rotate-0'}`} />
+          </button>
+          {aguardandoFornecedorAberto && (
+            <div className="border-t border-amber-200 divide-y divide-amber-100">
+              {contratosAguardandoFornecedor
+                .filter(c => !busca || [c.numero_contrato, c.fornecedor_nome, c.objeto].some(v => v?.toLowerCase().includes(busca.toLowerCase())))
+                .map((c) => {
+                  const ultimaSolicitacao = historico
+                    .filter(s => s.contrato_id === c.id && s.mes_referencia === periodo)
+                    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+                  const dataSolicitada = ultimaSolicitacao ? formatarData(ultimaSolicitacao.created_at) : '—'
+                  return (
+                    <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-3 bg-white/60">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900 text-sm">{c.numero_contrato}</span>
+                          <span className="text-gray-400">·</span>
+                          <span className="text-sm text-gray-600 truncate">{c.fornecedor_nome}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">Solicitada em {dataSolicitada}</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-amber-300 text-amber-700 hover:bg-amber-50 shrink-0"
+                        onClick={() => {
+                          setSolicitarContrato(c)
+                          setMensagemSolicitar('Lembramos que a medição ainda está pendente.')
+                          setEnviarWhatsappIndividual(false)
+                          setTelefoneWhatsappIndividual('')
+                          setErroSolicitar(null)
+                        }}
+                        disabled={loadingSolicitar}
+                      >
+                        <Mail className="w-4 h-4 mr-1" />
+                        Lembrar fornecedor
+                      </Button>
+                    </div>
+                  )
+                })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ============ FILTROS ============ */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -725,10 +856,10 @@ export default function MedicoesV2Page() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="todos">Todas as medições</SelectItem>
                 <SelectItem value="aguardando">Aguardando Análise</SelectItem>
                 <SelectItem value="em_analise">Em Análise</SelectItem>
                 <SelectItem value="aprovadas">Aprovadas</SelectItem>
-                <SelectItem value="todos">Todos</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1629,6 +1760,85 @@ export default function MedicoesV2Page() {
               onAtestar={abrirModalAtesteDireto}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: LEMBRAR FORNECEDOR ============ */}
+      <Dialog open={!!solicitarContrato} onOpenChange={() => { setSolicitarContrato(null); setErroSolicitar(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-amber-600" />
+              Lembrar Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              {solicitarContrato?.numero_contrato} — {solicitarContrato?.fornecedor_nome}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-sm text-gray-700">Mensagem</Label>
+              <Textarea
+                className="mt-1"
+                rows={3}
+                value={mensagemSolicitar}
+                onChange={e => setMensagemSolicitar(e.target.value)}
+                placeholder="Ex.: Lembramos que a medição ainda está pendente..."
+              />
+            </div>
+
+            {whatsappConfigurado && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="wpp-individual-v2"
+                    checked={enviarWhatsappIndividual}
+                    onChange={e => setEnviarWhatsappIndividual(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-green-600"
+                  />
+                  <label htmlFor="wpp-individual-v2" className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                    <MessageCircle className="w-4 h-4 text-green-600" />
+                    <span className="font-medium text-gray-700">Enviar também via WhatsApp</span>
+                  </label>
+                </div>
+                {enviarWhatsappIndividual && (
+                  <div>
+                    <Label className="text-sm text-gray-600">Telefone WhatsApp</Label>
+                    <Input
+                      className="mt-1"
+                      type="tel"
+                      placeholder={solicitarContrato?.fornecedor_telefone || '(XX) XXXXX-XXXX'}
+                      value={telefoneWhatsappIndividual || solicitarContrato?.fornecedor_telefone || ''}
+                      onChange={e => setTelefoneWhatsappIndividual(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {erroSolicitar && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {erroSolicitar}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSolicitarContrato(null); setErroSolicitar(null) }}>
+              Cancelar
+            </Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={enviarSolicitacao}
+              disabled={loadingSolicitar}
+            >
+              {loadingSolicitar && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              <Send className="w-4 h-4 mr-2" />
+              Enviar Lembrete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
