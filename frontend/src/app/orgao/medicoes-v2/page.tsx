@@ -290,7 +290,7 @@ export default function MedicoesV2Page() {
   // Modal TabMedicao
   const [contratoAberto, setContratoAberto] = useState<ContratoResumo | null>(null)
 
-  // Lembrar Fornecedor
+  // Lembrar Fornecedor (individual)
   const [historico, setHistorico] = useState<any[]>([])
   const [solicitarContrato, setSolicitarContrato] = useState<ContratoResumo | null>(null)
   const [mensagemSolicitar, setMensagemSolicitar] = useState('')
@@ -300,6 +300,14 @@ export default function MedicoesV2Page() {
   const [telefoneWhatsappIndividual, setTelefoneWhatsappIndividual] = useState('')
   const [whatsappConfigurado, setWhatsappConfigurado] = useState(false)
   const [aguardandoFornecedorAberto, setAguardandoFornecedorAberto] = useState(true)
+
+  // Solicitar em lote
+  const [contratosSelecionados, setContratosSelecionados] = useState<Record<string, boolean>>({})
+  const [mensagemLote, setMensagemLote] = useState('')
+  const [loadingSolicitarLote, setLoadingSolicitarLote] = useState(false)
+  const [enviarWhatsappLote, setEnviarWhatsappLote] = useState(false)
+  const [telefonesLote, setTelefonesLote] = useState<Record<string, string>>({})
+  const [solicitarLoteAberto, setSolicitarLoteAberto] = useState(false)
 
   // ============ FETCH ============
 
@@ -356,9 +364,10 @@ export default function MedicoesV2Page() {
   // Reset página ao mudar filtros
   useEffect(() => { setPagina(1) }, [busca, statusFiltro, tipoFiltro, periodo])
 
-  // Carregar medições aprovadas quando a aba for selecionada
+  // Carregar medições aprovadas quando aba "aprovadas" ou filtro "todos" for selecionado
   useEffect(() => {
-    if (statusFiltro !== 'aprovadas') return
+    if (statusFiltro !== 'aprovadas' && statusFiltro !== 'todos') return
+    if (aprovadas.length > 0) return // já carregado
     const orgao = JSON.parse(localStorage.getItem('orgao') || '{}')
     const orgaoId = orgao.id
     if (!orgaoId) return
@@ -591,10 +600,56 @@ export default function MedicoesV2Page() {
     setLoadingSolicitar(false)
   }
 
+  // ============ SOLICITAR EM LOTE ============
+
+  const enviarSolicitacaoLote = async (apenasNaoEnviaram = false) => {
+    setLoadingSolicitarLote(true)
+    try {
+      let ids: string[]
+      if (apenasNaoEnviaram) {
+        ids = contratos.filter(c => c.enviou_mes === false).map(c => c.id)
+      } else {
+        ids = Object.entries(contratosSelecionados).filter(([, v]) => v).map(([k]) => k)
+      }
+      if (ids.length === 0) { alert('Nenhum contrato selecionado.'); setLoadingSolicitarLote(false); return }
+
+      const telefoneOverrides: Record<string, string> = {}
+      if (enviarWhatsappLote) {
+        ids.forEach(id => {
+          const tel = telefonesLote[id]?.trim()
+          if (tel) telefoneOverrides[id] = tel
+        })
+      }
+
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/solicitar-lote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contrato_ids: ids,
+          mes_referencia: periodo,
+          mensagem: mensagemLote.trim() || undefined,
+          enviar_whatsapp: enviarWhatsappLote || undefined,
+          telefone_overrides: Object.keys(telefoneOverrides).length > 0 ? telefoneOverrides : undefined,
+        }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
+      const resultado = await res.json()
+      setMensagemLote('')
+      setEnviarWhatsappLote(false)
+      setTelefonesLote({})
+      setContratosSelecionados({})
+      alert(resultado.message || 'Solicitações enviadas!')
+      carregarDados()
+    } catch { alert('Erro ao enviar solicitações') }
+    setLoadingSolicitarLote(false)
+  }
+
   // ============ DADOS CALCULADOS ============
 
   const totalAprovadas = contratos.reduce((s, c) => s + (c.aprovadas || 0), 0)
   const valorAprovadas = contratos.reduce((s, c) => s + (Number(c.valor_medicoes_mes) || 0), 0)
+  const contratosNaoEnviaram = contratos.filter(c => c.enviou_mes === false)
+  const totalSelecionadosSolicitar = Object.values(contratosSelecionados).filter(Boolean).length
 
   const medicoesEnriquecidas = pendentesAteste.map(med => {
     const contrato = contratoMap.get(med.contrato_id)
@@ -633,7 +688,7 @@ export default function MedicoesV2Page() {
     }
 
     if (statusFiltro === 'todos') {
-      // Combina pendentes de ateste + em análise
+      // Combina pendentes de ateste + em análise + aprovadas
       const ateste = medicoesEnriquecidas.filter(med => {
         const mesAno = getSubmissaoMesAno(med.data_submissao)
         if (mesAno && mesAno !== periodo) return false
@@ -644,7 +699,27 @@ export default function MedicoesV2Page() {
         if (mesAno && mesAno !== periodo) return false
         return filtrarBusca(med) && filtrarTipo(med)
       })
-      return [...ateste, ...analise]
+      const aprovadasPeriodo = aprovadas
+        .map((m: any) => {
+          const contrato = contratoMap.get(m.contrato_id) || m.contrato
+          const tipo = mapModalidadeParaTipo(contrato?.modalidade_execucao)
+          return {
+            ...m,
+            numero_contrato: m.contrato?.numero_contrato || m.numero_contrato || '',
+            objeto_contrato: m.contrato?.objeto || m.objeto_contrato || '',
+            cnpj: m.contrato?.fornecedor_cnpj || '',
+            tipo,
+            dias: 0,
+            status: 'APROVADA',
+            data_submissao: m.data_aprovacao || m.periodo_inicio,
+          }
+        })
+        .filter((m: any) => {
+          const mesAno = getSubmissaoMesAno(m.data_submissao)
+          if (mesAno && mesAno !== periodo) return false
+          return filtrarBusca(m) && filtrarTipo(m)
+        })
+      return [...ateste, ...analise, ...aprovadasPeriodo]
     }
 
     // Pendentes de ateste (aguardando / padrão)
@@ -772,6 +847,187 @@ export default function MedicoesV2Page() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ============ SOLICITAR MEDIÇÕES EM LOTE ============ */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+          onClick={() => setSolicitarLoteAberto(p => !p)}
+        >
+          <div className="flex items-center gap-2">
+            <Send className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-semibold text-gray-800">
+              Solicitar Medições do Mês
+            </span>
+            <span className="text-xs text-gray-500">— {formatarMesNomeCompleto(periodo)}</span>
+            {contratosNaoEnviaram.length > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                {contratosNaoEnviaram.length} pendente{contratosNaoEnviaram.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <ChevronLeft className={`w-4 h-4 text-gray-400 transition-transform ${solicitarLoteAberto ? '-rotate-90' : 'rotate-0'}`} />
+        </button>
+
+        {solicitarLoteAberto && (
+          <div className="border-t border-gray-100 p-4 space-y-4">
+            <p className="text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+              Solicite que os fornecedores enviem a planilha de medições e notas fiscais referentes a {formatarMesNomeCompleto(periodo)}.
+            </p>
+
+            {contratos.length === 0 ? (
+              <p className="text-sm text-gray-500">Nenhum contrato de medição encontrado.</p>
+            ) : (
+              <>
+                <div className="max-h-52 overflow-y-auto space-y-1 border rounded-lg p-2">
+                  {contratos.map((c) => {
+                    const jaEnviou = c.enviou_mes === true
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors ${
+                          jaEnviou ? 'bg-green-50/50' : contratosSelecionados[c.id] ? 'bg-blue-50/50' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!contratosSelecionados[c.id]}
+                          onChange={(e) => setContratosSelecionados(prev => ({ ...prev, [c.id]: e.target.checked }))}
+                          className="w-4 h-4"
+                          disabled={loadingSolicitarLote}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-gray-900">{c.numero_contrato}</span>
+                          <span className="text-gray-400 mx-2">·</span>
+                          <span className="text-sm text-gray-600 truncate">{c.fornecedor_nome}</span>
+                        </div>
+                        <div className="flex-shrink-0">
+                          {jaEnviou ? (
+                            <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded">
+                              <CheckCircle className="w-3 h-3" /> Enviou
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                              <XCircle className="w-3 h-3" /> Não enviou
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+
+                <div>
+                  <Label className="text-sm text-gray-600">Mensagem ao fornecedor (opcional)</Label>
+                  <Textarea
+                    value={mensagemLote}
+                    onChange={(e) => setMensagemLote(e.target.value)}
+                    placeholder="Ex.: Precisamos da medição para fechamento do mês..."
+                    rows={2}
+                    className="mt-1"
+                  />
+                </div>
+
+                {whatsappConfigurado && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="wpp-lote-v2"
+                        checked={enviarWhatsappLote}
+                        onChange={(e) => {
+                          setEnviarWhatsappLote(e.target.checked)
+                          if (e.target.checked) {
+                            const tels: Record<string, string> = {}
+                            contratos.forEach(c => { if (c.fornecedor_telefone) tels[c.id] = c.fornecedor_telefone })
+                            setTelefonesLote(tels)
+                          } else {
+                            setTelefonesLote({})
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-green-600"
+                      />
+                      <label htmlFor="wpp-lote-v2" className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                        <MessageCircle className="w-4 h-4 text-green-600" />
+                        <span className="font-medium text-gray-700">Notificar via WhatsApp</span>
+                      </label>
+                    </div>
+
+                    {enviarWhatsappLote && (() => {
+                      const idsSelecionados = Object.entries(contratosSelecionados).filter(([, v]) => v).map(([k]) => k)
+                      const contratosSel = contratos.filter(c => idsSelecionados.includes(c.id) && !c.enviou_mes)
+                      const semTelefone = contratosSel.filter(c => !telefonesLote[c.id]?.trim())
+                      const comTelefone = contratosSel.filter(c => !!telefonesLote[c.id]?.trim())
+                      return (
+                        <div className="border border-green-200 rounded-lg overflow-hidden">
+                          <div className="bg-green-50 px-3 py-2 flex items-center justify-between">
+                            <span className="text-xs font-medium text-green-800">Checklist de envio WhatsApp</span>
+                            <div className="flex gap-3 text-xs">
+                              <span className="text-green-700">✓ {comTelefone.length} com telefone</span>
+                              {semTelefone.length > 0 && <span className="text-red-600">⚠ {semTelefone.length} sem telefone</span>}
+                            </div>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto divide-y divide-gray-100">
+                            {contratosSel.map(c => {
+                              const tel = telefonesLote[c.id] || ''
+                              const temTel = !!tel.trim()
+                              return (
+                                <div key={c.id} className={`flex items-center gap-2 px-3 py-2 text-xs ${temTel ? 'bg-white' : 'bg-red-50'}`}>
+                                  <span className={`flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold ${temTel ? 'bg-green-500' : 'bg-red-400'}`}>
+                                    {temTel ? '✓' : '!'}
+                                  </span>
+                                  <span className="font-medium text-gray-800 w-20 flex-shrink-0 truncate">{c.numero_contrato}</span>
+                                  <span className="text-gray-500 flex-1 truncate">{c.fornecedor_nome}</span>
+                                  <input
+                                    type="tel"
+                                    value={tel}
+                                    onChange={(e) => setTelefonesLote(prev => ({ ...prev, [c.id]: e.target.value }))}
+                                    placeholder={temTel ? '' : 'Informe o telefone'}
+                                    className={`w-36 flex-shrink-0 border rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-green-500 ${temTel ? 'border-gray-200' : 'border-red-300 bg-red-50'}`}
+                                  />
+                                </div>
+                              )
+                            })}
+                            {contratosSel.length === 0 && (
+                              <p className="text-xs text-gray-400 px-3 py-2">Selecione contratos acima para ver o checklist.</p>
+                            )}
+                          </div>
+                          {semTelefone.length > 0 && (
+                            <div className="bg-amber-50 border-t border-amber-200 px-3 py-2 text-xs text-amber-700">
+                              ⚠ Fornecedores sem telefone não receberão o WhatsApp. Preencha o número ou desmarque-os.
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button
+                    onClick={() => enviarSolicitacaoLote(true)}
+                    disabled={loadingSolicitarLote || contratosNaoEnviaram.length === 0}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {loadingSolicitarLote ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                    Solicitar Todos Pendentes ({contratosNaoEnviaram.length})
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => enviarSolicitacaoLote(false)}
+                    disabled={loadingSolicitarLote || totalSelecionadosSolicitar === 0}
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    Solicitar Selecionados ({totalSelecionadosSolicitar})
+                  </Button>
+                  <span className="text-xs text-gray-400">{contratos.length} contrato{contratos.length !== 1 ? 's' : ''}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ============ AGUARDANDO FORNECEDOR ============ */}
@@ -1106,14 +1362,18 @@ export default function MedicoesV2Page() {
               ) : (
                 medicoesPaginadas.map((med: any) => {
                   const isAprovacao = med.status === 'AGUARDANDO_APROVACAO'
-                  const numFormatado = isAprovacao
-                    ? `MED-${new Date(med.ateste_data || med.periodo_inicio || '').getFullYear() || new Date().getFullYear()}-${String(med.numero_medicao).padStart(4, '0')}`
-                    : formatarNumeroMedicao(med as MedicaoPendente)
-                  const dataEnvio = isAprovacao ? med.ateste_data : (med as MedicaoPendente).data_submissao
-                  const dias = isAprovacao ? 0 : (med as MedicaoPendente).dias
+                  const isAprovada = med.status === 'APROVADA'
+                  const ano = isAprovacao
+                    ? (new Date(med.ateste_data || med.periodo_inicio || '').getFullYear() || new Date().getFullYear())
+                    : isAprovada
+                    ? (new Date(med.data_aprovacao || med.periodo_inicio || '').getFullYear() || new Date().getFullYear())
+                    : (med.data_submissao ? new Date(med.data_submissao).getFullYear() : new Date().getFullYear())
+                  const numFormatado = `MED-${ano}-${String(med.numero_medicao).padStart(4, '0')}`
+                  const dataEnvio = isAprovacao ? med.ateste_data : isAprovada ? med.data_aprovacao : (med as MedicaoPendente).data_submissao
+                  const dias = (isAprovacao || isAprovada) ? 0 : (med as MedicaoPendente).dias
 
                   return (
-                    <TableRow key={med.id} className="hover:bg-gray-50/70 transition-colors">
+                    <TableRow key={med.id} className={`hover:bg-gray-50/70 transition-colors ${isAprovada ? 'bg-green-50/30' : ''}`}>
                       {/* N° Medição / Contrato */}
                       <TableCell className="py-4">
                         <p className="text-sm font-semibold text-blue-600">{numFormatado}</p>
@@ -1151,12 +1411,17 @@ export default function MedicoesV2Page() {
 
                       {/* Dias em aberto */}
                       <TableCell className="py-4">
-                        <DiasBadge dias={dias} />
+                        {isAprovada ? <span className="text-xs text-gray-400">—</span> : <DiasBadge dias={dias} />}
                       </TableCell>
 
                       {/* Status */}
                       <TableCell className="py-4">
-                        {isAprovacao ? (
+                        {isAprovada ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                            Aprovada
+                          </span>
+                        ) : isAprovacao ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                             Em Análise
@@ -1169,7 +1434,16 @@ export default function MedicoesV2Page() {
                       {/* Ações */}
                       <TableCell className="py-4">
                         <div className="flex items-center justify-end gap-2">
-                          {!isAprovacao && (
+                          {isAprovada && (
+                            <Button
+                              size="icon" variant="ghost" className="h-8 w-8"
+                              title="Baixar Boletim PDF"
+                              onClick={() => baixarBoletim(med)}
+                            >
+                              <FileDown className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {!isAprovacao && !isAprovada && (
                             <Button
                               size="sm"
                               className="h-8 bg-blue-600 hover:bg-blue-700 text-white"
@@ -1181,7 +1455,7 @@ export default function MedicoesV2Page() {
                               ) : med.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar' : 'Analisar'}
                             </Button>
                           )}
-                          {!isAprovacao && (
+                          {!isAprovacao && !isAprovada && (
                             <Button
                               size="sm"
                               variant="outline"
