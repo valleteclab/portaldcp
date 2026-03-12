@@ -298,9 +298,14 @@ export class MedicaoService {
     const somaValorExistente = itensExistentes.reduce((sum, i) => sum + Number(i.valor_total), 0);
     const quantidade = Number(dados.quantidade) || 0;
     const valorUnitario = Number(dados.valor_unitario) || 0;
-    const quantidadeMeses = dados.quantidade_meses ? Number(dados.quantidade_meses) : null;
-    const valorMensal = quantidade * valorUnitario;
-    const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
+    const unidade = (dados as any).unidade_medida as string | undefined;
+    // Para itens MENSAL: Quantidade = meses, Valor Unitário = preço/mês.
+    // Valor Mensal = Valor Unitário (custo mensal fixo), Valor Total = Qtd × Valor Unitário.
+    // Qtd. Meses é ignorado para MENSAL (seria redundante / causaria dupla contagem).
+    const isMensal = unidade === 'MENSAL';
+    const quantidadeMeses = isMensal ? null : (dados.quantidade_meses ? Number(dados.quantidade_meses) : null);
+    const valorMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
+    const valorTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal);
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
@@ -346,11 +351,15 @@ export class MedicaoService {
       );
     }
 
-    const quantidadeMeses = dados.quantidade_meses !== undefined
+    const unidade = (dados as any).unidade_medida !== undefined ? (dados as any).unidade_medida : item.unidade_medida;
+    const isMensal = unidade === 'MENSAL';
+    const quantidadeMeses = isMensal ? null : (dados.quantidade_meses !== undefined
       ? (dados.quantidade_meses ? Number(dados.quantidade_meses) : null)
-      : item.quantidade_meses;
-    const valorMensal = quantidade * valorUnitario;
-    const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
+      : item.quantidade_meses);
+    // MENSAL: Valor Mensal = preço/mês (Valor Unitário), Valor Total = Qtd(meses) × Valor Unitário
+    // OUTROS: Valor Mensal = Qtd × Valor Unitário, Valor Total = Valor Mensal × Qtd. Meses
+    const valorMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
+    const valorTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal);
     Object.assign(item, {
       ...dados,
       quantidade,
