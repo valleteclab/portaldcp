@@ -1521,6 +1521,8 @@ export class MedicaoService {
         nome:             asFiscal.usuario_nome,
         cpf:              asFiscal.usuario_cpf_cnpj,
         cargo:            asFiscal.usuario_cargo || 'Fiscal de Contrato',
+        matricula:        asFiscal.usuario_matricula || undefined,
+        portaria:         asFiscal.usuario_portaria || undefined,
         data_hora:        fmtDataBR(asFiscal.data_assinatura),
         codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
       } : undefined,
@@ -3463,6 +3465,8 @@ export class MedicaoService {
       usuario_nome: string;
       usuario_cpf_cnpj: string;
       usuario_cargo?: string;
+      usuario_matricula?: string;
+      usuario_portaria?: string;
       ip_address?: string;
       user_agent?: string;
     },
@@ -3491,6 +3495,8 @@ export class MedicaoService {
       usuario_nome: dados.usuario_nome,
       usuario_cpf_cnpj: dados.usuario_cpf_cnpj,
       usuario_cargo: dados.usuario_cargo,
+      usuario_matricula: dados.usuario_matricula,
+      usuario_portaria: dados.usuario_portaria,
       ip_address: dados.ip_address,
       user_agent: dados.user_agent,
     });
@@ -3792,13 +3798,19 @@ export class MedicaoService {
       (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${otpEntry.telefone}`);
     }
 
+    // Buscar dados completos do usuário (matricula, portaria_fiscal)
+    const fiscalUserOtp = dadosFiscal.usuario_id
+      ? await this.usuarioRepository.findOne({ where: { id: dadosFiscal.usuario_id } })
+      : null;
     const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
       orgao_id: dadosFiscal.orgao_id || '',
       papel: 'FISCAL',
       usuario_id: dadosFiscal.usuario_id,
       usuario_nome: dadosFiscal.usuario_nome,
       usuario_cpf_cnpj: dadosFiscal.usuario_cpf_cnpj,
-      usuario_cargo: dadosFiscal.usuario_cargo || 'Fiscal',
+      usuario_cargo: dadosFiscal.usuario_cargo || fiscalUserOtp?.cargo || 'Fiscal',
+      usuario_matricula: fiscalUserOtp?.matricula || undefined,
+      usuario_portaria: fiscalUserOtp?.portaria_fiscal || undefined,
     });
 
     this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
@@ -4079,13 +4091,16 @@ export class MedicaoService {
     (this.assinaturasService as any).otpCache?.delete(cacheKey);
 
     // Registrar assinatura
+    const fiscalUser = await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } });
     const assinatura = await this.registrarAssinaturaMedicao(link.medicao_id, {
       orgao_id: '',
       papel: 'FISCAL',
       usuario_id: link.fiscal_usuario_id,
       usuario_nome: link.fiscal_nome,
-      usuario_cpf_cnpj: (await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } }))?.cpf || '',
-      usuario_cargo: (await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } }))?.cargo || 'Fiscal de Contrato',
+      usuario_cpf_cnpj: fiscalUser?.cpf || '',
+      usuario_cargo: fiscalUser?.cargo || 'Fiscal de Contrato',
+      usuario_matricula: fiscalUser?.matricula || undefined,
+      usuario_portaria: fiscalUser?.portaria_fiscal || undefined,
     });
 
     // Montar dados para o frontend gerar o PDF

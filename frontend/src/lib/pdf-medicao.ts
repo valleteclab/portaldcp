@@ -112,6 +112,8 @@ export interface DadosMedicaoPdf {
     nome: string
     cpf?: string
     cargo?: string
+    matricula?: string             // matrícula funcional do fiscal
+    portaria?: string              // portaria que designou o fiscal
     data_hora: string
     codigo_validacao?: string      // código formatado XXXX-XXXX-XXXX-XXXX
   }
@@ -234,6 +236,8 @@ function desenharQuadroAssinaturas(
     nome: string
     identificacao: string
     cargo: string
+    matricula?: string
+    portaria?: string
     dataHora: string
     pendente: boolean
     codigoValidacao?: string
@@ -284,10 +288,12 @@ if (pendente) {
 } else {
   const linhasNome = doc.splitTextToSize(a.nome, boxW - 5)
   const numLinhasNome = Math.min(linhasNome.length, 2)
-  // header(5) + topo(3.5) + nome + cargo + id + data + válida + padding
+  // header(5) + topo(3.5) + nome + cargo/matricula + portaria + id + data + válida + padding
+  const temCargoOuMatricula = !!(a.cargo || a.matricula)
   boxH = 5 + 3.5
     + numLinhasNome * 3.1
-    + (a.cargo ? 2.8 : 0)
+    + (temCargoOuMatricula ? 2.8 : 0)
+    + (a.portaria ? 2.8 : 0)
     + (a.identificacao ? 2.8 : 0)
     + 2.8   // data/hora
     + 2.8   // ✓ assinatura válida
@@ -326,7 +332,17 @@ boxesInfo.push({ x: bx, boxH })
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(5.8)
       doc.setTextColor(55, 65, 81)
-      if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 2.8 }
+      // Linha: "CARGO  ·  Matrícula: XXXXX" (ou só cargo, ou só matrícula)
+      if (a.cargo || a.matricula) {
+        const cargoMatricula = a.cargo && a.matricula
+          ? `${a.cargo}  ·  Matrícula: ${a.matricula}`
+          : a.cargo ? a.cargo : `Matrícula: ${a.matricula}`
+        doc.text(cargoMatricula, bx + 3, ly); ly += 2.8
+      }
+      // Linha: "Fiscal de Contratos  ·  Portaria XXX/XXXX"
+      if (a.portaria) {
+        doc.text(`Fiscal de Contratos  ·  Portaria ${a.portaria}`, bx + 3, ly); ly += 2.8
+      }
       if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 2.8 }
       doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 2.8
 
@@ -772,6 +788,8 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       nome: aFisc?.nome || '',
       identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
       cargo: aFisc?.cargo || '',
+      matricula: aFisc?.matricula,
+      portaria: aFisc?.portaria,
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,

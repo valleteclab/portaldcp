@@ -24,6 +24,8 @@ export class UsuariosService {
     cpf?: string;
     telefone?: string;
     cargo?: string;
+    matricula?: string;
+    portaria_fiscal?: string;
     role?: RoleUsuario;
     orgao_id?: string;
     pode_aprovar_requisicoes?: boolean;
@@ -49,6 +51,8 @@ export class UsuariosService {
       cpf: data.cpf,
       telefone: data.telefone,
       cargo: data.cargo,
+      matricula: data.matricula,
+      portaria_fiscal: data.portaria_fiscal,
       role: data.role || RoleUsuario.EQUIPE_APOIO,
       orgao_id: data.orgao_id,
       ativo: true,
@@ -115,6 +119,8 @@ export class UsuariosService {
     cpf: string;
     telefone: string;
     cargo: string;
+    matricula: string;
+    portaria_fiscal: string;
     role: RoleUsuario;
     orgao_id: string;
     ativo: boolean;

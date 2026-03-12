@@ -33,6 +33,8 @@ export class UsuariosController {
       cpf?: string;
       telefone?: string;
       cargo?: string;
+      matricula?: string;
+      portaria_fiscal?: string;
       role?: RoleUsuario;
       orgao_id?: string;
       pode_receber_patrimonio?: boolean;
@@ -115,6 +117,8 @@ export class UsuariosController {
       cpf: string;
       telefone: string;
       cargo: string;
+      matricula: string;
+      portaria_fiscal: string;
       role: RoleUsuario;
       orgao_id: string;
       ativo: boolean;
