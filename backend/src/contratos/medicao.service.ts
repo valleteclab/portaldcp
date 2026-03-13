@@ -1470,12 +1470,20 @@ export class MedicaoService {
     };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
-    // Usa snapshot de execucao_financeira para valores financeiros (no_periodo, ate_periodo)
-    // evitando recalcular a partir de itemCronograma.quantidade_medida que pode estar desatualizado.
-    const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
-    const efItemMap = new Map<string, any>();
-    for (const ef of efItens) {
-      if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
+    // Recalcula ao vivo via calcularExecucaoFinanceiraFornecedor para garantir valores
+    // corretos de ate_periodo mesmo após atualizações nas unidades de medida.
+    let efItemMap = new Map<string, any>();
+    try {
+      const efLive = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicaoId);
+      for (const ef of (efLive?.itens || [])) {
+        if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
+      }
+    } catch {
+      // fallback: usa snapshot salvo se o cálculo ao vivo falhar
+      const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
+      for (const ef of efItens) {
+        if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
+      }
     }
 
     const itensParaPdf = ((medicao as any).itens || [])
@@ -1486,14 +1494,12 @@ export class MedicaoService {
         const qtdMedida    = Number(item.quantidade_medida || 0);
         const qtdTotal     = Number(item.item_quantidade_total || 0);
 
-        // Usar valores do snapshot (execucao_financeira) se disponível para garantir precisão
         const efItem = efItemMap.get(item.item_cronograma_id || '');
         const vlrNoPeriodo     = efItem ? Number(efItem.no_periodo   || 0) : qtdMedida * vlrUnitario;
         const vlrAtePeriodo    = efItem ? Number(efItem.ate_periodo  || 0) : vlrNoPeriodo;
         const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
         const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
-        // Quantidade acumulada derivada do valor acumulado / valor unitário
         const qtdAcumulada = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
         return {
           numero:                        Number(item.etapa_numero || item.item_numero || 0),
