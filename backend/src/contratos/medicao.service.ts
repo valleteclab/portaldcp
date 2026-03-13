@@ -2956,11 +2956,6 @@ export class MedicaoService {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
-      id: contrato.id,
-      modalidade_execucao: contrato.modalidade_execucao,
-      valor_global: contrato.valor_global
-    });
-
     const usarItensCronograma = await this.usarItensCronograma(contratoId);
 
     const etapas = usarItensCronograma
@@ -2978,15 +2973,6 @@ export class MedicaoService {
       : [];
     
     
-    if (usarItensCronograma) {
-        id: i.id,
-        numero_item: i.numero_item,
-        descricao: i.descricao,
-        valor_unitario: i.valor_unitario,
-        quantidade: i.quantidade,
-        valor_total: i.valor_total
-      })));
-    }
 
     // Buscar todas as medições aprovadas
     const medicoesAprovadas = await this.medicaoRepository.find({
@@ -3000,23 +2986,10 @@ export class MedicaoService {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
       });
-        id: medicaoAtual.id,
-        numero: medicaoAtual.numero_medicao,
-        status: medicaoAtual.status,
-        valor_medido: medicaoAtual.valor_medido
-      } : null);
     } else if (medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
-        id: medicaoAtual.id,
-        numero: medicaoAtual.numero_medicao,
-        status: medicaoAtual.status,
-        valor_medido: medicaoAtual.valor_medido,
-      });
     }
 
-    // Continuar com a lógica existente...
-    // (copiar o resto do método calcularExecucaoFinanceira)
-    
     const itensPorMedicao: Record<string, any[]> = {};
     for (const m of medicoesAprovadas) {
       const itens = usarItensCronograma
@@ -3028,12 +3001,6 @@ export class MedicaoService {
             where: { medicao_id: m.id },
           });
       itensPorMedicao[m.id] = itens;
-      if (usarItensCronograma && itens.length > 0) {
-          item_cronograma_id: (i as any).item_cronograma_id,
-          valor_medido: (i as any).valor_medido,
-          quantidade_medida: (i as any).quantidade_medida
-        })));
-      }
     }
 
     let itensMedicaoAtual: any[] = [];
@@ -3046,12 +3013,6 @@ export class MedicaoService {
         : await this.itemMedicaoRepository.find({
             where: { medicao_id: medicaoAtual.id },
           });
-      if (usarItensCronograma && itensMedicaoAtual.length > 0) {
-          item_cronograma_id: (i as any).item_cronograma_id,
-          valor_medido: (i as any).valor_medido,
-          quantidade_medida: (i as any).quantidade_medida
-        })));
-      }
     }
 
     // Calcular execução por etapa/item
@@ -3270,16 +3231,6 @@ export class MedicaoService {
         ate_periodo_global: atePeriodoGlobal,
         a_executar_global: aExecutarGlobal,
       };
-    });
-
-      total_previsto: totalPrevisto,
-      total_no_periodo: totalNoPeriodo,
-      total_ate_periodo_sem_ajuste: totalAtePeriodo,
-      ajuste_migracao: ajusteMigracao,
-      total_ate_periodo: totalAtePeriodoComAjuste,
-      total_ate_periodo_global_exibicao: totalAtePeriodoGlobalExibicao,
-      ajuste_global_para_distribuir: ajusteGlobalParaDistribuir,
-      total_a_executar: totalAExecutar,
     });
 
     return {
