@@ -1461,20 +1461,13 @@ export class MedicaoService {
     };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
-    // Recalcula ao vivo via calcularExecucaoFinanceiraFornecedor para garantir valores
-    // corretos de ate_periodo mesmo após atualizações nas unidades de medida.
-    let efItemMap = new Map<string, any>();
-    try {
-      const efLive = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicaoId);
-      for (const ef of (efLive?.itens || [])) {
-        if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
-      }
-    } catch {
-      // fallback: usa snapshot salvo se o cálculo ao vivo falhar
-      const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
-      for (const ef of efItens) {
-        if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
-      }
+    // Usa o snapshot execucao_financeira salvo na submissão do fornecedor,
+    // com ate_periodo_global (inclui ajuste de migração) igual ao que o frontend
+    // do fornecedor usa ao gerar o PDF — garantindo boletins idênticos.
+    const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
+    const efItemMap = new Map<string, any>();
+    for (const ef of efItens) {
+      if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
     }
 
     const itensParaPdf = ((medicao as any).itens || [])
@@ -1486,8 +1479,12 @@ export class MedicaoService {
         const qtdTotal     = Number(item.item_quantidade_total || 0);
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
-        const vlrNoPeriodo     = efItem ? Number(efItem.no_periodo   || 0) : qtdMedida * vlrUnitario;
-        const vlrAtePeriodo    = efItem ? Number(efItem.ate_periodo  || 0) : vlrNoPeriodo;
+        const vlrNoPeriodo = efItem ? Number(efItem.no_periodo || 0) : qtdMedida * vlrUnitario;
+        // ate_periodo_global inclui o ajuste de migração distribuído proporcionalmente;
+        // mesma lógica usada pelo frontend do fornecedor (ate_periodo_global ?? ate_periodo)
+        const vlrAtePeriodo = efItem
+          ? Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0)
+          : vlrNoPeriodo;
         const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
         const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
