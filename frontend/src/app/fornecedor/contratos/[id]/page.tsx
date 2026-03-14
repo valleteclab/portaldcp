@@ -2417,8 +2417,13 @@ export default function FornecedorContratoDetalhePage() {
                       return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
                     }, 0);
 
-              const totalDiscValor = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);
+              const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+              // Quando % somam ~100% e diferença é só arredondamento (≤ 1 cent), exibe o valor exato da medição
+              const arredondamentoApenas = valorMedidoAtual > 0
+                && Math.abs(totalDiscPerc - 100) < 0.05
+                && Math.abs(totalDiscValorBruto - valorMedidoAtual) <= 0.02;
+              const totalDiscValor = arredondamentoApenas ? valorMedidoAtual : totalDiscValorBruto;
 
               return (
                 <div className="border rounded-lg p-4 bg-amber-50/30">
