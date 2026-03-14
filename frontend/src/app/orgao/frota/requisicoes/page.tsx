@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table'
 import {
   ClipboardList, Plus, CheckCircle, XCircle, Loader2, Search,
-  Copy, Trash2,
+  Copy, Trash2, QrCode,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -31,7 +31,7 @@ interface Requisicao {
   quantidade_autorizada: number; quantidade_abastecida?: number; finalidade: string
   status: string; data_requisicao: string; data_autorizacao?: string
   autorizado_por?: string; motivo_negacao?: string; data_abastecimento?: string
-  valor_total?: number; contrato?: Contrato
+  valor_total?: number; contrato?: Contrato; token_acesso?: string
 }
 
 const TIPOS_COMBUSTIVEL = ['GASOLINA', 'ETANOL', 'DIESEL', 'FLEX', 'GNV', 'ELETRICO']
@@ -250,6 +250,13 @@ export default function RequisicoesPage() {
                             <XCircle className="w-3.5 h-3.5 mr-1" />Negar
                           </Button>
                         </>
+                      )}
+                      {r.status === 'AUTORIZADO' && r.token_acesso && (
+                        <Button size="sm" variant="ghost" className="text-blue-500 hover:text-blue-700 text-xs px-2"
+                          title="Ver autorização / QR Code"
+                          onClick={() => window.open(`/frota/req/${r.token_acesso}`, '_blank')}>
+                          <QrCode className="w-3.5 h-3.5" />
+                        </Button>
                       )}
                       {['PENDENTE', 'AUTORIZADO'].includes(r.status) && (
                         <Button size="sm" variant="ghost" className="text-gray-400 hover:text-gray-600" onClick={() => cancelar(r)}>

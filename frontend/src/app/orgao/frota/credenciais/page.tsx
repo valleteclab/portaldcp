@@ -347,7 +347,17 @@ export default function FrotaCredenciaisPage() {
 
       {aba === 'vereadores' && (
         <div>
-          <div className="flex justify-end mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-700">
+              <span className="font-medium">Portal do Vereador:</span>
+              <code className="bg-white px-2 py-0.5 rounded border border-blue-200 text-xs select-all">{typeof window !== 'undefined' ? window.location.origin : ''}/frota/vereador</code>
+              <button
+                onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/frota/vereador`)}
+                className="text-blue-500 hover:text-blue-700 text-xs underline ml-1"
+              >
+                Copiar
+              </button>
+            </div>
             <button
               onClick={() => abrirNovo('VEREADOR')}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
