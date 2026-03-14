@@ -46,6 +46,7 @@ import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AgenteContratosModule } from './agente-contratos/agente-contratos.module';
 import { AgenteTarefasModule } from './agente-tarefas/agente-tarefas.module';
+import { FrotaModule } from './frota/frota.module';
 
 @Module({
   imports: [
@@ -119,6 +120,7 @@ import { AgenteTarefasModule } from './agente-tarefas/agente-tarefas.module';
     WhatsAppModule,
     AgenteContratosModule,
     AgenteTarefasModule,
+    FrotaModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -28,6 +28,7 @@ import {
   MessageCircle,
   Bot,
   FileSearch,
+  Car,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -143,6 +144,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3 },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/portal-assinaturas", label: "Portal de Assinaturas", icon: FilePen, modulo: ModuloSistema.PORTAL_ASSINATURAS },
+    { href: "/orgao/frota", label: "Frota e Combustível", icon: Car, modulo: ModuloSistema.FROTA },
     { href: "/orgao/whatsapp", label: "WhatsApp Chat", icon: MessageCircle, modulo: 'WHATSAPP_CHAT' as ModuloSistema },
     { href: "/orgao/emails", label: "Caixa de Entrada", icon: Mail }, // Sempre visível
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
