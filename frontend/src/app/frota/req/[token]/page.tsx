@@ -600,10 +600,32 @@ export default function ReqTokenPage() {
           </div>
         )}
 
+        {/* Botão imprimir / salvar PDF */}
+        <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+          <button
+            onClick={() => window.print()}
+            style={{
+              padding: '0.75rem 2rem',
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              border: 'none',
+              borderRadius: '8px',
+              color: '#fff',
+              fontSize: '0.9rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            🖨️ Imprimir / Salvar PDF
+          </button>
+        </div>
+
         {/* Info de validação */}
         <div style={{
           textAlign: 'center',
-          marginTop: '2rem',
+          marginTop: '1.5rem',
           paddingBottom: '2rem',
           color: '#475569',
           fontSize: '0.75rem',
@@ -613,6 +635,13 @@ export default function ReqTokenPage() {
             {new Date().toLocaleString('pt-BR')}
           </div>
         </div>
+
+        <style>{`
+          @media print {
+            body { background: white !important; }
+            button { display: none !important; }
+          }
+        `}</style>
       </div>
     </div>
   )

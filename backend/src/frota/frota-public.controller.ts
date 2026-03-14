@@ -1,8 +1,8 @@
 import {
-  Controller, Get, Post, Put, Body, Param, Headers, Req,
-  UnauthorizedException,
+  Controller, Get, Post, Put, Body, Param, Headers, Req, Res, Query,
+  UnauthorizedException, BadRequestException,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { FrotaAuthService, FrotaJwtPayload } from './frota-auth.service';
 import { FrotaService } from './frota.service';
@@ -108,7 +108,7 @@ export class FrotaPublicController {
   ) {
     const payload = getPostoPayload(bearerToken(auth), this.frotaAuth);
     const result = await this.frotaService.verificarCodigo(codigo, payload.orgaoId);
-    if (result.status !== 'AUTORIZADO') throw new UnauthorizedException('Autorização inativa');
+    if (result.status !== 'AUTORIZADO') throw new BadRequestException(`Autorização não disponível (status: ${result.status})`);
     await this.frotaAuth.log(payload.sub, payload.orgaoId, getIp(req), getUserAgent(req),
       AcaoFrotaLog.VERIFICAR_REQ, { codigo }, true);
     return result;
@@ -134,6 +134,53 @@ export class FrotaPublicController {
   async postoAlterarSenha(@Body() body: any, @Headers('authorization') auth: string, @Req() req: Request) {
     const payload = getPostoPayload(bearerToken(auth), this.frotaAuth);
     return this.frotaAuth.alterarSenha(payload.sub, payload.orgaoId, body.senhaAtual, body.novaSenha, getIp(req), getUserAgent(req));
+  }
+
+  @Get('posto/dashboard')
+  async postoDashboard(@Headers('authorization') auth: string, @Query('mes') mes?: string) {
+    const payload = getPostoPayload(bearerToken(auth), this.frotaAuth);
+    return this.frotaService.obterDashboardPosto(payload.orgaoId, mes);
+  }
+
+  @Get('posto/relatorio/siga')
+  async postoRelatorioSiga(
+    @Headers('authorization') auth: string,
+    @Query('mes') mes: string,
+    @Res() res: Response,
+  ) {
+    const payload = getPostoPayload(bearerToken(auth), this.frotaAuth);
+    const orgaoId = payload.orgaoId;
+    const mesAtual = mes || new Date().toISOString().slice(0, 7);
+    const dados = await this.frotaService.gerarDadosRelatorioSiga(orgaoId, mesAtual);
+
+    const [ano, m] = mesAtual.split('-');
+    const nomeMes = new Date(`${mesAtual}-15`).toLocaleString('pt-BR', { month: 'long' }).toUpperCase();
+
+    const linhas: string[] = [];
+    linhas.push('CONSUMO DE COMBUSTIVEL - FROTA SIGA');
+    linhas.push(`CONSUMO MES ${nomeMes} - ${ano}`);
+    linhas.push('');
+    linhas.push('Modelo/Marca;Placa;Chassi;Renavam;Tipo;Litros;Valor cupom;Valor total dos produtos;Acrescimo Contratual;Total Acrescimo;Total a pagar');
+
+    for (const l of dados.linhas) {
+      const valorTotal = (l.litros * l.valor_cupom).toFixed(4).replace('.', ',');
+      linhas.push([
+        l.modelo, l.placa, l.chassi, l.renavam, l.tipo,
+        l.litros.toFixed(3).replace('.', ','),
+        l.valor_cupom.toFixed(4).replace('.', ','),
+        valorTotal, 'R$ -', 'R$ -', valorTotal,
+      ].join(';'));
+    }
+
+    linhas.push('');
+    linhas.push(`Subtotal;;;;;;${dados.subtotal_litros.toFixed(3).replace('.', ',')};;R$ ${dados.subtotal_valor.toFixed(3).replace('.', ',')};;;R$ ${dados.subtotal_valor.toFixed(3).replace('.', ',')}`);
+    linhas.push('');
+    linhas.push(`TOTAL GERAL;;;;;;;;;;;;;R$ ${dados.total_geral.toFixed(2).replace('.', ',')}`);
+
+    const csv = '\uFEFF' + linhas.join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="SIGA_COMBUSTIVEL_${nomeMes}_${ano}.csv"`);
+    res.send(csv);
   }
 
   // ================================================================
