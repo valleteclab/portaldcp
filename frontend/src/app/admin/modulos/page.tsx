@@ -33,7 +33,8 @@ import {
   FilePen,
   ClipboardList,
   Bot,
-  MessageCircle
+  MessageCircle,
+  Car,
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -65,6 +66,7 @@ const MODULOS = [
   { codigo: 'ORDENS_SERVICO', nome: 'Ordens de Serviço', descricao: 'Gestão de Ordens de Serviço para contratos', icon: ClipboardList },
   { codigo: 'IA_CONTRATOS', nome: 'IA Contratos', descricao: 'Importação de contratos via Inteligência Artificial', icon: Bot },
   { codigo: 'WHATSAPP_CHAT', nome: 'WhatsApp Chat', descricao: 'Chat integrado com WhatsApp via Z-API', icon: MessageCircle },
+  { codigo: 'FROTA', nome: 'Frota e Combustível', descricao: 'Controle de frota de veículos e consumo de combustível', icon: Car },
 ]
 
 export default function AdminModulosPage() {
