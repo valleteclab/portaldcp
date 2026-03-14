@@ -386,7 +386,7 @@ export default function FrotaCredenciaisPage() {
                       <div className="text-sm text-gray-500 space-y-0.5">
                         <div>Código: <code className="bg-gray-100 px-1 rounded text-xs">{c.codigo_acesso}</code></div>
                         {c.cota_mensal_litros && (
-                          <div>Cota mensal: <strong className="text-gray-700">{c.cota_mensal_litros.toFixed(3).replace('.', ',')} L</strong></div>
+                          <div>Cota mensal: <strong className="text-gray-700">{Number(c.cota_mensal_litros).toFixed(3).replace('.', ',')} L</strong></div>
                         )}
                         <div className="text-xs text-gray-400">
                           Último acesso: {fmtData(c.ultimo_acesso)}
