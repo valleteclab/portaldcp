@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, ILike } from 'typeorm';
+import { Repository, Between, ILike, Like } from 'typeorm';
 import { Veiculo } from './entities/veiculo.entity';
 import { Abastecimento } from './entities/abastecimento.entity';
 import { Manutencao } from './entities/manutencao.entity';
+import { FrotaContrato } from './entities/frota-contrato.entity';
+import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 
 @Injectable()
 export class FrotaService {
@@ -14,12 +16,17 @@ export class FrotaService {
     private abastecimentoRepository: Repository<Abastecimento>,
     @InjectRepository(Manutencao)
     private manutencaoRepository: Repository<Manutencao>,
+    @InjectRepository(FrotaContrato)
+    private contratoRepository: Repository<FrotaContrato>,
+    @InjectRepository(FrotaRequisicao)
+    private requisicaoRepository: Repository<FrotaRequisicao>,
   ) {}
 
-  // ========== VEÍCULOS ==========
+  // ============================================================
+  // VEÍCULOS
+  // ============================================================
 
   async listarVeiculos(orgaoId: string, search?: string) {
-    const where: any = { orgao_id: orgaoId };
     if (search) {
       return this.veiculoRepository.find({
         where: [
@@ -30,7 +37,10 @@ export class FrotaService {
         order: { created_at: 'DESC' },
       });
     }
-    return this.veiculoRepository.find({ where, order: { created_at: 'DESC' } });
+    return this.veiculoRepository.find({
+      where: { orgao_id: orgaoId },
+      order: { created_at: 'DESC' },
+    });
   }
 
   async criarVeiculo(orgaoId: string, dados: Partial<Veiculo>) {
@@ -63,7 +73,9 @@ export class FrotaService {
     await this.veiculoRepository.remove(veiculo);
   }
 
-  // ========== ABASTECIMENTOS ==========
+  // ============================================================
+  // ABASTECIMENTOS (registro livre — legado)
+  // ============================================================
 
   async listarAbastecimentos(orgaoId: string, veiculoId?: string, dataInicio?: string, dataFim?: string) {
     const where: any = { orgao_id: orgaoId };
@@ -81,18 +93,9 @@ export class FrotaService {
       where: { id: dados.veiculo_id, orgao_id: orgaoId },
     });
     if (!veiculo) throw new NotFoundException('Veículo não encontrado');
-
-    const valorTotal =
-      dados.valor_total ?? Number(dados.quantidade_litros) * Number(dados.valor_litro);
-
-    const abastecimento = this.abastecimentoRepository.create({
-      ...dados,
-      valor_total: valorTotal,
-      orgao_id: orgaoId,
-    });
+    const valorTotal = dados.valor_total ?? Number(dados.quantidade_litros) * Number(dados.valor_litro);
+    const abastecimento = this.abastecimentoRepository.create({ ...dados, valor_total: valorTotal, orgao_id: orgaoId });
     const salvo = await this.abastecimentoRepository.save(abastecimento);
-
-    // Atualiza km do veículo se informado
     if (dados.km_hodometro && Number(dados.km_hodometro) > Number(veiculo.km_atual || 0)) {
       veiculo.km_atual = dados.km_hodometro;
       await this.veiculoRepository.save(veiculo);
@@ -101,9 +104,7 @@ export class FrotaService {
   }
 
   async atualizarAbastecimento(id: string, orgaoId: string, dados: Partial<Abastecimento>) {
-    const abastecimento = await this.abastecimentoRepository.findOne({
-      where: { id, orgao_id: orgaoId },
-    });
+    const abastecimento = await this.abastecimentoRepository.findOne({ where: { id, orgao_id: orgaoId } });
     if (!abastecimento) throw new NotFoundException('Abastecimento não encontrado');
     if (dados.quantidade_litros !== undefined || dados.valor_litro !== undefined) {
       const qtd = Number(dados.quantidade_litros ?? abastecimento.quantidade_litros);
@@ -115,14 +116,14 @@ export class FrotaService {
   }
 
   async excluirAbastecimento(id: string, orgaoId: string) {
-    const abastecimento = await this.abastecimentoRepository.findOne({
-      where: { id, orgao_id: orgaoId },
-    });
+    const abastecimento = await this.abastecimentoRepository.findOne({ where: { id, orgao_id: orgaoId } });
     if (!abastecimento) throw new NotFoundException('Abastecimento não encontrado');
     await this.abastecimentoRepository.remove(abastecimento);
   }
 
-  // ========== MANUTENÇÕES ==========
+  // ============================================================
+  // MANUTENÇÕES
+  // ============================================================
 
   async listarManutencoes(orgaoId: string, veiculoId?: string, dataInicio?: string, dataFim?: string) {
     const where: any = { orgao_id: orgaoId };
@@ -136,9 +137,7 @@ export class FrotaService {
   }
 
   async criarManutencao(orgaoId: string, dados: Partial<Manutencao>) {
-    const veiculo = await this.veiculoRepository.findOne({
-      where: { id: dados.veiculo_id, orgao_id: orgaoId },
-    });
+    const veiculo = await this.veiculoRepository.findOne({ where: { id: dados.veiculo_id, orgao_id: orgaoId } });
     if (!veiculo) throw new NotFoundException('Veículo não encontrado');
     const manutencao = this.manutencaoRepository.create({ ...dados, orgao_id: orgaoId });
     const salvo = await this.manutencaoRepository.save(manutencao);
@@ -150,52 +149,354 @@ export class FrotaService {
   }
 
   async atualizarManutencao(id: string, orgaoId: string, dados: Partial<Manutencao>) {
-    const manutencao = await this.manutencaoRepository.findOne({
-      where: { id, orgao_id: orgaoId },
-    });
+    const manutencao = await this.manutencaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
     if (!manutencao) throw new NotFoundException('Manutenção não encontrada');
     Object.assign(manutencao, dados);
     return this.manutencaoRepository.save(manutencao);
   }
 
   async excluirManutencao(id: string, orgaoId: string) {
-    const manutencao = await this.manutencaoRepository.findOne({
-      where: { id, orgao_id: orgaoId },
-    });
+    const manutencao = await this.manutencaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
     if (!manutencao) throw new NotFoundException('Manutenção não encontrada');
     await this.manutencaoRepository.remove(manutencao);
   }
 
-  // ========== RESUMO / DASHBOARD ==========
+  // ============================================================
+  // CONTRATOS DE ABASTECIMENTO
+  // ============================================================
+
+  async listarContratos(orgaoId: string) {
+    return this.contratoRepository.find({
+      where: { orgao_id: orgaoId },
+      order: { data_inicio: 'DESC' },
+    });
+  }
+
+  async obterContratoAtivo(orgaoId: string): Promise<FrotaContrato | null> {
+    const hoje = new Date().toISOString().split('T')[0];
+    const contratos = await this.contratoRepository.find({
+      where: { orgao_id: orgaoId, ativo: true },
+      order: { data_inicio: 'DESC' },
+    });
+    return contratos.find(c => c.data_inicio <= hoje && c.data_fim >= hoje) || null;
+  }
+
+  async criarContrato(orgaoId: string, dados: Partial<FrotaContrato>) {
+    const contrato = this.contratoRepository.create({ ...dados, orgao_id: orgaoId });
+    return this.contratoRepository.save(contrato);
+  }
+
+  async atualizarContrato(id: string, orgaoId: string, dados: Partial<FrotaContrato>) {
+    const contrato = await this.contratoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    Object.assign(contrato, dados);
+    return this.contratoRepository.save(contrato);
+  }
+
+  async excluirContrato(id: string, orgaoId: string) {
+    const contrato = await this.contratoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    await this.contratoRepository.remove(contrato);
+  }
+
+  // ============================================================
+  // REQUISIÇÕES DE ABASTECIMENTO
+  // ============================================================
+
+  private async gerarCodigoRequisicao(orgaoId: string): Promise<string> {
+    const ano = new Date().getFullYear();
+    const count = await this.requisicaoRepository.count({
+      where: { orgao_id: orgaoId, codigo: Like(`REQ-${ano}-%`) },
+    });
+    const seq = String(count + 1).padStart(4, '0');
+    return `REQ-${ano}-${seq}`;
+  }
+
+  async listarRequisicoes(orgaoId: string, mes?: string, status?: string) {
+    const where: any = { orgao_id: orgaoId };
+    if (status && status !== 'TODOS') where.status = status;
+    if (mes) {
+      const [ano, m] = mes.split('-');
+      where.data_requisicao = Between(`${ano}-${m}-01`, `${ano}-${m}-31`);
+    }
+    return this.requisicaoRepository.find({
+      where,
+      relations: ['contrato'],
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async criarRequisicao(orgaoId: string, dados: any) {
+    const codigo = await this.gerarCodigoRequisicao(orgaoId);
+
+    // Se informou veiculo_id, preenche dados do veículo automaticamente
+    if (dados.veiculo_id) {
+      const veiculo = await this.veiculoRepository.findOne({
+        where: { id: dados.veiculo_id, orgao_id: orgaoId },
+      });
+      if (veiculo) {
+        dados.veiculo_placa = dados.veiculo_placa || veiculo.placa;
+        dados.veiculo_modelo = dados.veiculo_modelo || `${veiculo.modelo} (${veiculo.marca})`;
+        dados.veiculo_chassi = dados.veiculo_chassi || veiculo.chassi;
+        dados.veiculo_renavam = dados.veiculo_renavam || veiculo.renavam;
+        dados.tipo_combustivel = dados.tipo_combustivel || veiculo.tipo_combustivel;
+      }
+    }
+
+    // Vincula ao contrato ativo se não especificado
+    if (!dados.contrato_id) {
+      const contratoAtivo = await this.obterContratoAtivo(orgaoId);
+      if (contratoAtivo) dados.contrato_id = contratoAtivo.id;
+    }
+
+    const data_requisicao = dados.data_requisicao || new Date().toISOString().split('T')[0];
+    const requisicao = this.requisicaoRepository.create({
+      ...dados,
+      codigo,
+      data_requisicao,
+      status: StatusRequisicaoFrota.PENDENTE,
+      orgao_id: orgaoId,
+    });
+    return this.requisicaoRepository.save(requisicao);
+  }
+
+  async atualizarRequisicao(id: string, orgaoId: string, dados: any) {
+    const req = await this.requisicaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    if (!req) throw new NotFoundException('Requisição não encontrada');
+    if (req.status !== StatusRequisicaoFrota.PENDENTE) {
+      throw new BadRequestException('Apenas requisições pendentes podem ser editadas');
+    }
+    Object.assign(req, dados);
+    return this.requisicaoRepository.save(req);
+  }
+
+  async autorizarRequisicao(id: string, orgaoId: string, autorizadoPor: string) {
+    const req = await this.requisicaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    if (!req) throw new NotFoundException('Requisição não encontrada');
+    if (req.status !== StatusRequisicaoFrota.PENDENTE) {
+      throw new BadRequestException('Apenas requisições pendentes podem ser autorizadas');
+    }
+    req.status = StatusRequisicaoFrota.AUTORIZADO;
+    req.data_autorizacao = new Date();
+    req.autorizado_por = autorizadoPor;
+    return this.requisicaoRepository.save(req);
+  }
+
+  async negarRequisicao(id: string, orgaoId: string, motivoNegacao: string) {
+    const req = await this.requisicaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    if (!req) throw new NotFoundException('Requisição não encontrada');
+    if (req.status !== StatusRequisicaoFrota.PENDENTE) {
+      throw new BadRequestException('Apenas requisições pendentes podem ser negadas');
+    }
+    req.status = StatusRequisicaoFrota.NEGADO;
+    req.motivo_negacao = motivoNegacao;
+    return this.requisicaoRepository.save(req);
+  }
+
+  async cancelarRequisicao(id: string, orgaoId: string) {
+    const req = await this.requisicaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    if (!req) throw new NotFoundException('Requisição não encontrada');
+    if ([StatusRequisicaoFrota.ABASTECIDO].includes(req.status)) {
+      throw new BadRequestException('Não é possível cancelar uma requisição já abastecida');
+    }
+    req.status = StatusRequisicaoFrota.CANCELADO;
+    return this.requisicaoRepository.save(req);
+  }
+
+  // Painel do posto: verificar código
+  async verificarCodigo(codigo: string, orgaoId: string) {
+    const req = await this.requisicaoRepository.findOne({
+      where: { codigo: codigo.toUpperCase(), orgao_id: orgaoId },
+      relations: ['contrato'],
+    });
+    if (!req) throw new NotFoundException('Código não encontrado');
+    return req;
+  }
+
+  // Painel do posto: confirmar abastecimento
+  async confirmarAbastecimento(id: string, orgaoId: string, dados: {
+    quantidade_abastecida: number;
+    atendente_nome?: string;
+    km_hodometro?: number;
+    observacoes?: string;
+  }) {
+    const req = await this.requisicaoRepository.findOne({
+      where: { id, orgao_id: orgaoId },
+      relations: ['contrato'],
+    });
+    if (!req) throw new NotFoundException('Requisição não encontrada');
+    if (req.status !== StatusRequisicaoFrota.AUTORIZADO) {
+      throw new BadRequestException('Apenas requisições autorizadas podem ser confirmadas');
+    }
+
+    const precoLitro = req.contrato ? Number(req.contrato.preco_litro) : 0;
+    const qtd = Number(dados.quantidade_abastecida);
+
+    req.status = StatusRequisicaoFrota.ABASTECIDO;
+    req.data_abastecimento = new Date();
+    req.quantidade_abastecida = dados.quantidade_abastecida;
+    req.valor_total = qtd * precoLitro;
+    req.atendente_nome = dados.atendente_nome;
+    req.km_hodometro = dados.km_hodometro;
+    req.observacoes = dados.observacoes ?? req.observacoes;
+
+    const salvo = await this.requisicaoRepository.save(req);
+
+    // Atualiza KM do veículo se informado
+    if (req.veiculo_id && dados.km_hodometro) {
+      const veiculo = await this.veiculoRepository.findOne({ where: { id: req.veiculo_id } });
+      if (veiculo && dados.km_hodometro > Number(veiculo.km_atual || 0)) {
+        veiculo.km_atual = dados.km_hodometro;
+        await this.veiculoRepository.save(veiculo);
+      }
+    }
+    return salvo;
+  }
+
+  // ============================================================
+  // DASHBOARD DO POSTO
+  // ============================================================
+
+  async obterDashboardPosto(orgaoId: string, mes?: string) {
+    const mesAtual = mes || new Date().toISOString().slice(0, 7);
+    const [ano, m] = mesAtual.split('-');
+    const dataInicio = `${ano}-${m}-01`;
+    const dataFim = `${ano}-${m}-31`;
+
+    const contratoAtivo = await this.obterContratoAtivo(orgaoId);
+
+    // Requisições do mês
+    const requisicoes = await this.requisicaoRepository.find({
+      where: { orgao_id: orgaoId, data_requisicao: Between(dataInicio, dataFim) },
+      relations: ['contrato'],
+      order: { created_at: 'DESC' },
+    });
+
+    const abastecidas = requisicoes.filter(r => r.status === StatusRequisicaoFrota.ABASTECIDO);
+    const autorizadas = requisicoes.filter(r => r.status === StatusRequisicaoFrota.AUTORIZADO);
+
+    const totalLitros = abastecidas.reduce((s, r) => s + Number(r.quantidade_abastecida || 0), 0);
+    const totalValor = abastecidas.reduce((s, r) => s + Number(r.valor_total || 0), 0);
+    const precoLitro = contratoAtivo ? Number(contratoAtivo.preco_litro) : 0;
+    const limiteMensal = contratoAtivo ? Number(contratoAtivo.limite_litros_mensal || 0) : 0;
+    const percentualUsado = limiteMensal > 0 ? (totalLitros / limiteMensal) * 100 : 0;
+    const litrosRestantes = limiteMensal > 0 ? limiteMensal - totalLitros : 0;
+
+    // Consumo por solicitante
+    const porSolicitante: Record<string, { litros: number; valor: number }> = {};
+    for (const r of abastecidas) {
+      const nome = r.solicitante_nome;
+      if (!porSolicitante[nome]) porSolicitante[nome] = { litros: 0, valor: 0 };
+      porSolicitante[nome].litros += Number(r.quantidade_abastecida || 0);
+      porSolicitante[nome].valor += Number(r.valor_total || 0);
+    }
+    const rankingSolicitantes = Object.entries(porSolicitante)
+      .map(([nome, dados]) => ({ nome, ...dados }))
+      .sort((a, b) => b.litros - a.litros);
+
+    return {
+      mes: mesAtual,
+      contrato: contratoAtivo,
+      total_litros: totalLitros,
+      total_valor: totalValor,
+      total_autorizacoes_atendidas: abastecidas.length,
+      total_autorizacoes_pendentes: autorizadas.length,
+      preco_litro: precoLitro,
+      limite_mensal: limiteMensal,
+      percentual_usado: percentualUsado,
+      litros_restantes: litrosRestantes,
+      por_solicitante: rankingSolicitantes,
+      requisicoes,
+    };
+  }
+
+  // ============================================================
+  // RELATÓRIO SIGA (dados para exportação)
+  // ============================================================
+
+  async gerarDadosRelatorioSiga(orgaoId: string, mes: string) {
+    const [ano, m] = mes.split('-');
+    const dataInicio = `${ano}-${m}-01`;
+    const dataFim = `${ano}-${m}-31`;
+
+    const contratoAtivo = await this.obterContratoAtivo(orgaoId);
+    const requisicoes = await this.requisicaoRepository.find({
+      where: {
+        orgao_id: orgaoId,
+        status: StatusRequisicaoFrota.ABASTECIDO,
+        data_requisicao: Between(dataInicio, dataFim),
+      },
+      order: { veiculo_placa: 'ASC', data_abastecimento: 'ASC' },
+    });
+
+    // Agrupa por veículo
+    const porVeiculo: Record<string, {
+      modelo: string; placa: string; chassi: string; renavam: string;
+      tipo: string; litros: number; valor_cupom: number;
+    }> = {};
+
+    for (const r of requisicoes) {
+      const placa = r.veiculo_placa;
+      if (!porVeiculo[placa]) {
+        porVeiculo[placa] = {
+          modelo: r.veiculo_modelo || '',
+          placa,
+          chassi: r.veiculo_chassi || '',
+          renavam: r.veiculo_renavam || '',
+          tipo: r.tipo_combustivel,
+          litros: 0,
+          valor_cupom: contratoAtivo ? Number(contratoAtivo.preco_litro) : 0,
+        };
+      }
+      porVeiculo[placa].litros += Number(r.quantidade_abastecida || 0);
+    }
+
+    const linhas = Object.values(porVeiculo).map(v => ({
+      ...v,
+      valor_total: v.litros * v.valor_cupom,
+      acrescimo: 0,
+      total_pagar: v.litros * v.valor_cupom,
+    }));
+
+    const subtotal = linhas.reduce((s, l) => s + l.litros, 0);
+    const totalValor = linhas.reduce((s, l) => s + l.valor_total, 0);
+
+    return {
+      mes,
+      orgao_id: orgaoId,
+      contrato: contratoAtivo,
+      linhas,
+      subtotal_litros: subtotal,
+      subtotal_valor: totalValor,
+      total_geral: totalValor,
+    };
+  }
+
+  // ============================================================
+  // RESUMO GERAL (dashboard principal)
+  // ============================================================
 
   async obterResumo(orgaoId: string, mes?: string) {
     const veiculos = await this.veiculoRepository.count({ where: { orgao_id: orgaoId, ativo: true } });
-
     let filtroData: any = {};
     if (mes) {
-      const [ano, m] = mes.split('-');
-      const inicio = `${ano}-${m}-01`;
-      const fim = `${ano}-${m}-31`;
-      filtroData = { orgao_id: orgaoId, data: Between(inicio, fim) };
+      const [ano, m2] = mes.split('-');
+      filtroData = { orgao_id: orgaoId, data: Between(`${ano}-${m2}-01`, `${ano}-${m2}-31`) };
     } else {
       filtroData = { orgao_id: orgaoId };
     }
-
     const abastecimentos = await this.abastecimentoRepository.find({ where: filtroData });
     const manutencoes = await this.manutencaoRepository.find({ where: filtroData });
-
     const totalAbastecimentos = abastecimentos.reduce((s, a) => s + Number(a.valor_total), 0);
     const totalLitros = abastecimentos.reduce((s, a) => s + Number(a.quantidade_litros), 0);
     const totalManutencoes = manutencoes.reduce((s, m) => s + Number(m.valor), 0);
-    const totalGeral = totalAbastecimentos + totalManutencoes;
-
     return {
       total_veiculos: veiculos,
       total_abastecimentos: abastecimentos.length,
       total_litros: totalLitros,
       valor_abastecimentos: totalAbastecimentos,
       valor_manutencoes: totalManutencoes,
-      valor_total: totalGeral,
+      valor_total: totalAbastecimentos + totalManutencoes,
     };
   }
 }
