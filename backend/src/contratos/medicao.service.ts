@@ -2716,16 +2716,47 @@ export class MedicaoService {
     // Deletar anteriores
     await this.discriminacaoRepository.delete({ medicao_id: medicaoId });
 
+    // Filtrar itens válidos
+    const itensValidos = itens.filter(i => i.descricao && i.descricao.trim() !== '');
+
+    // Ajuste de arredondamento: quando os percentuais somam ~100%, a soma dos valores
+    // arredondados individualmente pode diferir do valor da medição em 1 centavo.
+    // Recalcula os valores usando o método "maior resto" para garantir que a soma
+    // seja exatamente igual ao valor bruto da medição.
+    const valorBruto = Number(medicao.valor_medido) || 0;
+    const somaPercentuais = itensValidos.reduce((s, i) => s + (Number(i.percentual) || 0), 0);
+    const somaValores = itensValidos.reduce((s, i) => s + (Number(i.valor) || 0), 0);
+    const percentuaisSomam100 = Math.abs(somaPercentuais - 100) < 0.05;
+    const valorAlvo = percentuaisSomam100 && valorBruto > 0 ? valorBruto : Math.round(somaValores * 100) / 100;
+
+    // Recalcula valores com arredondamento correto: floor em todos, depois distribui
+    // os centavos restantes aos itens com maior parte fracionária (largest remainder method)
+    const exatos = itensValidos.map(i => {
+      const perc = Number(i.percentual) || 0;
+      return percentuaisSomam100 && valorBruto > 0
+        ? (perc / 100) * valorAlvo
+        : Number(i.valor) || 0;
+    });
+    const floors = exatos.map(v => Math.floor(v * 100) / 100);
+    const restos = exatos.map((v, i) => ({ idx: i, resto: v * 100 - Math.floor(v * 100) }));
+    const somaFloors = Math.round(floors.reduce((s, v) => s + v, 0) * 100);
+    const alvocentavos = Math.round(valorAlvo * 100);
+    const centavosExtra = alvocentavos - somaFloors;
+    restos.sort((a, b) => b.resto - a.resto);
+    const valoresFinais = [...floors];
+    for (let k = 0; k < centavosExtra; k++) {
+      valoresFinais[restos[k].idx] = Math.round((valoresFinais[restos[k].idx] + 0.01) * 100) / 100;
+    }
+
     // Inserir novas
     const novas: DiscriminacaoDespesaMedicao[] = [];
-    for (let i = 0; i < itens.length; i++) {
-      const item = itens[i];
-      if (!item.descricao || item.descricao.trim() === '') continue;
+    for (let i = 0; i < itensValidos.length; i++) {
+      const item = itensValidos[i];
       const disc = this.discriminacaoRepository.create({
         medicao_id: medicaoId,
         numero_item: i + 1,
         descricao: item.descricao.trim(),
-        valor: Number(item.valor) || 0,
+        valor: valoresFinais[i],
         percentual: Number(item.percentual) || 0,
       });
       novas.push(await this.discriminacaoRepository.save(disc));
