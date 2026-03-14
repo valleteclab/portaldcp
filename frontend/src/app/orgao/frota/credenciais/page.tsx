@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useAuth } from '@/hooks/useAuth'
+import { getAuthToken } from '@/lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ const ACAO_LABELS: Record<string, string> = {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function FrotaCredenciaisPage() {
-  const { token } = useAuth()
+  const token = getAuthToken()
   const [aba, setAba] = useState<AbaAtiva>('postos')
   const [credenciais, setCredenciais] = useState<Credencial[]>([])
   const [logs, setLogs] = useState<LogAcesso[]>([])
