@@ -109,6 +109,14 @@ export class FrotaRequisicao {
   observacoes: string;
 
   /**
+   * Código curto aleatório (6 chars) gerado na autorização.
+   * Exibido ao vereador e usado pelo posto para verificação manual.
+   * Ex: "A3K7XP"
+   */
+  @Column({ nullable: true, unique: true })
+  codigo_posto: string;
+
+  /**
    * Token aleatório (32 bytes hex) gerado na autorização.
    * Usado no QR Code para verificação segura pelo posto.
    * Invalidado após o abastecimento.

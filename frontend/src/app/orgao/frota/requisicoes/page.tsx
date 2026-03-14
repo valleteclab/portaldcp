@@ -26,7 +26,7 @@ interface Veiculo { id: string; placa: string; modelo: string; marca: string; ti
 interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number }
 
 interface Requisicao {
-  id: string; codigo: string; solicitante_nome: string; solicitante_cargo?: string
+  id: string; codigo: string; codigo_posto?: string; solicitante_nome: string; solicitante_cargo?: string
   veiculo_placa: string; veiculo_modelo?: string; tipo_combustivel: string
   quantidade_autorizada: number; quantidade_abastecida?: number; finalidade: string
   status: string; data_requisicao: string; data_autorizacao?: string
@@ -218,6 +218,12 @@ export default function RequisicoesPage() {
                         <Copy className="w-3 h-3" />
                       </button>
                     </div>
+                    {r.codigo_posto && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="font-mono text-orange-600 font-semibold text-xs tracking-wider">{r.codigo_posto}</span>
+                        <span className="text-xs text-gray-400">posto</span>
+                      </div>
+                    )}
                     <p className="text-xs text-gray-400">{fmtData(r.data_requisicao)}</p>
                   </TableCell>
                   <TableCell>
