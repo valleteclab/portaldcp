@@ -30,6 +30,15 @@ interface Contrato {
   data_fim: string
   observacoes?: string
   ativo: boolean
+  itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; valor_total: number }[]
+}
+
+interface ItemContratoPrincipal {
+  descricao: string
+  unidade_medida?: string
+  valor_unitario?: number
+  quantidade_contratada?: number
+  valor_total?: number
 }
 
 interface ContratoPrincipal {
@@ -40,6 +49,7 @@ interface ContratoPrincipal {
   data_vigencia_inicio: string
   data_vigencia_fim: string
   objeto?: string
+  itens?: ItemContratoPrincipal[]
 }
 
 const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
@@ -80,6 +90,16 @@ export default function ContratosPage() {
   }, [])
 
   useEffect(() => { carregar() }, [carregar])
+
+  useEffect(() => {
+    if (contratoImportarId && contratosDisponiveis.length > 0) {
+      const c = contratosDisponiveis.find(x => x.id === contratoImportarId)
+      const itensLitros = (c?.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO')
+      if (itensLitros.length > 0 && !precoLitroImportar) {
+        setPrecoLitroImportar(String(Number(itensLitros[0].valor_unitario) || ''))
+      }
+    }
+  }, [contratoImportarId, contratosDisponiveis])
 
   const abrir = (c?: Contrato) => {
     setModoImportar(false)
@@ -290,7 +310,7 @@ export default function ContratosPage() {
           <DialogHeader>
             <DialogTitle>Importar Contrato do Cadastro</DialogTitle>
             <DialogDescription>
-              Selecione um contrato vigente já cadastrado no sistema. Os dados serão importados e você informará o preço por litro e o limite mensal.
+              Selecione um contrato vigente. Itens, quantidades e valores em LITRO serão importados. Informe o preço por litro e o limite mensal (opcional).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -320,7 +340,19 @@ export default function ContratosPage() {
                 <p className="text-muted-foreground">CNPJ: {contratoSelecionado.fornecedor_cnpj}</p>
                 <p className="text-muted-foreground">Vigência: {fmtData(contratoSelecionado.data_vigencia_inicio)} a {fmtData(contratoSelecionado.data_vigencia_fim)}</p>
                 {contratoSelecionado.objeto && (
-                  <p className="text-muted-foreground mt-1 truncate" title={contratoSelecionado.objeto}>{contratoSelecionado.objeto}</p>
+                  <p className="text-muted-foreground mt-1 whitespace-pre-wrap break-words">{contratoSelecionado.objeto}</p>
+                )}
+                {(contratoSelecionado.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO').length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Itens em LITRO (serão importados):</p>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      {(contratoSelecionado.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO').map((item: ItemContratoPrincipal, idx: number) => (
+                        <li key={idx} className="whitespace-pre-wrap break-words">
+                          • {item.descricao} — {Number(item.quantidade_contratada || 0).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L × R$ {Number(item.valor_unitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4 })} = {fmt(Number(item.valor_total || 0))}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             )}

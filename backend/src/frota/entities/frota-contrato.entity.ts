@@ -54,6 +54,19 @@ export class FrotaContrato {
   @Column({ nullable: true })
   contrato_id: string | null;
 
+  /**
+   * Itens importados do contrato (quando unidade = LITRO).
+   * Cada item: descricao, unidade_medida, preco_litro, quantidade_contratada, valor_total
+   */
+  @Column({ type: 'jsonb', nullable: true, default: null })
+  itens: {
+    descricao: string;
+    unidade_medida: string;
+    preco_litro: number;
+    quantidade_contratada: number;
+    valor_total: number;
+  }[] | null;
+
   @CreateDateColumn()
   created_at: Date;
 

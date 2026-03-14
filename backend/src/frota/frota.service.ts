@@ -226,19 +226,28 @@ export class FrotaService {
       );
     }
 
-    let precoLitro = Number(dados.preco_litro) || 0;
-    const itens = (contrato as any).itens || [];
-    const itemLitros = itens.find(
+    const itensContrato = (contrato as any).itens || [];
+    const itensLitros = itensContrato.filter(
       (i: any) => i.unidade_medida === UnidadeMedidaContrato.LITRO,
     );
-    if (precoLitro <= 0 && itemLitros) {
-      precoLitro = Number(itemLitros.valor_unitario) || 0;
+
+    let precoLitro = Number(dados.preco_litro) || 0;
+    if (precoLitro <= 0 && itensLitros.length > 0) {
+      precoLitro = Number(itensLitros[0].valor_unitario) || 0;
     }
     if (precoLitro <= 0) {
       throw new BadRequestException(
         'Informe o preço por litro ou cadastre um item em LITRO no contrato',
       );
     }
+
+    const itensImportados = itensLitros.map((i: any) => ({
+      descricao: i.descricao || '',
+      unidade_medida: i.unidade_medida || 'LITRO',
+      preco_litro: Number(i.valor_unitario) || 0,
+      quantidade_contratada: Number(i.quantidade_contratada) || 0,
+      valor_total: Number(i.valor_total) || 0,
+    }));
 
     const dataInicio =
       contrato.data_vigencia_inicio instanceof Date
@@ -263,6 +272,7 @@ export class FrotaService {
       data_fim: dataFim,
       observacoes: contrato.observacoes || null,
       ativo: true,
+      itens: itensImportados.length > 0 ? itensImportados : null,
     });
 
     return this.contratoRepository.save(frotaContrato);
