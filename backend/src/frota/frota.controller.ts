@@ -7,11 +7,15 @@ import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { FrotaService } from './frota.service';
+import { FrotaAuthService } from './frota-auth.service';
 
 @Controller('frota')
 @RequireModule(ModuloSistema.FROTA)
 export class FrotaController {
-  constructor(private readonly frotaService: FrotaService) {}
+  constructor(
+    private readonly frotaService: FrotaService,
+    private readonly frotaAuthService: FrotaAuthService,
+  ) {}
 
   private getOrgaoId(user: JwtPayload): string {
     if (user.type === UserType.ORGAO) return user.sub;
@@ -282,5 +286,41 @@ export class FrotaController {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
+  }
+
+  // ========== CREDENCIAIS (POSTO / VEREADOR) ==========
+
+  @Get('credenciais')
+  async listarCredenciais(@Req() req: { user: JwtPayload }) {
+    return this.frotaAuthService.listarCredenciais(this.getOrgaoId(req.user));
+  }
+
+  @Post('credenciais')
+  async criarCredencial(@Req() req: { user: JwtPayload }, @Body() body: any) {
+    return this.frotaAuthService.criarCredencial(this.getOrgaoId(req.user), body);
+  }
+
+  @Put('credenciais/:id')
+  async atualizarCredencial(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtPayload },
+    @Body() body: any,
+  ) {
+    return this.frotaAuthService.atualizarCredencial(id, this.getOrgaoId(req.user), body);
+  }
+
+  @Delete('credenciais/:id')
+  async excluirCredencial(@Param('id', ParseUUIDPipe) id: string, @Req() req: { user: JwtPayload }) {
+    await this.frotaAuthService.excluirCredencial(id, this.getOrgaoId(req.user));
+    return { message: 'Credencial excluída' };
+  }
+
+  @Get('credenciais/logs')
+  async listarLogs(
+    @Req() req: { user: JwtPayload },
+    @Query('credencial_id') credencialId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.frotaAuthService.listarLogs(this.getOrgaoId(req.user), credencialId, limit ? parseInt(limit) : 200);
   }
 }

@@ -30,6 +30,7 @@ import {
   FileSearch,
   Car,
   Fuel,
+  KeyRound,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -149,6 +150,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/frota/posto", label: "Painel do Posto", icon: Fuel, modulo: ModuloSistema.FROTA },
     { href: "/orgao/frota/requisicoes", label: "Requisições Combustível", icon: ClipboardList, modulo: ModuloSistema.FROTA },
     { href: "/orgao/frota/contratos", label: "Contratos Combustível", icon: FileText, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/frota/credenciais", label: "Acessos Frota", icon: KeyRound, modulo: ModuloSistema.FROTA },
     { href: "/orgao/whatsapp", label: "WhatsApp Chat", icon: MessageCircle, modulo: 'WHATSAPP_CHAT' as ModuloSistema },
     { href: "/orgao/emails", label: "Caixa de Entrada", icon: Mail }, // Sempre visível
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
