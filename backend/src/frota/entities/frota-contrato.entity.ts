@@ -3,6 +3,7 @@ import {
   CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
+import { Contrato } from '../../contratos/entities/contrato.entity';
 
 @Entity('frota_contratos_abastecimento')
 export class FrotaContrato {
@@ -44,6 +45,14 @@ export class FrotaContrato {
 
   @Column()
   orgao_id: string;
+
+  /** Contrato de origem (quando importado do cadastro de contratos) */
+  @ManyToOne(() => Contrato, { nullable: true })
+  @JoinColumn({ name: 'contrato_id' })
+  contrato: Contrato | null;
+
+  @Column({ nullable: true })
+  contrato_id: string | null;
 
   @CreateDateColumn()
   created_at: Date;

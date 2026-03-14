@@ -6,6 +6,8 @@ import { Abastecimento } from './entities/abastecimento.entity';
 import { Manutencao } from './entities/manutencao.entity';
 import { FrotaContrato } from './entities/frota-contrato.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
+import { ContratosService } from '../contratos/contratos.service';
+import { UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 
 @Injectable()
 export class FrotaService {
@@ -20,6 +22,7 @@ export class FrotaService {
     private contratoRepository: Repository<FrotaContrato>,
     @InjectRepository(FrotaRequisicao)
     private requisicaoRepository: Repository<FrotaRequisicao>,
+    private contratosService: ContratosService,
   ) {}
 
   // ============================================================
@@ -197,6 +200,72 @@ export class FrotaService {
     const contrato = await this.contratoRepository.findOne({ where: { id, orgao_id: orgaoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
     await this.contratoRepository.remove(contrato);
+  }
+
+  /**
+   * Importa um contrato do cadastro de contratos para o módulo de frota.
+   * Preenche automaticamente: número, fornecedor, datas de vigência.
+   * Se o contrato tiver itens em LITRO, tenta usar o valor_unitario como preço/litro.
+   */
+  async importarDeContrato(
+    orgaoId: string,
+    contratoId: string,
+    dados: { preco_litro: number; limite_litros_mensal?: number },
+  ): Promise<FrotaContrato> {
+    const contrato = await this.contratosService.findOne(contratoId);
+    if (contrato.orgao_id !== orgaoId) {
+      throw new BadRequestException('Contrato não pertence a este órgão');
+    }
+
+    const jaImportado = await this.contratoRepository.findOne({
+      where: { contrato_id: contratoId, orgao_id: orgaoId },
+    });
+    if (jaImportado) {
+      throw new BadRequestException(
+        `Este contrato já foi importado (Frota: ${jaImportado.numero_contrato})`,
+      );
+    }
+
+    let precoLitro = Number(dados.preco_litro) || 0;
+    const itens = (contrato as any).itens || [];
+    const itemLitros = itens.find(
+      (i: any) => i.unidade_medida === UnidadeMedidaContrato.LITRO,
+    );
+    if (precoLitro <= 0 && itemLitros) {
+      precoLitro = Number(itemLitros.valor_unitario) || 0;
+    }
+    if (precoLitro <= 0) {
+      throw new BadRequestException(
+        'Informe o preço por litro ou cadastre um item em LITRO no contrato',
+      );
+    }
+
+    const dataInicio =
+      contrato.data_vigencia_inicio instanceof Date
+        ? contrato.data_vigencia_inicio.toISOString().split('T')[0]
+        : String(contrato.data_vigencia_inicio).split('T')[0];
+    const dataFim =
+      contrato.data_vigencia_fim instanceof Date
+        ? contrato.data_vigencia_fim.toISOString().split('T')[0]
+        : String(contrato.data_vigencia_fim).split('T')[0];
+
+    const frotaContrato = this.contratoRepository.create({
+      orgao_id: orgaoId,
+      contrato_id: contratoId,
+      numero_contrato: contrato.numero_contrato,
+      fornecedor_nome: contrato.fornecedor_razao_social,
+      fornecedor_cnpj: contrato.fornecedor_cnpj || null,
+      preco_litro: precoLitro,
+      limite_litros_mensal: dados.limite_litros_mensal
+        ? Number(dados.limite_litros_mensal)
+        : null,
+      data_inicio: dataInicio,
+      data_fim: dataFim,
+      observacoes: contrato.observacoes || null,
+      ativo: true,
+    });
+
+    return this.contratoRepository.save(frotaContrato);
   }
 
   // ============================================================

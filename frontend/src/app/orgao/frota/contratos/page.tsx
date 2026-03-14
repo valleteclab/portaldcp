@@ -13,7 +13,10 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { FileText, Plus, Pencil, Trash2, Loader2, CheckCircle } from 'lucide-react'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { FileText, Plus, Pencil, Trash2, Loader2, CheckCircle, Download } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 interface Contrato {
@@ -29,6 +32,16 @@ interface Contrato {
   ativo: boolean
 }
 
+interface ContratoPrincipal {
+  id: string
+  numero_contrato: string
+  fornecedor_razao_social: string
+  fornecedor_cnpj: string
+  data_vigencia_inicio: string
+  data_vigencia_fim: string
+  objeto?: string
+}
+
 const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 const fmtData = (d: string) => d ? d.split('T')[0].split('-').reverse().join('/') : '-'
 const fmtPreco = (v: number) => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
@@ -40,11 +53,17 @@ const vazio = {
 
 export default function ContratosPage() {
   const [contratos, setContratos] = useState<Contrato[]>([])
+  const [contratosDisponiveis, setContratosDisponiveis] = useState<ContratoPrincipal[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [modalImportarOpen, setModalImportarOpen] = useState(false)
   const [editando, setEditando] = useState<Contrato | null>(null)
   const [form, setForm] = useState(vazio)
+  const [modoImportar, setModoImportar] = useState(false)
+  const [contratoImportarId, setContratoImportarId] = useState<string>('')
+  const [precoLitroImportar, setPrecoLitroImportar] = useState('')
+  const [limiteLitrosImportar, setLimiteLitrosImportar] = useState('')
 
   const carregar = useCallback(async () => {
     const res = await authFetch(`${API_URL}/api/frota/contratos`)
@@ -52,9 +71,19 @@ export default function ContratosPage() {
     setLoading(false)
   }, [])
 
+  const carregarContratosParaImportar = useCallback(async () => {
+    const res = await authFetch(`${API_URL}/api/contratos?vigentes=true&limit=200`)
+    if (res.ok) {
+      const data = await res.json()
+      setContratosDisponiveis(data.data || [])
+    }
+  }, [])
+
   useEffect(() => { carregar() }, [carregar])
 
   const abrir = (c?: Contrato) => {
+    setModoImportar(false)
+    setModalImportarOpen(false)
     if (c) {
       setEditando(c)
       setForm({
@@ -68,6 +97,16 @@ export default function ContratosPage() {
       setEditando(null); setForm(vazio)
     }
     setModalOpen(true)
+  }
+
+  const abrirImportar = () => {
+    setModoImportar(true)
+    setModalOpen(false)
+    setModalImportarOpen(true)
+    setContratoImportarId('')
+    setPrecoLitroImportar('')
+    setLimiteLitrosImportar('')
+    carregarContratosParaImportar()
   }
 
   const salvar = async () => {
@@ -85,6 +124,24 @@ export default function ContratosPage() {
     } finally { setActionLoading(false) }
   }
 
+  const importarContrato = async () => {
+    if (!contratoImportarId) { alert('Selecione um contrato'); return }
+    const preco = parseFloat(precoLitroImportar)
+    if (!preco || preco <= 0) { alert('Informe o preço por litro'); return }
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/frota/contratos/importar/${contratoImportarId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          preco_litro: preco,
+          limite_litros_mensal: limiteLitrosImportar ? parseFloat(limiteLitrosImportar) : undefined,
+        }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao importar'); return }
+      setModalImportarOpen(false); carregar()
+    } finally { setActionLoading(false) }
+  }
+
   const excluir = async (id: string, numero: string) => {
     if (!confirm(`Excluir o contrato ${numero}?`)) return
     await authFetch(`${API_URL}/api/frota/contratos/${id}`, { method: 'DELETE' })
@@ -93,6 +150,7 @@ export default function ContratosPage() {
 
   const hoje = new Date().toISOString().split('T')[0]
   const isAtivo = (c: Contrato) => c.ativo && c.data_inicio <= hoje && c.data_fim >= hoje
+  const contratoSelecionado = contratosDisponiveis.find(c => c.id === contratoImportarId)
 
   if (loading) return <div className="flex justify-center py-24"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
 
@@ -102,9 +160,14 @@ export default function ContratosPage() {
         <h1 className="text-xl font-bold flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-600" />Contratos de Combustível
         </h1>
-        <Button onClick={() => abrir()}>
-          <Plus className="w-4 h-4 mr-2" />Novo Contrato
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={abrirImportar}>
+            <Download className="w-4 h-4 mr-2" />Importar do Cadastro
+          </Button>
+          <Button onClick={() => abrir()}>
+            <Plus className="w-4 h-4 mr-2" />Novo Contrato
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -159,6 +222,7 @@ export default function ContratosPage() {
         </CardContent>
       </Card>
 
+      {/* Modal: Novo/Editar manual */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -215,6 +279,73 @@ export default function ContratosPage() {
             <Button onClick={salvar} disabled={actionLoading || !form.numero_contrato || !form.fornecedor_nome || !form.preco_litro || !form.data_inicio || !form.data_fim}>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editando ? 'Salvar' : 'Cadastrar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Importar do cadastro de contratos */}
+      <Dialog open={modalImportarOpen} onOpenChange={setModalImportarOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Importar Contrato do Cadastro</DialogTitle>
+            <DialogDescription>
+              Selecione um contrato vigente já cadastrado no sistema. Os dados serão importados e você informará o preço por litro e o limite mensal.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Contrato *</Label>
+              <Select value={contratoImportarId} onValueChange={setContratoImportarId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o contrato de combustível" />
+                </SelectTrigger>
+                <SelectContent>
+                  {contratosDisponiveis.length === 0 && (
+                    <SelectItem value="_empty" disabled>Nenhum contrato vigente encontrado</SelectItem>
+                  )}
+                  {contratosDisponiveis.map(c => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.numero_contrato} — {c.fornecedor_razao_social}
+                      {c.data_vigencia_inicio && ` (${fmtData(c.data_vigencia_inicio)} a ${fmtData(c.data_vigencia_fim)})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {contratoSelecionado && (
+              <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+                <p className="font-medium">{contratoSelecionado.numero_contrato} — {contratoSelecionado.fornecedor_razao_social}</p>
+                <p className="text-muted-foreground">CNPJ: {contratoSelecionado.fornecedor_cnpj}</p>
+                <p className="text-muted-foreground">Vigência: {fmtData(contratoSelecionado.data_vigencia_inicio)} a {fmtData(contratoSelecionado.data_vigencia_fim)}</p>
+                {contratoSelecionado.objeto && (
+                  <p className="text-muted-foreground mt-1 truncate" title={contratoSelecionado.objeto}>{contratoSelecionado.objeto}</p>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Preço por Litro (R$) *</Label>
+                <Input type="number" step="0.0001" min="0" placeholder="7,5000"
+                  value={precoLitroImportar}
+                  onChange={e => setPrecoLitroImportar(e.target.value)} />
+                <p className="text-xs text-gray-400">Se o contrato tiver item em LITRO, o valor pode ser preenchido automaticamente</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Limite Mensal (litros)</Label>
+                <Input type="number" step="0.001" min="0" placeholder="1500,000"
+                  value={limiteLitrosImportar}
+                  onChange={e => setLimiteLitrosImportar(e.target.value)} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalImportarOpen(false)}>Cancelar</Button>
+            <Button onClick={importarContrato} disabled={actionLoading || !contratoImportarId || !precoLitroImportar || parseFloat(precoLitroImportar) <= 0}>
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Importar
             </Button>
           </DialogFooter>
         </DialogContent>

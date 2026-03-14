@@ -139,6 +139,19 @@ export class FrotaController {
     return this.frotaService.criarContrato(this.getOrgaoId(req.user), body);
   }
 
+  @Post('contratos/importar/:contratoId')
+  async importarContrato(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Req() req: { user: JwtPayload },
+    @Body() body: { preco_litro: number; limite_litros_mensal?: number },
+  ) {
+    return this.frotaService.importarDeContrato(
+      this.getOrgaoId(req.user),
+      contratoId,
+      { preco_litro: body.preco_litro, limite_litros_mensal: body.limite_litros_mensal },
+    );
+  }
+
   @Put('contratos/:id')
   async atualizarContrato(
     @Param('id', ParseUUIDPipe) id: string,

@@ -7,9 +7,13 @@ import { Abastecimento } from './entities/abastecimento.entity';
 import { Manutencao } from './entities/manutencao.entity';
 import { FrotaContrato } from './entities/frota-contrato.entity';
 import { FrotaRequisicao } from './entities/frota-requisicao.entity';
+import { ContratosModule } from '../contratos/contratos.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Veiculo, Abastecimento, Manutencao, FrotaContrato, FrotaRequisicao])],
+  imports: [
+    TypeOrmModule.forFeature([Veiculo, Abastecimento, Manutencao, FrotaContrato, FrotaRequisicao]),
+    ContratosModule,
+  ],
   controllers: [FrotaController],
   providers: [FrotaService],
   exports: [FrotaService],
