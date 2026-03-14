@@ -219,7 +219,7 @@ export default function PostoPage() {
         return
       }
       const data = await res.json()
-      saveToken(data.access_token)
+      saveToken(data.token)
       setSenha('')
       setTela('painel')
     } catch {
