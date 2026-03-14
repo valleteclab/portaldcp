@@ -21,8 +21,11 @@ interface RequisicaoPublica {
   status: string
   data_requisicao: string
   data_autorizacao: string
+  token_expiry?: string
   autorizado_por: string
   orgao_id: string
+  orgao_nome?: string
+  orgao_logo?: string
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -30,22 +33,33 @@ interface RequisicaoPublica {
 const POSTO_TOKEN_KEY = 'frota_posto_token'
 
 const TIPO_COMBUSTIVEL_LABELS: Record<string, string> = {
-  GASOLINA: 'Gasolina',
-  ETANOL: 'Etanol',
-  DIESEL: 'Diesel',
-  DIESEL_S10: 'Diesel S10',
-  GNV: 'GNV',
-  FLEX: 'Flex',
-  ELETRICO: 'Elétrico',
-  HIBRIDO: 'Híbrido',
+  GASOLINA: 'Gasolina', ETANOL: 'Etanol', DIESEL: 'Diesel',
+  DIESEL_S10: 'Diesel S10', GNV: 'GNV', FLEX: 'Flex',
+  ELETRICO: 'Elétrico', HIBRIDO: 'Híbrido',
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  PENDENTE:   { label: 'Pendente',   color: '#f59e0b', bg: '#451a03', icon: '⏳' },
-  AUTORIZADO: { label: 'Autorizado', color: '#22c55e', bg: '#052e16', icon: '✅' },
-  ABASTECIDO: { label: 'Abastecido', color: '#3b82f6', bg: '#172554', icon: '⛽' },
-  NEGADO:     { label: 'Negado',     color: '#ef4444', bg: '#450a0a', icon: '❌' },
-  CANCELADO:  { label: 'Cancelado',  color: '#6b7280', bg: '#1c1c1c', icon: '🚫' },
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function fmtDataHora(d: string) {
+  if (!d) return '-'
+  return new Date(d).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtData(d: string) {
+  if (!d) return '-'
+  return new Date(d).toLocaleDateString('pt-BR')
+}
+
+function fmtLitros(n: number) {
+  return n?.toFixed(3).replace('.', ',') + ' L'
+}
+
+function getQrUrl(token: string, origin: string) {
+  const url = `${origin}/frota/req/${token}`
+  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -58,6 +72,7 @@ export default function ReqTokenPage() {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [postoToken, setPostoToken] = useState<string | null>(null)
+  const [origin, setOrigin] = useState('')
 
   // Confirmação
   const [confirmando, setConfirmando] = useState(false)
@@ -70,8 +85,8 @@ export default function ReqTokenPage() {
   const [mostrandoFormConfirmacao, setMostrandoFormConfirmacao] = useState(false)
 
   useEffect(() => {
-    // Verifica se há token do posto no localStorage
-    const pt = typeof window !== 'undefined' ? localStorage.getItem(POSTO_TOKEN_KEY) : null
+    setOrigin(window.location.origin)
+    const pt = localStorage.getItem(POSTO_TOKEN_KEY)
     setPostoToken(pt)
 
     async function carregar() {
@@ -107,10 +122,7 @@ export default function ReqTokenPage() {
     try {
       const res = await fetch(`/api/frota-pub/req/${token}/confirmar`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${postoToken}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${postoToken}` },
         body: JSON.stringify({
           quantidade_abastecida: parseFloat(qtdAbastecida),
           km_hodometro: kmHodometro ? parseFloat(kmHodometro) : undefined,
@@ -131,65 +143,27 @@ export default function ReqTokenPage() {
     setConfirmando(false)
   }
 
-  function fmtData(d: string) {
-    if (!d) return '-'
-    return new Date(d).toLocaleString('pt-BR', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    })
-  }
-
-  function fmtLitros(n: number) {
-    return n?.toFixed(3).replace('.', ',') + ' L'
-  }
-
-  // ─── Loading ──────────────────────────────────────────────────────────────
+  // ─── Loading ───────────────────────────────────────────────────────────────
 
   if (carregando) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: '#0f172a',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#94a3b8',
-        fontFamily: 'system-ui, sans-serif',
-      }}>
-        <div style={{ textAlign: 'center' }}>
+      <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ textAlign: 'center', color: '#64748b' }}>
           <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⛽</div>
-          Verificando autorização...
+          Carregando autorização...
         </div>
       </div>
     )
   }
 
-  // ─── Erro ─────────────────────────────────────────────────────────────────
+  // ─── Erro ──────────────────────────────────────────────────────────────────
 
   if (erro || !requisicao) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: '#0f172a',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'system-ui, sans-serif',
-        padding: '1rem',
-      }}>
-        <div style={{
-          maxWidth: '400px',
-          width: '100%',
-          background: '#1e293b',
-          borderRadius: '16px',
-          padding: '2rem',
-          border: '1px solid #7f1d1d',
-          textAlign: 'center',
-        }}>
+      <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
+        <div style={{ maxWidth: '400px', width: '100%', background: '#1e293b', borderRadius: '16px', padding: '2rem', border: '1px solid #7f1d1d', textAlign: 'center' }}>
           <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>❌</div>
-          <h2 style={{ color: '#ef4444', fontSize: '1.25rem', fontWeight: 700, margin: '0 0 0.5rem' }}>
-            Autorização Inválida
-          </h2>
+          <h2 style={{ color: '#ef4444', fontSize: '1.25rem', fontWeight: 700, margin: '0 0 0.5rem' }}>Autorização Inválida</h2>
           <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0 }}>
             {erro || 'Esta autorização não foi encontrada ou o QR Code é inválido.'}
           </p>
@@ -198,462 +172,274 @@ export default function ReqTokenPage() {
     )
   }
 
-  const statusInfo = STATUS_CONFIG[requisicao.status] || {
-    label: requisicao.status, color: '#94a3b8', bg: '#1e293b', icon: '❓'
-  }
-
-  // ─── Confirmado ───────────────────────────────────────────────────────────
+  // ─── Confirmado ────────────────────────────────────────────────────────────
 
   if (confirmado) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: '#0f172a',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'system-ui, sans-serif',
-        padding: '1rem',
-      }}>
-        <div style={{
-          maxWidth: '400px',
-          width: '100%',
-          background: '#1e293b',
-          borderRadius: '16px',
-          padding: '2.5rem 2rem',
-          border: '2px solid #22c55e',
-          textAlign: 'center',
-        }}>
+      <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
+        <div style={{ maxWidth: '400px', width: '100%', background: '#1e293b', borderRadius: '16px', padding: '2.5rem 2rem', border: '2px solid #22c55e', textAlign: 'center' }}>
           <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>✅</div>
-          <h2 style={{ color: '#22c55e', fontSize: '1.5rem', fontWeight: 700, margin: '0 0 0.5rem' }}>
-            Abastecimento Confirmado!
-          </h2>
+          <h2 style={{ color: '#22c55e', fontSize: '1.5rem', fontWeight: 700, margin: '0 0 0.5rem' }}>Abastecimento Confirmado!</h2>
           <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0 0 1.5rem' }}>
             Código: <strong style={{ color: '#f8fafc', fontFamily: 'monospace' }}>{requisicao.codigo}</strong>
           </p>
-          <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>
-            Registro salvo com sucesso.
-          </p>
+          <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>Registro salvo com sucesso.</p>
         </div>
       </div>
     )
   }
 
-  // ─── Main ─────────────────────────────────────────────────────────────────
+  const isAutorizado = requisicao.status === 'AUTORIZADO'
+  const isAbastecido = requisicao.status === 'ABASTECIDO'
+
+  // ─── Ordem de Fornecimento ─────────────────────────────────────────────────
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#0f172a',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      color: '#f8fafc',
-    }}>
-      {/* Header */}
-      <div style={{
-        background: '#1e293b',
-        borderBottom: '1px solid #334155',
-        padding: '1rem 1.5rem',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-      }}>
-        <span style={{ fontSize: '1.5rem' }}>⛽</span>
-        <div>
-          <div style={{ fontWeight: 700 }}>Autorização de Combustível</div>
-          <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Portal DCP</div>
+    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b' }}>
+
+      {/* Ações (ocultas na impressão) */}
+      <div className="no-print" style={{ background: '#1e293b', padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94a3b8', fontSize: '0.875rem' }}>
+          <span>⛽</span>
+          <span>Ordem de Fornecimento de Combustível</span>
+          <span style={{ fontFamily: 'monospace', color: '#cbd5e1' }}>· {requisicao.codigo}</span>
         </div>
-      </div>
-
-      <div style={{ padding: '1.5rem', maxWidth: '600px', margin: '0 auto' }}>
-        {/* Status card */}
-        <div style={{
-          background: statusInfo.bg,
-          border: `2px solid ${statusInfo.color}`,
-          borderRadius: '16px',
-          padding: '1.5rem',
-          marginBottom: '1.5rem',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>{statusInfo.icon}</div>
-          <div style={{
-            display: 'inline-block',
-            background: statusInfo.color + '22',
-            color: statusInfo.color,
-            padding: '0.25rem 1rem',
-            borderRadius: '20px',
-            fontSize: '0.875rem',
-            fontWeight: 700,
-            border: `1px solid ${statusInfo.color}44`,
-            marginBottom: '0.75rem',
-          }}>
-            {statusInfo.label}
-          </div>
-          {requisicao.codigo_posto && (
-            <div style={{ marginBottom: '0.5rem' }}>
-              <div style={{ color: statusInfo.color, fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.25rem' }}>
-                Código do posto
-              </div>
-              <div style={{ fontFamily: 'monospace', fontSize: '2.25rem', fontWeight: 700, color: '#f8fafc', letterSpacing: '0.2em' }}>
-                {requisicao.codigo_posto}
-              </div>
-            </div>
-          )}
-          <div style={{
-            fontFamily: 'monospace',
-            fontSize: '0.875rem',
-            fontWeight: 500,
-            color: '#94a3b8',
-            letterSpacing: '0.05em',
-          }}>
-            {requisicao.codigo}
-          </div>
-        </div>
-
-        {/* Detalhes */}
-        <div style={{
-          background: '#1e293b',
-          borderRadius: '16px',
-          padding: '1.5rem',
-          border: '1px solid #334155',
-          marginBottom: '1.5rem',
-        }}>
-          <h3 style={{ margin: '0 0 1rem', fontSize: '1rem', fontWeight: 700, color: '#f8fafc' }}>
-            Detalhes da Autorização
-          </h3>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            {[
-              { label: 'Solicitante', value: requisicao.solicitante_nome },
-              { label: 'Cargo', value: requisicao.solicitante_cargo },
-              { label: 'Placa', value: requisicao.veiculo_placa },
-              { label: 'Veículo', value: requisicao.veiculo_modelo || '-' },
-              { label: 'Combustível', value: TIPO_COMBUSTIVEL_LABELS[requisicao.tipo_combustivel] || requisicao.tipo_combustivel },
-              { label: 'Qtd. Autorizada', value: fmtLitros(requisicao.quantidade_autorizada) },
-            ].map(({ label, value }) => (
-              <div key={label} style={{
-                background: '#0f172a',
-                borderRadius: '8px',
-                padding: '0.75rem',
-              }}>
-                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {label}
-                </div>
-                <div style={{ color: '#f8fafc', fontSize: '0.9rem', fontWeight: 500, marginTop: '0.25rem' }}>
-                  {value}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {requisicao.finalidade && (
-            <div style={{
-              background: '#0f172a',
-              borderRadius: '8px',
-              padding: '0.75rem',
-              marginTop: '0.75rem',
-            }}>
-              <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Finalidade
-              </div>
-              <div style={{ color: '#f8fafc', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                {requisicao.finalidade}
-              </div>
-            </div>
-          )}
-
-          <div style={{
-            background: '#0f172a',
-            borderRadius: '8px',
-            padding: '0.75rem',
-            marginTop: '0.75rem',
-            display: 'flex',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '0.5rem',
-          }}>
-            <div>
-              <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Autorizado por
-              </div>
-              <div style={{ color: '#f8fafc', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                {requisicao.autorizado_por || '-'}
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Data
-              </div>
-              <div style={{ color: '#f8fafc', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                {fmtData(requisicao.data_autorizacao)}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Dados do veículo (extras) */}
-        {(requisicao.veiculo_chassi || requisicao.veiculo_renavam) && (
-          <div style={{
-            background: '#1e293b',
-            borderRadius: '16px',
-            padding: '1.25rem 1.5rem',
-            border: '1px solid #334155',
-            marginBottom: '1.5rem',
-          }}>
-            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Identificação do Veículo
-            </h3>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-              {requisicao.veiculo_chassi && (
-                <div>
-                  <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Chassi</div>
-                  <div style={{ color: '#f8fafc', fontFamily: 'monospace', fontSize: '0.875rem' }}>{requisicao.veiculo_chassi}</div>
-                </div>
-              )}
-              {requisicao.veiculo_renavam && (
-                <div>
-                  <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Renavam</div>
-                  <div style={{ color: '#f8fafc', fontFamily: 'monospace', fontSize: '0.875rem' }}>{requisicao.veiculo_renavam}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Ação do posto — apenas se AUTORIZADO e há token de posto */}
-        {requisicao.status === 'AUTORIZADO' && postoToken && (
-          <div style={{
-            background: '#1e293b',
-            borderRadius: '16px',
-            padding: '1.5rem',
-            border: '2px solid #22c55e',
-          }}>
-            {!mostrandoFormConfirmacao ? (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>⛽</div>
-                <h3 style={{ color: '#22c55e', margin: '0 0 0.5rem', fontWeight: 700 }}>
-                  Posto Autenticado
-                </h3>
-                <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0 0 1.25rem' }}>
-                  Você está logado como atendente do posto. Confirme o abastecimento após realizá-lo.
-                </p>
-                <button
-                  onClick={() => setMostrandoFormConfirmacao(true)}
-                  style={{
-                    padding: '0.875rem 2rem',
-                    background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    fontSize: '1rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Confirmar Abastecimento
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleConfirmar}>
-                <h3 style={{ color: '#22c55e', margin: '0 0 1.25rem', fontWeight: 700 }}>
-                  Confirmar Abastecimento
-                </h3>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', color: '#cbd5e1', fontSize: '0.875rem', marginBottom: '0.5rem', fontWeight: 500 }}>
-                    Quantidade abastecida (L) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    min="0.001"
-                    value={qtdAbastecida}
-                    onChange={e => setQtdAbastecida(e.target.value)}
-                    required
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem 1rem',
-                      background: '#0f172a',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      color: '#f8fafc',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                  <div style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                    Autorizado: {fmtLitros(requisicao.quantidade_autorizada)}
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', color: '#cbd5e1', fontSize: '0.875rem', marginBottom: '0.5rem', fontWeight: 500 }}>
-                    KM do hodômetro
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={kmHodometro}
-                    onChange={e => setKmHodometro(e.target.value)}
-                    placeholder="Ex: 45200"
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem 1rem',
-                      background: '#0f172a',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      color: '#f8fafc',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', color: '#cbd5e1', fontSize: '0.875rem', marginBottom: '0.5rem', fontWeight: 500 }}>
-                    Atendente
-                  </label>
-                  <input
-                    type="text"
-                    value={atendenteNome}
-                    onChange={e => setAtendenteNome(e.target.value)}
-                    placeholder="Nome do atendente"
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem 1rem',
-                      background: '#0f172a',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      color: '#f8fafc',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <label style={{ display: 'block', color: '#cbd5e1', fontSize: '0.875rem', marginBottom: '0.5rem', fontWeight: 500 }}>
-                    Observações
-                  </label>
-                  <textarea
-                    value={observacoes}
-                    onChange={e => setObservacoes(e.target.value)}
-                    rows={2}
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem 1rem',
-                      background: '#0f172a',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      color: '#f8fafc',
-                      fontSize: '1rem',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                      resize: 'vertical',
-                    }}
-                  />
-                </div>
-
-                {erroConfirmacao && (
-                  <div style={{
-                    background: '#450a0a',
-                    border: '1px solid #7f1d1d',
-                    borderRadius: '8px',
-                    padding: '0.75rem',
-                    color: '#fca5a5',
-                    fontSize: '0.875rem',
-                    marginBottom: '1rem',
-                  }}>
-                    {erroConfirmacao}
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <button
-                    type="button"
-                    onClick={() => setMostrandoFormConfirmacao(false)}
-                    style={{
-                      flex: 1,
-                      padding: '0.875rem',
-                      background: 'none',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      color: '#94a3b8',
-                      fontSize: '0.875rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={confirmando}
-                    style={{
-                      flex: 2,
-                      padding: '0.875rem',
-                      background: confirmando ? '#334155' : 'linear-gradient(135deg, #22c55e, #16a34a)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: '#fff',
-                      fontSize: '1rem',
-                      fontWeight: 700,
-                      cursor: confirmando ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {confirmando ? 'Confirmando...' : '✅ Confirmar'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        )}
-
-        {/* Botão imprimir / salvar PDF */}
-        <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
             onClick={() => window.print()}
-            style={{
-              padding: '0.75rem 2rem',
-              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-              border: 'none',
-              borderRadius: '8px',
-              color: '#fff',
-              fontSize: '0.9rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
+            style={{ padding: '0.5rem 1.25rem', background: '#3b82f6', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
           >
             🖨️ Imprimir / Salvar PDF
           </button>
+          {isAutorizado && postoToken && !mostrandoFormConfirmacao && (
+            <button
+              onClick={() => setMostrandoFormConfirmacao(true)}
+              style={{ padding: '0.5rem 1.25rem', background: '#22c55e', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
+            >
+              ⛽ Confirmar Abastecimento
+            </button>
+          )}
         </div>
+      </div>
 
-        {/* Info de validação */}
-        <div style={{
-          textAlign: 'center',
-          marginTop: '1.5rem',
-          paddingBottom: '2rem',
-          color: '#475569',
-          fontSize: '0.75rem',
-        }}>
-          <div>🔒 Documento verificado pelo Portal DCP</div>
-          <div style={{ marginTop: '0.25rem', fontFamily: 'monospace' }}>
-            {new Date().toLocaleString('pt-BR')}
+      {/* Documento principal */}
+      <div style={{ maxWidth: '760px', margin: '1.5rem auto', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+
+        {/* Cabeçalho */}
+        <div style={{ borderBottom: '3px solid #f97316', padding: '1.5rem 2rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <div style={{ flex: 1 }}>
+            {requisicao.orgao_nome && (
+              <p style={{ margin: '0 0 0.25rem', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {requisicao.orgao_nome}
+              </p>
+            )}
+            <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
+              ORDEM DE FORNECIMENTO<br />
+              <span style={{ color: '#f97316' }}>DE COMBUSTÍVEL</span>
+            </h1>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ margin: '0 0 0.25rem', fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>{requisicao.codigo}</p>
+            <p style={{ margin: '0 0 0.1rem', fontSize: '0.75rem', color: '#64748b' }}>Emitido em: {fmtDataHora(requisicao.data_autorizacao)}</p>
+            {requisicao.token_expiry && (
+              <p style={{ margin: 0, fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>
+                Válido até: {fmtData(requisicao.token_expiry)}
+              </p>
+            )}
           </div>
         </div>
 
-        <style>{`
-          @media print {
-            body { background: white !important; }
-            button { display: none !important; }
-          }
-        `}</style>
+        {/* Status banner */}
+        {isAbastecido ? (
+          <div style={{ background: '#dcfce7', borderBottom: '1px solid #bbf7d0', padding: '0.6rem 2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#166534', fontSize: '0.875rem', fontWeight: 600 }}>
+            ✅ AUTORIZAÇÃO UTILIZADA — Abastecimento confirmado
+          </div>
+        ) : !isAutorizado ? (
+          <div style={{ background: '#fef3c7', borderBottom: '1px solid #fde68a', padding: '0.6rem 2rem', color: '#92400e', fontSize: '0.875rem', fontWeight: 600 }}>
+            ⚠️ Status: {requisicao.status}
+          </div>
+        ) : null}
+
+        <div style={{ padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '1fr auto', gap: '2rem', alignItems: 'start' }}>
+
+          {/* Dados da ordem */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+            {/* Solicitante */}
+            <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1rem', border: '1px solid #e2e8f0' }}>
+              <p style={{ margin: '0 0 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Solicitante
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <Field label="Nome" value={requisicao.solicitante_nome} />
+                <Field label="Cargo" value={requisicao.solicitante_cargo} />
+              </div>
+            </div>
+
+            {/* Veículo */}
+            <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1rem', border: '1px solid #e2e8f0' }}>
+              <p style={{ margin: '0 0 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Veículo
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <Field label="Placa" value={requisicao.veiculo_placa} mono />
+                <Field label="Modelo" value={requisicao.veiculo_modelo || '-'} />
+                {requisicao.veiculo_chassi && <Field label="Chassi" value={requisicao.veiculo_chassi} mono />}
+                {requisicao.veiculo_renavam && <Field label="Renavam" value={requisicao.veiculo_renavam} mono />}
+              </div>
+            </div>
+
+            {/* Combustível */}
+            <div style={{ background: '#fff7ed', borderRadius: '10px', padding: '1rem', border: '1px solid #fed7aa' }}>
+              <p style={{ margin: '0 0 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Combustível Autorizado
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <Field label="Tipo" value={TIPO_COMBUSTIVEL_LABELS[requisicao.tipo_combustivel] || requisicao.tipo_combustivel} />
+                <Field label="Quantidade" value={fmtLitros(requisicao.quantidade_autorizada)} highlight />
+              </div>
+              {requisicao.finalidade && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <Field label="Finalidade / Destino" value={requisicao.finalidade} />
+                </div>
+              )}
+            </div>
+
+            {/* Autorização */}
+            <div style={{ background: '#f0fdf4', borderRadius: '10px', padding: '1rem', border: '1px solid #bbf7d0' }}>
+              <p style={{ margin: '0 0 0.6rem', fontSize: '0.7rem', fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Autorização
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <Field label="Autorizado por" value={requisicao.autorizado_por || '-'} />
+                <Field label="Data de autorização" value={fmtDataHora(requisicao.data_autorizacao)} />
+                <Field label="Data da solicitação" value={fmtDataHora(requisicao.data_requisicao)} />
+              </div>
+            </div>
+
+          </div>
+
+          {/* QR Code + código postal */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', minWidth: '200px' }}>
+            {isAutorizado && origin && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={getQrUrl(token, origin)}
+                  alt="QR Code de verificação"
+                  style={{ width: 200, height: 200, border: '3px solid #e2e8f0', borderRadius: '12px', background: '#fff' }}
+                />
+                <p style={{ margin: 0, fontSize: '0.65rem', color: '#94a3b8', textAlign: 'center', maxWidth: '180px' }}>
+                  Escaneie para verificar autenticidade
+                </p>
+              </>
+            )}
+            {requisicao.codigo_posto && (
+              <div style={{ border: '2px solid #f97316', borderRadius: '12px', padding: '0.75rem 1.25rem', textAlign: 'center', background: '#fff7ed', width: '100%' }}>
+                <p style={{ margin: '0 0 0.25rem', fontSize: '0.65rem', fontWeight: 700, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Código do Atendente
+                </p>
+                <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '1.75rem', fontWeight: 800, color: '#1e293b', letterSpacing: '0.2em' }}>
+                  {requisicao.codigo_posto}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Rodapé */}
+        <div style={{ borderTop: '1px solid #e2e8f0', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+          <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>
+            🔒 Documento verificado digitalmente · Portal DCP
+          </p>
+          <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.65rem', color: '#cbd5e1' }}>
+            {requisicao.id.slice(0, 8).toUpperCase()}
+          </p>
+        </div>
       </div>
+
+      {/* Formulário de confirmação (apenas para posto autenticado) */}
+      {isAutorizado && postoToken && mostrandoFormConfirmacao && (
+        <div className="no-print" style={{ maxWidth: '760px', margin: '0 auto 2rem', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', padding: '1.5rem 2rem', border: '2px solid #22c55e' }}>
+          <h3 style={{ color: '#15803d', margin: '0 0 1.25rem', fontWeight: 700 }}>⛽ Confirmar Abastecimento</h3>
+          <form onSubmit={handleConfirmar}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', color: '#374151', fontSize: '0.875rem', marginBottom: '0.4rem', fontWeight: 500 }}>
+                  Quantidade abastecida (L) *
+                </label>
+                <input type="number" step="0.001" min="0.001" value={qtdAbastecida}
+                  onChange={e => setQtdAbastecida(e.target.value)} required
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box' }} />
+                <div style={{ color: '#9ca3af', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                  Autorizado: {fmtLitros(requisicao.quantidade_autorizada)}
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', color: '#374151', fontSize: '0.875rem', marginBottom: '0.4rem', fontWeight: 500 }}>KM do hodômetro</label>
+                <input type="number" step="1" min="0" value={kmHodometro}
+                  onChange={e => setKmHodometro(e.target.value)} placeholder="Ex: 45200"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', color: '#374151', fontSize: '0.875rem', marginBottom: '0.4rem', fontWeight: 500 }}>Atendente</label>
+                <input type="text" value={atendenteNome} onChange={e => setAtendenteNome(e.target.value)} placeholder="Nome do atendente"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', color: '#374151', fontSize: '0.875rem', marginBottom: '0.4rem', fontWeight: 500 }}>Observações</label>
+                <input type="text" value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder="Opcional"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            {erroConfirmacao && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '0.75rem', color: '#dc2626', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                {erroConfirmacao}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button type="button" onClick={() => setMostrandoFormConfirmacao(false)}
+                style={{ flex: 1, padding: '0.75rem', background: 'none', border: '1px solid #d1d5db', borderRadius: '8px', color: '#6b7280', fontSize: '0.875rem', cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={confirmando}
+                style={{ flex: 2, padding: '0.75rem', background: confirmando ? '#d1fae5' : '#22c55e', border: 'none', borderRadius: '8px', color: confirmando ? '#15803d' : '#fff', fontSize: '1rem', fontWeight: 700, cursor: confirmando ? 'not-allowed' : 'pointer' }}>
+                {confirmando ? 'Confirmando...' : '✅ Confirmar Abastecimento'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; }
+          div[style*="background: #f1f5f9"] { background: white !important; }
+        }
+        @page { margin: 1cm; }
+      `}</style>
+    </div>
+  )
+}
+
+// ─── Field helper ─────────────────────────────────────────────────────────────
+
+function Field({ label, value, mono, highlight }: { label: string; value: string; mono?: boolean; highlight?: boolean }) {
+  return (
+    <div>
+      <p style={{ margin: '0 0 0.15rem', fontSize: '0.65rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        {label}
+      </p>
+      <p style={{
+        margin: 0,
+        fontSize: highlight ? '1.1rem' : '0.9rem',
+        fontWeight: highlight ? 700 : 500,
+        color: highlight ? '#f97316' : '#1e293b',
+        fontFamily: mono ? 'monospace' : 'inherit',
+      }}>
+        {value}
+      </p>
     </div>
   )
 }

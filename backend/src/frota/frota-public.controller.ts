@@ -50,6 +50,16 @@ export class FrotaPublicController {
     return this.frotaAuth.obterInfoPosto(slug);
   }
 
+  @Get('vereador-link/:slug/info')
+  async infoVereador(@Param('slug') slug: string) {
+    return this.frotaAuth.obterInfoVereador(slug);
+  }
+
+  @Post('auth-vereador/:slug')
+  async loginVereador(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
+    return this.frotaAuth.loginPorSlugVereador(slug, body.senha, getIp(req), getUserAgent(req));
+  }
+
   // ================================================================
   // AUTENTICAÇÃO
   // ================================================================

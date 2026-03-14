@@ -362,17 +362,7 @@ export default function FrotaCredenciaisPage() {
 
       {aba === 'vereadores' && (
         <div>
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-700">
-              <span className="font-medium">Portal do Vereador:</span>
-              <code className="bg-white px-2 py-0.5 rounded border border-blue-200 text-xs select-all">{typeof window !== 'undefined' ? window.location.origin : ''}/frota/vereador</code>
-              <button
-                onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/frota/vereador`)}
-                className="text-blue-500 hover:text-blue-700 text-xs underline ml-1"
-              >
-                Copiar
-              </button>
-            </div>
+          <div className="flex justify-end mb-4">
             <button
               onClick={() => abrirNovo('VEREADOR')}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
@@ -412,6 +402,26 @@ export default function FrotaCredenciaisPage() {
                         <div>Código: <code className="bg-gray-100 px-1 rounded text-xs">{c.codigo_acesso}</code></div>
                         {c.cota_mensal_litros && (
                           <div>Cota mensal: <strong className="text-gray-700">{Number(c.cota_mensal_litros).toFixed(3).replace('.', ',')} L</strong></div>
+                        )}
+                        {c.url_slug && (
+                          <div className="flex items-center gap-2">
+                            <span>Link:</span>
+                            <code className="bg-gray-100 px-1 rounded text-xs truncate max-w-xs">
+                              /frota/vereador/{c.url_slug}
+                            </code>
+                            <button
+                              onClick={() => {
+                                const url = `${window.location.origin}/frota/vereador/${c.url_slug}`
+                                navigator.clipboard.writeText(url).then(() => {
+                                  setCopiado('ver-' + c.url_slug!)
+                                  setTimeout(() => setCopiado(null), 2000)
+                                })
+                              }}
+                              className="text-blue-600 hover:text-blue-800 text-xs"
+                            >
+                              {copiado === 'ver-' + c.url_slug ? '✅ Copiado!' : '📋 Copiar Link'}
+                            </button>
+                          </div>
                         )}
                         <div className="text-xs text-gray-400">
                           Último acesso: {fmtData(c.ultimo_acesso)}

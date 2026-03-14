@@ -56,8 +56,9 @@ export class FrotaAuthService {
     const senha_hash = await bcrypt.hash(dados.senha, 10);
     let url_slug = dados.url_slug;
 
-    if (dados.tipo === TipoCredencialFrota.POSTO && !url_slug) {
-      url_slug = await this.gerarSlugUnico(dados.nome, orgaoId);
+    if (!url_slug && (dados.tipo === TipoCredencialFrota.POSTO || dados.tipo === TipoCredencialFrota.VEREADOR)) {
+      const prefix = dados.tipo === TipoCredencialFrota.VEREADOR ? 'v-' : '';
+      url_slug = await this.gerarSlugUnico(dados.nome, orgaoId, prefix);
     }
 
     const credencial = this.credencialRepo.create({
@@ -95,15 +96,15 @@ export class FrotaAuthService {
     await this.credencialRepo.remove(credencial);
   }
 
-  private async gerarSlugUnico(nome: string, orgaoId: string): Promise<string> {
+  private async gerarSlugUnico(nome: string, orgaoId: string, prefix = ''): Promise<string> {
     const base = nome.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 20);
     const suffix = orgaoId.slice(0, 6);
-    let slug = `${base}-${suffix}`;
+    let slug = `${prefix}${base}-${suffix}`;
     let i = 0;
     while (await this.credencialRepo.findOne({ where: { url_slug: slug } })) {
-      slug = `${base}-${suffix}-${++i}`;
+      slug = `${prefix}${base}-${suffix}-${++i}`;
     }
     return slug;
   }
@@ -175,6 +176,29 @@ export class FrotaAuthService {
     });
     if (!credencial) throw new NotFoundException('Posto não encontrado');
     return { nome: credencial.nome, orgao_nome: credencial.orgao?.nome, orgao_id: credencial.orgao_id };
+  }
+
+  async obterInfoVereador(slug: string) {
+    const credencial = await this.credencialRepo.findOne({
+      where: { url_slug: slug, tipo: TipoCredencialFrota.VEREADOR, ativo: true },
+      relations: ['orgao'],
+    });
+    if (!credencial) throw new NotFoundException('Vereador não encontrado');
+    return {
+      nome: credencial.nome,
+      cargo: credencial.solicitante_cargo,
+      orgao_nome: credencial.orgao?.nome,
+      orgao_id: credencial.orgao_id,
+      logo_url: credencial.orgao?.logo_url,
+    };
+  }
+
+  async loginPorSlugVereador(slug: string, senha: string, ip: string, userAgent: string) {
+    const credencial = await this.credencialRepo.findOne({
+      where: { url_slug: slug, tipo: TipoCredencialFrota.VEREADOR, ativo: true },
+    });
+    if (!credencial) throw new UnauthorizedException('Link de acesso inválido');
+    return this.login(credencial.orgao_id, credencial.codigo_acesso, senha, ip, userAgent);
   }
 
   async alterarSenha(credencialId: string, orgaoId: string, senhaAtual: string, novaSenha: string, ip: string, userAgent: string) {

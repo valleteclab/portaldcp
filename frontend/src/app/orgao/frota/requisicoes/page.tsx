@@ -124,7 +124,11 @@ export default function RequisicoesPage() {
     try {
       const res = await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}/autorizar`, { method: 'PUT' })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      const atualizada: Requisicao = await res.json()
       carregar()
+      if (atualizada.token_acesso) {
+        window.open(`/frota/req/${atualizada.token_acesso}`, '_blank')
+      }
     } finally { setActionLoading(false) }
   }
 
