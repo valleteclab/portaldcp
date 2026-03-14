@@ -235,10 +235,10 @@ export class FrotaAuthService {
     return { token, expiry };
   }
 
-  async verificarTokenAcesso(token: string): Promise<FrotaRequisicao> {
+  async verificarTokenAcesso(token: string): Promise<FrotaRequisicao & { orgao_nome?: string; orgao_logo?: string }> {
     const req = await this.requisicaoRepo.findOne({
       where: { token_acesso: token },
-      relations: ['contrato'],
+      relations: ['contrato', 'orgao'],
     });
     if (!req) throw new NotFoundException('QR Code inválido ou não encontrado');
     if (req.token_expiry && new Date() > req.token_expiry) {
@@ -253,7 +253,10 @@ export class FrotaAuthService {
       };
       throw new BadRequestException(msgs[req.status] || `Status: ${req.status}`);
     }
-    return req;
+    const result = req as FrotaRequisicao & { orgao_nome?: string; orgao_logo?: string };
+    result.orgao_nome = (req as any).orgao?.nome;
+    result.orgao_logo = (req as any).orgao?.logo_url;
+    return result;
   }
 
   // ================================================================

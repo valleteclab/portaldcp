@@ -53,8 +53,8 @@ function fmtData(d: string) {
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
-function fmtLitros(n: number) {
-  return n?.toFixed(3).replace('.', ',') + ' L'
+function fmtLitros(n: number | string | undefined) {
+  return (parseFloat(n as any) || 0).toFixed(3).replace('.', ',') + ' L'
 }
 
 function getQrUrl(token: string, origin: string) {
@@ -101,7 +101,7 @@ export default function ReqTokenPage() {
         }
         const data = await res.json()
         setRequisicao(data)
-        setQtdAbastecida(data.quantidade_autorizada?.toString() || '')
+        setQtdAbastecida(parseFloat(data.quantidade_autorizada) > 0 ? String(parseFloat(data.quantidade_autorizada)) : '')
       } catch {
         setErro('Erro ao carregar requisição.')
       }
