@@ -25,7 +25,7 @@ export default function Home() {
       <header className="bg-white border-b-2 border-[#1351B4] h-[80px] flex items-center justify-between px-6 md:px-12 shadow-sm flex-shrink-0">
         {/* Brand */}
         <div className="flex items-center gap-4">
-          <Image src="/logo.png" alt="CMLEM" width={56} height={56} className="object-contain" />
+          <Image src="/logo_cmlem.png" alt="CMLEM" width={56} height={56} className="object-contain" />
           <div className="w-px h-10 bg-[#D9DDE3]" />
           <div>
             <div className="text-[16px] font-bold text-[#0C326F] leading-tight">
