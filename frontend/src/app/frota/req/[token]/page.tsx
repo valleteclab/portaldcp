@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation'
 interface RequisicaoPublica {
   id: string
   codigo: string
+  codigo_posto?: string
   solicitante_nome: string
   solicitante_cargo: string
   veiculo_placa: string
@@ -287,12 +288,22 @@ export default function ReqTokenPage() {
           }}>
             {statusInfo.label}
           </div>
+          {requisicao.codigo_posto && (
+            <div style={{ marginBottom: '0.5rem' }}>
+              <div style={{ color: statusInfo.color, fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.25rem' }}>
+                Código do posto
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: '2.25rem', fontWeight: 700, color: '#f8fafc', letterSpacing: '0.2em' }}>
+                {requisicao.codigo_posto}
+              </div>
+            </div>
+          )}
           <div style={{
             fontFamily: 'monospace',
-            fontSize: '1.75rem',
-            fontWeight: 700,
-            color: '#f8fafc',
-            letterSpacing: '0.1em',
+            fontSize: '0.875rem',
+            fontWeight: 500,
+            color: '#94a3b8',
+            letterSpacing: '0.05em',
           }}>
             {requisicao.codigo}
           </div>

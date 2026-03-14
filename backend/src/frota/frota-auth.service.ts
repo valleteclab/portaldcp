@@ -113,6 +113,13 @@ export class FrotaAuthService {
   // ================================================================
 
   async login(orgaoId: string, codigoAcesso: string, senha: string, ip: string, userAgent: string) {
+    // Resolve orgaoId: aceita UUID direto ou o campo `codigo` do órgão (código UASG)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orgaoId);
+    if (!isUuid) {
+      const orgao = await this.orgaoRepo.findOne({ where: { codigo: orgaoId } });
+      if (orgao) orgaoId = orgao.id;
+    }
+
     const credencial = await this.credencialRepo.findOne({
       where: { orgao_id: orgaoId, codigo_acesso: codigoAcesso.toUpperCase(), ativo: true },
       relations: ['orgao'],

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, ILike, Like } from 'typeorm';
+import { Repository, Between, ILike, Like, Or } from 'typeorm';
 import * as crypto from 'crypto';
 import { Veiculo } from './entities/veiculo.entity';
 import { Abastecimento } from './entities/abastecimento.entity';
@@ -383,6 +383,11 @@ export class FrotaService {
     req.status = StatusRequisicaoFrota.AUTORIZADO;
     req.data_autorizacao = new Date();
     req.autorizado_por = autorizadoPor;
+    // Código curto aleatório para o posto (6 chars, sem caracteres confusos)
+    const CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    req.codigo_posto = Array.from(crypto.randomBytes(6))
+      .map(b => CHARS[b % CHARS.length])
+      .join('');
     // Gera token seguro para QR Code (32 bytes aleatórios = 64 hex chars)
     req.token_acesso = crypto.randomBytes(32).toString('hex');
     req.token_expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
@@ -410,10 +415,14 @@ export class FrotaService {
     return this.requisicaoRepository.save(req);
   }
 
-  // Painel do posto: verificar código
+  // Painel do posto: verificar código (codigo_posto tem prioridade; fallback para codigo interno)
   async verificarCodigo(codigo: string, orgaoId: string) {
+    const upper = codigo.toUpperCase();
     const req = await this.requisicaoRepository.findOne({
-      where: { codigo: codigo.toUpperCase(), orgao_id: orgaoId },
+      where: [
+        { codigo_posto: upper, orgao_id: orgaoId },
+        { codigo: upper, orgao_id: orgaoId },
+      ],
       relations: ['contrato'],
     });
     if (!req) throw new NotFoundException('Código não encontrado');

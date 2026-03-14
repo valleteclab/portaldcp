@@ -29,7 +29,7 @@ interface Contrato {
 }
 
 interface Requisicao {
-  id: string; codigo: string; solicitante_nome: string; solicitante_cargo?: string
+  id: string; codigo: string; codigo_posto?: string; solicitante_nome: string; solicitante_cargo?: string
   veiculo_placa: string; veiculo_modelo?: string; tipo_combustivel: string
   quantidade_autorizada: number; quantidade_abastecida?: number; finalidade: string
   status: string; data_requisicao: string; data_abastecimento?: string
@@ -547,7 +547,7 @@ export default function PostoPage() {
                       <div className="flex gap-2 mt-1">
                         <Input
                           ref={codigoRef}
-                          placeholder="REQ-2026-0001"
+                          placeholder="Ex: A3K7XP"
                           value={codigoInput}
                           onChange={e => { setCodigoInput(e.target.value.toUpperCase()); setErroVerificacao(''); setReqVerificada(null) }}
                           onKeyDown={e => { if (e.key === 'Enter') verificarCodigo() }}
@@ -575,7 +575,12 @@ export default function PostoPage() {
                         <div className="flex items-center gap-2 text-green-700">
                           <CheckCircle className="w-5 h-5" />
                           <span className="font-semibold">Autorização Válida!</span>
-                          <span className="font-mono text-sm ml-1">{reqVerificada.codigo}</span>
+                          <span className="font-mono text-sm ml-1">
+                            {reqVerificada.codigo_posto || reqVerificada.codigo}
+                          </span>
+                          {reqVerificada.codigo_posto && (
+                            <span className="text-xs text-gray-400 font-normal">{reqVerificada.codigo}</span>
+                          )}
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-white rounded-lg px-3 py-2 border border-green-100">

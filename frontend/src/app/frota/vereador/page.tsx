@@ -11,7 +11,7 @@ interface CredencialInfo {
   cota_mensal_litros: number; veiculo_ids: string[]
 }
 interface Requisicao {
-  id: string; codigo: string; tipo_combustivel: string; quantidade_autorizada: number
+  id: string; codigo: string; codigo_posto?: string; tipo_combustivel: string; quantidade_autorizada: number
   quantidade_abastecida?: number; finalidade: string; status: string
   data_requisicao: string; veiculo_placa: string; veiculo_modelo?: string
   token_acesso?: string; token_expiry?: string; contrato?: { preco_litro: number }
@@ -188,10 +188,10 @@ export default function VereadorPage() {
         </div>
         <form onSubmit={handleLogin} className="bg-slate-800 rounded-2xl p-6 space-y-4">
           <div>
-            <label className="block text-slate-300 text-sm mb-1.5">ID do Órgão</label>
+            <label className="block text-slate-300 text-sm mb-1.5">Código do Órgão</label>
             <input
               className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
-              placeholder="Código do órgão"
+              placeholder="Ex: 987654"
               value={loginForm.orgaoId}
               onChange={e => setLoginForm({ ...loginForm, orgaoId: e.target.value })}
               required
@@ -300,7 +300,13 @@ export default function VereadorPage() {
                 </div>
               </div>
               <div className="bg-white rounded-xl p-3 text-center">
-                <p className="font-mono text-2xl font-bold tracking-widest text-slate-800">{autorizacao_ativa.codigo}</p>
+                <p className="text-slate-400 text-xs mb-1">Código para o atendente do posto</p>
+                <p className="font-mono text-3xl font-bold tracking-widest text-slate-800">
+                  {autorizacao_ativa.codigo_posto || autorizacao_ativa.codigo}
+                </p>
+                {autorizacao_ativa.codigo_posto && (
+                  <p className="text-slate-400 text-xs mt-1">Nº interno: {autorizacao_ativa.codigo}</p>
+                )}
               </div>
               {autorizacao_ativa.token_acesso && (
                 <div className="bg-white rounded-xl p-3 flex flex-col items-center gap-2">
