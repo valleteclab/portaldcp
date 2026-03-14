@@ -505,7 +505,7 @@ export default function PainelPostoPage() {
                 <TableRow key={r.id}>
                   <TableCell>
                     <p className="font-mono text-blue-600 font-medium text-sm">{r.codigo}</p>
-                    <p className="text-xs text-gray-400">{fmtData(r.created_at as any)}</p>
+                    <p className="text-xs text-gray-400">{fmtData(r.data_requisicao)}</p>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
