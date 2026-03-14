@@ -108,6 +108,21 @@ export class FrotaRequisicao {
   @Column({ nullable: true })
   observacoes: string;
 
+  /**
+   * Token aleatório (32 bytes hex) gerado na autorização.
+   * Usado no QR Code para verificação segura pelo posto.
+   * Invalidado após o abastecimento.
+   */
+  @Column({ nullable: true, unique: true })
+  token_acesso: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  token_expiry: Date;
+
+  /** Credencial do solicitante (vereador) — FK opcional */
+  @Column({ nullable: true })
+  credencial_solicitante_id: string;
+
   @ManyToOne(() => Orgao, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'orgao_id' })
   orgao: Orgao;

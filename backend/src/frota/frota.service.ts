@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, ILike, Like } from 'typeorm';
+import * as crypto from 'crypto';
 import { Veiculo } from './entities/veiculo.entity';
 import { Abastecimento } from './entities/abastecimento.entity';
 import { Manutencao } from './entities/manutencao.entity';
@@ -382,6 +383,9 @@ export class FrotaService {
     req.status = StatusRequisicaoFrota.AUTORIZADO;
     req.data_autorizacao = new Date();
     req.autorizado_por = autorizadoPor;
+    // Gera token seguro para QR Code (32 bytes aleatórios = 64 hex chars)
+    req.token_acesso = crypto.randomBytes(32).toString('hex');
+    req.token_expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
     return this.requisicaoRepository.save(req);
   }
 
