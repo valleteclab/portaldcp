@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
-interface Veiculo { id: string; placa: string; modelo: string; marca: string; tipo_combustivel: string; chassi?: string; renavam?: string }
+interface Veiculo { id: string; placa: string; modelo: string; marca: string; tipo_combustivel: string; chassi?: string; renavam?: string; ativo?: boolean }
 interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number }
 
 interface Requisicao {
