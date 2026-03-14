@@ -188,10 +188,10 @@ export default function VereadorPage() {
         </div>
         <form onSubmit={handleLogin} className="bg-slate-800 rounded-2xl p-6 space-y-4">
           <div>
-            <label className="block text-slate-300 text-sm mb-1.5">ID do Órgão</label>
+            <label className="block text-slate-300 text-sm mb-1.5">Código do Órgão</label>
             <input
               className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
-              placeholder="Código do órgão"
+              placeholder="Ex: 987654"
               value={loginForm.orgaoId}
               onChange={e => setLoginForm({ ...loginForm, orgaoId: e.target.value })}
               required

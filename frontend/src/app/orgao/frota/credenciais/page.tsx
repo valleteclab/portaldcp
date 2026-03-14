@@ -48,6 +48,9 @@ const ACAO_LABELS: Record<string, string> = {
 export default function FrotaCredenciaisPage() {
   const token = getAuthToken()
   const [aba, setAba] = useState<AbaAtiva>('postos')
+  const [orgaoCodigo] = useState<string>(() => {
+    try { return JSON.parse(localStorage.getItem('orgao') || '{}').codigo || '' } catch { return '' }
+  })
   const [credenciais, setCredenciais] = useState<Credencial[]>([])
   const [logs, setLogs] = useState<LogAcesso[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -228,13 +231,25 @@ export default function FrotaCredenciaisPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Credenciais de Acesso — Frota</h1>
           <p className="text-gray-500 text-sm mt-1">
             Gerencie acessos de postos de combustível e vereadores ao módulo de frota.
           </p>
         </div>
+        {orgaoCodigo && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
+            <span className="text-amber-700 font-medium">ID do Órgão (para login):</span>
+            <code className="bg-white px-2 py-0.5 rounded border border-amber-200 font-mono text-amber-900 select-all">{orgaoCodigo}</code>
+            <button
+              onClick={() => navigator.clipboard?.writeText(orgaoCodigo)}
+              className="text-amber-600 hover:text-amber-800 text-xs underline"
+            >
+              Copiar
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
