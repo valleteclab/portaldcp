@@ -19,9 +19,9 @@ export class FrotaContrato {
   @Column({ nullable: true })
   fornecedor_cnpj: string;
 
-  /** Preço fixo por litro — 4 casas decimais (ex: 7.5000) */
-  @Column({ type: 'decimal', precision: 12, scale: 4 })
-  preco_litro: number;
+  /** Preço por litro do primeiro item (retrocompat). Quando itens existe, use itens[].preco_litro */
+  @Column({ type: 'decimal', precision: 12, scale: 4, nullable: true })
+  preco_litro: number | null;
 
   /** Limite mensal em litros — 3 casas decimais */
   @Column({ type: 'decimal', precision: 12, scale: 3, nullable: true })

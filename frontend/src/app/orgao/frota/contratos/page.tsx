@@ -146,14 +146,18 @@ export default function ContratosPage() {
 
   const importarContrato = async () => {
     if (!contratoImportarId) { alert('Selecione um contrato'); return }
+    const itensLitros = (contratoSelecionado?.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO')
     const preco = parseFloat(precoLitroImportar)
-    if (!preco || preco <= 0) { alert('Informe o preço por litro'); return }
+    if (itensLitros.length === 0 && (!preco || preco <= 0)) {
+      alert('Informe o preço por litro ou selecione um contrato com itens em LITRO')
+      return
+    }
     setActionLoading(true)
     try {
       const res = await authFetch(`${API_URL}/api/frota/contratos/importar/${contratoImportarId}`, {
         method: 'POST',
         body: JSON.stringify({
-          preco_litro: preco,
+          preco_litro: itensLitros.length > 0 ? undefined : preco,
           limite_litros_mensal: limiteLitrosImportar ? parseFloat(limiteLitrosImportar) : undefined,
         }),
       })
@@ -197,7 +201,7 @@ export default function ContratosPage() {
               <TableRow>
                 <TableHead>Nº Contrato</TableHead>
                 <TableHead>Fornecedor</TableHead>
-                <TableHead className="text-right">Preço/L</TableHead>
+                <TableHead>Itens (combustível / preço)</TableHead>
                 <TableHead className="text-right">Limite Mensal</TableHead>
                 <TableHead>Vigência</TableHead>
                 <TableHead>Status</TableHead>
@@ -215,7 +219,17 @@ export default function ContratosPage() {
                     <p className="font-medium">{c.fornecedor_nome}</p>
                     {c.fornecedor_cnpj && <p className="text-xs text-gray-400">{c.fornecedor_cnpj}</p>}
                   </TableCell>
-                  <TableCell className="text-right font-mono font-semibold">R$ {fmtPreco(c.preco_litro)}</TableCell>
+                  <TableCell className="text-sm">
+                    {(c.itens && c.itens.length > 0)
+                      ? <div className="space-y-0.5">
+                          {c.itens.map((item, i) => (
+                            <div key={i} className="whitespace-nowrap">
+                              {item.descricao?.slice(0, 30)}{item.descricao?.length > 30 ? '…' : ''} — R$ {fmtPreco(item.preco_litro)}
+                            </div>
+                          ))}
+                        </div>
+                      : <span className="font-mono">R$ {fmtPreco(c.preco_litro ?? 0)}</span>}
+                  </TableCell>
                   <TableCell className="text-right">
                     {c.limite_litros_mensal ? `${Number(c.limite_litros_mensal).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L/mês` : '—'}
                   </TableCell>
@@ -358,13 +372,19 @@ export default function ContratosPage() {
             )}
 
             <div className="grid grid-cols-2 gap-4">
+              {(contratoSelecionado?.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO').length === 0 ? (
               <div className="space-y-1.5">
                 <Label>Preço por Litro (R$) *</Label>
                 <Input type="number" step="0.0001" min="0" placeholder="7,5000"
                   value={precoLitroImportar}
                   onChange={e => setPrecoLitroImportar(e.target.value)} />
-                <p className="text-xs text-gray-400">Se o contrato tiver item em LITRO, o valor pode ser preenchido automaticamente</p>
+                <p className="text-xs text-gray-400">Obrigatório quando o contrato não tem itens em LITRO</p>
               </div>
+              ) : (
+              <div className="space-y-1.5 col-span-2">
+                <p className="text-sm text-muted-foreground">Todos os itens em LITRO serão importados com descrição, quantidade, preço e valor.</p>
+              </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Limite Mensal (litros)</Label>
                 <Input type="number" step="0.001" min="0" placeholder="1500,000"
@@ -375,7 +395,7 @@ export default function ContratosPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalImportarOpen(false)}>Cancelar</Button>
-            <Button onClick={importarContrato} disabled={actionLoading || !contratoImportarId || !precoLitroImportar || parseFloat(precoLitroImportar) <= 0}>
+            <Button onClick={importarContrato} disabled={actionLoading || !contratoImportarId || ((contratoSelecionado?.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO').length === 0 && (!precoLitroImportar || parseFloat(precoLitroImportar) <= 0))}>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Importar
             </Button>

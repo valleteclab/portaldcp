@@ -210,7 +210,7 @@ export class FrotaService {
   async importarDeContrato(
     orgaoId: string,
     contratoId: string,
-    dados: { preco_litro: number; limite_litros_mensal?: number },
+    dados: { preco_litro?: number; limite_litros_mensal?: number },
   ): Promise<FrotaContrato> {
     const contrato = await this.contratosService.findOne(contratoId);
     if (contrato.orgao_id !== orgaoId) {
@@ -231,16 +231,6 @@ export class FrotaService {
       (i: any) => i.unidade_medida === UnidadeMedidaContrato.LITRO,
     );
 
-    let precoLitro = Number(dados.preco_litro) || 0;
-    if (precoLitro <= 0 && itensLitros.length > 0) {
-      precoLitro = Number(itensLitros[0].valor_unitario) || 0;
-    }
-    if (precoLitro <= 0) {
-      throw new BadRequestException(
-        'Informe o preço por litro ou cadastre um item em LITRO no contrato',
-      );
-    }
-
     const itensImportados = itensLitros.map((i: any) => ({
       descricao: i.descricao || '',
       unidade_medida: i.unidade_medida || 'LITRO',
@@ -248,6 +238,18 @@ export class FrotaService {
       quantidade_contratada: Number(i.quantidade_contratada) || 0,
       valor_total: Number(i.valor_total) || 0,
     }));
+
+    let precoLitro: number | null = null;
+    if (itensImportados.length > 0) {
+      precoLitro = itensImportados[0].preco_litro;
+    } else {
+      precoLitro = Number(dados.preco_litro) || 0;
+      if (precoLitro <= 0) {
+        throw new BadRequestException(
+          'Informe o preço por litro ou cadastre itens em LITRO no contrato',
+        );
+      }
+    }
 
     const dataInicio =
       contrato.data_vigencia_inicio instanceof Date
@@ -281,6 +283,28 @@ export class FrotaService {
   // ============================================================
   // REQUISIÇÕES DE ABASTECIMENTO
   // ============================================================
+
+  /**
+   * Obtém o preço por litro do contrato para um tipo de combustível.
+   * Se o contrato tiver itens, busca o item cuja descrição corresponda ao tipo (ex: DIESEL, GASOLINA).
+   * Caso contrário, usa preco_litro do contrato (retrocompatibilidade).
+   */
+  private getPrecoLitroContrato(
+    contrato: FrotaContrato | null | undefined,
+    tipoCombustivel: string,
+  ): number {
+    if (!contrato) return 0;
+    const itens = contrato.itens;
+    if (Array.isArray(itens) && itens.length > 0) {
+      const tipo = String(tipoCombustivel || '').toLowerCase();
+      const item = itens.find((i) => {
+        const desc = String(i.descricao || '').toLowerCase();
+        return desc.includes(tipo) || tipo.includes(desc) || desc === tipo;
+      });
+      if (item && item.preco_litro != null) return Number(item.preco_litro);
+    }
+    return Number(contrato.preco_litro || 0);
+  }
 
   private async gerarCodigoRequisicao(orgaoId: string): Promise<string> {
     const ano = new Date().getFullYear();
@@ -408,7 +432,7 @@ export class FrotaService {
       throw new BadRequestException('Apenas requisições autorizadas podem ser confirmadas');
     }
 
-    const precoLitro = req.contrato ? Number(req.contrato.preco_litro) : 0;
+    const precoLitro = this.getPrecoLitroContrato(req.contrato, req.tipo_combustivel);
     const qtd = Number(dados.quantidade_abastecida);
 
     req.status = StatusRequisicaoFrota.ABASTECIDO;
@@ -456,7 +480,11 @@ export class FrotaService {
 
     const totalLitros = abastecidas.reduce((s, r) => s + Number(r.quantidade_abastecida || 0), 0);
     const totalValor = abastecidas.reduce((s, r) => s + Number(r.valor_total || 0), 0);
-    const precoLitro = contratoAtivo ? Number(contratoAtivo.preco_litro) : 0;
+    const precoLitro = contratoAtivo
+      ? (contratoAtivo.itens?.[0]?.preco_litro != null
+          ? Number(contratoAtivo.itens[0].preco_litro)
+          : Number(contratoAtivo.preco_litro || 0))
+      : 0;
     const limiteMensal = contratoAtivo ? Number(contratoAtivo.limite_litros_mensal || 0) : 0;
     const percentualUsado = limiteMensal > 0 ? (totalLitros / limiteMensal) * 100 : 0;
     const litrosRestantes = limiteMensal > 0 ? limiteMensal - totalLitros : 0;
@@ -508,10 +536,10 @@ export class FrotaService {
       order: { veiculo_placa: 'ASC', data_abastecimento: 'ASC' },
     });
 
-    // Agrupa por veículo
+    // Agrupa por veículo (usa valor_total real das requisições para suportar múltiplos combustíveis)
     const porVeiculo: Record<string, {
       modelo: string; placa: string; chassi: string; renavam: string;
-      tipo: string; litros: number; valor_cupom: number;
+      tipo: string; litros: number; valor_total: number;
     }> = {};
 
     for (const r of requisicoes) {
@@ -524,18 +552,22 @@ export class FrotaService {
           renavam: r.veiculo_renavam || '',
           tipo: r.tipo_combustivel,
           litros: 0,
-          valor_cupom: contratoAtivo ? Number(contratoAtivo.preco_litro) : 0,
+          valor_total: 0,
         };
       }
       porVeiculo[placa].litros += Number(r.quantidade_abastecida || 0);
+      porVeiculo[placa].valor_total += Number(r.valor_total || 0);
     }
 
-    const linhas = Object.values(porVeiculo).map(v => ({
-      ...v,
-      valor_total: v.litros * v.valor_cupom,
-      acrescimo: 0,
-      total_pagar: v.litros * v.valor_cupom,
-    }));
+    const linhas = Object.values(porVeiculo).map(v => {
+      const valorCupom = v.litros > 0 ? v.valor_total / v.litros : 0;
+      return {
+        ...v,
+        valor_cupom: valorCupom,
+        acrescimo: 0,
+        total_pagar: v.valor_total,
+      };
+    });
 
     const subtotal = linhas.reduce((s, l) => s + l.litros, 0);
     const totalValor = linhas.reduce((s, l) => s + l.valor_total, 0);
