@@ -344,13 +344,13 @@ export default function PostoPage() {
         <p className="text-slate-400 text-sm">Escaneie o QR Code ou digite o código da autorização</p>
       </div>
 
-      {/* Botão Ler QR Code (foto/imagem) */}
+      {/* Botão Escanear QR Code */}
       <button
         onClick={() => setMostrandoScanner(true)}
         className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-4 rounded-2xl flex items-center justify-center gap-3"
       >
         <QrCode className="w-6 h-6" />
-        Ler QR Code (foto ou imagem)
+        Escanear QR Code
       </button>
 
       <div className="flex items-center gap-2 text-slate-400 text-sm">
