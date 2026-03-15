@@ -32,6 +32,7 @@ export class UsuariosService {
     pode_cancelar_estornar?: boolean;
     pode_liberar_contratos?: boolean;
     pode_excluir_medicao?: boolean;
+    pode_excluir_requisicao_combustivel?: boolean;
     eh_fiscal_contrato?: boolean;
     pode_gerenciar_os?: boolean;
     pode_receber_patrimonio?: boolean;
@@ -63,6 +64,7 @@ export class UsuariosService {
       pode_cancelar_estornar: data.pode_cancelar_estornar || false,
       pode_liberar_contratos: data.pode_liberar_contratos || false,
       pode_excluir_medicao: data.pode_excluir_medicao || false,
+      pode_excluir_requisicao_combustivel: data.pode_excluir_requisicao_combustivel || false,
       eh_fiscal_contrato: data.eh_fiscal_contrato || false,
       pode_gerenciar_os: data.pode_gerenciar_os || false,
       pode_receber_patrimonio: data.pode_receber_patrimonio || false,
@@ -128,6 +130,7 @@ export class UsuariosService {
     pode_cancelar_estornar: boolean;
     pode_liberar_contratos: boolean;
     pode_excluir_medicao: boolean;
+    pode_excluir_requisicao_combustivel: boolean;
     eh_fiscal_contrato: boolean;
     pode_gerenciar_os: boolean;
     pode_receber_patrimonio: boolean;
@@ -292,6 +295,7 @@ export class UsuariosService {
     pode_cancelar_estornar?: boolean;
     pode_liberar_contratos?: boolean;
     pode_excluir_medicao?: boolean;
+    pode_excluir_requisicao_combustivel?: boolean;
     eh_fiscal_contrato?: boolean;
     pode_gerenciar_os?: boolean;
     pode_receber_patrimonio?: boolean;
@@ -311,6 +315,7 @@ export class UsuariosService {
       pode_cancelar_estornar: dados.pode_cancelar_estornar ?? false,
       pode_liberar_contratos: dados.pode_liberar_contratos ?? false,
       pode_excluir_medicao: dados.pode_excluir_medicao ?? false,
+      pode_excluir_requisicao_combustivel: dados.pode_excluir_requisicao_combustivel ?? false,
       eh_fiscal_contrato: dados.eh_fiscal_contrato ?? false,
       pode_gerenciar_os: dados.pode_gerenciar_os ?? false,
       pode_receber_patrimonio: dados.pode_receber_patrimonio ?? false,

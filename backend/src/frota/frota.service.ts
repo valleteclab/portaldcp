@@ -474,6 +474,32 @@ export class FrotaService {
     return this.requisicaoRepository.save(req);
   }
 
+  async excluirRequisicao(id: string, orgaoId: string) {
+    const req = await this.requisicaoRepository.findOne({
+      where: { id, orgao_id: orgaoId },
+      relations: ['contrato'],
+    });
+    if (!req) throw new NotFoundException('Requisição não encontrada');
+
+    if (req.status === StatusRequisicaoFrota.ABASTECIDO && req.contrato_id && req.contrato?.itens) {
+      const qtd = Number(req.quantidade_abastecida ?? req.quantidade_autorizada ?? 0);
+      if (qtd > 0) {
+        const tipo = String(req.tipo_combustivel || '').toLowerCase();
+        const itens = [...req.contrato.itens];
+        const idx = itens.findIndex((i) => {
+          const desc = String(i.descricao || '').toLowerCase();
+          return desc.includes(tipo) || tipo.includes(desc) || desc === tipo;
+        });
+        if (idx >= 0) {
+          itens[idx].quantidade_consumida = Math.max(0, (itens[idx].quantidade_consumida ?? 0) - qtd);
+          await this.contratoRepository.update(req.contrato_id, { itens });
+        }
+      }
+    }
+
+    await this.requisicaoRepository.remove(req);
+  }
+
   // Painel do posto: verificar código (codigo_posto tem prioridade; fallback para codigo interno)
   async verificarCodigo(codigo: string, orgaoId: string) {
     const upper = codigo.toUpperCase();
@@ -675,25 +701,47 @@ export class FrotaService {
 
   async obterResumo(orgaoId: string, mes?: string) {
     const veiculos = await this.veiculoRepository.count({ where: { orgao_id: orgaoId, ativo: true } });
+    const lastDayOfMonth = (y: string, m: string) => {
+      const d = new Date(parseInt(y, 10), parseInt(m, 10), 0);
+      return String(d.getDate()).padStart(2, '0');
+    };
     let filtroData: any = {};
     if (mes) {
       const [ano, m2] = mes.split('-');
-      filtroData = { orgao_id: orgaoId, data: Between(`${ano}-${m2}-01`, `${ano}-${m2}-31`) };
+      const lastDay = lastDayOfMonth(ano, m2);
+      filtroData = { orgao_id: orgaoId, data: Between(`${ano}-${m2}-01`, `${ano}-${m2}-${lastDay}`) };
     } else {
       filtroData = { orgao_id: orgaoId };
     }
     const abastecimentos = await this.abastecimentoRepository.find({ where: filtroData });
     const manutencoes = await this.manutencaoRepository.find({ where: filtroData });
-    const totalAbastecimentos = abastecimentos.reduce((s, a) => s + Number(a.valor_total), 0);
-    const totalLitros = abastecimentos.reduce((s, a) => s + Number(a.quantidade_litros), 0);
+
+    const reqsAll = await this.requisicaoRepository.find({
+      where: { orgao_id: orgaoId, status: StatusRequisicaoFrota.ABASTECIDO },
+    });
+    const reqsFiltered = mes
+      ? reqsAll.filter((r) => {
+          const dt = r.data_abastecimento
+            ? new Date(r.data_abastecimento).toISOString().slice(0, 7)
+            : (r.data_requisicao || '').slice(0, 7);
+          return dt === mes;
+        })
+      : reqsAll;
+
+    const totalLitrosReq = reqsFiltered.reduce((s, r) => s + Number(r.quantidade_abastecida ?? r.quantidade_autorizada ?? 0), 0);
+    const totalValorReq = reqsFiltered.reduce((s, r) => s + Number(r.valor_total ?? 0), 0);
+
+    const totalAbastecimentosValor = abastecimentos.reduce((s, a) => s + Number(a.valor_total), 0);
+    const totalLitrosManual = abastecimentos.reduce((s, a) => s + Number(a.quantidade_litros), 0);
     const totalManutencoes = manutencoes.reduce((s, m) => s + Number(m.valor), 0);
+
     return {
       total_veiculos: veiculos,
-      total_abastecimentos: abastecimentos.length,
-      total_litros: totalLitros,
-      valor_abastecimentos: totalAbastecimentos,
+      total_abastecimentos: abastecimentos.length + reqsFiltered.length,
+      total_litros: totalLitrosManual + totalLitrosReq,
+      valor_abastecimentos: totalAbastecimentosValor + totalValorReq,
       valor_manutencoes: totalManutencoes,
-      valor_total: totalAbastecimentos + totalManutencoes,
+      valor_total: totalAbastecimentosValor + totalValorReq + totalManutencoes,
     };
   }
 }

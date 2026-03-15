@@ -81,6 +81,7 @@ export default function RequisicoesPage() {
   const [motivoNegacao, setMotivoNegacao] = useState('')
   const [contratoAtivo, setContratoAtivo] = useState<Contrato | null>(null)
   const [erroSaldo, setErroSaldo] = useState<string | null>(null)
+  const [podeExcluirRequisicao, setPodeExcluirRequisicao] = useState(false)
 
   const carregarContratoAtivo = useCallback(async () => {
     const res = await authFetch(`${API_URL}/api/frota/contratos/ativo`)
@@ -95,12 +96,17 @@ export default function RequisicoesPage() {
   const carregar = useCallback(async () => {
     const params = new URLSearchParams({ mes })
     if (filtroStatus !== 'TODOS') params.set('status', filtroStatus)
-    const [resReq, resVeic] = await Promise.all([
+    const [resReq, resVeic, resPodeExcluir] = await Promise.all([
       authFetch(`${API_URL}/api/frota/requisicoes?${params}`),
       authFetch(`${API_URL}/api/frota/veiculos`),
+      authFetch(`${API_URL}/api/frota/requisicoes/posso-excluir`),
     ])
     if (resReq.ok) setRequisicoes(await resReq.json())
     if (resVeic.ok) setVeiculos(await resVeic.json())
+    if (resPodeExcluir.ok) {
+      const { pode } = await resPodeExcluir.json()
+      setPodeExcluirRequisicao(!!pode)
+    }
     setLoading(false)
   }, [mes, filtroStatus])
 
@@ -187,6 +193,20 @@ export default function RequisicoesPage() {
     carregar()
   }
 
+  const excluir = async (req: Requisicao) => {
+    if (!confirm('Excluir esta requisição? O saldo do contrato será restaurado.')) return
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao excluir')
+        return
+      }
+      carregar()
+    } finally { setActionLoading(false) }
+  }
+
   const copiarCodigo = (codigo: string) => {
     navigator.clipboard?.writeText(codigo).catch(() => {})
   }
@@ -230,7 +250,7 @@ export default function RequisicoesPage() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="text-xs uppercase text-gray-500">
@@ -306,7 +326,12 @@ export default function RequisicoesPage() {
                         </Button>
                       )}
                       {['PENDENTE', 'AUTORIZADO'].includes(r.status) && (
-                        <Button size="sm" variant="ghost" className="text-gray-400 hover:text-gray-600" onClick={() => cancelar(r)}>
+                        <Button size="sm" variant="ghost" className="text-gray-400 hover:text-gray-600" title="Cancelar" onClick={() => cancelar(r)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      {podeExcluirRequisicao && (
+                        <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-800 hover:bg-red-50" title="Excluir (restaura saldo do contrato)" onClick={() => excluir(r)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       )}

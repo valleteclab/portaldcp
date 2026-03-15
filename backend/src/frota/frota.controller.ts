@@ -1,11 +1,14 @@
 import {
   Controller, Get, Post, Put, Delete, Body, Param, Query, Req,
-  ParseUUIDPipe, Res,
+  ParseUUIDPipe, Res, ForbiddenException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import type { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { FrotaService } from './frota.service';
 import { FrotaAuthService } from './frota-auth.service';
 
@@ -15,6 +18,8 @@ export class FrotaController {
   constructor(
     private readonly frotaService: FrotaService,
     private readonly frotaAuthService: FrotaAuthService,
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
   private getOrgaoId(user: JwtPayload): string {
@@ -173,6 +178,13 @@ export class FrotaController {
 
   // ========== REQUISIÇÕES ==========
 
+  @Get('requisicoes/posso-excluir')
+  async possoExcluirRequisicao(@Req() req: { user: JwtPayload }) {
+    if (req.user.type === UserType.ORGAO) return { pode: true };
+    const usuario = await this.usuarioRepository.findOne({ where: { id: req.user.sub } });
+    return { pode: !!usuario?.pode_excluir_requisicao_combustivel };
+  }
+
   @Get('requisicoes')
   async listarRequisicoes(
     @Req() req: { user: JwtPayload },
@@ -217,6 +229,21 @@ export class FrotaController {
   @Put('requisicoes/:id/cancelar')
   async cancelarRequisicao(@Param('id', ParseUUIDPipe) id: string, @Req() req: { user: JwtPayload }) {
     return this.frotaService.cancelarRequisicao(id, this.getOrgaoId(req.user));
+  }
+
+  @Delete('requisicoes/:id')
+  async excluirRequisicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtPayload },
+  ) {
+    if (req.user.type === UserType.USUARIO) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: req.user.sub } });
+      if (!usuario?.pode_excluir_requisicao_combustivel) {
+        throw new ForbiddenException('Você não tem permissão para excluir requisições de combustível');
+      }
+    }
+    await this.frotaService.excluirRequisicao(id, this.getOrgaoId(req.user));
+    return { message: 'Requisição excluída' };
   }
 
   @Get('requisicoes/verificar/:codigo')

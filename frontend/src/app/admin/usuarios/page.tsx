@@ -93,6 +93,7 @@ interface Usuario {
   pode_liberar_contratos?: boolean
   pode_excluir_medicao?: boolean
   pode_excluir_contratos?: boolean
+  pode_excluir_requisicao_combustivel?: boolean
   eh_fiscal_contrato?: boolean
   pode_gerenciar_os?: boolean
   pode_receber_patrimonio?: boolean
@@ -163,6 +164,7 @@ export default function AdminUsuariosPage() {
     pode_liberar_contratos: false,
     pode_excluir_medicao: false,
     pode_excluir_contratos: false,
+    pode_excluir_requisicao_combustivel: false,
     eh_fiscal_contrato: false,
     pode_gerenciar_os: false,
     pode_receber_patrimonio: false,
@@ -240,6 +242,7 @@ export default function AdminUsuariosPage() {
       pode_liberar_contratos: usuario.pode_liberar_contratos || false,
       pode_excluir_medicao: usuario.pode_excluir_medicao || false,
       pode_excluir_contratos: usuario.pode_excluir_contratos || false,
+      pode_excluir_requisicao_combustivel: usuario.pode_excluir_requisicao_combustivel || false,
       eh_fiscal_contrato: usuario.eh_fiscal_contrato || false,
       pode_gerenciar_os: usuario.pode_gerenciar_os || false,
       pode_receber_patrimonio: usuario.pode_receber_patrimonio || false,
@@ -288,6 +291,7 @@ export default function AdminUsuariosPage() {
         pode_liberar_contratos: formUsuario.pode_liberar_contratos,
         pode_excluir_medicao: formUsuario.pode_excluir_medicao,
         pode_excluir_contratos: formUsuario.pode_excluir_contratos,
+        pode_excluir_requisicao_combustivel: formUsuario.pode_excluir_requisicao_combustivel,
         eh_fiscal_contrato: formUsuario.eh_fiscal_contrato,
         pode_gerenciar_os: formUsuario.pode_gerenciar_os,
         pode_receber_patrimonio: formUsuario.pode_receber_patrimonio,
@@ -702,7 +706,12 @@ export default function AdminUsuariosPage() {
                               Patrimônio
                             </Badge>
                           )}
-                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && !usuario.pode_gerenciar_os && !usuario.pode_receber_patrimonio && (
+                          {usuario.pode_excluir_requisicao_combustivel && (
+                            <Badge className="bg-orange-100 text-orange-800 text-xs" title="Pode excluir requisições de combustível">
+                              Excluir Req. Combustível
+                            </Badge>
+                          )}
+                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && !usuario.pode_gerenciar_os && !usuario.pode_receber_patrimonio && !usuario.pode_excluir_requisicao_combustivel && (
                             <span className="text-gray-400 text-xs">-</span>
                           )}
                         </div>
@@ -1102,6 +1111,20 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-patrimonio" className="cursor-pointer">
                       <p className="text-sm font-medium text-slate-800">Receber patrimônio</p>
                       <p className="text-xs text-slate-600">Aceitar recebimentos de itens permanentes (patrimônio)</p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <Checkbox
+                      id="perm-excluir-req-combustivel"
+                      checked={formUsuario.pode_excluir_requisicao_combustivel}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_excluir_requisicao_combustivel: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-excluir-req-combustivel" className="cursor-pointer">
+                      <p className="text-sm font-medium text-orange-800">Excluir requisição combustível</p>
+                      <p className="text-xs text-orange-600">Excluir requisições de abastecimento (frota). O saldo do contrato é restaurado.</p>
                     </label>
                   </div>
                 </div>

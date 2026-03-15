@@ -7,6 +7,8 @@ import { Orgao } from '../../orgaos/entities/orgao.entity';
 export enum TipoCredencialFrota {
   POSTO = 'POSTO',
   VEREADOR = 'VEREADOR',
+  /** Portal único por órgão — um link para todos os vereadores acessarem com codigo+senha */
+  VEREADOR_PORTAL = 'VEREADOR_PORTAL',
 }
 
 @Entity('frota_credenciais')

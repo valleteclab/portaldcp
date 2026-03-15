@@ -120,6 +120,13 @@ export class Usuario {
   pode_excluir_contratos: boolean;
 
   /**
+   * Indica se o usuário pode excluir requisições de combustível (frota).
+   * Ao excluir, o saldo do contrato é restaurado automaticamente.
+   */
+  @Column({ default: false })
+  pode_excluir_requisicao_combustivel: boolean;
+
+  /**
    * Indica se o usuário é fiscal de contrato.
    * Fiscais podem atestar medições, devolver ao fornecedor e acessar o painel de medições.
    */

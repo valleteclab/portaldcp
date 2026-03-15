@@ -7,7 +7,7 @@ import { API_URL } from '@/lib/api'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface VereadorInfo { nome: string; cargo?: string; orgao_nome?: string; logo_url?: string }
+interface VereadorInfo { tipo?: 'VEREADOR' | 'VEREADOR_PORTAL'; nome: string; cargo?: string; orgao_nome?: string; logo_url?: string }
 interface CredencialInfo { id: string; nome: string; cargo?: string; orgao_nome?: string; cota_mensal_litros: number; veiculo_ids: string[] }
 interface Requisicao {
   id: string; codigo: string; codigo_posto?: string; tipo_combustivel: string
@@ -54,6 +54,7 @@ export default function VereadorSlugPage() {
   const [infoErro, setInfoErro] = useState('')
 
   // Login
+  const [codigoAcesso, setCodigoAcesso] = useState('')
   const [senha, setSenha] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
@@ -111,17 +112,25 @@ export default function VereadorSlugPage() {
 
   // ─── Login ────────────────────────────────────────────────────────────────
 
+  const isPortal = vereadorInfo?.tipo === 'VEREADOR_PORTAL'
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginLoading(true); setLoginError('')
     try {
-      const res = await fetch(`${FROTA_PUB}/auth-vereador/${slug}`, {
+      const endpoint = isPortal
+        ? `${FROTA_PUB}/auth-vereador-portal/${slug}`
+        : `${FROTA_PUB}/auth-vereador/${slug}`
+      const body = isPortal
+        ? { codigo_acesso: codigoAcesso.trim(), senha }
+        : { senha }
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senha }),
+        body: JSON.stringify(body),
       })
       const json = await res.json()
-      if (!res.ok) { setLoginError(json.message || 'Senha incorreta'); return }
+      if (!res.ok) { setLoginError(json.message || 'Credenciais incorretas'); return }
       if (json.credencial?.tipo !== 'VEREADOR') { setLoginError('Acesso exclusivo para vereadores'); return }
       localStorage.setItem(LS_KEY, json.token)
       localStorage.setItem('frota_vereador_orgao_id', json.credencial.orgao_id)
@@ -206,7 +215,7 @@ export default function VereadorSlugPage() {
             {vereadorInfo && (
               <div className="bg-slate-700 rounded-xl p-3 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-sm">
-                  {initials(vereadorInfo.nome)}
+                  {isPortal ? '👥' : initials(vereadorInfo.nome)}
                 </div>
                 <div>
                   <p className="text-white font-semibold text-sm">{vereadorInfo.nome}</p>
@@ -214,21 +223,36 @@ export default function VereadorSlugPage() {
                 </div>
               </div>
             )}
+            {isPortal ? (
+              <div>
+                <label className="block text-slate-300 text-sm mb-1.5">Código de acesso</label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-orange-400"
+                  placeholder="Ex: VER001"
+                  value={codigoAcesso}
+                  onChange={e => setCodigoAcesso(e.target.value.toUpperCase())}
+                  required
+                  autoComplete="username"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-slate-300 text-sm mb-1.5">Senha</label>
               <input
                 type="password"
-                className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+                className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-orange-400"
                 placeholder="Sua senha"
                 value={senha}
                 onChange={e => setSenha(e.target.value)}
                 required
-                autoFocus
+                autoFocus={!isPortal}
+                autoComplete="current-password"
               />
             </div>
             {loginError && <p className="text-red-400 text-sm text-center">{loginError}</p>}
-            <button type="submit" disabled={loginLoading || !senha}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2">
+            <button type="submit" disabled={loginLoading || !senha || (isPortal && !codigoAcesso.trim())}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 min-h-[44px]">
               {loginLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar'}
             </button>
           </form>

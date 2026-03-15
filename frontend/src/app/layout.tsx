@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -12,20 +12,26 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#ea580c",
+};
+
 export const metadata: Metadata = {
   title: "Portal DCP - Diário de Compras Públicas",
   description: "Sistema completo de gestão de licitações públicas conforme Lei 14.133/2021. Participe de licitações de forma simples, segura e transparente.",
   keywords: ["licitações", "compras públicas", "pregão", "Lei 14.133", "PNCP", "fornecedores"],
   authors: [{ name: "ValletecLab" }],
+  manifest: "/site.webmanifest",
+  appleWebApp: { capable: true, statusBarStyle: "default" },
   icons: {
     icon: [
       { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
       { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
     ],
     apple: [{ url: "/apple-touch-icon.png" }],
-    other: [
-      { rel: "manifest", url: "/site.webmanifest" },
-    ],
   },
 };
 

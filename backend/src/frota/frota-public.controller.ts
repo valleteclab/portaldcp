@@ -52,12 +52,32 @@ export class FrotaPublicController {
 
   @Get('vereador-link/:slug/info')
   async infoVereador(@Param('slug') slug: string) {
-    return this.frotaAuth.obterInfoVereador(slug);
+    try {
+      return await this.frotaAuth.obterInfoVereador(slug);
+    } catch {
+      return await this.frotaAuth.obterInfoVereadorPortal(slug);
+    }
+  }
+
+  @Get('vereador-portal/:slug/info')
+  async infoVereadorPortal(@Param('slug') slug: string) {
+    return this.frotaAuth.obterInfoVereadorPortal(slug);
   }
 
   @Post('auth-vereador/:slug')
   async loginVereador(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginPorSlugVereador(slug, body.senha, getIp(req), getUserAgent(req));
+  }
+
+  @Post('auth-vereador-portal/:slug')
+  async loginVereadorPortal(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
+    return this.frotaAuth.loginVereadorPortal(
+      slug,
+      body.codigo_acesso || body.codigoAcesso,
+      body.senha,
+      getIp(req),
+      getUserAgent(req),
+    );
   }
 
   // ================================================================
