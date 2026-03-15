@@ -41,7 +41,9 @@ export class FrotaAuthService {
       where: { orgao_id: orgaoId },
       order: { tipo: 'ASC', nome: 'ASC' },
       select: ['id', 'tipo', 'nome', 'codigo_acesso', 'solicitante_cargo',
-               'cota_mensal_litros', 'veiculo_ids', 'url_slug', 'ativo', 'ultimo_acesso', 'created_at'],
+               'cota_mensal_litros', 'veiculo_ids', 'url_slug', 'ativo', 'ultimo_acesso', 'created_at',
+               'contrato_id'],
+      relations: { contrato: true },
     });
   }
 
