@@ -25,8 +25,9 @@ interface VereadorData {
 const LS_KEY = 'frota_vereador_token'
 const FROTA_PUB = `${API_URL}/api/frota-pub`
 
+const TZ_BRASIL = 'America/Sao_Paulo'
 const fmtLitros = (v: number) => `${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })} L`
-const fmtData = (d: string) => d ? d.split('T')[0].split('-').reverse().join('/') : ''
+const fmtData = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: TZ_BRASIL }) : ''
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
 function getQrUrl(token: string, origin: string) {

@@ -190,7 +190,7 @@ export class FrotaPublicController {
     const dados = await this.frotaService.gerarDadosRelatorioSiga(orgaoId, mesAtual);
 
     const [ano, m] = mesAtual.split('-');
-    const nomeMes = new Date(`${mesAtual}-15`).toLocaleString('pt-BR', { month: 'long' }).toUpperCase();
+    const nomeMes = new Date(`${mesAtual}-15`).toLocaleString('pt-BR', { month: 'long', timeZone: 'America/Sao_Paulo' }).toUpperCase();
 
     const linhas: string[] = [];
     linhas.push('CONSUMO DE COMBUSTIVEL - FROTA SIGA');
