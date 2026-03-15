@@ -12,6 +12,7 @@ const QrScannerModal = dynamic(
   () => import('../QrScannerModal').then(m => m.QrScannerModal),
   { ssr: false, loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div> },
 )
+import { QrScannerErrorBoundary } from '../QrScannerErrorBoundary'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -343,13 +344,13 @@ export default function PostoPage() {
         <p className="text-slate-400 text-sm">Escaneie o QR Code ou digite o código da autorização</p>
       </div>
 
-      {/* Botão Escanear QR */}
+      {/* Botão Ler QR Code (foto/imagem) */}
       <button
         onClick={() => setMostrandoScanner(true)}
         className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-4 rounded-2xl flex items-center justify-center gap-3"
       >
         <QrCode className="w-6 h-6" />
-        Escanear QR Code
+        Ler QR Code (foto ou imagem)
       </button>
 
       <div className="flex items-center gap-2 text-slate-400 text-sm">
@@ -642,10 +643,12 @@ export default function PostoPage() {
 
       {/* QR Scanner */}
       {mostrandoScanner && (
-        <QrScannerModal
-          onScan={handleQrScan}
-          onClose={() => setMostrandoScanner(false)}
-        />
+        <QrScannerErrorBoundary onClose={() => setMostrandoScanner(false)}>
+          <QrScannerModal
+            onScan={handleQrScan}
+            onClose={() => setMostrandoScanner(false)}
+          />
+        </QrScannerErrorBoundary>
       )}
     </div>
   )
