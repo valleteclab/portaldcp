@@ -31,6 +31,13 @@ interface Contrato {
   observacoes?: string
   ativo: boolean
   itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; quantidade_consumida?: number; valor_total: number }[]
+  // saldo calculado pelo backend
+  litros_consumidos?: number
+  valor_consumido?: number
+  saldo_inicial_litros?: number | null
+  valor_total_contrato?: number | null
+  saldo_litros?: number | null
+  saldo_valor?: number | null
 }
 
 interface ItemContratoPrincipal {
@@ -202,7 +209,9 @@ export default function ContratosPage() {
                 <TableHead>Nº Contrato</TableHead>
                 <TableHead>Fornecedor</TableHead>
                 <TableHead>Itens (combustível / preço)</TableHead>
-                <TableHead className="text-right">Limite Mensal</TableHead>
+                <TableHead className="text-right">Saldo Inicial</TableHead>
+                <TableHead className="text-right">Consumido</TableHead>
+                <TableHead className="text-right">Saldo Disponível</TableHead>
                 <TableHead>Vigência</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead></TableHead>
@@ -210,7 +219,7 @@ export default function ContratosPage() {
             </TableHeader>
             <TableBody>
               {contratos.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-gray-400">Nenhum contrato cadastrado</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-10 text-gray-400">Nenhum contrato cadastrado</TableCell></TableRow>
               )}
               {contratos.map(c => (
                 <TableRow key={c.id} className={isAtivo(c) ? 'bg-green-50/40' : ''}>
@@ -236,8 +245,44 @@ export default function ContratosPage() {
                         </div>
                       : <span className="font-mono">R$ {fmtPreco(c.preco_litro ?? 0)}</span>}
                   </TableCell>
-                  <TableCell className="text-right">
-                    {c.limite_litros_mensal ? `${Number(c.limite_litros_mensal).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L/mês` : '—'}
+                  {/* Saldo Inicial */}
+                  <TableCell className="text-right text-sm">
+                    {c.saldo_inicial_litros != null
+                      ? <div>
+                          <p className="font-semibold text-slate-700">{Number(c.saldo_inicial_litros).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L</p>
+                          {c.valor_total_contrato != null && <p className="text-xs text-slate-400">{fmt(c.valor_total_contrato)}</p>}
+                        </div>
+                      : <span className="text-slate-400 text-xs">
+                          {c.limite_litros_mensal ? `${Number(c.limite_litros_mensal).toLocaleString('pt-BR', { minimumFractionDigits: 0 })} L/mês` : '—'}
+                        </span>}
+                  </TableCell>
+                  {/* Consumido */}
+                  <TableCell className="text-right text-sm">
+                    {(c.litros_consumidos ?? 0) > 0
+                      ? <div>
+                          <p className="font-semibold text-orange-600">{Number(c.litros_consumidos).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L</p>
+                          <p className="text-xs text-slate-400">{fmt(c.valor_consumido ?? 0)}</p>
+                          {c.saldo_inicial_litros != null && c.saldo_inicial_litros > 0 && (
+                            <div className="mt-1 h-1.5 w-20 bg-slate-200 rounded-full overflow-hidden ml-auto">
+                              <div
+                                className={`h-full rounded-full ${(c.litros_consumidos! / c.saldo_inicial_litros) > 0.9 ? 'bg-red-500' : 'bg-orange-400'}`}
+                                style={{ width: `${Math.min(100, (Number(c.litros_consumidos ?? 0) / Number(c.saldo_inicial_litros)) * 100).toFixed(0)}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      : <span className="text-slate-400">—</span>}
+                  </TableCell>
+                  {/* Saldo Disponível */}
+                  <TableCell className="text-right text-sm">
+                    {c.saldo_litros != null
+                      ? <div>
+                          <p className={`font-bold ${c.saldo_litros <= 0 ? 'text-red-600' : c.saldo_litros < (c.saldo_inicial_litros! * 0.1) ? 'text-amber-600' : 'text-green-700'}`}>
+                            {Number(c.saldo_litros).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L
+                          </p>
+                          {c.saldo_valor != null && <p className="text-xs text-slate-400">{fmt(c.saldo_valor)}</p>}
+                        </div>
+                      : <span className="text-slate-400">—</span>}
                   </TableCell>
                   <TableCell className="text-sm">
                     {fmtData(c.data_inicio)} → {fmtData(c.data_fim)}

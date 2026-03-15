@@ -13,9 +13,19 @@ interface Credencial {
   solicitante_cargo?: string
   cota_mensal_litros?: number
   url_slug?: string
+  contrato_id?: string | null
+  contrato?: { id: string; numero_contrato: string; fornecedor_nome: string } | null
   ativo: boolean
   ultimo_acesso?: string
   created_at: string
+}
+
+interface ContratoSimples {
+  id: string
+  numero_contrato: string
+  fornecedor_nome: string
+  data_fim: string
+  ativo: boolean
 }
 
 interface LogAcesso {
@@ -72,6 +82,8 @@ export default function FrotaCredenciaisPage() {
   const [formCota, setFormCota] = useState('')
   const [formSlug, setFormSlug] = useState('')
   const [formAtivo, setFormAtivo] = useState(true)
+  const [formContratoId, setFormContratoId] = useState<string>('')
+  const [contratos, setContratos] = useState<ContratoSimples[]>([])
 
   // Excluir
   const [excluindo, setExcluindo] = useState<string | null>(null)
@@ -119,6 +131,15 @@ export default function FrotaCredenciaisPage() {
     if (aba === 'logs') carregarLogs()
   }, [aba, carregarLogs])
 
+  // ─── Carregar contratos disponíveis ──────────────────────────────────────
+
+  const carregarContratos = useCallback(async () => {
+    try {
+      const res = await fetch('/api/frota/contratos', { headers: authHeaders() })
+      if (res.ok) setContratos(await res.json())
+    } catch { /* ignore */ }
+  }, [authHeaders])
+
   // ─── Modal helpers ────────────────────────────────────────────────────────
 
   function abrirNovo(tipo: 'POSTO' | 'VEREADOR' | 'VEREADOR_PORTAL') {
@@ -131,7 +152,9 @@ export default function FrotaCredenciaisPage() {
     setFormCota('')
     setFormSlug('')
     setFormAtivo(true)
+    setFormContratoId('')
     setErroModal('')
+    if (tipo === 'POSTO') carregarContratos()
     setModalAberto(true)
   }
 
@@ -145,7 +168,9 @@ export default function FrotaCredenciaisPage() {
     setFormCota(c.cota_mensal_litros?.toString() || '')
     setFormSlug(c.url_slug || '')
     setFormAtivo(c.ativo)
+    setFormContratoId(c.contrato_id || '')
     setErroModal('')
+    if (c.tipo === 'POSTO') carregarContratos()
     setModalAberto(true)
   }
 
@@ -164,6 +189,7 @@ export default function FrotaCredenciaisPage() {
       cota_mensal_litros: formCota ? parseFloat(formCota) : undefined,
       url_slug: formSlug.trim() || undefined,
       ativo: formAtivo,
+      contrato_id: formContratoId || null,
     }
     if (formSenha.trim()) body.senha = formSenha.trim()
 
@@ -317,6 +343,15 @@ export default function FrotaCredenciaisPage() {
                       </div>
                       <div className="text-sm text-gray-500 space-y-0.5">
                         <div>Código: <code className="bg-gray-100 px-1 rounded text-xs">{c.codigo_acesso}</code></div>
+                        {c.contrato ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs bg-blue-50 border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                              📄 {c.contrato.numero_contrato} · {c.contrato.fornecedor_nome}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-amber-600">⚠️ Sem contrato vinculado</div>
+                        )}
                         {c.url_slug && (
                           <div className="flex items-center gap-2">
                             <span>URL:</span>
@@ -660,6 +695,25 @@ export default function FrotaCredenciaisPage() {
                     <p className="text-xs text-gray-400 mt-1">Limite de litros que este vereador pode solicitar por mês.</p>
                   </div>
                 </>
+              )}
+
+              {formTipo === 'POSTO' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contrato de Abastecimento</label>
+                  <select
+                    value={formContratoId}
+                    onChange={e => setFormContratoId(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Sem contrato vinculado —</option>
+                    {contratos.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.numero_contrato} · {c.fornecedor_nome}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Vincula o posto ao contrato de fornecimento de combustível.</p>
+                </div>
               )}
 
               {(formTipo === 'POSTO' || formTipo === 'VEREADOR_PORTAL') && (

@@ -170,9 +170,48 @@ export class FrotaService {
   // ============================================================
 
   async listarContratos(orgaoId: string) {
-    return this.contratoRepository.find({
+    const contratos = await this.contratoRepository.find({
       where: { orgao_id: orgaoId },
       order: { data_inicio: 'DESC' },
+    });
+
+    // Enriquecer com dados de consumo calculados a partir das requisições
+    const consumo = await this.requisicaoRepository
+      .createQueryBuilder('r')
+      .select('r.contrato_id', 'contrato_id')
+      .addSelect('SUM(r.quantidade_abastecida)', 'litros_consumidos')
+      .addSelect('SUM(r.valor_total)', 'valor_consumido')
+      .where('r.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('r.status = :status', { status: StatusRequisicaoFrota.ABASTECIDO })
+      .andWhere('r.contrato_id IS NOT NULL')
+      .groupBy('r.contrato_id')
+      .getRawMany();
+
+    const consumoMap = new Map(consumo.map(c => [c.contrato_id, c]));
+
+    return contratos.map(c => {
+      const cons = consumoMap.get(c.id);
+      const litros_consumidos = parseFloat(cons?.litros_consumidos || '0');
+      const valor_consumido = parseFloat(cons?.valor_consumido || '0');
+
+      // saldo inicial: da soma dos itens importados, ou nulo se só tem limite mensal
+      const itens = c.itens || [];
+      const saldo_inicial_litros = itens.length > 0
+        ? itens.reduce((s, i) => s + Number(i.quantidade_contratada || 0), 0)
+        : null;
+      const valor_total_contrato = itens.length > 0
+        ? itens.reduce((s, i) => s + Number(i.valor_total || 0), 0)
+        : null;
+
+      return {
+        ...c,
+        litros_consumidos,
+        valor_consumido,
+        saldo_inicial_litros,
+        valor_total_contrato,
+        saldo_litros: saldo_inicial_litros !== null ? saldo_inicial_litros - litros_consumidos : null,
+        saldo_valor: valor_total_contrato !== null ? valor_total_contrato - valor_consumido : null,
+      };
     });
   }
 

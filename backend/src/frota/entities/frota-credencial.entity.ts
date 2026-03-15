@@ -3,6 +3,7 @@ import {
   CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
+import { FrotaContrato } from './frota-contrato.entity';
 
 export enum TipoCredencialFrota {
   POSTO = 'POSTO',
@@ -45,6 +46,14 @@ export class FrotaCredencial {
   /** Slug único para URL do posto: /frota/posto/{url_slug} */
   @Column({ nullable: true, unique: true })
   url_slug: string;
+
+  /** Contrato de abastecimento vinculado a este posto (para saber qual contrato/preço usar) */
+  @ManyToOne(() => FrotaContrato, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'contrato_id' })
+  contrato: FrotaContrato;
+
+  @Column({ nullable: true })
+  contrato_id: string | null;
 
   @Column({ default: true })
   ativo: boolean;
