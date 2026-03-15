@@ -214,10 +214,10 @@ export default function ReqTokenPage() {
   // ─── Ordem de Fornecimento ─────────────────────────────────────────────────
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b' }}>
+    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b', overflowX: 'hidden', padding: '0 0.5rem', boxSizing: 'border-box' }}>
 
       {/* Ações (ocultas na impressão) */}
-      <div className="no-print" style={{ background: '#1e293b', padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+      <div className="no-print" style={{ background: '#1e293b', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94a3b8', fontSize: '0.875rem' }}>
           <span>⛽</span>
           <span>Ordem de Fornecimento de Combustível</span>
@@ -242,22 +242,22 @@ export default function ReqTokenPage() {
       </div>
 
       {/* Documento principal */}
-      <div style={{ maxWidth: '760px', margin: '1.5rem auto', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+      <div className="doc-container" style={{ maxWidth: '760px', width: '100%', margin: '1.5rem auto', padding: '0 0.75rem', boxSizing: 'border-box', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
 
         {/* Cabeçalho */}
-        <div style={{ borderBottom: '3px solid #f97316', padding: '1.5rem 2rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <div style={{ flex: 1 }}>
+        <div className="doc-header" style={{ borderBottom: '3px solid #f97316', padding: '1.5rem 1rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ flex: '1 1 200px', minWidth: 0 }}>
             {requisicao.orgao_nome && (
               <p style={{ margin: '0 0 0.25rem', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 {requisicao.orgao_nome}
               </p>
             )}
-            <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
+            <h1 style={{ margin: 0, fontSize: 'clamp(1rem, 4vw, 1.2rem)', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
               ORDEM DE FORNECIMENTO<br />
               <span style={{ color: '#f97316' }}>DE COMBUSTÍVEL</span>
             </h1>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <p style={{ margin: '0 0 0.25rem', fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>{requisicao.codigo}</p>
             <p style={{ margin: '0 0 0.1rem', fontSize: '0.75rem', color: '#64748b' }}>Emitido em: {fmtDataHora(requisicao.data_autorizacao)}</p>
             {requisicao.token_expiry && (
@@ -270,19 +270,19 @@ export default function ReqTokenPage() {
 
         {/* Status banner */}
         {isAbastecido ? (
-          <div style={{ background: '#dcfce7', borderBottom: '1px solid #bbf7d0', padding: '0.6rem 2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#166534', fontSize: '0.875rem', fontWeight: 600 }}>
+          <div style={{ background: '#dcfce7', borderBottom: '1px solid #bbf7d0', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#166534', fontSize: '0.875rem', fontWeight: 600 }}>
             ✅ AUTORIZAÇÃO UTILIZADA — Abastecimento confirmado
           </div>
         ) : !isAutorizado ? (
-          <div style={{ background: '#fef3c7', borderBottom: '1px solid #fde68a', padding: '0.6rem 2rem', color: '#92400e', fontSize: '0.875rem', fontWeight: 600 }}>
+          <div style={{ background: '#fef3c7', borderBottom: '1px solid #fde68a', padding: '0.6rem 1rem', color: '#92400e', fontSize: '0.875rem', fontWeight: 600 }}>
             ⚠️ Status: {requisicao.status}
           </div>
         ) : null}
 
-        <div style={{ padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '1fr auto', gap: '2rem', alignItems: 'start' }}>
+        <div className="doc-body" style={{ padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '2rem', alignItems: 'stretch' }}>
 
           {/* Dados da ordem */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 }}>
 
             {/* Solicitante */}
             <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1rem', border: '1px solid #e2e8f0' }}>
@@ -339,26 +339,26 @@ export default function ReqTokenPage() {
           </div>
 
           {/* QR Code + código postal */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', minWidth: '200px' }}>
+          <div className="doc-qr-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', minWidth: 0, width: '100%' }}>
             {isAutorizado && origin && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={getQrUrl(token, origin)}
                   alt="QR Code de verificação"
-                  style={{ width: 200, height: 200, border: '3px solid #e2e8f0', borderRadius: '12px', background: '#fff' }}
+                  style={{ width: 200, height: 200, maxWidth: '100%', border: '3px solid #e2e8f0', borderRadius: '12px', background: '#fff' }}
                 />
-                <p style={{ margin: 0, fontSize: '0.65rem', color: '#94a3b8', textAlign: 'center', maxWidth: '180px' }}>
+                <p style={{ margin: 0, fontSize: '0.65rem', color: '#94a3b8', textAlign: 'center', maxWidth: '220px' }}>
                   Escaneie para verificar autenticidade
                 </p>
               </>
             )}
             {requisicao.codigo_posto && (
-              <div style={{ border: '2px solid #f97316', borderRadius: '12px', padding: '0.75rem 1.25rem', textAlign: 'center', background: '#fff7ed', width: '100%' }}>
+              <div style={{ border: '2px solid #f97316', borderRadius: '12px', padding: '0.75rem 1.25rem', textAlign: 'center', background: '#fff7ed', width: '100%', maxWidth: '220px', boxSizing: 'border-box' }}>
                 <p style={{ margin: '0 0 0.25rem', fontSize: '0.65rem', fontWeight: 700, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   Código do Atendente
                 </p>
-                <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '1.75rem', fontWeight: 800, color: '#1e293b', letterSpacing: '0.2em' }}>
+                <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '1.75rem', fontWeight: 800, color: '#1e293b', letterSpacing: '0.2em', wordBreak: 'break-all' }}>
                   {requisicao.codigo_posto}
                 </p>
               </div>
@@ -367,7 +367,7 @@ export default function ReqTokenPage() {
         </div>
 
         {/* Rodapé */}
-        <div style={{ borderTop: '1px solid #e2e8f0', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+        <div style={{ borderTop: '1px solid #e2e8f0', padding: '1rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', background: '#f8fafc' }}>
           <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>
             🔒 Documento verificado digitalmente · Portal DCP
           </p>
@@ -379,10 +379,10 @@ export default function ReqTokenPage() {
 
       {/* Formulário de confirmação (apenas para posto autenticado) */}
       {isAutorizado && postoToken && mostrandoFormConfirmacao && (
-        <div className="no-print" style={{ maxWidth: '760px', margin: '0 auto 2rem', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', padding: '1.5rem 2rem', border: '2px solid #22c55e' }}>
+        <div className="no-print form-confirm" style={{ maxWidth: '760px', width: '100%', margin: '0 auto 2rem', padding: '1.5rem 1rem', boxSizing: 'border-box', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: '2px solid #22c55e' }}>
           <h3 style={{ color: '#15803d', margin: '0 0 1.25rem', fontWeight: 700 }}>⛽ Confirmar Abastecimento</h3>
           <form onSubmit={handleConfirmar}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginBottom: '1rem' }}>
               <div>
                 <label style={{ display: 'block', color: '#374151', fontSize: '0.875rem', marginBottom: '0.4rem', fontWeight: 500 }}>
                   Quantidade abastecida (L) *
@@ -431,6 +431,19 @@ export default function ReqTokenPage() {
       )}
 
       <style>{`
+        .doc-container { box-sizing: border-box; }
+        @media (min-width: 640px) {
+          .doc-body { flex-direction: row !important; }
+          .doc-body > div:first-child { flex: 1; min-width: 0; }
+          .doc-qr-section { width: auto !important; min-width: 200px; }
+          .form-grid { grid-template-columns: 1fr 1fr !important; }
+        }
+        @media (min-width: 760px) {
+          .doc-container { padding-left: 2rem !important; padding-right: 2rem !important; }
+          .doc-header { padding-left: 2rem !important; padding-right: 2rem !important; }
+          .doc-body { padding: 1.5rem 2rem !important; }
+          .form-confirm { padding: 1.5rem 2rem !important; }
+        }
         @media print {
           .no-print { display: none !important; }
           body { background: white !important; }
