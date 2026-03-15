@@ -15,6 +15,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
+import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 
 @Injectable()
 export class ContratosService {
@@ -44,6 +45,8 @@ export class ContratosService {
     private medicaoRepository: Repository<Medicao>,
     @InjectRepository(AtestacaoMensal)
     private atestacaoRepository: Repository<AtestacaoMensal>,
+    @InjectRepository(FrotaContrato)
+    private frotaContratoRepository: Repository<FrotaContrato>,
     private notificacoesService: NotificacoesService,
   ) {
     if (!fs.existsSync(this.uploadPath)) {
@@ -264,6 +267,28 @@ export class ContratosService {
       where: { contrato_id: contrato.id },
       order: { numero_item: 'ASC' },
     });
+
+    // Sobrepõe consumo real do módulo de frota, se este contrato tiver um FrotaContrato vinculado
+    const frotaContrato = await this.frotaContratoRepository.findOne({
+      where: { contrato_id: id },
+    });
+    if (frotaContrato?.itens?.length) {
+      const consumoMap = new Map<string, number>();
+      for (const fi of frotaContrato.itens) {
+        if (fi.item_contrato_id) {
+          consumoMap.set(fi.item_contrato_id, Number(fi.quantidade_consumida ?? 0));
+        }
+      }
+      for (const item of itens) {
+        const consumido = consumoMap.get(item.id);
+        if (consumido !== undefined && consumido > 0) {
+          const qtdContratada = Number(item.quantidade_contratada);
+          const qtdEmpenhada = Number(item.quantidade_empenhada);
+          (item as any).quantidade_entregue = consumido;
+          (item as any).saldo_disponivel = Math.max(0, qtdContratada - qtdEmpenhada - consumido);
+        }
+      }
+    }
 
     let saldoTotalEmValor: number;
     const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;

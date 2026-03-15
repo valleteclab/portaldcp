@@ -47,6 +47,7 @@ import { ImportarContratoIaController } from './importar-contrato-ia.controller'
 import { ImportarContratoIaService } from './importar-contrato-ia.service';
 import { ImportarMedicaoIaController } from './importar-medicao-ia.controller';
 import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
+import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 
 @Module({
   imports: [
@@ -55,7 +56,7 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao, AssinaturaDigital, LinkAssinaturaFiscal,
+      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
     ]),
     NotificacoesModule,
     UploadModule,
