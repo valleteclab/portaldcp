@@ -23,7 +23,7 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 
 interface Veiculo { id: string; placa: string; modelo: string; marca: string; tipo_combustivel: string; chassi?: string; renavam?: string; ativo?: boolean }
-interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number }
+interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number; itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; quantidade_consumida?: number; valor_total: number }[] }
 
 interface Requisicao {
   id: string; codigo: string; codigo_posto?: string; solicitante_nome: string; solicitante_cargo?: string
@@ -79,6 +79,18 @@ export default function RequisicoesPage() {
   const [modalNegar, setModalNegar] = useState(false)
   const [reqSelecionada, setReqSelecionada] = useState<Requisicao | null>(null)
   const [motivoNegacao, setMotivoNegacao] = useState('')
+  const [contratoAtivo, setContratoAtivo] = useState<Contrato | null>(null)
+  const [erroSaldo, setErroSaldo] = useState<string | null>(null)
+
+  const carregarContratoAtivo = useCallback(async () => {
+    const res = await authFetch(`${API_URL}/api/frota/contratos/ativo`)
+    if (res.ok) {
+      const data = await res.json()
+      setContratoAtivo(data)
+    } else {
+      setContratoAtivo(null)
+    }
+  }, [])
 
   const carregar = useCallback(async () => {
     const params = new URLSearchParams({ mes })
@@ -94,7 +106,12 @@ export default function RequisicoesPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  const abrirModal = () => { setForm(vazio); setModalOpen(true) }
+  const abrirModal = () => {
+    setForm(vazio)
+    setErroSaldo(null)
+    setModalOpen(true)
+    carregarContratoAtivo()
+  }
 
   const onVeiculoChange = (id: string) => {
     const v = veiculos.find(v => v.id === id)
@@ -107,6 +124,7 @@ export default function RequisicoesPage() {
 
   const salvar = async () => {
     setActionLoading(true)
+    setErroSaldo(null)
     try {
       const payload = {
         ...form,
@@ -114,9 +132,28 @@ export default function RequisicoesPage() {
         veiculo_id: form.veiculo_id || undefined,
       }
       const res = await authFetch(`${API_URL}/api/frota/requisicoes`, { method: 'POST', body: JSON.stringify(payload) })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
-      setModalOpen(false); carregar()
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        const msg = e.message || 'Erro ao criar requisição'
+        setErroSaldo(msg)
+        return
+      }
+      setModalOpen(false)
+      carregar()
     } finally { setActionLoading(false) }
+  }
+
+  const getSaldoParaTipo = (tipo: string): number | null => {
+    if (!contratoAtivo?.itens?.length) return null
+    const tipoNorm = String(tipo || '').toLowerCase()
+    const item = contratoAtivo.itens.find((i) => {
+      const desc = String(i.descricao || '').toLowerCase()
+      return desc.includes(tipoNorm) || tipoNorm.includes(desc) || desc === tipoNorm
+    })
+    if (!item) return null
+    const qtdContratada = Number(item.quantidade_contratada) || 0
+    const qtdConsumida = Number(item.quantidade_consumida ?? 0) || 0
+    return Math.max(0, qtdContratada - qtdConsumida)
   }
 
   const autorizar = async (req: Requisicao) => {
@@ -350,6 +387,11 @@ export default function RequisicoesPage() {
               <Input type="number" step="0.001" min="0" placeholder="0,000"
                 value={form.quantidade_autorizada}
                 onChange={e => setForm({ ...form, quantidade_autorizada: e.target.value })} />
+              {getSaldoParaTipo(form.tipo_combustivel) !== null && (
+                <p className="text-xs text-muted-foreground">
+                  Saldo disponível: {fmtLitros(getSaldoParaTipo(form.tipo_combustivel)!, 3)} para {LABEL_COMB[form.tipo_combustivel] || form.tipo_combustivel}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5 col-span-2">
               <Label>Finalidade *</Label>
@@ -361,6 +403,11 @@ export default function RequisicoesPage() {
               <Textarea rows={2} value={form.observacoes}
                 onChange={e => setForm({ ...form, observacoes: e.target.value })} />
             </div>
+            {erroSaldo && (
+              <div className="col-span-2 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                {erroSaldo}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>

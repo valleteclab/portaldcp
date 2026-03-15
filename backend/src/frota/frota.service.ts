@@ -232,13 +232,22 @@ export class FrotaService {
       (i: any) => i.unidade_medida === UnidadeMedidaContrato.LITRO,
     );
 
-    const itensImportados = itensLitros.map((i: any) => ({
-      descricao: i.descricao || '',
-      unidade_medida: i.unidade_medida || 'LITRO',
-      preco_litro: Number(i.valor_unitario) || 0,
-      quantidade_contratada: Number(i.quantidade_contratada) || 0,
-      valor_total: Number(i.valor_total) || 0,
-    }));
+    const itensImportados = itensLitros.map((i: any) => {
+      const qtdContratada = Number(i.quantidade_contratada) || 0;
+      const saldoDisp = Number(i.saldo_disponivel) ?? (
+        qtdContratada - Number(i.quantidade_entregue ?? 0) - Number(i.quantidade_empenhada ?? 0)
+      );
+      const qtdConsumida = Math.max(0, qtdContratada - saldoDisp);
+      return {
+        descricao: i.descricao || '',
+        unidade_medida: i.unidade_medida || 'LITRO',
+        preco_litro: Number(i.valor_unitario) || 0,
+        quantidade_contratada: qtdContratada,
+        quantidade_consumida: qtdConsumida,
+        valor_total: Number(i.valor_total) || 0,
+        item_contrato_id: i.id,
+      };
+    });
 
     let precoLitro: number | null = null;
     if (itensImportados.length > 0) {
@@ -307,6 +316,31 @@ export class FrotaService {
     return Number(contrato.preco_litro || 0);
   }
 
+  /**
+   * Obtém o saldo disponível em litros do contrato para um tipo de combustível.
+   * Retorna Infinity quando o contrato não tem itens (sem controle de saldo).
+   */
+  private getSaldoDisponivelContrato(
+    contrato: FrotaContrato | null | undefined,
+    tipoCombustivel: string,
+  ): number {
+    if (!contrato) return Infinity;
+    const itens = contrato.itens;
+    if (Array.isArray(itens) && itens.length > 0) {
+      const tipo = String(tipoCombustivel || '').toLowerCase();
+      const item = itens.find((i) => {
+        const desc = String(i.descricao || '').toLowerCase();
+        return desc.includes(tipo) || tipo.includes(desc) || desc === tipo;
+      });
+      if (item) {
+        const qtdContratada = Number(item.quantidade_contratada) || 0;
+        const qtdConsumida = Number(item.quantidade_consumida ?? 0) || 0;
+        return Math.max(0, qtdContratada - qtdConsumida);
+      }
+    }
+    return Infinity;
+  }
+
   private async gerarCodigoRequisicao(orgaoId: string): Promise<string> {
     const ano = new Date().getFullYear();
     const count = await this.requisicaoRepository.count({
@@ -353,6 +387,18 @@ export class FrotaService {
       if (contratoAtivo) dados.contrato_id = contratoAtivo.id;
     }
 
+    // Validar saldo disponível
+    if (dados.contrato_id) {
+      const contrato = await this.contratoRepository.findOne({ where: { id: dados.contrato_id, orgao_id: orgaoId } });
+      const qtdAutorizada = Number(dados.quantidade_autorizada) || 0;
+      const saldo = this.getSaldoDisponivelContrato(contrato, dados.tipo_combustivel || '');
+      if (saldo !== Infinity && qtdAutorizada > saldo) {
+        throw new BadRequestException(
+          `Saldo insuficiente. Disponível: ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L para ${dados.tipo_combustivel || 'este combustível'}. Solicitado: ${qtdAutorizada.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L.`,
+        );
+      }
+    }
+
     const data_requisicao = dados.data_requisicao || new Date().toISOString().split('T')[0];
     const requisicao = this.requisicaoRepository.create({
       ...dados,
@@ -375,10 +421,23 @@ export class FrotaService {
   }
 
   async autorizarRequisicao(id: string, orgaoId: string, autorizadoPor: string) {
-    const req = await this.requisicaoRepository.findOne({ where: { id, orgao_id: orgaoId } });
+    const req = await this.requisicaoRepository.findOne({
+      where: { id, orgao_id: orgaoId },
+      relations: ['contrato'],
+    });
     if (!req) throw new NotFoundException('Requisição não encontrada');
     if (req.status !== StatusRequisicaoFrota.PENDENTE) {
       throw new BadRequestException('Apenas requisições pendentes podem ser autorizadas');
+    }
+    // Validar saldo disponível
+    if (req.contrato_id && req.contrato) {
+      const saldo = this.getSaldoDisponivelContrato(req.contrato, req.tipo_combustivel || '');
+      const qtdAutorizada = Number(req.quantidade_autorizada) || 0;
+      if (saldo !== Infinity && qtdAutorizada > saldo) {
+        throw new BadRequestException(
+          `Saldo insuficiente. Disponível: ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L para ${req.tipo_combustivel || 'este combustível'}. Solicitado: ${qtdAutorizada.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L.`,
+        );
+      }
     }
     req.status = StatusRequisicaoFrota.AUTORIZADO;
     req.data_autorizacao = new Date();
@@ -457,6 +516,20 @@ export class FrotaService {
     req.observacoes = dados.observacoes ?? req.observacoes;
 
     const salvo = await this.requisicaoRepository.save(req);
+
+    // Atualiza quantidade_consumida no contrato
+    if (req.contrato_id && req.contrato?.itens && Array.isArray(req.contrato.itens)) {
+      const tipo = String(req.tipo_combustivel || '').toLowerCase();
+      const itens = [...req.contrato.itens];
+      const idx = itens.findIndex((i) => {
+        const desc = String(i.descricao || '').toLowerCase();
+        return desc.includes(tipo) || tipo.includes(desc) || desc === tipo;
+      });
+      if (idx >= 0) {
+        itens[idx].quantidade_consumida = (itens[idx].quantidade_consumida ?? 0) + qtd;
+        await this.contratoRepository.update(req.contrato_id, { itens });
+      }
+    }
 
     // Atualiza KM do veículo se informado
     if (req.veiculo_id && dados.km_hodometro) {

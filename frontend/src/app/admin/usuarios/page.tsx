@@ -111,6 +111,7 @@ const MODULOS_DISPONIVEIS = [
   { codigo: 'USUARIOS', nome: 'Usuários', descricao: 'Gestão de usuários do órgão' },
   { codigo: 'FORNECEDORES', nome: 'Fornecedores', descricao: 'Gestão de fornecedores' },
   { codigo: 'ALMOXARIFADO', nome: 'Almoxarifado', descricao: 'Gestão de almoxarifado e ordens de fornecimento' },
+  { codigo: 'FROTA', nome: 'Frota e Combustível', descricao: 'Controle de frota e requisições de abastecimento' },
 ]
 
 const roleLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {

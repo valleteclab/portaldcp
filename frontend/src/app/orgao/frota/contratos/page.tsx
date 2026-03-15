@@ -30,7 +30,7 @@ interface Contrato {
   data_fim: string
   observacoes?: string
   ativo: boolean
-  itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; valor_total: number }[]
+  itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; quantidade_consumida?: number; valor_total: number }[]
 }
 
 interface ItemContratoPrincipal {
@@ -222,11 +222,17 @@ export default function ContratosPage() {
                   <TableCell className="text-sm">
                     {(c.itens && c.itens.length > 0)
                       ? <div className="space-y-0.5">
-                          {c.itens.map((item, i) => (
-                            <div key={i} className="whitespace-nowrap">
-                              {item.descricao?.slice(0, 30)}{item.descricao?.length > 30 ? '…' : ''} — R$ {fmtPreco(item.preco_litro)}
-                            </div>
-                          ))}
+                          {c.itens.map((item, i) => {
+                            const qtdContratada = Number(item.quantidade_contratada) || 0
+                            const qtdConsumida = Number(item.quantidade_consumida ?? 0) || 0
+                            const saldo = Math.max(0, qtdContratada - qtdConsumida)
+                            return (
+                              <div key={i} className="whitespace-nowrap">
+                                {item.descricao?.slice(0, 30)}{item.descricao?.length > 30 ? '…' : ''} — R$ {fmtPreco(item.preco_litro)}
+                                <span className="text-muted-foreground text-xs ml-1">({saldo.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L disp.)</span>
+                              </div>
+                            )
+                          })}
                         </div>
                       : <span className="font-mono">R$ {fmtPreco(c.preco_litro ?? 0)}</span>}
                   </TableCell>
