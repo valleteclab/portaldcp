@@ -2,10 +2,16 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   Fuel, Search, CheckCircle, XCircle, Loader2, QrCode, KeyRound, LogOut,
-  ClipboardList, User, Camera, X,
+  ClipboardList, User,
 } from 'lucide-react'
+
+const QrScannerModal = dynamic(
+  () => import('../QrScannerModal').then(m => m.QrScannerModal),
+  { ssr: false, loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div> },
+)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,85 +45,6 @@ const fmtData = (d: string) => {
   return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
 }
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
-
-/** Extrai token da URL do QR (ex: https://.../frota/req/ABC123...) */
-function extrairTokenDaUrl(url: string): string | null {
-  const m = url.match(/\/frota\/req\/([a-fA-F0-9]{64})/)
-  return m ? m[1] : null
-}
-
-// ─── Componente QrScanner (lazy) ───────────────────────────────────────────────
-
-function QrScannerModal({ onScan, onClose }: { onScan: (token: string) => void; onClose: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [erro, setErro] = useState('')
-  const [iniciando, setIniciando] = useState(true)
-  const scannerRef = useRef<{ stop: () => Promise<void> } | null>(null)
-
-  useEffect(() => {
-    let mounted = true
-    const init = async () => {
-      try {
-        const { Html5Qrcode } = await import('html5-qrcode')
-        const html5Qr = new Html5Qrcode('qr-reader')
-        await html5Qr.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            const token = extrairTokenDaUrl(decodedText)
-            if (token && mounted) {
-              html5Qr.stop().catch(() => {})
-              onScan(token)
-            }
-          },
-          () => {},
-        )
-        if (mounted) {
-          scannerRef.current = html5Qr
-          setIniciando(false)
-        } else {
-          html5Qr.stop().catch(() => {})
-        }
-      } catch (e) {
-        if (mounted) setErro((e as Error).message || 'Erro ao acessar câmera')
-      }
-    }
-    init()
-    return () => {
-      mounted = false
-      scannerRef.current?.stop().catch(() => {})
-    }
-  }, [onScan])
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
-      <div className="flex items-center justify-between p-4 text-white">
-        <h2 className="font-bold text-lg flex items-center gap-2">
-          <Camera className="w-5 h-5" /> Escanear QR Code
-        </h2>
-        <button onClick={onClose} className="p-2 rounded-full bg-white/10 hover:bg-white/20">
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-      <div ref={containerRef} className="flex-1 flex items-center justify-center p-4">
-        <div id="qr-reader" className="w-full max-w-[320px] rounded-2xl overflow-hidden bg-black" />
-        {iniciando && !erro && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-            <Loader2 className="w-10 h-10 animate-spin text-orange-400" />
-          </div>
-        )}
-        {erro && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-            <XCircle className="w-12 h-12 text-red-400 mb-3" />
-            <p className="text-red-300 font-medium">{erro}</p>
-            <p className="text-slate-400 text-sm mt-1">Permita o acesso à câmera nas configurações do navegador.</p>
-          </div>
-        )}
-      </div>
-      <p className="text-slate-400 text-center text-sm pb-6">Aponte a câmera para o QR Code da autorização</p>
-    </div>
-  )
-}
 
 // ─── Componente Principal ──────────────────────────────────────────────────────
 
