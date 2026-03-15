@@ -9,6 +9,7 @@ import { FrotaContrato } from './entities/frota-contrato.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { ContratosService } from '../contratos/contratos.service';
 import { UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
+import { fimDoMesBrasil } from './frota.utils';
 
 @Injectable()
 export class FrotaService {
@@ -488,7 +489,8 @@ export class FrotaService {
       .join('');
     // Gera token seguro para QR Code (32 bytes aleatórios = 64 hex chars)
     req.token_acesso = crypto.randomBytes(32).toString('hex');
-    req.token_expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
+    // Validade: até o fim do mês da autorização em horário Brasil (regra: usar dentro do mês)
+    req.token_expiry = fimDoMesBrasil();
     return this.requisicaoRepository.save(req);
   }
 

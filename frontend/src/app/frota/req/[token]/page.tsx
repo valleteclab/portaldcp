@@ -39,6 +39,8 @@ const TIPO_COMBUSTIVEL_LABELS: Record<string, string> = {
   ELETRICO: 'Elétrico', HIBRIDO: 'Híbrido',
 }
 
+const TZ_BRASIL = 'America/Sao_Paulo'
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtDataHora(d: string) {
@@ -46,12 +48,13 @@ function fmtDataHora(d: string) {
   return new Date(d).toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    timeZone: TZ_BRASIL,
   })
 }
 
 function fmtData(d: string) {
   if (!d) return '-'
-  return new Date(d).toLocaleDateString('pt-BR')
+  return new Date(d).toLocaleDateString('pt-BR', { timeZone: TZ_BRASIL })
 }
 
 function fmtLitros(n: number | string | undefined) {

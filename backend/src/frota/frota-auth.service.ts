@@ -10,6 +10,7 @@ import { FrotaCredencial, TipoCredencialFrota } from './entities/frota-credencia
 import { FrotaAcessoLog, AcaoFrotaLog } from './entities/frota-acesso-log.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
+import { fimDoMesBrasil } from './frota.utils';
 
 export interface FrotaJwtPayload {
   sub: string;         // credencial_id
@@ -273,7 +274,7 @@ export class FrotaAuthService {
 
   gerarTokenAcesso(): { token: string; expiry: Date } {
     const token = crypto.randomBytes(32).toString('hex');
-    const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
+    const expiry = fimDoMesBrasil();
     return { token, expiry };
   }
 

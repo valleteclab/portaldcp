@@ -37,13 +37,17 @@ const TOKEN_KEY = 'frota_posto_token'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const TZ_BRASIL = 'America/Sao_Paulo'
 const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 const fmtLitros = (v: number, dec = 3) =>
   `${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} L`
 const fmtData = (d: string) => {
   if (!d) return '—'
   const dt = new Date(d)
-  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+  return dt.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    timeZone: TZ_BRASIL,
+  }).replace(',', ' · ')
 }
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 

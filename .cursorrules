@@ -1,5 +1,11 @@
 # Scratchpad
 
+## Tarefa Concluída: Validade requisição combustível - fim do mês (2026-03-15)
+
+- [X] Regra: requisição válida até o fim do mês da autorização (não mais 7 dias)
+- [X] frota.service.ts: token_expiry = último dia do mês 23:59:59.999
+- [X] frota-auth.service.ts: gerarTokenAcesso alinhado à mesma regra
+
 ## Tarefa Concluída: Frota Vereador - QR Code e seleção de requisição (2026-03-15)
 
 - [X] QR Code exibido junto ao código na autorização ativa (mesmo serviço qrserver.com da página /frota/req)
