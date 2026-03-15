@@ -1,97 +1,89 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { Camera, X, Loader2, XCircle } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Camera, X, Loader2, Image, AlertCircle } from 'lucide-react'
 
-const QR_READER_ID = 'frota-posto-qr-reader'
+const QR_SCAN_TARGET_ID = 'frota-qr-file-scan-target'
 
-function extrairTokenDaUrl(url: string): string | null {
+const extrairTokenDaUrl = (url: string): string | null => {
   const m = url.match(/\/frota\/req\/([a-fA-F0-9]{64})/)
   return m ? m[1] : null
 }
 
 export function QrScannerModal({ onScan, onClose }: { onScan: (token: string) => void; onClose: () => void }) {
   const [erro, setErro] = useState('')
-  const [iniciando, setIniciando] = useState(true)
-  const scannerRef = useRef<{ stop: () => Promise<void> } | null>(null)
-  const onScanRef = useRef(onScan)
-  onScanRef.current = onScan
+  const [processando, setProcessando] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return
-    let mounted = true
-
-    const init = async () => {
-      try {
-        await new Promise(r => setTimeout(r, 150))
-        if (!mounted) return
-        const el = document.getElementById(QR_READER_ID)
-        if (!el) {
-          setErro('Elemento do scanner não encontrado')
-          return
-        }
-        const { Html5Qrcode } = await import('html5-qrcode')
-        if (!mounted) return
-        const scanner = new Html5Qrcode(QR_READER_ID)
-        scannerRef.current = scanner
-        await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            const token = extrairTokenDaUrl(decodedText)
-            if (token && mounted) {
-              scanner.stop().catch(() => {})
-              setTimeout(() => {
-                try {
-                  onScanRef.current(token)
-                } catch (err) {
-                  console.error('[QR] onScan error:', err)
-                }
-              }, 0)
-            }
-          },
-          () => {},
-        )
-        if (mounted) setIniciando(false)
-        else scanner.stop().catch(() => {})
-      } catch (e) {
-        console.error('[QR Scanner]', e)
-        if (mounted) setErro((e as Error).message || 'Erro ao acessar câmera')
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setErro('')
+    setProcessando(true)
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode')
+      const scanner = new Html5Qrcode(QR_SCAN_TARGET_ID)
+      const decodedText = await scanner.scanFile(file, false)
+      const token = extrairTokenDaUrl(decodedText)
+      if (token) {
+        onScan(token)
+      } else {
+        setErro('QR Code inválido. O código deve ser de uma autorização de combustível.')
       }
+    } catch (err) {
+      console.error('[QR Scanner]', err)
+      setErro((err as Error).message || 'Não foi possível ler o QR Code. Tente outra imagem.')
+    } finally {
+      setProcessando(false)
+      e.target.value = ''
     }
-    init()
-    return () => {
-      mounted = false
-      scannerRef.current?.stop().catch(() => {})
-    }
-  }, [])
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+      <div id={QR_SCAN_TARGET_ID} className="hidden" aria-hidden="true" />
       <div className="flex items-center justify-between p-4 text-white">
         <h2 className="font-bold text-lg flex items-center gap-2">
-          <Camera className="w-5 h-5" /> Escanear QR Code
+          <Image className="w-5 h-5" /> Ler QR Code
         </h2>
         <button onClick={onClose} className="p-2 rounded-full bg-white/10 hover:bg-white/20">
           <X className="w-5 h-5" />
         </button>
       </div>
-      <div className="flex-1 flex items-center justify-center p-4 relative">
-        <div id={QR_READER_ID} className="w-full max-w-[320px] rounded-2xl overflow-hidden bg-black min-h-[250px]" />
-        {iniciando && !erro && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-            <Loader2 className="w-10 h-10 animate-spin text-orange-400" />
-          </div>
-        )}
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
+        <p className="text-slate-400 text-center text-sm mb-6">
+          Tire uma foto do QR Code ou escolha uma imagem da galeria
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleFile}
+          className="hidden"
+        />
+        <button
+          onClick={() => inputRef.current?.click()}
+          disabled={processando}
+          className="w-full max-w-[280px] bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-4 rounded-2xl flex items-center justify-center gap-3"
+        >
+          {processando ? (
+            <Loader2 className="w-6 h-6 animate-spin" />
+          ) : (
+            <Camera className="w-6 h-6" />
+          )}
+          {processando ? 'Processando...' : 'Tirar foto ou escolher imagem'}
+        </button>
         {erro && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-            <XCircle className="w-12 h-12 text-red-400 mb-3" />
-            <p className="text-red-300 font-medium">{erro}</p>
-            <p className="text-slate-400 text-sm mt-1">Permita o acesso à câmera nas configurações do navegador.</p>
+          <div className="mt-4 flex items-center gap-2 text-red-300 text-sm max-w-[280px]">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <span>{erro}</span>
           </div>
         )}
       </div>
-      <p className="text-slate-400 text-center text-sm pb-6">Aponte a câmera para o QR Code da autorização</p>
+      <p className="text-slate-500 text-center text-xs pb-6">
+        O QR Code está na tela da autorização que o motorista mostra
+      </p>
     </div>
   )
 }
