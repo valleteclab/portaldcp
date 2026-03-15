@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Put, Body, Param, Headers, Req, Res, Query,
   UnauthorizedException, BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { FrotaAuthService, FrotaJwtPayload } from './frota-auth.service';
@@ -116,6 +117,9 @@ export class FrotaPublicController {
   ) {
     const payload = getPostoPayload(bearerToken(auth), this.frotaAuth);
     const requisicao = await this.frotaAuth.verificarTokenAcesso(token);
+    if (payload.orgaoId !== requisicao.orgao_id) {
+      throw new UnauthorizedException('Este posto não pode confirmar requisições de outro órgão');
+    }
     const result = await this.frotaService.confirmarAbastecimento(
       requisicao.id,
       requisicao.orgao_id,
@@ -130,6 +134,8 @@ export class FrotaPublicController {
   // POSTO — verificação por código manual
   // ================================================================
 
+  /** Rate limit mais restrito para mitigar brute-force em codigo_posto (6 chars) */
+  @Throttle([{ limit: 15, ttl: 60000 }])
   @Get('posto/verificar/:codigo')
   async postoVerificarCodigo(
     @Param('codigo') codigo: string,
