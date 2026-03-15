@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import { Loader2, Fuel, ClipboardList, Home, User, ChevronRight, CheckCircle, Clock, XCircle, Lock, LogOut, ExternalLink } from 'lucide-react'
+import { Loader2, Fuel, ClipboardList, Home, User, ChevronRight, CheckCircle, Clock, XCircle, Lock, LogOut, ExternalLink, Share2 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -32,6 +32,13 @@ const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w =
 function getQrUrl(token: string, origin: string) {
   const url = `${origin}/frota/req/${token}`
   return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
+}
+
+function compartilharWhatsApp(token: string, codigo?: string) {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const url = `${origin}/frota/req/${token}`
+  const texto = `📋 Ordem de Fornecimento de Combustível${codigo ? ` — ${codigo}` : ''}\n\nAcesse o link para ver a autorização e QR Code:\n${url}`
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank')
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -421,16 +428,26 @@ export default function VereadorSlugPage() {
                 </div>
               )}
 
-              {/* Botão principal — abrir Ordem de Fornecimento */}
+              {/* Botões — abrir Ordem e compartilhar WhatsApp */}
               {ordemUrl && (
-                <a
-                  href={ordemUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full bg-white text-green-700 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 hover:bg-green-50 transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" /> Abrir Ordem de Fornecimento
-                </a>
+                <div className="flex gap-2">
+                  <a
+                    href={ordemUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 bg-white text-green-700 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 hover:bg-green-50 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Ver Autorização
+                  </a>
+                  {exibir?.token_acesso && (
+                    <button
+                      onClick={() => compartilharWhatsApp(exibir.token_acesso!, exibir.codigo)}
+                      className="flex-1 bg-[#25D366] text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 hover:bg-[#1ebe5d] transition-colors"
+                    >
+                      <Share2 className="w-4 h-4" /> WhatsApp
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -607,10 +624,18 @@ export default function VereadorSlugPage() {
             </div>
             <p className="text-xs text-slate-500 truncate">{r.finalidade}</p>
             {r.status === 'AUTORIZADO' && tokenUrl && (
-              <a href={tokenUrl} target="_blank" rel="noopener noreferrer"
-                className="w-full mt-1 bg-green-600 text-white text-sm font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2">
-                <ExternalLink className="w-4 h-4" /> Abrir Ordem de Fornecimento
-              </a>
+              <div className="flex gap-2 mt-1">
+                <a href={tokenUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex-1 bg-green-600 text-white text-sm font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2">
+                  <ExternalLink className="w-4 h-4" /> Ver Autorização
+                </a>
+                <button
+                  onClick={() => compartilharWhatsApp(r.token_acesso!, r.codigo)}
+                  className="flex-1 bg-[#25D366] text-white text-sm font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2"
+                >
+                  <Share2 className="w-4 h-4" /> WhatsApp
+                </button>
+              </div>
             )}
           </div>
         )

@@ -82,6 +82,13 @@ interface Resumo {
   valor_total: number
 }
 
+interface RequisicaoAbastecida {
+  id: string; codigo: string; solicitante_nome: string; solicitante_cargo?: string
+  veiculo_placa: string; veiculo_modelo?: string; tipo_combustivel: string
+  quantidade_abastecida?: number; finalidade: string
+  data_requisicao: string; data_abastecimento?: string; valor_total?: number
+}
+
 // ============ HELPERS ============
 
 const formatarMoeda = (v: number) =>
@@ -135,6 +142,7 @@ export default function FrotaPage() {
 
   const [veiculos, setVeiculos] = useState<Veiculo[]>([])
   const [abastecimentos, setAbastecimentos] = useState<Abastecimento[]>([])
+  const [requisicoesAbastecidas, setRequisicoesAbastecidas] = useState<RequisicaoAbastecida[]>([])
   const [manutencoes, setManutencoes] = useState<Manutencao[]>([])
   const [resumo, setResumo] = useState<Resumo | null>(null)
 
@@ -171,6 +179,13 @@ export default function FrotaPage() {
     if (res.ok) setAbastecimentos(await res.json())
   }, [filtroVeiculoId, filtroMes])
 
+  const carregarRequisicoesAbastecidas = useCallback(async () => {
+    const params = new URLSearchParams({ status: 'ABASTECIDO' })
+    if (filtroMes) params.set('mes', filtroMes)
+    const res = await authFetch(`${API_URL}/api/frota/requisicoes?${params}`)
+    if (res.ok) setRequisicoesAbastecidas(await res.json())
+  }, [filtroMes])
+
   const carregarManutencoes = useCallback(async () => {
     const params = new URLSearchParams()
     if (filtroVeiculoId) params.set('veiculo_id', filtroVeiculoId)
@@ -191,13 +206,14 @@ export default function FrotaPage() {
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([carregarVeiculos(), carregarAbastecimentos(), carregarManutencoes(), carregarResumo()])
+    Promise.all([carregarVeiculos(), carregarAbastecimentos(), carregarRequisicoesAbastecidas(), carregarManutencoes(), carregarResumo()])
       .finally(() => setLoading(false))
-  }, [carregarVeiculos, carregarAbastecimentos, carregarManutencoes, carregarResumo])
+  }, [carregarVeiculos, carregarAbastecimentos, carregarRequisicoesAbastecidas, carregarManutencoes, carregarResumo])
 
   const recarregar = () => {
     carregarVeiculos()
     carregarAbastecimentos()
+    carregarRequisicoesAbastecidas()
     carregarManutencoes()
     carregarResumo()
   }
@@ -569,6 +585,59 @@ export default function FrotaPage() {
             <div className="flex justify-end gap-6 text-sm text-gray-600 px-2">
               <span>Total litros: <strong>{abastecimentos.reduce((s, a) => s + Number(a.quantidade_litros), 0).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L</strong></span>
               <span>Total gasto: <strong className="text-green-700">{formatarMoeda(abastecimentos.reduce((s, a) => s + Number(a.valor_total), 0))}</strong></span>
+            </div>
+          )}
+
+          {/* Abastecimentos via Requisição */}
+          {requisicoesAbastecidas.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <Fuel className="w-4 h-4 text-green-600" />
+                Abastecimentos via Requisição ({requisicoesAbastecidas.length})
+              </h3>
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-xs uppercase text-gray-500">
+                        <TableHead>Código</TableHead>
+                        <TableHead>Solicitante</TableHead>
+                        <TableHead>Placa</TableHead>
+                        <TableHead>Combustível</TableHead>
+                        <TableHead className="text-right">Litros</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead>Data Abastecimento</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {requisicoesAbastecidas.map(r => (
+                        <TableRow key={r.id}>
+                          <TableCell className="font-mono text-blue-600 text-sm font-medium">{r.codigo}</TableCell>
+                          <TableCell>
+                            <p className="text-sm font-medium">{r.solicitante_nome}</p>
+                            {r.solicitante_cargo && <p className="text-xs text-gray-400">{r.solicitante_cargo}</p>}
+                          </TableCell>
+                          <TableCell className="font-mono font-semibold">{r.veiculo_placa}</TableCell>
+                          <TableCell><Badge variant="outline">{labelTipo[r.tipo_combustivel] || r.tipo_combustivel}</Badge></TableCell>
+                          <TableCell className="text-right font-semibold text-orange-600">
+                            {Number(r.quantidade_abastecida || 0).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-green-700">
+                            {formatarMoeda(Number(r.valor_total || 0))}
+                          </TableCell>
+                          <TableCell className="text-sm text-gray-500">
+                            {r.data_abastecimento ? formatarData(r.data_abastecimento) : formatarData(r.data_requisicao)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+              <div className="flex justify-end gap-6 text-sm text-gray-600 px-2 mt-2">
+                <span>Total: <strong>{requisicoesAbastecidas.reduce((s, r) => s + Number(r.quantidade_abastecida || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L</strong></span>
+                <span><strong className="text-green-700">{formatarMoeda(requisicoesAbastecidas.reduce((s, r) => s + Number(r.valor_total || 0), 0))}</strong></span>
+              </div>
             </div>
           )}
         </TabsContent>

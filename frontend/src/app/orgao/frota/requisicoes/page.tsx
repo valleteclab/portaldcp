@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table'
 import {
   ClipboardList, Plus, CheckCircle, XCircle, Loader2, Search,
-  Copy, Trash2, QrCode,
+  Copy, Trash2, QrCode, Share2,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -211,6 +211,12 @@ export default function RequisicoesPage() {
     navigator.clipboard?.writeText(codigo).catch(() => {})
   }
 
+  const compartilharWhatsApp = (token: string) => {
+    const url = `${window.location.origin}/frota/req/${token}`
+    const texto = `📋 Ordem de Fornecimento de Combustível\n\nAcesse o link para ver a autorização e QR Code:\n${url}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank')
+  }
+
   const filtradas = requisicoes.filter(r => {
     if (!search) return true
     return [r.codigo, r.solicitante_nome, r.veiculo_placa].some(v => v?.toLowerCase().includes(search.toLowerCase()))
@@ -319,11 +325,18 @@ export default function RequisicoesPage() {
                         </>
                       )}
                       {r.status === 'AUTORIZADO' && r.token_acesso && (
-                        <Button size="sm" variant="ghost" className="text-blue-500 hover:text-blue-700 text-xs px-2"
-                          title="Ver autorização / QR Code"
-                          onClick={() => window.open(`/frota/req/${r.token_acesso}`, '_blank')}>
-                          <QrCode className="w-3.5 h-3.5" />
-                        </Button>
+                        <>
+                          <Button size="sm" variant="ghost" className="text-blue-500 hover:text-blue-700 text-xs px-2"
+                            title="Ver autorização / QR Code"
+                            onClick={() => window.open(`/frota/req/${r.token_acesso}`, '_blank')}>
+                            <QrCode className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="text-green-600 hover:text-green-800 text-xs px-2"
+                            title="Compartilhar via WhatsApp"
+                            onClick={() => compartilharWhatsApp(r.token_acesso!)}>
+                            <Share2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
                       )}
                       {['PENDENTE', 'AUTORIZADO'].includes(r.status) && (
                         <Button size="sm" variant="ghost" className="text-gray-400 hover:text-gray-600" title="Cancelar" onClick={() => cancelar(r)}>
