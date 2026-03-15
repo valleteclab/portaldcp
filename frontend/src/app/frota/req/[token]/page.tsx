@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { API_URL } from '@/lib/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ export default function ReqTokenPage() {
   const [erroConfirmacao, setErroConfirmacao] = useState('')
   const [confirmado, setConfirmado] = useState(false)
   const [mostrandoFormConfirmacao, setMostrandoFormConfirmacao] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -91,8 +93,14 @@ export default function ReqTokenPage() {
 
     async function carregar() {
       setCarregando(true)
+      setErro('')
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 35000)
       try {
-        const res = await fetch(`/api/frota-pub/req/${token}`)
+        const base = (typeof window !== 'undefined' ? API_URL : '') || ''
+        const url = base ? `${base.replace(/\/$/, '')}/api/frota-pub/req/${token}` : `/api/frota-pub/req/${token}`
+        const res = await fetch(url, { signal: controller.signal })
+        clearTimeout(timeoutId)
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           setErro(err.message || 'Requisição não encontrada ou token inválido.')
@@ -102,13 +110,18 @@ export default function ReqTokenPage() {
         const data = await res.json()
         setRequisicao(data)
         setQtdAbastecida(parseFloat(data.quantidade_autorizada) > 0 ? String(parseFloat(data.quantidade_autorizada)) : '')
-      } catch {
-        setErro('Erro ao carregar requisição.')
+      } catch (e) {
+        clearTimeout(timeoutId)
+        if ((e as Error).name === 'AbortError') {
+          setErro('A requisição demorou muito. Verifique sua conexão e tente novamente.')
+        } else {
+          setErro('Erro ao carregar requisição. Verifique sua conexão.')
+        }
       }
       setCarregando(false)
     }
     carregar()
-  }, [token])
+  }, [token, retryKey])
 
   async function handleConfirmar(e: React.FormEvent) {
     e.preventDefault()
@@ -167,6 +180,12 @@ export default function ReqTokenPage() {
           <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0 }}>
             {erro || 'Esta autorização não foi encontrada ou o QR Code é inválido.'}
           </p>
+          <button
+            onClick={() => setRetryKey(k => k + 1)}
+            style={{ marginTop: '1.25rem', padding: '0.625rem 1.25rem', background: '#f97316', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Tentar novamente
+          </button>
         </div>
       </div>
     )
