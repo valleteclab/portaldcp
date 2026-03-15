@@ -279,7 +279,7 @@ export default function VereadorSlugPage() {
 
   // ─── Aba: Início ─────────────────────────────────────────────────────────
 
-  const TabInicio = () => (
+  const tabInicioContent = (
     <div className="space-y-4 pb-24">
       <div className="bg-slate-800 px-4 pt-12 pb-5">
         <div className="flex items-center justify-between">
@@ -427,7 +427,7 @@ export default function VereadorSlugPage() {
   const QUANTIDADES = [20, 30, 40, 50]
   const COMB_OPTIONS = ['GASOLINA', 'ETANOL', 'DIESEL', 'FLEX', 'GNV']
 
-  const TabCombustivel = () => (
+  const tabCombustivelContent = (
     <div className="pb-24 px-4 pt-4 space-y-4">
       <h2 className="text-base font-bold text-slate-800">FAZER NOVO PEDIDO</h2>
       {pedidoSucesso ? (
@@ -525,7 +525,7 @@ export default function VereadorSlugPage() {
 
   // ─── Aba: Pedidos ─────────────────────────────────────────────────────────
 
-  const TabPedidos = () => (
+  const tabPedidosContent = (
     <div className="pb-24 px-4 pt-4 space-y-3">
       <h2 className="text-base font-bold text-slate-800">MEUS PEDIDOS</h2>
       {requisicoes.length === 0 ? (
@@ -565,7 +565,7 @@ export default function VereadorSlugPage() {
 
   // ─── Aba: Perfil ──────────────────────────────────────────────────────────
 
-  const TabPerfil = () => (
+  const tabPerfilContent = (
     <div className="pb-24 px-4 pt-4 space-y-4">
       <h2 className="text-base font-bold text-slate-800">PERFIL</h2>
       <div className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-4">
@@ -608,10 +608,10 @@ export default function VereadorSlugPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 max-w-md mx-auto relative">
-      {tab === 'inicio' && <TabInicio />}
-      {tab === 'combustivel' && <TabCombustivel />}
-      {tab === 'pedidos' && <TabPedidos />}
-      {tab === 'perfil' && <TabPerfil />}
+      {tab === 'inicio' && tabInicioContent}
+      {tab === 'combustivel' && tabCombustivelContent}
+      {tab === 'pedidos' && tabPedidosContent}
+      {tab === 'perfil' && tabPerfilContent}
 
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex z-50">
         {([
