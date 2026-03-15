@@ -2,51 +2,29 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
-import {
-  Fuel, Search, CheckCircle, XCircle, Loader2, FileText,
-  Gauge, BarChart3, DollarSign, Droplets, RefreshCw, Download, LogOut, KeyRound,
+  Fuel, Search, CheckCircle, XCircle, Loader2, QrCode, KeyRound, LogOut,
+  ClipboardList, User, Camera, X,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PostoInfo { nome: string; orgao_nome: string; orgao_id: string }
 
-interface Contrato {
-  id: string; numero_contrato: string; fornecedor_nome: string
-  preco_litro: number; limite_litros_mensal: number
-  data_inicio: string; data_fim: string
-}
-
 interface Requisicao {
   id: string; codigo: string; codigo_posto?: string; solicitante_nome: string; solicitante_cargo?: string
   veiculo_placa: string; veiculo_modelo?: string; tipo_combustivel: string
   quantidade_autorizada: number; quantidade_abastecida?: number; finalidade: string
   status: string; data_requisicao: string; data_abastecimento?: string
-  valor_total?: number; contrato?: Contrato
+  valor_total?: number; contrato?: { preco_litro: number }; token_acesso?: string
 }
 
 interface Dashboard {
-  mes: string; contrato: Contrato | null
-  total_litros: number; total_valor: number
-  total_autorizacoes_atendidas: number; total_autorizacoes_pendentes: number
-  preco_litro: number; limite_mensal: number
-  percentual_usado: number; litros_restantes: number
-  por_solicitante: { nome: string; litros: number; valor: number }[]
-  requisicoes: Requisicao[]
+  mes: string; total_litros: number; total_valor: number
+  total_autorizacoes_atendidas: number; requisicoes: Requisicao[]
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'frota_posto_token'
 
@@ -60,44 +38,118 @@ const fmtData = (d: string) => {
   const dt = new Date(d)
   return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
 }
+const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-const statusBadge = (status: string) => {
-  switch (status) {
-    case 'ABASTECIDO': return <Badge className="bg-green-100 text-green-800 border-green-300">✓ Abastecido</Badge>
-    case 'AUTORIZADO': return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300">⏳ Autorizado</Badge>
-    case 'PENDENTE': return <Badge className="bg-gray-100 text-gray-700 border-gray-300">Pendente</Badge>
-    case 'NEGADO': return <Badge className="bg-red-100 text-red-800 border-red-300">Negado</Badge>
-    case 'CANCELADO': return <Badge variant="secondary">Cancelado</Badge>
-    default: return <Badge>{status}</Badge>
-  }
+/** Extrai token da URL do QR (ex: https://.../frota/req/ABC123...) */
+function extrairTokenDaUrl(url: string): string | null {
+  const m = url.match(/\/frota\/req\/([a-fA-F0-9]{64})/)
+  return m ? m[1] : null
 }
 
-const initialsColor = (nome: string) => {
-  const cores = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500']
-  let hash = 0
-  for (let i = 0; i < nome.length; i++) hash = nome.charCodeAt(i) + ((hash << 5) - hash)
-  return cores[Math.abs(hash) % cores.length]
-}
-const initials = (nome: string) => nome.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('')
+// ─── Componente QrScanner (lazy) ───────────────────────────────────────────────
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function QrScannerModal({ onScan, onClose }: { onScan: (token: string) => void; onClose: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [erro, setErro] = useState('')
+  const [iniciando, setIniciando] = useState(true)
+  const scannerRef = useRef<{ stop: () => Promise<void> } | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    const init = async () => {
+      try {
+        const { Html5Qrcode } = await import('html5-qrcode')
+        const html5Qr = new Html5Qrcode('qr-reader')
+        await html5Qr.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            const token = extrairTokenDaUrl(decodedText)
+            if (token && mounted) {
+              html5Qr.stop().catch(() => {})
+              onScan(token)
+            }
+          },
+          () => {},
+        )
+        if (mounted) {
+          scannerRef.current = html5Qr
+          setIniciando(false)
+        } else {
+          html5Qr.stop().catch(() => {})
+        }
+      } catch (e) {
+        if (mounted) setErro((e as Error).message || 'Erro ao acessar câmera')
+      }
+    }
+    init()
+    return () => {
+      mounted = false
+      scannerRef.current?.stop().catch(() => {})
+    }
+  }, [onScan])
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+      <div className="flex items-center justify-between p-4 text-white">
+        <h2 className="font-bold text-lg flex items-center gap-2">
+          <Camera className="w-5 h-5" /> Escanear QR Code
+        </h2>
+        <button onClick={onClose} className="p-2 rounded-full bg-white/10 hover:bg-white/20">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      <div ref={containerRef} className="flex-1 flex items-center justify-center p-4">
+        <div id="qr-reader" className="w-full max-w-[320px] rounded-2xl overflow-hidden bg-black" />
+        {iniciando && !erro && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+            <Loader2 className="w-10 h-10 animate-spin text-orange-400" />
+          </div>
+        )}
+        {erro && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+            <XCircle className="w-12 h-12 text-red-400 mb-3" />
+            <p className="text-red-300 font-medium">{erro}</p>
+            <p className="text-slate-400 text-sm mt-1">Permita o acesso à câmera nas configurações do navegador.</p>
+          </div>
+        )}
+      </div>
+      <p className="text-slate-400 text-center text-sm pb-6">Aponte a câmera para o QR Code da autorização</p>
+    </div>
+  )
+}
+
+// ─── Componente Principal ──────────────────────────────────────────────────────
 
 export default function PostoPage() {
   const params = useParams()
   const slug = params.slug as string
 
-  // Auth
   const [tela, setTela] = useState<'login' | 'painel'>('login')
   const [postoInfo, setPostoInfo] = useState<PostoInfo | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [initLoading, setInitLoading] = useState(true)
 
-  // Login form
   const [senha, setSenha] = useState('')
   const [loginErro, setLoginErro] = useState('')
   const [loginCarregando, setLoginCarregando] = useState(false)
 
-  // Troca de senha
+  const [tab, setTab] = useState<'registrar' | 'historico' | 'perfil'>('registrar')
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const [codigoInput, setCodigoInput] = useState('')
+  const [verificando, setVerificando] = useState(false)
+  const [reqVerificada, setReqVerificada] = useState<Requisicao | null>(null)
+  const [erroVerificacao, setErroVerificacao] = useState('')
+  const [mostrandoScanner, setMostrandoScanner] = useState(false)
+
+  const [modalConfirmar, setModalConfirmar] = useState(false)
+  const [qtdAbastecida, setQtdAbastecida] = useState('')
+  const [kmHodometro, setKmHodometro] = useState('')
+  const [atendenteNome, setAtendenteNome] = useState('')
+  const [confirmando, setConfirmando] = useState(false)
+
   const [modalSenha, setModalSenha] = useState(false)
   const [senhaAtual, setSenhaAtual] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
@@ -106,44 +158,11 @@ export default function PostoPage() {
   const [erroSenha, setErroSenha] = useState('')
   const [sucessoSenha, setSucessoSenha] = useState('')
 
-  // Dashboard
-  const [mes, setMes] = useState(new Date().toISOString().slice(0, 7))
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-
-  // Verificação
-  const [codigoInput, setCodigoInput] = useState('')
-  const [verificando, setVerificando] = useState(false)
-  const [reqVerificada, setReqVerificada] = useState<Requisicao | null>(null)
-  const [erroVerificacao, setErroVerificacao] = useState('')
-  const codigoRef = useRef<HTMLInputElement>(null)
-
-  // Confirmação
-  const [modalConfirmar, setModalConfirmar] = useState(false)
-  const [qtdAbastecida, setQtdAbastecida] = useState('')
-  const [kmHodometro, setKmHodometro] = useState('')
-  const [atendenteNome, setAtendenteNome] = useState('')
-  const [confirmando, setConfirmando] = useState(false)
-
-  // Tabela
-  const [search, setSearch] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState('TODOS')
-  const [pagina, setPagina] = useState(1)
-  const ITENS_POR_PAGINA = 7
-
-  // ─── Token helpers ──────────────────────────────────────────────────────────
-
-  const getToken = useCallback(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem(TOKEN_KEY)
-  }, [])
-
+  const getToken = useCallback(() => (typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null), [])
   const saveToken = useCallback((t: string) => {
     if (typeof window !== 'undefined') localStorage.setItem(TOKEN_KEY, t)
     setToken(t)
   }, [])
-
   const clearToken = useCallback(() => {
     if (typeof window !== 'undefined') localStorage.removeItem(TOKEN_KEY)
     setToken(null)
@@ -163,8 +182,6 @@ export default function PostoPage() {
     })
   }, [getToken])
 
-  // ─── Init ───────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     async function init() {
       setInitLoading(true)
@@ -172,7 +189,6 @@ export default function PostoPage() {
         const res = await fetch(`/api/frota-pub/posto/${slug}/info`)
         if (res.ok) setPostoInfo(await res.json())
       } catch { /* ignore */ }
-
       const savedToken = getToken()
       if (savedToken) {
         setToken(savedToken)
@@ -181,27 +197,22 @@ export default function PostoPage() {
       setInitLoading(false)
     }
     init()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug])
+  }, [slug, getToken])
 
-  // ─── Dashboard ──────────────────────────────────────────────────────────────
-
-  const carregarDashboard = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true); else setRefreshing(true)
+  const carregarDashboard = useCallback(async () => {
+    setLoading(true)
     try {
-      const res = await authFetch(`/api/frota-pub/posto/dashboard?mes=${mes}`)
+      const res = await authFetch(`/api/frota-pub/posto/dashboard?mes=${new Date().toISOString().slice(0, 7)}`)
       if (res.status === 401) { clearToken(); return }
       if (res.ok) setDashboard(await res.json())
     } finally {
-      setLoading(false); setRefreshing(false)
+      setLoading(false)
     }
-  }, [mes, authFetch, clearToken])
+  }, [authFetch, clearToken])
 
   useEffect(() => {
     if (tela === 'painel') carregarDashboard()
   }, [tela, carregarDashboard])
-
-  // ─── Login ──────────────────────────────────────────────────────────────────
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -228,12 +239,32 @@ export default function PostoPage() {
     setLoginCarregando(false)
   }
 
-  // ─── Verificar código ───────────────────────────────────────────────────────
+  const buscarPorToken = useCallback(async (tokenQr: string) => {
+    setVerificando(true)
+    setErroVerificacao('')
+    setReqVerificada(null)
+    try {
+      const res = await authFetch(`/api/frota-pub/req/${tokenQr}`)
+      if (res.status === 401) { clearToken(); return }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        setErroVerificacao(e.message || 'Autorização não encontrada')
+        return
+      }
+      const req: Requisicao = await res.json()
+      setReqVerificada(req)
+      setQtdAbastecida(String(req.quantidade_autorizada))
+    } finally {
+      setVerificando(false)
+    }
+  }, [authFetch, clearToken])
 
   const verificarCodigo = async () => {
     const codigo = codigoInput.trim().toUpperCase()
     if (!codigo) return
-    setVerificando(true); setErroVerificacao(''); setReqVerificada(null)
+    setVerificando(true)
+    setErroVerificacao('')
+    setReqVerificada(null)
     try {
       const res = await authFetch(`/api/frota-pub/posto/verificar/${encodeURIComponent(codigo)}`)
       if (res.status === 401) { clearToken(); return }
@@ -250,19 +281,29 @@ export default function PostoPage() {
     }
   }
 
-  const limparVerificacao = () => {
-    setReqVerificada(null); setErroVerificacao(''); setCodigoInput('')
-    setQtdAbastecida(''); setKmHodometro(''); setAtendenteNome('')
-    codigoRef.current?.focus()
-  }
+  const handleQrScan = useCallback((tokenQr: string) => {
+    setMostrandoScanner(false)
+    buscarPorToken(tokenQr)
+  }, [buscarPorToken])
 
-  // ─── Confirmar abastecimento ────────────────────────────────────────────────
+  const limparVerificacao = () => {
+    setReqVerificada(null)
+    setErroVerificacao('')
+    setCodigoInput('')
+    setQtdAbastecida('')
+    setKmHodometro('')
+    setAtendenteNome('')
+  }
 
   const confirmarAbastecimento = async () => {
     if (!reqVerificada) return
+    const tokenQr = reqVerificada.token_acesso
+    const url = tokenQr
+      ? `/api/frota-pub/req/${tokenQr}/confirmar`
+      : `/api/frota-pub/posto/confirmar/${reqVerificada.id}`
     setConfirmando(true)
     try {
-      const res = await authFetch(`/api/frota-pub/posto/confirmar/${reqVerificada.id}`, {
+      const res = await authFetch(url, {
         method: 'PUT',
         body: JSON.stringify({
           quantidade_abastecida: parseFloat(qtdAbastecida) || 0,
@@ -278,17 +319,16 @@ export default function PostoPage() {
       }
       setModalConfirmar(false)
       limparVerificacao()
-      carregarDashboard(true)
+      carregarDashboard()
     } finally {
       setConfirmando(false)
     }
   }
 
-  // ─── Troca de senha ─────────────────────────────────────────────────────────
-
   async function handleTrocarSenha(e: React.FormEvent) {
     e.preventDefault()
-    setErroSenha(''); setSucessoSenha('')
+    setErroSenha('')
+    setSucessoSenha('')
     if (novaSenha !== confirmarNovaSenha) { setErroSenha('As senhas não coincidem.'); return }
     if (novaSenha.length < 6) { setErroSenha('Mínimo 6 caracteres.'); return }
     setTrocandoSenha(true)
@@ -304,590 +344,382 @@ export default function PostoPage() {
         return
       }
       setSucessoSenha('Senha alterada com sucesso!')
-      setSenhaAtual(''); setNovaSenha(''); setConfirmarNovaSenha('')
+      setSenhaAtual('')
+      setNovaSenha('')
+      setConfirmarNovaSenha('')
     } catch {
       setErroSenha('Erro ao conectar.')
     }
     setTrocandoSenha(false)
   }
 
-  // ─── Download SIGA ──────────────────────────────────────────────────────────
-
-  const downloadSiga = async () => {
-    const tok = getToken()
-    const res = await fetch(`/api/frota-pub/posto/relatorio/siga?mes=${mes}`, {
-      headers: tok ? { Authorization: `Bearer ${tok}` } : {},
-    })
-    if (!res.ok) { alert('Erro ao gerar relatório'); return }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `SIGA_COMBUSTIVEL_${mes}.csv`; a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  // ─── Tabela ─────────────────────────────────────────────────────────────────
-
-  const requisicoesFiltradas = (dashboard?.requisicoes || []).filter(r => {
-    const matchStatus = filtroStatus === 'TODOS' || r.status === filtroStatus
-    const matchSearch = !search || [r.codigo, r.solicitante_nome, r.veiculo_placa]
-      .some(v => v?.toLowerCase().includes(search.toLowerCase()))
-    return matchStatus && matchSearch
-  })
-  const totalPaginas = Math.ceil(requisicoesFiltradas.length / ITENS_POR_PAGINA)
-  const paginaAtual = requisicoesFiltradas.slice((pagina - 1) * ITENS_POR_PAGINA, pagina * ITENS_POR_PAGINA)
-  const totalMes = { litros: 0, valor: 0 }
-  requisicoesFiltradas.filter(r => r.status === 'ABASTECIDO').forEach(r => {
-    totalMes.litros += Number(r.quantidade_abastecida || 0)
-    totalMes.valor += Number(r.valor_total || 0)
-  })
-
-  // ─── Tela: loading ──────────────────────────────────────────────────────────
+  // ─── Tela: Loading ──────────────────────────────────────────────────────────
 
   if (initLoading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: '#94a3b8', fontFamily: 'system-ui' }}>
-        Carregando...
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-orange-400" />
       </div>
     )
   }
 
-  // ─── Tela: Login ────────────────────────────────────────────────────────────
+  // ─── Tela: Login ─────────────────────────────────────────────────────────────
 
   if (tela === 'login') {
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'system-ui, -apple-system, sans-serif', padding: '1rem',
-      }}>
-        <div style={{
-          width: '100%', maxWidth: '400px', background: '#1e293b',
-          borderRadius: '16px', padding: '2rem',
-          boxShadow: '0 25px 50px rgba(0,0,0,0.5)', border: '1px solid #334155',
-        }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{
-              width: '64px', height: '64px',
-              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              borderRadius: '16px', display: 'inline-flex',
-              alignItems: 'center', justifyContent: 'center',
-              fontSize: '2rem', marginBottom: '1rem',
-            }}>⛽</div>
-            <h1 style={{ color: '#f8fafc', fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>
-              {postoInfo?.nome || 'Painel do Posto'}
-            </h1>
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Fuel className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">{postoInfo?.nome || 'Painel do Posto'}</h1>
             {postoInfo?.orgao_nome && (
-              <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
-                {postoInfo.orgao_nome}
-              </p>
+              <p className="text-slate-300 mt-1 text-sm font-medium">{postoInfo.orgao_nome}</p>
             )}
           </div>
-
-          <form onSubmit={handleLogin}>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', color: '#cbd5e1', fontSize: '0.875rem', marginBottom: '0.5rem', fontWeight: 500 }}>
-                Senha de acesso
-              </label>
+          <form onSubmit={handleLogin} className="bg-slate-800 rounded-2xl p-6 space-y-4">
+            <div>
+              <label className="block text-slate-300 text-sm mb-1.5">Senha de acesso</label>
               <input
-                type="password" value={senha} onChange={e => setSenha(e.target.value)}
-                placeholder="Digite sua senha" required autoFocus
-                style={{
-                  width: '100%', padding: '0.75rem 1rem', background: '#0f172a',
-                  border: '1px solid #334155', borderRadius: '8px', color: '#f8fafc',
-                  fontSize: '1rem', outline: 'none', boxSizing: 'border-box',
-                }}
+                type="password"
+                className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-orange-400"
+                placeholder="Digite sua senha"
+                value={senha}
+                onChange={e => setSenha(e.target.value)}
+                required
+                autoFocus
               />
             </div>
-
-            {loginErro && (
-              <div style={{ background: '#450a0a', border: '1px solid #7f1d1d', borderRadius: '8px', padding: '0.75rem', color: '#fca5a5', fontSize: '0.875rem', marginBottom: '1rem' }}>
-                {loginErro}
-              </div>
-            )}
-
+            {loginErro && <p className="text-red-400 text-sm text-center">{loginErro}</p>}
             <button
-              type="submit" disabled={loginCarregando}
-              style={{
-                width: '100%', padding: '0.875rem',
-                background: loginCarregando ? '#64748b' : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                border: 'none', borderRadius: '8px', color: '#fff',
-                fontSize: '1rem', fontWeight: 600,
-                cursor: loginCarregando ? 'not-allowed' : 'pointer',
-              }}
+              type="submit"
+              disabled={loginCarregando || !senha}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 min-h-[48px]"
             >
-              {loginCarregando ? 'Entrando...' : 'Entrar'}
+              {loginCarregando ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Entrar'}
             </button>
           </form>
-
-          <p style={{ textAlign: 'center', color: '#475569', fontSize: '0.75rem', marginTop: '1.5rem' }}>
-            Acesso restrito. Todos os acessos são registrados.
-          </p>
         </div>
       </div>
     )
   }
 
-  // ─── Tela: Painel ───────────────────────────────────────────────────────────
+  // ─── Painel PWA ─────────────────────────────────────────────────────────────
 
-  const d = dashboard
-  const percento = Math.min(d?.percentual_usado || 0, 100)
-  const barColor = percento >= 90 ? 'bg-red-500' : percento >= 70 ? 'bg-orange-500' : 'bg-orange-400'
+  const requisicoesAbastecidas = (dashboard?.requisicoes || []).filter(r => r.status === 'ABASTECIDO')
+
+  const tabRegistrar = (
+    <div className="pb-24 px-4 pt-4 space-y-4">
+      <div className="bg-slate-800 rounded-2xl p-4">
+        <h2 className="text-white font-bold text-base mb-1">Registrar Abastecimento</h2>
+        <p className="text-slate-400 text-sm">Escaneie o QR Code ou digite o código da autorização</p>
+      </div>
+
+      {/* Botão Escanear QR */}
+      <button
+        onClick={() => setMostrandoScanner(true)}
+        className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-4 rounded-2xl flex items-center justify-center gap-3"
+      >
+        <QrCode className="w-6 h-6" />
+        Escanear QR Code
+      </button>
+
+      <div className="flex items-center gap-2 text-slate-400 text-sm">
+        <div className="flex-1 h-px bg-slate-600" />
+        <span>ou digite o código</span>
+        <div className="flex-1 h-px bg-slate-600" />
+      </div>
+
+      {/* Input código manual */}
+      <div className="space-y-2">
+        <input
+          type="text"
+          placeholder="Ex: A3K7XP"
+          value={codigoInput}
+          onChange={e => { setCodigoInput(e.target.value.toUpperCase()); setErroVerificacao(''); setReqVerificada(null) }}
+          onKeyDown={e => { if (e.key === 'Enter') verificarCodigo() }}
+          className="w-full bg-slate-800 text-white border border-slate-600 rounded-xl px-4 py-3.5 text-lg font-mono text-center focus:outline-none focus:border-orange-400"
+        />
+        <button
+          onClick={verificarCodigo}
+          disabled={verificando || !codigoInput.trim()}
+          className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
+        >
+          {verificando ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Search className="w-5 h-5" /> Verificar</>}
+        </button>
+      </div>
+
+      {erroVerificacao && (
+        <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4 flex items-center gap-2 text-red-300">
+          <XCircle className="w-5 h-5 shrink-0" />
+          <p className="text-sm font-medium">{erroVerificacao}</p>
+        </div>
+      )}
+
+      {reqVerificada && (
+        <div className="bg-green-900/30 border border-green-500/50 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2 text-green-300">
+            <CheckCircle className="w-5 h-5" />
+            <span className="font-semibold">Autorização Válida!</span>
+            <span className="font-mono text-sm">{reqVerificada.codigo_posto || reqVerificada.codigo}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="bg-slate-800/50 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Solicitante</p>
+              <p className="text-white font-medium">{reqVerificada.solicitante_nome}</p>
+            </div>
+            <div className="bg-slate-800/50 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Veículo</p>
+              <p className="text-white font-mono font-medium">{reqVerificada.veiculo_placa}</p>
+            </div>
+            <div className="bg-slate-800/50 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Combustível</p>
+              <p className="text-white font-medium">{reqVerificada.tipo_combustivel}</p>
+            </div>
+            <div className="bg-slate-800/50 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Qtd. Autorizada</p>
+              <p className="text-orange-400 font-bold text-lg">{fmtLitros(reqVerificada.quantidade_autorizada)}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setModalConfirmar(true)}
+            className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2"
+          >
+            <Fuel className="w-5 h-5" /> Confirmar Abastecimento
+          </button>
+          <button onClick={limparVerificacao} className="w-full text-slate-400 text-sm py-2">
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {/* Resumo do mês */}
+      {dashboard && (
+        <div className="bg-slate-800 rounded-2xl p-4">
+          <p className="text-slate-400 text-xs uppercase tracking-wide mb-2">Este mês</p>
+          <div className="flex justify-between text-white">
+            <span>{fmtLitros(dashboard.total_litros, 0)} abastecidos</span>
+            <span className="font-bold text-orange-400">{fmt(dashboard.total_valor)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  const tabHistorico = (
+    <div className="pb-24 px-4 pt-4 space-y-3">
+      <h2 className="text-base font-bold text-white">Histórico de Abastecimentos</h2>
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-orange-400" />
+        </div>
+      ) : requisicoesAbastecidas.length === 0 ? (
+        <div className="text-center py-12 text-slate-400">
+          <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p>Nenhum abastecimento registrado este mês</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {requisicoesAbastecidas.slice(0, 20).map(r => (
+            <div key={r.id} className="bg-slate-800 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="font-mono font-bold text-blue-400">{r.codigo}</p>
+                <p className="text-slate-300 text-sm">{r.solicitante_nome} · {r.veiculo_placa}</p>
+                <p className="text-slate-500 text-xs">{fmtData(r.data_abastecimento || r.data_requisicao)}</p>
+              </div>
+              <div className="text-right">
+                <p className="font-bold text-orange-400">{fmtLitros(r.quantidade_abastecida || 0)}</p>
+                <p className="text-green-400 text-sm">{fmt(r.valor_total || 0)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  const tabPerfil = (
+    <div className="pb-24 px-4 pt-4 space-y-4">
+      <h2 className="text-base font-bold text-white">Perfil</h2>
+      <div className="bg-slate-800 rounded-2xl p-4 flex items-center gap-4">
+        <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center text-white text-xl font-bold">
+          {initials(postoInfo?.nome || 'P')}
+        </div>
+        <div>
+          <p className="font-bold text-white">{postoInfo?.nome || 'Posto'}</p>
+          <p className="text-slate-400 text-sm">{postoInfo?.orgao_nome}</p>
+        </div>
+      </div>
+
+      <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
+        <p className="font-semibold text-slate-300 flex items-center gap-2">
+          <KeyRound className="w-4 h-4" /> Alterar Senha
+        </p>
+        <input
+          type="password"
+          placeholder="Senha atual"
+          className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+          value={senhaAtual}
+          onChange={e => setSenhaAtual(e.target.value)}
+        />
+        <input
+          type="password"
+          placeholder="Nova senha"
+          className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+          value={novaSenha}
+          onChange={e => setNovaSenha(e.target.value)}
+        />
+        <input
+          type="password"
+          placeholder="Confirmar nova senha"
+          className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+          value={confirmarNovaSenha}
+          onChange={e => setConfirmarNovaSenha(e.target.value)}
+        />
+        {erroSenha && <p className="text-red-400 text-sm">{erroSenha}</p>}
+        {sucessoSenha && <p className="text-green-400 text-sm">{sucessoSenha}</p>}
+        <button
+          onClick={handleTrocarSenha}
+          disabled={trocandoSenha || !senhaAtual || !novaSenha}
+          className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
+        >
+          {trocandoSenha ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Nova Senha'}
+        </button>
+      </div>
+
+      <button
+        onClick={clearToken}
+        className="w-full border border-red-500/50 text-red-400 font-semibold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-500/10"
+      >
+        <LogOut className="w-4 h-4" /> Sair
+      </button>
+    </div>
+  )
 
   return (
-    <div className="min-h-screen bg-gray-50" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-
-      {/* Header do posto */}
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
+    <div className="min-h-screen bg-slate-900 max-w-md mx-auto relative">
+      {/* Header */}
+      <div className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">⛽</span>
-          <div>
-            <div className="font-bold text-base">{postoInfo?.nome || 'Painel do Posto'}</div>
-            {postoInfo?.orgao_nome && <div className="text-slate-400 text-xs">{postoInfo.orgao_nome}</div>}
+          <div className="w-9 h-9 rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold">
+            {initials(postoInfo?.nome || 'P')}
           </div>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            size="sm" variant="ghost"
-            className="text-slate-300 hover:text-white hover:bg-slate-700"
-            onClick={() => { setModalSenha(true); setErroSenha(''); setSucessoSenha('') }}
-          >
-            <KeyRound className="w-4 h-4 mr-1" />Senha
-          </Button>
-          <Button
-            size="sm" variant="ghost"
-            className="text-slate-300 hover:text-white hover:bg-slate-700"
-            onClick={clearToken}
-          >
-            <LogOut className="w-4 h-4 mr-1" />Sair
-          </Button>
+          <div>
+            <p className="font-bold text-white text-sm">{postoInfo?.nome || 'Painel do Posto'}</p>
+            <p className="text-slate-400 text-xs">{postoInfo?.orgao_nome}</p>
+          </div>
         </div>
       </div>
 
-      <div className="space-y-6 p-6 max-w-[1400px]">
+      {tab === 'registrar' && tabRegistrar}
+      {tab === 'historico' && tabHistorico}
+      {tab === 'perfil' && tabPerfil}
 
-        {/* Cabeçalho */}
-        <div className="flex items-start justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <Fuel className="w-6 h-6 text-orange-500" />
-              Painel do Posto — Controle de Abastecimento
-            </h1>
-            {d?.contrato ? (
-              <p className="text-sm text-gray-500 mt-0.5">
-                Contrato nº {d.contrato.numero_contrato} · {d.contrato.fornecedor_nome} · Validade: {d.contrato.data_fim?.split('T')[0].split('-').reverse().join('/')}
+      {/* Bottom Nav */}
+      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-800 border-t border-slate-700 flex z-50 safe-area-pb">
+        {[
+          { id: 'registrar', label: 'Registrar', icon: QrCode },
+          { id: 'historico', label: 'Histórico', icon: ClipboardList },
+          { id: 'perfil', label: 'Perfil', icon: User },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id as typeof tab)}
+            className={`flex-1 py-3 flex flex-col items-center gap-1 text-sm transition-colors min-h-[56px] ${
+              tab === id ? 'text-orange-400' : 'text-slate-400'
+            }`}
+          >
+            <Icon className="w-6 h-6" />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Modal Confirmar */}
+      {modalConfirmar && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
+              <Fuel className="w-5 h-5 text-green-400" /> Confirmar Abastecimento
+            </h3>
+            {reqVerificada && (
+              <p className="text-slate-400 text-sm mb-4">
+                {reqVerificada.codigo} · {reqVerificada.solicitante_nome} · {reqVerificada.veiculo_placa}
               </p>
-            ) : (
-              <p className="text-sm text-orange-500 mt-0.5">Nenhum contrato ativo cadastrado.</p>
             )}
-          </div>
-          <div className="flex gap-2 items-center">
-            <Button variant="ghost" size="sm" onClick={() => carregarDashboard(true)} disabled={refreshing}>
-              <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />Atualizar
-            </Button>
-            <Input type="month" className="w-36 text-sm" value={mes} onChange={e => setMes(e.target.value)} />
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
-          </div>
-        ) : (
-          <>
-            {/* Cards de Resumo */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="border-t-4 border-t-orange-400">
-                <CardContent className="pt-4">
-                  <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Droplets className="w-3.5 h-3.5" />Total Abastecido</p>
-                  <p className="text-3xl font-bold">{fmtLitros(d?.total_litros || 0, 0)}</p>
-                  {d?.limite_mensal ? <p className="text-xs text-gray-400 mt-0.5">De {fmtLitros(d.limite_mensal, 0)} contratados</p> : null}
-                </CardContent>
-              </Card>
-              <Card className="border-t-4 border-t-blue-400">
-                <CardContent className="pt-4">
-                  <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" />Autorizações Atendidas</p>
-                  <p className="text-3xl font-bold">{d?.total_autorizacoes_atendidas || 0}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Neste mês</p>
-                </CardContent>
-              </Card>
-              <Card className="border-t-4 border-t-green-500">
-                <CardContent className="pt-4">
-                  <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><DollarSign className="w-3.5 h-3.5" />Valor Faturado</p>
-                  <p className="text-3xl font-bold">{fmt(d?.total_valor || 0)}</p>
-                  {d?.preco_litro ? <p className="text-xs text-gray-400 mt-0.5">A {fmt(d.preco_litro)}/L</p> : null}
-                </CardContent>
-              </Card>
-              <Card className="border-t-4 border-t-purple-400">
-                <CardContent className="pt-4">
-                  <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Gauge className="w-3.5 h-3.5" />% do Contrato Usado</p>
-                  <p className="text-3xl font-bold">{percento.toFixed(0)}%</p>
-                  {d?.litros_restantes !== undefined && d.litros_restantes > 0
-                    ? <p className="text-xs text-gray-400 mt-0.5">{fmtLitros(d.litros_restantes, 0)} restantes</p>
-                    : <p className="text-xs text-gray-400 mt-0.5">—</p>}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Verificar + Lateral */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-4">
-                <Card>
-                  <CardContent className="pt-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h2 className="font-semibold flex items-center gap-2">
-                        <Search className="w-4 h-4 text-orange-500" />Verificar Autorização
-                      </h2>
-                      <span className="text-xs text-gray-400">Digite o código ou escaneie o QR</span>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm">Código da autorização *</Label>
-                      <div className="flex gap-2 mt-1">
-                        <Input
-                          ref={codigoRef}
-                          placeholder="Ex: A3K7XP"
-                          value={codigoInput}
-                          onChange={e => { setCodigoInput(e.target.value.toUpperCase()); setErroVerificacao(''); setReqVerificada(null) }}
-                          onKeyDown={e => { if (e.key === 'Enter') verificarCodigo() }}
-                          className="font-mono"
-                        />
-                        <Button
-                          onClick={verificarCodigo}
-                          disabled={verificando || !codigoInput.trim()}
-                          className="bg-orange-500 hover:bg-orange-600 shrink-0"
-                        >
-                          {verificando ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Search className="w-4 h-4 mr-1" />Verificar</>}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {erroVerificacao && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-red-700">
-                        <XCircle className="w-5 h-5 shrink-0" />
-                        <p className="text-sm font-medium">{erroVerificacao}</p>
-                      </div>
-                    )}
-
-                    {reqVerificada && (
-                      <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-green-700">
-                          <CheckCircle className="w-5 h-5" />
-                          <span className="font-semibold">Autorização Válida!</span>
-                          <span className="font-mono text-sm ml-1">
-                            {reqVerificada.codigo_posto || reqVerificada.codigo}
-                          </span>
-                          {reqVerificada.codigo_posto && (
-                            <span className="text-xs text-gray-400 font-normal">{reqVerificada.codigo}</span>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg px-3 py-2 border border-green-100">
-                            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Solicitante</p>
-                            <p className="font-semibold text-sm">{reqVerificada.solicitante_nome}</p>
-                            {reqVerificada.solicitante_cargo && <p className="text-xs text-gray-400">{reqVerificada.solicitante_cargo}</p>}
-                          </div>
-                          <div className="bg-white rounded-lg px-3 py-2 border border-green-100">
-                            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Veículo / Placa</p>
-                            <p className="font-semibold font-mono text-sm">{reqVerificada.veiculo_placa}</p>
-                            {reqVerificada.veiculo_modelo && <p className="text-xs text-gray-400">{reqVerificada.veiculo_modelo}</p>}
-                          </div>
-                          <div className="bg-white rounded-lg px-3 py-2 border border-green-100">
-                            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Combustível</p>
-                            <p className="font-semibold text-sm">{reqVerificada.tipo_combustivel}</p>
-                          </div>
-                          <div className="bg-white rounded-lg px-3 py-2 border border-green-100">
-                            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Qtd. Autorizada</p>
-                            <p className="font-bold text-orange-600 text-lg">{fmtLitros(reqVerificada.quantidade_autorizada)}</p>
-                          </div>
-                        </div>
-                        {reqVerificada.finalidade && (
-                          <div className="bg-white rounded-lg px-3 py-2 border border-green-100">
-                            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Finalidade</p>
-                            <p className="text-sm">{reqVerificada.finalidade}</p>
-                          </div>
-                        )}
-                        <div className="flex gap-2 pt-1">
-                          <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold" onClick={() => setModalConfirmar(true)}>
-                            <Fuel className="w-4 h-4 mr-2" />Confirmar Abastecimento
-                          </Button>
-                          <Button variant="outline" onClick={limparVerificacao}>Cancelar</Button>
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Lateral */}
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <FileText className="w-4 h-4" />Medição do Contrato
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {d?.contrato ? (
-                      <div className="bg-orange-50 rounded-xl p-4 space-y-2">
-                        <p className="text-xs text-orange-600 font-semibold uppercase tracking-wide">
-                          VALOR APURADO — {d.mes?.slice(5, 7)}/{d.mes?.slice(0, 4)}
-                        </p>
-                        <p className="text-2xl font-bold text-gray-900">{fmt(d.total_valor)}</p>
-                        <p className="text-xs text-gray-500">{fmtLitros(d.total_litros)} × {fmt(d.preco_litro)}/L</p>
-                        <div className="space-y-1">
-                          <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${percento}%` }} />
-                          </div>
-                          <div className="flex justify-between text-xs text-gray-500">
-                            <span>{fmtLitros(d.total_litros, 0)} abastecidos</span>
-                            <span>Limite: {fmtLitros(d.limite_mensal, 0)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-400">Sem contrato ativo</p>
-                    )}
-                    <Button size="sm" variant="outline" className="w-full" onClick={downloadSiga}>
-                      <Download className="w-4 h-4 mr-2" />Gerar Relatório SIGA
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {(d?.por_solicitante?.length || 0) > 0 && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4" />Por Solicitante
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="text-xs">
-                            <TableHead>Solicitante</TableHead>
-                            <TableHead className="text-right">Litros</TableHead>
-                            <TableHead className="text-right">Valor</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {d!.por_solicitante.slice(0, 6).map(s => (
-                            <TableRow key={s.nome} className="text-xs">
-                              <TableCell className="py-1.5">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`w-6 h-6 rounded-full ${initialsColor(s.nome)} text-white flex items-center justify-center text-[10px] font-bold shrink-0`}>
-                                    {initials(s.nome)}
-                                  </span>
-                                  <span className="truncate max-w-[100px]">{s.nome}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="py-1.5 text-right font-semibold text-orange-600">{fmtLitros(s.litros, 0)}</TableCell>
-                              <TableCell className="py-1.5 text-right">{fmt(s.valor)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </div>
-
-            {/* Registro de Abastecimentos */}
-            <Card>
-              <CardContent className="pt-4 space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-gray-500" />
-                    Registro de Abastecimentos — {d?.mes?.slice(5, 7)}/{d?.mes?.slice(0, 4)}
-                  </h3>
-                  <div className="flex gap-2 flex-wrap">
-                    <Input
-                      placeholder="Buscar solicitante, código, placa..."
-                      value={search}
-                      onChange={e => { setSearch(e.target.value); setPagina(1) }}
-                      className="w-52 text-sm"
-                    />
-                    <select
-                      className="border rounded-md px-2 py-1.5 text-sm text-gray-700"
-                      value={filtroStatus}
-                      onChange={e => { setFiltroStatus(e.target.value); setPagina(1) }}
-                    >
-                      <option value="TODOS">Todos</option>
-                      <option value="ABASTECIDO">Abastecidos</option>
-                      <option value="AUTORIZADO">Autorizados</option>
-                      <option value="PENDENTE">Pendentes</option>
-                    </select>
-                  </div>
-                </div>
-
-                <Table>
-                  <TableHeader>
-                    <TableRow className="text-xs uppercase text-gray-500">
-                      <TableHead>Código</TableHead>
-                      <TableHead>Solicitante</TableHead>
-                      <TableHead>Placa</TableHead>
-                      <TableHead>Combustível</TableHead>
-                      <TableHead className="text-right">Litros</TableHead>
-                      <TableHead className="text-right">Valor (R$)</TableHead>
-                      <TableHead>Data / Hora</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginaAtual.length === 0 && (
-                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-400">Nenhum registro encontrado</TableCell></TableRow>
-                    )}
-                    {paginaAtual.map(r => (
-                      <TableRow key={r.id}>
-                        <TableCell>
-                          <p className="font-mono text-blue-600 font-medium text-sm">{r.codigo}</p>
-                          <p className="text-xs text-gray-400">{fmtData(r.data_requisicao)}</p>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-7 h-7 rounded-full ${initialsColor(r.solicitante_nome)} text-white flex items-center justify-center text-[11px] font-bold shrink-0`}>
-                              {initials(r.solicitante_nome)}
-                            </span>
-                            <div>
-                              <p className="text-sm font-medium">{r.solicitante_nome}</p>
-                              {r.solicitante_cargo && <p className="text-xs text-gray-400">{r.solicitante_cargo}</p>}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono font-semibold">{r.veiculo_placa}</TableCell>
-                        <TableCell className="text-sm">{r.tipo_combustivel}</TableCell>
-                        <TableCell className="text-right font-semibold text-orange-600">
-                          {r.status === 'ABASTECIDO'
-                            ? fmtLitros(r.quantidade_abastecida || 0)
-                            : <span className="text-gray-400">{fmtLitros(r.quantidade_autorizada)} <span className="text-xs font-normal">(aut.)</span></span>}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {r.status === 'ABASTECIDO' ? fmt(r.valor_total || 0) : '—'}
-                        </TableCell>
-                        <TableCell className="text-sm text-gray-500">
-                          {r.status === 'ABASTECIDO' && r.data_abastecimento ? fmtData(r.data_abastecimento) : '—'}
-                        </TableCell>
-                        <TableCell>{statusBadge(r.status)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                {requisicoesFiltradas.filter(r => r.status === 'ABASTECIDO').length > 0 && (
-                  <div className="flex justify-end border-t pt-2">
-                    <div className="flex gap-6 text-sm font-semibold text-gray-700">
-                      <span>TOTAL DO MÊS: <span className="text-orange-600">{fmtLitros(totalMes.litros, 0)}</span></span>
-                      <span><span className="text-green-700">{fmt(totalMes.valor)}</span></span>
-                    </div>
-                  </div>
-                )}
-
-                {totalPaginas > 1 && (
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Mostrando {(pagina - 1) * ITENS_POR_PAGINA + 1}–{Math.min(pagina * ITENS_POR_PAGINA, requisicoesFiltradas.length)} de {requisicoesFiltradas.length}</span>
-                    <div className="flex gap-1">
-                      <Button variant="outline" size="sm" className="w-7 h-7 p-0" onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={pagina === 1}>‹</Button>
-                      {Array.from({ length: Math.min(totalPaginas, 5) }, (_, i) => i + 1).map(p => (
-                        <Button key={p} size="sm" className={`w-7 h-7 p-0 ${p === pagina ? 'bg-orange-500 text-white hover:bg-orange-600' : 'variant-outline'}`}
-                          onClick={() => setPagina(p)}>{p}</Button>
-                      ))}
-                      <Button variant="outline" size="sm" className="w-7 h-7 p-0" onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={pagina === totalPaginas}>›</Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </>
-        )}
-      </div>
-
-      {/* Modal Confirmar Abastecimento */}
-      <Dialog open={modalConfirmar} onOpenChange={setModalConfirmar}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Fuel className="w-5 h-5 text-green-600" />Confirmar Abastecimento
-            </DialogTitle>
-            <DialogDescription>
-              {reqVerificada && `${reqVerificada.codigo} · ${reqVerificada.solicitante_nome} · ${reqVerificada.veiculo_placa}`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Qtd. Abastecida (litros) *</Label>
-                <Input
-                  type="number" step="0.001" min="0"
-                  placeholder="0,000"
+            <div className="space-y-4">
+              <div>
+                <label className="block text-slate-300 text-sm mb-1">Qtd. Abastecida (litros) *</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3"
                   value={qtdAbastecida}
                   onChange={e => setQtdAbastecida(e.target.value)}
                 />
                 {reqVerificada && (
-                  <p className="text-xs text-gray-400">Autorizado: {fmtLitros(reqVerificada.quantidade_autorizada)}</p>
+                  <p className="text-slate-500 text-xs mt-1">Autorizado: {fmtLitros(reqVerificada.quantidade_autorizada)}</p>
                 )}
               </div>
-              <div className="space-y-1.5">
-                <Label>KM Hodômetro</Label>
-                <Input type="number" min="0" placeholder="0" value={kmHodometro} onChange={e => setKmHodometro(e.target.value)} />
+              <div>
+                <label className="block text-slate-300 text-sm mb-1">KM Hodômetro</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3"
+                  placeholder="Ex: 45200"
+                  value={kmHodometro}
+                  onChange={e => setKmHodometro(e.target.value)}
+                />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Nome do Atendente</Label>
-              <Input placeholder="Atendente responsável" value={atendenteNome} onChange={e => setAtendenteNome(e.target.value)} />
-            </div>
-            {reqVerificada?.contrato && qtdAbastecida && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
-                <span className="text-gray-500">Valor a faturar: </span>
-                <span className="font-bold text-green-700">
-                  {fmt((parseFloat(qtdAbastecida) || 0) * Number(reqVerificada.contrato.preco_litro))}
-                </span>
+              <div>
+                <label className="block text-slate-300 text-sm mb-1">Nome do Atendente</label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-700 text-white border border-slate-600 rounded-xl px-4 py-3"
+                  placeholder="Atendente responsável"
+                  value={atendenteNome}
+                  onChange={e => setAtendenteNome(e.target.value)}
+                />
               </div>
-            )}
+              {reqVerificada?.contrato && qtdAbastecida && (
+                <div className="bg-green-900/30 border border-green-500/50 rounded-xl p-3 text-sm">
+                  <span className="text-slate-300">Valor a faturar: </span>
+                  <span className="font-bold text-green-400">
+                    {fmt((parseFloat(qtdAbastecida) || 0) * Number(reqVerificada.contrato.preco_litro))}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setModalConfirmar(false)}
+                className="flex-1 py-3 rounded-xl border border-slate-600 text-slate-300 font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarAbastecimento}
+                disabled={confirmando || !qtdAbastecida}
+                className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2"
+              >
+                {confirmando && <Loader2 className="w-4 h-4 animate-spin" />}
+                Confirmar
+              </button>
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalConfirmar(false)}>Cancelar</Button>
-            <Button onClick={confirmarAbastecimento} disabled={confirmando || !qtdAbastecida}
-              className="bg-green-600 hover:bg-green-700">
-              {confirmando && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Confirmar Abastecimento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
-      {/* Modal Alterar Senha */}
-      <Dialog open={modalSenha} onOpenChange={setModalSenha}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5" />Alterar Senha
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleTrocarSenha} className="space-y-4">
-            {[
-              { label: 'Senha atual', value: senhaAtual, onChange: setSenhaAtual },
-              { label: 'Nova senha', value: novaSenha, onChange: setNovaSenha },
-              { label: 'Confirmar nova senha', value: confirmarNovaSenha, onChange: setConfirmarNovaSenha },
-            ].map(({ label, value, onChange }) => (
-              <div key={label} className="space-y-1.5">
-                <Label>{label}</Label>
-                <Input type="password" value={value} onChange={e => onChange(e.target.value)} required />
-              </div>
-            ))}
-            {erroSenha && <p className="text-sm text-red-600">{erroSenha}</p>}
-            {sucessoSenha && <p className="text-sm text-green-600">{sucessoSenha}</p>}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalSenha(false)}>Fechar</Button>
-              <Button type="submit" disabled={trocandoSenha}>
-                {trocandoSenha && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Salvar
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* QR Scanner */}
+      {mostrandoScanner && (
+        <QrScannerModal
+          onScan={handleQrScan}
+          onClose={() => setMostrandoScanner(false)}
+        />
+      )}
     </div>
   )
 }
