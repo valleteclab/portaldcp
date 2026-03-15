@@ -488,7 +488,9 @@ export class FrotaService {
       .join('');
     // Gera token seguro para QR Code (32 bytes aleatórios = 64 hex chars)
     req.token_acesso = crypto.randomBytes(32).toString('hex');
-    req.token_expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
+    // Validade: até o fim do mês da autorização (regra: usar dentro do mês)
+    const agora = new Date();
+    req.token_expiry = new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59, 999);
     return this.requisicaoRepository.save(req);
   }
 
