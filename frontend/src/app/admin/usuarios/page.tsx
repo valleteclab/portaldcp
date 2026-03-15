@@ -845,7 +845,7 @@ export default function AdminUsuariosPage() {
             setErro(null)
           }}
         >
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {showEditarUsuario ? 'Editar Usuário' : 'Novo Usuário'}
@@ -1099,6 +1099,20 @@ export default function AdminUsuariosPage() {
                       <p className="text-xs text-rose-600">Permite excluir contratos e todos os dados vinculados</p>
                     </label>
                   </div>
+                  <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <Checkbox
+                      id="perm-excluir-req-combustivel"
+                      checked={formUsuario.pode_excluir_requisicao_combustivel}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_excluir_requisicao_combustivel: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-excluir-req-combustivel" className="cursor-pointer">
+                      <p className="text-sm font-medium text-orange-800">Excluir requisição frota</p>
+                      <p className="text-xs text-orange-600">Excluir requisições de abastecimento (frota). O saldo do contrato é restaurado.</p>
+                    </label>
+                  </div>
                   <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                     <Checkbox
                       id="perm-patrimonio"
@@ -1111,20 +1125,6 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-patrimonio" className="cursor-pointer">
                       <p className="text-sm font-medium text-slate-800">Receber patrimônio</p>
                       <p className="text-xs text-slate-600">Aceitar recebimentos de itens permanentes (patrimônio)</p>
-                    </label>
-                  </div>
-                  <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                    <Checkbox
-                      id="perm-excluir-req-combustivel"
-                      checked={formUsuario.pode_excluir_requisicao_combustivel}
-                      onCheckedChange={(checked) => 
-                        setFormUsuario({ ...formUsuario, pode_excluir_requisicao_combustivel: checked === true })
-                      }
-                      className="mt-0.5"
-                    />
-                    <label htmlFor="perm-excluir-req-combustivel" className="cursor-pointer">
-                      <p className="text-sm font-medium text-orange-800">Excluir requisição combustível</p>
-                      <p className="text-xs text-orange-600">Excluir requisições de abastecimento (frota). O saldo do contrato é restaurado.</p>
                     </label>
                   </div>
                 </div>

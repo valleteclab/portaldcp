@@ -223,7 +223,7 @@ export default function VereadorSlugPage() {
                 </div>
               </div>
             )}
-            {isPortal ? (
+            {isPortal && (
               <div>
                 <label className="block text-slate-300 text-sm mb-1.5">Código de acesso</label>
                 <input
