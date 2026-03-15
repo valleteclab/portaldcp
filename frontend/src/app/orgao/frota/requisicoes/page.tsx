@@ -23,7 +23,7 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 
 interface Veiculo { id: string; placa: string; modelo: string; marca: string; tipo_combustivel: string; chassi?: string; renavam?: string; ativo?: boolean }
-interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number }
+interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number; itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; quantidade_consumida?: number; valor_total: number }[] }
 
 interface Requisicao {
   id: string; codigo: string; codigo_posto?: string; solicitante_nome: string; solicitante_cargo?: string
@@ -79,22 +79,45 @@ export default function RequisicoesPage() {
   const [modalNegar, setModalNegar] = useState(false)
   const [reqSelecionada, setReqSelecionada] = useState<Requisicao | null>(null)
   const [motivoNegacao, setMotivoNegacao] = useState('')
+  const [contratoAtivo, setContratoAtivo] = useState<Contrato | null>(null)
+  const [erroSaldo, setErroSaldo] = useState<string | null>(null)
+  const [podeExcluirRequisicao, setPodeExcluirRequisicao] = useState(false)
+
+  const carregarContratoAtivo = useCallback(async () => {
+    const res = await authFetch(`${API_URL}/api/frota/contratos/ativo`)
+    if (res.ok) {
+      const data = await res.json()
+      setContratoAtivo(data)
+    } else {
+      setContratoAtivo(null)
+    }
+  }, [])
 
   const carregar = useCallback(async () => {
     const params = new URLSearchParams({ mes })
     if (filtroStatus !== 'TODOS') params.set('status', filtroStatus)
-    const [resReq, resVeic] = await Promise.all([
+    const [resReq, resVeic, resPodeExcluir] = await Promise.all([
       authFetch(`${API_URL}/api/frota/requisicoes?${params}`),
       authFetch(`${API_URL}/api/frota/veiculos`),
+      authFetch(`${API_URL}/api/frota/requisicoes/posso-excluir`),
     ])
     if (resReq.ok) setRequisicoes(await resReq.json())
     if (resVeic.ok) setVeiculos(await resVeic.json())
+    if (resPodeExcluir.ok) {
+      const { pode } = await resPodeExcluir.json()
+      setPodeExcluirRequisicao(!!pode)
+    }
     setLoading(false)
   }, [mes, filtroStatus])
 
   useEffect(() => { carregar() }, [carregar])
 
-  const abrirModal = () => { setForm(vazio); setModalOpen(true) }
+  const abrirModal = () => {
+    setForm(vazio)
+    setErroSaldo(null)
+    setModalOpen(true)
+    carregarContratoAtivo()
+  }
 
   const onVeiculoChange = (id: string) => {
     const v = veiculos.find(v => v.id === id)
@@ -107,6 +130,7 @@ export default function RequisicoesPage() {
 
   const salvar = async () => {
     setActionLoading(true)
+    setErroSaldo(null)
     try {
       const payload = {
         ...form,
@@ -114,9 +138,28 @@ export default function RequisicoesPage() {
         veiculo_id: form.veiculo_id || undefined,
       }
       const res = await authFetch(`${API_URL}/api/frota/requisicoes`, { method: 'POST', body: JSON.stringify(payload) })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
-      setModalOpen(false); carregar()
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        const msg = e.message || 'Erro ao criar requisição'
+        setErroSaldo(msg)
+        return
+      }
+      setModalOpen(false)
+      carregar()
     } finally { setActionLoading(false) }
+  }
+
+  const getSaldoParaTipo = (tipo: string): number | null => {
+    if (!contratoAtivo?.itens?.length) return null
+    const tipoNorm = String(tipo || '').toLowerCase()
+    const item = contratoAtivo.itens.find((i) => {
+      const desc = String(i.descricao || '').toLowerCase()
+      return desc.includes(tipoNorm) || tipoNorm.includes(desc) || desc === tipoNorm
+    })
+    if (!item) return null
+    const qtdContratada = Number(item.quantidade_contratada) || 0
+    const qtdConsumida = Number(item.quantidade_consumida ?? 0) || 0
+    return Math.max(0, qtdContratada - qtdConsumida)
   }
 
   const autorizar = async (req: Requisicao) => {
@@ -148,6 +191,20 @@ export default function RequisicoesPage() {
     if (!confirm(`Cancelar a requisição ${req.codigo}?`)) return
     await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}/cancelar`, { method: 'PUT' })
     carregar()
+  }
+
+  const excluir = async (req: Requisicao) => {
+    if (!confirm('Excluir esta requisição? O saldo do contrato será restaurado.')) return
+    setActionLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao excluir')
+        return
+      }
+      carregar()
+    } finally { setActionLoading(false) }
   }
 
   const copiarCodigo = (codigo: string) => {
@@ -193,7 +250,7 @@ export default function RequisicoesPage() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="text-xs uppercase text-gray-500">
@@ -269,7 +326,12 @@ export default function RequisicoesPage() {
                         </Button>
                       )}
                       {['PENDENTE', 'AUTORIZADO'].includes(r.status) && (
-                        <Button size="sm" variant="ghost" className="text-gray-400 hover:text-gray-600" onClick={() => cancelar(r)}>
+                        <Button size="sm" variant="ghost" className="text-gray-400 hover:text-gray-600" title="Cancelar" onClick={() => cancelar(r)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      {podeExcluirRequisicao && (
+                        <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-800 hover:bg-red-50" title="Excluir (restaura saldo do contrato)" onClick={() => excluir(r)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       )}
@@ -350,6 +412,11 @@ export default function RequisicoesPage() {
               <Input type="number" step="0.001" min="0" placeholder="0,000"
                 value={form.quantidade_autorizada}
                 onChange={e => setForm({ ...form, quantidade_autorizada: e.target.value })} />
+              {getSaldoParaTipo(form.tipo_combustivel) !== null && (
+                <p className="text-xs text-muted-foreground">
+                  Saldo disponível: {fmtLitros(getSaldoParaTipo(form.tipo_combustivel)!, 3)} para {LABEL_COMB[form.tipo_combustivel] || form.tipo_combustivel}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5 col-span-2">
               <Label>Finalidade *</Label>
@@ -361,6 +428,11 @@ export default function RequisicoesPage() {
               <Textarea rows={2} value={form.observacoes}
                 onChange={e => setForm({ ...form, observacoes: e.target.value })} />
             </div>
+            {erroSaldo && (
+              <div className="col-span-2 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                {erroSaldo}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>

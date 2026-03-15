@@ -7,7 +7,7 @@ import { getAuthToken } from '@/lib/api'
 
 interface Credencial {
   id: string
-  tipo: 'POSTO' | 'VEREADOR'
+  tipo: 'POSTO' | 'VEREADOR' | 'VEREADOR_PORTAL'
   nome: string
   codigo_acesso: string
   solicitante_cargo?: string
@@ -74,7 +74,7 @@ export default function FrotaCredenciaisPage() {
   const [erroModal, setErroModal] = useState('')
 
   // Form
-  const [formTipo, setFormTipo] = useState<'POSTO' | 'VEREADOR'>('POSTO')
+  const [formTipo, setFormTipo] = useState<'POSTO' | 'VEREADOR' | 'VEREADOR_PORTAL'>('POSTO')
   const [formNome, setFormNome] = useState('')
   const [formCodigo, setFormCodigo] = useState('')
   const [formSenha, setFormSenha] = useState('')
@@ -142,10 +142,10 @@ export default function FrotaCredenciaisPage() {
 
   // ─── Modal helpers ────────────────────────────────────────────────────────
 
-  function abrirNovo(tipo: 'POSTO' | 'VEREADOR') {
+  function abrirNovo(tipo: 'POSTO' | 'VEREADOR' | 'VEREADOR_PORTAL') {
     setEditando(null)
     setFormTipo(tipo)
-    setFormNome('')
+    setFormNome(tipo === 'VEREADOR_PORTAL' ? 'Portal Vereadores' : '')
     setFormCodigo('')
     setFormSenha('')
     setFormCargo('')
@@ -251,6 +251,7 @@ export default function FrotaCredenciaisPage() {
   }
 
   const postos = credenciais.filter(c => c.tipo === 'POSTO')
+  const portal = credenciais.find(c => c.tipo === 'VEREADOR_PORTAL')
   const vereadores = credenciais.filter(c => c.tipo === 'VEREADOR')
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -397,6 +398,48 @@ export default function FrotaCredenciaisPage() {
 
       {aba === 'vereadores' && (
         <div>
+          {/* Portal único — um link para todos os vereadores */}
+          {portal && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <h3 className="font-semibold text-blue-900 mb-2">Link único — Portal Vereadores</h3>
+              <p className="text-sm text-blue-700 mb-2">Todos os vereadores acessam por este link com código e senha.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="bg-white px-2 py-1 rounded text-xs border border-blue-200 truncate max-w-xs">
+                  /frota/vereador/{portal.url_slug}
+                </code>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/frota/vereador/${portal.url_slug}`
+                    navigator.clipboard.writeText(url).then(() => {
+                      setCopiado('portal-' + portal.url_slug!)
+                      setTimeout(() => setCopiado(null), 2000)
+                    })
+                  }}
+                  className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                >
+                  {copiado === 'portal-' + portal.url_slug ? 'Copiado!' : 'Copiar link'}
+                </button>
+                <button
+                  onClick={() => abrirEditar(portal)}
+                  className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                >
+                  Editar
+                </button>
+              </div>
+            </div>
+          )}
+          {!portal && !carregando && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-sm text-amber-800 mb-2">Configure um link único para que todos os vereadores acessem com código e senha.</p>
+              <button
+                onClick={() => abrirNovo('VEREADOR_PORTAL')}
+                className="text-amber-700 hover:text-amber-900 font-medium text-sm"
+              >
+                + Configurar portal único
+              </button>
+            </div>
+          )}
+
           <div className="flex justify-end mb-4">
             <button
               onClick={() => abrirNovo('VEREADOR')}
@@ -556,7 +599,7 @@ export default function FrotaCredenciaisPage() {
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-900 mb-4">
-              {editando ? 'Editar Credencial' : `Nova Credencial — ${formTipo === 'POSTO' ? 'Posto' : 'Vereador'}`}
+              {editando ? 'Editar Credencial' : `Nova Credencial — ${formTipo === 'POSTO' ? 'Posto' : formTipo === 'VEREADOR_PORTAL' ? 'Portal Vereadores' : 'Vereador'}`}
             </h2>
 
             <form onSubmit={handleSalvar} className="space-y-4">
@@ -595,33 +638,36 @@ export default function FrotaCredenciaisPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Código de Acesso *</label>
-                <input
-                  type="text"
-                  value={formCodigo}
-                  onChange={e => setFormCodigo(e.target.value.toUpperCase().replace(/\s/g, ''))}
-                  required
-                  placeholder="Ex: POSTO01 ou VEREADOR01"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                />
-                <p className="text-xs text-gray-400 mt-1">Identificador único para login. Sem espaços.</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {editando ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha *'}
-                </label>
-                <input
-                  type="password"
-                  value={formSenha}
-                  onChange={e => setFormSenha(e.target.value)}
-                  required={!editando}
-                  minLength={6}
-                  placeholder="Mínimo 6 caracteres"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              {formTipo !== 'VEREADOR_PORTAL' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Código de Acesso *</label>
+                    <input
+                      type="text"
+                      value={formCodigo}
+                      onChange={e => setFormCodigo(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                      required
+                      placeholder="Ex: POSTO01 ou VEREADOR01"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Identificador único para login. Sem espaços.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {editando ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha *'}
+                    </label>
+                    <input
+                      type="password"
+                      value={formSenha}
+                      onChange={e => setFormSenha(e.target.value)}
+                      required={!editando}
+                      minLength={6}
+                      placeholder="Mínimo 6 caracteres"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </>
+              )}
 
               {formTipo === 'VEREADOR' && (
                 <>
@@ -652,38 +698,47 @@ export default function FrotaCredenciaisPage() {
               )}
 
               {formTipo === 'POSTO' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Contrato de Abastecimento</label>
-                    <select
-                      value={formContratoId}
-                      onChange={e => setFormContratoId(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">— Sem contrato vinculado —</option>
-                      {contratos.map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.numero_contrato} · {c.fornecedor_nome}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-gray-400 mt-1">Vincula o posto ao contrato de fornecimento de combustível.</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contrato de Abastecimento</label>
+                  <select
+                    value={formContratoId}
+                    onChange={e => setFormContratoId(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Sem contrato vinculado —</option>
+                    {contratos.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.numero_contrato} · {c.fornecedor_nome}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Vincula o posto ao contrato de fornecimento de combustível.</p>
+                </div>
+              )}
+
+              {(formTipo === 'POSTO' || formTipo === 'VEREADOR_PORTAL') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    URL Slug (para link)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm whitespace-nowrap">
+                      /frota/{formTipo === 'VEREADOR_PORTAL' ? 'vereador/' : 'posto/'}
+                    </span>
+                    <input
+                      type="text"
+                      value={formSlug}
+                      onChange={e => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                      placeholder={formTipo === 'VEREADOR_PORTAL' ? 'vereadores-camara' : 'posto-central'}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">URL Slug (para link direto)</label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400 text-sm whitespace-nowrap">/frota/posto/</span>
-                      <input
-                        type="text"
-                        value={formSlug}
-                        onChange={e => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
-                        placeholder="posto-central"
-                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">Deixe em branco para não usar link direto. Apenas letras, números e hífen.</p>
-                  </div>
-                </>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {formTipo === 'VEREADOR_PORTAL'
+                      ? 'Deixe em branco para gerar automaticamente. Um link único para todos os vereadores.'
+                      : 'Deixe em branco para gerar automaticamente. Apenas letras, números e hífen.'}
+                  </p>
+                </div>
               )}
 
               <div className="flex items-center gap-2">

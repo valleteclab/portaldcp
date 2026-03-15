@@ -12,6 +12,7 @@ import { FrotaRequisicao } from './entities/frota-requisicao.entity';
 import { FrotaCredencial } from './entities/frota-credencial.entity';
 import { FrotaAcessoLog } from './entities/frota-acesso-log.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { AuthModule } from '../auth/auth.module';
 import { ContratosModule } from '../contratos/contratos.module';
 
@@ -21,7 +22,7 @@ import { ContratosModule } from '../contratos/contratos.module';
       Veiculo, Abastecimento, Manutencao,
       FrotaContrato, FrotaRequisicao,
       FrotaCredencial, FrotaAcessoLog,
-      Orgao,
+      Orgao, Usuario,
     ]),
     AuthModule,      // fornece JwtService
     ContratosModule, // fornece acesso a contratos existentes

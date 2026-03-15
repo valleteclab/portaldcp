@@ -56,7 +56,8 @@ export class FrotaContrato {
 
   /**
    * Itens importados do contrato (quando unidade = LITRO).
-   * Cada item: descricao, unidade_medida, preco_litro, quantidade_contratada, valor_total
+   * Cada item: descricao, unidade_medida, preco_litro, quantidade_contratada, quantidade_consumida, valor_total
+   * Saldo disponível = quantidade_contratada - (quantidade_consumida ?? 0)
    */
   @Column({ type: 'jsonb', nullable: true, default: null })
   itens: {
@@ -64,7 +65,9 @@ export class FrotaContrato {
     unidade_medida: string;
     preco_litro: number;
     quantidade_contratada: number;
+    quantidade_consumida?: number;
     valor_total: number;
+    item_contrato_id?: string;
   }[] | null;
 
   @CreateDateColumn()

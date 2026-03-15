@@ -48,25 +48,33 @@ export class FrotaAuthService {
   }
 
   async criarCredencial(orgaoId: string, dados: any) {
-    const existing = await this.credencialRepo.findOne({
-      where: { orgao_id: orgaoId, codigo_acesso: dados.codigo_acesso?.toUpperCase() },
-    });
-    if (existing) throw new BadRequestException('Código de acesso já cadastrado neste órgão');
+    const isPortal = dados.tipo === TipoCredencialFrota.VEREADOR_PORTAL;
+    if (!isPortal) {
+      const existing = await this.credencialRepo.findOne({
+        where: { orgao_id: orgaoId, codigo_acesso: dados.codigo_acesso?.toUpperCase() },
+      });
+      if (existing) throw new BadRequestException('Código de acesso já cadastrado neste órgão');
+    }
 
-    if (!dados.senha) throw new BadRequestException('Senha obrigatória');
+    if (!dados.senha && !isPortal) throw new BadRequestException('Senha obrigatória');
 
-    const senha_hash = await bcrypt.hash(dados.senha, 10);
+    const senha_hash = isPortal
+      ? await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10)
+      : await bcrypt.hash(dados.senha, 10);
     let url_slug = dados.url_slug;
 
     if (!url_slug && (dados.tipo === TipoCredencialFrota.POSTO || dados.tipo === TipoCredencialFrota.VEREADOR)) {
       const prefix = dados.tipo === TipoCredencialFrota.VEREADOR ? 'v-' : '';
       url_slug = await this.gerarSlugUnico(dados.nome, orgaoId, prefix);
     }
+    if (isPortal && !url_slug) {
+      url_slug = await this.gerarSlugUnico('vereadores', orgaoId, 'portal-');
+    }
 
     const credencial = this.credencialRepo.create({
       tipo: dados.tipo,
-      nome: dados.nome,
-      codigo_acesso: dados.codigo_acesso?.toUpperCase(),
+      nome: dados.nome || (isPortal ? 'Portal Vereadores' : ''),
+      codigo_acesso: isPortal ? 'PORTAL' : dados.codigo_acesso?.toUpperCase(),
       senha_hash,
       solicitante_cargo: dados.solicitante_cargo,
       cota_mensal_litros: dados.cota_mensal_litros,
@@ -187,8 +195,24 @@ export class FrotaAuthService {
     });
     if (!credencial) throw new NotFoundException('Vereador não encontrado');
     return {
+      tipo: 'VEREADOR' as const,
       nome: credencial.nome,
       cargo: credencial.solicitante_cargo,
+      orgao_nome: credencial.orgao?.nome,
+      orgao_id: credencial.orgao_id,
+      logo_url: credencial.orgao?.logo_url,
+    };
+  }
+
+  async obterInfoVereadorPortal(slug: string) {
+    const credencial = await this.credencialRepo.findOne({
+      where: { url_slug: slug, tipo: TipoCredencialFrota.VEREADOR_PORTAL, ativo: true },
+      relations: ['orgao'],
+    });
+    if (!credencial) throw new NotFoundException('Portal de vereadores não encontrado');
+    return {
+      tipo: 'VEREADOR_PORTAL' as const,
+      nome: credencial.nome || 'Portal Vereadores',
       orgao_nome: credencial.orgao?.nome,
       orgao_id: credencial.orgao_id,
       logo_url: credencial.orgao?.logo_url,
@@ -201,6 +225,22 @@ export class FrotaAuthService {
     });
     if (!credencial) throw new UnauthorizedException('Link de acesso inválido');
     return this.login(credencial.orgao_id, credencial.codigo_acesso, senha, ip, userAgent);
+  }
+
+  async loginVereadorPortal(slug: string, codigoAcesso: string, senha: string, ip: string, userAgent: string) {
+    const portal = await this.credencialRepo.findOne({
+      where: { url_slug: slug, tipo: TipoCredencialFrota.VEREADOR_PORTAL, ativo: true },
+    });
+    if (!portal) throw new UnauthorizedException('Portal de vereadores não encontrado');
+    const vereador = await this.credencialRepo.findOne({
+      where: { orgao_id: portal.orgao_id, codigo_acesso: codigoAcesso.toUpperCase(), tipo: TipoCredencialFrota.VEREADOR, ativo: true },
+      relations: ['orgao'],
+    });
+    if (!vereador) {
+      await this.log(null, portal.orgao_id, ip, userAgent, AcaoFrotaLog.FALHA_LOGIN, { codigo: codigoAcesso }, false);
+      throw new UnauthorizedException('Código de acesso ou senha incorretos');
+    }
+    return this.login(portal.orgao_id, vereador.codigo_acesso, senha, ip, userAgent);
   }
 
   async alterarSenha(credencialId: string, orgaoId: string, senhaAtual: string, novaSenha: string, ip: string, userAgent: string) {
