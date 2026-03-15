@@ -29,6 +29,11 @@ const fmtLitros = (v: number) => `${Number(v || 0).toLocaleString('pt-BR', { min
 const fmtData = (d: string) => d ? d.split('T')[0].split('-').reverse().join('/') : ''
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
+function getQrUrl(token: string, origin: string) {
+  const url = `${origin}/frota/req/${token}`
+  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
+}
+
 const STATUS_LABEL: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   PENDENTE:   { label: 'Aguardando aprovação', color: 'text-yellow-600 bg-yellow-50 border-yellow-200',   icon: <Clock className="w-3.5 h-3.5" /> },
   AUTORIZADO: { label: 'Aprovado',             color: 'text-green-700 bg-green-50 border-green-200',     icon: <CheckCircle className="w-3.5 h-3.5" /> },
@@ -74,6 +79,9 @@ export default function VereadorSlugPage() {
   const [senhaLoading, setSenhaLoading] = useState(false)
   const [senhaMsg, setSenhaMsg] = useState('')
 
+  // Requisição selecionada para mostrar ao posto (quando há múltiplas aprovadas)
+  const [requisicaoSelecionada, setRequisicaoSelecionada] = useState<Requisicao | null>(null)
+
   // ─── Carregar info pública ────────────────────────────────────────────────
 
   useEffect(() => {
@@ -109,6 +117,12 @@ export default function VereadorSlugPage() {
   }, [])
 
   useEffect(() => { if (token) carregarDados(token) }, [token, carregarDados])
+
+  // Sincronizar requisição selecionada quando dados carregam (usa a mais recente aprovada)
+  useEffect(() => {
+    const ativa = data?.autorizacao_ativa ?? data?.requisicoes?.find(r => r.status === 'AUTORIZADO') ?? null
+    setRequisicaoSelecionada(ativa)
+  }, [data])
 
   // ─── Login ────────────────────────────────────────────────────────────────
 
@@ -269,13 +283,16 @@ export default function VereadorSlugPage() {
 
   if (!data) return null
 
-  const { credencial, mes, cota_mensal, litros_usados, autorizacao_ativa, requisicoes } = data
+  const { credencial, mes, cota_mensal, litros_usados, requisicoes } = data
+  const requisicoesAprovadas = requisicoes.filter(r => r.status === 'AUTORIZADO')
+  const exibir = requisicoesAprovadas.find(r => r.id === requisicaoSelecionada?.id) ?? requisicoesAprovadas[0] ?? null
   const percentoCota = cota_mensal > 0 ? Math.min((litros_usados / cota_mensal) * 100, 100) : 0
   const litrosDisp = Math.max(0, cota_mensal - litros_usados)
   const mesLabel = new Date(`${mes}-15`).toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()
-  const ordemUrl = autorizacao_ativa?.token_acesso
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/frota/req/${autorizacao_ativa.token_acesso}`
+  const ordemUrl = exibir?.token_acesso
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/frota/req/${exibir.token_acesso}`
     : null
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
   // ─── Aba: Início ─────────────────────────────────────────────────────────
 
@@ -323,9 +340,27 @@ export default function VereadorSlugPage() {
         </div>
 
         {/* Autorização Ativa — card de destaque */}
-        {autorizacao_ativa && (
+        {exibir && (
           <div>
-            <p className="text-xs text-slate-500 font-semibold uppercase tracking-widest mb-2">AUTORIZAÇÃO ATIVA</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-slate-500 font-semibold uppercase tracking-widest">AUTORIZAÇÃO ATIVA</p>
+              {requisicoesAprovadas.length > 1 && (
+                <select
+                  value={exibir.id}
+                  onChange={e => {
+                    const r = requisicoesAprovadas.find(x => x.id === e.target.value)
+                    if (r) setRequisicaoSelecionada(r)
+                  }}
+                  className="text-xs bg-slate-700 text-white border border-slate-600 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400"
+                >
+                  {requisicoesAprovadas.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.codigo} — {fmtLitros(r.quantidade_autorizada)} · {r.tipo_combustivel}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
             <div className="bg-green-600 rounded-2xl p-4 space-y-3">
               <div className="flex items-center gap-2 text-white">
                 <CheckCircle className="w-5 h-5" />
@@ -335,42 +370,54 @@ export default function VereadorSlugPage() {
                 </div>
               </div>
 
-              {/* Código manual */}
-              <div className="bg-white rounded-xl p-3 text-center">
-                <p className="text-slate-400 text-xs mb-1">Código para o atendente</p>
-                <p className="font-mono text-3xl font-bold tracking-widest text-slate-800">
-                  {autorizacao_ativa.codigo_posto || autorizacao_ativa.codigo}
-                </p>
-                {autorizacao_ativa.codigo_posto && (
-                  <p className="text-slate-400 text-xs mt-1">Nº: {autorizacao_ativa.codigo}</p>
+              {/* Código + QR Code */}
+              <div className="bg-white rounded-xl p-3 flex items-center gap-3">
+                <div className="flex-1 text-center min-w-0">
+                  <p className="text-slate-400 text-xs mb-1">Código para o atendente</p>
+                  <p className="font-mono text-2xl sm:text-3xl font-bold tracking-widest text-slate-800">
+                    {exibir.codigo_posto || exibir.codigo}
+                  </p>
+                  {exibir.codigo_posto && (
+                    <p className="text-slate-400 text-xs mt-1">Nº: {exibir.codigo}</p>
+                  )}
+                </div>
+                {exibir.token_acesso && origin && (
+                  <div className="flex-shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={getQrUrl(exibir.token_acesso, origin)}
+                      alt="QR Code para o posto"
+                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200"
+                    />
+                  </div>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-green-700/50 rounded-xl p-3">
                   <p className="text-green-300 text-xs uppercase tracking-wide">LITROS</p>
-                  <p className="text-white font-bold">{fmtLitros(autorizacao_ativa.quantidade_autorizada)}</p>
+                  <p className="text-white font-bold">{fmtLitros(exibir.quantidade_autorizada)}</p>
                 </div>
                 <div className="bg-green-700/50 rounded-xl p-3">
                   <p className="text-green-300 text-xs uppercase tracking-wide">COMBUSTÍVEL</p>
-                  <p className="text-white font-bold capitalize">{autorizacao_ativa.tipo_combustivel.toLowerCase()}</p>
+                  <p className="text-white font-bold capitalize">{exibir.tipo_combustivel.toLowerCase()}</p>
                 </div>
                 <div className="bg-green-700/50 rounded-xl p-3">
                   <p className="text-green-300 text-xs uppercase tracking-wide">VEÍCULO</p>
-                  <p className="text-white font-bold font-mono">{autorizacao_ativa.veiculo_placa}</p>
+                  <p className="text-white font-bold font-mono">{exibir.veiculo_placa}</p>
                 </div>
-                {autorizacao_ativa.token_expiry && (
+                {exibir.token_expiry && (
                   <div className="bg-green-700/50 rounded-xl p-3">
                     <p className="text-green-300 text-xs uppercase tracking-wide">VÁLIDO ATÉ</p>
-                    <p className="text-white font-bold">{fmtData(autorizacao_ativa.token_expiry)}</p>
+                    <p className="text-white font-bold">{fmtData(exibir.token_expiry)}</p>
                   </div>
                 )}
               </div>
 
-              {autorizacao_ativa.finalidade && (
+              {exibir.finalidade && (
                 <div className="bg-green-700/50 rounded-xl p-3">
                   <p className="text-green-300 text-xs uppercase tracking-wide">FINALIDADE</p>
-                  <p className="text-white text-sm">{autorizacao_ativa.finalidade}</p>
+                  <p className="text-white text-sm">{exibir.finalidade}</p>
                 </div>
               )}
 
@@ -401,8 +448,14 @@ export default function VereadorSlugPage() {
             <div className="space-y-2">
               {requisicoes.slice(0, 3).map(r => {
                 const s = STATUS_LABEL[r.status] || STATUS_LABEL.CANCELADO
+                const isAprovado = r.status === 'AUTORIZADO'
+                const isSelecionada = exibir?.id === r.id
                 return (
-                  <div key={r.id} className="bg-white rounded-2xl p-3 flex items-center gap-3 shadow-sm">
+                  <div
+                    key={r.id}
+                    onClick={() => isAprovado && setRequisicaoSelecionada(r)}
+                    className={`bg-white rounded-2xl p-3 flex items-center gap-3 shadow-sm ${isAprovado ? 'cursor-pointer hover:ring-2 hover:ring-green-400 transition-shadow' : ''} ${isSelecionada ? 'ring-2 ring-green-500' : ''}`}
+                  >
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center ${r.status === 'ABASTECIDO' ? 'bg-blue-100' : r.status === 'AUTORIZADO' ? 'bg-green-100' : 'bg-gray-100'}`}>
                       {s.icon}
                     </div>
@@ -411,7 +464,9 @@ export default function VereadorSlugPage() {
                       <p className="text-xs text-slate-400 truncate">{r.quantidade_autorizada} L · {r.tipo_combustivel} · {r.veiculo_placa}</p>
                       <p className="text-xs text-slate-400">{fmtData(r.data_requisicao)} · {r.finalidade}</p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${s.color}`}>{s.label}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${s.color}`}>
+                      {isAprovado && isSelecionada ? 'Em exibição' : s.label}
+                    </span>
                   </div>
                 )
               })}

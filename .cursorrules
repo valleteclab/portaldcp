@@ -1,5 +1,11 @@
 # Scratchpad
 
+## Tarefa Concluída: Frota Vereador - QR Code e seleção de requisição (2026-03-15)
+
+- [X] QR Code exibido junto ao código na autorização ativa (mesmo serviço qrserver.com da página /frota/req)
+- [X] Quando múltiplas requisições aprovadas: dropdown para selecionar qual mostrar ao posto
+- [X] Últimos pedidos: tap em pedido aprovado seleciona para exibição; badge "Em exibição" na selecionada
+
 ## Tarefa Concluída: Fila de NFs quando fornecedor envia várias antes da validação (2026-03-01)
 
 - [X] Backend upload: sempre adicionar NF (removida lógica de substituir a anterior)
