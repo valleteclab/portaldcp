@@ -24,18 +24,28 @@ export interface PrecosBarreirasResponse {
   precos: PrecoAnp[];
 }
 
-/** Retorna lista de semanas (inicio, fim) para tentar - última, penúltima, etc. ANP publica com delay. */
+/**
+ * ANP usa semanas de domingo a sábado (sempre 7 dias).
+ * Ex: 28/12 a 03/01, 04/01 a 10/01, 11/01 a 17/01. Última semana de jan: 29/01 a 04/02.
+ */
 function getSemanasParaTentar(): { inicio: string; fim: string }[] {
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const semanas: { inicio: string; fim: string }[] = [];
   const hoje = new Date();
 
-  for (let offset = 0; offset <= 14; offset += 7) {
-    const domingo = new Date(hoje);
-    domingo.setDate(hoje.getDate() - hoje.getDay() - offset);
-    const segunda = new Date(domingo);
-    segunda.setDate(domingo.getDate() - 6);
-    semanas.push({ inicio: fmt(segunda), fim: fmt(domingo) });
+  // Último sábado (fim da última semana completa). Dom=0, Seg=1, ..., Sáb=6
+  const diasParaSabado = (hoje.getDay() + 1) % 7; // 0 se hoje é sábado
+  const ultimoSabado = new Date(hoje);
+  ultimoSabado.setDate(hoje.getDate() - diasParaSabado);
+  const ultimoDomingo = new Date(ultimoSabado);
+  ultimoDomingo.setDate(ultimoSabado.getDate() - 6);
+
+  for (let n = 0; n <= 4; n++) {
+    const inicio = new Date(ultimoDomingo);
+    inicio.setDate(ultimoDomingo.getDate() - n * 7);
+    const fim = new Date(ultimoSabado);
+    fim.setDate(ultimoSabado.getDate() - n * 7);
+    semanas.push({ inicio: fmt(inicio), fim: fmt(fim) });
   }
   return semanas;
 }
