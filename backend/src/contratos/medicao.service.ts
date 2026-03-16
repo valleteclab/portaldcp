@@ -928,6 +928,60 @@ export class MedicaoService {
   }
 
   /**
+   * Fiscal submete medição criada internamente para análise (fluxo igual ao fornecedor).
+   * Status: RASCUNHO → SUBMETIDA (depois fiscal atesta → AGUARDANDO_APROVACAO)
+   */
+  async submeterMedicaoFiscal(medicaoId: string, fiscalId: string, fiscalNome: string): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (medicao.status !== StatusMedicao.RASCUNHO && medicao.status !== StatusMedicao.DEVOLVIDA) {
+      throw new BadRequestException('Apenas medições em rascunho ou devolvidas podem ser submetidas');
+    }
+
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato) {
+      const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
+      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+      const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
+      const valorMedicao = Number(medicao.valor_medido) || 0;
+      if (valorMedicao > saldoDisponivel + 0.01) {
+        throw new BadRequestException(
+          `O valor desta medição (R$ ${valorMedicao.toFixed(2)}) excede o saldo disponível (R$ ${saldoDisponivel.toFixed(2)}).`
+        );
+      }
+    }
+
+    medicao.status = StatusMedicao.SUBMETIDA;
+    medicao.data_submissao = new Date() as any;
+    medicao.fiscal_id = fiscalId;
+    medicao.fiscal_nome = fiscalNome;
+    medicao.motivo_devolucao = null as any;
+    medicao.data_devolucao = null as any;
+
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicao.id);
+      medicao.execucao_fiscal = execucaoFinanceira?.execucao_fiscal || null as any;
+      medicao.execucao_financeira = execucaoFinanceira
+        ? this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any
+        : null as any;
+    } catch (error) {
+      this.logger.warn(`Erro ao persistir snapshot da medição ${medicao.id}: ${error.message}`);
+    }
+
+    await this.medicaoRepository.save(medicao);
+    this.logger.log(`Medição #${medicao.numero_medicao} submetida pelo fiscal ${fiscalNome}`);
+    const contratoNotif = contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contratoNotif) {
+      this.notificarSubmissaoMedicao(medicao, contratoNotif).catch(e =>
+        this.logger.error(`Erro ao enviar notificações de submissão: ${e.message}`),
+      );
+    }
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
+  /**
    * Fornecedor atualiza os itens (percentuais/valores) de uma medição DEVOLVIDA.
    * Permite corrigir os itens pendentes de ateste antes de reenviar.
    */
@@ -1717,6 +1771,12 @@ export class MedicaoService {
     }
 
     throw new NotFoundException('Boletim oficial da medição ainda não foi gerado');
+  }
+
+  /** Retorna o caminho absoluto do arquivo PDF do boletim, ou null se não existir. */
+  getBoletimPdfFilePath(medicaoId: string): string | null {
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    return fs.existsSync(filePath) ? filePath : null;
   }
 
   async listarPendentesAteste(orgaoId: string): Promise<any[]> {
@@ -3936,19 +3996,10 @@ export class MedicaoService {
       this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal: ${err.message}`);
     }
 
-    // Montar dados para o frontend regenerar o PDF com o layout correto (jsPDF)
-    let dados_pdf: any = null;
-    try {
-      dados_pdf = await this.montarDadosPdfFrontend(medicaoId);
-    } catch (err) {
-      this.logger.warn(`Não foi possível montar dados PDF após assinatura fiscal: ${err.message}`);
-    }
-
     return {
       sucesso: true,
       codigo_validacao: assinatura.codigo_validacao,
       codigo_formatado: assinatura.codigo_formatado,
-      dados_pdf,
     };
   }
 

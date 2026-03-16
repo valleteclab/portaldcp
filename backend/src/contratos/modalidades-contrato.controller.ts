@@ -15,9 +15,12 @@ import {
   NotFoundException,
   UseInterceptors,
   UploadedFile,
+  StreamableFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
+import { createReadStream, existsSync } from 'fs';
+import * as path from 'path';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -521,6 +524,36 @@ export class ModalidadesContratoController {
     return this.medicaoService.buscarMedicao(medicaoId);
   }
 
+  @Get('medicoes/:medicaoId/boletim-oficial/download')
+  async downloadBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Res({ passthrough: true }) res: Response,
+    @Query('orgaoId') orgaoIdParam?: string,
+  ): Promise<StreamableFile> {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+
+    await this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+    const filePath = this.medicaoService.getBoletimPdfFilePath(medicaoId);
+    if (!filePath || !existsSync(filePath)) {
+      throw new NotFoundException('Boletim PDF não encontrado');
+    }
+
+    const filename = `boletim_medicao_${medicao.numero_medicao || medicaoId}.pdf`;
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return new StreamableFile(createReadStream(filePath));
+  }
+
   @Get('medicoes/:medicaoId/boletim-oficial')
   async obterBoletimOficial(
     @Param('medicaoId') medicaoId: string,
@@ -581,6 +614,20 @@ export class ModalidadesContratoController {
     },
   ) {
     return this.medicaoService.submeterMedicao(medicaoId, body.fornecedor_id, body);
+  }
+
+  @Patch('medicoes/:medicaoId/submeter-fiscal')
+  async submeterMedicaoFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fiscal_id: string; fiscal_nome: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    const orgaoId = this.getOrgaoId(request.user);
+    if (contrato.orgao_id !== orgaoId) throw new ForbiddenException('Sem acesso a esta medição');
+    return this.medicaoService.submeterMedicaoFiscal(medicaoId, body.fiscal_id, body.fiscal_nome);
   }
 
   @Patch('medicoes/:medicaoId/atestar')
