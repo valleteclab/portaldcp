@@ -91,6 +91,13 @@ function fmtTempo(dias: number): string {
   return pM || pD || '0 dias';
 }
 
+/** Formata quantidade com unidade (ex: 100 h, 50 un) */
+function fmtQuantidade(valor: number, unidade: string): string {
+  const u = (unidade || 'UN').toUpperCase();
+  const suf = u === 'HORA' || u === 'H' ? ' h' : u === 'METROS' || u === 'M' ? ' m' : u === 'LITROS' || u === 'L' ? ' l' : ' un';
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}${suf}`;
+}
+
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
 function derivarCompetencia(periodoInicio: string): string {
   if (!periodoInicio) return '';
@@ -495,31 +502,24 @@ export async function gerarBoletimMedicaoPdf(
       ],
     ];
 
-    // --- Execução Fiscal (tempo) ---
+    const porQuantidade = !!(dados as any).execucao_fiscal_por_quantidade;
+
     let txtFiscalNoPeriodo: string, txtFiscalAtePeriodo: string, txtFiscalAExecutar: string;
-
-    const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
-    txtFiscalNoPeriodo = fmtTempo(diasPeriodo);
-
-    if (dados.execucao_fiscal) {
-      txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados);
-    } else if (dados.data_vigencia_inicio) {
-      const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim));
-      txtFiscalAtePeriodo = fmtTempo(diasAte);
+    if (porQuantidade) {
+      txtFiscalNoPeriodo = txtFiscalAtePeriodo = txtFiscalAExecutar = '';
     } else {
-      txtFiscalAtePeriodo = '-';
-    }
-
-    if (dados.execucao_fiscal) {
-      txtFiscalAExecutar = fmtTempo(dados.execucao_fiscal.dias_restantes);
-    } else if (dados.data_vigencia_fim) {
-      const diasAte = dados.data_vigencia_inicio
-        ? Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim))
-        : 0;
-      const diasRestante = Math.max(0, 360 - diasAte);
-      txtFiscalAExecutar = fmtTempo(diasRestante);
-    } else {
-      txtFiscalAExecutar = '-';
+      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
+      txtFiscalNoPeriodo = fmtTempo(diasPeriodo);
+      if (dados.execucao_fiscal) {
+        txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados);
+        txtFiscalAExecutar = fmtTempo(dados.execucao_fiscal.dias_restantes);
+      } else if (dados.data_vigencia_inicio && dados.data_vigencia_fim) {
+        const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim));
+        txtFiscalAtePeriodo = fmtTempo(diasAte);
+        txtFiscalAExecutar = fmtTempo(Math.max(0, 360 - diasAte));
+      } else {
+        txtFiscalAtePeriodo = txtFiscalAExecutar = '-';
+      }
     }
 
     let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0;
@@ -539,12 +539,17 @@ export async function gerarBoletimMedicaoPdf(
       totalAteoPeriodo += vlrAtePeriodo;
       totalAExecutar += vlrAExecutar;
 
+      const un = item.unidade || 'UNIDADE';
+      const fiscalNo = porQuantidade ? fmtQuantidade(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo;
+      const fiscalAte = porQuantidade ? fmtQuantidade(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo;
+      const fiscalExec = porQuantidade ? fmtQuantidade(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar;
+
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: item.descricao, styles: { fontSize: 6 } },
-        { content: txtFiscalNoPeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: txtFiscalAtePeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: txtFiscalAExecutar, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalNo, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalAte, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalExec, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },

@@ -1,0 +1,9 @@
+[Cursor] Implementar flag boletim_por_quantidade no contrato
+
+- Contrato: campo boletim_por_quantidade (entity + migration)
+- Quando marcada: Execução Fiscal no boletim exibe quantidades (un/h/m) em vez de dias
+- Mesmo layout da tabela EXECUÇÃO FISCAL / FINANCEIRA
+- Backend: calcularExecucaoFinanceiraFornecedor retorna quantidade por item e execucao_fiscal_por_quantidade
+- PDF: frontend pdf-medicao.ts e backend medicao-pdf-jspdf.ts com fmtQuantidade
+- Checkbox nos formulários novo/editar contrato (visível para MEDICAO, CONTINUADO, LICENCA)
+- Frontend fornecedor: bloco Execução Fiscal (Quantidade) quando flag ativa

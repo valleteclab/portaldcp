@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/table';
 import {
   ArrowLeft,
+  BarChart3,
   FileText,
   Calendar,
   DollarSign,
@@ -67,6 +68,7 @@ interface Contrato {
   status: string;
   categoria: string;
   modalidade_execucao: string;
+  boletim_por_quantidade?: boolean;
   valor_global: number;
   valor_inicial: number;
   data_assinatura: string;
@@ -1131,13 +1133,20 @@ export default function FornecedorContratoDetalhePage() {
         const vlrNoPeriodo = Number((itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo) || 0);
         const vlrAtePeriodo = Number((itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo) || 0);
         const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo);
+        const qtdNoPeriodo = Number(itemMedicao?.quantidade_medida || 0);
+        const qtdAcum = Number(itemMedicao?.item_quantidade_acumulada || ic?.quantidade_medida || 0);
+        const qtdTotal = Number(ic?.quantidade || itemMedicao?.item_quantidade_total || 0);
+        const qtdAte = itemExecucao.quantidade_ate_periodo ?? (qtdAcum + qtdNoPeriodo);
+        const qtdExec = itemExecucao.quantidade_a_executar ?? Math.max(0, qtdTotal - qtdAte);
         return {
           numero: Number(itemExecucao.numero_etapa || 0),
           descricao: itemExecucao.descricao || itemMedicao?.item_descricao || itemMedicao?.etapa_descricao || '',
           unidade: itemMedicao?.item_unidade || ic?.unidade_medida || '',
-          quantidade_no_periodo: Number(itemMedicao?.quantidade_medida || 0),
-          quantidade_acumulada_aprovada: Number(itemMedicao?.item_quantidade_acumulada || ic?.quantidade_medida || 0),
-          quantidade_total_contrato: Number(ic?.quantidade || itemMedicao?.item_quantidade_total || 0),
+          quantidade_no_periodo: qtdNoPeriodo,
+          quantidade_acumulada_aprovada: qtdAcum,
+          quantidade_total_contrato: qtdTotal,
+          quantidade_ate_periodo: qtdAte,
+          quantidade_a_executar: qtdExec,
           valor_no_periodo: vlrNoPeriodo,
           valor_unitario: vlrUnitario,
           valor_acumulado_anterior: vlrAcumAnterior,
@@ -1180,6 +1189,7 @@ export default function FornecedorContratoDetalhePage() {
         nota_fiscal_numero: med.nota_fiscal_numero || undefined,
         nota_fiscal_valor: med.nota_fiscal_valor ? Number(med.nota_fiscal_valor) : undefined,
         execucao_fiscal: med.execucao_fiscal || undefined,
+        execucao_fiscal_por_quantidade: !!(contrato?.boletim_por_quantidade ?? execucaoFinanceira?.execucao_fiscal_por_quantidade),
         itens: itensItem.length > 0 ? itensItem : undefined,
         etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
         itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
@@ -2376,46 +2386,80 @@ export default function FornecedorContratoDetalhePage() {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Execução Fiscal (Tempo) */}
+                  {/* Execução Fiscal (Tempo ou Quantidade) */}
                   <div className="bg-white rounded-lg p-4 border border-blue-200">
                     <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      Execução Fiscal (Tempo)
+                      {contrato?.boletim_por_quantidade ? (
+                            <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</>
+                          ) : (
+                            <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>
+                          )}
                     </h4>
                     <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">No Período:</span>
-                        <span className="font-medium text-blue-700">
-                          {calcularExecucaoFiscal(
-                            novaMedicao.periodo_inicio,
-                            novaMedicao.periodo_fim,
-                            contrato.data_vigencia_inicio,
-                            contrato.data_vigencia_fim
-                          ).noPeriodo}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Até o Período:</span>
-                        <span className="font-medium text-blue-700">
-                          {calcularExecucaoFiscal(
-                            novaMedicao.periodo_inicio,
-                            novaMedicao.periodo_fim,
-                            contrato.data_vigencia_inicio,
-                            contrato.data_vigencia_fim
-                          ).atePeriodo}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">A Executar:</span>
-                        <span className="font-medium text-green-700">
-                          {calcularExecucaoFiscal(
-                            novaMedicao.periodo_inicio,
-                            novaMedicao.periodo_fim,
-                            contrato.data_vigencia_inicio,
-                            contrato.data_vigencia_fim
-                          ).aExecutar}
-                        </span>
-                      </div>
+                      {contrato?.boletim_por_quantidade && execucaoFinanceira?.itens?.length ? (
+                        execucaoFinanceira.itens.length === 1 ? (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">No Período:</span>
+                              <span className="font-medium text-blue-700">
+                                {Number(execucaoFinanceira.itens[0].quantidade_no_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceira.itens[0] as any).unidade_medida || 'un'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Até o Período:</span>
+                              <span className="font-medium text-blue-700">
+                                {Number((execucaoFinanceira.itens[0] as any).quantidade_ate_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceira.itens[0] as any).unidade_medida || 'un'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">A Executar:</span>
+                              <span className="font-medium text-green-700">
+                                {Number((execucaoFinanceira.itens[0] as any).quantidade_a_executar ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceira.itens[0] as any).unidade_medida || 'un'}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-gray-600 text-xs">Por item na tabela de itens do boletim</p>
+                        )
+                      ) : !contrato?.boletim_por_quantidade ? (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">No Período:</span>
+                            <span className="font-medium text-blue-700">
+                              {calcularExecucaoFiscal(
+                                novaMedicao.periodo_inicio,
+                                novaMedicao.periodo_fim,
+                                contrato.data_vigencia_inicio,
+                                contrato.data_vigencia_fim
+                              ).noPeriodo}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Até o Período:</span>
+                            <span className="font-medium text-blue-700">
+                              {calcularExecucaoFiscal(
+                                novaMedicao.periodo_inicio,
+                                novaMedicao.periodo_fim,
+                                contrato.data_vigencia_inicio,
+                                contrato.data_vigencia_fim
+                              ).atePeriodo}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">A Executar:</span>
+                            <span className="font-medium text-green-700">
+                              {calcularExecucaoFiscal(
+                                novaMedicao.periodo_inicio,
+                                novaMedicao.periodo_fim,
+                                contrato.data_vigencia_inicio,
+                                contrato.data_vigencia_fim
+                              ).aExecutar}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-gray-500 text-xs">Carregue os itens da medição para ver a execução por quantidade</p>
+                      )}
                     </div>
                   </div>
 

@@ -1,13 +1,13 @@
 # Scratchpad
 
-## Tarefa em Planejamento: Boletim de Medição por Quantidade (2026-03-16)
+## Tarefa Concluída: Boletim de Medição por Quantidade (2026-03-16)
 
-- [ ] Contexto: Execução Fiscal no boletim sempre em dias; contratos de serviço por quantidade (ex: 100 h × R$) precisam execução em unidades
-- [ ] Planejamento: docs/contratos/PLANEJAMENTO-BOLETIM-POR-QUANTIDADE.md
-- [ ] Regra: usar boletim por quantidade quando usarItensCronograma + unidade ≠ MENSAL (ou flag explícita no contrato)
-- [ ] Backend: calcularExecucaoFinanceiraFornecedor, montarDadosPdfFrontend, execucao_fiscal_por_quantidade
-- [ ] PDF: colunas Execução Fiscal em quantidade (X h, Y un) quando aplicável
-- [ ] Frontend: fornecedor, TabMedicao, aprovacoes — bloco Execução Fiscal condicional
+- [X] Flag boletim_por_quantidade no contrato (entity + migration)
+- [X] Quando marcada: Execução Fiscal em quantidade (un/h/m) em vez de dias, mesmo layout
+- [X] Backend: calcularExecucaoFinanceiraFornecedor, montarDadosPdfFrontend
+- [X] PDF: frontend + backend medicao-pdf-jspdf.ts — condicional por quantidade
+- [X] Checkbox nos formulários novo/editar contrato (MEDICAO, CONTINUADO, LICENCA)
+- [X] Frontend fornecedor: bloco Execução Fiscal (Quantidade) quando flag
 
 ## Tarefa Concluída: Validade requisição combustível - fim do mês (2026-03-15)
 

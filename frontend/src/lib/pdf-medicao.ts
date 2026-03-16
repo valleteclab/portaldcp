@@ -28,6 +28,10 @@ export interface ItemMedicaoPdf {
   valor_acumulado_anterior?: number
   /** Valor total ORIGINAL do item no contrato. Se definido, substitui quantidade_total_contrato × valor_unitario. */
   valor_total_item?: number
+  /** Quando boletim_por_quantidade: quantidade acumulada até o período */
+  quantidade_ate_periodo?: number
+  /** Quando boletim_por_quantidade: quantidade a executar */
+  quantidade_a_executar?: number
 }
 
 export interface ItemContratadoPdf {
@@ -79,6 +83,8 @@ export interface DadosMedicaoPdf {
   }
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
+  /** Quando true, Execução Fiscal exibe quantidades (un, h, m) em vez de dias */
+  execucao_fiscal_por_quantidade?: boolean
   // Execução fiscal (calculada no backend com ano comercial)
   execucao_fiscal?: {
     vigencia_inicio: string;
@@ -210,6 +216,13 @@ function fmtTempo(dias: number): string {
   const pD = d === 1 ? '1 dia' : d > 1 ? `${d} dias` : ''
   if (pM && pD) return `${pM} e ${pD}`
   return pM || pD || '0 dias'
+}
+
+/** Formata quantidade com unidade (ex: 100 h, 50 un) */
+function fmtQuantidade(valor: number, unidade: string): string {
+  const u = (unidade || 'UN').toUpperCase()
+  const suf = u === 'HORA' || u === 'H' ? ' h' : u === 'METROS' || u === 'M' ? ' m' : u === 'LITROS' || u === 'L' ? ' l' : ' un'
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}${suf}`
 }
 
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
@@ -615,41 +628,30 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       ],
     ]
 
-    // --- Execução Fiscal (tempo) ---
-    // Calcular corretamente cada coluna
-    let txtFiscalNoPeriodo, txtFiscalAtePeriodo, txtFiscalAExecutar;
-    
-    // NO PERÍODO: dias do período da medição
-    const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
-    txtFiscalNoPeriodo = fmtTempo(diasPeriodo);
-    
-    // ATÉ O PERÍODO: dias executados até o fim do período da medição
-    if (dados.execucao_fiscal) {
-      txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados);
-    } else if (dados.data_vigencia_inicio) {
-      const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim));
-      txtFiscalAtePeriodo = fmtTempo(diasAte);
+    const porQuantidade = !!dados.execucao_fiscal_por_quantidade
+
+    // --- Execução Fiscal: tempo (dias) ou quantidade ---
+    let txtFiscalNoPeriodo: string, txtFiscalAtePeriodo: string, txtFiscalAExecutar: string
+    if (porQuantidade) {
+      txtFiscalNoPeriodo = txtFiscalAtePeriodo = txtFiscalAExecutar = '' // por item
     } else {
-      txtFiscalAtePeriodo = '-';
-    }
-    
-    // A EXECUTAR: dias restantes até o fim do contrato
-    if (dados.execucao_fiscal) {
-      txtFiscalAExecutar = fmtTempo(dados.execucao_fiscal.dias_restantes);
-    } else if (dados.data_vigencia_fim) {
-      const diasAte = dados.data_vigencia_inicio
-        ? Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim))
-        : 0
-      const diasRestante = Math.max(0, 360 - diasAte)
-      txtFiscalAExecutar = fmtTempo(diasRestante);
-    } else {
-      txtFiscalAExecutar = '-';
+      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim))
+      txtFiscalNoPeriodo = fmtTempo(diasPeriodo)
+      if (dados.execucao_fiscal) {
+        txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados)
+        txtFiscalAExecutar = fmtTempo(dados.execucao_fiscal.dias_restantes)
+      } else if (dados.data_vigencia_inicio && dados.data_vigencia_fim) {
+        const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim))
+        txtFiscalAtePeriodo = fmtTempo(diasAte)
+        txtFiscalAExecutar = fmtTempo(Math.max(0, 360 - diasAte))
+      } else {
+        txtFiscalAtePeriodo = txtFiscalAExecutar = '-'
+      }
     }
 
     let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0
 
     const body: any[][] = dados.itens.map(item => {
-      // Usar valor_acumulado_anterior se disponível (contratos migrados)
       const vlrAcumAnterior = item.valor_acumulado_anterior !== undefined
         ? item.valor_acumulado_anterior
         : item.quantidade_acumulada_aprovada * item.valor_unitario
@@ -664,12 +666,17 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       totalAteoPeriodo += vlrAtePeriodo
       totalAExecutar += vlrAExecutar
 
+      const un = item.unidade || 'UNIDADE'
+      const fiscalNo = porQuantidade ? fmtQuantidade(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo
+      const fiscalAte = porQuantidade ? fmtQuantidade(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo
+      const fiscalExec = porQuantidade ? fmtQuantidade(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar
+
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: item.descricao, styles: { fontSize: 6 } },
-        { content: txtFiscalNoPeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: txtFiscalAtePeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: txtFiscalAExecutar, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalNo, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalAte, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalExec, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },
