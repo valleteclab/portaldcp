@@ -65,6 +65,7 @@ export class AnpService {
     const semanas = getSemanasParaTentar();
     let buffer: Buffer | null = null;
     let semanaUsada = semanas[0];
+    const urlsTentadas: string[] = [];
 
     for (const { inicio, fim } of semanas) {
       const ano = inicio.slice(0, 4);
@@ -74,17 +75,18 @@ export class AnpService {
       ];
 
       for (const url of urls) {
+        urlsTentadas.push(url);
         try {
           const res = await axios.get(url, {
-          responseType: 'arraybuffer',
-          timeout: 30000,
-          validateStatus: (s) => s === 200,
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          },
-        });
+            responseType: 'arraybuffer',
+            timeout: 30000,
+            validateStatus: (s) => s === 200,
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            },
+          });
           if (res.data && res.data.byteLength > 0) {
             buffer = Buffer.from(res.data);
             semanaUsada = { inicio, fim };
@@ -98,8 +100,9 @@ export class AnpService {
     }
 
     if (!buffer) {
+      const links = urlsTentadas.join('\n');
       throw new Error(
-        'Não foi possível baixar o arquivo da ANP. Dados das últimas semanas ainda não publicados.',
+        `Não foi possível baixar o arquivo da ANP. URLs tentadas:\n${links}`,
       );
     }
 
