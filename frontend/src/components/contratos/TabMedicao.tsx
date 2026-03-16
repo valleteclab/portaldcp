@@ -258,6 +258,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   })
   const [formItemCronograma, setFormItemCronograma] = useState({
     descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
+    quantidade_medida: '', // Apenas para admin (ajuste migração)
   })
   const [editandoMedidoItemId, setEditandoMedidoItemId] = useState<string | null>(null)
   const [editandoMedidoValor, setEditandoMedidoValor] = useState<string>('')
@@ -478,10 +479,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         valor_mensal: String(item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario))),
         valor_total: String(item.valor_total),
         observacoes: item.observacoes || '',
+        quantidade_medida: String(Number(item.quantidade_medida) || 0),
       })
     } else {
       setEditandoItemCronograma(null)
-      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '' })
+      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '' })
     }
     setModalItemCronograma(true)
   }
@@ -518,6 +520,13 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       if (editandoItemCronograma) {
         const res = await authFetch(`${API_URL}/api/contratos/itens-cronograma/${editandoItemCronograma.id}`, { method: 'PUT', body: JSON.stringify(payload) })
         if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+        if (isAdmin) {
+          const qtdMedida = parseFloat(formItemCronograma.quantidade_medida || '0') || 0
+          const resMig = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma/${editandoItemCronograma.id}/quantidade-migracao`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantidade_medida: qtdMedida }),
+          })
+          if (!resMig.ok) { const e = await resMig.json().catch(() => ({})); alert(e.message || 'Erro ao salvar quantidade já utilizada'); return }
+        }
       } else {
         const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma`, { method: 'POST', body: JSON.stringify(payload) })
         if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
@@ -1622,6 +1631,21 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <Input type="text" readOnly className="bg-gray-50 font-medium text-blue-700" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
               </div>
             </div>
+            {isAdmin && editandoItemCronograma && (
+              <div className="space-y-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <Label className="text-amber-800 font-medium">Quantidade já utilizada (ajuste migração)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={parseFloat(formItemCronograma.quantidade) || 0}
+                  value={formItemCronograma.quantidade_medida}
+                  onChange={e => setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value })}
+                  placeholder="0"
+                />
+                <p className="text-xs text-amber-700">Informe a quantidade já consumida antes da implantação do sistema. Será considerada nos cálculos de disponibilidade.</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Observações</Label>
               <Textarea placeholder="Opcional" value={formItemCronograma.observacoes} onChange={e => setFormItemCronograma({ ...formItemCronograma, observacoes: e.target.value })} rows={2} />
