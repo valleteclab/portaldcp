@@ -1879,13 +1879,25 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       {contratoProp?.boletim_por_quantidade ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
                     </h4>
                     <div className="space-y-2 text-sm">
-                      {contratoProp?.boletim_por_quantidade && execucaoFinanceiraModal?.itens?.length ? (
-                        execucaoFinanceiraModal.itens.length === 1 ? (
-                          <>
-                            <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{Number(execucaoFinanceiraModal.itens[0].quantidade_no_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceiraModal.itens[0] as any).unidade_medida || 'un'}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{Number((execucaoFinanceiraModal.itens[0] as any).quantidade_ate_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceiraModal.itens[0] as any).unidade_medida || 'un'}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{Number((execucaoFinanceiraModal.itens[0] as any).quantidade_a_executar ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceiraModal.itens[0] as any).unidade_medida || 'un'}</span></div>
-                          </>
+                      {contratoProp?.boletim_por_quantidade && usarItensCronograma ? (
+                        itensCronograma.length === 1 ? (
+                          (() => {
+                            const ic = itensCronograma[0]
+                            const itemState = formMedicao.itens[0] as { quantidade_medida?: number } | undefined
+                            const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                            const qtdAprovada = Number(ic.quantidade_medida ?? 0)
+                            const qtdTotal = Number(ic.quantidade ?? 0)
+                            const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
+                            const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
+                            const unidade = ic.unidade_medida || 'UNIDADE'
+                            return (
+                              <>
+                                <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{qtdNoPeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                                <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{qtdAtePeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                                <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{qtdAExecutar.toLocaleString('pt-BR')} {unidade}</span></div>
+                              </>
+                            )
+                          })()
                         ) : <p className="text-gray-600 text-xs">Por item na tabela de itens do boletim</p>
                       ) : !contratoProp?.boletim_por_quantidade ? (
                         <>
