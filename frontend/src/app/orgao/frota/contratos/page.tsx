@@ -38,6 +38,10 @@ interface PrecosBarreirasResponse {
   precos: PrecoAnp[]
 }
 
+interface PrecosBarreirasMultiploResponse {
+  semanas: PrecosBarreirasResponse[]
+}
+
 interface Contrato {
   id: string
   numero_contrato: string
@@ -100,7 +104,7 @@ export default function ContratosPage() {
   const [contratoImportarId, setContratoImportarId] = useState<string>('')
   const [precoLitroImportar, setPrecoLitroImportar] = useState('')
   const [limiteLitrosImportar, setLimiteLitrosImportar] = useState('')
-  const [precosAnp, setPrecosAnp] = useState<PrecosBarreirasResponse | null>(null)
+  const [precosAnp, setPrecosAnp] = useState<PrecosBarreirasMultiploResponse | null>(null)
   const [loadingPrecosAnp, setLoadingPrecosAnp] = useState(false)
   const [erroPrecosAnp, setErroPrecosAnp] = useState<string | null>(null)
 
@@ -210,7 +214,7 @@ export default function ContratosPage() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.message || 'Erro ao buscar preços da ANP')
       }
-      const data: PrecosBarreirasResponse = await res.json()
+      const data: PrecosBarreirasMultiploResponse = await res.json()
       setPrecosAnp(data)
     } catch (e) {
       setErroPrecosAnp(e instanceof Error ? e.message : 'Não foi possível buscar os preços. Tente o upload manual.')
@@ -246,31 +250,35 @@ export default function ContratosPage() {
         </div>
       </div>
 
-      {precosAnp && (
+      {precosAnp && precosAnp.semanas.length > 0 && (
         <Card className="border-blue-200 bg-blue-50/30">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-blue-600" />
-                Preços ANP — {precosAnp.municipio}-{precosAnp.estado}
-              </h2>
-              <span className="text-xs text-slate-500">
-                Semana: {fmtData(precosAnp.data_inicial)} a {fmtData(precosAnp.data_final)}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-              {precosAnp.precos.map((p, i) => (
-                <div key={i} className="rounded-lg border bg-white p-3 text-sm">
-                  <p className="font-medium text-slate-700 truncate" title={p.produto}>{p.produto}</p>
-                  <p className="text-lg font-bold text-blue-700 mt-1">
-                    {p.unidade_medida === 'R$/l'
-                      ? `R$ ${fmtPreco(p.preco_medio_revenda)}`
-                      : fmt(p.preco_medio_revenda)}
-                    <span className="text-xs font-normal text-slate-500 ml-1">{p.unidade_medida}</span>
+            <h2 className="font-semibold text-slate-800 flex items-center gap-2 mb-4">
+              <TrendingUp className="w-4 h-4 text-blue-600" />
+              Preços ANP — {precosAnp.semanas[0].municipio}-{precosAnp.semanas[0].estado}
+            </h2>
+            <div className="space-y-6">
+              {precosAnp.semanas.map((semana, sIdx) => (
+                <div key={sIdx} className={sIdx > 0 ? 'pt-4 border-t border-blue-200/60' : ''}>
+                  <p className="text-xs font-medium text-slate-500 mb-2">
+                    Semana: {fmtData(semana.data_inicial)} a {fmtData(semana.data_final)}
                   </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {p.numero_postos} postos | min {p.unidade_medida === 'R$/l' ? `R$ ${fmtPreco(p.preco_minimo_revenda)}` : fmt(p.preco_minimo_revenda)} — max {p.unidade_medida === 'R$/l' ? `R$ ${fmtPreco(p.preco_maximo_revenda)}` : fmt(p.preco_maximo_revenda)}
-                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                    {semana.precos.map((p, i) => (
+                      <div key={i} className="rounded-lg border bg-white p-3 text-sm">
+                        <p className="font-medium text-slate-700 truncate" title={p.produto}>{p.produto}</p>
+                        <p className="text-lg font-bold text-blue-700 mt-1">
+                          {p.unidade_medida === 'R$/l'
+                            ? `R$ ${fmtPreco(p.preco_medio_revenda)}`
+                            : fmt(p.preco_medio_revenda)}
+                          <span className="text-xs font-normal text-slate-500 ml-1">{p.unidade_medida}</span>
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {p.numero_postos} postos | min {p.unidade_medida === 'R$/l' ? `R$ ${fmtPreco(p.preco_minimo_revenda)}` : fmt(p.preco_minimo_revenda)} — max {p.unidade_medida === 'R$/l' ? `R$ ${fmtPreco(p.preco_maximo_revenda)}` : fmt(p.preco_maximo_revenda)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>

@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { Public } from '../auth/public.decorator';
-import { AnpService, PrecosBarreirasResponse } from './anp.service';
+import { AnpService, PrecosBarreirasMultiploResponse } from './anp.service';
 
 @ApiTags('ANP - Preços de Combustíveis')
 @Controller('anp')
@@ -15,9 +15,9 @@ export class AnpController {
   @ApiOperation({
     summary: 'Preços ANP - Barreiras-BA',
     description:
-      'Retorna os preços médios de combustíveis da última semana publicada pela ANP para Barreiras-BA. Faz download automático do site da ANP.',
+      'Retorna os preços médios de combustíveis das últimas 2 semanas publicadas pela ANP para Barreiras-BA. Faz download automático do site da ANP.',
   })
-  async getPrecosBarreirasBa(): Promise<PrecosBarreirasResponse> {
+  async getPrecosBarreirasBa(): Promise<PrecosBarreirasMultiploResponse> {
     return this.anpService.getPrecosBarreirasBa();
   }
 
