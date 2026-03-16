@@ -16,8 +16,27 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { FileText, Plus, Pencil, Trash2, Loader2, CheckCircle, Download } from 'lucide-react'
+import { FileText, Plus, Pencil, Trash2, Loader2, CheckCircle, Download, TrendingUp } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+
+interface PrecoAnp {
+  produto: string
+  unidade_medida: string
+  preco_medio_revenda: number
+  preco_minimo_revenda: number
+  preco_maximo_revenda: number
+  numero_postos: number
+  data_inicial: string
+  data_final: string
+}
+
+interface PrecosBarreirasResponse {
+  municipio: string
+  estado: string
+  data_inicial: string
+  data_final: string
+  precos: PrecoAnp[]
+}
 
 interface Contrato {
   id: string
@@ -81,6 +100,9 @@ export default function ContratosPage() {
   const [contratoImportarId, setContratoImportarId] = useState<string>('')
   const [precoLitroImportar, setPrecoLitroImportar] = useState('')
   const [limiteLitrosImportar, setLimiteLitrosImportar] = useState('')
+  const [precosAnp, setPrecosAnp] = useState<PrecosBarreirasResponse | null>(null)
+  const [loadingPrecosAnp, setLoadingPrecosAnp] = useState(false)
+  const [erroPrecosAnp, setErroPrecosAnp] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     const res = await authFetch(`${API_URL}/api/frota/contratos`)
@@ -179,6 +201,25 @@ export default function ContratosPage() {
     carregar()
   }
 
+  const buscarPrecosAnp = async () => {
+    setLoadingPrecosAnp(true)
+    setErroPrecosAnp(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/anp/precos/barreiras-ba`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Erro ao buscar preços da ANP')
+      }
+      const data: PrecosBarreirasResponse = await res.json()
+      setPrecosAnp(data)
+    } catch (e) {
+      setErroPrecosAnp(e instanceof Error ? e.message : 'Não foi possível buscar os preços. Tente o upload manual.')
+      setPrecosAnp(null)
+    } finally {
+      setLoadingPrecosAnp(false)
+    }
+  }
+
   const hoje = new Date().toISOString().split('T')[0]
   const isAtivo = (c: Contrato) => c.ativo && c.data_inicio <= hoje && c.data_fim >= hoje
   const contratoSelecionado = contratosDisponiveis.find(c => c.id === contratoImportarId)
@@ -192,6 +233,10 @@ export default function ContratosPage() {
           <FileText className="w-5 h-5 text-blue-600" />Contratos de Combustível
         </h1>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={buscarPrecosAnp} disabled={loadingPrecosAnp}>
+            {loadingPrecosAnp ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TrendingUp className="w-4 h-4 mr-2" />}
+            Buscar Preço ANP
+          </Button>
           <Button variant="outline" onClick={abrirImportar}>
             <Download className="w-4 h-4 mr-2" />Importar do Cadastro
           </Button>
@@ -200,6 +245,47 @@ export default function ContratosPage() {
           </Button>
         </div>
       </div>
+
+      {precosAnp && (
+        <Card className="border-blue-200 bg-blue-50/30">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-blue-600" />
+                Preços ANP — {precosAnp.municipio}-{precosAnp.estado}
+              </h2>
+              <span className="text-xs text-slate-500">
+                Semana: {fmtData(precosAnp.data_inicial)} a {fmtData(precosAnp.data_final)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+              {precosAnp.precos.map((p, i) => (
+                <div key={i} className="rounded-lg border bg-white p-3 text-sm">
+                  <p className="font-medium text-slate-700 truncate" title={p.produto}>{p.produto}</p>
+                  <p className="text-lg font-bold text-blue-700 mt-1">
+                    {p.unidade_medida === 'R$/l'
+                      ? `R$ ${fmtPreco(p.preco_medio_revenda)}`
+                      : fmt(p.preco_medio_revenda)}
+                    <span className="text-xs font-normal text-slate-500 ml-1">{p.unidade_medida}</span>
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {p.numero_postos} postos | min {p.unidade_medida === 'R$/l' ? `R$ ${fmtPreco(p.preco_minimo_revenda)}` : fmt(p.preco_minimo_revenda)} — max {p.unidade_medida === 'R$/l' ? `R$ ${fmtPreco(p.preco_maximo_revenda)}` : fmt(p.preco_maximo_revenda)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {erroPrecosAnp && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="p-4">
+            <p className="text-sm text-amber-800">{erroPrecosAnp}</p>
+            <p className="text-xs text-amber-600 mt-1">Baixe a planilha no site da ANP e use o upload manual se necessário.</p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-0">
