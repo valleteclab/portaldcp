@@ -1,5 +1,14 @@
 # Scratchpad
 
+## Tarefa Concluída: Ajuste Migração - Quantidade Medida por Item (2026-03-16)
+
+- [X] Em contratos com itens cronograma (migração): admin pode informar quantidade já utilizada no campo Medido
+- [X] Backend: PATCH /api/contratos/:contratoId/itens-cronograma/:itemId/quantidade-migracao (apenas ADMIN)
+- [X] Frontend TabMedicao: quando isAdmin, célula Medido editável (clique → input → blur/Enter salva)
+- [X] Sistema usa quantidade_medida para cálculos de disponibilidade (requisicao.service, saldo = quantidade - medido - comprometido)
+- [X] aprovarMedicao: atualiza ItemCronograma.quantidade_medida ao aprovar medição com itens cronograma
+- [X] excluirMedicao: reverte ItemCronograma.quantidade_medida ao excluir medição APROVADA
+
 ## Tarefa Concluída: Boletim de Medição por Quantidade (2026-03-16)
 
 - [X] Flag boletim_por_quantidade no contrato (entity + migration)
