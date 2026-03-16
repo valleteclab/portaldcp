@@ -741,31 +741,24 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       setOtpEtapa('sucesso')
 
       const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
-      await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/enviar-aprovacao`, {
+      await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/submeter-fiscal`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fiscal_id: usuario?.id || '', fiscal_nome: usuario?.nome || 'Fiscal' }),
       })
 
       try {
-        const resBoletim = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/boletim-oficial`)
-        if (resBoletim.ok) {
-          const boletim = await resBoletim.json()
-          const pdfUrl = boletim.pdf_url?.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url || ''}`
-          if (pdfUrl) {
-            const arquivoRes = await authFetch(pdfUrl)
-            if (arquivoRes.ok) {
-              const pdfBlob = await arquivoRes.blob()
-              const objectUrl = window.URL.createObjectURL(pdfBlob)
-              const link = document.createElement('a')
-              link.href = objectUrl
-              link.download = boletim.filename || `boletim_medicao_${otpMedicaoId}.pdf`
-              link.style.display = 'none'
-              document.body.appendChild(link)
-              link.click()
-              setTimeout(() => { link.remove(); window.URL.revokeObjectURL(objectUrl) }, 1000)
-            }
-          }
+        const resDownload = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/boletim-oficial/download`)
+        if (resDownload.ok) {
+          const pdfBlob = await resDownload.blob()
+          const objectUrl = window.URL.createObjectURL(pdfBlob)
+          const link = document.createElement('a')
+          link.href = objectUrl
+          link.download = `boletim_medicao_${otpMedicaoId}.pdf`
+          link.style.display = 'none'
+          document.body.appendChild(link)
+          link.click()
+          setTimeout(() => { link.remove(); window.URL.revokeObjectURL(objectUrl) }, 1000)
         }
       } catch { /* ignore download errors */ }
 
