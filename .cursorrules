@@ -1,5 +1,14 @@
 # Scratchpad
 
+## Tarefa Concluída: Boletim de Medição por Quantidade (2026-03-16)
+
+- [X] Flag boletim_por_quantidade no contrato (entity + migration)
+- [X] Quando marcada: Execução Fiscal em quantidade (un/h/m) em vez de dias, mesmo layout
+- [X] Backend: calcularExecucaoFinanceiraFornecedor, montarDadosPdfFrontend
+- [X] PDF: frontend + backend medicao-pdf-jspdf.ts — condicional por quantidade
+- [X] Checkbox nos formulários novo/editar contrato (MEDICAO, CONTINUADO, LICENCA)
+- [X] Frontend fornecedor: bloco Execução Fiscal (Quantidade) quando flag
+
 ## Tarefa Concluída: Validade requisição combustível - fim do mês (2026-03-15)
 
 - [X] Regra: requisição válida até o fim do mês da autorização (não mais 7 dias)

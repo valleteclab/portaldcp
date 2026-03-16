@@ -1498,7 +1498,9 @@ export class MedicaoService {
         const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
         const qtdAcumulada = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
-        return {
+        const qtdAtePeriodo = qtdAcumulada + qtdMedida;
+        const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+        const base: any = {
           numero:                        Number(item.etapa_numero || item.item_numero || 0),
           descricao:                     item.item_descricao || item.etapa_descricao || '',
           unidade:                       item.item_unidade || '',
@@ -1510,6 +1512,11 @@ export class MedicaoService {
           valor_acumulado_anterior:      vlrAcumAnterior,
           valor_total_item:              vlrTotal,
         };
+        if ((contrato as any).boletim_por_quantidade) {
+          base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 10000) / 10000;
+          base.quantidade_a_executar = Math.round(qtdAExecutar * 10000) / 10000;
+        }
+        return base;
       });
 
     // Itens contratados (para bloco ITENS CONTRATADOS)
@@ -1545,6 +1552,7 @@ export class MedicaoService {
       nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
       nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
       execucao_fiscal:      medicao.execucao_fiscal || undefined,
+      execucao_fiscal_por_quantidade: !!(contrato as any).boletim_por_quantidade,
       itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
       itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
       discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
@@ -3049,10 +3057,17 @@ export class MedicaoService {
           });
     }
 
+    const boletimPorQuantidade = !!(contrato as any).boletim_por_quantidade && usarItensCronograma;
+
+    const obterQuantidadeItemMedicao = (itemMedicao: any): number =>
+      Number(itemMedicao?.quantidade_medida) || 0;
+
     // Calcular execução por etapa/item
     const resultado = usarItensCronograma
       ? itensCronograma.map((item) => {
           const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
+          const quantidadeTotal = Number(item.quantidade) || 0;
+          const unidadeMedida = (item as any).unidade_medida || 'UNIDADE';
 
           const obterValorBrutoItemMedicao = (itemMedicao: any): number => {
             const quantidadeMedida = Number(itemMedicao?.quantidade_medida) || 0;
@@ -3064,37 +3079,36 @@ export class MedicaoService {
           };
 
           let valorAnterior = 0;
+          let quantidadeAnterior = 0;
           for (const m of medicoesAprovadas) {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
             const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
             if (itemMedicao) {
-              const valorItemBruto = obterValorBrutoItemMedicao(itemMedicao);
-              valorAnterior += valorItemBruto;
+              valorAnterior += obterValorBrutoItemMedicao(itemMedicao);
+              quantidadeAnterior += obterQuantidadeItemMedicao(itemMedicao);
             }
           }
 
           let noPeriodo = 0;
+          let quantidadeNoPeriodo = 0;
           if (medicaoAtual) {
-            if (medicaoAtual.status === StatusMedicao.APROVADA) {
-              const itensM = itensPorMedicao[medicaoAtual.id] || [];
-              const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
-              if (itemMedicao) {
-                noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
-              }
-            } else {
-              const itemMedicao = itensMedicaoAtual.find(i => (i as any).item_cronograma_id === item.id);
-              if (itemMedicao) {
-                noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
-              }
+            const itensFonte = medicaoAtual.status === StatusMedicao.APROVADA
+              ? (itensPorMedicao[medicaoAtual.id] || [])
+              : itensMedicaoAtual;
+            const itemMedicao = itensFonte.find((i: any) => i.item_cronograma_id === item.id);
+            if (itemMedicao) {
+              noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
+              quantidadeNoPeriodo = obterQuantidadeItemMedicao(itemMedicao);
             }
           }
 
           const atePeriodo = valorAnterior + noPeriodo;
           const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
-          
+          const quantidadeAtePeriodo = quantidadeAnterior + quantidadeNoPeriodo;
+          const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
 
-          return {
+          const base: any = {
             etapa_id: item.id,
             numero_etapa: item.numero_item,
             descricao: item.descricao,
@@ -3104,6 +3118,13 @@ export class MedicaoService {
             ate_periodo: Math.round(atePeriodo * 100) / 100,
             a_executar: Math.round(aExecutar * 100) / 100,
           };
+          if (boletimPorQuantidade) {
+            base.unidade_medida = unidadeMedida;
+            base.quantidade_no_periodo = Math.round(quantidadeNoPeriodo * 10000) / 10000;
+            base.quantidade_ate_periodo = Math.round(quantidadeAtePeriodo * 10000) / 10000;
+            base.quantidade_a_executar = Math.round(quantidadeAExecutar * 10000) / 10000;
+          }
+          return base;
         })
       : etapas.map((etapa) => {
           const valorPrevisto = Number(etapa.valor_previsto) || 0;
@@ -3150,6 +3171,7 @@ export class MedicaoService {
         });
 
     // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
+    // Quando boletim_por_quantidade, não calcular execução em dias
     const vigenciaInicio = contrato.data_vigencia_inicio
       ? new Date(contrato.data_vigencia_inicio as any)
       : null;
@@ -3158,7 +3180,7 @@ export class MedicaoService {
       : null;
 
     let execucaoFiscal: any = null;
-    if (vigenciaInicio && vigenciaFim) {
+    if (!boletimPorQuantidade && vigenciaInicio && vigenciaFim) {
       // Para execução temporal, usar data final da medição atual se existir, senão data atual
       let dataReferencia = new Date();
       
@@ -3278,6 +3300,7 @@ export class MedicaoService {
       },
       ajuste_migracao: Math.round(ajusteMigracao * 100) / 100,
       execucao_fiscal: execucaoFiscal,
+      execucao_fiscal_por_quantidade: boletimPorQuantidade,
       medicao_referencia: medicaoAtual ? {
         id: medicaoAtual.id,
         numero_medicao: medicaoAtual.numero_medicao,

@@ -251,6 +251,10 @@ export class Contrato {
   @Column({ type: 'timestamp', nullable: true })
   liberado_em: Date;
 
+  /** Quando true, o boletim de medição exibe Execução Fiscal por quantidade (un, h, m) em vez de dias */
+  @Column({ default: false })
+  boletim_por_quantidade: boolean;
+
   // Observações
   @Column({ type: 'text', nullable: true })
   observacoes: string;
