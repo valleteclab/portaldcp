@@ -123,6 +123,8 @@ interface Resumo {
   os_ativa: OSRequisicao | null
   total_os: number
   fluxo_os?: 'REQUISICAO' | 'MODULO_OS'
+  itens_comprometidos?: Record<string, number>
+  etapas_comprometidas?: Record<string, number>
 }
 
 const STATUS_OS: Record<string, { label: string; cor: string }> = {
@@ -212,7 +214,7 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
 
 export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp }: {
   contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
-  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number; boletim_por_quantidade?: boolean };
+  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean };
 }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
   const [etapas, setEtapas] = useState<Etapa[]>([])
