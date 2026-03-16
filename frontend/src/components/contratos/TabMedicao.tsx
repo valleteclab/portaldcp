@@ -19,6 +19,7 @@ import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
   ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
+  Camera, Paperclip, Upload,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -272,6 +273,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [motivoDevolucao, setMotivoDevolucao] = useState('')
   const [anexosMedicao, setAnexosMedicao] = useState<any[]>([])
   const [loadingAnexos, setLoadingAnexos] = useState(false)
+  const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([])
+  const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([])
 
   const abrirDetalhe = async (m: Medicao) => {
     setModalDetalhe(m)
@@ -533,6 +536,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         : etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, modo_input: 'percentual' as const })),
     })
     setExecucaoFinanceiraModal(null)
+    setDiscriminacoes([])
+    setArquivosPendentes([])
     setModalMedicao(true)
   }
 
@@ -546,7 +551,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     } catch { setExecucaoFinanceiraModal(null) }
   }, [contratoId])
 
-  const salvarMedicao = async () => {
+  const salvarMedicao = async (comoRascunho: boolean) => {
     if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) {
       alert('Informe o período de início e fim da medição')
       return
@@ -594,7 +599,40 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setActionLoading(false); return }
+      const medicaoSalva = await res.json()
+
+      if (discriminacoes.length > 0 && medicaoSalva?.id) {
+        try {
+          await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itens: discriminacoes, motivo_correcao: 'Criação inicial pelo fiscal' }),
+          })
+        } catch { /* ignore */ }
+      }
+      if (medicaoSalva?.id && arquivosPendentes.length > 0) {
+        for (const arq of arquivosPendentes) {
+          try {
+            const formData = new FormData()
+            formData.append('file', arq.file)
+            formData.append('tipo', arq.tipo)
+            if (arq.descricao) formData.append('descricao', arq.descricao)
+            await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSalva.id}/anexos`, { method: 'POST', body: formData })
+          } catch { /* ignore */ }
+        }
+      }
+
+      if (!comoRascunho && medicaoSalva?.id) {
+        await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSalva.id}/enviar-aprovacao`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fiscal_id: usuario?.id || '', fiscal_nome: usuario?.nome || 'Fiscal' }),
+        })
+      }
+
       setModalMedicao(false)
+      setDiscriminacoes([])
+      setArquivosPendentes([])
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -1439,10 +1477,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         </DialogContent>
       </Dialog>
 
-      {/* Modal Nova Medição — mesmo formulário do fornecedor */}
+      {/* Modal Nova Medição — 100% igual ao fornecedor */}
       <Dialog open={modalMedicao} onOpenChange={(open) => {
         setModalMedicao(open)
-        if (!open) setExecucaoFinanceiraModal(null)
+        if (!open) {
+          setExecucaoFinanceiraModal(null)
+          setDiscriminacoes([])
+          setArquivosPendentes([])
+        }
       }}>
         <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
@@ -1457,11 +1499,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               </div>
               <div className="text-right">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
-                <p className="text-2xl font-bold text-blue-700">
-                  {formatarMoeda(isServicoContinuado
+                {(() => {
+                  const totalMedicao = isServicoContinuado
                     ? (parseFloat(formMedicao.valor_medido) || 0)
                     : usarItensCronograma
-                      ? formMedicao.itens.reduce((acc, item, idx) => {
+                      ? formMedicao.itens.reduce((acc, item) => {
                           if (!('item_cronograma_id' in item)) return acc
                           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
                           return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
@@ -1470,8 +1512,20 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                           const etapa = etapas[idx]
                           if (!etapa || !('etapa_id' in item)) return acc
                           return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
-                        }, 0))}
-                </p>
+                        }, 0)
+                  const saldoDisp = resumo?.saldo_disponivel ?? Infinity
+                  const excedeSaldo = totalMedicao > saldoDisp + 0.01
+                  return (
+                    <>
+                      <p className={`text-2xl font-bold ${excedeSaldo ? 'text-red-600' : 'text-blue-700'}`}>
+                        {formatarMoeda(totalMedicao)}
+                      </p>
+                      {excedeSaldo && (
+                        <p className="text-xs text-red-500 mt-1">Excede o saldo de {formatarMoeda(saldoDisp)}</p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </DialogHeader>
@@ -1491,6 +1545,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <p className={`mt-1 text-sm font-semibold ${(resumo?.saldo_disponivel || 0) > 0 ? 'text-blue-900' : 'text-red-700'}`}>
                   {formatarMoeda(resumo?.saldo_disponivel || 0)}
                 </p>
+                {(resumo?.valor_em_analise || 0) > 0 && (
+                  <p className="mt-1 text-xs text-amber-600">Em análise: {formatarMoeda(resumo?.valor_em_analise || 0)}</p>
+                )}
               </div>
             </div>
 
@@ -1536,7 +1593,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             <div>
               <Label>Competência *</Label>
               <Input value={formMedicao.competencia} onChange={e => setFormMedicao({ ...formMedicao, competencia: e.target.value })} placeholder="Ex: FEVEREIRO/2026" className="uppercase" />
-              <p className="text-xs text-gray-500 mt-1">Informe a competência no formato MÊS/ANO</p>
+              <p className="text-xs text-gray-500 mt-1">Informe a competência no formato MÊS/ANO (ex: FEVEREIRO/2026)</p>
             </div>
 
             {isServicoContinuado && (
@@ -1550,7 +1607,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             {!isServicoContinuado && usarItensCronograma && (
               <div className="border rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b gap-3">
-                  <p className="text-xs text-gray-500">Para períodos parciais, use <strong>Proporcional</strong> ou informe o <strong>Valor R$</strong> diretamente.</p>
+                  <p className="text-xs text-gray-500">Para períodos parciais (ex: 21 dias), use <strong>Proporcional</strong> ou informe o <strong>Valor R$</strong> diretamente.</p>
                   <Button type="button" variant="outline" size="sm" disabled={!formMedicao.periodo_inicio || !formMedicao.periodo_fim}
                     onClick={() => {
                       if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) return
@@ -1716,23 +1773,190 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <Label className="flex items-center gap-2"><DollarSign className="w-4 h-4" />Nota Fiscal (opcional)</Label>
                 <Input value={formMedicao.nota_fiscal_numero} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_numero: e.target.value })} placeholder="Número da NF" />
                 <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" step="0.01" value={formMedicao.nota_fiscal_valor} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_valor: e.target.value })} placeholder="Valor R$" />
+                  <Input type="number" step="0.01" value={formMedicao.nota_fiscal_valor} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_valor: e.target.value })} placeholder="Valor NF" />
                   <Input type="date" value={formMedicao.nota_fiscal_data} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_data: e.target.value })} />
                 </div>
               </div>
             </div>
+
+            {/* Discriminação das Despesas — igual ao fornecedor */}
+            {(() => {
+              const valorMedidoAtual = isServicoContinuado
+                ? (parseFloat(formMedicao.valor_medido) || 0)
+                : usarItensCronograma
+                  ? formMedicao.itens.reduce((acc, item) => {
+                      if (!('item_cronograma_id' in item)) return acc
+                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
+                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                    }, 0)
+                  : formMedicao.itens.reduce((acc, item, idx) => {
+                      const etapa = etapas[idx]
+                      if (!etapa || !('etapa_id' in item)) return acc
+                      return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
+                    }, 0)
+              const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0)
+              const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0)
+              const arredondamentoApenas = valorMedidoAtual > 0 && Math.abs(totalDiscPerc - 100) < 0.05 && Math.abs(totalDiscValorBruto - valorMedidoAtual) <= 0.02
+              const totalDiscValor = arredondamentoApenas ? valorMedidoAtual : totalDiscValorBruto
+              return (
+                <div className="border rounded-lg p-4 bg-amber-50/30">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                      <DollarSign className="w-4 h-4" />
+                      Discriminação das Despesas
+                      <span className="text-xs font-normal text-gray-400">(opcional - composição do valor da NF)</span>
+                    </Label>
+                    <div className="flex gap-2">
+                      {medicoes.length > 0 && (
+                        <Button type="button" variant="outline" size="sm" onClick={async () => {
+                          if (valorMedidoAtual <= 0) {
+                            alert(isServicoContinuado ? 'Informe o valor medido antes de reaproveitar.' : 'Preencha os itens da planilha antes de reaproveitar.')
+                            return
+                          }
+                          try {
+                            const ultima = medicoes[medicoes.length - 1]
+                            const res = await authFetch(`${API_URL}/api/contratos/medicoes/${ultima.id}/discriminacoes/sugestao`)
+                            if (!res.ok) return
+                            const sugestoes = await res.json()
+                            if (!sugestoes?.length) {
+                              alert('Nenhuma medição anterior possui discriminação para reaproveitar.')
+                              return
+                            }
+                            setDiscriminacoes(sugestoes.map((s: any) => {
+                              const perc = Number(s.percentual) || 0
+                              const valor = (perc / 100) * valorMedidoAtual
+                              return { descricao: s.descricao || '', percentual: perc, valor: Math.round(valor * 100) / 100 }
+                            }))
+                          } catch {
+                            alert('Erro ao buscar despesas da última medição.')
+                          }
+                        }} className="text-amber-700 border-amber-300 hover:bg-amber-50">
+                          Reaproveitar despesas do último mês
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" size="sm" onClick={() => setDiscriminacoes([...discriminacoes, { descricao: '', valor: 0, percentual: 0 }])}>
+                        <Plus className="w-3 h-3 mr-1" /> Adicionar Item
+                      </Button>
+                    </div>
+                  </div>
+                  {discriminacoes.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 text-xs font-semibold text-gray-500 uppercase px-1">
+                        <span>Item</span><span>Discriminação</span><span className="text-right">Valor R$</span><span className="text-right">%</span><span></span>
+                      </div>
+                      {discriminacoes.map((disc, idx) => (
+                        <div key={idx} className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center">
+                          <span className="text-sm text-center font-mono text-gray-500">{idx + 1}</span>
+                          <Input value={disc.descricao} onChange={e => { const u = [...discriminacoes]; u[idx] = { ...u[idx], descricao: e.target.value }; setDiscriminacoes(u) }} placeholder="Ex: Tributação, Serviços..." className="h-8 text-sm" />
+                          <Input type="number" step="0.01" min="0" value={disc.valor || ''} onChange={e => { const val = e.target.value === '' ? 0 : Number(e.target.value); const perc = valorMedidoAtual > 0 ? (val / valorMedidoAtual) * 100 : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], valor: val, percentual: Math.round(perc * 10000) / 10000 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
+                          <Input type="number" step="0.01" min="0" max="100" value={disc.percentual || ''} onChange={e => { const perc = e.target.value === '' ? 0 : Number(e.target.value); const val = valorMedidoAtual > 0 ? (perc / 100) * valorMedidoAtual : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], percentual: perc, valor: Math.round(val * 100) / 100 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-400 hover:text-red-600" onClick={() => setDiscriminacoes(discriminacoes.filter((_, i) => i !== idx))}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center border-t pt-2 mt-2">
+                        <span></span><span className="text-sm font-bold text-gray-700">Total</span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorMedidoAtual) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{formatarMoeda(totalDiscValor)}</span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscPerc - 100) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{totalDiscPerc.toFixed(2)}%</span><span></span>
+                      </div>
+                      {valorMedidoAtual > 0 && Math.abs(totalDiscValor - valorMedidoAtual) > 0.02 && (
+                        <p className="text-xs text-amber-600 mt-1">Valor da medição: {formatarMoeda(valorMedidoAtual)}. Diferença: {formatarMoeda(totalDiscValor - valorMedidoAtual)}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-3">
+                      Nenhuma discriminação adicionada. Use &quot;Reaproveitar despesas do último mês&quot; para trazer os % da última medição (valores recalculados pela medição atual) ou &quot;Adicionar Item&quot; para criar manualmente.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* Fotos e Documentos — igual ao fornecedor */}
+            <div className="border rounded-lg p-4 bg-gray-50/50">
+              <div className="flex items-center justify-between mb-3">
+                <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                  <Paperclip className="w-4 h-4" />
+                  Fotos e Documentos
+                  <span className="text-xs font-normal text-gray-400">(opcional)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = 'image/jpeg,image/png,image/jpg'
+                    input.multiple = true
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files
+                      if (files) {
+                        const titulo = prompt('Título da foto (opcional):') ?? ''
+                        setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }))])
+                      }
+                    }
+                    input.click()
+                  }}>
+                    <Camera className="w-3 h-3" /> Foto
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = 'application/pdf,image/jpeg,image/png'
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files
+                      if (files?.[0]) {
+                        const titulo = prompt('Título do documento (opcional):') ?? ''
+                        setArquivosPendentes(prev => [...prev, { file: files[0], tipo: 'DOCUMENTO', descricao: titulo }])
+                      }
+                    }
+                    input.click()
+                  }}>
+                    <Upload className="w-3 h-3" /> Documento
+                  </Button>
+                </div>
+              </div>
+              {arquivosPendentes.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-2">Nenhum arquivo adicionado. Você pode adicionar fotos e documentos agora ou depois.</p>
+              ) : (
+                <div className="space-y-1">
+                  {arquivosPendentes.map((arq, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{arq.tipo === 'FOTO' ? '📷' : '📄'}</span>
+                        <span className="truncate font-medium">{arq.descricao || arq.file.name}</span>
+                        <span className="text-gray-400 flex-shrink-0">({(arq.file.size / 1024).toFixed(0)} KB)</span>
+                      </div>
+                      <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600" onClick={() => setArquivosPendentes(prev => prev.filter((_, i) => i !== idx))}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalMedicao(false)}>Cancelar</Button>
-            <Button onClick={salvarMedicao} disabled={
-              actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
-              (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
-              (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0 && ((i as any).valor_executado_atual == null || (i as any).valor_executado_atual <= 0))) ||
-              (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
-            }>
-              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Criar Medição
-            </Button>
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <Button variant="outline" onClick={() => setModalMedicao(false)}>Cancelar Lançamento</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => salvarMedicao(true)} disabled={
+                actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
+                (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
+                (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0 && ((i as any).valor_executado_atual == null || (i as any).valor_executado_atual <= 0))) ||
+                (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
+              }>
+                {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+                Salvar Rascunho
+              </Button>
+              <Button onClick={() => salvarMedicao(false)} disabled={
+                actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
+                (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
+                (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0 && ((i as any).valor_executado_atual == null || (i as any).valor_executado_atual <= 0))) ||
+                (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
+              } className="bg-blue-600 hover:bg-blue-700">
+                {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                Enviar para Ateste
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

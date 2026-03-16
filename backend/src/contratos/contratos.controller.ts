@@ -17,6 +17,9 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 import type { Response } from 'express';
 import { HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,7 +28,7 @@ import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { TipoDocumentoContrato } from './entities/documento-contrato.entity';
-import { AnexoMedicao } from './entities/anexo-medicao.entity';
+import { AnexoMedicao, TipoAnexoMedicao } from './entities/anexo-medicao.entity';
 import { Medicao } from './entities/medicao.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { UploadService } from '../upload/upload.service';
@@ -33,6 +36,10 @@ import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
+
+const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+const ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -499,6 +506,88 @@ export class ContratosController {
   // ============ ENDPOINTS PÚBLICOS ============
 
   // ============ ANEXOS DE MEDIÇÃO ============
+
+  /**
+   * Órgão (fiscal) envia anexo (foto ou documento) para uma medição.
+   * POST /api/contratos/medicoes/:medicaoId/anexos
+   */
+  @Post('medicoes/:medicaoId/anexos')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (req: any, file, cb) => {
+        const medicaoId = req.params.medicaoId;
+        const dir = join(uploadDir, 'medicoes', medicaoId);
+        try {
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        } catch (e) {
+          cb(e as Error, dir);
+        }
+      },
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = extname(file.originalname).toLowerCase();
+        cb(null, `${uniqueSuffix}${ext}`);
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb: any) => {
+      if (!ALLOWED_MIMES.includes(file.mimetype)) {
+        return cb(new BadRequestException('Tipo de arquivo não permitido. Use PDF, JPG ou PNG.'), false);
+      }
+      const ext = extname(file.originalname).toLowerCase();
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        return cb(new BadRequestException(`Extensão ${ext} não permitida.`), false);
+      }
+      cb(null, true);
+    },
+  }))
+  async uploadAnexoMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('tipo') tipo: string,
+    @Body('descricao') descricao: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    if (!file) throw new BadRequestException('Nenhum arquivo enviado');
+
+    await this.validarPropriedadeMedicao(request.user, medicaoId);
+
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (!['RASCUNHO', 'DEVOLVIDA', 'PARCIALMENTE_ATESTADA'].includes(medicao.status)) {
+      if (file.path) {
+        const fs = await import('fs');
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      }
+      throw new BadRequestException('Só é possível enviar anexos em medições com status Rascunho, Devolvida ou Parcialmente Atestada.');
+    }
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const tipoAnexo = tipo === 'DOCUMENTO' ? TipoAnexoMedicao.DOCUMENTO : TipoAnexoMedicao.FOTO;
+    const pastaUpload = `medicoes/${medicaoId}`;
+    const fileUrl = this.uploadService.getFileUrl(pastaUpload, file.filename);
+
+    const anexo = this.anexoRepository.create({
+      medicao_id: medicaoId,
+      tipo: tipoAnexo,
+      nome_original: file.originalname,
+      nome_arquivo: file.filename,
+      mime_type: file.mimetype,
+      tamanho_bytes: file.size,
+      url: fileUrl,
+      descricao: descricao || undefined,
+      enviado_por_id: request.user.sub,
+      enviado_por_nome: usuario?.nome || 'Fiscal',
+      origem: 'fiscal',
+    });
+
+    return this.anexoRepository.save(anexo);
+  }
 
   /**
    * Lista anexos (fotos/documentos) de uma medição.

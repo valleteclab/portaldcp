@@ -15,6 +15,20 @@
 - [X] frota.service.ts: token_expiry = último dia do mês 23:59:59.999
 - [X] frota-auth.service.ts: gerarTokenAcesso alinhado à mesma regra
 
+## Tarefa Concluída: Nova Medição órgão 100% igual ao fornecedor (2026-03-16)
+
+- [X] Modal Nova Medição do órgão replicado 100% do fornecedor
+- [X] Discriminação das Despesas (Reaproveitar último mês, Adicionar Item, tabela)
+- [X] Fotos e Documentos (Foto, Documento, lista de arquivos pendentes)
+- [X] Saldo "Em análise" quando valor_em_analise > 0
+- [X] Valor da Medição com mensagem "Excede o saldo" quando aplicável
+- [X] Competência: "Informe no formato MÊS/ANO (ex: FEVEREIRO/2026)"
+- [X] Proporcional: "Para períodos parciais (ex: 21 dias)..."
+- [X] Footer: Cancelar Lançamento, Salvar Rascunho, Enviar para Ateste
+- [X] Backend: POST /api/contratos/medicoes/:id/anexos (fiscal)
+- [X] Backend: GET /api/contratos/medicoes/:id/discriminacoes/sugestao
+- [X] salvarMedicao(comoRascunho): discriminacoes PUT + anexos POST + enviar-aprovacao quando false
+
 ## Tarefa Concluída: Frota Vereador - QR Code e seleção de requisição (2026-03-15)
 
 - [X] QR Code exibido junto ao código na autorização ativa (mesmo serviço qrserver.com da página /frota/req)
