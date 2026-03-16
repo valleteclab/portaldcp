@@ -18,10 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
-  ChevronRight, Eye, Clock, Shield, ListOrdered, Layers,
+  ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
+import { derivarCompetencia } from '@/lib/pdf-medicao'
 
 interface OSRequisicao {
   id: string
@@ -175,7 +176,44 @@ function formatarData(d: string | null | undefined) {
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
-export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar }: { contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void }) {
+/** Dias entre datas usando ano comercial (30 dias/mês, máx 360) */
+function calcularDiasMesComercial(data1: string, data2: string, dataFimContrato?: string): number {
+  const d1 = new Date(data1); const d2 = new Date(data2)
+  const df = dataFimContrato ? new Date(dataFimContrato) : null
+  const ano1 = d1.getUTCFullYear(); const mes1 = d1.getUTCMonth(); const dia1 = d1.getUTCDate()
+  const ano2 = d2.getUTCFullYear(); const mes2 = d2.getUTCMonth(); const dia2 = d2.getUTCDate()
+  let dias = 0
+  if (ano1 === ano2 && mes1 === mes2) {
+    const ehUltimo = df && ano2 === df.getUTCFullYear() && mes2 === df.getUTCMonth() && dia2 === df.getUTCDate()
+    dias = Math.min(dia2 - dia1 + (ehUltimo ? 0 : 1), 30)
+  } else {
+    const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30)
+    let mesesCompletos = 0
+    if (ano2 > ano1 || mes2 > mes1 + 1) mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1)
+    let diasUltimoMes = Math.min(dia2, 30)
+    if (df && ano2 === df.getUTCFullYear() && mes2 === df.getUTCMonth() && dia2 === df.getUTCDate()) diasUltimoMes = dia2 - 1
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes
+  }
+  return Math.max(0, Math.min(dias, 360))
+}
+
+function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigenciaInicio: string, vigenciaFim: string) {
+  const diasPeriodo = calcularDiasMesComercial(periodoInicio, periodoFim, vigenciaFim)
+  const diasAte = calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim)
+  const diasRestantes = Math.max(0, 360 - diasAte)
+  const fmt = (d: number) => {
+    const m = Math.floor(d / 30); const r = d % 30
+    const pM = m === 1 ? '1 mês' : m > 1 ? `${m} meses` : ''
+    const pD = r === 1 ? '1 dia' : r > 1 ? `${r} dias` : ''
+    return pM && pD ? `${pM} e ${pD}` : pM || pD || '0 dias'
+  }
+  return { noPeriodo: fmt(diasPeriodo), atePeriodo: fmt(diasAte), aExecutar: fmt(diasRestantes) }
+}
+
+export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp }: {
+  contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
+  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number; boletim_por_quantidade?: boolean };
+}) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([])
@@ -218,9 +256,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
   })
   const [formMedicao, setFormMedicao] = useState({
-    periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
-    itens: [] as ({ etapa_id: string; percentual_executado_atual: number } | { item_cronograma_id: string; quantidade_medida: number })[],
+    periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', valor_medido: '',
+    nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
+    itens: [] as (
+      | { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }
+      | { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number }
+    )[],
   })
+  const [execucaoFinanceiraModal, setExecucaoFinanceiraModal] = useState<any>(null)
   const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
   const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
 
@@ -481,37 +524,74 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
   const abrirModalMedicao = () => {
     setFormMedicao({
-      periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
+      periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', valor_medido: '',
+      nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       itens: isServicoContinuado ? [] : usarItensCronograma
-        ? itensCronograma.map(i => ({ item_cronograma_id: i.id, quantidade_medida: 0 }))
-        : etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({ etapa_id: e.id, percentual_executado_atual: 0 })),
+        ? itensCronograma.map(i => ({ item_cronograma_id: i.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 }))
+        : etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, modo_input: 'percentual' as const })),
     })
+    setExecucaoFinanceiraModal(null)
     setModalMedicao(true)
   }
 
+  const carregarExecucaoFinanceiraModal = useCallback(async (medicaoId?: string) => {
+    try {
+      const url = medicaoId
+        ? `${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${medicaoId}`
+        : `${API_URL}/api/contratos/${contratoId}/execucao-financeira`
+      const res = await authFetch(url)
+      if (res.ok) setExecucaoFinanceiraModal(await res.json())
+    } catch { setExecucaoFinanceiraModal(null) }
+  }, [contratoId])
+
   const salvarMedicao = async () => {
+    if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) {
+      alert('Informe o período de início e fim da medição')
+      return
+    }
+    if (contratoProp?.data_vigencia_fim) {
+      const dataFimPeriodo = new Date(formMedicao.periodo_fim)
+      const dataVigenciaFim = new Date(contratoProp.data_vigencia_fim)
+      if (dataFimPeriodo > dataVigenciaFim) {
+        alert(`O período de medição não pode ultrapassar a data de vigência do contrato.`)
+        return
+      }
+    }
     setActionLoading(true)
     try {
       const payload: any = {
         periodo_inicio: formMedicao.periodo_inicio,
         periodo_fim: formMedicao.periodo_fim,
+        competencia: formMedicao.competencia || derivarCompetencia(formMedicao.periodo_inicio) || undefined,
         observacoes: formMedicao.observacoes || null,
+        nota_fiscal_numero: formMedicao.nota_fiscal_numero || undefined,
+        nota_fiscal_valor: formMedicao.nota_fiscal_valor ? Number(formMedicao.nota_fiscal_valor) : undefined,
+        nota_fiscal_data: formMedicao.nota_fiscal_data || undefined,
       }
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      if (usuario?.id) payload.fiscal_id = usuario.id
+      if (usuario?.nome) payload.fiscal_nome = usuario.nome
       if (isServicoContinuado) {
-        payload.valor_medido = parseFloat(formMedicao.valor_medido) || 0
+        const valor = parseFloat(formMedicao.valor_medido) || 0
+        if (valor <= 0) { alert('Informe o valor medido'); setActionLoading(false); return }
+        payload.valor_medido = valor
       } else if (usarItensCronograma) {
-        payload.itens = formMedicao.itens
+        const itensComQtd = formMedicao.itens
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }))
+        if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setActionLoading(false); return }
+        payload.itens = itensComQtd
       } else {
-        payload.itens = formMedicao.itens
-          .filter((i): i is { etapa_id: string; percentual_executado_atual: number } => 'etapa_id' in i && (i as any).percentual_executado_atual > 0)
-          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual }))
+        const itensComValor = formMedicao.itens
+          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number } => 'etapa_id' in i && ((i as any).percentual_executado_atual > 0 || ((i as any).valor_executado_atual != null && (i as any).valor_executado_atual > 0)))
+          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: (i as any).percentual_executado_atual || 0, valor_executado_atual: (i as any).valor_executado_atual || undefined }))
+        if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setActionLoading(false); return }
+        payload.itens = itensComValor
       }
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes`, {
-        method: 'POST', body: JSON.stringify(payload),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setActionLoading(false); return }
       setModalMedicao(false)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -1357,120 +1437,287 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         </DialogContent>
       </Dialog>
 
-      {/* Modal Nova Medição */}
-      <Dialog open={modalMedicao} onOpenChange={setModalMedicao}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      {/* Modal Nova Medição — mesmo formulário do fornecedor */}
+      <Dialog open={modalMedicao} onOpenChange={(open) => {
+        setModalMedicao(open)
+        if (!open) setExecucaoFinanceiraModal(null)
+      }}>
+        <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nova Medição {isServicoContinuado ? '' : '(Fiscal)'}</DialogTitle>
-            <DialogDescription>
-              {isServicoContinuado
-                ? 'Crie uma medição mensal informando o período e o valor dos serviços prestados.'
-                : 'Crie uma medição internamente. Ela será enviada diretamente para aprovação do gestor.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Período Início *</Label>
-                <Input type="date" value={formMedicao.periodo_inicio} onChange={e => setFormMedicao({ ...formMedicao, periodo_inicio: e.target.value })} />
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-xl">Boletim de Medição #{medicoes.length + 1}</DialogTitle>
+                <DialogDescription>
+                  {formMedicao.periodo_inicio && formMedicao.periodo_fim
+                    ? `Período: ${formatarData(formMedicao.periodo_inicio)} a ${formatarData(formMedicao.periodo_fim)}`
+                    : 'Informe o período e preencha a execução de cada item'}
+                </DialogDescription>
               </div>
-              <div className="space-y-2">
-                <Label>Período Fim *</Label>
-                <Input type="date" value={formMedicao.periodo_fim} onChange={e => setFormMedicao({ ...formMedicao, periodo_fim: e.target.value })} />
+              <div className="text-right">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  {formatarMoeda(isServicoContinuado
+                    ? (parseFloat(formMedicao.valor_medido) || 0)
+                    : usarItensCronograma
+                      ? formMedicao.itens.reduce((acc, item, idx) => {
+                          if (!('item_cronograma_id' in item)) return acc
+                          const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
+                          return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                        }, 0)
+                      : formMedicao.itens.reduce((acc, item, idx) => {
+                          const etapa = etapas[idx]
+                          if (!etapa || !('etapa_id' in item)) return acc
+                          return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
+                        }, 0))}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-lg border bg-orange-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-700">Vigência do contrato</p>
+                <p className="mt-1 text-sm font-semibold text-orange-900">
+                  {contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim
+                    ? `${formatarData(contratoProp.data_vigencia_inicio)} a ${formatarData(contratoProp.data_vigencia_fim)}`
+                    : '-'}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-blue-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Saldo disponível</p>
+                <p className={`mt-1 text-sm font-semibold ${(resumo?.saldo_disponivel || 0) > 0 ? 'text-blue-900' : 'text-red-700'}`}>
+                  {formatarMoeda(resumo?.saldo_disponivel || 0)}
+                </p>
               </div>
             </div>
 
-            {isServicoContinuado ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Valor Medido (R$) *</Label>
-                  <Input
-                    type="number" step="0.01" min="0" placeholder="0,00"
-                    value={formMedicao.valor_medido}
-                    onChange={e => setFormMedicao({ ...formMedicao, valor_medido: e.target.value })}
-                  />
-                  {resumo && (
-                    <p className="text-xs text-gray-500">
-                      Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)}
-                    </p>
-                  )}
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Período Início *</Label>
+                <Input type="date" value={formMedicao.periodo_inicio}
+                  onChange={e => {
+                    const v = e.target.value
+                    if (usarItensCronograma && v && formMedicao.periodo_fim) {
+                      const dias = calcularDiasMesComercial(v, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)
+                      const fator = Math.min(dias / 30, 1)
+                      const itens = itensCronograma.map(ic => {
+                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
+                        const isMensal = ic.unidade_medida === 'MENSAL'
+                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
+                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+                      })
+                      setFormMedicao({ ...formMedicao, periodo_inicio: v, itens })
+                    } else setFormMedicao({ ...formMedicao, periodo_inicio: v })
+                    if (v && formMedicao.periodo_fim) carregarExecucaoFinanceiraModal()
+                  }} />
               </div>
-            ) : usarItensCronograma ? (
-              <div className="space-y-2">
-                <Label>Itens — Informe a quantidade medida neste período</Label>
-                <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-                  {formMedicao.itens.map((item, idx) => {
-                    const ic = 'item_cronograma_id' in item ? itensCronograma.find(i => i.id === item.item_cronograma_id) : null
-                    if (!ic) return null
-                    const qtdTotal = Number(ic.quantidade)
-                    const qtdMedida = Number(ic.quantidade_medida)
-                    const saldo = qtdTotal - qtdMedida
-                    return (
-                      <div key={ic.id} className="flex items-center gap-4 p-3">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{ic.numero_item}. {ic.descricao}</p>
-                          <p className="text-xs text-gray-400">
-                            Saldo: {saldo.toLocaleString('pt-BR')} {ic.unidade_medida} | Vl. unit.: {formatarMoeda(ic.valor_unitario)}
-                          </p>
-                        </div>
-                        <div className="w-28">
-                          <Input
-                            type="number" step="0.001" min="0" max={saldo}
-                            placeholder="0" className="text-center"
-                            value={(item as { item_cronograma_id: string; quantidade_medida: number }).quantidade_medida || ''}
-                            onChange={e => {
-                              const itens = [...formMedicao.itens]
-                              itens[idx] = { ...itens[idx], quantidade_medida: parseFloat(e.target.value) || 0 }
-                              setFormMedicao({ ...formMedicao, itens })
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-400 w-16">{ic.unidade_medida}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+              <div><Label>Período Fim *</Label>
+                <Input type="date" value={formMedicao.periodo_fim}
+                  onChange={e => {
+                    const v = e.target.value
+                    if (usarItensCronograma && formMedicao.periodo_inicio && v) {
+                      const dias = calcularDiasMesComercial(formMedicao.periodo_inicio, v, contratoProp?.data_vigencia_fim)
+                      const fator = Math.min(dias / 30, 1)
+                      const itens = itensCronograma.map(ic => {
+                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
+                        const isMensal = ic.unidade_medida === 'MENSAL'
+                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
+                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+                      })
+                      setFormMedicao({ ...formMedicao, periodo_fim: v, itens })
+                    } else setFormMedicao({ ...formMedicao, periodo_fim: v })
+                    if (formMedicao.periodo_inicio && v) carregarExecucaoFinanceiraModal()
+                  }} />
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>Etapas — Informe o % executado neste período</Label>
-                <div className="border rounded-lg divide-y">
-                  {formMedicao.itens.map((item, idx) => {
-                    const etapa = 'etapa_id' in item ? etapas.find(e => e.id === item.etapa_id) : null
-                    if (!etapa) return null
-                    const itemEtapa = item as { etapa_id: string; percentual_executado_atual: number }
-                    return (
-                      <div key={etapa.id} className="flex items-center gap-4 p-3">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{etapa.numero_etapa}. {etapa.descricao}</p>
-                          <p className="text-xs text-gray-400">
-                            Executado: {Number(etapa.percentual_executado).toFixed(1)}% | Valor: {formatarMoeda(etapa.valor_previsto)}
-                          </p>
-                        </div>
-                        <div className="w-28">
-                          <Input
-                            type="number" step="0.01" min="0" max={100 - Number(etapa.percentual_executado)}
-                            placeholder="0" className="text-center"
-                            value={itemEtapa.percentual_executado_atual || ''}
-                            onChange={e => {
-                              const itens = [...formMedicao.itens]
-                              itens[idx] = { ...itens[idx], percentual_executado_atual: parseFloat(e.target.value) || 0 }
-                              setFormMedicao({ ...formMedicao, itens })
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-400 w-6">%</span>
-                      </div>
-                    )
-                  })}
+            </div>
+
+            <div>
+              <Label>Competência *</Label>
+              <Input value={formMedicao.competencia} onChange={e => setFormMedicao({ ...formMedicao, competencia: e.target.value })} placeholder="Ex: FEVEREIRO/2026" className="uppercase" />
+              <p className="text-xs text-gray-500 mt-1">Informe a competência no formato MÊS/ANO</p>
+            </div>
+
+            {isServicoContinuado && (
+              <div className="border rounded-lg p-4 bg-blue-50/30">
+                <Label className="text-sm font-bold text-gray-700 mb-2 block">Valor Medido no Período (R$) *</Label>
+                <Input type="number" step="0.01" min="0" value={formMedicao.valor_medido} onChange={e => setFormMedicao({ ...formMedicao, valor_medido: e.target.value })} placeholder="0,00" className="max-w-xs text-lg font-medium" />
+                {resumo && <p className="text-xs text-gray-500 mt-2">Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)} de {formatarMoeda(valorGlobal)}</p>}
+              </div>
+            )}
+
+            {!isServicoContinuado && usarItensCronograma && (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b gap-3">
+                  <p className="text-xs text-gray-500">Para períodos parciais, use <strong>Proporcional</strong> ou informe o <strong>Valor R$</strong> diretamente.</p>
+                  <Button type="button" variant="outline" size="sm" disabled={!formMedicao.periodo_inicio || !formMedicao.periodo_fim}
+                    onClick={() => {
+                      if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) return
+                      const dias = calcularDiasMesComercial(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)
+                      const fator = Math.min(dias / 30, 1)
+                      const itens = itensCronograma.map(ic => {
+                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
+                        const isMensal = ic.unidade_medida === 'MENSAL'
+                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
+                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+                      })
+                      setFormMedicao({ ...formMedicao, itens })
+                    }}
+                    className="text-blue-700 border-blue-300 hover:bg-blue-50 whitespace-nowrap">
+                    Proporcional ({formMedicao.periodo_inicio && formMedicao.periodo_fim ? `${calcularDiasMesComercial(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)}/30 dias` : 'defina o período'})
+                  </Button>
+                </div>
+                <Table>
+                  <TableHeader><TableRow className="bg-gray-50">
+                    <TableHead className="w-12 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-green-50">Valor R$</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24 bg-blue-50">Subtotal</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {itensCronograma.map((ic, idx) => {
+                      const itemState = formMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined
+                      const qtdMedida = itemState?.quantidade_medida || 0
+                      const valorOverride = itemState?.valor_override
+                      const modoInput = itemState?.modo_input ?? 'quantidade'
+                      const qtdTotal = Number(ic.quantidade)
+                      const qtdAprovada = Number(ic.quantidade_medida)
+                      const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0
+                      const saldo = qtdTotal - qtdAprovada - emTransito
+                      const valorUnit = Number(ic.valor_unitario)
+                      const subtotal = modoInput === 'valor' && valorOverride != null ? valorOverride : qtdMedida * valorUnit
+                      const excedeSaldo = modoInput === 'valor' ? (valorOverride || 0) > saldo * valorUnit + 0.01 : qtdMedida > saldo + 0.001
+                      return (
+                        <TableRow key={ic.id} className="hover:bg-gray-50">
+                          <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
+                          <TableCell className="whitespace-normal break-words min-w-[200px]"><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
+                          <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
+                          <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
+                          <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
+                          <TableCell className="bg-blue-50/50">
+                            <Input type="number" step="0.001" min="0" max={saldo} placeholder="0" value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
+                              onChange={e => { const val = parseFloat(e.target.value) || 0; const itens = [...formMedicao.itens]; itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.round(val * valorUnit * 100) / 100 }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="bg-green-50/50">
+                            <Input type="number" step="0.01" min="0" max={saldo * valorUnit} placeholder="0,00" value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
+                              onChange={e => { const val = parseFloat(e.target.value) || 0; const qtdCalc = valorUnit > 0 ? Math.round((val / valorUnit) * 10000) / 10000 : 0; const itens = [...formMedicao.itens]; itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: qtdCalc, modo_input: 'valor', valor_override: val }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="text-right font-medium bg-blue-50/50">
+                            <span className={`text-sm ${subtotal > 0 ? (excedeSaldo ? 'text-red-600' : 'text-blue-700') : 'text-gray-400'}`}>{formatarMoeda(subtotal)}</span>
+                            {excedeSaldo && <p className="text-xs text-red-500">Excede saldo</p>}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {!isServicoContinuado && !usarItensCronograma && (
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader><TableRow className="bg-gray-50">
+                    <TableHead className="w-16 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28">Valor Prev.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-blue-50">Exec. Mês (%)</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-32 bg-green-50">Exec. Mês (R$)</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28 bg-blue-50">Subtotal</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {etapas.filter(e => e.status !== 'CONCLUIDA').map((etapa, idx) => {
+                      const jaExecutado = Number(etapa.percentual_executado)
+                      const emTransito = resumo?.etapas_comprometidas?.[etapa.id] || 0
+                      const itemState = formMedicao.itens[idx] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | undefined
+                      const modoInput = itemState?.modo_input ?? 'percentual'
+                      const execPerc = itemState?.percentual_executado_atual ?? 0
+                      const execValor = itemState?.valor_executado_atual ?? 0
+                      const valorPrevisto = Number(etapa.valor_previsto)
+                      const restante = 100 - jaExecutado - emTransito
+                      const valorRestante = (restante / 100) * valorPrevisto
+                      const subtotal = modoInput === 'valor' ? execValor : (execPerc / 100) * valorPrevisto
+                      const percExibido = modoInput === 'valor' && valorPrevisto > 0 ? (execValor / valorPrevisto) * 100 : execPerc
+                      const excedeLimite = percExibido > restante + 0.01
+                      return (
+                        <TableRow key={etapa.id} className="hover:bg-gray-50">
+                          <TableCell className="text-center font-mono text-sm font-medium">{etapa.numero_etapa}</TableCell>
+                          <TableCell><p className="text-sm font-medium">{etapa.descricao}</p><p className="text-xs text-gray-400">Disponível: {restante.toFixed(1)}% ({formatarMoeda(valorRestante)})</p></TableCell>
+                          <TableCell className="text-right text-sm">{formatarMoeda(valorPrevisto)}</TableCell>
+                          <TableCell className="text-center"><span className="text-sm font-medium text-blue-600">{jaExecutado.toFixed(0)}%</span></TableCell>
+                          <TableCell className="bg-blue-50/50">
+                            <Input type="number" min="0" max={restante} step="0.1" placeholder="0" value={modoInput === 'percentual' ? (execPerc || '') : (percExibido > 0 ? percExibido.toFixed(2) : '')}
+                              onChange={e => { const num = e.target.value === '' ? 0 : Number(e.target.value); const itens = [...formMedicao.itens]; itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: num, valor_executado_atual: valorPrevisto > 0 ? (num / 100) * valorPrevisto : 0, modo_input: 'percentual' }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'percentual' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeLimite ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="bg-green-50/50">
+                            <Input type="number" min="0" max={valorRestante} step="0.01" placeholder="0,00" value={modoInput === 'valor' ? (execValor || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
+                              onChange={e => { const num = e.target.value === '' ? 0 : Number(e.target.value); const perc = valorPrevisto > 0 ? (num / valorPrevisto) * 100 : 0; const itens = [...formMedicao.itens]; itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Math.round(perc * 100) / 100, valor_executado_atual: num, modo_input: 'valor' }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeLimite ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="text-right bg-blue-50/50"><span className={`text-sm font-medium ${subtotal > 0 ? (excedeLimite ? 'text-red-600' : 'text-blue-700') : 'text-gray-400'}`}>{formatarMoeda(subtotal)}</span></TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {formMedicao.periodo_inicio && formMedicao.periodo_fim && contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim && (
+              <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3"><TrendingUp className="w-5 h-5 text-blue-600" /><h3 className="text-lg font-semibold text-blue-800">Execução Fiscal e Financeira</h3></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
+                      {contratoProp?.boletim_por_quantidade ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      {contratoProp?.boletim_por_quantidade && execucaoFinanceiraModal?.itens?.length ? (
+                        execucaoFinanceiraModal.itens.length === 1 ? (
+                          <>
+                            <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{Number(execucaoFinanceiraModal.itens[0].quantidade_no_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceiraModal.itens[0] as any).unidade_medida || 'un'}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{Number((execucaoFinanceiraModal.itens[0] as any).quantidade_ate_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceiraModal.itens[0] as any).unidade_medida || 'un'}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{Number((execucaoFinanceiraModal.itens[0] as any).quantidade_a_executar ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceiraModal.itens[0] as any).unidade_medida || 'un'}</span></div>
+                          </>
+                        ) : <p className="text-gray-600 text-xs">Por item na tabela de itens do boletim</p>
+                      ) : !contratoProp?.boletim_por_quantidade ? (
+                        <>
+                          <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).noPeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).atePeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).aExecutar}</span></div>
+                        </>
+                      ) : <p className="text-gray-500 text-xs">Carregue os itens da medição para ver a execução por quantidade</p>}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-green-200">
+                    <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4" />Execução Financeira (Valores)</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-green-700">{formatarMoeda(execucaoFinanceiraModal?.totais?.no_periodo ?? 0)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{formatarMoeda(execucaoFinanceiraModal?.totais?.ate_periodo ?? 0)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-orange-700">{formatarMoeda(execucaoFinanceiraModal?.totais?.a_executar ?? 0)}</span></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label>Observações</Label>
-              <Textarea placeholder="Observações da medição" value={formMedicao.observacoes} onChange={e => setFormMedicao({ ...formMedicao, observacoes: e.target.value })} rows={2} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><Label>Observações do Boletim</Label><Textarea value={formMedicao.observacoes} onChange={e => setFormMedicao({ ...formMedicao, observacoes: e.target.value })} placeholder="Observações relevantes..." rows={4} /></div>
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2"><DollarSign className="w-4 h-4" />Nota Fiscal (opcional)</Label>
+                <Input value={formMedicao.nota_fiscal_numero} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_numero: e.target.value })} placeholder="Número da NF" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input type="number" step="0.01" value={formMedicao.nota_fiscal_valor} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_valor: e.target.value })} placeholder="Valor R$" />
+                  <Input type="date" value={formMedicao.nota_fiscal_data} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_data: e.target.value })} />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1478,7 +1725,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             <Button onClick={salvarMedicao} disabled={
               actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
               (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
-              (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0)) ||
+              (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0 && ((i as any).valor_executado_atual == null || (i as any).valor_executado_atual <= 0))) ||
               (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
             }>
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

@@ -1679,6 +1679,8 @@ export default function MedicoesPage() {
             <TabMedicao
               contratoId={contratoAberto.id}
               valorGlobal={contratoAberto.valor_global}
+              modalidade={(contratoAberto as any).modalidade_execucao}
+              contrato={(contratoAberto as any).data_vigencia_inicio ? contratoAberto as any : undefined}
               onAtestar={(med) => { setContratoAberto(null); abrirModalAtesteDireto(med) }}
             />
           )}
