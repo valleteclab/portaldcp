@@ -1724,7 +1724,7 @@ export default function DetalheContratoOrgaoPage() {
 
         {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(contrato.modalidade_execucao || '') && (
           <TabsContent value="medicao">
-            <TabMedicao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} modalidade={contrato.modalidade_execucao} />
+            <TabMedicao contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} modalidade={contrato.modalidade_execucao} contrato={contrato} />
           </TabsContent>
         )}
 
