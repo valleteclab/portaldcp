@@ -36,6 +36,7 @@ interface PrecosBarreirasResponse {
   data_inicial: string
   data_final: string
   precos: PrecoAnp[]
+  url_planilha?: string
 }
 
 interface PrecosBarreirasMultiploResponse {
@@ -260,9 +261,22 @@ export default function ContratosPage() {
             <div className="space-y-6">
               {precosAnp.semanas.map((semana, sIdx) => (
                 <div key={sIdx} className={sIdx > 0 ? 'pt-4 border-t border-blue-200/60' : ''}>
-                  <p className="text-xs font-medium text-slate-500 mb-2">
-                    Semana: {fmtData(semana.data_inicial)} a {fmtData(semana.data_final)}
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-slate-500">
+                      Semana: {fmtData(semana.data_inicial)} a {fmtData(semana.data_final)}
+                    </p>
+                    {semana.url_planilha && (
+                      <a
+                        href={semana.url_planilha}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Baixar planilha
+                      </a>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
                     {semana.precos.map((p, i) => (
                       <div key={i} className="rounded-lg border bg-white p-3 text-sm">

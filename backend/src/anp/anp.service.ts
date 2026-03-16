@@ -22,6 +22,8 @@ export interface PrecosBarreirasResponse {
   data_inicial: string;
   data_final: string;
   precos: PrecoAnp[];
+  /** URL para download da planilha Excel no site da ANP */
+  url_planilha?: string;
 }
 
 export interface PrecosBarreirasMultiploResponse {
@@ -127,12 +129,18 @@ function parseBufferToPrecos(buffer: Buffer): PrecosBarreirasResponse {
     throw new Error('Nenhum preço encontrado para Barreiras-BA no arquivo.');
   }
 
+  const dataInicial = precos[0].data_inicial;
+  const dataFinal = precos[0].data_final;
+  const ano = dataInicial.slice(0, 4);
+  const urlPlanilha = `${ANP_BASE}/${ano}/resumo_semanal_lpc_${dataInicial}_${dataFinal}.xlsx`;
+
   return {
     municipio: 'Barreiras',
     estado: 'Bahia',
-    data_inicial: precos[0].data_inicial,
-    data_final: precos[0].data_final,
+    data_inicial: dataInicial,
+    data_final: dataFinal,
     precos,
+    url_planilha: urlPlanilha,
   };
 }
 
