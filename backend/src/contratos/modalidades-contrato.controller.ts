@@ -30,6 +30,7 @@ import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
+import { Medicao } from './entities/medicao.entity';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -43,6 +44,8 @@ export class ModalidadesContratoController {
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
+    @InjectRepository(Medicao)
+    private readonly medicaoRepository: Repository<Medicao>,
   ) {}
 
   /**
@@ -382,6 +385,20 @@ export class ModalidadesContratoController {
   // ============================================================================
   // DISCRIMINAÇÃO DE DESPESAS — Órgão (fiscal/gestor)
   // ============================================================================
+
+  /**
+   * Sugestão de discriminações (da última medição do contrato).
+   * GET /api/contratos/medicoes/:medicaoId/discriminacoes/sugestao
+   */
+  @Get('medicoes/:medicaoId/discriminacoes/sugestao')
+  async sugestaoDiscriminacoes(@Param('medicaoId') medicaoId: string) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    return this.medicaoService.sugerirDiscriminacoes(medicao.contrato_id);
+  }
 
   /**
    * Lista discriminações de despesa de uma medição.
