@@ -1031,6 +1031,23 @@ export class ModalidadesContratoController {
     return this.medicaoService.solicitarOtpAssinaturaFiscal(medicaoId, body.telefone);
   }
 
+  /**
+   * Envia OTP para o telefone do fornecedor (quando o órgão cria a medição).
+   * A assinatura será do fornecedor, no campo FORNECEDOR do boletim.
+   */
+  @Post('medicoes/:medicaoId/solicitar-otp-fornecedor')
+  async solicitarOtpFornecedor(@Param('medicaoId') medicaoId: string) {
+    return this.medicaoService.solicitarOtpAssinaturaFornecedor(medicaoId);
+  }
+
+  @Post('medicoes/:medicaoId/validar-otp-fornecedor')
+  async validarOtpFornecedor(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { codigo: string },
+  ) {
+    return this.medicaoService.validarOtpAssinaturaFornecedor(medicaoId, body.codigo);
+  }
+
   @Post('medicoes/:medicaoId/validar-otp-fiscal')
   async validarOtpFiscal(
     @Param('medicaoId') medicaoId: string,

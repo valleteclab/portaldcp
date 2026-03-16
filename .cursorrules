@@ -1,5 +1,14 @@
 # Scratchpad
 
+## Tarefa Concluída: Boletim Medição - NF, Até Período migração, OTP Fornecedor (2026-03-16)
+
+- [X] Número da NF: campo exibido no PDF (backend + frontend), valor ou "-" quando vazio
+- [X] Até o Período: considerar quantidade_medida (ItemCronograma) na execução fiscal por quantidade
+- [X] OTP quando órgão cria medição: assinatura do FORNECEDOR (não do fiscal)
+- [X] solicitar-otp-fornecedor: envia OTP para telefone do fornecedor cadastrado
+- [X] validar-otp-fornecedor: registra assinatura FORNECEDOR, submete, gera PDF
+- [X] Modal: "O código será enviado ao fornecedor" — nome e telefone mascarado
+
 ## Tarefa Concluída: Ajuste Migração - Quantidade Medida por Item (2026-03-16)
 
 - [X] Em contratos com itens cronograma (migração): admin pode informar quantidade já utilizada no campo Medido
