@@ -25,38 +25,27 @@ export interface PrecosBarreirasResponse {
 }
 
 /**
- * ANP usa blocos fixos de 7 dias por dia do mês: 1-7, 8-14, 15-21, 22-28, 29-31.
- * Ex: 01-03 a 07-03, depois 08-03 a 14-03, depois 15-03 a 21-03.
+ * ANP usa semanas de domingo a sábado (sempre 7 dias).
+ * Ex: 28/12 a 03/01, 04/01 a 10/01, 11/01 a 17/01. Última semana de jan: 29/01 a 04/02.
  */
 function getSemanasParaTentar(): { inicio: string; fim: string }[] {
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const semanas: { inicio: string; fim: string }[] = [];
   const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = hoje.getMonth();
-  const dia = hoje.getDate();
 
-  // Bloco atual: início = 1, 8, 15, 22 ou 29 (dia do mês)
-  const blockStart = (Math.floor((dia - 1) / 7) * 7) + 1;
-  const blockEnd = blockStart + 6;
-
-  // Última semana completa: aquela em que blockEnd <= hoje (ex: dia 7 completa a semana 1-7)
-  let start = blockStart;
-  let end = blockEnd;
-  if (blockEnd > dia) {
-    start = blockStart - 7;
-    end = blockEnd - 7;
-  }
-
-  const lastStart = new Date(ano, mes, start);
-  const lastEnd = new Date(ano, mes, end);
+  // Último sábado (fim da última semana completa). Dom=0, Seg=1, ..., Sáb=6
+  const diasParaSabado = (hoje.getDay() + 1) % 7; // 0 se hoje é sábado
+  const ultimoSabado = new Date(hoje);
+  ultimoSabado.setDate(hoje.getDate() - diasParaSabado);
+  const ultimoDomingo = new Date(ultimoSabado);
+  ultimoDomingo.setDate(ultimoSabado.getDate() - 6);
 
   for (let n = 0; n <= 4; n++) {
-    const startDate = new Date(lastStart);
-    startDate.setDate(lastStart.getDate() - n * 7);
-    const endDate = new Date(lastEnd);
-    endDate.setDate(lastEnd.getDate() - n * 7);
-    semanas.push({ inicio: fmt(startDate), fim: fmt(endDate) });
+    const inicio = new Date(ultimoDomingo);
+    inicio.setDate(ultimoDomingo.getDate() - n * 7);
+    const fim = new Date(ultimoSabado);
+    fim.setDate(ultimoSabado.getDate() - n * 7);
+    semanas.push({ inicio: fmt(inicio), fim: fmt(fim) });
   }
   return semanas;
 }
