@@ -24,18 +24,39 @@ export interface PrecosBarreirasResponse {
   precos: PrecoAnp[];
 }
 
-/** Retorna lista de semanas (inicio, fim) para tentar - última, penúltima, etc. ANP publica com delay. */
+/**
+ * ANP usa blocos fixos de 7 dias por dia do mês: 1-7, 8-14, 15-21, 22-28, 29-31.
+ * Ex: 01-03 a 07-03, depois 08-03 a 14-03, depois 15-03 a 21-03.
+ */
 function getSemanasParaTentar(): { inicio: string; fim: string }[] {
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const semanas: { inicio: string; fim: string }[] = [];
   const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mes = hoje.getMonth();
+  const dia = hoje.getDate();
 
-  for (let offset = 0; offset <= 14; offset += 7) {
-    const domingo = new Date(hoje);
-    domingo.setDate(hoje.getDate() - hoje.getDay() - offset);
-    const segunda = new Date(domingo);
-    segunda.setDate(domingo.getDate() - 6);
-    semanas.push({ inicio: fmt(segunda), fim: fmt(domingo) });
+  // Bloco atual: início = 1, 8, 15, 22 ou 29 (dia do mês)
+  const blockStart = (Math.floor((dia - 1) / 7) * 7) + 1;
+  const blockEnd = blockStart + 6;
+
+  // Última semana completa: aquela em que blockEnd <= hoje (ex: dia 7 completa a semana 1-7)
+  let start = blockStart;
+  let end = blockEnd;
+  if (blockEnd > dia) {
+    start = blockStart - 7;
+    end = blockEnd - 7;
+  }
+
+  const lastStart = new Date(ano, mes, start);
+  const lastEnd = new Date(ano, mes, end);
+
+  for (let n = 0; n <= 4; n++) {
+    const startDate = new Date(lastStart);
+    startDate.setDate(lastStart.getDate() - n * 7);
+    const endDate = new Date(lastEnd);
+    endDate.setDate(lastEnd.getDate() - n * 7);
+    semanas.push({ inicio: fmt(startDate), fim: fmt(endDate) });
   }
   return semanas;
 }
