@@ -154,7 +154,8 @@ export class ModalidadesContratoController {
     @Body() body: { quantidade_medida: number },
     @Req() request: { user: JwtPayload },
   ) {
-    if (request.user.type !== UserType.ADMIN) {
+    const isAdmin = request.user.type === UserType.ADMIN || request.user.role === 'ADMIN';
+    if (!isAdmin) {
       throw new ForbiddenException('Apenas administradores podem informar quantidade medida em ajuste de migração');
     }
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
