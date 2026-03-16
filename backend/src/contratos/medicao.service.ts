@@ -390,6 +390,33 @@ export class MedicaoService {
     await this.itemCronogramaRepository.remove(item);
   }
 
+  /**
+   * Atualiza quantidade_medida do item do cronograma (ajuste de migração).
+   * Apenas administradores. Usado para informar quantidade já consumida antes da implantação do sistema.
+   */
+  async atualizarQuantidadeMedidaMigracao(
+    contratoId: string,
+    itemId: string,
+    quantidadeMedida: number,
+  ): Promise<ItemCronograma> {
+    const item = await this.itemCronogramaRepository.findOne({
+      where: { id: itemId, contrato_id: contratoId },
+    });
+    if (!item) throw new NotFoundException('Item do cronograma não encontrado');
+
+    const qtd = Number(quantidadeMedida) || 0;
+    const quantidadeTotal = Number(item.quantidade) || 0;
+    if (qtd < 0) throw new BadRequestException('Quantidade medida não pode ser negativa');
+    if (qtd > quantidadeTotal + 0.0001) {
+      throw new BadRequestException(
+        `Quantidade medida (${qtd.toFixed(2)}) não pode exceder a quantidade total do item (${quantidadeTotal.toFixed(2)})`,
+      );
+    }
+
+    item.quantidade_medida = qtd;
+    return this.itemCronogramaRepository.save(item);
+  }
+
   // ============================================================================
   // MEDIÇÕES — Criação (pelo fornecedor ou fiscal)
   // ============================================================================
@@ -733,31 +760,43 @@ export class MedicaoService {
       throw new ForbiddenException('Você não tem permissão para excluir esta medição');
     }
 
-    // Se medição APROVADA, reverter os valores das etapas
+    // Se medição APROVADA, reverter os valores das etapas ou itens do cronograma
     if (medicao.status === StatusMedicao.APROVADA) {
-      const itensMedicao = await this.itemMedicaoRepository.find({
-        where: { medicao_id: medicaoId },
-      });
-
-      for (const item of itensMedicao) {
-        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-        if (etapa) {
-          // Reverter percentual: subtrair o percentual_executado_atual desta medição
-          etapa.percentual_executado = Math.max(0, Number(etapa.percentual_executado) - Number(item.percentual_executado_atual));
-          // Reverter valor: subtrair o valor_medido desta medição
-          etapa.valor_executado = Math.max(0, Number(etapa.valor_executado) - Number(item.valor_medido));
-
-          // Recalcular status da etapa
-          if (Number(etapa.percentual_executado) >= 100) {
-            etapa.status = StatusEtapaCronograma.CONCLUIDA;
-          } else if (Number(etapa.percentual_executado) > 0) {
-            etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
-          } else {
-            etapa.status = StatusEtapaCronograma.PENDENTE;
-            etapa.data_fim_real = null as any;
+      const usarItens = await this.usarItensCronograma(medicao.contrato_id);
+      if (usarItens) {
+        const itensItem = await this.itemMedicaoItemRepository.find({
+          where: { medicao_id: medicaoId },
+          relations: ['itemCronograma'],
+        });
+        for (const imi of itensItem) {
+          const ic = imi.itemCronograma;
+          if (ic) {
+            ic.quantidade_medida = Math.max(0, Number(ic.quantidade_medida) - Number(imi.quantidade_medida));
+            await this.itemCronogramaRepository.save(ic);
           }
+        }
+      } else {
+        const itensMedicao = await this.itemMedicaoRepository.find({
+          where: { medicao_id: medicaoId },
+        });
 
-          await this.etapaRepository.save(etapa);
+        for (const item of itensMedicao) {
+          const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+          if (etapa) {
+            etapa.percentual_executado = Math.max(0, Number(etapa.percentual_executado) - Number(item.percentual_executado_atual));
+            etapa.valor_executado = Math.max(0, Number(etapa.valor_executado) - Number(item.valor_medido));
+
+            if (Number(etapa.percentual_executado) >= 100) {
+              etapa.status = StatusEtapaCronograma.CONCLUIDA;
+            } else if (Number(etapa.percentual_executado) > 0) {
+              etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+            } else {
+              etapa.status = StatusEtapaCronograma.PENDENTE;
+              etapa.data_fim_real = null as any;
+            }
+
+            await this.etapaRepository.save(etapa);
+          }
         }
       }
 
@@ -769,6 +808,7 @@ export class MedicaoService {
 
     // Excluir itens da medição primeiro
     await this.itemMedicaoRepository.delete({ medicao_id: medicaoId });
+    await this.itemMedicaoItemRepository.delete({ medicao_id: medicaoId });
 
     // Excluir a medição
     await this.medicaoRepository.remove(medicao);
@@ -1230,24 +1270,40 @@ export class MedicaoService {
 
     // Atualizar etapas do cronograma (apenas para obras, serviços continuados não têm etapas)
     if (!servicoContinuado) {
-      const itensMedicao = await this.itemMedicaoRepository.find({
-        where: { medicao_id: medicaoId },
-      });
-
-      for (const item of itensMedicao) {
-        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-        if (etapa) {
-          etapa.percentual_executado = Number(item.percentual_executado_acumulado);
-          etapa.valor_executado = Number(etapa.valor_executado) + Number(item.valor_medido);
-
-          if (Number(etapa.percentual_executado) >= 100) {
-            etapa.status = StatusEtapaCronograma.CONCLUIDA;
-            etapa.data_fim_real = new Date() as any;
-          } else if (Number(etapa.percentual_executado) > 0) {
-            etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+      const usarItens = await this.usarItensCronograma(medicao.contrato_id);
+      if (usarItens) {
+        const itensItem = await this.itemMedicaoItemRepository.find({
+          where: { medicao_id: medicaoId },
+          relations: ['itemCronograma'],
+        });
+        for (const imi of itensItem) {
+          const ic = imi.itemCronograma;
+          if (ic) {
+            const qtdNova = Number(ic.quantidade_medida) + Number(imi.quantidade_medida);
+            ic.quantidade_medida = Math.min(qtdNova, Number(ic.quantidade));
+            await this.itemCronogramaRepository.save(ic);
           }
+        }
+      } else {
+        const itensMedicao = await this.itemMedicaoRepository.find({
+          where: { medicao_id: medicaoId },
+        });
 
-          await this.etapaRepository.save(etapa);
+        for (const item of itensMedicao) {
+          const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+          if (etapa) {
+            etapa.percentual_executado = Number(item.percentual_executado_acumulado);
+            etapa.valor_executado = Number(etapa.valor_executado) + Number(item.valor_medido);
+
+            if (Number(etapa.percentual_executado) >= 100) {
+              etapa.status = StatusEtapaCronograma.CONCLUIDA;
+              etapa.data_fim_real = new Date() as any;
+            } else if (Number(etapa.percentual_executado) > 0) {
+              etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+            }
+
+            await this.etapaRepository.save(etapa);
+          }
         }
       }
     }

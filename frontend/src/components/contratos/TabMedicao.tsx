@@ -213,9 +213,10 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
   return { noPeriodo: fmt(diasPeriodo), atePeriodo: fmt(diasAte), aExecutar: fmt(diasRestantes) }
 }
 
-export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp }: {
+export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
   contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
   contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean };
+  isAdmin?: boolean;
 }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
   const [etapas, setEtapas] = useState<Etapa[]>([])
@@ -258,6 +259,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [formItemCronograma, setFormItemCronograma] = useState({
     descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
   })
+  const [editandoMedidoItemId, setEditandoMedidoItemId] = useState<string | null>(null)
+  const [editandoMedidoValor, setEditandoMedidoValor] = useState<string>('')
   const [formMedicao, setFormMedicao] = useState({
     periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', valor_medido: '',
     nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
@@ -532,6 +535,21 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
       carregarDados()
     } catch (e) { console.error(e) }
+  }
+
+  const salvarQuantidadeMedidaMigracao = async (itemId: string, valor: string) => {
+    const qtd = parseFloat(valor)
+    if (isNaN(qtd) || qtd < 0) return
+    setEditandoMedidoItemId(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma/${itemId}/quantidade-migracao`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantidade_medida: qtd }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      carregarDados()
+    } catch (e) { console.error(e); alert('Erro ao salvar quantidade medida') }
   }
 
   // ============ MEDIÇÕES — Criação interna (fiscal) ============
@@ -1170,7 +1188,37 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
-                    <TableCell className="text-center text-blue-600 font-medium whitespace-nowrap">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-center whitespace-nowrap">
+                      {isAdmin ? (
+                        editandoMedidoItemId === i.id ? (
+                          <div className="flex items-center gap-1 justify-center">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={Number(i.quantidade) || 0}
+                              value={editandoMedidoValor}
+                              onChange={e => setEditandoMedidoValor(e.target.value)}
+                              onBlur={() => salvarQuantidadeMedidaMigracao(i.id, editandoMedidoValor)}
+                              onKeyDown={e => { if (e.key === 'Enter') salvarQuantidadeMedidaMigracao(i.id, editandoMedidoValor); if (e.key === 'Escape') setEditandoMedidoItemId(null) }}
+                              className="w-20 h-8 text-sm text-center"
+                              autoFocus
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setEditandoMedidoItemId(i.id); setEditandoMedidoValor(String(Number(i.quantidade_medida) || 0)) }}
+                            className="text-blue-600 font-medium hover:bg-blue-50 rounded px-1 py-0.5 text-sm"
+                            title="Clique para informar quantidade já utilizada (migração)"
+                          >
+                            {Number(i.quantidade_medida).toLocaleString('pt-BR')}
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-blue-600 font-medium">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button variant="ghost" size="icon" onClick={() => abrirModalItemCronograma(i)}>

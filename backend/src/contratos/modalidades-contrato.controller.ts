@@ -147,6 +147,25 @@ export class ModalidadesContratoController {
     return { success: true };
   }
 
+  @Patch(':contratoId/itens-cronograma/:itemId/quantidade-migracao')
+  async atualizarQuantidadeMedidaMigracao(
+    @Param('contratoId') contratoId: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { quantidade_medida: number },
+    @Req() request: { user: JwtPayload },
+  ) {
+    if (request.user.type !== UserType.ADMIN) {
+      throw new ForbiddenException('Apenas administradores podem informar quantidade medida em ajuste de migração');
+    }
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    return this.medicaoService.atualizarQuantidadeMedidaMigracao(
+      contratoId,
+      itemId,
+      Number(body.quantidade_medida) || 0,
+    );
+  }
+
   // ============================================================================
   // MEDIÇÃO — Rotas estáticas DEVEM vir ANTES das rotas com :parametro
   //           para evitar que NestJS interprete "resumo-fiscal" como :medicaoId
