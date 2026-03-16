@@ -275,6 +275,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [loadingAnexos, setLoadingAnexos] = useState(false)
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([])
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([])
+  const [modalOtp, setModalOtp] = useState(false)
+  const [otpMedicaoId, setOtpMedicaoId] = useState<string | null>(null)
+  const [otpEtapa, setOtpEtapa] = useState<'telefone' | 'codigo' | 'sucesso'>('telefone')
+  const [otpTelefone, setOtpTelefone] = useState('')
+  const [otpCodigo, setOtpCodigo] = useState('')
+  const [otpCanais, setOtpCanais] = useState<{ telefone_mascarado?: string } | null>(null)
+  const [otpErro, setOtpErro] = useState<string | null>(null)
+  const [otpCodigoValidacao, setOtpCodigoValidacao] = useState<string | null>(null)
+  const [otpLoading, setOtpLoading] = useState(false)
 
   const abrirDetalhe = async (m: Medicao) => {
     setModalDetalhe(m)
@@ -541,11 +550,16 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     setModalMedicao(true)
   }
 
-  const carregarExecucaoFinanceiraModal = useCallback(async (medicaoId?: string) => {
+  const carregarExecucaoFinanceiraModal = useCallback(async (medicaoId?: string, periodoInicio?: string, periodoFim?: string) => {
     try {
-      const url = medicaoId
-        ? `${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${medicaoId}`
-        : `${API_URL}/api/contratos/${contratoId}/execucao-financeira`
+      let url = `${API_URL}/api/contratos/${contratoId}/execucao-financeira`
+      const params = new URLSearchParams()
+      if (medicaoId) params.set('medicaoId', medicaoId)
+      else if (periodoInicio && periodoFim) {
+        params.set('periodo_inicio', periodoInicio)
+        params.set('periodo_fim', periodoFim)
+      }
+      if (params.toString()) url += `?${params.toString()}`
       const res = await authFetch(url)
       if (res.ok) setExecucaoFinanceiraModal(await res.json())
     } catch { setExecucaoFinanceiraModal(null) }
@@ -623,11 +637,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       }
 
       if (!comoRascunho && medicaoSalva?.id) {
-        await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSalva.id}/enviar-aprovacao`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fiscal_id: usuario?.id || '', fiscal_nome: usuario?.nome || 'Fiscal' }),
-        })
+        setModalMedicao(false)
+        setDiscriminacoes([])
+        setArquivosPendentes([])
+        abrirModalOtpFiscal(medicaoSalva.id)
+        return
       }
 
       setModalMedicao(false)
@@ -636,6 +650,104 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
+  }
+
+  const abrirModalOtpFiscal = (medicaoId: string) => {
+    setOtpMedicaoId(medicaoId)
+    setOtpEtapa('telefone')
+    setOtpTelefone('')
+    setOtpCodigo('')
+    setOtpCanais(null)
+    setOtpErro(null)
+    setOtpCodigoValidacao(null)
+    setOtpLoading(false)
+    setModalOtp(true)
+  }
+
+  const handleEnviarOtpFiscal = async () => {
+    if (!otpMedicaoId || !otpTelefone.replace(/\D/g, '').match(/^\d{10,11}$/)) {
+      setOtpErro('Informe um número de WhatsApp válido (10 ou 11 dígitos).')
+      return
+    }
+    setOtpLoading(true)
+    setOtpErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/solicitar-otp-fiscal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone: otpTelefone.replace(/\D/g, '') }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setOtpErro(err.message || 'Erro ao enviar código')
+        setOtpLoading(false)
+        return
+      }
+      const data = await res.json()
+      setOtpCanais(data)
+      setOtpEtapa('codigo')
+    } catch {
+      setOtpErro('Erro de conexão ao enviar código')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const handleValidarOtpFiscal = async () => {
+    if (!otpMedicaoId || !otpCodigo) return
+    setOtpLoading(true)
+    setOtpErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/validar-otp-fiscal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: otpCodigo }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setOtpErro(err.message || 'Código incorreto ou expirado')
+        setOtpLoading(false)
+        return
+      }
+      const data = await res.json()
+      setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao)
+      setOtpEtapa('sucesso')
+
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/enviar-aprovacao`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fiscal_id: usuario?.id || '', fiscal_nome: usuario?.nome || 'Fiscal' }),
+      })
+
+      try {
+        const resBoletim = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/boletim-oficial`)
+        if (resBoletim.ok) {
+          const boletim = await resBoletim.json()
+          const pdfUrl = boletim.pdf_url?.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url || ''}`
+          if (pdfUrl) {
+            const arquivoRes = await authFetch(pdfUrl)
+            if (arquivoRes.ok) {
+              const pdfBlob = await arquivoRes.blob()
+              const objectUrl = window.URL.createObjectURL(pdfBlob)
+              const link = document.createElement('a')
+              link.href = objectUrl
+              link.download = boletim.filename || `boletim_medicao_${otpMedicaoId}.pdf`
+              link.style.display = 'none'
+              document.body.appendChild(link)
+              link.click()
+              setTimeout(() => { link.remove(); window.URL.revokeObjectURL(objectUrl) }, 1000)
+            }
+          }
+        }
+      } catch { /* ignore download errors */ }
+
+      carregarDados()
+    } catch {
+      setOtpErro('Erro de conexão ao validar código')
+    } finally {
+      setOtpLoading(false)
+    }
   }
 
   // ============ MEDIÇÕES — Envio direto para aprovação (fiscal cria internamente) ============
@@ -1567,7 +1679,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       })
                       setFormMedicao({ ...formMedicao, periodo_inicio: v, itens })
                     } else setFormMedicao({ ...formMedicao, periodo_inicio: v })
-                    if (v && formMedicao.periodo_fim) carregarExecucaoFinanceiraModal()
+                    if (v && formMedicao.periodo_fim) carregarExecucaoFinanceiraModal(undefined, v, formMedicao.periodo_fim)
                   }} />
               </div>
               <div><Label>Período Fim *</Label>
@@ -1585,7 +1697,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       })
                       setFormMedicao({ ...formMedicao, periodo_fim: v, itens })
                     } else setFormMedicao({ ...formMedicao, periodo_fim: v })
-                    if (formMedicao.periodo_inicio && v) carregarExecucaoFinanceiraModal()
+                    if (formMedicao.periodo_inicio && v) carregarExecucaoFinanceiraModal(undefined, formMedicao.periodo_inicio, v)
                   }} />
               </div>
             </div>
@@ -1729,7 +1841,36 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               </div>
             )}
 
-            {formMedicao.periodo_inicio && formMedicao.periodo_fim && contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim && (
+            {formMedicao.periodo_inicio && formMedicao.periodo_fim && contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim && (() => {
+              const valorMedicaoAtual = isServicoContinuado
+                ? (parseFloat(formMedicao.valor_medido) || 0)
+                : usarItensCronograma
+                  ? formMedicao.itens.reduce((acc, item) => {
+                      if (!('item_cronograma_id' in item)) return acc
+                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
+                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                    }, 0)
+                  : formMedicao.itens.reduce((acc, item, idx) => {
+                      const etapa = etapas[idx]
+                      if (!etapa || !('etapa_id' in item)) return acc
+                      return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
+                    }, 0)
+              const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
+              const noPeriodoBackend = Number(execucaoFinanceiraModal?.totais?.no_periodo || 0)
+              const atePeriodoBackend = Number(execucaoFinanceiraModal?.totais?.ate_periodo || 0)
+              const aExecutarBackend = Number(execucaoFinanceiraModal?.totais?.a_executar || 0)
+              const noPeriodoExibicao = Math.max(noPeriodoBackend, valorMedicaoAtual || 0)
+              const valorLocalNaoPersistido = Math.max(0, noPeriodoExibicao - noPeriodoBackend)
+              const atePeriodoExibicao = atePeriodoBackend > 0
+                ? atePeriodoBackend + valorLocalNaoPersistido
+                : (valorAprovadoAnterior + noPeriodoExibicao)
+              const aExecutarExibicao = Math.max(
+                0,
+                aExecutarBackend > 0 || atePeriodoBackend > 0
+                  ? aExecutarBackend - valorLocalNaoPersistido
+                  : Number(valorGlobal || contratoProp?.valor_global || 0) - atePeriodoExibicao
+              )
+              return (
               <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3"><TrendingUp className="w-5 h-5 text-blue-600" /><h3 className="text-lg font-semibold text-blue-800">Execução Fiscal e Financeira</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1758,14 +1899,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   <div className="bg-white rounded-lg p-4 border border-green-200">
                     <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4" />Execução Financeira (Valores)</h4>
                     <div className="space-y-2 text-sm">
-                      <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-green-700">{formatarMoeda(execucaoFinanceiraModal?.totais?.no_periodo ?? 0)}</span></div>
-                      <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{formatarMoeda(execucaoFinanceiraModal?.totais?.ate_periodo ?? 0)}</span></div>
-                      <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-orange-700">{formatarMoeda(execucaoFinanceiraModal?.totais?.a_executar ?? 0)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-green-700">{formatarMoeda(noPeriodoExibicao)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{formatarMoeda(atePeriodoExibicao)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-orange-700">{formatarMoeda(aExecutarExibicao)}</span></div>
                     </div>
                   </div>
                 </div>
               </div>
-            )}
+              )
+            })()}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><Label>Observações do Boletim</Label><Textarea value={formMedicao.observacoes} onChange={e => setFormMedicao({ ...formMedicao, observacoes: e.target.value })} placeholder="Observações relevantes..." rows={4} /></div>
@@ -2250,6 +2392,102 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Devolver ao Fornecedor
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Assinatura Digital OTP — Fiscal (Enviar para Ateste) */}
+      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setOtpMedicaoId(null); carregarDados(); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-blue-600" />
+              Assinatura Digital do Boletim
+            </DialogTitle>
+            <DialogDescription>
+              {otpEtapa === 'telefone' && 'Informe seu WhatsApp para receber o código de verificação.'}
+              {otpEtapa === 'codigo' && 'Digite o código de verificação enviado.'}
+              {otpEtapa === 'sucesso' && 'Boletim assinado e enviado para aprovação!'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {otpEtapa === 'telefone' && (
+            <div className="space-y-4">
+              <div>
+                <Label>WhatsApp (com DDD)</Label>
+                <Input
+                  value={otpTelefone}
+                  onChange={e => setOtpTelefone(e.target.value.replace(/\D/g, '').replace(/^(\d{2})(\d)/g, '($1) $2').replace(/(\d)(\d{4})$/, '$1-$2'))}
+                  placeholder="(11) 99999-9999"
+                  className="mt-1"
+                />
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+            </div>
+          )}
+
+          {otpEtapa === 'codigo' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                <p className="font-medium mb-1">Código enviado!</p>
+                {otpCanais?.telefone_mascarado && <p>📱 {otpCanais.telefone_mascarado}</p>}
+              </div>
+              <div>
+                <Label>Código (6 dígitos)</Label>
+                <Input
+                  value={otpCodigo}
+                  onChange={e => setOtpCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="text-center text-2xl tracking-[0.5em] font-mono mt-1"
+                  maxLength={6}
+                  onKeyDown={e => { if (e.key === 'Enter' && otpCodigo.length === 6) handleValidarOtpFiscal(); }}
+                />
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+            </div>
+          )}
+
+          {otpEtapa === 'sucesso' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                <CheckCircle className="w-10 h-10 text-green-600 mx-auto mb-2" />
+                <p className="font-semibold text-green-900">Boletim assinado digitalmente!</p>
+                <p className="text-sm text-green-700 mt-1">A medição foi enviada para aprovação do gestor.</p>
+                {otpCodigoValidacao && (
+                  <div className="mt-2 bg-white border border-green-300 rounded p-2">
+                    <p className="text-xs text-gray-500">Código de validação:</p>
+                    <p className="font-mono text-sm font-bold text-green-800">{otpCodigoValidacao}</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 text-center">O PDF do boletim foi baixado automaticamente.</p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {otpEtapa === 'telefone' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleEnviarOtpFiscal} disabled={otpLoading || !otpTelefone.replace(/\D/g, '').match(/^\d{10,11}$/)} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Enviar Código
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'codigo' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleValidarOtpFiscal} disabled={otpLoading || otpCodigo.length !== 6} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Confirmar e Enviar
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'sucesso' && (
+              <Button onClick={() => { setModalOtp(false); carregarDados(); }} className="w-full bg-green-600 hover:bg-green-700">
+                Fechar
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

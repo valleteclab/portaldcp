@@ -487,6 +487,12 @@ export class ModalidadesContratoController {
     @Req() request: { user: JwtPayload },
   ) {
     const orgaoId = this.getOrgaoId(request.user);
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    const usarItensCronograma = await this.medicaoService.usarItensCronograma(contratoId);
+    if (usarItensCronograma && contrato.fornecedor_id) {
+      return this.medicaoService.calcularExecucaoFinanceiraFornecedor(contratoId, medicaoId || undefined);
+    }
     return this.medicaoService.calcularExecucaoFinanceira(contratoId, orgaoId, medicaoId || undefined);
   }
 

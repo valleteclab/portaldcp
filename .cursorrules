@@ -28,6 +28,9 @@
 - [X] Backend: POST /api/contratos/medicoes/:id/anexos (fiscal)
 - [X] Backend: GET /api/contratos/medicoes/:id/discriminacoes/sugestao
 - [X] salvarMedicao(comoRascunho): discriminacoes PUT + anexos POST + enviar-aprovacao quando false
+- [X] Execução Fiscal/Financeira: cálculos no frontend (noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao)
+- [X] Backend execucao-financeira: usar calcularExecucaoFinanceiraFornecedor quando itens cronograma
+- [X] Enviar para Ateste: fluxo OTP (telefone → código → assinatura) + PDF gerado + enviar-aprovacao
 
 ## Tarefa Concluída: Frota Vereador - QR Code e seleção de requisição (2026-03-15)
 
