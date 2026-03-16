@@ -24,6 +24,10 @@ export interface PrecosBarreirasResponse {
   precos: PrecoAnp[];
 }
 
+export interface PrecosBarreirasMultiploResponse {
+  semanas: PrecosBarreirasResponse[];
+}
+
 /**
  * ANP usa semanas de domingo a sábado (sempre 7 dias).
  * Ex: 28/12 a 03/01, 04/01 a 10/01, 11/01 a 17/01. Última semana de jan: 29/01 a 04/02.
@@ -65,192 +69,142 @@ function formatarData(val: unknown): string {
   return Number.isNaN(dt.getTime()) ? '' : dt.toISOString().slice(0, 10);
 }
 
+function parseBufferToPrecos(buffer: Buffer): PrecosBarreirasResponse {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const sheet = workbook.Sheets['MUNICIPIOS'];
+  if (!sheet) {
+    throw new Error('Planilha MUNICIPIOS não encontrada no arquivo.');
+  }
+
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }) as unknown[][];
+  const headerRow = 9;
+  const headers = rows[headerRow] as string[];
+  const dataStart = headerRow + 1;
+
+  const idx = {
+    dataInicial: headers.findIndex((h) => h?.includes('DATA INICIAL')),
+    dataFinal: headers.findIndex((h) => h?.includes('DATA FINAL')),
+    estado: headers.findIndex((h) => h?.includes('ESTADO')),
+    municipio: headers.findIndex((h) => h?.includes('MUNICÍPIO')),
+    produto: headers.findIndex((h) => h?.includes('PRODUTO')),
+    postos: headers.findIndex((h) => h?.includes('POSTOS')),
+    unidade: headers.findIndex((h) => h?.includes('UNIDADE')),
+    precoMedio: headers.findIndex((h) => h?.includes('PREÇO MÉDIO')),
+    precoMin: headers.findIndex((h) => h?.includes('PREÇO MÍNIMO')),
+    precoMax: headers.findIndex((h) => h?.includes('PREÇO MÁXIMO')),
+  };
+
+  const precos: PrecoAnp[] = [];
+  for (let i = dataStart; i < rows.length; i++) {
+    const row = rows[i] as unknown[];
+    const municipio = String(row[idx.municipio] ?? '').trim().toUpperCase();
+    const estado = String(row[idx.estado] ?? '').trim().toUpperCase();
+
+    if (municipio !== 'BARREIRAS' || !estado.includes('BAHIA')) continue;
+
+    const produto = String(row[idx.produto] ?? '').trim();
+    const precoMedio = Number(row[idx.precoMedio]) || 0;
+    const precoMin = Number(row[idx.precoMin]) || 0;
+    const precoMax = Number(row[idx.precoMax]) || 0;
+    const postos = Number(row[idx.postos]) || 0;
+    const unidade = String(row[idx.unidade] ?? '').trim();
+    const dataInicial = formatarData(row[idx.dataInicial]);
+    const dataFinal = formatarData(row[idx.dataFinal]);
+
+    precos.push({
+      produto,
+      unidade_medida: unidade,
+      preco_medio_revenda: precoMedio,
+      preco_minimo_revenda: precoMin,
+      preco_maximo_revenda: precoMax,
+      numero_postos: postos,
+      data_inicial: dataInicial,
+      data_final: dataFinal,
+    });
+  }
+
+  if (precos.length === 0) {
+    throw new Error('Nenhum preço encontrado para Barreiras-BA no arquivo.');
+  }
+
+  return {
+    municipio: 'Barreiras',
+    estado: 'Bahia',
+    data_inicial: precos[0].data_inicial,
+    data_final: precos[0].data_final,
+    precos,
+  };
+}
+
+async function fetchWeekBuffer(inicio: string, fim: string): Promise<Buffer | null> {
+  const ano = inicio.slice(0, 4);
+  const urls = [
+    `${ANP_BASE}/${ano}/resumo_semanal_lpc_${inicio}_${fim}.xlsx`,
+    `${ANP_BASE}/${ano}/resumo_semanal_lpc_${inicio}_${fim}-1.xlsx`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        validateStatus: (s) => s === 200,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+      });
+      if (res.data && res.data.byteLength > 0) {
+        return Buffer.from(res.data);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 @Injectable()
 export class AnpService {
   /**
-   * Busca preços da última semana para Barreiras-BA.
+   * Busca preços das últimas 2 semanas para Barreiras-BA.
    * Faz download do Excel da ANP, parseia e filtra por município/estado.
    */
-  async getPrecosBarreirasBa(): Promise<PrecosBarreirasResponse> {
-    const semanas = getSemanasParaTentar();
-    let buffer: Buffer | null = null;
-    let semanaUsada = semanas[0];
+  async getPrecosBarreirasBa(): Promise<PrecosBarreirasMultiploResponse> {
+    const semanasParaTentar = getSemanasParaTentar();
+    const semanas: PrecosBarreirasResponse[] = [];
     const urlsTentadas: string[] = [];
 
-    for (const { inicio, fim } of semanas) {
-      const ano = inicio.slice(0, 4);
-      const urls = [
-        `${ANP_BASE}/${ano}/resumo_semanal_lpc_${inicio}_${fim}.xlsx`,
-        `${ANP_BASE}/${ano}/resumo_semanal_lpc_${inicio}_${fim}-1.xlsx`,
-      ];
+    for (let i = 0; i < Math.min(2, semanasParaTentar.length); i++) {
+      const { inicio, fim } = semanasParaTentar[i];
+      urlsTentadas.push(`${ANP_BASE}/${inicio.slice(0, 4)}/resumo_semanal_lpc_${inicio}_${fim}.xlsx`);
 
-      for (const url of urls) {
-        urlsTentadas.push(url);
+      const buffer = await fetchWeekBuffer(inicio, fim);
+      if (buffer) {
         try {
-          const res = await axios.get(url, {
-            responseType: 'arraybuffer',
-            timeout: 30000,
-            validateStatus: (s) => s === 200,
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            },
-          });
-          if (res.data && res.data.byteLength > 0) {
-            buffer = Buffer.from(res.data);
-            semanaUsada = { inicio, fim };
-            break;
-          }
+          const dados = parseBufferToPrecos(buffer);
+          semanas.push(dados);
         } catch {
-          continue;
+          // ignora semana com parse falho
         }
       }
-      if (buffer) break;
     }
 
-    if (!buffer) {
+    if (semanas.length === 0) {
       const links = urlsTentadas.join('\n');
       throw new Error(
         `Não foi possível baixar o arquivo da ANP. URLs tentadas:\n${links}`,
       );
     }
 
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-    const sheet = workbook.Sheets['MUNICIPIOS'];
-    if (!sheet) {
-      throw new Error('Planilha MUNICIPIOS não encontrada no arquivo da ANP.');
-    }
-
-    const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }) as unknown[][];
-    const headerRow = 9;
-    const headers = rows[headerRow] as string[];
-    const dataStart = headerRow + 1;
-
-    const idx = {
-      dataInicial: headers.findIndex((h) => h?.includes('DATA INICIAL')),
-      dataFinal: headers.findIndex((h) => h?.includes('DATA FINAL')),
-      estado: headers.findIndex((h) => h?.includes('ESTADO')),
-      municipio: headers.findIndex((h) => h?.includes('MUNICÍPIO')),
-      produto: headers.findIndex((h) => h?.includes('PRODUTO')),
-      postos: headers.findIndex((h) => h?.includes('POSTOS')),
-      unidade: headers.findIndex((h) => h?.includes('UNIDADE')),
-      precoMedio: headers.findIndex((h) => h?.includes('PREÇO MÉDIO')),
-      precoMin: headers.findIndex((h) => h?.includes('PREÇO MÍNIMO')),
-      precoMax: headers.findIndex((h) => h?.includes('PREÇO MÁXIMO')),
-    };
-
-    const precos: PrecoAnp[] = [];
-    for (let i = dataStart; i < rows.length; i++) {
-      const row = rows[i] as unknown[];
-      const municipio = String(row[idx.municipio] ?? '').trim().toUpperCase();
-      const estado = String(row[idx.estado] ?? '').trim().toUpperCase();
-
-      if (municipio !== 'BARREIRAS' || !estado.includes('BAHIA')) continue;
-
-      const produto = String(row[idx.produto] ?? '').trim();
-      const precoMedio = Number(row[idx.precoMedio]) || 0;
-      const precoMin = Number(row[idx.precoMin]) || 0;
-      const precoMax = Number(row[idx.precoMax]) || 0;
-      const postos = Number(row[idx.postos]) || 0;
-      const unidade = String(row[idx.unidade] ?? '').trim();
-      const dataInicial = formatarData(row[idx.dataInicial]);
-      const dataFinal = formatarData(row[idx.dataFinal]);
-
-      precos.push({
-        produto,
-        unidade_medida: unidade,
-        preco_medio_revenda: precoMedio,
-        preco_minimo_revenda: precoMin,
-        preco_maximo_revenda: precoMax,
-        numero_postos: postos,
-        data_inicial: dataInicial,
-        data_final: dataFinal,
-      });
-    }
-
-    if (precos.length === 0) {
-      throw new Error(
-        `Nenhum preço encontrado para Barreiras-BA na semana ${semanaUsada.inicio} a ${semanaUsada.fim}.`,
-      );
-    }
-
-    return {
-      municipio: 'Barreiras',
-      estado: 'Bahia',
-      data_inicial: precos[0].data_inicial,
-      data_final: precos[0].data_final,
-      precos,
-    };
+    return { semanas };
   }
 
   /**
    * Processa arquivo Excel enviado manualmente (fallback quando download automático falha).
    */
   async processarArquivoExcel(buffer: Buffer): Promise<PrecosBarreirasResponse> {
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-    const sheet = workbook.Sheets['MUNICIPIOS'];
-    if (!sheet) {
-      throw new Error('Planilha MUNICIPIOS não encontrada no arquivo.');
-    }
-
-    const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }) as unknown[][];
-    const headerRow = 9;
-    const headers = rows[headerRow] as string[];
-    const dataStart = headerRow + 1;
-
-    const idx = {
-      dataInicial: headers.findIndex((h) => h?.includes('DATA INICIAL')),
-      dataFinal: headers.findIndex((h) => h?.includes('DATA FINAL')),
-      estado: headers.findIndex((h) => h?.includes('ESTADO')),
-      municipio: headers.findIndex((h) => h?.includes('MUNICÍPIO')),
-      produto: headers.findIndex((h) => h?.includes('PRODUTO')),
-      postos: headers.findIndex((h) => h?.includes('POSTOS')),
-      unidade: headers.findIndex((h) => h?.includes('UNIDADE')),
-      precoMedio: headers.findIndex((h) => h?.includes('PREÇO MÉDIO')),
-      precoMin: headers.findIndex((h) => h?.includes('PREÇO MÍNIMO')),
-      precoMax: headers.findIndex((h) => h?.includes('PREÇO MÁXIMO')),
-    };
-
-    const precos: PrecoAnp[] = [];
-    for (let i = dataStart; i < rows.length; i++) {
-      const row = rows[i] as unknown[];
-      const municipio = String(row[idx.municipio] ?? '').trim().toUpperCase();
-      const estado = String(row[idx.estado] ?? '').trim().toUpperCase();
-
-      if (municipio !== 'BARREIRAS' || !estado.includes('BAHIA')) continue;
-
-      const produto = String(row[idx.produto] ?? '').trim();
-      const precoMedio = Number(row[idx.precoMedio]) || 0;
-      const precoMin = Number(row[idx.precoMin]) || 0;
-      const precoMax = Number(row[idx.precoMax]) || 0;
-      const postos = Number(row[idx.postos]) || 0;
-      const unidade = String(row[idx.unidade] ?? '').trim();
-      const dataInicial = formatarData(row[idx.dataInicial]);
-      const dataFinal = formatarData(row[idx.dataFinal]);
-
-      precos.push({
-        produto,
-        unidade_medida: unidade,
-        preco_medio_revenda: precoMedio,
-        preco_minimo_revenda: precoMin,
-        preco_maximo_revenda: precoMax,
-        numero_postos: postos,
-        data_inicial: dataInicial,
-        data_final: dataFinal,
-      });
-    }
-
-    if (precos.length === 0) {
-      throw new Error('Nenhum preço encontrado para Barreiras-BA no arquivo.');
-    }
-
-    return {
-      municipio: 'Barreiras',
-      estado: 'Bahia',
-      data_inicial: precos[0].data_inicial,
-      data_final: precos[0].data_final,
-      precos,
-    };
+    return parseBufferToPrecos(buffer);
   }
 }
