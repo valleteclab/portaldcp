@@ -165,6 +165,17 @@ export class ContratosController {
     return this.contratosService.getEstatisticasValores(orgaoId);
   }
 
+  /**
+   * Lista fornecedores distintos com contratos no órgão logado,
+   * com flag de cadastro no sistema e dados de contato.
+   * GET /api/contratos/fornecedores-do-orgao
+   */
+  @Get('fornecedores-do-orgao')
+  async getFornecedoresDoOrgao(@Req() request: { user: JwtPayload }) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.contratosService.getFornecedoresDoOrgao(orgaoId);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -662,14 +673,4 @@ export class ContratosController {
     return this.contratosService.findPublicoById(id);
   }
 
-  /**
-   * Lista fornecedores distintos com contratos no órgão logado,
-   * com flag de cadastro no sistema e dados de contato.
-   * GET /api/contratos/fornecedores-do-orgao
-   */
-  @Get('fornecedores-do-orgao')
-  async getFornecedoresDoOrgao(@Req() request: { user: JwtPayload }) {
-    const orgaoId = this.getOrgaoId(request.user);
-    return this.contratosService.getFornecedoresDoOrgao(orgaoId);
-  }
 }
