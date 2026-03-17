@@ -1634,7 +1634,10 @@ export class MedicaoService {
         const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
         const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
-        const qtdAcumulada = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
+        // Para MENSAL com boletim_por_quantidade: cada mês = 1 unidade inteira (arredonda imprecisão de migração)
+        const isMensalComFlag = (item.item_unidade || '') === 'MENSAL' && !!(contrato as any).boletim_por_quantidade;
+        const qtdAcumuladaRaw = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
+        const qtdAcumulada = isMensalComFlag ? Math.round(qtdAcumuladaRaw) : qtdAcumuladaRaw;
         const qtdAtePeriodo = qtdAcumulada + qtdMedida;
         const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
         const base: any = {
