@@ -1983,7 +1983,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   return { noPeriodoExibicao: 0, atePeriodoExibicao: 0, aExecutarExibicao: 0 }
                 }
 
-                // Para itens MENSAL: calcular com base nos valores dos itens selecionados (mesma lógica de 'quantidade')
+                // Para itens MENSAL: usar dados reais do backend para atePeriodo (evita erro de arredondamento por qtd × vm)
                 if (tipoMedicaoAtual === 'mensal') {
                   let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
                   const itensMens = itensCronograma.filter(ic => ic.unidade_medida === 'MENSAL')
@@ -1991,14 +1991,18 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
                     const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
                     if (qtdNoPeriodo <= 0) continue
-                    const qtdAprovada = Number(ic.quantidade_medida ?? 0)
-                    const qtdTotal = Number(ic.quantidade_meses ?? ic.quantidade ?? 0)
-                    const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
-                    const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
                     const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0
-                    noPeriodo += qtdNoPeriodo * vm
-                    atePeriodo += qtdAtePeriodo * vm
-                    aExecutar += qtdAExecutar * vm
+                    const valorNoPeriodo = qtdNoPeriodo * vm
+                    // Usa o valor financeiro aprovado do backend quando disponível para evitar acúmulo de arredondamento
+                    const backendItem = execucaoFinanceiraModal?.itens?.find((i: any) => i.etapa_id === ic.id)
+                    const valorAprovadoAnterior = backendItem
+                      ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0)
+                      : Number(ic.quantidade_medida ?? 0) * vm
+                    const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo
+                    const valorTotal = Number(ic.valor_total) || 0
+                    noPeriodo += valorNoPeriodo
+                    atePeriodo += valorAtePeriodo
+                    aExecutar += Math.max(0, valorTotal - valorAtePeriodo)
                   }
                   return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
                 }
