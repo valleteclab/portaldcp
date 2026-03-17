@@ -439,6 +439,15 @@ export default function FornecedorContratoDetalhePage() {
           return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
         }, 0);
 
+  // Determina o tipo de medição atual com base nos itens já preenchidos (mensal vs quantidade)
+  const tipoMedicaoAtual: 'mensal' | 'quantidade' | null = (() => {
+    if (!usarItensCronograma) return null;
+    const primeiro = novaMedicao.itens.find(i => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0);
+    if (!primeiro) return null;
+    const ic = itensCronograma.find(c => c.id === (primeiro as any).item_cronograma_id);
+    return ic?.unidade_medida === 'MENSAL' ? 'mensal' : 'quantidade';
+  })();
+
   const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
   const noPeriodoBackend = Number(execucaoFinanceira?.totais?.no_periodo || 0);
   const atePeriodoBackend = Number(execucaoFinanceira?.totais?.ate_periodo || 0);
@@ -799,6 +808,16 @@ export default function FornecedorContratoDetalhePage() {
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        // Validar que não há mistura de tipos (mensal vs quantidade)
+        const itensMensaisNoSubmit = itensComQtd.filter(item => {
+          const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
+          return ic?.unidade_medida === 'MENSAL';
+        });
+        if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
+          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.');
+          setSubmitting(false);
+          return;
+        }
         if (resumo) {
           const totalMedicao = itensComQtd.reduce((acc, item) => {
             const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
@@ -917,6 +936,16 @@ export default function FornecedorContratoDetalhePage() {
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        // Validar que não há mistura de tipos (mensal vs quantidade)
+        const itensMensaisNoSubmit = itensComQtd.filter(item => {
+          const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
+          return ic?.unidade_medida === 'MENSAL';
+        });
+        if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
+          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.');
+          setSubmitting(false);
+          return;
+        }
         if (resumo) {
           const totalMedicao = itensComQtd.reduce((acc, item) => {
             const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
@@ -2053,8 +2082,13 @@ export default function FornecedorContratoDetalhePage() {
                       const fator = Math.min(dias / 30, 1);
                       const itens = itensCronograma.map((ic) => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const isMensal = ic.unidade_medida === 'MENSAL';
-                        const qtd = isMensal
+                        const isMensalItem = ic.unidade_medida === 'MENSAL';
+                        const tipoItemAutoFill = isMensalItem ? 'mensal' : 'quantidade';
+                        // Se já há um tipo selecionado, não preencher itens de tipo diferente
+                        if (tipoMedicaoAtual !== null && tipoItemAutoFill !== tipoMedicaoAtual) {
+                          return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
+                        }
+                        const qtd = isMensalItem
                           ? Math.min(Math.round(fator * 1000) / 1000, saldo)
                           : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                         return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
@@ -2080,8 +2114,13 @@ export default function FornecedorContratoDetalhePage() {
                       const fator = Math.min(dias / 30, 1);
                       const itens = itensCronograma.map((ic) => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const isMensal = ic.unidade_medida === 'MENSAL';
-                        const qtd = isMensal
+                        const isMensalItem = ic.unidade_medida === 'MENSAL';
+                        const tipoItemAutoFill = isMensalItem ? 'mensal' : 'quantidade';
+                        // Se já há um tipo selecionado, não preencher itens de tipo diferente
+                        if (tipoMedicaoAtual !== null && tipoItemAutoFill !== tipoMedicaoAtual) {
+                          return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
+                        }
+                        const qtd = isMensalItem
                           ? Math.min(Math.round(fator * 1000) / 1000, saldo)
                           : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                         return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
@@ -2154,8 +2193,13 @@ export default function FornecedorContratoDetalhePage() {
                       const qtdAprovada = Number(ic.quantidade_medida);
                       const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                       const saldo = qtdTotal - qtdAprovada - emTransito;
-                      const isMensal = ic.unidade_medida === 'MENSAL';
-                      const qtdProporcional = isMensal
+                      const isMensalProp = ic.unidade_medida === 'MENSAL';
+                      const tipoItemProp = isMensalProp ? 'mensal' : 'quantidade';
+                      // Se já há um tipo selecionado, não preencher itens de tipo diferente
+                      if (tipoMedicaoAtual !== null && tipoItemProp !== tipoMedicaoAtual) {
+                        return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
+                      }
+                      const qtdProporcional = isMensalProp
                         ? Math.min(Math.round(fator * 1000) / 1000, saldo)
                         : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                       const valorOverride = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
@@ -2198,11 +2242,19 @@ export default function FornecedorContratoDetalhePage() {
                     const excedeSaldo = modoInput === 'valor'
                       ? (valorOverride || 0) > saldo * valorUnit + 0.01
                       : qtdMedida > saldo + 0.001;
+                    const isMensal = ic.unidade_medida === 'MENSAL';
+                    const tipoEsteItem = isMensal ? 'mensal' : 'quantidade';
+                    const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
                     return (
-                      <TableRow key={ic.id} className="hover:bg-gray-50">
+                      <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
                         <TableCell className="whitespace-normal break-words align-top min-w-[320px] max-w-[520px]">
                           <p className="text-sm font-medium whitespace-normal break-words">{ic.descricao}</p>
+                          {bloqueado && (
+                            <p className="text-xs text-amber-600 mt-0.5">
+                              Inclua em medição separada (tipo: {isMensal ? 'mensal' : 'por quantidade'})
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
                         <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
@@ -2212,6 +2264,7 @@ export default function FornecedorContratoDetalhePage() {
                           <Input
                             type="number" step="0.001" min="0" max={saldo}
                             placeholder="0"
+                            disabled={bloqueado}
                             value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
@@ -2230,6 +2283,7 @@ export default function FornecedorContratoDetalhePage() {
                           <Input
                             type="number" step="0.01" min="0" max={saldo * valorUnit}
                             placeholder="0,00"
+                            disabled={bloqueado}
                             value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
