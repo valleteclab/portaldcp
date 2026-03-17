@@ -1649,10 +1649,10 @@ export class MedicaoService {
           valor_acumulado_anterior:      vlrAcumAnterior,
           valor_total_item:              vlrTotal,
         };
-        if ((contrato as any).boletim_por_quantidade) {
-          base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 10000) / 10000;
-          base.quantidade_a_executar = Math.round(qtdAExecutar * 10000) / 10000;
-        }
+        // Sempre incluir campos de quantidade para o PDF poder mostrar corretamente
+        // para itens não-MENSAL, independente da flag boletim_por_quantidade
+        base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 10000) / 10000;
+        base.quantidade_a_executar = Math.round(qtdAExecutar * 10000) / 10000;
         return base;
       });
 
@@ -1696,7 +1696,10 @@ export class MedicaoService {
       nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
       nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
       execucao_fiscal:      medicao.execucao_fiscal || undefined,
-      execucao_fiscal_por_quantidade: !!(contrato as any).boletim_por_quantidade,
+      // Usa quantidade se o contrato tem a flag OU se qualquer item tem unidade não-MENSAL
+      // (espelha a lógica do frontend: tipoMedicaoAtual = 'quantidade' quando unidade != 'MENSAL')
+      execucao_fiscal_por_quantidade: !!(contrato as any).boletim_por_quantidade ||
+        itensParaPdf.some(i => i.unidade && i.unidade !== 'MENSAL'),
       itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
       itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
       discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
