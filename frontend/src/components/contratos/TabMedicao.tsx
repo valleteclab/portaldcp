@@ -1978,38 +1978,53 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     }, 0)
               // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
               const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
-                // Determina conjunto de itens a usar: para quantidade, apenas os selecionados (qty > 0)
+                // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
+                // Isso garante que ajustes manuais de quantidade sejam respeitados
+                if (tipoMedicaoAtual === 'quantidade') {
+                  let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
+                  const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL')
+                  for (const ic of itensQtd) {
+                    const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                    const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                    if (qtdNoPeriodo <= 0) continue
+                    const qtdAprovada = Number(ic.quantidade_medida ?? 0)
+                    const qtdTotal = Number(ic.quantidade ?? 0)
+                    const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
+                    const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
+                    const vu = Number(ic.valor_unitario)
+                    noPeriodo += qtdNoPeriodo * vu
+                    atePeriodo += qtdAtePeriodo * vu
+                    aExecutar += qtdAExecutar * vu
+                  }
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+
+                // Demais tipos: usar dados do backend ou fallback por valor global
                 const itensBase = tipoMedicaoAtual === null
                   ? itensCronograma
                   : itensCronograma.filter(ic => {
                       const isMensal = ic.unidade_medida === 'MENSAL'
                       return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal
                     })
-                const itensParaCalculo = tipoMedicaoAtual === 'quantidade'
-                  ? itensBase.filter(ic => {
-                      const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
-                      return itemState && Number(itemState.quantidade_medida) > 0
-                    })
-                  : itensBase
 
                 if (usarItensCronograma && execucaoFinanceiraModal?.itens?.length) {
-                  const idsParaCalculo = new Set(itensParaCalculo.map(ic => ic.id))
-                  const itensBack = (execucaoFinanceiraModal.itens as any[]).filter((i: any) => idsParaCalculo.has(i.etapa_id))
+                  const idsBase = new Set(itensBase.map(ic => ic.id))
+                  const itensBack = (execucaoFinanceiraModal.itens as any[]).filter((i: any) => idsBase.has(i.etapa_id))
                   const noPeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.no_periodo || 0), 0)
                   const atePeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.ate_periodo_global ?? i.ate_periodo ?? 0), 0)
                   const noPeriodo = Math.max(noPeriodoBk, valorMedicaoAtual || 0)
                   const localExtra = Math.max(0, noPeriodo - noPeriodoBk)
                   const atePeriodo = atePeriodoBk + localExtra
-                  const valorTotal = itensParaCalculo.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                  const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
                   const aExecutar = Math.max(0, valorTotal - atePeriodo)
                   return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
                 }
                 const noPeriodo = valorMedicaoAtual || 0
                 if (usarItensCronograma) {
-                  const valorMigracao = itensParaCalculo.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
+                  const valorMigracao = itensBase.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
                   const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
                   const atePeriodo = valorMigracao + valorAprovadoAnterior + noPeriodo
-                  const valorTotal = itensParaCalculo.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                  const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
                   const aExecutar = Math.max(0, valorTotal - atePeriodo)
                   return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
                 }
