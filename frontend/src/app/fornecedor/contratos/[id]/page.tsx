@@ -448,21 +448,53 @@ export default function FornecedorContratoDetalhePage() {
     return ic?.unidade_medida === 'MENSAL' ? 'mensal' : 'quantidade';
   })();
 
-  const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
-  const noPeriodoBackend = Number(execucaoFinanceira?.totais?.no_periodo || 0);
-  const atePeriodoBackend = Number(execucaoFinanceira?.totais?.ate_periodo || 0);
-  const aExecutarBackend = Number(execucaoFinanceira?.totais?.a_executar || 0);
-  const noPeriodoExibicao = Math.max(noPeriodoBackend, valorMedicaoAtual || 0);
-  const valorLocalNaoPersistido = Math.max(0, noPeriodoExibicao - noPeriodoBackend);
-  const atePeriodoExibicao = atePeriodoBackend > 0
-    ? atePeriodoBackend + valorLocalNaoPersistido
-    : (valorAprovadoAnterior + noPeriodoExibicao);
-  const aExecutarExibicao = Math.max(
-    0,
-    aExecutarBackend > 0 || atePeriodoBackend > 0
-      ? aExecutarBackend - valorLocalNaoPersistido
-      : Number((contrato?.valor_global || 0) - atePeriodoExibicao)
-  );
+  // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
+  const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
+    // Quando temos backend data com itens, filtrar pelo tipo selecionado
+    if (usarItensCronograma && execucaoFinanceira?.itens?.length) {
+      const itensDoTipo = tipoMedicaoAtual === null
+        ? itensCronograma
+        : itensCronograma.filter(ic => {
+            const isMensal = ic.unidade_medida === 'MENSAL';
+            return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal;
+          });
+      const idsDoTipo = new Set(itensDoTipo.map(ic => ic.id));
+      const itensBack = (execucaoFinanceira.itens as any[]).filter((i: any) => idsDoTipo.has(i.etapa_id));
+      const valorTotalItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.valor_total), 0);
+      const noPeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.no_periodo || 0), 0);
+      const atePeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.ate_periodo_global ?? i.ate_periodo ?? 0), 0);
+      const noPeriodo = Math.max(noPeriodoBk, valorMedicaoAtual || 0);
+      const localExtra = Math.max(0, noPeriodo - noPeriodoBk);
+      const atePeriodo = atePeriodoBk + localExtra;
+      const aExecutar = Math.max(0, valorTotalItens - atePeriodo);
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Fallback: sem dados do backend — calcular a partir dos itens do cronograma
+    const noPeriodo = valorMedicaoAtual || 0;
+    if (usarItensCronograma) {
+      const itensDoTipo = tipoMedicaoAtual === null
+        ? itensCronograma
+        : itensCronograma.filter(ic => {
+            const isMensal = ic.unidade_medida === 'MENSAL';
+            return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal;
+          });
+      const valorTotalItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.valor_total), 0);
+      // Migração por item: quantidade_medida (ajuste) × valor_unitário
+      const valorMigracaoItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0);
+      const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
+      const atePeriodo = valorMigracaoItens + valorAprovadoAnterior + noPeriodo;
+      const aExecutar = Math.max(0, valorTotalItens - atePeriodo);
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Sem itens cronograma — fallback genérico com valor global do contrato
+    const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
+    const valorExecAnterior = Number(contrato?.valor_executado_anterior || 0);
+    const atePeriodo = valorAprovadoAnterior + valorExecAnterior + noPeriodo;
+    const aExecutar = Math.max(0, Number(contrato?.valor_global || 0) - atePeriodo);
+    return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+  })();
 
   useEffect(() => {
     const fornecedorData = localStorage.getItem('fornecedor');
@@ -2076,27 +2108,7 @@ export default function FornecedorContratoDetalhePage() {
                 <Input type="date" value={novaMedicao.periodo_inicio}
                   onChange={(e) => {
                     const novoInicio = e.target.value;
-                    const novoFim = novaMedicao.periodo_fim;
-                    if (usarItensCronograma && novoInicio && novoFim) {
-                      const dias = calcularDiasMesComercial(novoInicio, novoFim, contrato?.data_vigencia_fim);
-                      const fator = Math.min(dias / 30, 1);
-                      const itens = itensCronograma.map((ic) => {
-                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const isMensalItem = ic.unidade_medida === 'MENSAL';
-                        const tipoItemAutoFill = isMensalItem ? 'mensal' : 'quantidade';
-                        // Se já há um tipo selecionado, não preencher itens de tipo diferente
-                        if (tipoMedicaoAtual !== null && tipoItemAutoFill !== tipoMedicaoAtual) {
-                          return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
-                        }
-                        const qtd = isMensalItem
-                          ? Math.min(Math.round(fator * 1000) / 1000, saldo)
-                          : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
-                      });
-                      setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio, itens });
-                    } else {
-                      setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio });
-                    }
+                    setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio });
                     // Recarregar execução financeira quando mudar o período
                     if (novoInicio && novaMedicao.periodo_fim) {
                       carregarExecucaoFinanceira(medicaoParaEditar?.id);
@@ -2108,27 +2120,7 @@ export default function FornecedorContratoDetalhePage() {
                 <Input type="date" value={novaMedicao.periodo_fim}
                   onChange={(e) => {
                     const novoFim = e.target.value;
-                    const novoInicio = novaMedicao.periodo_inicio;
-                    if (usarItensCronograma && novoInicio && novoFim) {
-                      const dias = calcularDiasMesComercial(novoInicio, novoFim, contrato?.data_vigencia_fim);
-                      const fator = Math.min(dias / 30, 1);
-                      const itens = itensCronograma.map((ic) => {
-                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const isMensalItem = ic.unidade_medida === 'MENSAL';
-                        const tipoItemAutoFill = isMensalItem ? 'mensal' : 'quantidade';
-                        // Se já há um tipo selecionado, não preencher itens de tipo diferente
-                        if (tipoMedicaoAtual !== null && tipoItemAutoFill !== tipoMedicaoAtual) {
-                          return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
-                        }
-                        const qtd = isMensalItem
-                          ? Math.min(Math.round(fator * 1000) / 1000, saldo)
-                          : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
-                      });
-                      setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim, itens });
-                    } else {
-                      setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim });
-                    }
+                    setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim });
                     // Recarregar execução financeira quando mudar o período
                     if (novaMedicao.periodo_inicio && novoFim) {
                       carregarExecucaoFinanceira(medicaoParaEditar?.id);
@@ -2214,6 +2206,16 @@ export default function FornecedorContratoDetalhePage() {
                     : 'defina o período'})
                 </Button>
               </div>
+              {/* Aviso sobre mistura de tipos */}
+              {itensCronograma.some(ic => ic.unidade_medida === 'MENSAL') && itensCronograma.some(ic => ic.unidade_medida !== 'MENSAL') && (
+                <div className="mx-0 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                  <p className="text-xs text-amber-800">
+                    <strong>Atenção:</strong> Este contrato possui itens medidos por quantidade e itens mensais.
+                    Não é possível incluir ambos os tipos na mesma medição — preencha apenas itens de um tipo por vez.
+                    {tipoMedicaoAtual && <span className="font-medium"> Tipo atual: <strong>{tipoMedicaoAtual === 'mensal' ? 'Mensal' : 'Por quantidade'}</strong>.</span>}
+                  </p>
+                </div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50">
@@ -2443,39 +2445,51 @@ export default function FornecedorContratoDetalhePage() {
                   {/* Execução Fiscal (Tempo ou Quantidade) */}
                   <div className="bg-white rounded-lg p-4 border border-blue-200">
                     <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
-                      {contrato?.boletim_por_quantidade ? (
-                            <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</>
-                          ) : (
-                            <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>
-                          )}
+                      {tipoMedicaoAtual === 'quantidade' ? (
+                        <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</>
+                      ) : (
+                        <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>
+                      )}
                     </h4>
                     <div className="space-y-2 text-sm">
-                      {contrato?.boletim_por_quantidade && execucaoFinanceira?.itens?.length ? (
-                        execucaoFinanceira.itens.length === 1 ? (
+                      {tipoMedicaoAtual === 'quantidade' ? (() => {
+                        // Mostrar quantidades dos itens selecionados
+                        const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL');
+                        if (itensQtd.length === 1) {
+                          const ic = itensQtd[0];
+                          const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+                          const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
+                          const qtdAprovada = Number(ic.quantidade_medida ?? 0);
+                          const qtdTotal = Number(ic.quantidade ?? 0);
+                          const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo;
+                          const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+                          const unidade = ic.unidade_medida || 'UNIDADE';
+                          return (
+                            <>
+                              <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{qtdNoPeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{qtdAtePeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{qtdAExecutar.toLocaleString('pt-BR')} {unidade}</span></div>
+                            </>
+                          );
+                        }
+                        // Múltiplos itens por quantidade — mostrar resumo por item
+                        return (
                           <>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">No Período:</span>
-                              <span className="font-medium text-blue-700">
-                                {Number(execucaoFinanceira.itens[0].quantidade_no_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceira.itens[0] as any).unidade_medida || 'un'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Até o Período:</span>
-                              <span className="font-medium text-blue-700">
-                                {Number((execucaoFinanceira.itens[0] as any).quantidade_ate_periodo ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceira.itens[0] as any).unidade_medida || 'un'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">A Executar:</span>
-                              <span className="font-medium text-green-700">
-                                {Number((execucaoFinanceira.itens[0] as any).quantidade_a_executar ?? 0).toLocaleString('pt-BR')} {(execucaoFinanceira.itens[0] as any).unidade_medida || 'un'}
-                              </span>
-                            </div>
+                            {itensQtd.map(ic => {
+                              const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+                              const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
+                              const qtdAprovada = Number(ic.quantidade_medida ?? 0);
+                              const qtdAExecutar = Math.max(0, Number(ic.quantidade) - qtdAprovada - qtdNoPeriodo);
+                              return (
+                                <div key={ic.id} className="flex justify-between text-xs">
+                                  <span className="text-gray-600 truncate mr-2">{ic.descricao?.substring(0, 30)}...</span>
+                                  <span className="font-medium whitespace-nowrap">{qtdNoPeriodo > 0 ? `+${qtdNoPeriodo}` : '-'} / {qtdAExecutar} {ic.unidade_medida}</span>
+                                </div>
+                              );
+                            })}
                           </>
-                        ) : (
-                          <p className="text-gray-600 text-xs">Por item na tabela de itens do boletim</p>
-                        )
-                      ) : !contrato?.boletim_por_quantidade ? (
+                        );
+                      })() : tipoMedicaoAtual !== 'quantidade' ? (
                         <>
                           <div className="flex justify-between">
                             <span className="text-gray-600">No Período:</span>
@@ -2512,7 +2526,7 @@ export default function FornecedorContratoDetalhePage() {
                           </div>
                         </>
                       ) : (
-                        <p className="text-gray-500 text-xs">Carregue os itens da medição para ver a execução por quantidade</p>
+                        <p className="text-gray-500 text-xs">Selecione itens para ver a execução</p>
                       )}
                     </div>
                   </div>
