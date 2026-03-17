@@ -1994,10 +1994,13 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0
                     const valorNoPeriodo = qtdNoPeriodo * vm
                     // Usa o valor financeiro aprovado do backend quando disponível para evitar acúmulo de arredondamento
+                    // Também considera ic.quantidade_medida (migração por item) que o backend não computa
                     const backendItem = execucaoFinanceiraModal?.itens?.find((i: any) => i.etapa_id === ic.id)
-                    const valorAprovadoAnterior = backendItem
+                    const fromBackend = backendItem
                       ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0)
-                      : Number(ic.quantidade_medida ?? 0) * vm
+                      : 0
+                    const fromMigracao = Number(ic.quantidade_medida ?? 0) * vm
+                    const valorAprovadoAnterior = Math.max(fromBackend, fromMigracao)
                     const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo
                     const valorTotal = Number(ic.valor_total) || 0
                     noPeriodo += valorNoPeriodo
