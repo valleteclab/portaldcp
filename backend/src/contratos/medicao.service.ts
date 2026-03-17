@@ -571,12 +571,16 @@ export class MedicaoService {
 
       const quantidadeEmTransitoPorItem = await this.calcularQuantidadeComprometidaPorItem(contratoId);
 
+      const unidadesAtivas: string[] = []; // para validar homogeneidade no final
+
       for (const item of itensComItemCronograma) {
         const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: item.item_cronograma_id! } });
         if (!itemCron) throw new NotFoundException(`Item do cronograma ${item.item_cronograma_id} não encontrado`);
 
         const qtdMedida = Number(item.quantidade_medida) || 0;
         if (qtdMedida <= 0) continue;
+
+        unidadesAtivas.push(itemCron.unidade_medida);
 
         const quantidadeTotal = Number(itemCron.quantidade);
         const quantidadeAprovada = Number(itemCron.quantidade_medida) || 0;
@@ -607,6 +611,16 @@ export class MedicaoService {
 
       if (valorMedido <= 0) {
         throw new BadRequestException('A medição deve ter pelo menos um item com quantidade > 0');
+      }
+
+      // Validar que não há mistura de itens mensais com itens por quantidade
+      const temMensal = unidadesAtivas.some((u) => u === 'MENSAL');
+      const temQuantidade = unidadesAtivas.some((u) => u !== 'MENSAL');
+      if (temMensal && temQuantidade) {
+        throw new BadRequestException(
+          'Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição. ' +
+          'Crie uma medição separada para os itens de cada tipo.'
+        );
       }
     } else {
       // Fluxo completo com etapas (obras/engenharia)
