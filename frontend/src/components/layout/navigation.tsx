@@ -136,7 +136,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/licitacoes", label: "Licitações", icon: FileText, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/medicoes", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
+    { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/agente-contratos", label: "Agente IA", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/fornecedores", label: "Gestão de Fornecedores", icon: Building2, modulo: ModuloSistema.FORNECEDORES },
