@@ -259,6 +259,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [formItemCronograma, setFormItemCronograma] = useState({
     descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
     quantidade_medida: '', // Apenas para admin (ajuste migração)
+    valor_medida_reais: '', // Para itens MENSAL: entrada alternativa em R$
   })
   const [editandoMedidoItemId, setEditandoMedidoItemId] = useState<string | null>(null)
   const [editandoMedidoValor, setEditandoMedidoValor] = useState<string>('')
@@ -480,10 +481,13 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         valor_total: String(item.valor_total),
         observacoes: item.observacoes || '',
         quantidade_medida: String(Number(item.quantidade_medida) || 0),
+        valor_medida_reais: item.unidade_medida === 'MENSAL' && Number(item.quantidade_medida) > 0
+          ? String(Math.round(Number(item.quantidade_medida) * Number(item.valor_unitario) * 100) / 100)
+          : '',
       })
     } else {
       setEditandoItemCronograma(null)
-      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '' })
+      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '', valor_medida_reais: '' })
     }
     setModalItemCronograma(true)
   }
@@ -1616,18 +1620,65 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               </div>
             </div>
             {isAdmin && editandoItemCronograma && (
-              <div className="space-y-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <Label className="text-amber-800 font-medium">Quantidade já utilizada (ajuste migração)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max={parseFloat(formItemCronograma.quantidade) || 0}
-                  value={formItemCronograma.quantidade_medida}
-                  onChange={e => setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value })}
-                  placeholder="0"
-                />
-                <p className="text-xs text-amber-700">Informe a quantidade já consumida antes da implantação do sistema. Será considerada nos cálculos de disponibilidade.</p>
+              <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <Label className="text-amber-800 font-medium">
+                  {formItemCronograma.unidade_medida === 'MENSAL' ? 'Valor já consumido (ajuste migração)' : 'Quantidade já utilizada (ajuste migração)'}
+                </Label>
+                {formItemCronograma.unidade_medida === 'MENSAL' ? (
+                  <div className="space-y-2">
+                    <div>
+                      <Label className="text-xs text-amber-700 mb-1 block">Valor em R$ (recomendado para medições parciais)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={parseFloat(formItemCronograma.valor_total) || 0}
+                        value={formItemCronograma.valor_medida_reais}
+                        onChange={e => {
+                          const reais = parseFloat(e.target.value) || 0
+                          const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
+                          const meses = vlUnit > 0 ? Math.round((reais / vlUnit) * 100000) / 100000 : 0
+                          setFormItemCronograma({ ...formItemCronograma, valor_medida_reais: e.target.value, quantidade_medida: String(meses) })
+                        }}
+                        placeholder="Ex: 9282,16"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-amber-700 mb-1 block">Ou informe em meses (pode ser decimal)</Label>
+                      <Input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        max={parseFloat(formItemCronograma.quantidade) || 0}
+                        value={formItemCronograma.quantidade_medida}
+                        onChange={e => {
+                          const meses = parseFloat(e.target.value) || 0
+                          const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
+                          const reais = Math.round(meses * vlUnit * 100) / 100
+                          setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value, valor_medida_reais: reais > 0 ? String(reais) : '' })
+                        }}
+                        placeholder="Ex: 0.5 (meio mês)"
+                      />
+                    </div>
+                    {parseFloat(formItemCronograma.quantidade_medida) > 0 && (
+                      <p className="text-xs text-amber-800 font-medium">
+                        = {parseFloat(formItemCronograma.quantidade_medida).toLocaleString('pt-BR', { minimumFractionDigits: 4 })} meses
+                        {' '}(≈ {Math.round(parseFloat(formItemCronograma.quantidade_medida) * 30)} dias)
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max={parseFloat(formItemCronograma.quantidade) || 0}
+                    value={formItemCronograma.quantidade_medida}
+                    onChange={e => setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value })}
+                    placeholder="0"
+                  />
+                )}
+                <p className="text-xs text-amber-700">Informe o valor já consumido antes da implantação do sistema. Será considerado nos cálculos de disponibilidade.</p>
               </div>
             )}
             <div className="space-y-2">
