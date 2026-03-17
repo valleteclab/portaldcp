@@ -490,8 +490,7 @@ export default function FornecedorContratoDetalhePage() {
 
     // Sem itens cronograma — fallback genérico com valor global do contrato
     const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
-    const valorExecAnterior = Number(resumo?.valor_executado_anterior || 0);
-    const atePeriodo = valorAprovadoAnterior + valorExecAnterior + noPeriodo;
+    const atePeriodo = valorAprovadoAnterior + noPeriodo;
     const aExecutar = Math.max(0, Number(contrato?.valor_global || 0) - atePeriodo);
     return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
   })();
