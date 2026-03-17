@@ -1398,6 +1398,77 @@ export class FornecedoresService {
     return { message: 'Instruções de recuperação enviadas para seu email e WhatsApp (se cadastrado)' };
   }
 
+  /**
+   * Solicita reset de senha pelo órgão — usa o e-mail do fornecedor cadastrado.
+   * Seguro: envia apenas o link de reset, não expõe a senha.
+   */
+  async solicitarResetPorOrgao(fornecedorId: string, orgaoId: string): Promise<{ message: string }> {
+    const fornecedor = await this.findOne(fornecedorId);
+    if (!fornecedor.email) {
+      throw new BadRequestException('Fornecedor não possui e-mail cadastrado para reset de senha');
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
+
+    const resetToken = this.passwordResetTokenRepository.create({
+      fornecedor_id: fornecedor.id,
+      token,
+      expires_at: expiresAt,
+      used: false,
+    });
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/resetar-senha/${token}`;
+
+    try {
+      await this.emailService.enviar(orgaoId, {
+        to: fornecedor.email,
+        subject: 'Redefina sua senha — Portal DCP',
+        html: `
+          <h2>Redefinição de Senha</h2>
+          <p>Olá, ${fornecedor.razao_social || fornecedor.nome_fantasia},</p>
+          <p>O órgão contratante solicitou a redefinição da sua senha no Portal DCP.</p>
+          <p>Clique no link abaixo para criar uma nova senha:</p>
+          <p><a href="${resetLink}">${resetLink}</a></p>
+          <p>Este link é válido por 24 horas.</p>
+          <p>Se você não reconhece esta solicitação, entre em contato com o órgão.</p>
+        `,
+      });
+    } catch (error) {
+      console.error('Erro ao enviar e-mail de reset pelo órgão:', error);
+    }
+
+    return { message: `Link de reset enviado para ${fornecedor.email}` };
+  }
+
+  /**
+   * Atualiza dados de contato do fornecedor pelo órgão contratante.
+   * Permite editar: nome_fantasia, email, telefone, representante_whatsapp.
+   */
+  async atualizarContatoOrgao(
+    fornecedorId: string,
+    dados: {
+      nome_fantasia?: string;
+      email?: string;
+      telefone?: string;
+      representante_whatsapp?: string;
+      representante_nome?: string;
+      representante_cargo?: string;
+    },
+  ): Promise<FornecedorSemSenha> {
+    const fornecedor = await this.findOne(fornecedorId);
+    if (dados.nome_fantasia !== undefined) fornecedor.nome_fantasia = dados.nome_fantasia;
+    if (dados.email !== undefined) fornecedor.email = dados.email;
+    if (dados.telefone !== undefined) fornecedor.telefone = dados.telefone;
+    if (dados.representante_whatsapp !== undefined) fornecedor.representante_whatsapp = dados.representante_whatsapp;
+    if (dados.representante_nome !== undefined) fornecedor.representante_nome = dados.representante_nome;
+    if (dados.representante_cargo !== undefined) fornecedor.representante_cargo = dados.representante_cargo;
+    const saved = await this.fornecedorRepository.save(fornecedor);
+    return this.removerSenha(saved);
+  }
+
   async resetarSenha(token: string, novaSenha: string): Promise<{ message: string }> {
     const resetToken = await this.passwordResetTokenRepository.findOne({
       where: { 
