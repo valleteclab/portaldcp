@@ -1594,13 +1594,23 @@ export class MedicaoService {
     };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
-    // Usa o snapshot execucao_financeira salvo na submissão do fornecedor,
-    // com ate_periodo_global (inclui ajuste de migração) igual ao que o frontend
-    // do fornecedor usa ao gerar o PDF — garantindo boletins idênticos.
+    // Usa o snapshot execucao_financeira salvo na submissão do fornecedor.
+    // Para itens MENSAL com migração via /quantidade-migracao, o snapshot não
+    // inclui ic.quantidade_medida no ate_periodo. Aplicamos Math.max igual ao frontend.
     const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
     const efItemMap = new Map<string, any>();
     for (const ef of efItens) {
       if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
+    }
+
+    // Carregar itens do cronograma para obter quantidade_medida (migração por item)
+    const icMigracao = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_item: 'ASC' } as any,
+    });
+    const icMigracaoMap = new Map<string, any>();
+    for (const ic of icMigracao) {
+      icMigracaoMap.set(ic.id, ic);
     }
 
     const itensParaPdf = ((medicao as any).itens || [])
@@ -1613,11 +1623,14 @@ export class MedicaoService {
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
         const vlrNoPeriodo = efItem ? Number(efItem.no_periodo || 0) : qtdMedida * vlrUnitario;
-        // ate_periodo_global inclui o ajuste de migração distribuído proporcionalmente;
-        // mesma lógica usada pelo frontend do fornecedor (ate_periodo_global ?? ate_periodo)
-        const vlrAtePeriodo = efItem
-          ? Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0)
-          : vlrNoPeriodo;
+
+        // ate_periodo_global do snapshot pode não incluir ic.quantidade_medida (migração por item).
+        // Usa Math.max entre snapshot e migração — mesma lógica do frontend.
+        const ic = icMigracaoMap.get(item.item_cronograma_id || '');
+        const fromSnapshot = efItem ? Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0) : vlrNoPeriodo;
+        const fromMigracao = ic ? Number(ic.quantidade_medida || 0) * vlrUnitario + vlrNoPeriodo : vlrNoPeriodo;
+        const vlrAtePeriodo = Math.max(fromSnapshot, fromMigracao);
+
         const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
         const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
@@ -1643,12 +1656,19 @@ export class MedicaoService {
         return base;
       });
 
-    // Itens contratados (para bloco ITENS CONTRATADOS)
-    const itensCronogramaContrato = await this.itemCronogramaRepository.find({
-      where: { contrato_id: contrato.id },
-      order: { numero_item: 'ASC' } as any,
-    });
-    const itensContratados = itensCronogramaContrato.map((ic, idx) => ({
+    // Recalcular totais com base nos itens corrigidos (inclui migração por item)
+    const totalNoPeriodoPdf = itensParaPdf.reduce((s, i) => s + (i.valor_no_periodo || 0), 0);
+    const totalAtePeriodoPdf = itensParaPdf.reduce((s, i) => s + ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0)), 0);
+    const totalAExecutarPdf = itensParaPdf.reduce((s, i) => s + Math.max(0, (i.valor_total_item || 0) - ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0))), 0);
+    const execucaoFinanceiraTotaisCorrigidos = itensParaPdf.length > 0 ? {
+      no_periodo: Math.round(totalNoPeriodoPdf * 100) / 100,
+      ate_periodo: Math.round(totalAtePeriodoPdf * 100) / 100,
+      a_executar: Math.round(totalAExecutarPdf * 100) / 100,
+      valor_previsto: itensParaPdf.reduce((s, i) => s + (i.valor_total_item || 0), 0),
+    } : (medicao.execucao_financeira as any)?.totais || undefined;
+
+    // Itens contratados (para bloco ITENS CONTRATADOS) — reutiliza icMigracao
+    const itensContratados = icMigracao.map((ic, idx) => ({
       numero:         ic.numero_item || idx + 1,
       descricao:      ic.descricao || '',
       unidade:        ic.unidade_medida || '',
@@ -1672,7 +1692,7 @@ export class MedicaoService {
       periodo_fim:          medicao.periodo_fim || '',
       competencia:          (medicao as any).competencia || undefined,
       valor_medido:         Number(medicao.valor_medido || 0),
-      execucao_financeira_totais: (medicao.execucao_financeira as any)?.totais || undefined,
+      execucao_financeira_totais: execucaoFinanceiraTotaisCorrigidos,
       nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
       nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
       execucao_fiscal:      medicao.execucao_fiscal || undefined,
