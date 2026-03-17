@@ -2004,11 +2004,23 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         const isMensal = ic.unidade_medida === 'MENSAL'
                         return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal
                       })
-                  const valorTotalItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
                   const valorMigracaoItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
                   const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
                   const atePeriodo = valorMigracaoItens + valorAprovadoAnterior + noPeriodo
-                  const aExecutar = Math.max(0, valorTotalItens - atePeriodo)
+                  let aExecutar: number
+                  if (tipoMedicaoAtual === 'quantidade') {
+                    // A Executar: considera apenas os itens sendo medidos (com quantidade > 0)
+                    const itensSelecionados = itensDoTipo.filter(ic => {
+                      const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                      return itemState && Number(itemState.quantidade_medida) > 0
+                    })
+                    const valorTotalSelecionados = itensSelecionados.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                    const valorJaMedidoSelecionados = itensSelecionados.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
+                    aExecutar = Math.max(0, valorTotalSelecionados - valorJaMedidoSelecionados - noPeriodo)
+                  } else {
+                    const valorTotalItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                    aExecutar = Math.max(0, valorTotalItens - atePeriodo)
+                  }
                   return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
                 }
                 const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
@@ -2027,9 +2039,17 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     </h4>
                     <div className="space-y-2 text-sm">
                       {tipoMedicaoAtual === 'quantidade' ? (() => {
-                        const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL')
-                        if (itensQtd.length === 1) {
-                          const ic = itensQtd[0]
+                        // Apenas itens com quantidade informada nesta medição
+                        const itensComQtd = itensCronograma.filter(ic => {
+                          if (ic.unidade_medida === 'MENSAL') return false
+                          const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                          return itemState && Number(itemState.quantidade_medida) > 0
+                        })
+                        if (itensComQtd.length === 0) {
+                          return <p className="text-gray-500 text-xs">Informe quantidades nos itens para ver a execução</p>
+                        }
+                        if (itensComQtd.length === 1) {
+                          const ic = itensComQtd[0]
                           const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
                           const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
                           const qtdAprovada = Number(ic.quantidade_medida ?? 0)
@@ -2047,7 +2067,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         }
                         return (
                           <>
-                            {itensQtd.map(ic => {
+                            {itensComQtd.map(ic => {
                               const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
                               const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
                               const qtdAprovada = Number(ic.quantidade_medida ?? 0)
