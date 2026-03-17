@@ -290,7 +290,7 @@ export default function FornecedoresOrgaoPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Gestão de Fornecedores</h1>
-          <p className="text-muted-foreground">Fornecedores com contratos firmados com seu órgão</p>
+          <p className="text-muted-foreground">Fornecedores cadastrados no sistema e com contratos com seu órgão</p>
         </div>
         <Button variant="outline" onClick={fetchFornecedores} disabled={loading}>
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />

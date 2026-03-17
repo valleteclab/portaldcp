@@ -1611,54 +1611,74 @@ export class ContratosService {
   }
 
   /**
-   * Retorna fornecedores distintos que têm contratos com o órgão,
-   * incluindo se estão cadastrados no sistema e dados completos se cadastrados.
+   * Retorna fornecedores disponíveis para o órgão:
+   * - Todos os fornecedores cadastrados no sistema (cadastrado_sistema = true)
+   * - Fornecedores não-cadastrados que aparecem em contratos do órgão
+   * Em ambos os casos inclui a contagem de contratos firmados com o órgão.
    */
   async getFornecedoresDoOrgao(orgaoId: string): Promise<any[]> {
-    const raw = await this.contratoRepository
+    // 1. Contagem de contratos por CNPJ para este órgão
+    const contagensRaw = await this.contratoRepository
+      .createQueryBuilder('c')
+      .select('c.fornecedor_cnpj', 'cnpj')
+      .addSelect('COUNT(c.id)', 'total')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('c.fornecedor_cnpj IS NOT NULL')
+      .groupBy('c.fornecedor_cnpj')
+      .getRawMany();
+
+    const contagemMap = new Map<string, number>(
+      contagensRaw.map((r) => [r.cnpj, Number(r.total)]),
+    );
+
+    // 2. Todos os fornecedores cadastrados no sistema
+    const fornecedores = await this.fornecedorRepository.find({
+      select: ['id', 'cpf_cnpj', 'razao_social', 'nome_fantasia', 'email', 'telefone',
+               'representante_whatsapp', 'representante_telefone', 'status', 'porte', 'cidade', 'uf'],
+    });
+
+    const cadastradosCnpjs = new Set(fornecedores.map((f) => f.cpf_cnpj));
+
+    const fromCadastrados = fornecedores.map((f) => ({
+      cnpj: f.cpf_cnpj,
+      razao_social: f.razao_social,
+      fornecedor_id: f.id,
+      total_contratos: contagemMap.get(f.cpf_cnpj) ?? 0,
+      cadastrado_sistema: true,
+      nome_fantasia: f.nome_fantasia,
+      email: f.email,
+      telefone: f.telefone,
+      whatsapp: f.representante_whatsapp || f.representante_telefone || f.telefone,
+      status_cadastro: f.status,
+      cidade: f.cidade,
+      uf: f.uf,
+      porte: f.porte,
+    }));
+
+    // 3. Fornecedores não-cadastrados que aparecem em contratos do órgão
+    const naoRegistradosRaw = await this.contratoRepository
       .createQueryBuilder('contrato')
       .select('contrato.fornecedor_cnpj', 'cnpj')
       .addSelect('MAX(contrato.fornecedor_razao_social)', 'razao_social')
-      .addSelect('MAX(contrato.fornecedor_id)', 'fornecedor_id')
       .addSelect('COUNT(contrato.id)', 'total_contratos')
       .where('contrato.orgao_id = :orgaoId', { orgaoId })
       .andWhere('contrato.fornecedor_cnpj IS NOT NULL')
+      .andWhere('contrato.fornecedor_id IS NULL')
       .groupBy('contrato.fornecedor_cnpj')
-      .orderBy('MAX(contrato.fornecedor_razao_social)', 'ASC')
       .getRawMany();
 
-    const result = await Promise.all(
-      raw.map(async (item) => {
-        let extra: Record<string, any> = {};
-        if (item.fornecedor_id) {
-          const f = await this.fornecedorRepository.findOne({
-            where: { id: item.fornecedor_id },
-            select: ['id', 'nome_fantasia', 'email', 'telefone', 'representante_whatsapp', 'representante_telefone', 'status', 'cpf_cnpj', 'porte', 'cidade', 'uf'],
-          });
-          if (f) {
-            extra = {
-              nome_fantasia: f.nome_fantasia,
-              email: f.email,
-              telefone: f.telefone,
-              whatsapp: f.representante_whatsapp || f.representante_telefone || f.telefone,
-              status_cadastro: f.status,
-              cidade: f.cidade,
-              uf: f.uf,
-              porte: f.porte,
-            };
-          }
-        }
-        return {
-          cnpj: item.cnpj,
-          razao_social: item.razao_social,
-          fornecedor_id: item.fornecedor_id || null,
-          total_contratos: Number(item.total_contratos),
-          cadastrado_sistema: !!item.fornecedor_id,
-          ...extra,
-        };
-      }),
-    );
+    const fromNaoCadastrados = naoRegistradosRaw
+      .filter((r) => !cadastradosCnpjs.has(r.cnpj))
+      .map((r) => ({
+        cnpj: r.cnpj,
+        razao_social: r.razao_social,
+        fornecedor_id: null,
+        total_contratos: Number(r.total_contratos),
+        cadastrado_sistema: false,
+      }));
 
-    return result;
+    return [...fromCadastrados, ...fromNaoCadastrados].sort((a, b) =>
+      (a.razao_social || '').localeCompare(b.razao_social || '', 'pt-BR'),
+    );
   }
 }
