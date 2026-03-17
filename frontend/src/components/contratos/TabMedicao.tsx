@@ -210,7 +210,7 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
     const pD = r === 1 ? '1 dia' : r > 1 ? `${r} dias` : ''
     return pM && pD ? `${pM} e ${pD}` : pM || pD || '0 dias'
   }
-  return { noPeriodo: fmt(diasPeriodo), atePeriodo: fmt(diasAte), aExecutar: fmt(diasRestantes) }
+  return { noPeriodo: fmt(diasPeriodo), atePeriodo: fmt(diasAte), aExecutar: fmt(diasRestantes), diasNoPeriodo: diasPeriodo, diasAte, diasRestantes }
 }
 
 export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
@@ -1978,6 +1978,19 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     }, 0)
               // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
               const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
+                // Para tempo (mensal/null): espelha o fiscal com proporção de dias comerciais
+                if ((tipoMedicaoAtual === 'mensal' || tipoMedicaoAtual === null) &&
+                    formMedicao.periodo_inicio && formMedicao.periodo_fim &&
+                    contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim) {
+                  const vg = Number(valorGlobal || contratoProp?.valor_global || 0)
+                  const fiscal = calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim)
+                  return {
+                    noPeriodoExibicao: (fiscal.diasNoPeriodo / 360) * vg,
+                    atePeriodoExibicao: (fiscal.diasAte / 360) * vg,
+                    aExecutarExibicao: (fiscal.diasRestantes / 360) * vg,
+                  }
+                }
+
                 // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
                 // Isso garante que ajustes manuais de quantidade sejam respeitados
                 if (tipoMedicaoAtual === 'quantidade') {
