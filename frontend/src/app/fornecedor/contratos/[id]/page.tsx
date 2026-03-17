@@ -450,6 +450,19 @@ export default function FornecedorContratoDetalhePage() {
 
   // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
   const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
+    // Para tempo (mensal/null): espelha o fiscal com proporção de dias comerciais
+    if ((tipoMedicaoAtual === 'mensal' || tipoMedicaoAtual === null) &&
+        novaMedicao.periodo_inicio && novaMedicao.periodo_fim &&
+        contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim) {
+      const vg = Number(contrato?.valor_global || 0);
+      const fiscal = calcularExecucaoFiscal(novaMedicao.periodo_inicio, novaMedicao.periodo_fim, contrato.data_vigencia_inicio, contrato.data_vigencia_fim);
+      return {
+        noPeriodoExibicao: (fiscal.diasNoPeriodo / 360) * vg,
+        atePeriodoExibicao: (fiscal.diasAte / 360) * vg,
+        aExecutarExibicao: (fiscal.diasRestantes / 360) * vg,
+      };
+    }
+
     // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
     // Isso garante que ajustes manuais de quantidade sejam respeitados
     if (tipoMedicaoAtual === 'quantidade') {
