@@ -178,8 +178,15 @@ export function Sidebar({ userType }: SidebarProps) {
     // Se não há módulos configurados, mostra apenas Dashboard e Configurações
     // Isso é mais seguro que mostrar tudo
     return links.filter(link => {
-      // Se não tem módulo definido, sempre mostra (Dashboard, Configurações)
+      // Se não tem módulo definido, verifica apenas permissões especiais
       if (!link.modulo && !link.modulos) {
+        // Verifica aprovador mesmo sem módulo (ex: Central de Aprovações)
+        if (link.requerAprovador && !podeAprovar) {
+          return false
+        }
+        if (link.requerPermissao && !permissoesUsuario[link.requerPermissao]) {
+          return false
+        }
         return true
       }
 
