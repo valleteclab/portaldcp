@@ -1617,68 +1617,48 @@ export class ContratosService {
    * Em ambos os casos inclui a contagem de contratos firmados com o órgão.
    */
   async getFornecedoresDoOrgao(orgaoId: string): Promise<any[]> {
-    // 1. Contagem de contratos por CNPJ para este órgão
-    const contagensRaw = await this.contratoRepository
+    // 1. Contratos do órgão agrupados por fornecedor_id
+    const contractsRaw = await this.contratoRepository
       .createQueryBuilder('c')
-      .select('c.fornecedor_cnpj', 'cnpj')
-      .addSelect('COUNT(c.id)', 'total')
+      .select('c.fornecedor_id', 'fornecedor_id')
+      .addSelect('COUNT(c.id)', 'total_contratos')
       .where('c.orgao_id = :orgaoId', { orgaoId })
-      .andWhere('c.fornecedor_cnpj IS NOT NULL')
-      .groupBy('c.fornecedor_cnpj')
+      .andWhere('c.fornecedor_id IS NOT NULL')
+      .groupBy('c.fornecedor_id')
       .getRawMany();
 
-    const contagemMap = new Map<string, number>(
-      contagensRaw.map((r) => [r.cnpj, Number(r.total)]),
+    if (contractsRaw.length === 0) {
+      return [];
+    }
+
+    const countMap = new Map<string, number>(
+      contractsRaw.map((r) => [r.fornecedor_id, Number(r.total_contratos)]),
     );
 
-    // 2. Todos os fornecedores cadastrados no sistema
-    const fornecedores = await this.fornecedorRepository.find({
+    const fornecedorIds = contractsRaw.map((r) => r.fornecedor_id);
+
+    // 2. Buscar detalhes dos fornecedores
+    const fornecedores = await this.fornecedorRepository.findByIds(fornecedorIds, {
       select: ['id', 'cpf_cnpj', 'razao_social', 'nome_fantasia', 'email', 'telefone',
                'representante_whatsapp', 'representante_telefone', 'status', 'porte', 'cidade', 'uf'],
-    });
+    } as any);
 
-    const cadastradosCnpjs = new Set(fornecedores.map((f) => f.cpf_cnpj));
-
-    const fromCadastrados = fornecedores.map((f) => ({
-      cnpj: f.cpf_cnpj,
-      razao_social: f.razao_social,
-      fornecedor_id: f.id,
-      total_contratos: contagemMap.get(f.cpf_cnpj) ?? 0,
-      cadastrado_sistema: true,
-      nome_fantasia: f.nome_fantasia,
-      email: f.email,
-      telefone: f.telefone,
-      whatsapp: f.representante_whatsapp || f.representante_telefone || f.telefone,
-      status_cadastro: f.status,
-      cidade: f.cidade,
-      uf: f.uf,
-      porte: f.porte,
-    }));
-
-    // 3. Fornecedores não-cadastrados que aparecem em contratos do órgão
-    const naoRegistradosRaw = await this.contratoRepository
-      .createQueryBuilder('contrato')
-      .select('contrato.fornecedor_cnpj', 'cnpj')
-      .addSelect('MAX(contrato.fornecedor_razao_social)', 'razao_social')
-      .addSelect('COUNT(contrato.id)', 'total_contratos')
-      .where('contrato.orgao_id = :orgaoId', { orgaoId })
-      .andWhere('contrato.fornecedor_cnpj IS NOT NULL')
-      .andWhere('contrato.fornecedor_id IS NULL')
-      .groupBy('contrato.fornecedor_cnpj')
-      .getRawMany();
-
-    const fromNaoCadastrados = naoRegistradosRaw
-      .filter((r) => !cadastradosCnpjs.has(r.cnpj))
-      .map((r) => ({
-        cnpj: r.cnpj,
-        razao_social: r.razao_social,
-        fornecedor_id: null,
-        total_contratos: Number(r.total_contratos),
-        cadastrado_sistema: false,
-      }));
-
-    return [...fromCadastrados, ...fromNaoCadastrados].sort((a, b) =>
-      (a.razao_social || '').localeCompare(b.razao_social || '', 'pt-BR'),
-    );
+    return fornecedores
+      .map((f) => ({
+        cnpj: f.cpf_cnpj,
+        razao_social: f.razao_social,
+        fornecedor_id: f.id,
+        total_contratos: countMap.get(f.id) ?? 0,
+        cadastrado_sistema: true,
+        nome_fantasia: f.nome_fantasia,
+        email: f.email,
+        telefone: f.telefone,
+        whatsapp: f.representante_whatsapp || f.representante_telefone || f.telefone,
+        status_cadastro: f.status,
+        cidade: f.cidade,
+        uf: f.uf,
+        porte: f.porte,
+      }))
+      .sort((a, b) => (a.razao_social || '').localeCompare(b.razao_social || '', 'pt-BR'));
   }
 }
