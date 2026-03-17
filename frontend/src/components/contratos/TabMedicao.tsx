@@ -567,6 +567,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
   // ============ MEDIÇÕES — Criação interna (fiscal) ============
 
+  // Determina o tipo de medição atual (mensal vs quantidade) com base nos itens preenchidos
+  const tipoMedicaoAtual: 'mensal' | 'quantidade' | null = (() => {
+    if (!usarItensCronograma) return null
+    const primeiro = formMedicao.itens.find(i => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+    if (!primeiro) return null
+    const ic = itensCronograma.find(c => c.id === (primeiro as any).item_cronograma_id)
+    return ic?.unidade_medida === 'MENSAL' ? 'mensal' : 'quantidade'
+  })()
+
   const abrirModalMedicao = () => {
     setFormMedicao({
       periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', valor_medido: '',
@@ -632,6 +641,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }))
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setActionLoading(false); return }
+        // Validar que não há mistura de tipos (mensal vs quantidade)
+        const itensMensaisNoSubmit = itensComQtd.filter(item => {
+          const ic = itensCronograma.find(c => c.id === item.item_cronograma_id)
+          return ic?.unidade_medida === 'MENSAL'
+        })
+        if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
+          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.')
+          setActionLoading(false); return
+        }
         payload.itens = itensComQtd
       } else {
         const itensComValor = formMedicao.itens
@@ -1775,17 +1793,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <Input type="date" value={formMedicao.periodo_inicio}
                   onChange={e => {
                     const v = e.target.value
-                    if (usarItensCronograma && v && formMedicao.periodo_fim) {
-                      const dias = calcularDiasMesComercial(v, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)
-                      const fator = Math.min(dias / 30, 1)
-                      const itens = itensCronograma.map(ic => {
-                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
-                        const isMensal = ic.unidade_medida === 'MENSAL'
-                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
-                      })
-                      setFormMedicao({ ...formMedicao, periodo_inicio: v, itens })
-                    } else setFormMedicao({ ...formMedicao, periodo_inicio: v })
+                    setFormMedicao({ ...formMedicao, periodo_inicio: v })
                     if (v && formMedicao.periodo_fim) carregarExecucaoFinanceiraModal(undefined, v, formMedicao.periodo_fim)
                   }} />
               </div>
@@ -1793,17 +1801,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <Input type="date" value={formMedicao.periodo_fim}
                   onChange={e => {
                     const v = e.target.value
-                    if (usarItensCronograma && formMedicao.periodo_inicio && v) {
-                      const dias = calcularDiasMesComercial(formMedicao.periodo_inicio, v, contratoProp?.data_vigencia_fim)
-                      const fator = Math.min(dias / 30, 1)
-                      const itens = itensCronograma.map(ic => {
-                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
-                        const isMensal = ic.unidade_medida === 'MENSAL'
-                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
-                      })
-                      setFormMedicao({ ...formMedicao, periodo_fim: v, itens })
-                    } else setFormMedicao({ ...formMedicao, periodo_fim: v })
+                    setFormMedicao({ ...formMedicao, periodo_fim: v })
                     if (formMedicao.periodo_inicio && v) carregarExecucaoFinanceiraModal(undefined, formMedicao.periodo_inicio, v)
                   }} />
               </div>
@@ -1844,6 +1842,16 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     Proporcional ({formMedicao.periodo_inicio && formMedicao.periodo_fim ? `${calcularDiasMesComercial(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)}/30 dias` : 'defina o período'})
                   </Button>
                 </div>
+                {/* Aviso sobre mistura de tipos */}
+                {itensCronograma.some(ic => ic.unidade_medida === 'MENSAL') && itensCronograma.some(ic => ic.unidade_medida !== 'MENSAL') && (
+                  <div className="mx-0 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                    <p className="text-xs text-amber-800">
+                      <strong>Atenção:</strong> Este contrato possui itens medidos por quantidade e itens mensais.
+                      Não é possível incluir ambos os tipos na mesma medição — preencha apenas itens de um tipo por vez.
+                      {tipoMedicaoAtual && <span className="font-medium"> Tipo atual: <strong>{tipoMedicaoAtual === 'mensal' ? 'Mensal' : 'Por quantidade'}</strong>.</span>}
+                    </p>
+                  </div>
+                )}
                 <Table>
                   <TableHeader><TableRow className="bg-gray-50">
                     <TableHead className="w-12 text-center font-bold text-xs uppercase">Item</TableHead>
@@ -1868,20 +1876,26 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       const valorUnit = Number(ic.valor_unitario)
                       const subtotal = modoInput === 'valor' && valorOverride != null ? valorOverride : qtdMedida * valorUnit
                       const excedeSaldo = modoInput === 'valor' ? (valorOverride || 0) > saldo * valorUnit + 0.01 : qtdMedida > saldo + 0.001
+                      const isMensal = ic.unidade_medida === 'MENSAL'
+                      const tipoEsteItem = isMensal ? 'mensal' : 'quantidade'
+                      const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual
                       return (
-                        <TableRow key={ic.id} className="hover:bg-gray-50">
+                        <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
                           <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
-                          <TableCell className="whitespace-normal break-words min-w-[200px]"><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
+                          <TableCell className="whitespace-normal break-words min-w-[200px]">
+                            <p className="text-sm font-medium">{ic.descricao}</p>
+                            {bloqueado && <p className="text-xs text-amber-600 mt-0.5">Inclua em medição separada (tipo: {isMensal ? 'mensal' : 'por quantidade'})</p>}
+                          </TableCell>
                           <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
                           <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
                           <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
                           <TableCell className="bg-blue-50/50">
-                            <Input type="number" step="0.001" min="0" max={saldo} placeholder="0" value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
+                            <Input type="number" step="0.001" min="0" max={saldo} placeholder="0" disabled={bloqueado} value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
                               onChange={e => { const val = parseFloat(e.target.value) || 0; const itens = [...formMedicao.itens]; itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.round(val * valorUnit * 100) / 100 }; setFormMedicao({ ...formMedicao, itens }) }}
                               className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`} />
                           </TableCell>
                           <TableCell className="bg-green-50/50">
-                            <Input type="number" step="0.01" min="0" max={saldo * valorUnit} placeholder="0,00" value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
+                            <Input type="number" step="0.01" min="0" max={saldo * valorUnit} placeholder="0,00" disabled={bloqueado} value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
                               onChange={e => { const val = parseFloat(e.target.value) || 0; const qtdCalc = valorUnit > 0 ? Math.round((val / valorUnit) * 10000) / 10000 : 0; const itens = [...formMedicao.itens]; itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: qtdCalc, modo_input: 'valor', valor_override: val }; setFormMedicao({ ...formMedicao, itens }) }}
                               className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`} />
                           </TableCell>
@@ -1962,57 +1976,98 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       if (!etapa || !('etapa_id' in item)) return acc
                       return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
                     }, 0)
-              const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
-              const noPeriodoBackend = Number(execucaoFinanceiraModal?.totais?.no_periodo || 0)
-              const atePeriodoBackend = Number(execucaoFinanceiraModal?.totais?.ate_periodo || 0)
-              const aExecutarBackend = Number(execucaoFinanceiraModal?.totais?.a_executar || 0)
-              const noPeriodoExibicao = Math.max(noPeriodoBackend, valorMedicaoAtual || 0)
-              const valorLocalNaoPersistido = Math.max(0, noPeriodoExibicao - noPeriodoBackend)
-              const atePeriodoExibicao = atePeriodoBackend > 0
-                ? atePeriodoBackend + valorLocalNaoPersistido
-                : (valorAprovadoAnterior + noPeriodoExibicao)
-              const aExecutarExibicao = Math.max(
-                0,
-                aExecutarBackend > 0 || atePeriodoBackend > 0
-                  ? aExecutarBackend - valorLocalNaoPersistido
-                  : Number(valorGlobal || contratoProp?.valor_global || 0) - atePeriodoExibicao
-              )
+              // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
+              const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
+                if (usarItensCronograma && execucaoFinanceiraModal?.itens?.length) {
+                  const itensDoTipo = tipoMedicaoAtual === null
+                    ? itensCronograma
+                    : itensCronograma.filter(ic => {
+                        const isMensal = ic.unidade_medida === 'MENSAL'
+                        return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal
+                      })
+                  const idsDoTipo = new Set(itensDoTipo.map(ic => ic.id))
+                  const itensBack = (execucaoFinanceiraModal.itens as any[]).filter((i: any) => idsDoTipo.has(i.etapa_id))
+                  const valorTotalItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                  const noPeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.no_periodo || 0), 0)
+                  const atePeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.ate_periodo_global ?? i.ate_periodo ?? 0), 0)
+                  const noPeriodo = Math.max(noPeriodoBk, valorMedicaoAtual || 0)
+                  const localExtra = Math.max(0, noPeriodo - noPeriodoBk)
+                  const atePeriodo = atePeriodoBk + localExtra
+                  const aExecutar = Math.max(0, valorTotalItens - atePeriodo)
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+                const noPeriodo = valorMedicaoAtual || 0
+                if (usarItensCronograma) {
+                  const itensDoTipo = tipoMedicaoAtual === null
+                    ? itensCronograma
+                    : itensCronograma.filter(ic => {
+                        const isMensal = ic.unidade_medida === 'MENSAL'
+                        return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal
+                      })
+                  const valorTotalItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                  const valorMigracaoItens = itensDoTipo.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
+                  const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
+                  const atePeriodo = valorMigracaoItens + valorAprovadoAnterior + noPeriodo
+                  const aExecutar = Math.max(0, valorTotalItens - atePeriodo)
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+                const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
+                const valorExecAnterior = Number(contratoProp?.valor_executado_anterior || 0)
+                const atePeriodo = valorAprovadoAnterior + valorExecAnterior + noPeriodo
+                const aExecutar = Math.max(0, Number(valorGlobal || contratoProp?.valor_global || 0) - atePeriodo)
+                return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+              })()
               return (
               <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3"><TrendingUp className="w-5 h-5 text-blue-600" /><h3 className="text-lg font-semibold text-blue-800">Execução Fiscal e Financeira</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white rounded-lg p-4 border border-blue-200">
                     <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
-                      {contratoProp?.boletim_por_quantidade ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
+                      {tipoMedicaoAtual === 'quantidade' ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
                     </h4>
                     <div className="space-y-2 text-sm">
-                      {contratoProp?.boletim_por_quantidade && usarItensCronograma ? (
-                        itensCronograma.length === 1 ? (
-                          (() => {
-                            const ic = itensCronograma[0]
-                            const itemState = formMedicao.itens[0] as { quantidade_medida?: number } | undefined
-                            const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
-                            const qtdAprovada = Number(ic.quantidade_medida ?? 0)
-                            const qtdTotal = Number(ic.quantidade ?? 0)
-                            const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
-                            const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
-                            const unidade = ic.unidade_medida || 'UNIDADE'
-                            return (
-                              <>
-                                <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{qtdNoPeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
-                                <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{qtdAtePeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
-                                <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{qtdAExecutar.toLocaleString('pt-BR')} {unidade}</span></div>
-                              </>
-                            )
-                          })()
-                        ) : <p className="text-gray-600 text-xs">Por item na tabela de itens do boletim</p>
-                      ) : !contratoProp?.boletim_por_quantidade ? (
+                      {tipoMedicaoAtual === 'quantidade' ? (() => {
+                        const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL')
+                        if (itensQtd.length === 1) {
+                          const ic = itensQtd[0]
+                          const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                          const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                          const qtdAprovada = Number(ic.quantidade_medida ?? 0)
+                          const qtdTotal = Number(ic.quantidade ?? 0)
+                          const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
+                          const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
+                          const unidade = ic.unidade_medida || 'UNIDADE'
+                          return (
+                            <>
+                              <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{qtdNoPeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{qtdAtePeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{qtdAExecutar.toLocaleString('pt-BR')} {unidade}</span></div>
+                            </>
+                          )
+                        }
+                        return (
+                          <>
+                            {itensQtd.map(ic => {
+                              const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                              const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                              const qtdAprovada = Number(ic.quantidade_medida ?? 0)
+                              const qtdAExecutar = Math.max(0, Number(ic.quantidade) - qtdAprovada - qtdNoPeriodo)
+                              return (
+                                <div key={ic.id} className="flex justify-between text-xs">
+                                  <span className="text-gray-600 truncate mr-2">{ic.descricao?.substring(0, 30)}...</span>
+                                  <span className="font-medium whitespace-nowrap">{qtdNoPeriodo > 0 ? `+${qtdNoPeriodo}` : '-'} / {qtdAExecutar} {ic.unidade_medida}</span>
+                                </div>
+                              )
+                            })}
+                          </>
+                        )
+                      })() : tipoMedicaoAtual !== 'quantidade' ? (
                         <>
                           <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).noPeriodo}</span></div>
                           <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).atePeriodo}</span></div>
                           <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).aExecutar}</span></div>
                         </>
-                      ) : <p className="text-gray-500 text-xs">Carregue os itens da medição para ver a execução por quantidade</p>}
+                      ) : <p className="text-gray-500 text-xs">Selecione itens para ver a execução</p>}
                     </div>
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-green-200">
