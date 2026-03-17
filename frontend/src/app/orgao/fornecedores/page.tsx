@@ -228,14 +228,14 @@ export default function FornecedoresOrgaoPage() {
     try {
       // Inicia conversa e envia mensagem via WhatsApp Chat
       const tel = selecionado.whatsapp.replace(/\D/g, "")
-      const res1 = await authFetch(`${API_URL}/api/whatsapp/conversas/iniciar`, {
+      const res1 = await authFetch(`${API_URL}/api/whatsapp/chat/conversas/iniciar`, {
         method: "POST",
         body: JSON.stringify({ phone: tel, nomeContato: selecionado.razao_social }),
       })
       if (res1.ok) {
         const conversa = await res1.json()
         const res2 = await authFetch(
-          `${API_URL}/api/whatsapp/conversas/${conversa.id}/mensagens`,
+          `${API_URL}/api/whatsapp/chat/conversas/${conversa.id}/mensagens`,
           { method: "POST", body: JSON.stringify({ conteudo: mensagemWpp }) }
         )
         if (res2.ok) setWppOk(true)
