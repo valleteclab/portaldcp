@@ -1,5 +1,7 @@
 'use client'
 
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,7 +23,7 @@ import {
 import { agenteContratosService, AgenteLog, CicloAgenteResult, AgenteEstatisticas } from '@/services/agente-contratos.service'
 import { toast } from 'sonner'
 
-export default function AgenteContratosPage() {
+function AgenteContratosPageContent() {
   const [loading, setLoading] = useState(false)
   const [logs, setLogs] = useState<AgenteLog[]>([])
   const [estatisticas, setEstatisticas] = useState<AgenteEstatisticas | null>(null)
@@ -357,5 +359,13 @@ export default function AgenteContratosPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function AgenteContratosPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.IA_CONTRATOS}>
+      <AgenteContratosPageContent />
+    </ModuleGuard>
   )
 }

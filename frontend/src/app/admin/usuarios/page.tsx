@@ -112,7 +112,12 @@ const MODULOS_DISPONIVEIS = [
   { codigo: 'USUARIOS', nome: 'Usuários', descricao: 'Gestão de usuários do órgão' },
   { codigo: 'FORNECEDORES', nome: 'Fornecedores', descricao: 'Gestão de fornecedores' },
   { codigo: 'ALMOXARIFADO', nome: 'Almoxarifado', descricao: 'Gestão de almoxarifado e ordens de fornecimento' },
+  { codigo: 'ORDENS_SERVICO', nome: 'Ordens de Serviço', descricao: 'Gestão de ordens de serviço' },
   { codigo: 'FROTA', nome: 'Frota e Combustível', descricao: 'Controle de frota e requisições de abastecimento' },
+  { codigo: 'IA_CONTRATOS', nome: 'Agente IA / Análise de Contratos', descricao: 'Agente IA e análise de contratos por IA' },
+  { codigo: 'PORTAL_ASSINATURAS', nome: 'Portal de Assinaturas', descricao: 'Assinatura eletrônica de documentos' },
+  { codigo: 'WHATSAPP_CHAT', nome: 'WhatsApp Chat', descricao: 'Chat direto com contatos via WhatsApp' },
+  { codigo: 'EMAILS', nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão' },
 ]
 
 const roleLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {

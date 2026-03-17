@@ -60,6 +60,22 @@ export default function ConfiguracoesPage() {
   const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "seguranca"]
   const [activeTab, setActiveTab] = useState(validTabs.includes(tabParam || "") ? tabParam! : "orgao")
 
+  // Restringe acesso a usuários com role ADMIN.
+  // Login direto do órgão (sem usuario individual) sempre tem acesso.
+  useEffect(() => {
+    try {
+      const usuarioStr = localStorage.getItem('usuario')
+      if (usuarioStr) {
+        const usuario = JSON.parse(usuarioStr)
+        if (usuario.role && usuario.role !== 'ADMIN') {
+          router.replace('/orgao')
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao verificar role para configurações:', e)
+    }
+  }, [router])
+
   useEffect(() => {
     if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
       setActiveTab(tabParam)

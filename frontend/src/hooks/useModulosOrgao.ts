@@ -18,7 +18,8 @@ export type ModuloSistema =
   | 'ORDENS_SERVICO'
   | 'IA_CONTRATOS'
   | 'WHATSAPP_CHAT'
-  | 'FROTA';
+  | 'FROTA'
+  | 'EMAILS';
 
 // Constantes para uso como valores (não apenas tipos)
 export const ModuloSistema = {
@@ -38,6 +39,7 @@ export const ModuloSistema = {
   IA_CONTRATOS: 'IA_CONTRATOS' as ModuloSistema,
   WHATSAPP_CHAT: 'WHATSAPP_CHAT' as ModuloSistema,
   FROTA: 'FROTA' as ModuloSistema,
+  EMAILS: 'EMAILS' as ModuloSistema,
 } as const;
 
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
@@ -57,6 +59,7 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
   IA_CONTRATOS: { nome: 'IA — Importar Contratos', descricao: 'Importação de contratos via IA (PDF/imagem)' },
   WHATSAPP_CHAT: { nome: 'WhatsApp Chat', descricao: 'Chat direto com contatos via WhatsApp' },
   FROTA: { nome: 'Frota e Combustível', descricao: 'Controle de frota de veículos e consumo de combustível' },
+  EMAILS: { nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão' },
 };
 
 export function useModulosOrgao() {

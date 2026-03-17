@@ -1,5 +1,7 @@
 'use client'
 
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -39,7 +41,7 @@ interface EmailDetalhe {
   html?: string
 }
 
-export default function OrgaoEmailsPage() {
+function OrgaoEmailsPageContent() {
   const [orgaoId, setOrgaoId] = useState<string | null>(null)
   const [emails, setEmails] = useState<EmailResumido[]>([])
   const [total, setTotal] = useState(0)
@@ -337,5 +339,13 @@ export default function OrgaoEmailsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function OrgaoEmailsPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.EMAILS}>
+      <OrgaoEmailsPageContent />
+    </ModuleGuard>
   )
 }

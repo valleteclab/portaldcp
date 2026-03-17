@@ -1,5 +1,7 @@
 'use client'
 
+import { ModuleGuard } from '@/components/ModuleGuard'
+import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { useState, useRef, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,7 +30,7 @@ interface Mensagem {
   timestamp: Date
 }
 
-export default function AnalisarContratoPage() {
+function AnalisarContratoPageContent() {
   const [file, setFile] = useState<File | null>(null)
   const [mensagens, setMensagens] = useState<Mensagem[]>([])
   const [input, setInput] = useState('')
@@ -400,5 +402,13 @@ export default function AnalisarContratoPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function AnalisarContratoPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.IA_CONTRATOS}>
+      <AnalisarContratoPageContent />
+    </ModuleGuard>
   )
 }
