@@ -2488,7 +2488,7 @@ export default function FornecedorContratoDetalhePage() {
                             })}
                           </>
                         );
-                      })() : tipoMedicaoAtual !== 'quantidade' ? (
+                      })() : (
                         <>
                           <div className="flex justify-between">
                             <span className="text-gray-600">No Período:</span>
@@ -2524,8 +2524,6 @@ export default function FornecedorContratoDetalhePage() {
                             </span>
                           </div>
                         </>
-                      ) : (
-                        <p className="text-gray-500 text-xs">Selecione itens para ver a execução</p>
                       )}
                     </div>
                   </div>

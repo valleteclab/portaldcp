@@ -2061,13 +2061,13 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                             })}
                           </>
                         )
-                      })() : tipoMedicaoAtual !== 'quantidade' ? (
+                      })() : (
                         <>
                           <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).noPeriodo}</span></div>
                           <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).atePeriodo}</span></div>
                           <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).aExecutar}</span></div>
                         </>
-                      ) : <p className="text-gray-500 text-xs">Selecione itens para ver a execução</p>}
+                      )}
                     </div>
                   </div>
                   <div className="bg-white rounded-lg p-4 border border-green-200">
