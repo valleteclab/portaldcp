@@ -3195,14 +3195,12 @@ export class MedicaoService {
           };
 
           let valorAnterior = 0;
-          let quantidadeAnterior = 0;
           for (const m of medicoesAprovadas) {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
             const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
             if (itemMedicao) {
               valorAnterior += obterValorBrutoItemMedicao(itemMedicao);
-              quantidadeAnterior += obterQuantidadeItemMedicao(itemMedicao);
             }
           }
 
@@ -3221,7 +3219,8 @@ export class MedicaoService {
 
           const atePeriodo = valorAnterior + noPeriodo;
           const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
-          const quantidadeAtePeriodo = quantidadeAnterior + quantidadeNoPeriodo;
+          const quantidadeMedidaItem = Number(item.quantidade_medida) || 0;
+          const quantidadeAtePeriodo = quantidadeMedidaItem + quantidadeNoPeriodo;
           const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
 
           const base: any = {
@@ -3938,6 +3937,138 @@ export class MedicaoService {
     this.logger.log(`OTP fiscal enviado para medição ${medicaoId}: ${telefoneMascarado}`);
 
     return { telefone_mascarado: telefoneMascarado };
+  }
+
+  /**
+   * Envia OTP via WhatsApp para o telefone do fornecedor do contrato.
+   * Usado quando o órgão cria a medição (caso excepcional): a assinatura deve ser do fornecedor.
+   */
+  async solicitarOtpAssinaturaFornecedor(medicaoId: string): Promise<{ telefone_mascarado: string; fornecedor_nome: string }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.fornecedor'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato
+      || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id }, relations: ['fornecedor'] });
+    if (!contrato?.fornecedor_id) throw new BadRequestException('Contrato sem fornecedor cadastrado');
+
+    const fornecedor = (contrato as any).fornecedor
+      || await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    const telefone = (fornecedor.representante_whatsapp || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
+    if (telefone.length < 10) {
+      throw new BadRequestException('Fornecedor não possui telefone/WhatsApp cadastrado para envio do código.');
+    }
+
+    const orgaoId = contrato.orgao_id || '';
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const cacheKey = `otp_fornecedor_${medicaoId}`;
+
+    (this.assinaturasService as any).otpCache?.set(cacheKey, {
+      codigo,
+      telefone,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefone}`, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    const mensagem = `Seu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
+
+    try {
+      await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+        to: telefone,
+        mensagem,
+      });
+    } catch (err) {
+      this.logger.warn(`Falha ao enviar OTP fornecedor via WhatsApp para medição ${medicaoId}: ${err.message}`);
+      throw new BadRequestException('Não foi possível enviar o código para o telefone do fornecedor. Verifique a configuração de WhatsApp do órgão.');
+    }
+
+    const telefoneMascarado = telefone.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+    const fornecedorNome = fornecedor.razao_social || fornecedor.nome_fantasia || 'Fornecedor';
+    this.logger.log(`OTP fornecedor enviado para medição ${medicaoId}: ${fornecedorNome} — ${telefoneMascarado}`);
+
+    return { telefone_mascarado: telefoneMascarado, fornecedor_nome: fornecedorNome };
+  }
+
+  /**
+   * Valida OTP do fornecedor, registra assinatura digital como FORNECEDOR e submete a medição.
+   * Usado quando o órgão cria a medição: a assinatura é do fornecedor (campo FORNECEDOR no boletim).
+   */
+  async validarOtpAssinaturaFornecedor(medicaoId: string, codigoOtp: string): Promise<{
+    sucesso: boolean;
+    codigo_validacao: string;
+    codigo_formatado: string;
+    pdf_url?: string;
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.fornecedor'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato
+      || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id }, relations: ['fornecedor'] });
+    if (!contrato?.fornecedor_id) throw new BadRequestException('Contrato sem fornecedor cadastrado');
+
+    const fornecedor = (contrato as any).fornecedor
+      || await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    const cacheKey = `otp_fornecedor_${medicaoId}`;
+    const otpEntry = (this.assinaturasService as any).otpCache?.get(cacheKey);
+
+    if (!otpEntry || otpEntry.expiracao <= Date.now() || otpEntry.codigo !== codigoOtp) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+
+    (this.assinaturasService as any).otpCache?.delete(cacheKey);
+    if (otpEntry.telefone) {
+      const orgaoId = contrato.orgao_id || '';
+      (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${otpEntry.telefone}`);
+    }
+
+    const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: contrato.orgao_id || '',
+      papel: 'FORNECEDOR',
+      usuario_nome: fornecedor.razao_social || fornecedor.nome_fantasia || '',
+      usuario_cpf_cnpj: fornecedor.cpf_cnpj || '',
+      usuario_cargo: 'Fornecedor / Contratado',
+    });
+
+    if (medicao.status === StatusMedicao.RASCUNHO || medicao.status === StatusMedicao.DEVOLVIDA) {
+      try {
+        await this.submeterMedicao(medicaoId, contrato.fornecedor_id);
+      } catch (err) {
+        this.logger.warn(`Assinatura OK mas falha ao submeter medição ${medicaoId}: ${err.message}`);
+        throw err;
+      }
+    }
+
+    try {
+      await this.gerarPdfOficialMedicao(medicaoId);
+      this.logger.log(`PDF do boletim regenerado com assinatura do fornecedor para medição ${medicaoId}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fornecedor: ${err.message}`);
+    }
+
+    const medicaoAtualizada = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    this.logger.log(`Medição ${medicaoId} assinada e submetida com OTP pelo fornecedor (orgão criou)`);
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+      pdf_url: medicaoAtualizada?.boletim_pdf_url || '',
+    };
   }
 
   /**

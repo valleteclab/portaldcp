@@ -281,8 +281,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([])
   const [modalOtp, setModalOtp] = useState(false)
   const [otpMedicaoId, setOtpMedicaoId] = useState<string | null>(null)
-  const [otpEtapa, setOtpEtapa] = useState<'telefone' | 'codigo' | 'sucesso'>('telefone')
-  const [otpTelefone, setOtpTelefone] = useState('')
+  const [otpEtapa, setOtpEtapa] = useState<'enviar' | 'codigo' | 'sucesso'>('enviar')
+  const [otpFornecedorNome, setOtpFornecedorNome] = useState<string | null>(null)
   const [otpCodigo, setOtpCodigo] = useState('')
   const [otpCanais, setOtpCanais] = useState<{ telefone_mascarado?: string } | null>(null)
   const [otpErro, setOtpErro] = useState<string | null>(null)
@@ -667,7 +667,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         setModalMedicao(false)
         setDiscriminacoes([])
         setArquivosPendentes([])
-        abrirModalOtpFiscal(medicaoSalva.id)
+        abrirModalOtpFornecedor(medicaoSalva.id)
         return
       }
 
@@ -679,30 +679,27 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     setActionLoading(false)
   }
 
-  const abrirModalOtpFiscal = (medicaoId: string) => {
+  const abrirModalOtpFornecedor = (medicaoId: string) => {
     setOtpMedicaoId(medicaoId)
-    setOtpEtapa('telefone')
-    setOtpTelefone('')
+    setOtpEtapa('enviar')
     setOtpCodigo('')
     setOtpCanais(null)
+    setOtpFornecedorNome(null)
     setOtpErro(null)
     setOtpCodigoValidacao(null)
     setOtpLoading(false)
     setModalOtp(true)
   }
 
-  const handleEnviarOtpFiscal = async () => {
-    if (!otpMedicaoId || !otpTelefone.replace(/\D/g, '').match(/^\d{10,11}$/)) {
-      setOtpErro('Informe um número de WhatsApp válido (10 ou 11 dígitos).')
-      return
-    }
+  const handleEnviarOtpFornecedor = async () => {
+    if (!otpMedicaoId) return
     setOtpLoading(true)
     setOtpErro(null)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/solicitar-otp-fiscal`, {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/solicitar-otp-fornecedor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefone: otpTelefone.replace(/\D/g, '') }),
+        body: JSON.stringify({}),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -712,6 +709,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       }
       const data = await res.json()
       setOtpCanais(data)
+      setOtpFornecedorNome(data.fornecedor_nome || null)
       setOtpEtapa('codigo')
     } catch {
       setOtpErro('Erro de conexão ao enviar código')
@@ -720,12 +718,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     }
   }
 
-  const handleValidarOtpFiscal = async () => {
+  const handleValidarOtpFornecedor = async () => {
     if (!otpMedicaoId || !otpCodigo) return
     setOtpLoading(true)
     setOtpErro(null)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/validar-otp-fiscal`, {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/validar-otp-fornecedor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ codigo: otpCodigo }),
@@ -739,13 +737,6 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       const data = await res.json()
       setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao)
       setOtpEtapa('sucesso')
-
-      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
-      await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/submeter-fiscal`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fiscal_id: usuario?.id || '', fiscal_nome: usuario?.nome || 'Fiscal' }),
-      })
 
       try {
         const resDownload = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/boletim-oficial/download`)
@@ -2473,31 +2464,26 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         </DialogContent>
       </Dialog>
 
-      {/* Modal Assinatura Digital OTP — Fiscal (Enviar para Ateste) */}
+      {/* Modal Assinatura Digital OTP — Fornecedor (quando órgão cria a medição) */}
       <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setOtpMedicaoId(null); carregarDados(); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-blue-600" />
-              Assinatura Digital do Boletim
+              Assinatura Digital do Fornecedor
             </DialogTitle>
             <DialogDescription>
-              {otpEtapa === 'telefone' && 'Informe seu WhatsApp para receber o código de verificação.'}
-              {otpEtapa === 'codigo' && 'Digite o código de verificação enviado.'}
-              {otpEtapa === 'sucesso' && 'Boletim assinado e enviado para aprovação!'}
+              {otpEtapa === 'enviar' && 'O código será enviado para o telefone do fornecedor cadastrado. A assinatura aparecerá no campo FORNECEDOR do boletim.'}
+              {otpEtapa === 'codigo' && 'Digite o código de verificação enviado ao fornecedor.'}
+              {otpEtapa === 'sucesso' && 'Boletim assinado pelo fornecedor e enviado para análise do fiscal!'}
             </DialogDescription>
           </DialogHeader>
 
-          {otpEtapa === 'telefone' && (
+          {otpEtapa === 'enviar' && (
             <div className="space-y-4">
-              <div>
-                <Label>WhatsApp (com DDD)</Label>
-                <Input
-                  value={otpTelefone}
-                  onChange={e => setOtpTelefone(e.target.value.replace(/\D/g, '').replace(/^(\d{2})(\d)/g, '($1) $2').replace(/(\d)(\d{4})$/, '$1-$2'))}
-                  placeholder="(11) 99999-9999"
-                  className="mt-1"
-                />
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <p className="font-medium mb-1">Caso excepcional: medição criada pelo órgão</p>
+                <p className="text-amber-700">O fornecedor deve assinar digitalmente. O código será enviado via WhatsApp para o telefone cadastrado do fornecedor.</p>
               </div>
               {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
             </div>
@@ -2506,7 +2492,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           {otpEtapa === 'codigo' && (
             <div className="space-y-4">
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
-                <p className="font-medium mb-1">Código enviado!</p>
+                <p className="font-medium mb-1">Código enviado ao fornecedor!</p>
+                {otpFornecedorNome && <p className="font-medium">{otpFornecedorNome}</p>}
                 {otpCanais?.telefone_mascarado && <p>📱 {otpCanais.telefone_mascarado}</p>}
               </div>
               <div>
@@ -2517,7 +2504,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   placeholder="000000"
                   className="text-center text-2xl tracking-[0.5em] font-mono mt-1"
                   maxLength={6}
-                  onKeyDown={e => { if (e.key === 'Enter' && otpCodigo.length === 6) handleValidarOtpFiscal(); }}
+                  onKeyDown={e => { if (e.key === 'Enter' && otpCodigo.length === 6) handleValidarOtpFornecedor(); }}
                 />
               </div>
               {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
@@ -2528,8 +2515,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             <div className="space-y-4">
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                 <CheckCircle className="w-10 h-10 text-green-600 mx-auto mb-2" />
-                <p className="font-semibold text-green-900">Boletim assinado digitalmente!</p>
-                <p className="text-sm text-green-700 mt-1">A medição foi enviada para aprovação do gestor.</p>
+                <p className="font-semibold text-green-900">Boletim assinado pelo fornecedor!</p>
+                <p className="text-sm text-green-700 mt-1">A medição foi enviada para análise do fiscal.</p>
                 {otpCodigoValidacao && (
                   <div className="mt-2 bg-white border border-green-300 rounded p-2">
                     <p className="text-xs text-gray-500">Código de validação:</p>
@@ -2542,19 +2529,19 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           )}
 
           <DialogFooter>
-            {otpEtapa === 'telefone' && (
+            {otpEtapa === 'enviar' && (
               <div className="flex w-full gap-2 justify-between">
                 <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
-                <Button onClick={handleEnviarOtpFiscal} disabled={otpLoading || !otpTelefone.replace(/\D/g, '').match(/^\d{10,11}$/)} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                <Button onClick={handleEnviarOtpFornecedor} disabled={otpLoading} className="bg-blue-600 hover:bg-blue-700 gap-2">
                   {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  Enviar Código
+                  Enviar Código ao Fornecedor
                 </Button>
               </div>
             )}
             {otpEtapa === 'codigo' && (
               <div className="flex w-full gap-2 justify-between">
                 <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
-                <Button onClick={handleValidarOtpFiscal} disabled={otpLoading || otpCodigo.length !== 6} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                <Button onClick={handleValidarOtpFornecedor} disabled={otpLoading || otpCodigo.length !== 6} className="bg-blue-600 hover:bg-blue-700 gap-2">
                   {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                   Confirmar e Enviar
                 </Button>

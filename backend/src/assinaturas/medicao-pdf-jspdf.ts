@@ -350,13 +350,11 @@ export async function gerarBoletimMedicaoPdf(
   doc.text('PERÍODO:', mX, y);
   doc.setFont('helvetica', 'normal');
   doc.text(`${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, infoX2, y);
-  if (dados.nota_fiscal_numero) {
-    const nfX = W / 2;
-    doc.setFont('helvetica', 'bold');
-    doc.text('NF:', nfX, y);
-    doc.setFont('helvetica', 'normal');
-   // doc.text(`${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}`, nfX + 8, y);
-  }
+  const nfX = W / 2;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Nº NF:', nfX, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}` : '-', nfX + 12, y);
   y += 5;
 
   // Valor Bruto (= valor da medição)
