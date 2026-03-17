@@ -1978,17 +1978,29 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     }, 0)
               // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
               const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
-                // Para tempo (mensal/null): espelha o fiscal com proporção de dias comerciais
-                if ((tipoMedicaoAtual === 'mensal' || tipoMedicaoAtual === null) &&
-                    formMedicao.periodo_inicio && formMedicao.periodo_fim &&
-                    contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim) {
-                  const vg = Number(valorGlobal || contratoProp?.valor_global || 0)
-                  const fiscal = calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim)
-                  return {
-                    noPeriodoExibicao: (fiscal.diasNoPeriodo / 360) * vg,
-                    atePeriodoExibicao: (fiscal.diasAte / 360) * vg,
-                    aExecutarExibicao: (fiscal.diasRestantes / 360) * vg,
+                // Para null com itens cronograma: nenhum item preenchido, retornar zeros
+                if (tipoMedicaoAtual === null && usarItensCronograma) {
+                  return { noPeriodoExibicao: 0, atePeriodoExibicao: 0, aExecutarExibicao: 0 }
+                }
+
+                // Para itens MENSAL: calcular com base nos valores dos itens selecionados (mesma lógica de 'quantidade')
+                if (tipoMedicaoAtual === 'mensal') {
+                  let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
+                  const itensMens = itensCronograma.filter(ic => ic.unidade_medida === 'MENSAL')
+                  for (const ic of itensMens) {
+                    const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                    const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                    if (qtdNoPeriodo <= 0) continue
+                    const qtdAprovada = Number(ic.quantidade_medida ?? 0)
+                    const qtdTotal = Number(ic.quantidade_meses ?? 0)
+                    const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
+                    const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
+                    const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0
+                    noPeriodo += qtdNoPeriodo * vm
+                    atePeriodo += qtdAtePeriodo * vm
+                    aExecutar += qtdAExecutar * vm
                   }
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
                 }
 
                 // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
