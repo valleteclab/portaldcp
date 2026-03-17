@@ -1609,4 +1609,56 @@ export class ContratosService {
 
     this.logger.log(`Contrato ${contrato.numero_contrato} (ID: ${contratoId}) excluído por ${usuarioNome}`);
   }
+
+  /**
+   * Retorna fornecedores distintos que têm contratos com o órgão,
+   * incluindo se estão cadastrados no sistema e dados completos se cadastrados.
+   */
+  async getFornecedoresDoOrgao(orgaoId: string): Promise<any[]> {
+    const raw = await this.contratoRepository
+      .createQueryBuilder('contrato')
+      .select('contrato.fornecedor_cnpj', 'cnpj')
+      .addSelect('MAX(contrato.fornecedor_razao_social)', 'razao_social')
+      .addSelect('MAX(contrato.fornecedor_id)', 'fornecedor_id')
+      .addSelect('COUNT(contrato.id)', 'total_contratos')
+      .where('contrato.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('contrato.fornecedor_cnpj IS NOT NULL')
+      .groupBy('contrato.fornecedor_cnpj')
+      .orderBy('MAX(contrato.fornecedor_razao_social)', 'ASC')
+      .getRawMany();
+
+    const result = await Promise.all(
+      raw.map(async (item) => {
+        let extra: Record<string, any> = {};
+        if (item.fornecedor_id) {
+          const f = await this.fornecedorRepository.findOne({
+            where: { id: item.fornecedor_id },
+            select: ['id', 'nome_fantasia', 'email', 'telefone', 'representante_whatsapp', 'representante_telefone', 'status', 'cpf_cnpj', 'porte', 'cidade', 'uf'],
+          });
+          if (f) {
+            extra = {
+              nome_fantasia: f.nome_fantasia,
+              email: f.email,
+              telefone: f.telefone,
+              whatsapp: f.representante_whatsapp || f.representante_telefone || f.telefone,
+              status_cadastro: f.status,
+              cidade: f.cidade,
+              uf: f.uf,
+              porte: f.porte,
+            };
+          }
+        }
+        return {
+          cnpj: item.cnpj,
+          razao_social: item.razao_social,
+          fornecedor_id: item.fornecedor_id || null,
+          total_contratos: Number(item.total_contratos),
+          cadastrado_sistema: !!item.fornecedor_id,
+          ...extra,
+        };
+      }),
+    );
+
+    return result;
+  }
 }

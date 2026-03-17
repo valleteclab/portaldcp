@@ -416,4 +416,46 @@ export class FornecedoresController {
     }
     return await this.fornecedoresService.alterarNivel(id, body.nivel as any);
   }
+
+  // === ORGÃO: GESTÃO DE FORNECEDORES CONTRATADOS ===
+
+  /**
+   * Solicita reset de senha para um fornecedor — acessível pelo órgão contratante.
+   * Envia e-mail com link de redefinição. Não expõe nem altera a senha diretamente.
+   * POST /api/fornecedores/:id/orgao/solicitar-reset
+   */
+  @Post(':id/orgao/solicitar-reset')
+  async solicitarResetPorOrgao(@Param('id') id: string, @Req() req: any) {
+    const user = req.user as JwtPayload;
+    if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
+      throw new ForbiddenException('Acesso não autorizado');
+    }
+    const orgaoId = user.type === UserType.ORGAO ? user.sub : (user as any).orgaoId || (user as any).orgao_id;
+    return await this.fornecedoresService.solicitarResetPorOrgao(id, orgaoId);
+  }
+
+  /**
+   * Atualiza dados de contato do fornecedor — acessível pelo órgão contratante.
+   * Permite editar: nome_fantasia, email, telefone, representante_whatsapp, representante_nome, representante_cargo.
+   * PUT /api/fornecedores/:id/orgao/contato
+   */
+  @Put(':id/orgao/contato')
+  async atualizarContatoOrgao(
+    @Param('id') id: string,
+    @Body() body: {
+      nome_fantasia?: string;
+      email?: string;
+      telefone?: string;
+      representante_whatsapp?: string;
+      representante_nome?: string;
+      representante_cargo?: string;
+    },
+    @Req() req: any,
+  ) {
+    const user = req.user as JwtPayload;
+    if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
+      throw new ForbiddenException('Acesso não autorizado');
+    }
+    return await this.fornecedoresService.atualizarContatoOrgao(id, body);
+  }
 }
