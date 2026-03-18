@@ -2072,13 +2072,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white rounded-lg p-4 border border-blue-200">
                     <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
-                      {tipoMedicaoAtual === 'quantidade' ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contratoProp?.boletim_por_quantidade)) ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
                     </h4>
                     <div className="space-y-2 text-sm">
-                      {tipoMedicaoAtual === 'quantidade' ? (() => {
-                        // Apenas itens com quantidade informada nesta medição
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contratoProp?.boletim_por_quantidade)) ? (() => {
+                        // Itens com quantidade informada nesta medição
+                        // Quando boletim_por_quantidade + MENSAL: inclui MENSAL (cada mês = 1 unidade)
+                        const forcarQtdMensal = !!(contratoProp?.boletim_por_quantidade)
                         const itensComQtd = itensCronograma.filter(ic => {
-                          if (ic.unidade_medida === 'MENSAL') return false
+                          if (ic.unidade_medida === 'MENSAL' && !forcarQtdMensal) return false
                           const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
                           return itemState && Number(itemState.quantidade_medida) > 0
                         })
@@ -2088,9 +2090,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         if (itensComQtd.length === 1) {
                           const ic = itensComQtd[0]
                           const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
-                          const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
-                          const qtdAprovada = Number(ic.quantidade_medida ?? 0)
-                          const qtdTotal = Number(ic.quantidade ?? 0)
+                          const isMensalFlag = ic.unidade_medida === 'MENSAL' && forcarQtdMensal
+                          const qtdNoPeriodo = isMensalFlag ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0)
+                          const qtdAprovada = isMensalFlag ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0)
+                          const qtdTotal = isMensalFlag ? Math.round(Number(ic.quantidade ?? 0)) : Number(ic.quantidade ?? 0)
                           const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
                           const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
                           const unidade = ic.unidade_medida || 'UNIDADE'
@@ -2106,9 +2109,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                           <>
                             {itensComQtd.map(ic => {
                               const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
-                              const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
-                              const qtdAprovada = Number(ic.quantidade_medida ?? 0)
-                              const qtdAExecutar = Math.max(0, Number(ic.quantidade) - qtdAprovada - qtdNoPeriodo)
+                              const isMF = ic.unidade_medida === 'MENSAL' && forcarQtdMensal
+                              const qtdNoPeriodo = isMF ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0)
+                              const qtdAprovada = isMF ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0)
+                              const qtdAExecutar = Math.max(0, (isMF ? Math.round(Number(ic.quantidade)) : Number(ic.quantidade)) - qtdAprovada - qtdNoPeriodo)
                               return (
                                 <div key={ic.id} className="flex justify-between text-xs">
                                   <span className="text-gray-600 truncate mr-2">{ic.descricao?.substring(0, 30)}...</span>
