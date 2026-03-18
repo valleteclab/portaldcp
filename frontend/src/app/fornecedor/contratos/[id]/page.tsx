@@ -959,6 +959,11 @@ export default function FornecedorContratoDetalhePage() {
         setSubmitting(false);
         return;
       }
+      if (discriminacoes.length === 0) {
+        alert('A discriminação de despesas é obrigatória antes de enviar para ateste.');
+        setSubmitting(false);
+        return;
+      }
 
       // Validar que período da medição não ultrapassa a data de vigência fim do contrato
       if (contrato?.data_vigencia_fim) {
@@ -2615,13 +2620,6 @@ export default function FornecedorContratoDetalhePage() {
                 <Input value={novaMedicao.nota_fiscal_numero}
                   onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_numero: e.target.value })}
                   placeholder="Número da NF" />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" step="0.01" value={novaMedicao.nota_fiscal_valor}
-                    onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_valor: e.target.value })}
-                    placeholder="Valor NF" />
-                  <Input type="date" value={novaMedicao.nota_fiscal_data}
-                    onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_data: e.target.value })} />
-                </div>
               </div>
             </div>
 
@@ -2653,8 +2651,8 @@ export default function FornecedorContratoDetalhePage() {
                   <div className="flex items-center justify-between mb-3">
                     <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
                       <DollarSign className="w-4 h-4" />
-                      Discriminacao das Despesas
-                      <span className="text-xs font-normal text-gray-400">(opcional - composicao do valor da NF)</span>
+                      Discriminação das Despesas
+                      <span className="text-xs font-normal text-red-500">* obrigatória</span>
                     </Label>
                     <div className="flex gap-2">
                       {medicoes.length > 0 && (
@@ -2807,11 +2805,12 @@ export default function FornecedorContratoDetalhePage() {
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.accept = 'application/pdf,image/jpeg,image/png';
+                      input.multiple = true;
                       input.onchange = (e) => {
                         const files = (e.target as HTMLInputElement).files;
-                        if (files && files[0]) {
-                          const titulo = prompt('Título do documento (opcional):') ?? '';
-                          setArquivosPendentes(prev => [...prev, { file: files[0], tipo: 'DOCUMENTO', descricao: titulo }]);
+                        if (files && files.length > 0) {
+                          const titulo = prompt('Título dos documentos (opcional):') ?? '';
+                          setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'DOCUMENTO' as const, descricao: titulo }))]);
                         }
                       };
                       input.click();
@@ -3114,6 +3113,15 @@ export default function FornecedorContratoDetalhePage() {
                 </div>
               )}
 
+              {medicaoDetalhe.status === 'RASCUNHO' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-4">
+                  <p className="text-sm text-blue-800">Esta medição ainda não foi enviada para ateste.</p>
+                  <Button size="sm" className="gap-1 shrink-0" onClick={() => { setModalDetalhe(false); abrirModalSubmeter(medicaoDetalhe); }}>
+                    <Send className="w-3 h-3" /> Assinar e Enviar
+                  </Button>
+                </div>
+              )}
+
               {medicaoDetalhe.status === 'DEVOLVIDA' && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
                   {medicaoDetalhe.motivo_devolucao && (
@@ -3157,7 +3165,7 @@ export default function FornecedorContratoDetalhePage() {
       </Dialog>
 
       {/* ============ MODAL: Assinatura Digital com OTP ============ */}
-      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open && otpEtapa !== 'sucesso') { setModalOtp(false); carregarDados(); } else if (!open) { setModalOtp(false); } }}>
+      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setTimeout(() => { document.body.style.pointerEvents = ''; }, 0); if (otpEtapa !== 'sucesso') { carregarDados(); } } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

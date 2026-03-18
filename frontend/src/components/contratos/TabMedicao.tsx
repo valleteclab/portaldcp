@@ -618,6 +618,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         return
       }
     }
+    if (!comoRascunho && discriminacoes.length === 0) {
+      alert('A discriminação de despesas é obrigatória antes de salvar a medição.')
+      return
+    }
     setActionLoading(true)
     try {
       const payload: any = {
@@ -890,7 +894,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setActionLoading(false); return }
       const resultado = await res.json().catch(() => ({}))
       setModalAteste(null)
       setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
@@ -2149,10 +2153,6 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               <div className="space-y-3">
                 <Label className="flex items-center gap-2"><DollarSign className="w-4 h-4" />Nota Fiscal (opcional)</Label>
                 <Input value={formMedicao.nota_fiscal_numero} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_numero: e.target.value })} placeholder="Número da NF" />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" step="0.01" value={formMedicao.nota_fiscal_valor} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_valor: e.target.value })} placeholder="Valor NF" />
-                  <Input type="date" value={formMedicao.nota_fiscal_data} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_data: e.target.value })} />
-                </div>
               </div>
             </div>
 
@@ -2181,7 +2181,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
                       <DollarSign className="w-4 h-4" />
                       Discriminação das Despesas
-                      <span className="text-xs font-normal text-gray-400">(opcional - composição do valor da NF)</span>
+                      <span className="text-xs font-normal text-red-500">* obrigatória</span>
                     </Label>
                     <div className="flex gap-2">
                       {medicoes.length > 0 && (
@@ -2279,11 +2279,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const input = document.createElement('input')
                     input.type = 'file'
                     input.accept = 'application/pdf,image/jpeg,image/png'
+                    input.multiple = true
                     input.onchange = (e) => {
                       const files = (e.target as HTMLInputElement).files
-                      if (files?.[0]) {
-                        const titulo = prompt('Título do documento (opcional):') ?? ''
-                        setArquivosPendentes(prev => [...prev, { file: files[0], tipo: 'DOCUMENTO', descricao: titulo }])
+                      if (files && files.length > 0) {
+                        const titulo = prompt('Título dos documentos (opcional):') ?? ''
+                        setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'DOCUMENTO' as const, descricao: titulo }))])
                       }
                     }
                     input.click()
@@ -2632,7 +2633,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       </Dialog>
 
       {/* Modal Assinatura Digital OTP — Fornecedor (quando órgão cria a medição) */}
-      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setOtpMedicaoId(null); carregarDados(); } }}>
+      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setOtpMedicaoId(null); setTimeout(() => { document.body.style.pointerEvents = ''; }, 0); carregarDados(); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2761,7 +2762,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         {(modalDetalhe as any).itens.map((item: any, idx: number) => (
                           <TableRow key={item.id || idx}>
                             <TableCell className="text-sm font-mono">{item.etapa_numero || idx + 1}</TableCell>
-                            <TableCell className="text-sm">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
+                            <TableCell className="text-sm break-words whitespace-normal">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.etapa_valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-center text-gray-500">{Number(item.percentual_executado_anterior || 0).toFixed(1)}%</TableCell>
                             <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">{Number(item.percentual_executado_atual || 0).toFixed(1)}%</TableCell>
