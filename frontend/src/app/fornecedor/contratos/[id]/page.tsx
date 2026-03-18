@@ -98,6 +98,7 @@ interface ItemCronograma {
   unidade_medida: string;
   quantidade: number;
   valor_unitario: number;
+  valor_mensal?: number;
   valor_total: number;
   quantidade_medida: number;
 }
