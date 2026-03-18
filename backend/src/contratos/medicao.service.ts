@@ -2161,6 +2161,19 @@ export class MedicaoService {
       mapa.forEach((qtd, itemId) => { itensComprometidos[itemId] = qtd; });
     }
 
+    // Migração por item: valor já consumido registrado diretamente em cada ItemCronograma
+    // (ic.quantidade_medida × valor_unitario), mas apenas o excesso não coberto por valorMedidoTotal
+    let valorMigracaoPorItem = 0;
+    if (usarItens) {
+      const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
+      const somaIcMigracao = itensCronograma.reduce(
+        (sum, ic) => sum + Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0),
+        0,
+      );
+      // Only count the portion NOT already in valorMedidoTotal (approved measurements)
+      valorMigracaoPorItem = Math.max(0, somaIcMigracao - valorMedidoTotal);
+    }
+
     return {
       contrato_id: contratoId,
       fluxo_os: fluxoOs,
@@ -2169,7 +2182,7 @@ export class MedicaoService {
       valor_medido_total: valorMedidoTotal,
       valor_comprometido_total: valorComprometido,
       valor_em_analise: valorEmAnalise,
-      saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido),
+      saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido - valorMigracaoPorItem),
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       etapas_comprometidas: etapasComprometidas,
       itens_comprometidos: itensComprometidos,
