@@ -218,10 +218,14 @@ function fmtTempo(dias: number): string {
   return pM || pD || '0 dias'
 }
 
-/** Formata quantidade com unidade (ex: 100 h, 50 un) */
+/** Formata quantidade com unidade (ex: 100 h, 50 un, 1 mês) */
 function fmtQuantidade(valor: number, unidade: string): string {
   const u = (unidade || 'UN').toUpperCase()
-  const suf = u === 'HORA' || u === 'H' ? ' h' : u === 'METROS' || u === 'M' ? ' m' : u === 'LITROS' || u === 'L' ? ' l' : ' un'
+  const suf = u === 'HORA' || u === 'H' ? ' h'
+    : u === 'METROS' || u === 'M' ? ' m'
+    : u === 'LITROS' || u === 'L' ? ' l'
+    : u === 'MENSAL' ? (valor === 1 ? ' mês' : ' meses')
+    : ' un'
   return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}${suf}`
 }
 

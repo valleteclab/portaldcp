@@ -1810,7 +1810,7 @@ export class MedicaoService {
       };
     }
 
-    throw new NotFoundException('Boletim oficial da medição ainda não foi gerado');
+    return this.gerarPdfOficialMedicao(medicaoId);
   }
 
   /** Retorna o caminho absoluto do arquivo PDF do boletim, ou null se não existir. */
