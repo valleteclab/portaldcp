@@ -1059,10 +1059,13 @@ export default function FornecedorContratoDetalhePage() {
       }
 
       // Abrir modal OTP para assinatura digital antes de submeter
+      // Delay to allow Radix to fully unmount the creation dialog before opening OTP,
+      // preventing pointer-events:none from getting stuck on body.
       setModalNovaMedicao(false);
       setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
       setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]);
-      abrirModalOtp(medicaoCriada.id);
+      const medicaoIdParaOtp = medicaoCriada.id;
+      setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
     } catch (error) {
       alert('Erro ao criar medição');
     } finally {
@@ -2057,6 +2060,7 @@ export default function FornecedorContratoDetalhePage() {
           setDiscriminacoes([]);
           setArquivosPendentes([]);
           setAnexosReaproveitados([]);
+          setTimeout(() => { document.body.style.pointerEvents = ''; }, 0);
         }
       }}>
         <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
@@ -2925,7 +2929,7 @@ export default function FornecedorContratoDetalhePage() {
       </Dialog>
 
       {/* ============ MODAL: Detalhe da Medição ============ */}
-      <Dialog open={modalDetalhe} onOpenChange={setModalDetalhe}>
+      <Dialog open={modalDetalhe} onOpenChange={(open) => { setModalDetalhe(open); if (!open) setTimeout(() => { document.body.style.pointerEvents = ''; }, 0); }}>
         <DialogContent className="w-[98vw] max-w-7xl max-h-[96vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{medicaoDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>

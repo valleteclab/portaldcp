@@ -2881,12 +2881,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               {execucaoFinanceira && execucaoFinanceira.itens && execucaoFinanceira.itens.length > 0 && (
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Execucao Fiscal/Financeira</p>
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border rounded-lg overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-indigo-50">
                           <TableHead className="text-xs font-bold w-12">Item</TableHead>
-                          <TableHead className="text-xs font-bold">Descricao</TableHead>
+                          <TableHead className="text-xs font-bold min-w-[220px]">Descricao</TableHead>
                           <TableHead className="text-xs font-bold text-right w-24">Previsto</TableHead>
                           <TableHead className="text-xs font-bold text-right w-24 bg-blue-50">No Periodo</TableHead>
                           <TableHead className="text-xs font-bold text-right w-24">Ate Periodo</TableHead>
@@ -2897,7 +2897,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         {execucaoFinanceira.itens.map((item: any, idx: number) => (
                           <TableRow key={item.etapa_id || idx}>
                             <TableCell className="text-sm font-mono">{item.numero_etapa}</TableCell>
-                            <TableCell className="text-sm">{item.descricao}</TableCell>
+                            <TableCell className="text-sm break-words whitespace-normal min-w-[220px]">{item.descricao}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>
