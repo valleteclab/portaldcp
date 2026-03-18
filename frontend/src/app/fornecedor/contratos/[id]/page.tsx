@@ -450,8 +450,31 @@ export default function FornecedorContratoDetalhePage() {
 
   // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
   const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
-    // Para tempo (mensal/null): espelha o fiscal com proporção de dias comerciais
-    if ((tipoMedicaoAtual === 'mensal' || tipoMedicaoAtual === null) &&
+    // MENSAL: cálculo por item (igual ao portal do órgão)
+    if (tipoMedicaoAtual === 'mensal') {
+      let noPeriodo = 0, atePeriodo = 0, aExecutar = 0;
+      const itensMens = itensCronograma.filter(ic => ic.unidade_medida === 'MENSAL');
+      for (const ic of itensMens) {
+        const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+        const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
+        if (qtdNoPeriodo <= 0) continue;
+        const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0;
+        const valorNoPeriodo = qtdNoPeriodo * vm;
+        const backendItem = execucaoFinanceira?.itens?.find((i: any) => i.etapa_id === ic.id);
+        const fromBackend = backendItem ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0) : 0;
+        const fromMigracao = Number(ic.quantidade_medida ?? 0) * vm;
+        const valorAprovadoAnterior = Math.max(fromBackend, fromMigracao);
+        const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo;
+        const valorTotal = Number(ic.valor_total) || 0;
+        noPeriodo += valorNoPeriodo;
+        atePeriodo += valorAtePeriodo;
+        aExecutar += Math.max(0, valorTotal - valorAtePeriodo);
+      }
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Para tipo null sem itens: fallback proporcional por dias comerciais
+    if (tipoMedicaoAtual === null &&
         novaMedicao.periodo_inicio && novaMedicao.periodo_fim &&
         contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim) {
       const vg = Number(contrato?.valor_global || 0);
@@ -2482,17 +2505,17 @@ export default function FornecedorContratoDetalhePage() {
                   {/* Execução Fiscal (Tempo ou Quantidade) */}
                   <div className="bg-white rounded-lg p-4 border border-blue-200">
                     <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
-                      {tipoMedicaoAtual === 'quantidade' ? (
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contrato?.boletim_por_quantidade)) ? (
                         <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</>
                       ) : (
                         <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>
                       )}
                     </h4>
                     <div className="space-y-2 text-sm">
-                      {tipoMedicaoAtual === 'quantidade' ? (() => {
-                        // Apenas itens com quantidade informada nesta medição
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contrato?.boletim_por_quantidade)) ? (() => {
+                        const forcarQtdMensal = !!(contrato?.boletim_por_quantidade);
                         const itensComQtd = itensCronograma.filter(ic => {
-                          if (ic.unidade_medida === 'MENSAL') return false;
+                          if (ic.unidade_medida === 'MENSAL' && !forcarQtdMensal) return false;
                           const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
                           return itemState && Number(itemState.quantidade_medida) > 0;
                         });
@@ -2502,9 +2525,10 @@ export default function FornecedorContratoDetalhePage() {
                         if (itensComQtd.length === 1) {
                           const ic = itensComQtd[0];
                           const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
-                          const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
-                          const qtdAprovada = Number(ic.quantidade_medida ?? 0);
-                          const qtdTotal = Number(ic.quantidade ?? 0);
+                          const isMensalComFlag = ic.unidade_medida === 'MENSAL' && forcarQtdMensal;
+                          const qtdNoPeriodo = isMensalComFlag ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0);
+                          const qtdAprovada = isMensalComFlag ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0);
+                          const qtdTotal = isMensalComFlag ? Math.round(Number(ic.quantidade ?? 0)) : Number(ic.quantidade ?? 0);
                           const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo;
                           const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
                           const unidade = ic.unidade_medida || 'UNIDADE';
@@ -2516,14 +2540,15 @@ export default function FornecedorContratoDetalhePage() {
                             </>
                           );
                         }
-                        // Múltiplos itens por quantidade — mostrar resumo por item
+                        // Múltiplos itens — mostrar resumo por item
                         return (
                           <>
                             {itensComQtd.map(ic => {
                               const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
-                              const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
-                              const qtdAprovada = Number(ic.quantidade_medida ?? 0);
-                              const qtdAExecutar = Math.max(0, Number(ic.quantidade) - qtdAprovada - qtdNoPeriodo);
+                              const isMensalComFlag = ic.unidade_medida === 'MENSAL' && forcarQtdMensal;
+                              const qtdNoPeriodo = isMensalComFlag ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0);
+                              const qtdAprovada = isMensalComFlag ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0);
+                              const qtdAExecutar = Math.max(0, (isMensalComFlag ? Math.round(Number(ic.quantidade)) : Number(ic.quantidade)) - qtdAprovada - qtdNoPeriodo);
                               return (
                                 <div key={ic.id} className="flex justify-between text-xs">
                                   <span className="text-gray-600 truncate mr-2">{ic.descricao?.substring(0, 30)}...</span>
