@@ -1098,17 +1098,33 @@ export class MedicaoService {
       throw new BadRequestException('Apenas medições submetidas ou parcialmente atestadas podem receber ateste');
     }
 
-    // Atestar todos os itens da medição
-    const itens = await this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } });
-    for (const item of itens) {
+    // Atestar todos os itens da medição (etapas + itens de quantidade)
+    const [itensEtapa, itensQuantidade] = await Promise.all([
+      this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } }),
+      this.itemMedicaoItemRepository.find({ where: { medicao_id: medicaoId } }),
+    ]);
+
+    for (const item of itensEtapa) {
       if (!item.atestado) {
         item.atestado = true;
         item.ateste_fiscal_nome = fiscalNome;
         item.ateste_data = new Date() as any;
       }
     }
-    if (itens.length > 0) {
-      await this.itemMedicaoRepository.save(itens);
+
+    for (const item of itensQuantidade) {
+      if (!item.atestado) {
+        item.atestado = true;
+        item.ateste_fiscal_nome = fiscalNome;
+        item.ateste_data = new Date() as any;
+      }
+    }
+
+    if (itensEtapa.length > 0) {
+      await this.itemMedicaoRepository.save(itensEtapa);
+    }
+    if (itensQuantidade.length > 0) {
+      await this.itemMedicaoItemRepository.save(itensQuantidade);
     }
 
     medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
@@ -1119,7 +1135,8 @@ export class MedicaoService {
     medicao.ateste_verificado_in_loco = dados?.verificado_in_loco || false;
 
     await this.medicaoRepository.save(medicao);
-    this.logger.log(`Medição #${medicao.numero_medicao} atestada (todos os itens) pelo fiscal ${fiscalNome}`);
+    const totalItens = itensEtapa.length + itensQuantidade.length;
+    this.logger.log(`Medição #${medicao.numero_medicao} atestada (todos os itens: ${totalItens}) pelo fiscal ${fiscalNome}`);
 
     // Notificar gestores/aprovadores que há medição aguardando aprovação
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
@@ -4247,6 +4264,73 @@ export class MedicaoService {
     });
   }
 
+  private async listarIdsItensMedicao(medicaoId: string): Promise<string[]> {
+    const [itensEtapa, itensQuantidade] = await Promise.all([
+      this.itemMedicaoRepository.find({
+        where: { medicao_id: medicaoId },
+        select: ['id'],
+      } as any),
+      this.itemMedicaoItemRepository.find({
+        where: { medicao_id: medicaoId },
+        select: ['id'],
+      } as any),
+    ]);
+
+    return [...itensEtapa.map(item => item.id), ...itensQuantidade.map(item => item.id)];
+  }
+
+  private async validarAutoEncaminhamentoAssinatura(
+    medicaoId: string,
+    itensSelecionadosIds?: string[],
+  ): Promise<{
+    habilitado: boolean;
+    itensSelecionadosValidos: string[];
+    totalItensMedicao: number;
+    itensSelecionadosTotal: number;
+  }> {
+    if (!Array.isArray(itensSelecionadosIds) || itensSelecionadosIds.length === 0) {
+      return {
+        habilitado: false,
+        itensSelecionadosValidos: [],
+        totalItensMedicao: 0,
+        itensSelecionadosTotal: 0,
+      };
+    }
+
+    const itensDisponiveis = await this.listarIdsItensMedicao(medicaoId);
+    if (itensDisponiveis.length === 0) {
+      throw new BadRequestException(
+        'Não foi possível habilitar autoencaminhamento: medição sem itens para ateste.',
+      );
+    }
+
+    const itensSelecionados = [...new Set(itensSelecionadosIds.filter(Boolean))];
+    const itensDisponiveisSet = new Set(itensDisponiveis);
+    const possuiItemInvalido = itensSelecionados.some(itemId => !itensDisponiveisSet.has(itemId));
+    if (possuiItemInvalido) {
+      throw new BadRequestException(
+        'Seleção inválida de itens para assinatura fiscal. Atualize a tela e tente novamente.',
+      );
+    }
+
+    const selecionouTodos =
+      itensSelecionados.length === itensDisponiveis.length &&
+      itensDisponiveis.every(itemId => itensSelecionados.includes(itemId));
+
+    if (!selecionouTodos) {
+      throw new BadRequestException(
+        'Autoencaminhamento só é permitido quando 100% dos itens estão selecionados.',
+      );
+    }
+
+    return {
+      habilitado: true,
+      itensSelecionadosValidos: itensSelecionados,
+      totalItensMedicao: itensDisponiveis.length,
+      itensSelecionadosTotal: itensSelecionados.length,
+    };
+  }
+
   /**
    * Cria um link temporário e envia WhatsApp para o fiscal assinar.
    */
@@ -4254,7 +4338,8 @@ export class MedicaoService {
     medicaoId: string,
     fiscalUsuarioId: string,
     solicitadoPorId: string,
-  ): Promise<{ link_enviado: boolean; fiscal_nome: string; expira_em: Date }> {
+    opcoes?: { itensSelecionadosIds?: string[] },
+  ): Promise<{ link_enviado: boolean; fiscal_nome: string; expira_em: Date; auto_enviar_aprovacao: boolean }> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
@@ -4267,6 +4352,11 @@ export class MedicaoService {
       where: { id: medicao.contrato_id },
       relations: ['orgao'],
     });
+
+    const autoEncaminhamento = await this.validarAutoEncaminhamentoAssinatura(
+      medicaoId,
+      opcoes?.itensSelecionadosIds,
+    );
 
     // Invalidar links anteriores pendentes para esta medição
     await this.linkAssinaturaRepository.update(
@@ -4289,6 +4379,12 @@ export class MedicaoService {
       solicitado_por_telefone: solicitante?.telefone || '',
       status: 'pendente',
       expira_em,
+      auto_enviar_aprovacao: autoEncaminhamento.habilitado,
+      itens_total_medicao: autoEncaminhamento.totalItensMedicao || null,
+      itens_selecionados_total: autoEncaminhamento.itensSelecionadosTotal || null,
+      itens_selecionados_ids: autoEncaminhamento.itensSelecionadosValidos.length > 0
+        ? autoEncaminhamento.itensSelecionadosValidos
+        : null,
     });
 
     // Montar mensagem WhatsApp
@@ -4322,7 +4418,12 @@ export class MedicaoService {
       }
     }
 
-    return { link_enviado: !!fiscal.telefone, fiscal_nome: fiscal.nome, expira_em };
+    return {
+      link_enviado: !!fiscal.telefone,
+      fiscal_nome: fiscal.nome,
+      expira_em,
+      auto_enviar_aprovacao: autoEncaminhamento.habilitado,
+    };
   }
 
   /**
@@ -4333,10 +4434,23 @@ export class MedicaoService {
       where: { medicao_id: medicaoId },
       order: { criado_em: 'DESC' } as any,
     });
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      select: ['id', 'status'],
+    } as any);
+
+    const autoEncaminhada =
+      !!link?.auto_enviar_aprovacao &&
+      link?.status === 'assinado' &&
+      medicao?.status === StatusMedicao.AGUARDANDO_APROVACAO;
+
     return {
       status: link?.status || 'sem_solicitacao',
       fiscal_nome: link?.fiscal_nome || null,
       atualizado_em: link?.atualizado_em || null,
+      auto_enviar_aprovacao: !!link?.auto_enviar_aprovacao,
+      auto_encaminhada: autoEncaminhada,
+      medicao_status: medicao?.status || null,
     };
   }
 
@@ -4419,6 +4533,39 @@ export class MedicaoService {
     }
   }
 
+  private async autoEncaminharAssinaturaFiscal(link: LinkAssinaturaFiscal): Promise<boolean> {
+    if (!link.auto_enviar_aprovacao) return false;
+
+    const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
+    if (!medicao) {
+      this.logger.warn(`Autoencaminhamento ignorado: medição ${link.medicao_id} não encontrada.`);
+      return false;
+    }
+
+    if (medicao.status === StatusMedicao.AGUARDANDO_APROVACAO || medicao.status === StatusMedicao.APROVADA) {
+      return true;
+    }
+
+    if (medicao.status !== StatusMedicao.SUBMETIDA && medicao.status !== StatusMedicao.PARCIALMENTE_ATESTADA) {
+      this.logger.warn(
+        `Autoencaminhamento ignorado: medição ${medicao.id} em status ${medicao.status}.`,
+      );
+      return false;
+    }
+
+    await this.atestarMedicao(
+      medicao.id,
+      link.fiscal_usuario_id,
+      link.fiscal_nome || 'Fiscal',
+      {
+        observacoes: 'Ateste automático após assinatura digital do fiscal.',
+        verificado_in_loco: false,
+      },
+    );
+    this.logger.log(`Medição ${medicao.id} autoencaminhada para aprovação após assinatura fiscal.`);
+    return true;
+  }
+
   /**
    * Valida OTP e registra a assinatura do fiscal via link público.
    * Retorna dados_pdf para o frontend regenerar o PDF com o layout correto.
@@ -4426,7 +4573,15 @@ export class MedicaoService {
   async assinarViaLinkPublico(
     token: string,
     codigoOtp: string,
-  ): Promise<{ sucesso: boolean; codigo_validacao: string; codigo_formatado: string; dados_pdf: any; medicao_id: string }> {
+  ): Promise<{
+    sucesso: boolean;
+    codigo_validacao: string;
+    codigo_formatado: string;
+    dados_pdf: any;
+    medicao_id: string;
+    auto_encaminhada_aprovacao: boolean;
+    medicao_status: StatusMedicao | null;
+  }> {
     const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
     if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
     if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
@@ -4471,6 +4626,18 @@ export class MedicaoService {
     // Atualizar status do link
     await this.linkAssinaturaRepository.update(link.id, { status: 'assinado' } as any);
 
+    let autoEncaminhadaAprovacao = false;
+    try {
+      autoEncaminhadaAprovacao = await this.autoEncaminharAssinaturaFiscal(link);
+    } catch (err) {
+      this.logger.warn(`Falha no autoencaminhamento pós-assinatura: ${err.message}`);
+    }
+
+    const medicaoAtualizada = await this.medicaoRepository.findOne({
+      where: { id: link.medicao_id },
+      select: ['id', 'status'],
+    } as any);
+
     // Notificar solicitante via WhatsApp
     if (link.solicitado_por_telefone) {
       const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
@@ -4478,8 +4645,11 @@ export class MedicaoService {
       const orgaoId = contrato?.orgao_id || '';
       const numMedicao = String(medicao?.numero_medicao || '').padStart(3, '0');
       const mensagemNotif =
-        `✅ *${link.fiscal_nome}* assinou digitalmente o boletim da *Medição Nº ${numMedicao}*.\n\n` +
-        `O boletim assinado já está disponível para download.`;
+        autoEncaminhadaAprovacao
+          ? `✅ *${link.fiscal_nome}* assinou digitalmente o boletim da *Medição Nº ${numMedicao}*.\n\n` +
+            `A medição foi enviada automaticamente para *aprovação do gestor*.`
+          : `✅ *${link.fiscal_nome}* assinou digitalmente o boletim da *Medição Nº ${numMedicao}*.\n\n` +
+            `O boletim assinado já está disponível para download.`;
       try {
         await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
           to: link.solicitado_por_telefone,
@@ -4496,6 +4666,8 @@ export class MedicaoService {
       codigo_formatado: assinatura.codigo_formatado,
       dados_pdf,
       medicao_id: link.medicao_id,
+      auto_encaminhada_aprovacao: autoEncaminhadaAprovacao,
+      medicao_status: (medicaoAtualizada?.status as StatusMedicao) || null,
     };
   }
 
