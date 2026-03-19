@@ -45,6 +45,18 @@ export class LinkAssinaturaFiscal {
   @Column({ type: 'text', nullable: true })
   motivo_recusa: string | null;
 
+  @Column({ default: false })
+  auto_enviar_aprovacao: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  itens_total_medicao: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  itens_selecionados_total: number | null;
+
+  @Column({ type: 'simple-array', nullable: true })
+  itens_selecionados_ids: string[] | null;
+
   @CreateDateColumn()
   criado_em: Date;
 

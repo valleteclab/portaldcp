@@ -187,13 +187,14 @@ export class ModalidadesContratoController {
   @Post('medicoes/:medicaoId/solicitar-assinatura-fiscal')
   async solicitarAssinaturaFiscal(
     @Param('medicaoId') medicaoId: string,
-    @Body() body: { fiscalUsuarioId: string },
+    @Body() body: { fiscalUsuarioId: string; itensSelecionadosIds?: string[] },
     @Req() request: { user: JwtPayload },
   ) {
     return this.medicaoService.solicitarAssinaturaFiscalWhatsApp(
       medicaoId,
       body.fiscalUsuarioId,
       request.user.sub,
+      { itensSelecionadosIds: body.itensSelecionadosIds },
     );
   }
 

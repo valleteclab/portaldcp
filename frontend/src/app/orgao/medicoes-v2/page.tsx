@@ -476,7 +476,18 @@ export default function MedicoesV2Page() {
           if (data && data.status && data.status !== 'sem_solicitacao') {
             setStatusAssinatura(data)
             if (data.status === 'pendente') setEtapaAssinatura('aguardando')
-            else if (data.status === 'assinado') setEtapaAssinatura('assinado')
+            else if (data.status === 'assinado') {
+              setEtapaAssinatura('assinado')
+              if (data.auto_encaminhada || data.medicao_status === 'AGUARDANDO_APROVACAO') {
+                alert('Assinatura concluída. A medição foi encaminhada automaticamente para aprovação do gestor.')
+                setModalAteste(null)
+                setAnexosAteste([])
+                setEtapaAssinatura('idle')
+                setFiscalSelecionado('')
+                setStatusAssinatura(null)
+                carregarDados()
+              }
+            }
             else if (data.status === 'recusado') setEtapaAssinatura('recusado')
           }
         })
@@ -1852,11 +1863,20 @@ export default function MedicoesV2Page() {
                         )
                         return
                       }
+                      const itensSelecionadosIds = itens
+                        .filter((item: any) => itensAteste[item.id]?.selecionado)
+                        .map((item: any) => item.id)
                       setLoadingAssinatura(true)
                       try {
                         const res = await authFetch(
                           `${API_URL}/api/contratos/medicoes/${modalAteste.id}/solicitar-assinatura-fiscal`,
-                          { method: 'POST', body: JSON.stringify({ fiscalUsuarioId: fiscalSelecionado }) }
+                          {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              fiscalUsuarioId: fiscalSelecionado,
+                              itensSelecionadosIds,
+                            }),
+                          }
                         )
                         if (res.ok) {
                           const data = await res.json()
@@ -1873,6 +1893,15 @@ export default function MedicoesV2Page() {
                               setEtapaAssinatura('assinado')
                               clearInterval(pollingRef.current!)
                               pollingRef.current = null
+                              if (s.auto_encaminhada || s.medicao_status === 'AGUARDANDO_APROVACAO') {
+                                alert('Assinatura concluída. A medição foi encaminhada automaticamente para aprovação do gestor.')
+                                setModalAteste(null)
+                                setAnexosAteste([])
+                                setEtapaAssinatura('idle')
+                                setFiscalSelecionado('')
+                                setStatusAssinatura(null)
+                                carregarDados()
+                              }
                             } else if (s.status === 'recusado') {
                               setEtapaAssinatura('recusado')
                               clearInterval(pollingRef.current!)
@@ -1919,7 +1948,9 @@ export default function MedicoesV2Page() {
               {etapaAssinatura === 'assinado' && (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
                   ✅ Boletim assinado digitalmente por <strong>{statusAssinatura?.fiscal_nome}</strong>.
-                  A medição está pronta para envio à aprovação do gestor.
+                  {statusAssinatura?.auto_encaminhada
+                    ? ' A medição foi encaminhada automaticamente para aprovação do gestor.'
+                    : ' A medição está pronta para envio à aprovação do gestor.'}
                 </div>
               )}
 
@@ -2010,14 +2041,17 @@ export default function MedicoesV2Page() {
               const temSelecionados = itens.some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)
               const { todosSelecionados } = resumirSelecaoItensAteste(itens)
               const fiscalNaoAssinou = etapaAssinatura !== 'assinado'
+              const jaAutoEncaminhada = !!statusAssinatura?.auto_encaminhada
               return (
                 <Button
                   className="bg-yellow-600 hover:bg-yellow-700 text-white"
                   onClick={executarAteste}
-                  disabled={actionLoading || !temSelecionados || !todosSelecionados || fiscalNaoAssinou}
+                  disabled={actionLoading || !temSelecionados || !todosSelecionados || fiscalNaoAssinou || jaAutoEncaminhada}
                   title={
                     !todosSelecionados
                       ? 'Selecione 100% dos itens ou devolva a medição inteira'
+                      : jaAutoEncaminhada
+                        ? 'Medição já encaminhada automaticamente para aprovação'
                       : fiscalNaoAssinou
                         ? 'Aguardando assinatura digital do fiscal'
                         : undefined
