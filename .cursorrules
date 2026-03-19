@@ -2,7 +2,7 @@
 
 ## Tarefa Atual: Melhorias fluxo Medições (3 PRs) (2026-03-19)
 
-- [ ] PR1: UX + regra 100% itens no envio para assinatura e ateste (sem parcial no fluxo guiado)
+- [X] PR1: UX + regra 100% itens no envio para assinatura e ateste (sem parcial no fluxo guiado)
 - [ ] PR2: Autoencaminhar para aprovação do gestor após assinatura fiscal (somente 100%)
 - [ ] PR3: WhatsApp para gestor/aprovador + anexos do fornecedor na tela de aprovação
 
