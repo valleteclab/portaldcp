@@ -33,6 +33,7 @@ import QRCode from 'qrcode';
 @Injectable()
 export class MedicaoService {
   private readonly logger = new Logger(MedicaoService.name);
+  private readonly uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
   constructor(
     @InjectRepository(Contrato)
@@ -1459,7 +1460,7 @@ export class MedicaoService {
   }
 
   private getBoletinsDir(): string {
-    return path.join(process.cwd(), 'uploads', 'boletins');
+    return path.join(this.uploadDir, 'boletins');
   }
 
   private getBoletimPdfFilename(medicaoId: string): string {
