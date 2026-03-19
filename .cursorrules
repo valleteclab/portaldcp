@@ -1,11 +1,5 @@
 # Scratchpad
 
-## Tarefa Atual: Erro de download PDF no Railway (UPLOAD_DIR) (2026-03-19)
-
-- [X] Analisar logs do usuário e localizar causa no backend
-- [X] Corrigir salvamento do boletim para usar `UPLOAD_DIR` (sem hardcode `process.cwd()/uploads`)
-- [X] Validar cenário simulando Railway com `UPLOAD_DIR=/tmp/...`
-- [X] Commit, push e atualizar PR
 
 ## Tarefa Atual: Boletim fornecedor com execução financeira divergente (2026-03-19)
 
@@ -435,5 +429,4 @@ Implementar sistema completo de autenticação JWT para proteger todas as APIs d
 - When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
 - Use 'gpt-4o' as the model name for OpenAI's GPT-4 with vision capabilities
 - Boletim de medição do fornecedor deve sempre usar PDF oficial gerado no backend; evitar geração/upload de PDF no frontend para não divergir nos totais de execução financeira
-- Em ambientes Railway, paths de boletim devem usar `process.env.UPLOAD_DIR`; hardcode em `process.cwd()/uploads` gera PDF em um diretório e o endpoint `/api/uploads/*` procura em outro
 
