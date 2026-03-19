@@ -5,7 +5,7 @@
 - [X] Analisar logs do usuário e localizar causa no backend
 - [X] Corrigir salvamento do boletim para usar `UPLOAD_DIR` (sem hardcode `process.cwd()/uploads`)
 - [X] Validar cenário simulando Railway com `UPLOAD_DIR=/tmp/...`
-- [ ] Commit, push e atualizar PR
+- [X] Commit, push e atualizar PR
 
 ## Tarefa Atual: Boletim fornecedor com execução financeira divergente (2026-03-19)
 
