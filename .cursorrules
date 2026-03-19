@@ -1,5 +1,14 @@
 # Scratchpad
 
+## Tarefa Atual: Boletim fornecedor com execução financeira divergente (2026-03-19)
+
+- [X] Entender relato: NO PERÍODO correto, ATÉ O PERÍODO e A EXECUTAR incorretos no PDF do fornecedor
+- [X] Revisar fluxo fornecedor x órgão de geração/download do boletim
+- [X] Remover fallback client-side (geração/upload de PDF no frontend fornecedor)
+- [X] Garantir endpoint fornecedor retornando PDF oficial backend (mesmo cálculo do órgão)
+- [ ] Validar via build/testes direcionados
+- [ ] Commit, push e atualização de PR
+
 ## Tarefa Concluída: Boletim Medição - NF, Até Período migração, OTP Fornecedor (2026-03-16)
 
 - [X] Número da NF: campo exibido no PDF (backend + frontend), valor ou "-" quando vazio

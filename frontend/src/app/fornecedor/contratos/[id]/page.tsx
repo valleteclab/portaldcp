@@ -55,7 +55,6 @@ import {
   Edit,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
-import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao';
 
 // ============ INTERFACES ============
 
@@ -1184,7 +1183,7 @@ export default function FornecedorContratoDetalhePage() {
       setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao);
       setOtpEtapa('sucesso');
 
-      await gerarEBaixarBoletim(otpMedicaoId, data.codigo_validacao, data.codigo_formatado);
+      await baixarPdfArmazenado(otpMedicaoId);
 
       carregarDados();
     } catch {
@@ -1197,9 +1196,6 @@ export default function FornecedorContratoDetalhePage() {
   const baixarPdfArmazenado = async (medicaoId: string): Promise<boolean> => {
     try {
       const resBoletim = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/boletim-oficial?fornecedorId=${fornecedor?.id || ''}`);
-      if (resBoletim.status === 404) {
-        return await gerarEBaixarBoletim(medicaoId);
-      }
       if (!resBoletim.ok) return false;
 
       const boletim = await resBoletim.json();
@@ -1226,163 +1222,6 @@ export default function FornecedorContratoDetalhePage() {
       }, 1000);
       return true;
     } catch {
-      return false;
-    }
-  };
-
-  const gerarEBaixarBoletim = async (medicaoId: string, codigoValidacao?: string, codigoFormatado?: string): Promise<boolean> => {
-    try {
-      // Buscar dados atualizados da medição e discriminações
-      const [resMedicao, resDiscriminacoes] = await Promise.all([
-        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}?fornecedorId=${fornecedor?.id || ''}`),
-        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
-      ]);
-      if (!resMedicao.ok) return false;
-      const med = await resMedicao.json();
-      const discriminacoesMed = resDiscriminacoes.ok ? await resDiscriminacoes.json() : [];
-
-      const competencia = med.competencia || derivarCompetencia(med.periodo_inicio);
-
-      // Processar itens de execução financeira
-      const itensExecucaoFinanceira = med.execucao_financeira?.itens || [];
-      const itensMedicaoCronograma = (med.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma');
-      const itensItem = itensExecucaoFinanceira.map((itemExecucao: any) => {
-        const itemMedicao = itensMedicaoCronograma.find((i: any) => Number(i.item_numero) === Number(itemExecucao.numero_etapa) || i.item_cronograma_id === itemExecucao.etapa_id);
-        const ic = itensCronograma.find((c: any) => Number(c.numero_item) === Number(itemExecucao.numero_etapa) || c.id === itemExecucao.etapa_id);
-        const vlrUnitario = Number(ic?.valor_unitario || itemMedicao?.item_valor_unitario || 0);
-        const vlrTotal = Number(ic?.valor_total || itemExecucao.valor_previsto || (itemMedicao?.item_quantidade_total || 0) * vlrUnitario);
-        const vlrNoPeriodo = Number((itemExecucao.no_periodo_global ?? itemExecucao.no_periodo_item ?? itemExecucao.no_periodo) || 0);
-        const vlrAtePeriodo = Number((itemExecucao.ate_periodo_global ?? itemExecucao.ate_periodo) || 0);
-        const vlrAcumAnterior = Math.max(0, vlrAtePeriodo - vlrNoPeriodo);
-        const qtdNoPeriodo = Number(itemMedicao?.quantidade_medida || 0);
-        const qtdAcum = Number(itemMedicao?.item_quantidade_acumulada || ic?.quantidade_medida || 0);
-        const qtdTotal = Number(ic?.quantidade || itemMedicao?.item_quantidade_total || 0);
-        const qtdAte = itemExecucao.quantidade_ate_periodo ?? (qtdAcum + qtdNoPeriodo);
-        const qtdExec = itemExecucao.quantidade_a_executar ?? Math.max(0, qtdTotal - qtdAte);
-        return {
-          numero: Number(itemExecucao.numero_etapa || 0),
-          descricao: itemExecucao.descricao || itemMedicao?.item_descricao || itemMedicao?.etapa_descricao || '',
-          unidade: itemMedicao?.item_unidade || ic?.unidade_medida || '',
-          quantidade_no_periodo: qtdNoPeriodo,
-          quantidade_acumulada_aprovada: qtdAcum,
-          quantidade_total_contrato: qtdTotal,
-          quantidade_ate_periodo: qtdAte,
-          quantidade_a_executar: qtdExec,
-          valor_no_periodo: vlrNoPeriodo,
-          valor_unitario: vlrUnitario,
-          valor_acumulado_anterior: vlrAcumAnterior,
-          valor_total_item: vlrTotal,
-        };
-      }).filter((item: any) => item.numero > 0 || item.descricao || item.valor_no_periodo > 0 || item.valor_total_item > 0);
-
-      // Processar etapas
-      const itensEtapa = (med.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({
-        numero: i.etapa_numero || 0,
-        descricao: i.etapa_descricao || '',
-        percentual_fisico: Number(i.etapa_percentual_fisico || 0),
-        percentual_executado_anterior: Number(i.percentual_executado_anterior || 0),
-        percentual_executado_atual: Number(i.percentual_executado_atual || 0),
-        valor_previsto: Number(i.etapa_valor_previsto || 0),
-        valor_medido: Number(i.valor_medido || 0),
-      }));
-
-      const totaisExecucaoFinanceira = med.execucao_financeira?.totais;
-
-      const dadosPdf: DadosMedicaoPdf = {
-        orgao_nome: contrato?.orgao?.nome || '',
-        numero_contrato: contrato?.numero_contrato || '',
-        objeto_contrato: contrato?.objeto || '',
-        fornecedor_nome: med.fornecedor_nome || fornecedor?.razao_social || '',
-        fornecedor_cnpj: fornecedor?.cpf_cnpj || '',
-        valor_total_contrato: Number(contrato?.valor_global || contrato?.valor_inicial || 0) || undefined,
-        data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined,
-        data_vigencia_fim: contrato?.data_vigencia_fim || undefined,
-        numero_medicao: med.numero_medicao || 1,
-        periodo_inicio: med.periodo_inicio || '',
-        periodo_fim: med.periodo_fim || '',
-        competencia,
-        valor_medido: Number(med.valor_medido || 0),
-        execucao_financeira_totais: totaisExecucaoFinanceira ? {
-          no_periodo: Number(totaisExecucaoFinanceira.no_periodo || 0),
-          ate_periodo: Number(totaisExecucaoFinanceira.ate_periodo || 0),
-          a_executar: Number(totaisExecucaoFinanceira.a_executar || 0),
-        } : undefined,
-        nota_fiscal_numero: med.nota_fiscal_numero || undefined,
-        nota_fiscal_valor: med.nota_fiscal_valor ? Number(med.nota_fiscal_valor) : undefined,
-        execucao_fiscal: med.execucao_fiscal || undefined,
-        execucao_fiscal_por_quantidade: !!(contrato?.boletim_por_quantidade ?? execucaoFinanceira?.execucao_fiscal_por_quantidade),
-        itens: itensItem.length > 0 ? itensItem : undefined,
-        etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-        itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
-          numero: ic.numero_item || idx + 1,
-          descricao: ic.descricao || '',
-          unidade: ic.unidade_medida || '',
-          quantidade: Number(ic.quantidade || 0),
-          valor_unitario: Number(ic.valor_unitario || 0),
-          valor_total: Number(ic.valor_total || 0),
-        })) : undefined,
-        discriminacoes: discriminacoesMed && discriminacoesMed.length > 0 ? discriminacoesMed.map((d: any, idx: number) => ({
-          numero: d.numero || idx + 1,
-          descricao: d.descricao || d.tipo_despesa || '',
-          valor: Number(d.valor || 0),
-          percentual: Number(d.percentual || 0),
-        })) : undefined,
-        url_validacao: `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`,
-      };
-
-      if (med.data_submissao || codigoValidacao || codigoFormatado) {
-        dadosPdf.assinatura_fornecedor = {
-          nome: med.fornecedor_nome || fornecedor?.razao_social || '',
-          cnpj: fornecedor?.cpf_cnpj || '',
-          cargo: 'Fornecedor / Contratado',
-          data_hora: med.data_submissao
-            ? new Date(med.data_submissao).toLocaleString('pt-BR')
-            : new Date().toLocaleString('pt-BR'),
-          codigo_validacao: codigoFormatado || codigoValidacao,
-        };
-      }
-
-      if (med.ateste_fiscal_nome) {
-        dadosPdf.assinatura_fiscal = {
-          nome: med.ateste_fiscal_nome,
-          cargo: 'Fiscal de Contrato',
-          data_hora: med.ateste_data ? new Date(med.ateste_data).toLocaleString('pt-BR') : '',
-        };
-      }
-
-      const pdfBlob = gerarPdfMedicao(dadosPdf);
-      const objectUrl = window.URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = `boletim_medicao_${medicaoId}.pdf`;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        link.remove();
-        window.URL.revokeObjectURL(objectUrl);
-      }, 1000);
-
-      // Upload do PDF para o servidor
-      try {
-        const formData = new FormData();
-        formData.append('arquivo', pdfBlob, `boletim_${medicaoId}.pdf`);
-        
-        const uploadRes = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/upload-boletim`, {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
-          console.log('PDF armazenado com sucesso:', uploadData.url);
-        }
-      } catch (err) {
-        console.warn('Erro ao fazer upload do PDF (continuando):', err);
-      }
-      return true;
-    } catch (err) {
-      console.error('Erro ao gerar PDF do boletim:', err);
       return false;
     }
   };

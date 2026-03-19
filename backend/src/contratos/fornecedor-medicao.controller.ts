@@ -136,7 +136,9 @@ export class FornecedorMedicaoController {
     const medicao = await this.medicaoService.buscarMedicao(medicaoId);
     await this.validarAcessoFornecedor(medicao.contrato_id, fornecedorId);
 
-    return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+    // Sempre regenera no backend para garantir que o fornecedor baixe
+    // o mesmo boletim oficial (cálculo/estrutura) utilizado pelo órgão.
+    return this.medicaoService.gerarPdfOficialMedicao(medicaoId);
   }
 
   /**
