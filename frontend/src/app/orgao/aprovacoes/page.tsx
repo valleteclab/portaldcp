@@ -1305,7 +1305,7 @@ export default function CentralAprovacoesPage() {
                         ) : (
                           <div className="mt-4">
                             <h4 className="font-medium mb-2">Itens ({requisicao.itens?.length || 0})</h4>
-                            <Table>
+                            <Table className="table-fixed">
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="w-16">#</TableHead>
@@ -1662,7 +1662,7 @@ export default function CentralAprovacoesPage() {
                               <DollarSign className="h-4 w-4 text-amber-600" />
                               Discriminacao das Despesas
                             </h4>
-                            <Table>
+                            <Table className="table-fixed">
                               <TableHeader>
                                 <TableRow className="bg-amber-50">
                                   <TableHead className="text-xs font-bold w-12">Item</TableHead>
@@ -1675,7 +1675,7 @@ export default function CentralAprovacoesPage() {
                                 {discriminacoesAprov[medicao.id].map((d: any, idx: number) => (
                                   <TableRow key={d.id || idx}>
                                     <TableCell className="text-sm font-mono">{d.numero_item || idx + 1}</TableCell>
-                                    <TableCell className="text-sm">
+                                    <TableCell className="text-sm whitespace-normal break-words max-w-[520px] align-top">
                                       {d.descricao}
                                       {d.corrigido_por_nome && <span className="ml-1 text-xs text-amber-600">(corrigido)</span>}
                                     </TableCell>
@@ -1716,7 +1716,9 @@ export default function CentralAprovacoesPage() {
                                 {execucaoAprov[medicao.id].itens.map((item: any, idx: number) => (
                                   <TableRow key={item.etapa_id || idx}>
                                     <TableCell className="text-sm font-mono">{item.numero_etapa}</TableCell>
-                                    <TableCell className="text-sm">{item.descricao}</TableCell>
+                                    <TableCell className="text-sm whitespace-normal break-words max-w-[520px] align-top">
+                                      {item.descricao}
+                                    </TableCell>
                                     <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
                                     <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
                                     <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>
