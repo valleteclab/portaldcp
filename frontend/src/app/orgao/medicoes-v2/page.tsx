@@ -485,20 +485,29 @@ export default function MedicoesV2Page() {
     setLoadingAteste(false)
   }
 
+  const resumirSelecaoItensAteste = (itens: any[]) => {
+    const total = itens.length
+    const selecionados = itens.filter((item: any) => itensAteste[item.id]?.selecionado).length
+    const naoSelecionados = total - selecionados
+    const todosSelecionados = total > 0 && naoSelecionados === 0
+    return { total, selecionados, naoSelecionados, todosSelecionados }
+  }
+
   const executarAteste = async () => {
     if (!modalAteste) return
     const itens = (modalAteste.itens || []) as any[]
+    const { todosSelecionados, naoSelecionados } = resumirSelecaoItensAteste(itens)
+    if (!todosSelecionados) {
+      alert(
+        `Para atestar, é obrigatório selecionar 100% dos itens. ${naoSelecionados} item(ns) sem seleção. ` +
+        'Se houver divergência, devolva a medição inteira ao fornecedor.',
+      )
+      return
+    }
     const itensSelecionados = itens.filter((item: any) => itensAteste[item.id]?.selecionado && !item.atestado)
-    const itensCancelarAteste = itens.filter((item: any) => item.atestado && !itensAteste[item.id]?.selecionado).map((i: any) => i.id)
-    const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
-    const todosSerao = jaAtestadosMantidos + itensSelecionados.length === itens.length && itens.length > 0
-    const temAcao = itensSelecionados.length > 0 || itensCancelarAteste.length > 0
-    if (!temAcao) { alert('Selecione itens para atestar ou desmarque itens para cancelar.'); return }
-    if (!todosSerao && itensSelecionados.length > 0) {
-      const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
-      if (itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()) {
-        alert('No ateste parcial, informe o motivo da devolução.'); return
-      }
+    if (itensSelecionados.length === 0) {
+      alert('Todos os itens já estão atestados nesta medição.')
+      return
     }
     setActionLoading(true)
     try {
@@ -512,10 +521,8 @@ export default function MedicoesV2Page() {
             item_id: item.id,
             observacoes: itensAteste[item.id]?.observacoes || null,
           })),
-          itens_cancelar_ateste: itensCancelarAteste.length > 0 ? itensCancelarAteste : undefined,
           observacoes_gerais: formAteste.observacoes || null,
           verificado_in_loco: formAteste.verificado_in_loco,
-          motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
         }),
       })
       if (!res.ok) {
@@ -1628,7 +1635,6 @@ export default function MedicoesV2Page() {
                     {(modalAteste.itens || []).map((item: any, idx: number) => {
                       const jaAtestado = !!item.atestado
                       const selecionado = itensAteste[item.id]?.selecionado || false
-                      const podeEditarAteste = ['SUBMETIDA', 'PARCIALMENTE_ATESTADA'].includes(modalAteste.status || '')
                       const isItemCronograma = item.tipo_item === 'item_cronograma'
                       const descricao = isItemCronograma
                         ? (item.item_descricao || item.etapa_descricao || `Item ${idx + 1}`)
@@ -1645,7 +1651,7 @@ export default function MedicoesV2Page() {
                             <input
                               type="checkbox"
                               checked={selecionado}
-                              disabled={jaAtestado && !podeEditarAteste}
+                              disabled={jaAtestado}
                               onChange={e => setItensAteste(prev => ({
                                 ...prev,
                                 [item.id]: { ...prev[item.id], selecionado: e.target.checked },
@@ -1770,24 +1776,28 @@ export default function MedicoesV2Page() {
                 />
               </div>
 
-              {/* Motivo devolução parcial */}
+              {/* Regra de negócio do fluxo: assinatura/ateste somente com 100% dos itens selecionados */}
               {(() => {
                 const itens = (modalAteste.itens || []) as any[]
-                const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
-                const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
-                const todosSerao = jaAtestadosMantidos + novosAtestados === itens.length && itens.length > 0
-                return !todosSerao && novosAtestados > 0 ? (
-                  <div className="space-y-2 p-3 border border-amber-200 rounded-lg bg-amber-50/50">
-                    <Label className="text-amber-800">Motivo da devolução (itens não atestados) *</Label>
-                    <Textarea
-                      placeholder="Informe o motivo para devolver ao fornecedor..."
-                      value={formAteste.motivo_devolucao_parcial}
-                      onChange={e => setFormAteste({ ...formAteste, motivo_devolucao_parcial: e.target.value })}
-                      rows={2}
-                      className="border-amber-200"
-                    />
+                const { total, selecionados, naoSelecionados, todosSelecionados } = resumirSelecaoItensAteste(itens)
+                return (
+                  <div className={`space-y-1 p-3 border rounded-lg text-sm ${todosSelecionados ? 'border-green-200 bg-green-50/70' : 'border-amber-200 bg-amber-50/70'}`}>
+                    <p className={todosSelecionados ? 'text-green-800 font-medium' : 'text-amber-800 font-medium'}>
+                      Seleção atual: {selecionados}/{total} itens
+                    </p>
+                    {!todosSelecionados && (
+                      <p className="text-amber-700">
+                        Faltam {naoSelecionados} item(ns). Para assinatura fiscal e ateste, selecione 100% dos itens.
+                        Se houver divergência, devolva a medição inteira ao fornecedor.
+                      </p>
+                    )}
+                    {todosSelecionados && (
+                      <p className="text-green-700">
+                        Todos os itens estão selecionados. Após assinatura do fiscal, a medição segue para aprovação do gestor.
+                      </p>
+                    )}
                   </div>
-                ) : null
+                )
               })()}
             </div>
           )}
@@ -1803,6 +1813,18 @@ export default function MedicoesV2Page() {
               </div>
 
               {etapaAssinatura === 'idle' && (
+                <div className="space-y-2">
+                  {(() => {
+                    const itens = (modalAteste.itens || []) as any[]
+                    const { total, selecionados, todosSelecionados } = resumirSelecaoItensAteste(itens)
+                    return (
+                      <p className="text-xs text-indigo-700">
+                        Fluxo automático: após assinatura do fiscal, a medição seguirá para aprovação do gestor.
+                        {` (${selecionados}/${total} itens selecionados)`}
+                        {!todosSelecionados && ' Se houver item divergente, devolva a medição inteira.'}
+                      </p>
+                    )
+                  })()}
                 <div className="flex gap-2">
                   <Select value={fiscalSelecionado} onValueChange={setFiscalSelecionado}>
                     <SelectTrigger className="flex-1 text-sm">
@@ -1819,8 +1841,17 @@ export default function MedicoesV2Page() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={!fiscalSelecionado || loadingAssinatura}
+                    disabled={!fiscalSelecionado || loadingAssinatura || !resumirSelecaoItensAteste((modalAteste.itens || []) as any[]).todosSelecionados}
                     onClick={async () => {
+                      const itens = (modalAteste.itens || []) as any[]
+                      const { naoSelecionados, todosSelecionados } = resumirSelecaoItensAteste(itens)
+                      if (!todosSelecionados) {
+                        alert(
+                          `Para enviar ao fiscal, selecione 100% dos itens. ${naoSelecionados} item(ns) sem seleção. ` +
+                          'Se houver divergência, devolva a medição inteira ao fornecedor.',
+                        )
+                        return
+                      }
                       setLoadingAssinatura(true)
                       try {
                         const res = await authFetch(
@@ -1861,6 +1892,7 @@ export default function MedicoesV2Page() {
                     {loadingAssinatura ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enviar para assinar'}
                   </Button>
                 </div>
+                </div>
               )}
 
               {etapaAssinatura === 'aguardando' && (
@@ -1886,7 +1918,8 @@ export default function MedicoesV2Page() {
 
               {etapaAssinatura === 'assinado' && (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-                  ✅ Boletim assinado digitalmente por <strong>{statusAssinatura?.fiscal_nome}</strong>
+                  ✅ Boletim assinado digitalmente por <strong>{statusAssinatura?.fiscal_nome}</strong>.
+                  A medição está pronta para envio à aprovação do gestor.
                 </div>
               )}
 
@@ -1975,24 +2008,24 @@ export default function MedicoesV2Page() {
             {modalAteste && (() => {
               const itens = (modalAteste.itens || []) as any[]
               const temSelecionados = itens.some((i: any) => !i.atestado && itensAteste[i.id]?.selecionado)
-              const temCancelados = itens.some((i: any) => i.atestado && !itensAteste[i.id]?.selecionado)
-              const temAcao = temSelecionados || temCancelados
-              const novosAtestados = itens.filter((i: any) => !i.atestado && itensAteste[i.id]?.selecionado).length
-              const jaAtestadosMantidos = itens.filter((i: any) => i.atestado && itensAteste[i.id]?.selecionado).length
-              const todosSerao = jaAtestadosMantidos + novosAtestados === itens.length && itens.length > 0
-              const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
-              const motivoObrigatorio = !todosSerao && temSelecionados && itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()
+              const { todosSelecionados } = resumirSelecaoItensAteste(itens)
               const fiscalNaoAssinou = etapaAssinatura !== 'assinado'
               return (
                 <Button
                   className="bg-yellow-600 hover:bg-yellow-700 text-white"
                   onClick={executarAteste}
-                  disabled={actionLoading || !temAcao || motivoObrigatorio || fiscalNaoAssinou}
-                  title={fiscalNaoAssinou ? 'Aguardando assinatura digital do fiscal' : undefined}
+                  disabled={actionLoading || !temSelecionados || !todosSelecionados || fiscalNaoAssinou}
+                  title={
+                    !todosSelecionados
+                      ? 'Selecione 100% dos itens ou devolva a medição inteira'
+                      : fiscalNaoAssinou
+                        ? 'Aguardando assinatura digital do fiscal'
+                        : undefined
+                  }
                 >
                   {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   <ClipboardCheck className="w-4 h-4 mr-2" />
-                  {temCancelados && !temSelecionados ? 'Cancelar Atestes' : todosSerao ? 'Atestar Selecionados' : 'Atestar e Devolver'}
+                  Atestar Medição
                 </Button>
               )
             })()}

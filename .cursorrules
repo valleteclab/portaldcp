@@ -1,5 +1,17 @@
 # Scratchpad
 
+## Tarefa Atual: Melhorias fluxo Medições (3 PRs) (2026-03-19)
+
+- [X] PR1: UX + regra 100% itens no envio para assinatura e ateste (sem parcial no fluxo guiado)
+- [ ] PR2: Autoencaminhar para aprovação do gestor após assinatura fiscal (somente 100%)
+- [ ] PR3: WhatsApp para gestor/aprovador + anexos do fornecedor na tela de aprovação
+
+## Tarefa Atual: Erro de download PDF no Railway (UPLOAD_DIR) (2026-03-19)
+
+- [X] Analisar logs do usuário e localizar causa no backend
+- [X] Corrigir salvamento do boletim para usar `UPLOAD_DIR` (sem hardcode `process.cwd()/uploads`)
+- [X] Validar cenário simulando Railway com `UPLOAD_DIR=/tmp/...`
+- [X] Commit, push e atualizar PR
 
 ## Tarefa Atual: Boletim fornecedor com execução financeira divergente (2026-03-19)
 
