@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2,
@@ -32,6 +32,7 @@ import {
   MessageCircle,
   FileDown,
   PenLine,
+  Paperclip,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -141,6 +142,7 @@ interface OSPendente {
 
 interface MedicaoPendente {
   id: string;
+  contrato_id?: string;
   numero_medicao: number;
   periodo_inicio: string;
   periodo_fim: string;
@@ -221,6 +223,7 @@ const formatarCNPJ = (cnpj: string) => {
 
 export default function CentralAprovacoesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('contratos');
 
@@ -247,15 +250,17 @@ export default function CentralAprovacoesPage() {
   const [discriminacoesAprov, setDiscriminacoesAprov] = useState<Record<string, any[]>>({});
   const [execucaoAprov, setExecucaoAprov] = useState<Record<string, any>>({});
   const [assinaturasAprov, setAssinaturasAprov] = useState<Record<string, any[]>>({});
+  const [anexosAprov, setAnexosAprov] = useState<Record<string, any[]>>({});
   const [baixandoBoletim, setBaixandoBoletim] = useState<string | null>(null);
 
   const carregarDadosMedicaoExpanded = async (medicaoId: string, contratoId: string) => {
     if (discriminacoesAprov[medicaoId]) return; // já carregado
     try {
-      const [discRes, execRes, assinRes] = await Promise.all([
+      const [discRes, execRes, assinRes, anexRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/discriminacoes`),
         authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${medicaoId}`),
         authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/assinaturas`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/anexos`),
       ]);
       if (discRes.ok) {
         const discData = await discRes.json();
@@ -268,6 +273,12 @@ export default function CentralAprovacoesPage() {
       if (assinRes.ok) {
         const assinData = await assinRes.json();
         setAssinaturasAprov(prev => ({ ...prev, [medicaoId]: Array.isArray(assinData) ? assinData : [] }));
+      }
+      if (anexRes.ok) {
+        const anexData = await anexRes.json();
+        setAnexosAprov(prev => ({ ...prev, [medicaoId]: Array.isArray(anexData) ? anexData : [] }));
+      } else {
+        setAnexosAprov(prev => ({ ...prev, [medicaoId]: [] }));
       }
     } catch { /* ignore */ }
   };
@@ -330,6 +341,15 @@ export default function CentralAprovacoesPage() {
   const [showRejeitarMedicao, setShowRejeitarMedicao] = useState(false);
   const [observacaoMedicao, setObservacaoMedicao] = useState('');
   const [motivoRejeicaoMedicao, setMotivoRejeicaoMedicao] = useState('');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (!tabParam) return;
+    const tabsPermitidas = new Set(['contratos', 'requisicoes', 'medicoes', 'ordens-servico']);
+    if (tabsPermitidas.has(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // Verifica permissões
   useEffect(() => {
@@ -1341,8 +1361,9 @@ export default function CentralAprovacoesPage() {
                   <Collapsible open={expandedId === medicao.id} onOpenChange={() => {
                     const newId = expandedId === medicao.id ? null : medicao.id;
                     setExpandedId(newId);
-                    if (newId && medicao.contrato) {
-                      carregarDadosMedicaoExpanded(medicao.id, medicao.contrato.id);
+                    const contratoId = medicao.contrato?.id || medicao.contrato_id;
+                    if (newId && contratoId) {
+                      carregarDadosMedicaoExpanded(medicao.id, contratoId);
                     }
                   }}>
                     <div className="p-4 hover:bg-gray-50 transition-colors">
@@ -1566,6 +1587,70 @@ export default function CentralAprovacoesPage() {
                                   : <FileDown className="h-4 w-4" />}
                                 Baixar Boletim Assinado
                               </Button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Anexos enviados pelo fornecedor */}
+                        {anexosAprov[medicao.id] !== undefined && (
+                          <div className="mt-4 bg-white p-4 rounded-lg">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                              <Paperclip className="h-4 w-4 text-indigo-600" />
+                              Documentos e Evidências do Fornecedor
+                              <Badge variant="outline" className="ml-1 text-xs">
+                                {anexosAprov[medicao.id]?.length || 0}
+                              </Badge>
+                            </h4>
+
+                            {(anexosAprov[medicao.id]?.length || 0) === 0 ? (
+                              <p className="text-sm text-gray-500">
+                                Nenhum anexo enviado pelo fornecedor nesta medição.
+                              </p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {anexosAprov[medicao.id].map((anexo: any) => {
+                                  const anexoUrl = anexo?.url
+                                    ? (anexo.url.startsWith('http') ? anexo.url : `${API_URL}${anexo.url}`)
+                                    : '';
+                                  const isFoto = anexo?.tipo === 'FOTO';
+                                  return (
+                                    <div key={anexo.id} className="border rounded-lg overflow-hidden bg-white">
+                                      {isFoto && anexoUrl ? (
+                                        <img
+                                          src={anexoUrl}
+                                          alt={anexo.descricao || anexo.nome_original || 'Anexo da medição'}
+                                          className="w-full h-28 object-cover bg-gray-100"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-28 flex items-center justify-center bg-gray-50">
+                                          <FileText className="h-8 w-8 text-gray-400" />
+                                        </div>
+                                      )}
+                                      <div className="p-2 space-y-1">
+                                        <p className="text-xs font-medium text-gray-800 line-clamp-2">
+                                          {anexo.descricao || anexo.nome_original || 'Arquivo'}
+                                        </p>
+                                        <p className="text-[11px] text-gray-500">
+                                          {(anexo.tamanho_bytes || 0) > 0
+                                            ? `${Math.max(1, Math.round((anexo.tamanho_bytes || 0) / 1024))} KB`
+                                            : 'Tamanho não informado'}
+                                        </p>
+                                        {anexoUrl && (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-xs gap-1.5"
+                                            onClick={() => window.open(anexoUrl, '_blank')}
+                                          >
+                                            <Eye className="h-3.5 w-3.5" />
+                                            Abrir anexo
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
                           </div>
                         )}

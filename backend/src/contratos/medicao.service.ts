@@ -15,7 +15,7 @@ import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-me
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
-import { Usuario } from '../usuarios/entities/usuario.entity';
+import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities/notificacao.entity';
@@ -2762,6 +2762,33 @@ export class MedicaoService {
   }
 
   /**
+   * Busca usuários que podem aprovar (gestor/aprovador) para central de aprovações.
+   * Prioriza usuários com permissão explícita e admins; faz fallback para todos ativos.
+   */
+  private async buscarAprovadoresOrgao(orgaoId: string): Promise<{ id: string; email?: string; telefone?: string }[]> {
+    try {
+      const aprovadores = await this.usuarioRepository
+        .createQueryBuilder('u')
+        .select(['u.id', 'u.email', 'u.telefone'])
+        .where('u.orgao_id = :orgaoId', { orgaoId })
+        .andWhere('u.ativo = true')
+        .andWhere('(u.pode_aprovar_requisicoes = true OR u.role = :adminRole)', {
+          adminRole: RoleUsuario.ADMIN,
+        })
+        .getMany();
+
+      if (aprovadores.length > 0) {
+        return aprovadores.map(u => ({ id: u.id, email: u.email, telefone: u.telefone }));
+      }
+
+      return this.buscarUsuariosOrgao(orgaoId);
+    } catch (e) {
+      this.logger.warn(`Não foi possível buscar aprovadores do órgão ${orgaoId}: ${(e as any).message}`);
+      return this.buscarUsuariosOrgao(orgaoId);
+    }
+  }
+
+  /**
    * Busca o fornecedor (user login) para enviar notificações.
    * Usa o fornecedor_id do contrato como usuario_id (pois fornecedores logam com seu ID).
    */
@@ -2795,7 +2822,7 @@ export class MedicaoService {
 
   private async notificarAtesteMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string): Promise<void> {
     // Notificar gestores/aprovadores do órgão
-    const destinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
+    const destinatarios = await this.buscarAprovadoresOrgao(contrato.orgao_id);
     if (destinatarios.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoAtestada(
