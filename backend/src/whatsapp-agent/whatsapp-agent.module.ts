@@ -6,10 +6,11 @@ import { WhatsappAgentService } from './whatsapp-agent.service';
 import { FornecedoresModule } from '../fornecedores/fornecedores.module';
 import { IaModule } from '../ia/ia.module';
 import { SystemConfigModule } from '../system-config/system-config.module';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([WhatsappAgentSession]),
+    TypeOrmModule.forFeature([WhatsappAgentSession, Orgao]),
     FornecedoresModule,
     IaModule,
     SystemConfigModule,

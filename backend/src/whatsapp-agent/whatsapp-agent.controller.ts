@@ -1,6 +1,9 @@
 import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Public } from '../auth/public.decorator';
 import { WhatsappAgentService } from './whatsapp-agent.service';
+import { Repository } from 'typeorm';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 
 /**
  * Recebe webhooks do Z-API com mensagens enviadas pelos fornecedores.
@@ -10,7 +13,11 @@ import { WhatsappAgentService } from './whatsapp-agent.service';
 export class WhatsappAgentController {
   private readonly logger = new Logger(WhatsappAgentController.name);
 
-  constructor(private readonly agentService: WhatsappAgentService) {}
+  constructor(
+    private readonly agentService: WhatsappAgentService,
+    @InjectRepository(Orgao)
+    private readonly orgaoRepository: Repository<Orgao>,
+  ) {}
 
   @Public()
   @Post('webhook')
@@ -29,11 +36,17 @@ export class WhatsappAgentController {
       payload?.document?.caption ||
       '';
     const nomeContato: string = payload?.senderName || '';
+    const instanceId: string = payload?.instanceId || '';
 
     if (!phone || !mensagem) return { ok: true };
 
+    const orgao = instanceId
+      ? await this.orgaoRepository.findOne({ where: { whatsapp_instance_id: instanceId } })
+      : null;
+    const orgaoId = orgao?.id;
+
     // Processar de forma assíncrona para responder ao ZAPI imediatamente
-    this.agentService.processarMensagem(phone, mensagem, nomeContato).catch((err) =>
+    this.agentService.processarMensagem(phone, mensagem, nomeContato, orgaoId).catch((err) =>
       this.logger.error(`Erro ao processar mensagem do agente: ${err.message}`),
     );
 
