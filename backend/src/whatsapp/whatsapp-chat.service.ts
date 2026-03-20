@@ -5,6 +5,7 @@ import { Subject } from 'rxjs';
 import { WhatsappConversa } from './entities/whatsapp-conversa.entity';
 import { WhatsappMensagem } from './entities/whatsapp-mensagem.entity';
 import { WhatsAppService } from './whatsapp.service';
+import { WhatsappAgentService } from '../whatsapp-agent/whatsapp-agent.service';
 
 export interface SseEventData {
   orgaoId: string;
@@ -23,6 +24,7 @@ export class WhatsappChatService {
     @InjectRepository(WhatsappMensagem)
     private readonly mensagemRepo: Repository<WhatsappMensagem>,
     private readonly whatsappService: WhatsAppService,
+    private readonly agentService: WhatsappAgentService,
   ) {}
 
   async listarConversas(orgaoId: string): Promise<WhatsappConversa[]> {
@@ -124,6 +126,11 @@ export class WhatsappChatService {
 
     this.novaMensagem$.next({ orgaoId, conversaId: conversa.id, mensagem });
     this.logger.log(`Mensagem recebida de ${phone} → conversa ${conversa.id}`);
+
+    // Processar mensagem pelo agente de IA (não bloqueia resposta)
+    this.agentService.processarMensagem(phone, conteudo, nomeContato).catch((err) => {
+      this.logger.error(`Erro ao processar mensagem no agente: ${err.message}`);
+    });
   }
 
   async atualizarStatusMensagem(zapiMessageId: string, status: 'ENTREGUE' | 'LIDA' | 'FALHA'): Promise<void> {

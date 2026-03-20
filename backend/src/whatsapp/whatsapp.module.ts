@@ -9,11 +9,13 @@ import { WhatsappChatService } from './whatsapp-chat.service';
 import { WhatsappChatController } from './whatsapp-chat.controller';
 import { WhatsappConversa } from './entities/whatsapp-conversa.entity';
 import { WhatsappMensagem } from './entities/whatsapp-mensagem.entity';
+import { WhatsappAgentModule } from '../whatsapp-agent/whatsapp-agent.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Orgao, WhatsappConversa, WhatsappMensagem]),
     SystemConfigModule,
+    WhatsappAgentModule,
   ],
   controllers: [WhatsappChatController],
   providers: [WhatsAppService, ZApiProvider, MetaChatwootProvider, WhatsappChatService],
