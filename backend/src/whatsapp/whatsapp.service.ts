@@ -139,28 +139,44 @@ export class WhatsAppService {
   }
 
   async enviarSistema(phone: string, mensagem: string): Promise<boolean> {
-    const instanceId = await this.systemConfigService.getValue('WHATSAPP_ZAPI_INSTANCE_ID');
-    const tokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_TOKEN');
-    const clientTokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_CLIENT_TOKEN');
-
     let config: WhatsAppConfig | null = null;
 
-    if (instanceId && tokenEnc && clientTokenEnc) {
+    // 1. Tentar system_config do banco (clientToken opcional)
+    const instanceId = await this.systemConfigService.getValue('WHATSAPP_ZAPI_INSTANCE_ID');
+    const tokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_TOKEN');
+    if (instanceId && tokenEnc) {
+      const clientTokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_CLIENT_TOKEN');
       config = {
         instanceId,
         token: this.decryptText(tokenEnc),
-        clientToken: this.decryptText(clientTokenEnc),
+        clientToken: clientTokenEnc ? this.decryptText(clientTokenEnc) : undefined,
       };
-    } else if (
-      process.env.WHATSAPP_ZAPI_INSTANCE_ID &&
-      process.env.WHATSAPP_ZAPI_TOKEN &&
-      process.env.WHATSAPP_ZAPI_CLIENT_TOKEN
-    ) {
+    }
+
+    // 2. Tentar env vars (clientToken opcional)
+    if (!config && process.env.WHATSAPP_ZAPI_INSTANCE_ID && process.env.WHATSAPP_ZAPI_TOKEN) {
       config = {
         instanceId: process.env.WHATSAPP_ZAPI_INSTANCE_ID,
         token: process.env.WHATSAPP_ZAPI_TOKEN,
         clientToken: process.env.WHATSAPP_ZAPI_CLIENT_TOKEN,
       };
+    }
+
+    // 3. Fallback: usar credenciais de qualquer órgão configurado
+    if (!config) {
+      const orgao = await this.orgaoRepository.findOne({
+        where: {},
+        select: ['id', 'whatsapp_provider', 'whatsapp_instance_id', 'whatsapp_token', 'whatsapp_client_token'],
+        order: { id: 'ASC' },
+      });
+      if (orgao?.whatsapp_instance_id && orgao?.whatsapp_token) {
+        config = {
+          instanceId: orgao.whatsapp_instance_id,
+          token: this.decryptText(orgao.whatsapp_token),
+          clientToken: orgao.whatsapp_client_token ? this.decryptText(orgao.whatsapp_client_token) : undefined,
+        };
+        this.logger.debug(`enviarSistema: usando credenciais do órgão ${orgao.id} como fallback`);
+      }
     }
 
     if (!config) {
