@@ -21,73 +21,70 @@ const ESTADOS = {
 const SESSION_TTL_HOURS = 24;
 const MAX_HISTORICO_IA = 10;
 
-const FAQ_SYSTEM_PROMPT = `Você é o Assistente Virtual do Portal DCP (Diário de Compras Públicas), sistema de gestão de contratos públicos conforme a Lei 14.133/2021.
+@Injectable()
+export class WhatsappAgentService {
+  private readonly logger = new Logger(WhatsappAgentService.name);
 
-Atende fornecedores pelo WhatsApp. Seja objetivo, amigável e responda em português brasileiro.
+  private getPortalUrl(): string {
+    const baseUrl =
+      process.env.FRONTEND_URL ||
+      process.env.APP_URL ||
+      'https://compras.cmlem.ba.gov.br';
 
-FUNCIONALIDADES DISPONÍVEIS PARA FORNECEDORES NO PORTAL:
+    return baseUrl.replace(/\/$/, '');
+  }
+
+  private getFaqSystemPrompt(): string {
+    const portalUrl = this.getPortalUrl();
+
+    return `Você é o Assistente Virtual da Câmara de Vereadores de Luís Eduardo Magalhães - BA, responsável pelo atendimento a fornecedores no portal ${portalUrl}.
+
+Você atende fornecedores pelo WhatsApp. Seja objetivo, cordial, institucional e responda sempre em português brasileiro.
+
+CONTEXTO DO PORTAL:
+- O portal de compras e contratos da Câmara está disponível em ${portalUrl}
+- O sistema é usado por fornecedores para cadastro, credenciamento, acesso a contratos, medições, ordens e mensagens
+- Quando mencionar acesso ao sistema, sempre use o domínio ${portalUrl}
+
+FUNCIONALIDADES DISPONÍVEIS PARA FORNECEDORES:
 
 1. CADASTRO E ACESSO
-   - Cadastrar: acesse portaldcp.com.br → "Cadastrar" → informe o CNPJ
-   - Login: portaldcp.com.br → "Entrar" → e-mail e senha cadastrados
-   - Esqueceu a senha: use "Esqueci minha senha" na tela de login
+   - Cadastro: acesse ${portalUrl} e informe o CNPJ da empresa
+   - Login: acesse ${portalUrl} com e-mail e senha cadastrados
+   - Recuperação de senha: use a opção "Esqueci minha senha" na tela de login
 
-2. CREDENCIAMENTO (obrigatório para operar)
-   - Nível I: Dados básicos da empresa (já preenchido no cadastro)
-   - Nível II: Habilitação Jurídica (contrato social, atos constitutivos)
-   - Nível III: Regularidade Fiscal Federal (certidões RFB, FGTS, Trabalhista)
-   - Nível IV: Regularidade Fiscal Estadual/Municipal
-   - Nível V: Qualificação Técnica (atestados de capacidade)
-   - Nível VI: Qualificação Econômico-Financeira (balanço, certidão de falência)
+2. CREDENCIAMENTO
+   - O fornecedor deve completar as etapas de habilitação documental no portal
+   - Podem ser exigidos documentos jurídicos, fiscais, trabalhistas, técnicos e econômico-financeiros
 
-3. GESTÃO DE CONTRATOS
-   - Acesse "Contratos" no menu para ver seus contratos ativos
-   - Cada contrato exibe: valor, vigência, fiscal responsável, resumo financeiro
+3. CONTRATOS E EXECUÇÃO
+   - O fornecedor pode consultar contratos ativos no portal
+   - Também pode acompanhar ordens, medições, anexos e mensagens do fiscal
 
-4. MEDIÇÕES (contratos de obras e serviços)
-   - Criar medição: Contratos → selecione o contrato → "Nova Medição"
-   - Preencha os itens executados com quantidades e valores
-   - Anexe fotos e documentos como comprovação
-   - Submeta para atesto do fiscal
-   - Acompanhe o status: RASCUNHO → SUBMETIDA → AGUARDANDO ATESTE → APROVADA
-   - Em caso de devolução, corrija e resubmeta
-
-5. ORDENS DE FORNECIMENTO (contratos de materiais)
-   - Acesse "Ordens" no menu para ver ordens recebidas
-   - Registre "Ciência de Recebimento" ao receber a ordem
-   - Informe a "Ciência de Entrega" com a data prevista de entrega
-   - Anexe a Nota Fiscal (XML + PDF) após a entrega
-
-6. ORDENS DE SERVIÇO (contratos de serviços)
-   - Gerencie ordens de serviço recebidas do órgão
-   - Atualize o status de execução
-   - Registre entrega ao concluir
-
-7. MENSAGENS / CAIXA DE ENTRADA
-   - O fiscal pode enviar solicitações e orientações pelo portal
-   - Acesse "Mensagens" no menu para visualizar
+4. MEDIÇÕES E ENTREGAS
+   - Em contratos de obras/serviços: enviar medição com itens executados e anexos comprobatórios
+   - Em contratos de materiais: registrar entregas e anexar Nota Fiscal quando aplicável
 
 REGRAS IMPORTANTES:
-- Não é possível editar uma medição já submetida; aguarde a devolução pelo fiscal
-- Documentos aceitos: JPG, PNG, PDF (máx. 10MB por arquivo)
-- Nota Fiscal: envie o XML e o PDF juntos
+- Não invente informações sobre contratos, valores, prazos ou documentos específicos se isso não estiver disponível na conversa
+- Se a dúvida depender de dados internos do contrato, oriente o fornecedor a acessar o portal ou falar com o setor responsável da Câmara
+- Documentos geralmente aceitos no portal: JPG, PNG e PDF
+- Para voltar ao início, o fornecedor pode digitar "menu"
 
-Se a dúvida for muito específica sobre um contrato (valores, prazos, fiscal responsável), oriente o fornecedor a contatar diretamente o órgão público responsável pelo contrato.
+Seu objetivo é ajudar o fornecedor a usar corretamente o portal da Câmara de Vereadores de Luís Eduardo Magalhães - BA.`;
+  }
 
-Para voltar ao menu principal, o fornecedor pode digitar "menu".`;
+  private getMenuMessage(): string {
+    return `Olá! 👋 Sou o assistente virtual da *Câmara de Vereadores de Luís Eduardo Magalhães - BA*.
 
-const MSG_MENU = `Olá! 👋 Sou o assistente virtual do *Portal DCP*.
-
-Como posso ajudar você hoje?
+Posso ajudar você com o portal de compras em produção:
+*${this.getPortalUrl()}*
 
 1️⃣ Cadastrar minha empresa no portal
 2️⃣ Tirar dúvidas sobre o sistema
 
 Digite o número da opção desejada.`;
-
-@Injectable()
-export class WhatsappAgentService {
-  private readonly logger = new Logger(WhatsappAgentService.name);
+  }
 
   constructor(
     @InjectRepository(WhatsappAgentSession)
@@ -187,7 +184,7 @@ export class WhatsappAgentService {
     session.estado = ESTADOS.AGUARDANDO_INTENCAO;
     session.dados = {};
     session.historico_ia = [];
-    return MSG_MENU;
+    return this.getMenuMessage();
   }
 
   private async handleAguardandoIntencao(texto: string, session: WhatsappAgentSession): Promise<string> {
@@ -204,7 +201,7 @@ export class WhatsappAgentService {
       return '💬 Estou aqui para ajudar!\n\nQual é a sua dúvida sobre o Portal DCP?\n\n_(Digite "menu" a qualquer momento para voltar ao início)_';
     }
 
-    return `Não entendi sua escolha. Por favor, responda com:\n\n${MSG_MENU}`;
+    return `Não entendi sua escolha. Por favor, responda com:\n\n${this.getMenuMessage()}`;
   }
 
   private async handleCadastroCnpj(texto: string, session: WhatsappAgentSession): Promise<string> {
@@ -218,7 +215,7 @@ export class WhatsappAgentService {
     const verificacao = await this.fornecedoresService.verificarCnpjExistente(cnpjLimpo);
     if (verificacao.existe) {
       session.estado = ESTADOS.AGUARDANDO_INTENCAO;
-      return `⚠️ Este CNPJ já possui cadastro no Portal DCP.\n\nAcesse o portal em *portaldcp.com.br* para fazer login ou recuperar sua senha.\n\n${MSG_MENU}`;
+      return `⚠️ Este CNPJ já possui cadastro no portal da Câmara.\n\nAcesse *${this.getPortalUrl()}* para fazer login ou recuperar sua senha.\n\n${this.getMenuMessage()}`;
     }
 
     // Consultar dados do CNPJ na API
@@ -277,17 +274,17 @@ export class WhatsappAgentService {
       session.fornecedor_id = fornecedor.id;
       session.dados = {};
 
-      return `✅ *Cadastro realizado com sucesso!*\n\n🏢 ${dadosCnpj.razao_social}\n📧 ${email}\n\nUm e-mail foi enviado com o link para definir sua senha.\n\nApós definir a senha, acesse *portaldcp.com.br* para completar o credenciamento e enviar os documentos necessários.\n\nPrecisa de mais ajuda? ${MSG_MENU}`;
+      return `✅ *Cadastro realizado com sucesso!*\n\n🏢 ${dadosCnpj.razao_social}\n📧 ${email}\n\nUm e-mail foi enviado com o link para definir sua senha.\n\nApós definir a senha, acesse *${this.getPortalUrl()}* para completar o credenciamento e enviar os documentos necessários.\n\nPrecisa de mais ajuda? ${this.getMenuMessage()}`;
     } catch (err: any) {
       if (err.message?.includes('E-mail já cadastrado') || err.message?.includes('CNPJ já cadastrado')) {
         if (err.message.includes('E-mail')) {
           return `❌ Este e-mail já está em uso por outro cadastro.\n\nPor favor, informe um e-mail diferente:`;
         }
         session.estado = ESTADOS.AGUARDANDO_INTENCAO;
-        return `❌ ${err.message}\n\nAcesse *portaldcp.com.br* para fazer login ou recuperar a senha.\n\n${MSG_MENU}`;
+        return `❌ ${err.message}\n\nAcesse *${this.getPortalUrl()}* para fazer login ou recuperar a senha.\n\n${this.getMenuMessage()}`;
       }
       this.logger.error(`Erro ao cadastrar via WhatsApp: ${err.message}`);
-      return '❌ Ocorreu um erro ao criar o cadastro. Tente novamente ou acesse portaldcp.com.br para se cadastrar diretamente.';
+      return `❌ Ocorreu um erro ao criar o cadastro. Tente novamente ou acesse ${this.getPortalUrl()} para se cadastrar diretamente.`;
     }
   }
 
@@ -297,7 +294,7 @@ export class WhatsappAgentService {
     if (normalizado === 'menu' || normalizado === 'voltar' || normalizado === 'sair' || normalizado === '0') {
       session.estado = ESTADOS.AGUARDANDO_INTENCAO;
       session.historico_ia = [];
-      return MSG_MENU;
+      return this.getMenuMessage();
     }
 
     // Adiciona mensagem do usuário ao histórico
@@ -309,7 +306,7 @@ export class WhatsappAgentService {
 
     let resposta: string;
     try {
-      resposta = await this.iaService.chatComSistemaPersonalizado(historicoLimitado, FAQ_SYSTEM_PROMPT);
+      resposta = await this.iaService.chatComSistemaPersonalizado(historicoLimitado, this.getFaqSystemPrompt());
     } catch {
       resposta = 'Não consegui processar sua pergunta agora. Por favor, tente novamente.';
     }
