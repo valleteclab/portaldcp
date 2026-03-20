@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { SystemConfigModule } from '../system-config/system-config.module';
@@ -15,7 +15,7 @@ import { WhatsappAgentModule } from '../whatsapp-agent/whatsapp-agent.module';
   imports: [
     TypeOrmModule.forFeature([Orgao, WhatsappConversa, WhatsappMensagem]),
     SystemConfigModule,
-    WhatsappAgentModule,
+    forwardRef(() => WhatsappAgentModule),
   ],
   controllers: [WhatsappChatController],
   providers: [WhatsAppService, ZApiProvider, MetaChatwootProvider, WhatsappChatService],
