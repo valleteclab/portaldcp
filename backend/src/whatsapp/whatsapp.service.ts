@@ -138,6 +138,44 @@ export class WhatsAppService {
     }
   }
 
+  async enviarSistema(phone: string, mensagem: string): Promise<boolean> {
+    const instanceId = await this.systemConfigService.getValue('WHATSAPP_ZAPI_INSTANCE_ID');
+    const tokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_TOKEN');
+    const clientTokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_CLIENT_TOKEN');
+
+    let config: WhatsAppConfig | null = null;
+
+    if (instanceId && tokenEnc && clientTokenEnc) {
+      config = {
+        instanceId,
+        token: this.decryptText(tokenEnc),
+        clientToken: this.decryptText(clientTokenEnc),
+      };
+    } else if (
+      process.env.WHATSAPP_ZAPI_INSTANCE_ID &&
+      process.env.WHATSAPP_ZAPI_TOKEN &&
+      process.env.WHATSAPP_ZAPI_CLIENT_TOKEN
+    ) {
+      config = {
+        instanceId: process.env.WHATSAPP_ZAPI_INSTANCE_ID,
+        token: process.env.WHATSAPP_ZAPI_TOKEN,
+        clientToken: process.env.WHATSAPP_ZAPI_CLIENT_TOKEN,
+      };
+    }
+
+    if (!config) {
+      this.logger.warn('WhatsApp sistema não configurado, mensagem não enviada');
+      return false;
+    }
+
+    try {
+      return await this.zApiProvider.enviar({ to: phone, mensagem, orgaoId: 'sistema', config });
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar WhatsApp sistema: ${error.message}`);
+      return false;
+    }
+  }
+
   async testarConexao(orgaoId: string, numeroTeste: string): Promise<{ sucesso: boolean; mensagem: string }> {
     const config = await this.getConfig(orgaoId);
     if (!config) {

@@ -1495,4 +1495,101 @@ export class FornecedoresService {
 
     return { message: 'Senha redefinida com sucesso' };
   }
+
+  /**
+   * Cadastra fornecedor via agente WhatsApp.
+   * Cria conta mínima com CNPJ e email. Envia e-mail com link para definir senha.
+   */
+  async cadastrarViaWhatsapp(
+    email: string,
+    dadosCnpj: DadosCnpjFormatados,
+    phoneWhatsapp: string,
+  ): Promise<{ fornecedor: FornecedorSemSenha; resetLink: string }> {
+    const cnpjLimpo = dadosCnpj.cnpj.replace(/\D/g, '');
+
+    // Verifica duplicidade de CNPJ
+    const existenteCnpj = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
+    if (existenteCnpj) {
+      throw new ConflictException('CNPJ já cadastrado no sistema');
+    }
+
+    // Verifica duplicidade de email
+    const existenteEmail = await this.fornecedorRepository.findOne({ where: { email } });
+    if (existenteEmail) {
+      throw new ConflictException('E-mail já cadastrado no sistema');
+    }
+
+    const porteMap: Record<string, PorteEmpresa> = {
+      'MEI': PorteEmpresa.MEI, 'ME': PorteEmpresa.ME, 'EPP': PorteEmpresa.EPP,
+      'MEDIO': PorteEmpresa.MEDIO, 'GRANDE': PorteEmpresa.GRANDE,
+    };
+
+    const fornecedor = this.fornecedorRepository.create({
+      email,
+      cpf_cnpj: cnpjLimpo,
+      razao_social: dadosCnpj.razao_social,
+      nome_fantasia: dadosCnpj.nome_fantasia || undefined,
+      porte: porteMap[dadosCnpj.porte] || PorteEmpresa.ME,
+      tipo_pessoa: TipoPessoa.JURIDICA,
+      telefone: dadosCnpj.telefone || '',
+      representante_whatsapp: phoneWhatsapp,
+      logradouro: `${dadosCnpj.endereco.tipo_logradouro || ''} ${dadosCnpj.endereco.logradouro}`.trim(),
+      numero: dadosCnpj.endereco.numero,
+      complemento: dadosCnpj.endereco.complemento || undefined,
+      bairro: dadosCnpj.endereco.bairro,
+      cidade: dadosCnpj.endereco.cidade,
+      uf: dadosCnpj.endereco.uf,
+      cep: dadosCnpj.endereco.cep,
+      representante_nome: '',
+      representante_cpf: '',
+      nivel_atual: NivelCadastro.NIVEL_I,
+      nivel_i_completo: true,
+      status: StatusCadastro.PENDENTE,
+    });
+
+    const saved = await this.fornecedorRepository.save(fornecedor);
+
+    // Gera token de reset de senha (válido por 48h) para o fornecedor definir a senha
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 48);
+
+    const resetToken = this.passwordResetTokenRepository.create({
+      fornecedor_id: saved.id,
+      token,
+      expires_at: expiresAt,
+      used: false,
+    });
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    const resetLink = `${process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000'}/resetar-senha/${token}`;
+
+    // Envia email com o link
+    try {
+      const orgaos = await this.fornecedorRepository.manager.getRepository('orgaos').find({ where: { ativo: true } });
+      const orgaoComEmail = orgaos.find((o: any) =>
+        (o.email_metodo === 'RESEND' && o.email_resend_api_key && o.email_resend_from) ||
+        (o.email_metodo === 'SMTP' && o.email_smtp_host && o.email_smtp_user),
+      );
+      if (orgaoComEmail) {
+        await this.emailService.enviar(orgaoComEmail.id, {
+          to: email,
+          subject: 'Bem-vindo ao Portal DCP — Defina sua senha',
+          html: `
+            <h2>Cadastro realizado com sucesso!</h2>
+            <p>Olá, <strong>${dadosCnpj.razao_social}</strong>!</p>
+            <p>Seu cadastro no Portal DCP foi criado via WhatsApp.</p>
+            <p>Clique no link abaixo para definir sua senha e acessar o portal:</p>
+            <p><a href="${resetLink}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Definir minha senha</a></p>
+            <p>Ou copie e cole este link no navegador:<br>${resetLink}</p>
+            <p>Este link é válido por 48 horas.</p>
+          `,
+        });
+      }
+    } catch (err) {
+      // Falha no email não deve interromper o cadastro
+    }
+
+    return { fornecedor: this.removerSenha(saved), resetLink };
+  }
 }

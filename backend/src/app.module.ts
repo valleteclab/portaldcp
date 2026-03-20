@@ -48,6 +48,7 @@ import { AgenteContratosModule } from './agente-contratos/agente-contratos.modul
 import { AgenteTarefasModule } from './agente-tarefas/agente-tarefas.module';
 import { FrotaModule } from './frota/frota.module';
 import { AnpModule } from './anp/anp.module';
+import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
 
 @Module({
   imports: [
@@ -123,6 +124,7 @@ import { AnpModule } from './anp/anp.module';
     AgenteTarefasModule,
     FrotaModule,
     AnpModule,
+    WhatsappAgentModule,
   ],
   controllers: [HealthController],
   providers: [

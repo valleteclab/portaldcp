@@ -331,6 +331,40 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
     }
   }
 
+  async chatComSistemaPersonalizado(
+    mensagens: Array<{ role: string; content: string }>,
+    systemPrompt: string,
+  ): Promise<string> {
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
+
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.com.br',
+        'X-Title': 'Portal DCP',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...mensagens,
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Erro na API de IA: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || 'Não foi possível processar sua mensagem.';
+  }
+
   async chat(mensagens: Array<{ role: string; content: string }>, tipoDocumento?: string): Promise<string> {
     const apiKey = await this.getApiKey();
     const model = await this.getModel();
