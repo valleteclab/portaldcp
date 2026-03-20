@@ -51,11 +51,15 @@ export class WhatsAppService {
       select: ['id', 'whatsapp_provider', 'whatsapp_instance_id', 'whatsapp_token', 'whatsapp_client_token'],
     });
 
-    if (orgao?.whatsapp_instance_id && orgao?.whatsapp_token && orgao?.whatsapp_client_token) {
+    if (orgao?.whatsapp_instance_id && orgao?.whatsapp_token) {
+      const rawClientToken = orgao.whatsapp_client_token
+        ? this.decryptText(orgao.whatsapp_client_token).replace(/[\r\n\t]/g, '').trim()
+        : undefined;
+      const clientToken = rawClientToken && !rawClientToken.startsWith('http') ? rawClientToken : undefined;
       return {
         instanceId: orgao.whatsapp_instance_id,
         token: this.decryptText(orgao.whatsapp_token),
-        clientToken: this.decryptText(orgao.whatsapp_client_token),
+        clientToken,
       };
     }
 
