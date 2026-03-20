@@ -150,19 +150,21 @@ export class WhatsAppService {
     const tokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_TOKEN');
     if (instanceId && tokenEnc) {
       const clientTokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_CLIENT_TOKEN');
+      const rawCt1 = clientTokenEnc ? this.decryptText(clientTokenEnc).replace(/[\r\n\t]/g, '').trim() : undefined;
       config = {
         instanceId,
         token: this.decryptText(tokenEnc),
-        clientToken: clientTokenEnc ? this.decryptText(clientTokenEnc) : undefined,
+        clientToken: rawCt1 && !rawCt1.startsWith('http') ? rawCt1 : undefined,
       };
     }
 
     // 2. Tentar env vars (clientToken opcional)
     if (!config && process.env.WHATSAPP_ZAPI_INSTANCE_ID && process.env.WHATSAPP_ZAPI_TOKEN) {
+      const rawCt2 = process.env.WHATSAPP_ZAPI_CLIENT_TOKEN?.trim();
       config = {
         instanceId: process.env.WHATSAPP_ZAPI_INSTANCE_ID,
         token: process.env.WHATSAPP_ZAPI_TOKEN,
-        clientToken: process.env.WHATSAPP_ZAPI_CLIENT_TOKEN,
+        clientToken: rawCt2 && !rawCt2.startsWith('http') ? rawCt2 : undefined,
       };
     }
 
