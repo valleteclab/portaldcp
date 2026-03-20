@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react"
 import { Bot, Copy, Check, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api"
+import { adminFetch } from "@/lib/api"
 
 export default function WhatsappAgentPage() {
   const [ativo, setAtivo] = useState(false)
@@ -18,10 +17,7 @@ export default function WhatsappAgentPage() {
       : "/api/whatsapp/agent/webhook"
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token")
-    fetch(`${API_URL}/system-config/whatsapp-agent`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    adminFetch("/api/system-config/whatsapp-agent")
       .then((r) => r.json())
       .then((data) => setAtivo(data.ativo === true))
       .catch(() => toast.error("Erro ao carregar configuração"))
@@ -32,13 +28,8 @@ export default function WhatsappAgentPage() {
     const novoEstado = !ativo
     setSalvando(true)
     try {
-      const token = localStorage.getItem("admin_token")
-      const resp = await fetch(`${API_URL}/system-config/whatsapp-agent`, {
+      const resp = await adminFetch("/api/system-config/whatsapp-agent", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({ ativo: novoEstado }),
       })
       if (!resp.ok) throw new Error("Erro ao salvar")
@@ -127,22 +118,32 @@ export default function WhatsappAgentPage() {
         <ul className="space-y-2 text-sm text-slate-600">
           <li className="flex items-start gap-2">
             <span className="text-green-500 mt-0.5">✓</span>
-            <span><strong>Cadastro de fornecedores:</strong> Guia o fornecedor para criar uma conta no portal via WhatsApp (CNPJ, e-mail, link de senha por e-mail)</span>
+            <span>
+              <strong>Cadastro de fornecedores:</strong> Guia o fornecedor para criar uma conta no
+              portal via WhatsApp (CNPJ, e-mail, link de senha por e-mail)
+            </span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-green-500 mt-0.5">✓</span>
-            <span><strong>FAQ inteligente:</strong> Responde dúvidas sobre o portal (contratos, medições, ordens, credenciamento) usando IA</span>
+            <span>
+              <strong>FAQ inteligente:</strong> Responde dúvidas sobre o portal (contratos,
+              medições, ordens, credenciamento) usando IA
+            </span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-green-500 mt-0.5">✓</span>
-            <span><strong>Sessão persistente:</strong> Mantém o contexto da conversa por até 24h</span>
+            <span>
+              <strong>Sessão persistente:</strong> Mantém o contexto da conversa por até 24h
+            </span>
           </li>
         </ul>
       </div>
 
       {/* Card: Webhook */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        <h2 className="text-base font-semibold text-slate-800 mb-1">Configuração do Webhook (Z-API)</h2>
+        <h2 className="text-base font-semibold text-slate-800 mb-1">
+          Configuração do Webhook (Z-API)
+        </h2>
         <p className="text-sm text-slate-500 mb-4">
           Configure esta URL no painel do Z-API em:{" "}
           <strong>Instância → Webhooks → URL Recebida</strong>
@@ -175,7 +176,8 @@ export default function WhatsappAgentPage() {
           <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <span>
             Certifique-se de que as credenciais do Z-API estejam configuradas em{" "}
-            <strong>Admin → Integração WhatsApp</strong> para que o agente consiga enviar respostas.
+            <strong>Admin → Integração WhatsApp</strong> para que o agente consiga enviar
+            respostas.
           </span>
         </div>
       </div>
