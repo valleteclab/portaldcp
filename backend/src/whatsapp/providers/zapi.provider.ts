@@ -30,14 +30,15 @@ export class ZApiProvider implements IWhatsAppProvider {
 
     try {
       const url = `${ZAPI_BASE}/instances/${config.instanceId}/token/${config.token}/send-text`;
-      this.logger.log(`Chamando Z-API: POST ${url} | phone=${phone} | clientToken=${config.clientToken ? 'presente' : 'ausente'}`);
+      const clientToken = config.clientToken?.replace(/[\r\n\t]/g, '').trim();
+      this.logger.log(`Chamando Z-API: POST ${url} | phone=${phone} | clientToken=${clientToken ? 'presente' : 'ausente'}`);
       const response = await axios.post(
         url,
         { phone, message: mensagem },
         {
           headers: {
             'Content-Type': 'application/json',
-            ...(config.clientToken ? { 'Client-Token': config.clientToken } : {}),
+            ...(clientToken ? { 'Client-Token': clientToken } : {}),
           },
           timeout: 15000,
         },
@@ -69,6 +70,7 @@ export class ZApiProvider implements IWhatsAppProvider {
 
     try {
       const url = `${ZAPI_BASE}/instances/${config.instanceId}/token/${config.token}/send-button-actions`;
+      const clientToken = config.clientToken?.replace(/[\r\n\t]/g, '').trim();
       this.logger.log(`Chamando Z-API (botão): POST ${url} | phone=${phone}`);
       const buttonActions = botoes.map(b => ({
         id: b.id,
@@ -83,7 +85,7 @@ export class ZApiProvider implements IWhatsAppProvider {
         {
           headers: {
             'Content-Type': 'application/json',
-            ...(config.clientToken ? { 'Client-Token': config.clientToken } : {}),
+            ...(clientToken ? { 'Client-Token': clientToken } : {}),
           },
           timeout: 15000,
         },
