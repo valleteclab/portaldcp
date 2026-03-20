@@ -170,10 +170,15 @@ export class WhatsAppService {
         order: { id: 'ASC' },
       });
       if (orgao?.whatsapp_instance_id && orgao?.whatsapp_token) {
+        const rawClientToken = orgao.whatsapp_client_token
+          ? this.decryptText(orgao.whatsapp_client_token).replace(/[\r\n\t]/g, '').trim()
+          : undefined;
+        // Ignorar clientToken inválido (ex: URL salva por engano no campo)
+        const clientToken = rawClientToken && !rawClientToken.startsWith('http') ? rawClientToken : undefined;
         config = {
           instanceId: orgao.whatsapp_instance_id,
           token: this.decryptText(orgao.whatsapp_token),
-          clientToken: orgao.whatsapp_client_token ? this.decryptText(orgao.whatsapp_client_token) : undefined,
+          clientToken,
         };
         this.logger.debug(`enviarSistema: usando credenciais do órgão ${orgao.id} como fallback`);
       }
