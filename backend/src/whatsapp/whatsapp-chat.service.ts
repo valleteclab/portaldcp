@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { Repository } from 'typeorm';
 import { Subject } from 'rxjs';
 import { WhatsappConversa } from './entities/whatsapp-conversa.entity';
@@ -24,7 +25,7 @@ export class WhatsappChatService {
     @InjectRepository(WhatsappMensagem)
     private readonly mensagemRepo: Repository<WhatsappMensagem>,
     private readonly whatsappService: WhatsAppService,
-    private readonly agentService: WhatsappAgentService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   async listarConversas(orgaoId: string): Promise<WhatsappConversa[]> {
@@ -128,9 +129,13 @@ export class WhatsappChatService {
     this.logger.log(`Mensagem recebida de ${phone} → conversa ${conversa.id}`);
 
     // Processar mensagem pelo agente de IA (não bloqueia resposta)
-    this.agentService.processarMensagem(phone, conteudo, nomeContato).catch((err) => {
-      this.logger.error(`Erro ao processar mensagem no agente: ${err.message}`);
-    });
+    const agentService = this.moduleRef.get(WhatsappAgentService, { strict: false });
+
+    if (agentService?.processarMensagem) {
+      agentService.processarMensagem(phone, conteudo, nomeContato).catch((err) => {
+        this.logger.error(`Erro ao processar mensagem no agente: ${err.message}`);
+      });
+    }
   }
 
   async atualizarStatusMensagem(zapiMessageId: string, status: 'ENTREGUE' | 'LIDA' | 'FALHA'): Promise<void> {
