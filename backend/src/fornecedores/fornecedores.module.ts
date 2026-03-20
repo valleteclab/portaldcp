@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { Fornecedor } from './entities/fornecedor.entity';
@@ -23,8 +23,8 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
       PasswordResetToken,
     ]),
     ConfigModule,
-    AuthModule,
-    EmailModule,
+    forwardRef(() => AuthModule),
+    forwardRef(() => EmailModule),
     WhatsAppModule,
   ],
   controllers: [FornecedoresController],
