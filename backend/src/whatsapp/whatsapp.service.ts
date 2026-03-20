@@ -45,6 +45,13 @@ export class WhatsAppService {
     return this.zApiProvider;
   }
 
+  private sanitizeClientToken(value?: string | null): string | undefined {
+    const raw = value?.replace(/[\r\n\t]/g, '').trim();
+    if (!raw) return undefined;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return undefined;
+    return raw;
+  }
+
   async getConfig(orgaoId: string): Promise<WhatsAppConfig | null> {
     const orgao = await this.orgaoRepository.findOne({
       where: { id: orgaoId },
@@ -52,10 +59,9 @@ export class WhatsAppService {
     });
 
     if (orgao?.whatsapp_instance_id && orgao?.whatsapp_token) {
-      const rawClientToken = orgao.whatsapp_client_token
-        ? this.decryptText(orgao.whatsapp_client_token).replace(/[\r\n\t]/g, '').trim()
-        : undefined;
-      const clientToken = rawClientToken && !rawClientToken.startsWith('http') ? rawClientToken : undefined;
+      const clientToken = this.sanitizeClientToken(
+        orgao.whatsapp_client_token ? this.decryptText(orgao.whatsapp_client_token) : undefined,
+      );
       return {
         instanceId: orgao.whatsapp_instance_id,
         token: this.decryptText(orgao.whatsapp_token),
@@ -66,19 +72,19 @@ export class WhatsAppService {
     const instanceId = await this.systemConfigService.getValue('WHATSAPP_ZAPI_INSTANCE_ID');
     const tokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_TOKEN');
     const clientTokenEnc = await this.systemConfigService.getValue('WHATSAPP_ZAPI_CLIENT_TOKEN');
-    if (instanceId && tokenEnc && clientTokenEnc) {
+    if (instanceId && tokenEnc) {
       return {
         instanceId,
         token: this.decryptText(tokenEnc),
-        clientToken: this.decryptText(clientTokenEnc),
+        clientToken: this.sanitizeClientToken(clientTokenEnc ? this.decryptText(clientTokenEnc) : undefined),
       };
     }
 
-    if (process.env.WHATSAPP_ZAPI_INSTANCE_ID && process.env.WHATSAPP_ZAPI_TOKEN && process.env.WHATSAPP_ZAPI_CLIENT_TOKEN) {
+    if (process.env.WHATSAPP_ZAPI_INSTANCE_ID && process.env.WHATSAPP_ZAPI_TOKEN) {
       return {
         instanceId: process.env.WHATSAPP_ZAPI_INSTANCE_ID,
         token: process.env.WHATSAPP_ZAPI_TOKEN,
-        clientToken: process.env.WHATSAPP_ZAPI_CLIENT_TOKEN,
+        clientToken: this.sanitizeClientToken(process.env.WHATSAPP_ZAPI_CLIENT_TOKEN),
       };
     }
 
@@ -153,7 +159,7 @@ export class WhatsAppService {
       config = {
         instanceId,
         token: this.decryptText(tokenEnc),
-        clientToken: clientTokenEnc ? this.decryptText(clientTokenEnc) : undefined,
+        clientToken: this.sanitizeClientToken(clientTokenEnc ? this.decryptText(clientTokenEnc) : undefined),
       };
     }
 
@@ -162,7 +168,7 @@ export class WhatsAppService {
       config = {
         instanceId: process.env.WHATSAPP_ZAPI_INSTANCE_ID,
         token: process.env.WHATSAPP_ZAPI_TOKEN,
-        clientToken: process.env.WHATSAPP_ZAPI_CLIENT_TOKEN,
+        clientToken: this.sanitizeClientToken(process.env.WHATSAPP_ZAPI_CLIENT_TOKEN),
       };
     }
 
@@ -174,11 +180,9 @@ export class WhatsAppService {
         order: { id: 'ASC' },
       });
       if (orgao?.whatsapp_instance_id && orgao?.whatsapp_token) {
-        const rawClientToken = orgao.whatsapp_client_token
-          ? this.decryptText(orgao.whatsapp_client_token).replace(/[\r\n\t]/g, '').trim()
-          : undefined;
-        // Ignorar clientToken inválido (ex: URL salva por engano no campo)
-        const clientToken = rawClientToken && !rawClientToken.startsWith('http') ? rawClientToken : undefined;
+        const clientToken = this.sanitizeClientToken(
+          orgao.whatsapp_client_token ? this.decryptText(orgao.whatsapp_client_token) : undefined,
+        );
         config = {
           instanceId: orgao.whatsapp_instance_id,
           token: this.decryptText(orgao.whatsapp_token),
