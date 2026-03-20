@@ -132,7 +132,7 @@ export class WhatsappChatService {
     const agentService = this.moduleRef.get(WhatsappAgentService, { strict: false });
 
     if (agentService?.processarMensagem) {
-      agentService.processarMensagem(phone, conteudo, nomeContato).catch((err) => {
+      agentService.processarMensagem(phone, conteudo, nomeContato, orgaoId).catch((err) => {
         this.logger.error(`Erro ao processar mensagem no agente: ${err.message}`);
       });
     }

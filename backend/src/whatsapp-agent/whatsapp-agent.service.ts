@@ -99,7 +99,7 @@ export class WhatsappAgentService {
     private readonly systemConfigService: SystemConfigService,
   ) {}
 
-  async processarMensagem(phone: string, mensagem: string, nomeContato?: string): Promise<void> {
+  async processarMensagem(phone: string, mensagem: string, nomeContato?: string, orgaoId?: string): Promise<void> {
     // Verificar se o agente está ativo
     const { ativo } = await this.systemConfigService.getWhatsAppAgentConfig();
     if (!ativo) {
@@ -157,6 +157,16 @@ export class WhatsappAgentService {
     }
 
     await this.sessionRepo.save(session);
+
+    if (orgaoId) {
+      const enviado = await this.whatsappService.enviar(orgaoId, { to: phone, mensagem: resposta });
+      if (!enviado) {
+        this.logger.warn(`Falha ao responder pelo orgão ${orgaoId}; tentando fallback sistema para ${phone}`);
+        await this.whatsappService.enviarSistema(phone, resposta);
+      }
+      return;
+    }
+
     await this.whatsappService.enviarSistema(phone, resposta);
   }
 
