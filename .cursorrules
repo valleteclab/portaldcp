@@ -1,5 +1,13 @@
 # Scratchpad
 
+## Tarefa Atual: Sala de Disputa V3 - PR1 Fundação Backend (2026-03-20)
+
+- [X] Definir contrato V3 com semântica jurídica correta (modo, etapa, cronometria)
+- [X] Criar módulo/backend `disputa-v3` consumindo dados do PortalDCP
+- [X] Expor endpoints read-only para contexto e board da sessão
+- [X] Cobrir presenter/mapeamentos com teste unitário
+- [X] Validar com jest direcionado, commit, push e PR
+
 ## Tarefa Atual: Melhorias fluxo Medições (3 PRs) (2026-03-19)
 
 - [X] PR1: UX + regra 100% itens no envio para assinatura e ateste (sem parcial no fluxo guiado)
