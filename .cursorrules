@@ -6,7 +6,7 @@
 - [X] Criar módulo/backend `disputa-v3` consumindo dados do PortalDCP
 - [X] Expor endpoints read-only para contexto e board da sessão
 - [X] Cobrir presenter/mapeamentos com teste unitário
-- [ ] Validar com jest direcionado, commit, push e PR
+- [X] Validar com jest direcionado, commit, push e PR
 
 ## Tarefa Atual: Melhorias fluxo Medições (3 PRs) (2026-03-19)
 
