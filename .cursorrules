@@ -8,6 +8,14 @@
 - [X] Cobrir presenter/mapeamentos com teste unitário
 - [X] Validar com jest direcionado, commit, push e PR
 
+## Tarefa Atual: Sala de Disputa V3 - PR2 Frontend Cockpit (2026-03-20)
+
+- [X] Criar hook compartilhado para carregar board/contexto V3 e sincronizar via websocket
+- [X] Criar tela `/orgao/disputa-v3` com cockpit do pregoeiro e ações principais
+- [X] Criar tela `/fornecedor/disputa-v3` com foco em posição, tempo e envio de lance
+- [X] Reaproveitar eventos/ações da V2 enquanto a V3 ganha backend operacional próprio
+- [X] Validar manualmente em UI, gravar walkthrough, commit, push e atualizar PR
+
 ## Tarefa Atual: Melhorias fluxo Medições (3 PRs) (2026-03-19)
 
 - [X] PR1: UX + regra 100% itens no envio para assinatura e ateste (sem parcial no fluxo guiado)
