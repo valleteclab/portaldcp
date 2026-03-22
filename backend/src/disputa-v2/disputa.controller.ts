@@ -6,7 +6,7 @@ import { Public } from '../auth/public.decorator';
  * ============================================================================
  * DISPUTA CONTROLLER V2
  * ============================================================================
- * 
+ *
  * Endpoints REST para a Sala de Disputa
  * Complementa o WebSocket Gateway para operações que não precisam de tempo real
  * ============================================================================
@@ -54,6 +54,10 @@ export class DisputaController {
   // ============================================================================
   // LANCES
   // ============================================================================
+  // Leituras por itemId resolvem sessão e aplicam anonimização como no WebSocket
+  // (nomes reais só após ENCERRADO/NEGOCIACAO quando a sessão exige sigilo).
+  // Cancelamento de lance pelo fornecedor: não há endpoint nesta API; no legado
+  // (gateway de lances) apenas o pregoeiro pode cancelar lance registrado.
 
   @Public()
   @Get('item/:itemId/propostas')
@@ -112,7 +116,8 @@ export class DisputaController {
   @Post('sessao/:sessaoId/suspender')
   async suspenderSessao(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       motivo: 'ADMINISTRATIVO' | 'CAUTELAR' | 'JUDICIAL';
       justificativa: string;
       dataReabertura?: string;
@@ -140,7 +145,10 @@ export class DisputaController {
     @Param('sessaoId') sessaoId: string,
     @Body() body: { justificativa: string },
   ) {
-    const resultado = await this.disputaService.reiniciarSessao(sessaoId, body.justificativa);
+    const resultado = await this.disputaService.reiniciarSessao(
+      sessaoId,
+      body.justificativa,
+    );
     return { success: true, ...resultado };
   }
 
@@ -148,7 +156,8 @@ export class DisputaController {
   @Post('sessao/:sessaoId/lance')
   async registrarLance(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       itemId: string;
       fornecedorId: string;
       fornecedorNome: string;
@@ -171,7 +180,11 @@ export class DisputaController {
     @Param('sessaoId') sessaoId: string,
     @Body() body: { remetente: string; conteudo: string },
   ) {
-    await this.disputaService.enviarMensagem(sessaoId, body.remetente, body.conteudo);
+    await this.disputaService.enviarMensagem(
+      sessaoId,
+      body.remetente,
+      body.conteudo,
+    );
     return { success: true };
   }
 
@@ -189,7 +202,8 @@ export class DisputaController {
   @Put('sessao/:sessaoId/configuracoes')
   async configurarSessao(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       tempo_inatividade_minutos?: number;
       tempo_prorrogacao_minutos?: number;
       intervalo_minimo_lances_minutos?: number;

@@ -8,6 +8,13 @@
 - [X] Cobrir presenter/mapeamentos com teste unitário
 - [X] Validar com jest direcionado, commit, push e PR
 
+## Tarefa Atual: Sala de Disputa V3 - PR3 Anonimização REST + política cancelamento (2026-03-22)
+
+- [X] Corrigir vazamento: GET público item/:id/lances|melhores|propostas resolve sessão e anonimiza
+- [X] Helper + teste unitário para fase com anonimização obrigatória
+- [X] Documentar no controller: cancelamento fornecedor inexistente na disputa-v2 REST
+- [X] Commit, push, PR
+
 ## Tarefa Atual: Sala de Disputa V3 - PR2 Frontend Cockpit (2026-03-20)
 
 - [X] Criar hook compartilhado para carregar board/contexto V3 e sincronizar via websocket

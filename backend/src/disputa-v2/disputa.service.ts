@@ -5,6 +5,7 @@ import { SessaoDisputa, StatusSessao, EtapaSessao } from '../sessao/entities/ses
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
+import { itemEmFaseComAnonimizacaoObrigatoria } from './disputa-anonimizacao-helpers';
 import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
@@ -971,11 +972,51 @@ export class DisputaService {
   // ============================================================================
 
   /**
+   * Resolve sessão e fase do item para aplicar anonimização nos endpoints que só recebem itemId
+   * (ex.: GET público /disputa-v2/item/:itemId/lances). Sem isso, nomes reais vazam durante a disputa.
+   */
+  private async resolveAnonimizacaoParaItem(
+    itemId: string,
+    sessaoId?: string,
+    itemEncerrado?: boolean,
+  ): Promise<{ sessaoId?: string; itemEncerrado: boolean }> {
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId },
+      select: ['licitacao_id', 'status_disputa'],
+    });
+
+    let resolvedEncerrado: boolean;
+    if (itemEncerrado !== undefined) {
+      resolvedEncerrado = itemEncerrado;
+    } else if (item) {
+      resolvedEncerrado = !itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa);
+    } else {
+      resolvedEncerrado = false;
+    }
+
+    let resolvedSessaoId = sessaoId;
+    if (!resolvedSessaoId && item) {
+      const sessao = await this.sessaoRepo.findOne({
+        where: { licitacao_id: item.licitacao_id },
+        order: { created_at: 'DESC' },
+        select: ['id'],
+      });
+      resolvedSessaoId = sessao?.id;
+    }
+
+    return { sessaoId: resolvedSessaoId, itemEncerrado: resolvedEncerrado };
+  }
+
+  /**
    * Busca propostas iniciais do item
-   * @param sessaoId - Se fornecido, aplica anonimização se ativa
+   * @param sessaoId - Opcional; quando omitido, é obtido pela licitação do item (para REST/anônimos)
    * @param itemEncerrado - Se true, não aplica anonimização (item já encerrado)
    */
   async getPropostasIniciais(itemId: string, sessaoId?: string, itemEncerrado?: boolean): Promise<any[]> {
+    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId, itemEncerrado);
+    sessaoId = ctx.sessaoId;
+    itemEncerrado = ctx.itemEncerrado;
+
     const itensProposta = await this.propostaItemRepo.find({
       where: { item_licitacao_id: itemId },
       relations: ['proposta', 'proposta.fornecedor'],
@@ -1012,10 +1053,14 @@ export class DisputaService {
 
   /**
    * Busca melhores valores por fornecedor
-   * @param sessaoId - Se fornecido, aplica anonimização se ativa
+   * @param sessaoId - Opcional; quando omitido, é obtido pela licitação do item
    * @param itemEncerrado - Se true, não aplica anonimização (item já encerrado)
    */
   async getMelhoresValoresPorFornecedor(itemId: string, sessaoId?: string, itemEncerrado?: boolean): Promise<any[]> {
+    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId, itemEncerrado);
+    sessaoId = ctx.sessaoId;
+    itemEncerrado = ctx.itemEncerrado;
+
     const lances = await this.lanceRepo
       .createQueryBuilder('l')
       .select('l.fornecedor_id', 'fornecedorId')
@@ -1057,10 +1102,14 @@ export class DisputaService {
 
   /**
    * Busca todos os lances do item (incluindo propostas iniciais)
-   * @param sessaoId - Se fornecido, aplica anonimização se ativa
+   * @param sessaoId - Opcional; quando omitido, é obtido pela licitação do item
    * @param itemEncerrado - Se true, não aplica anonimização (item já encerrado)
    */
   async getTodosLances(itemId: string, sessaoId?: string, itemEncerrado?: boolean): Promise<LanceRegistrado[]> {
+    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId, itemEncerrado);
+    sessaoId = ctx.sessaoId;
+    itemEncerrado = ctx.itemEncerrado;
+
     // Buscar lances registrados durante a disputa
     const lances = await this.lanceRepo.find({
       where: { item_id: itemId, cancelado: false },
