@@ -14,7 +14,7 @@
 - [X] DisputaService: cancelar direto, solicitar, pregoeiro cancelar; sincronizar ultimo lance
 - [X] disputa-v3: endpoints JWT + board pregoeiro com fila de solicitações
 - [X] Frontend: fornecedor (meus lances + ações); órgão (fila + modal justificativa)
-- [ ] Commit, push, PR
+- [X] Commit, push, PR
 
 ## Tarefa Atual: Sala de Disputa V3 - PR3 Anonimização REST + política cancelamento (2026-03-22)
 
