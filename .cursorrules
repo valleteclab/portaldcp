@@ -13,7 +13,7 @@
 - [X] Corrigir vazamento: GET público item/:id/lances|melhores|propostas resolve sessão e anonimiza
 - [X] Helper + teste unitário para fase com anonimização obrigatória
 - [X] Documentar no controller: cancelamento fornecedor inexistente na disputa-v2 REST
-- [ ] Commit, push, PR
+- [X] Commit, push, PR
 
 ## Tarefa Atual: Sala de Disputa V3 - PR2 Frontend Cockpit (2026-03-20)
 
