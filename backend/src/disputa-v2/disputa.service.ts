@@ -1,6 +1,13 @@
-import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, DataSource } from 'typeorm';
+import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from '../sessao/entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
@@ -10,6 +17,7 @@ import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { AnonimizacaoService } from './anonimizacao.service';
+import { CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS } from './disputa-cancelamento.constants';
 
 /**
  * ============================================================================
@@ -69,6 +77,27 @@ export interface MensagemChat {
   remetente: string;
   conteudo: string;
   dataHora: Date;
+}
+
+export interface LancePainelCancelamentoV3 {
+  id: string;
+  valor: number;
+  criadoEm: string;
+  cancelado: boolean;
+  solicitacaoPendente: boolean;
+  podeCancelarDireto: boolean;
+  segundosRestantesCancelamentoDireto: number;
+}
+
+export interface SolicitacaoCancelamentoPendenteV3 {
+  lanceId: string;
+  itemId: string;
+  itemNumero: number;
+  fornecedorId: string;
+  fornecedorNome: string;
+  valor: number;
+  motivo: string | null;
+  solicitadoEm: string;
 }
 
 @Injectable()
@@ -1269,6 +1298,286 @@ export class DisputaService {
       itens: itensComMeusDados,
       sessao,
     };
+  }
+
+  // ============================================================================
+  // CANCELAMENTO DE LANCE (V3: 15s fornecedor; depois solicitação + pregoeiro)
+  // ============================================================================
+
+  private async sincronizarUltimoLanceNoItem(
+    manager: EntityManager,
+    itemId: string,
+  ): Promise<void> {
+    const ultimo = await manager.findOne(Lance, {
+      where: { item_id: itemId, cancelado: false },
+      order: { created_at: 'DESC' },
+    });
+    await manager.update(ItemLicitacao, itemId, {
+      ultimo_lance_em: ultimo?.created_at ?? null,
+    });
+  }
+
+  async listarLancesFornecedorParaCancelamentoV3(
+    sessaoId: string,
+    itemId: string,
+    fornecedorId: string,
+  ): Promise<LancePainelCancelamentoV3[]> {
+    const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId } });
+    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+
+    const item = await this.itemRepo.findOne({ where: { id: itemId } });
+    if (!item || item.licitacao_id !== sessao.licitacao_id) {
+      throw new BadRequestException('Item inválido para esta sessão');
+    }
+
+    const lances = await this.lanceRepo.find({
+      where: { item_id: itemId, fornecedor_id: fornecedorId },
+      order: { created_at: 'DESC' },
+      take: 30,
+    });
+
+    const emDisputa = item.status_disputa === StatusDisputaItem.EM_DISPUTA;
+    const agora = Date.now();
+
+    return lances.map((l) => {
+      const criado = new Date(l.created_at).getTime();
+      const limiteDireto = criado + CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS * 1000;
+      const segundosRestantes = Math.max(
+        0,
+        Math.floor((limiteDireto - agora) / 1000),
+      );
+      const pode =
+        emDisputa &&
+        !l.cancelado &&
+        !l.solicitacao_cancelamento_pendente &&
+        segundosRestantes > 0;
+
+      return {
+        id: l.id,
+        valor: parseFloat(String(l.valor)),
+        criadoEm: l.created_at.toISOString(),
+        cancelado: l.cancelado,
+        solicitacaoPendente: l.solicitacao_cancelamento_pendente,
+        podeCancelarDireto: pode,
+        segundosRestantesCancelamentoDireto: pode ? segundosRestantes : 0,
+      };
+    });
+  }
+
+  async listarSolicitacoesCancelamentoPendentesV3(
+    sessaoId: string,
+  ): Promise<SolicitacaoCancelamentoPendenteV3[]> {
+    const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId } });
+    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+
+    const candidatos = await this.lanceRepo.find({
+      where: {
+        solicitacao_cancelamento_pendente: true,
+        cancelado: false,
+      },
+      relations: ['item'],
+    });
+
+    const filtrados = candidatos.filter(
+      (l) => l.item && l.item.licitacao_id === sessao.licitacao_id,
+    );
+    filtrados.sort((a, b) => {
+      const ta = a.solicitacao_cancelamento_em?.getTime() ?? 0;
+      const tb = b.solicitacao_cancelamento_em?.getTime() ?? 0;
+      return ta - tb;
+    });
+
+    return filtrados.map((l) => ({
+        lanceId: l.id,
+        itemId: l.item_id,
+        itemNumero: l.item?.numero_item ?? 0,
+        fornecedorId: l.fornecedor_id || '',
+        fornecedorNome: l.fornecedor_nome || 'Fornecedor',
+        valor: parseFloat(String(l.valor)),
+        motivo: l.solicitacao_cancelamento_motivo ?? null,
+        solicitadoEm: l.solicitacao_cancelamento_em
+          ? l.solicitacao_cancelamento_em.toISOString()
+          : '',
+      }));
+  }
+
+  async cancelarLanceFornecedorImediatoV3(
+    sessaoId: string,
+    itemId: string,
+    lanceId: string,
+    fornecedorId: string,
+  ): Promise<{ ok: true }> {
+    await this.dataSource.transaction(async (manager) => {
+      const sessao = await manager.findOne(SessaoDisputa, {
+        where: { id: sessaoId },
+      });
+      if (!sessao) throw new NotFoundException('Sessão não encontrada');
+
+      const item = await manager.findOne(ItemLicitacao, { where: { id: itemId } });
+      if (!item || item.licitacao_id !== sessao.licitacao_id) {
+        throw new BadRequestException('Item inválido para esta sessão');
+      }
+      if (item.status_disputa !== StatusDisputaItem.EM_DISPUTA) {
+        throw new BadRequestException('Item não está em disputa');
+      }
+
+      const lance = await manager.findOne(Lance, { where: { id: lanceId } });
+      if (!lance || lance.item_id !== itemId) {
+        throw new NotFoundException('Lance não encontrado');
+      }
+      if (lance.fornecedor_id !== fornecedorId) {
+        throw new ForbiddenException('Este lance não pertence ao fornecedor');
+      }
+      if (lance.cancelado) {
+        throw new BadRequestException('Lance já está cancelado');
+      }
+      if (lance.solicitacao_cancelamento_pendente) {
+        throw new BadRequestException(
+          'Já existe solicitação de cancelamento pendente para este lance',
+        );
+      }
+
+      const decorrido = Date.now() - new Date(lance.created_at).getTime();
+      if (decorrido > CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS * 1000) {
+        throw new BadRequestException(
+          `Prazo de ${CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS} segundos para cancelamento direto expirou. Solicite ao pregoeiro.`,
+        );
+      }
+
+      lance.cancelado = true;
+      await manager.save(Lance, lance);
+      await this.sincronizarUltimoLanceNoItem(manager, itemId);
+    });
+
+    await this.registrarEvento(
+      sessaoId,
+      TipoEvento.LANCE_CANCELADO,
+      `Lance cancelado pelo próprio fornecedor (até ${CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS}s)`,
+      itemId,
+      fornecedorId,
+    );
+
+    return { ok: true };
+  }
+
+  async solicitarCancelamentoLanceV3(
+    sessaoId: string,
+    itemId: string,
+    lanceId: string,
+    fornecedorId: string,
+    motivo?: string,
+  ): Promise<{ ok: true }> {
+    await this.dataSource.transaction(async (manager) => {
+      const sessao = await manager.findOne(SessaoDisputa, {
+        where: { id: sessaoId },
+      });
+      if (!sessao) throw new NotFoundException('Sessão não encontrada');
+
+      const item = await manager.findOne(ItemLicitacao, { where: { id: itemId } });
+      if (!item || item.licitacao_id !== sessao.licitacao_id) {
+        throw new BadRequestException('Item inválido para esta sessão');
+      }
+      if (item.status_disputa !== StatusDisputaItem.EM_DISPUTA) {
+        throw new BadRequestException('Item não está em disputa');
+      }
+
+      const lance = await manager.findOne(Lance, { where: { id: lanceId } });
+      if (!lance || lance.item_id !== itemId) {
+        throw new NotFoundException('Lance não encontrado');
+      }
+      if (lance.fornecedor_id !== fornecedorId) {
+        throw new ForbiddenException('Este lance não pertence ao fornecedor');
+      }
+      if (lance.cancelado) {
+        throw new BadRequestException('Lance já está cancelado');
+      }
+      if (lance.solicitacao_cancelamento_pendente) {
+        throw new BadRequestException('Solicitação de cancelamento já registrada');
+      }
+
+      const decorrido = Date.now() - new Date(lance.created_at).getTime();
+      if (decorrido <= CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS * 1000) {
+        throw new BadRequestException(
+          `Ainda dentro do prazo de ${CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS} segundos: use o cancelamento direto.`,
+        );
+      }
+
+      lance.solicitacao_cancelamento_pendente = true;
+      lance.solicitacao_cancelamento_em = new Date();
+      lance.solicitacao_cancelamento_motivo = motivo?.trim() || null;
+      await manager.save(Lance, lance);
+    });
+
+    await this.registrarEvento(
+      sessaoId,
+      TipoEvento.MENSAGEM_SISTEMA,
+      `Fornecedor solicitou cancelamento de lance (aguardando pregoeiro). Motivo: ${motivo?.trim() || 'não informado'}`,
+      itemId,
+      fornecedorId,
+    );
+
+    return { ok: true };
+  }
+
+  async pregoeiroCancelarLanceV3(
+    sessaoId: string,
+    itemId: string,
+    lanceId: string,
+    orgaoId: string,
+    justificativa: string,
+  ): Promise<{ ok: true }> {
+    const j = justificativa?.trim();
+    if (!j) {
+      throw new BadRequestException('Justificativa é obrigatória');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const sessao = await manager.findOne(SessaoDisputa, {
+        where: { id: sessaoId },
+      });
+      if (!sessao) throw new NotFoundException('Sessão não encontrada');
+
+      const licitacao = await manager.findOne(Licitacao, {
+        where: { id: sessao.licitacao_id },
+      });
+      if (!licitacao || licitacao.orgao_id !== orgaoId) {
+        throw new ForbiddenException('Apenas o órgão da licitação pode cancelar lances');
+      }
+
+      const item = await manager.findOne(ItemLicitacao, { where: { id: itemId } });
+      if (!item || item.licitacao_id !== sessao.licitacao_id) {
+        throw new BadRequestException('Item inválido para esta sessão');
+      }
+      if (item.status_disputa !== StatusDisputaItem.EM_DISPUTA) {
+        throw new BadRequestException('Item não está em disputa');
+      }
+
+      const lance = await manager.findOne(Lance, { where: { id: lanceId } });
+      if (!lance || lance.item_id !== itemId) {
+        throw new NotFoundException('Lance não encontrado');
+      }
+      if (lance.cancelado) {
+        throw new BadRequestException('Lance já está cancelado');
+      }
+
+      lance.cancelado = true;
+      lance.solicitacao_cancelamento_pendente = false;
+      lance.solicitacao_cancelamento_em = null;
+      lance.solicitacao_cancelamento_motivo = null;
+      await manager.save(Lance, lance);
+      await this.sincronizarUltimoLanceNoItem(manager, itemId);
+    });
+
+    await this.registrarEvento(
+      sessaoId,
+      TipoEvento.LANCE_CANCELADO,
+      `Lance cancelado pelo pregoeiro/órgão. ${j}`,
+      itemId,
+      undefined,
+      'PREGOEIRO',
+    );
+
+    return { ok: true };
   }
 
   // ============================================================================

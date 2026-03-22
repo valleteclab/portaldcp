@@ -79,6 +79,27 @@ export interface DisputaV3ItemBoard {
   minhaPropostaInicial?: number | null
 }
 
+export interface DisputaV3SolicitacaoCancelamento {
+  lanceId: string
+  itemId: string
+  itemNumero: number
+  fornecedorId: string
+  fornecedorNome: string
+  valor: number
+  motivo: string | null
+  solicitadoEm: string
+}
+
+export interface DisputaV3LanceMeu {
+  id: string
+  valor: number
+  criadoEm: string
+  cancelado: boolean
+  solicitacaoPendente: boolean
+  podeCancelarDireto: boolean
+  segundosRestantesCancelamentoDireto: number
+}
+
 export interface DisputaV3Board {
   visao: 'PREGOEIRO' | 'FORNECEDOR'
   contexto: DisputaV3Contexto
@@ -92,6 +113,7 @@ export interface DisputaV3Board {
     totalEmDisputa: number
     totalEncerrados: number
   }
+  solicitacoesCancelamento?: DisputaV3SolicitacaoCancelamento[]
 }
 
 export interface DisputaMensagem {

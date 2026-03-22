@@ -8,6 +8,14 @@
 - [X] Cobrir presenter/mapeamentos com teste unitário
 - [X] Validar com jest direcionado, commit, push e PR
 
+## Tarefa Atual: Sala de Disputa V3 - PR4 Cancelamento lance 15s + pregoeiro (2026-03-22)
+
+- [X] Entity Lance: solicitação pendente + campos; constante 15s
+- [X] DisputaService: cancelar direto, solicitar, pregoeiro cancelar; sincronizar ultimo lance
+- [X] disputa-v3: endpoints JWT + board pregoeiro com fila de solicitações
+- [X] Frontend: fornecedor (meus lances + ações); órgão (fila + modal justificativa)
+- [ ] Commit, push, PR
+
 ## Tarefa Atual: Sala de Disputa V3 - PR3 Anonimização REST + política cancelamento (2026-03-22)
 
 - [X] Corrigir vazamento: GET público item/:id/lances|melhores|propostas resolve sessão e anonimiza
