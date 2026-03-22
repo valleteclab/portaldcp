@@ -8,6 +8,7 @@
 - [X] Cobrir presenter/mapeamentos com teste unitário
 - [X] Validar com jest direcionado, commit, push e PR
 
+
 ## Tarefa Atual: Sala de Disputa V3 - PR3 Anonimização REST + política cancelamento (2026-03-22)
 
 - [X] Corrigir vazamento: GET público item/:id/lances|melhores|propostas resolve sessão e anonimiza

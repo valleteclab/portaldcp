@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { API_URL, authFetch } from '@/lib/api'
-import { DisputaMensagem, DisputaV3Board, DisputaV3ItemBoard } from '@/components/disputa-v3/types'
+import {
+  DisputaMensagem,
+  DisputaV3Board,
+  DisputaV3ItemBoard,
+  DisputaV3LanceMeu,
+} from '@/components/disputa-v3/types'
 import { escolherItemInicial } from '@/components/disputa-v3/utils'
 
 interface UseDisputaV3Options {
@@ -27,9 +32,13 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
   const [sendingBid, setSendingBid] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [meusLances, setMeusLances] = useState<DisputaV3LanceMeu[]>([])
+  const [sendingCancel, setSendingCancel] = useState(false)
 
   const socketRef = useRef<Socket | null>(null)
   const actorRef = useRef<{ id: string; nome: string; tipo: 'PREGOEIRO' | 'FORNECEDOR' } | null>(null)
+  const selectedItemIdRef = useRef<string | null>(null)
+  selectedItemIdRef.current = selectedItemId
 
   const resolveSessaoId = useCallback(async () => {
     if (sessaoId) return sessaoId
@@ -117,6 +126,26 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     [carregarActor, sessaoId],
   )
 
+  const carregarMeusLances = useCallback(
+    async (resolvedSessaoId?: string, itemId?: string | null) => {
+      if (area !== 'fornecedor') return
+      const sid = resolvedSessaoId || sessaoId
+      const iid = itemId ?? selectedItemIdRef.current
+      const actor = actorRef.current || carregarActor()
+      if (!sid || !iid || !actor || actor.tipo !== 'FORNECEDOR') {
+        setMeusLances([])
+        return
+      }
+      const res = await authFetch(
+        `${API_URL}/api/disputa-v3/sessao/${sid}/item/${iid}/lances-meus?fornecedorId=${encodeURIComponent(actor.id)}`,
+      )
+      if (!res.ok) return
+      const data = (await res.json()) as DisputaV3LanceMeu[]
+      setMeusLances(Array.isArray(data) ? data : [])
+    },
+    [area, sessaoId, carregarActor],
+  )
+
   const refreshMensagens = useCallback(
     async (resolvedSessaoId?: string) => {
       const targetSessaoId = resolvedSessaoId || sessaoId
@@ -187,6 +216,22 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
   }, [carregarActor, refreshBoard, refreshMensagens, resolveSessaoId])
 
   useEffect(() => {
+    if (area !== 'fornecedor' || !sessaoId || !selectedItemId) {
+      setMeusLances([])
+      return
+    }
+    void carregarMeusLances(sessaoId, selectedItemId)
+  }, [area, sessaoId, selectedItemId, carregarMeusLances])
+
+  useEffect(() => {
+    if (area !== 'fornecedor' || !sessaoId || !selectedItemId) return
+    const id = setInterval(() => {
+      void carregarMeusLances(sessaoId, selectedItemId)
+    }, 3000)
+    return () => clearInterval(id)
+  }, [area, sessaoId, selectedItemId, carregarMeusLances])
+
+  useEffect(() => {
     if (!sessaoId) return
 
     const actor = actorRef.current || carregarActor()
@@ -220,6 +265,7 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     })
     socket.on('novo_lance', async () => {
       await refreshBoard(sessaoId)
+      if (area === 'fornecedor') void carregarMeusLances(sessaoId, selectedItemIdRef.current)
     })
     socket.on('sessao_suspensa', async () => {
       await refreshBoard(sessaoId)
@@ -243,6 +289,7 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     socket.on('lance_confirmado', async () => {
       setSendingBid(false)
       await refreshBoard(sessaoId)
+      if (area === 'fornecedor') void carregarMeusLances(sessaoId, selectedItemIdRef.current)
     })
     socket.on('erro', (payload: { mensagem?: string }) => {
       setSendingBid(false)
@@ -254,7 +301,7 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
       socket.disconnect()
       socketRef.current = null
     }
-  }, [atualizarTempos, carregarActor, refreshBoard, refreshMensagens, sessaoId])
+  }, [area, atualizarTempos, carregarActor, carregarMeusLances, refreshBoard, refreshMensagens, sessaoId])
 
   const iniciarItens = useCallback((itensIds: string[]) => {
     if (!socketRef.current || itensIds.length === 0) return
@@ -302,6 +349,86 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     socketRef.current.emit('enviar_lance', { sessaoId, itemId, valor })
   }, [sessaoId])
 
+  const cancelarLanceDireto = useCallback(
+    async (itemId: string, lanceId: string) => {
+      if (!sessaoId || area !== 'fornecedor') return
+      setActionError(null)
+      setSendingCancel(true)
+      try {
+        const res = await authFetch(
+          `${API_URL}/api/disputa-v3/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/cancelar-fornecedor`,
+          { method: 'POST' },
+        )
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const msg = (body as { message?: string | string[] })?.message
+          setActionError(Array.isArray(msg) ? msg.join(', ') : msg || 'Nao foi possivel cancelar o lance.')
+          return
+        }
+        await Promise.all([refreshBoard(sessaoId), carregarMeusLances(sessaoId, itemId)])
+      } finally {
+        setSendingCancel(false)
+      }
+    },
+    [area, sessaoId, refreshBoard, carregarMeusLances],
+  )
+
+  const solicitarCancelamentoLance = useCallback(
+    async (itemId: string, lanceId: string, motivo?: string) => {
+      if (!sessaoId || area !== 'fornecedor') return
+      setActionError(null)
+      setSendingCancel(true)
+      try {
+        const res = await authFetch(
+          `${API_URL}/api/disputa-v3/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/solicitar-cancelamento`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ motivo: motivo?.trim() || undefined }),
+          },
+        )
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const msg = (body as { message?: string | string[] })?.message
+          setActionError(Array.isArray(msg) ? msg.join(', ') : msg || 'Nao foi possivel registrar a solicitacao.')
+          return
+        }
+        await Promise.all([refreshBoard(sessaoId), carregarMeusLances(sessaoId, itemId)])
+      } finally {
+        setSendingCancel(false)
+      }
+    },
+    [area, sessaoId, refreshBoard, carregarMeusLances],
+  )
+
+  const pregoeiroCancelarLance = useCallback(
+    async (itemId: string, lanceId: string, justificativa: string) => {
+      if (!sessaoId || area !== 'orgao') return
+      setActionError(null)
+      setSendingCancel(true)
+      try {
+        const res = await authFetch(
+          `${API_URL}/api/disputa-v3/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/pregoeiro-cancelar`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ justificativa: justificativa.trim() }),
+          },
+        )
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const msg = (body as { message?: string | string[] })?.message
+          setActionError(Array.isArray(msg) ? msg.join(', ') : msg || 'Nao foi possivel cancelar o lance.')
+          return
+        }
+        await refreshBoard(sessaoId)
+      } finally {
+        setSendingCancel(false)
+      }
+    },
+    [area, sessaoId, refreshBoard],
+  )
+
   const itensOrdenados = useMemo(
     () => board ? [...board.colunas.emDisputa, ...board.colunas.aguardando, ...board.colunas.encerrados] : [],
     [board],
@@ -334,5 +461,11 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     reiniciarSessao,
     enviarMensagem,
     enviarLance,
+    meusLances,
+    carregarMeusLances,
+    sendingCancel,
+    cancelarLanceDireto,
+    solicitarCancelamentoLance,
+    pregoeiroCancelarLance,
   }
 }

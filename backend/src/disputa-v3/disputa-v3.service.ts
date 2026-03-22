@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { DisputaService, ItemDisputa } from '../disputa-v2/disputa.service';
+import {
+  DisputaService,
+  ItemDisputa,
+  LancePainelCancelamentoV3,
+  SolicitacaoCancelamentoPendenteV3,
+} from '../disputa-v2/disputa.service';
 import { SessaoDisputa } from '../sessao/entities/sessao-disputa.entity';
 import {
   DisputaV3Contexto,
@@ -23,6 +28,8 @@ export interface DisputaV3Board {
     totalEmDisputa: number;
     totalEncerrados: number;
   };
+  /** Somente visão PREGOEIRO: pedidos de cancelamento aguardando decisão */
+  solicitacoesCancelamento?: SolicitacaoCancelamentoPendenteV3[];
 }
 
 @Injectable()
@@ -48,6 +55,8 @@ export class DisputaV3Service {
   async getBoardPregoeiro(sessaoId: string): Promise<DisputaV3Board> {
     const sessao = await this.buscarSessao(sessaoId);
     const itens = await this.disputaService.getItensPorStatus(sessaoId);
+    const solicitacoesCancelamento =
+      await this.disputaService.listarSolicitacoesCancelamentoPendentesV3(sessaoId);
 
     return {
       visao: 'PREGOEIRO',
@@ -62,6 +71,7 @@ export class DisputaV3Service {
         totalEmDisputa: itens.emDisputa.length,
         totalEncerrados: itens.encerrados.length,
       },
+      solicitacoesCancelamento,
     };
   }
 
@@ -148,5 +158,63 @@ export class DisputaV3Service {
     }
 
     return { aguardando, emDisputa, encerrados };
+  }
+
+  listarLancesMeusParaCancelamento(
+    sessaoId: string,
+    itemId: string,
+    fornecedorId: string,
+  ): Promise<LancePainelCancelamentoV3[]> {
+    return this.disputaService.listarLancesFornecedorParaCancelamentoV3(
+      sessaoId,
+      itemId,
+      fornecedorId,
+    );
+  }
+
+  cancelarLanceFornecedorImediato(
+    sessaoId: string,
+    itemId: string,
+    lanceId: string,
+    fornecedorId: string,
+  ) {
+    return this.disputaService.cancelarLanceFornecedorImediatoV3(
+      sessaoId,
+      itemId,
+      lanceId,
+      fornecedorId,
+    );
+  }
+
+  solicitarCancelamentoLance(
+    sessaoId: string,
+    itemId: string,
+    lanceId: string,
+    fornecedorId: string,
+    motivo?: string,
+  ) {
+    return this.disputaService.solicitarCancelamentoLanceV3(
+      sessaoId,
+      itemId,
+      lanceId,
+      fornecedorId,
+      motivo,
+    );
+  }
+
+  pregoeiroCancelarLance(
+    sessaoId: string,
+    itemId: string,
+    lanceId: string,
+    orgaoId: string,
+    justificativa: string,
+  ) {
+    return this.disputaService.pregoeiroCancelarLanceV3(
+      sessaoId,
+      itemId,
+      lanceId,
+      orgaoId,
+      justificativa,
+    );
   }
 }

@@ -65,12 +65,14 @@ export default function DisputaV3OrgaoPage() {
     setSelectedItemId,
     actionError,
     sendingMessage,
+    sendingCancel,
     iniciarItens,
     encerrarItem,
     suspenderSessao,
     retomarSessao,
     reiniciarSessao,
     enviarMensagem,
+    pregoeiroCancelarLance,
   } = useDisputaV3({
     area: 'orgao',
     sessaoIdParam: sessaoParam,
@@ -84,6 +86,11 @@ export default function DisputaV3OrgaoPage() {
   const [motivoSuspensao, setMotivoSuspensao] = useState<'ADMINISTRATIVO' | 'CAUTELAR' | 'JUDICIAL'>('ADMINISTRATIVO')
   const [justificativaSuspensao, setJustificativaSuspensao] = useState('')
   const [justificativaReinicio, setJustificativaReinicio] = useState('')
+  const [dialogPregoeiroCancel, setDialogPregoeiroCancel] = useState<{
+    itemId: string
+    lanceId: string
+  } | null>(null)
+  const [justificativaCancelPregoeiro, setJustificativaCancelPregoeiro] = useState('')
 
   const contexto = board?.contexto
   const aguardando = board?.colunas.aguardando || []
@@ -263,6 +270,49 @@ export default function DisputaV3OrgaoPage() {
                   </CardHeader>
                 </Card>
               </div>
+
+              {board?.solicitacoesCancelamento && board.solicitacoesCancelamento.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                  <CardHeader>
+                    <CardTitle className="text-base">Solicitacoes de cancelamento de lance</CardTitle>
+                    <CardDescription>
+                      Fornecedores que ultrapassaram os 15 segundos para cancelamento direto aguardam sua
+                      decisao.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {board.solicitacoesCancelamento.map((s) => (
+                      <div
+                        key={s.lanceId}
+                        className="flex flex-col gap-3 rounded-xl border border-amber-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="space-y-1">
+                          <div className="font-medium text-slate-900">
+                            Item {s.itemNumero} — {formatarMoeda(s.valor)}
+                          </div>
+                          <div className="text-sm text-slate-600">{s.fornecedorNome}</div>
+                          {s.motivo ? (
+                            <div className="text-xs text-slate-500">Motivo: {s.motivo}</div>
+                          ) : null}
+                          <div className="text-xs text-slate-400">
+                            Solicitado em {new Date(s.solicitadoEm).toLocaleString('pt-BR')}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="shrink-0 bg-amber-700 hover:bg-amber-800"
+                          onClick={() => {
+                            setDialogPregoeiroCancel({ itemId: s.itemId, lanceId: s.lanceId })
+                            setJustificativaCancelPregoeiro('')
+                          }}
+                        >
+                          Cancelar lance (pregoeiro)
+                        </Button>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
 
               <div className="grid gap-6 xl:grid-cols-12">
                 <div className="space-y-4 xl:col-span-3">
@@ -578,6 +628,52 @@ export default function DisputaV3OrgaoPage() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogoReiniciar(false)}>Cancelar</Button>
               <Button variant="destructive" onClick={confirmarReinicio}>Reiniciar sessao</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={dialogPregoeiroCancel !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDialogPregoeiroCancel(null)
+              setJustificativaCancelPregoeiro('')
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancelar lance (decisao do pregoeiro)</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-slate-600">
+              Registre a justificativa do cancelamento. O lance deixara de valer e a cronometria sera recalculada.
+            </p>
+            <Textarea
+              value={justificativaCancelPregoeiro}
+              onChange={(e) => setJustificativaCancelPregoeiro(e.target.value)}
+              rows={4}
+              placeholder="Justificativa obrigatoria"
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDialogPregoeiroCancel(null)}>
+                Voltar
+              </Button>
+              <Button
+                type="button"
+                disabled={sendingCancel || !justificativaCancelPregoeiro.trim() || !dialogPregoeiroCancel}
+                onClick={async () => {
+                  if (!dialogPregoeiroCancel) return
+                  await pregoeiroCancelarLance(
+                    dialogPregoeiroCancel.itemId,
+                    dialogPregoeiroCancel.lanceId,
+                    justificativaCancelPregoeiro,
+                  )
+                  setDialogPregoeiroCancel(null)
+                  setJustificativaCancelPregoeiro('')
+                }}
+              >
+                Confirmar cancelamento
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

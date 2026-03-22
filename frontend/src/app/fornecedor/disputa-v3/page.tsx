@@ -30,6 +30,13 @@ import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 function getPosicaoClass(posicao?: number | null) {
   if (posicao === 1) return 'text-emerald-700'
@@ -65,8 +72,12 @@ export default function DisputaV3FornecedorPage() {
     actionError,
     sendingBid,
     sendingMessage,
+    sendingCancel,
+    meusLances,
     enviarMensagem,
     enviarLance,
+    cancelarLanceDireto,
+    solicitarCancelamentoLance,
   } = useDisputaV3({
     area: 'fornecedor',
     sessaoIdParam: sessaoParam,
@@ -75,6 +86,8 @@ export default function DisputaV3FornecedorPage() {
 
   const [valorLance, setValorLance] = useState('')
   const [novaMensagem, setNovaMensagem] = useState('')
+  const [dialogSolicitarLanceId, setDialogSolicitarLanceId] = useState<string | null>(null)
+  const [motivoSolicitar, setMotivoSolicitar] = useState('')
 
   const contexto = board?.contexto
   const itensOrdenados = board ? [...board.colunas.emDisputa, ...board.colunas.aguardando, ...board.colunas.encerrados] : []
@@ -278,6 +291,69 @@ export default function DisputaV3FornecedorPage() {
                             </Button>
                           </CardContent>
                         </Card>
+
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-base">Meus lances neste item</CardTitle>
+                            <CardDescription>
+                              Ate 15 segundos apos o envio voce pode cancelar diretamente. Depois disso, solicite ao
+                              pregoeiro.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            {meusLances.length === 0 ? (
+                              <p className="text-sm text-slate-500">Nenhum lance seu neste item ainda.</p>
+                            ) : (
+                              meusLances.map((l) => (
+                                <div
+                                  key={l.id}
+                                  className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-medium text-slate-900">{formatarMoeda(l.valor)}</span>
+                                    <span className="text-xs text-slate-500">
+                                      {new Date(l.criadoEm).toLocaleString('pt-BR')}
+                                    </span>
+                                  </div>
+                                  {l.cancelado && (
+                                    <Badge variant="secondary">Cancelado</Badge>
+                                  )}
+                                  {l.solicitacaoPendente && (
+                                    <Badge className="w-fit bg-amber-100 text-amber-900">Aguardando pregoeiro</Badge>
+                                  )}
+                                  {itemFoco.status === 'EM_DISPUTA' &&
+                                    !l.cancelado &&
+                                    !l.solicitacaoPendente &&
+                                    l.podeCancelarDireto && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="w-full"
+                                        disabled={sendingCancel}
+                                        onClick={() => cancelarLanceDireto(itemFoco.id, l.id)}
+                                      >
+                                        Cancelar lance ({l.segundosRestantesCancelamentoDireto}s)
+                                      </Button>
+                                    )}
+                                  {itemFoco.status === 'EM_DISPUTA' &&
+                                    !l.cancelado &&
+                                    !l.solicitacaoPendente &&
+                                    !l.podeCancelarDireto && (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="w-full"
+                                        disabled={sendingCancel}
+                                        onClick={() => setDialogSolicitarLanceId(l.id)}
+                                      >
+                                        Solicitar cancelamento ao pregoeiro
+                                      </Button>
+                                    )}
+                                </div>
+                              ))
+                            )}
+                          </CardContent>
+                        </Card>
                       </div>
                     </>
                   ) : (
@@ -393,6 +469,52 @@ export default function DisputaV3FornecedorPage() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={dialogSolicitarLanceId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDialogSolicitarLanceId(null)
+            setMotivoSolicitar('')
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Solicitar cancelamento ao pregoeiro</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={motivoSolicitar}
+            onChange={(e) => setMotivoSolicitar(e.target.value)}
+            rows={4}
+            placeholder="Descreva o motivo (opcional)"
+          />
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDialogSolicitarLanceId(null)
+                setMotivoSolicitar('')
+              }}
+            >
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              disabled={sendingCancel || !itemFoco || !dialogSolicitarLanceId}
+              onClick={async () => {
+                if (!itemFoco || !dialogSolicitarLanceId) return
+                await solicitarCancelamentoLance(itemFoco.id, dialogSolicitarLanceId, motivoSolicitar)
+                setDialogSolicitarLanceId(null)
+                setMotivoSolicitar('')
+              }}
+            >
+              Enviar solicitacao
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
