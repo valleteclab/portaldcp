@@ -50,6 +50,7 @@ import { AgenteTarefasModule } from './agente-tarefas/agente-tarefas.module';
 import { FrotaModule } from './frota/frota.module';
 import { AnpModule } from './anp/anp.module';
 import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
+import { PatrimonioModule } from './patrimonio/patrimonio.module';
 
 @Module({
   imports: [
@@ -144,6 +145,7 @@ import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
     FrotaModule,
     AnpModule,
     WhatsappAgentModule,
+    PatrimonioModule,
   ],
   controllers: [HealthController],
   providers: [

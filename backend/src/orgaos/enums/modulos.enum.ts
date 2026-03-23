@@ -16,6 +16,7 @@ export enum ModuloSistema {
   WHATSAPP_CHAT = 'WHATSAPP_CHAT',
   FROTA = 'FROTA',
   EMAILS = 'EMAILS',
+  PATRIMONIO = 'PATRIMONIO',
 }
 
 export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
@@ -36,5 +37,6 @@ export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
   [ModuloSistema.WHATSAPP_CHAT]: 'WhatsApp Chat',
   [ModuloSistema.FROTA]: 'Controle de Frota e Combustível',
   [ModuloSistema.EMAILS]: 'Caixa de Entrada de E-mails',
+  [ModuloSistema.PATRIMONIO]: 'Controle de Patrimônio',
 };
 
