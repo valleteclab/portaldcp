@@ -31,6 +31,8 @@ import {
   Car,
   Fuel,
   KeyRound,
+  Landmark,
+  Wrench,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -156,6 +158,8 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/frota/requisicoes", label: "Requisições Combustível", icon: ClipboardList, modulo: ModuloSistema.FROTA },
     { href: "/orgao/frota/contratos", label: "Contratos Combustível", icon: FileText, modulo: ModuloSistema.FROTA },
     { href: "/orgao/frota/credenciais", label: "Acessos Frota", icon: KeyRound, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/patrimonio", label: "Patrimônio", icon: Landmark, modulo: ModuloSistema.PATRIMONIO },
+    { href: "/orgao/patrimonio/manutencoes", label: "Manutenções", icon: Wrench, modulo: ModuloSistema.PATRIMONIO },
     { href: "/orgao/whatsapp", label: "WhatsApp Chat", icon: MessageCircle, modulo: ModuloSistema.WHATSAPP_CHAT },
     { href: "/orgao/emails", label: "Caixa de Entrada", icon: Mail, modulo: ModuloSistema.EMAILS },
     { href: "/orgao/configuracoes", label: "Configurações", icon: Settings, requerRole: 'ADMIN' },

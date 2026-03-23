@@ -150,6 +150,13 @@ export class Usuario {
   @Column({ default: false })
   pode_enviar_contabilidade: boolean;
 
+  /**
+   * Indica se o usuário pode gerenciar o módulo de patrimônio.
+   * Controle de bens, manutenções, locações, comodatos e etiquetas.
+   */
+  @Column({ default: false })
+  pode_gerenciar_patrimonio: boolean;
+
   @Column({ nullable: true })
   google_id: string;
 
