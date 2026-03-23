@@ -257,6 +257,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     data_inicio_prevista: '', data_fim_prevista: '', observacoes: '',
   })
   const [formItemCronograma, setFormItemCronograma] = useState({
+    numero_item: '',
     descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
     quantidade_medida: '', // Apenas para admin (ajuste migração)
     valor_medida_reais: '', // Para itens MENSAL: entrada alternativa em R$
@@ -472,6 +473,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     if (item) {
       setEditandoItemCronograma(item)
       setFormItemCronograma({
+        numero_item: String(item.numero_item),
         descricao: item.descricao,
         unidade_medida: item.unidade_medida,
         quantidade: String(item.quantidade),
@@ -487,7 +489,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       })
     } else {
       setEditandoItemCronograma(null)
-      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '', valor_medida_reais: '' })
+      setFormItemCronograma({ numero_item: '', descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '', valor_medida_reais: '' })
     }
     setModalItemCronograma(true)
   }
@@ -514,6 +516,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     setActionLoading(true)
     try {
       const payload = {
+        ...(editandoItemCronograma && formItemCronograma.numero_item !== '' && {
+          numero_item: parseInt(formItemCronograma.numero_item) || editandoItemCronograma.numero_item,
+        }),
         descricao: formItemCronograma.descricao,
         unidade_medida: formItemCronograma.unidade_medida,
         quantidade: qtd,
@@ -1539,6 +1544,17 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <span className="font-bold text-blue-700">{formatarMoeda(editandoItemCronograma ? saldoValorItens + Number(editandoItemCronograma.valor_total) : saldoValorItens)}</span>
               </div>
             </div>
+            {editandoItemCronograma && (
+              <div className="space-y-2">
+                <Label>Nº Item</Label>
+                <Input
+                  type="number" min="1" step="1"
+                  value={formItemCronograma.numero_item}
+                  onChange={e => setFormItemCronograma({ ...formItemCronograma, numero_item: e.target.value })}
+                  className="w-24"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Descrição *</Label>
               <Input placeholder="Ex: Serviço de gravações, Manutenção mensal..." value={formItemCronograma.descricao} onChange={e => setFormItemCronograma({ ...formItemCronograma, descricao: e.target.value })} />
