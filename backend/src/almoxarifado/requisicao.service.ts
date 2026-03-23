@@ -225,6 +225,19 @@ ${requisicao.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     return resultado;
   }
 
+  private async normalizarStatusLegadoOS(requisicao: Requisicao): Promise<Requisicao> {
+    if (
+      requisicao.tipo === TipoRequisicao.ORDEM_SERVICO &&
+      requisicao.status === StatusRequisicao.ORDEM_GERADA &&
+      !requisicao.ordem_fornecimento_id
+    ) {
+      requisicao.status = StatusRequisicao.AUTORIZADA;
+      await this.requisicaoRepository.save(requisicao);
+    }
+
+    return requisicao;
+  }
+
   /**
    * Envia email (com PDF), notificação no sistema e WhatsApp ao fornecedor da OF.
    * Mesmo modelo da notificarFornecedorOS.
@@ -897,6 +910,12 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
               telefone: dto.telefone_fornecedor,
             });
             Object.assign(notificacoesFornecedor, res);
+
+            if (res.email || res.notificacao || res.whatsapp) {
+              requisicao.enviado_ao_fornecedor = true;
+              requisicao.data_envio_fornecedor = new Date();
+              await this.requisicaoRepository.save(requisicao);
+            }
           } else {
             this.logger.log(`OS ${requisicao.numero}: envio automático desabilitado para o órgão. Aguardando envio manual.`);
           }
@@ -1777,6 +1796,10 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       this.logger.warn(`Erro ao carregar ordens de fornecimento (não crítico): ${error.message}`);
       // Continua sem as ordens se houver erro - não quebra a listagem
     }
+
+    for (const req of requisicoes) {
+      await this.normalizarStatusLegadoOS(req);
+    }
     
     return requisicoes;
   }
@@ -1791,7 +1814,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       throw new NotFoundException('Requisição não encontrada');
     }
 
-    return requisicao;
+    return this.normalizarStatusLegadoOS(requisicao);
   }
 
   async getHistoricoRequisicao(requisicaoId: string): Promise<HistoricoRequisicao[]> {
@@ -1841,6 +1864,13 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       telefone: dto?.telefone_fornecedor,
       tipo: dto?.tipo,
     });
+
+    if (resultado.email || resultado.notificacao || resultado.whatsapp) {
+      requisicao.enviado_ao_fornecedor = true;
+      requisicao.data_envio_fornecedor = new Date();
+      await this.requisicaoRepository.save(requisicao);
+    }
+
     return { notificacoes_fornecedor: resultado };
   }
 

@@ -39,11 +39,15 @@ import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-me
 import { UploadModule } from '../upload/upload.module';
 import { MulterModule } from '@nestjs/platform-express';
 import { AssinaturasModule } from '../assinaturas/assinaturas.module';
+import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
+import { LinkAssinaturaFiscal } from './entities/link-assinatura-fiscal.entity';
+import { AssinaturaFiscalPublicaController } from './assinatura-fiscal-publica.controller';
 import { IaModule } from '../ia/ia.module';
 import { ImportarContratoIaController } from './importar-contrato-ia.controller';
 import { ImportarContratoIaService } from './importar-contrato-ia.service';
 import { ImportarMedicaoIaController } from './importar-medicao-ia.controller';
 import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
+import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 
 @Module({
   imports: [
@@ -52,7 +56,7 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao,
+      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
     ]),
     NotificacoesModule,
     UploadModule,
@@ -61,7 +65,7 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
     HttpModule,
     FornecedoresModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController],
   providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService]
 })

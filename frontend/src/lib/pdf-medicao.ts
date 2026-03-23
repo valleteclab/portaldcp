@@ -28,6 +28,10 @@ export interface ItemMedicaoPdf {
   valor_acumulado_anterior?: number
   /** Valor total ORIGINAL do item no contrato. Se definido, substitui quantidade_total_contrato × valor_unitario. */
   valor_total_item?: number
+  /** Quando boletim_por_quantidade: quantidade acumulada até o período */
+  quantidade_ate_periodo?: number
+  /** Quando boletim_por_quantidade: quantidade a executar */
+  quantidade_a_executar?: number
 }
 
 export interface ItemContratadoPdf {
@@ -72,8 +76,28 @@ export interface DadosMedicaoPdf {
   periodo_fim: string
   competencia?: string          // ex: FEVEREIRO/2026 (gerado automaticamente se omitido)
   valor_medido: number
+  execucao_financeira_totais?: {
+    no_periodo: number
+    ate_periodo: number
+    a_executar: number
+  }
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
+  /** Quando true, Execução Fiscal exibe quantidades (un, h, m) em vez de dias */
+  execucao_fiscal_por_quantidade?: boolean
+  // Execução fiscal (calculada no backend com ano comercial)
+  execucao_fiscal?: {
+    vigencia_inicio: string;
+    vigencia_fim: string;
+    total_dias: number;
+    dias_executados: number;
+    dias_restantes: number;
+    meses_executados: number;
+    dias_executados_extra: number;
+    meses_restantes: number;
+    dias_restantes_extra: number;
+    ano_comercial: boolean;
+  };
   // Itens de medição (item_cronograma)
   itens?: ItemMedicaoPdf[]
   // Itens contratados (planilha completa)
@@ -94,10 +118,13 @@ export interface DadosMedicaoPdf {
     nome: string
     cpf?: string
     cargo?: string
+    matricula?: string             // matrícula funcional do fiscal
+    portaria?: string              // portaria que designou o fiscal
     data_hora: string
     codigo_validacao?: string      // código formatado XXXX-XXXX-XXXX-XXXX
   }
   url_validacao?: string           // ex: portaldcp.com.br/validar-documento
+  qr_code_data_url?: string        // Data URI PNG do QR Code para verificação
 }
 
 // ---- Helpers ----
@@ -118,11 +145,65 @@ function fmtCnpj(cnpj: string): string {
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`
 }
 
-/** Dias corridos entre duas datas ISO (string) */
-function diasEntreDatas(inicio: string, fim: string): number {
-  if (!inicio || !fim) return 0
-  const d1 = new Date(inicio.split('T')[0] + 'T00:00:00')
-  const d2 = new Date(fim.split('T')[0] + 'T00:00:00')
+/** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias) */
+function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?: string): number {
+  const d1 = new Date(data1)
+  const d2 = new Date(data2)
+  const dataFimContratoDate = dataFimContrato ? new Date(dataFimContrato) : null
+  
+  // Usar UTC para evitar problemas de timezone
+  const ano1 = d1.getUTCFullYear()
+  const mes1 = d1.getUTCMonth()
+  const dia1 = d1.getUTCDate()
+  
+  const ano2 = d2.getUTCFullYear()
+  const mes2 = d2.getUTCMonth()
+  const dia2 = d2.getUTCDate()
+  
+  let dias = 0
+  
+  // Se mesmo mês
+  if (ano1 === ano2 && mes1 === mes2) {
+    // Para períodos normais: conta ambos os dias (dia_fim - dia_início + 1)
+    // Apenas não conta o dia final se for o último dia do contrato
+    const ehUltimoDiaDoContrato = dataFimContratoDate
+      ? ano2 === dataFimContratoDate.getUTCFullYear() &&
+        mes2 === dataFimContratoDate.getUTCMonth() &&
+        dia2 === dataFimContratoDate.getUTCDate()
+      : false
+    dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30)
+  } else {
+    // Dias no primeiro mês (ano comercial) - conta o dia inicial
+    const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30)
+    
+    // Meses completos no meio
+    let mesesCompletos = 0
+    if (ano2 > ano1 || mes2 > mes1 + 1) {
+      mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1)
+    }
+    
+    // Dias no último mês (ano comercial)
+    // Não conta o dia final se for o último dia do contrato
+    let diasUltimoMes = Math.min(dia2, 30)
+    const ehUltimoDiaDoContrato = dataFimContratoDate
+      ? ano2 === dataFimContratoDate.getUTCFullYear() &&
+        mes2 === dataFimContratoDate.getUTCMonth() &&
+        dia2 === dataFimContratoDate.getUTCDate()
+      : false
+    if (ehUltimoDiaDoContrato) {
+      diasUltimoMes = dia2 - 1
+    }
+    
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes
+  }
+  
+  // IMPORTANTE: Ano comercial sempre = 360 dias
+  return Math.max(0, Math.min(dias, 360))
+}
+
+function diasEntreDatas(data1: string, data2: string): number {
+  const d1 = new Date(data1)
+  const d2 = new Date(data2)
   return Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
 }
 
@@ -135,6 +216,17 @@ function fmtTempo(dias: number): string {
   const pD = d === 1 ? '1 dia' : d > 1 ? `${d} dias` : ''
   if (pM && pD) return `${pM} e ${pD}`
   return pM || pD || '0 dias'
+}
+
+/** Formata quantidade com unidade (ex: 100 h, 50 un, 1 mês) */
+function fmtQuantidade(valor: number, unidade: string): string {
+  const u = (unidade || 'UN').toUpperCase()
+  const suf = u === 'HORA' || u === 'H' ? ' h'
+    : u === 'METROS' || u === 'M' ? ' m'
+    : u === 'LITROS' || u === 'L' ? ' l'
+    : u === 'MENSAL' ? (valor === 1 ? ' mês' : ' meses')
+    : ' un'
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}${suf}`
 }
 
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
@@ -161,39 +253,42 @@ function desenharQuadroAssinaturas(
     nome: string
     identificacao: string
     cargo: string
+    matricula?: string
+    portaria?: string
     dataHora: string
     pendente: boolean
     codigoValidacao?: string
   }>,
   urlValidacao?: string,
+  qrCodeDataUrl?: string,
 ): number {
   const contentW = W - 2 * mX
   let dy = 0
 
   // ── Linha separadora ────────────────────────────────────────────────────────
   doc.setDrawColor(107, 114, 128)
-  doc.setLineWidth(0.8)
+  doc.setLineWidth(0.6)
   doc.line(mX, y + dy, W - mX, y + dy)
-  dy += 5
+  dy += 3.5
 
   // ── Título do quadro ──────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
+  doc.setFontSize(8)
   doc.setTextColor(30, 64, 175)
   doc.text('QUADRO DE ASSINATURAS ELETRÔNICAS', W / 2, y + dy, { align: 'center' })
-  dy += 5
+  dy += 4
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(6)
   doc.setTextColor(55, 65, 81)
   doc.text(
     'Este documento foi assinado eletronicamente em conformidade com a Lei nº 14.063/2020.',
     W / 2, y + dy, { align: 'center' },
   )
-  dy += 6
+  dy += 4.5
 
   // ── Caixas por assinante ────────────────────────────────────────────────
-  const boxW = (contentW - 6) / 2
+  const boxW = (contentW - 4) / 2
   const assinantesArr = assinaturas.slice(0, 2)
 
   let maxBoxH = 0
@@ -201,12 +296,28 @@ function desenharQuadroAssinaturas(
 
   for (let i = 0; i < assinantesArr.length; i++) {
     const a = assinantesArr[i]
-    const bx = mX + i * (boxW + 6)
+    const bx = mX + i * (boxW + 4)
     const pendente = a.pendente
-    const boxH = pendente ? 22 : 38
-    maxBoxH = Math.max(maxBoxH, boxH)
-    boxesInfo.push({ x: bx, boxH })
-
+    // DEPOIS — altura dinâmica baseada no conteúdo
+let boxH: number
+if (pendente) {
+  boxH = 18
+} else {
+  const linhasNome = doc.splitTextToSize(a.nome, boxW - 5)
+  const numLinhasNome = Math.min(linhasNome.length, 2)
+  // header(5) + topo(3.5) + nome + cargo/matricula + portaria + id + data + válida + padding
+  const temCargoOuMatricula = !!(a.cargo || a.matricula)
+  boxH = 5 + 3.5
+    + numLinhasNome * 3.1
+    + (temCargoOuMatricula ? 2.8 : 0)
+    + (a.portaria ? 2.8 : 0)
+    + (a.identificacao ? 2.8 : 0)
+    + 2.8   // data/hora
+    + 2.8   // ✓ assinatura válida
+    + 2.5   // padding inferior
+}
+maxBoxH = Math.max(maxBoxH, boxH)
+boxesInfo.push({ x: bx, boxH })
     // Fundo + borda
     doc.setFillColor(249, 250, 251)
     doc.setDrawColor(a.cor[0], a.cor[1], a.cor[2])
@@ -215,69 +326,95 @@ function desenharQuadroAssinaturas(
 
     // Header colorido
     doc.setFillColor(a.cor[0], a.cor[1], a.cor[2])
-    doc.rect(bx, y + dy, boxW, 6, 'F')
+    doc.rect(bx, y + dy, boxW, 5, 'F')
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(6)
+    doc.setFontSize(5.5)
     doc.setTextColor(255, 255, 255)
-    doc.text(a.titulo, bx + boxW / 2, y + dy + 4, { align: 'center' })
+    doc.text(a.titulo, bx + boxW / 2, y + dy + 3.4, { align: 'center' })
 
     if (pendente) {
       doc.setFont('helvetica', 'italic')
-      doc.setFontSize(6.5)
+      doc.setFontSize(6)
       doc.setTextColor(156, 163, 175)
-      doc.text('Pendente de assinatura', bx + boxW / 2, y + dy + 6 + 8, { align: 'center' })
+      doc.text('Pendente de assinatura', bx + boxW / 2, y + dy + 11.5, { align: 'center' })
     } else {
-      let ly = y + dy + 6 + 5
+      let ly = y + dy + 8.5
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(7)
+      doc.setFontSize(6.2)
       doc.setTextColor(17, 24, 39)
-      const linhasNome = doc.splitTextToSize(a.nome, boxW - 6)
+      const linhasNome = doc.splitTextToSize(a.nome, boxW - 5)
       doc.text(linhasNome.slice(0, 2), bx + 3, ly)
-      ly += linhasNome.slice(0, 2).length * 4
+      ly += linhasNome.slice(0, 2).length * 3.1
 
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
+      doc.setFontSize(5.8)
       doc.setTextColor(55, 65, 81)
-      if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 3.5 }
-      if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 3.5 }
-      doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 3.5
+      // Linha: "CARGO  ·  Matrícula: XXXXX" (ou só cargo, ou só matrícula)
+      if (a.cargo || a.matricula) {
+        const cargoMatricula = a.cargo && a.matricula
+          ? `${a.cargo}  ·  Matrícula: ${a.matricula}`
+          : a.cargo ? a.cargo : `Matrícula: ${a.matricula}`
+        doc.text(cargoMatricula, bx + 3, ly); ly += 2.8
+      }
+      // Linha: "Fiscal de Contratos  ·  Portaria XXX/XXXX"
+      if (a.portaria) {
+        doc.text(`Fiscal de Contratos  ·  Portaria ${a.portaria}`, bx + 3, ly); ly += 2.8
+      }
+      if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 2.8 }
+      doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 2.8
 
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(6)
+      doc.setFontSize(5.5)
       doc.setTextColor(22, 163, 74)
       doc.text('✓  Assinatura eletrônica válida', bx + 3, ly)
     }
   }
-  dy += maxBoxH + 5
+  dy += maxBoxH + 3
 
   // ── Rodapé: URL de verificação + código ─────────────────────────────────
   doc.setDrawColor(156, 163, 175)
   doc.setLineWidth(0.4)
   doc.line(mX, y + dy, W - mX, y + dy)
-  dy += 4
+  dy += 3
 
   const baseUrl = urlValidacao || 'portaldcp.com.br/validar-documento'
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7)
+  doc.setFontSize(6.3)
   doc.setTextColor(17, 24, 39)
   doc.text('VERIFICAR AUTENTICIDADE:', mX, y + dy)
-  dy += 4
+  dy += 3.2
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(5.8)
   doc.setTextColor(55, 65, 81)
   doc.text(`Acesse: ${baseUrl}`, mX, y + dy)
-  dy += 4
+  dy += 3.2
 
-  // Códigos dos assinantes
+  // QR Code (renderizar à direita, alinhado com os textos)
+  const qrSize = 20
+  const qrX = W - mX - qrSize
+  if (qrCodeDataUrl) {
+    try {
+      doc.addImage(qrCodeDataUrl, 'PNG', qrX, y + dy - 3, qrSize, qrSize)
+    } catch { /* ignora se falhar */ }
+  }
+
+  // Códigos dos assinantes (texto à esquerda, QR ocupa a direita)
+  const textMaxW = qrCodeDataUrl ? qrX - mX - 3 : W - 2 * mX
   const codigosValidos = assinantesArr.filter(a => !a.pendente && a.codigoValidacao)
   if (codigosValidos.length > 0) {
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7)
+    doc.setFontSize(6.1)
     doc.setTextColor(37, 99, 235)
     for (const a of codigosValidos) {
-      doc.text(`Código (${a.titulo.split('—')[1]?.trim() || a.titulo}): ${a.codigoValidacao}`, mX, y + dy)
-      dy += 4
+      const label = `Código (${a.titulo.split('—')[1]?.trim() || a.titulo}): ${a.codigoValidacao}`
+      doc.text(label, mX, y + dy, { maxWidth: textMaxW })
+      dy += 3.2
     }
+  }
+
+  // Garantir espaço suficiente para o QR Code
+  if (qrCodeDataUrl) {
+    dy = Math.max(dy, qrSize + 3)
   }
 
   return dy
@@ -285,12 +422,12 @@ function desenharQuadroAssinaturas(
 
 // ---- Função principal ----
 
-export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
+export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
-  const mX = 10   // margem lateral reduzida para caber a tabela
-  let y = 10
+  const mX = 7
+  let y = 8
 
   const competencia = dados.competencia || derivarCompetencia(dados.periodo_inicio)
 
@@ -333,8 +470,8 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   doc.text('OBJETO:', mX, y)
   doc.setFont('helvetica', 'normal')
   const linhasObj = doc.splitTextToSize(dados.objeto_contrato, W - mX - infoX2 - 2)
-  doc.text(linhasObj.slice(0, 3), infoX2, y)
-  y += Math.min(linhasObj.length, 3) * 4.5 + 1
+  doc.text(linhasObj, infoX2, y)
+  y += linhasObj.length * 4.5 + 1
 
   linhaInfo('FORNECEDOR', `${dados.fornecedor_nome}  —  CNPJ: ${fmtCnpj(dados.fornecedor_cnpj)}`)
 
@@ -343,14 +480,15 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   doc.text('PERÍODO:', mX, y)
   doc.setFont('helvetica', 'normal')
   doc.text(`${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, infoX2, y)
-  if (dados.nota_fiscal_numero) {
-    const nfX = W / 2
-    doc.setFont('helvetica', 'bold')
-    doc.text('NF:', nfX, y)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}`, nfX + 8, y)
-  }
+  const nfX = W / 2
+  doc.setFont('helvetica', 'bold')
+  doc.text('Nº NF:', nfX, y)
+  doc.setFont('helvetica', 'normal')
+  doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}` : '-', nfX + 12, y)
   y += 5
+
+  // Valor Bruto (= valor da medição)
+  linhaInfo('VALOR BRUTO', fmt(dados.valor_medido))
 
   // Competência
   if (competencia) {
@@ -406,7 +544,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 30 }, 3: { cellWidth: 18 } },
       margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 4
   }
 
   // =========================================================
@@ -449,12 +587,12 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
         ],
       ],
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
+      styles: { fontSize: 6.5, cellPadding: 1.1, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 74 }, 2: { cellWidth: 18 }, 3: { cellWidth: 22 }, 4: { cellWidth: 30 }, 5: { cellWidth: 32 } },
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 86 }, 2: { cellWidth: 21 }, 3: { cellWidth: 18 }, 4: { cellWidth: 30 }, 5: { cellWidth: 31 } },
       margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 4
   }
 
   // =========================================================
@@ -492,22 +630,30 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       ],
     ]
 
-    // --- Execução Fiscal (tempo) — igual para todos os itens ---
-    const diasPeriodo = Math.max(1, diasEntreDatas(dados.periodo_inicio, dados.periodo_fim))
-    const diasAte = dados.data_vigencia_inicio
-      ? Math.max(0, diasEntreDatas(dados.data_vigencia_inicio, dados.periodo_fim))
-      : 0
-    const diasRestante = dados.data_vigencia_fim
-      ? Math.max(0, diasEntreDatas(dados.periodo_fim, dados.data_vigencia_fim))
-      : 0
-    const txtFiscalNoPeriodo   = fmtTempo(diasPeriodo)
-    const txtFiscalAtePeriodo  = diasAte > 0 ? fmtTempo(diasAte) : '-'
-    const txtFiscalAExecutar   = fmtTempo(diasRestante)
+    const porQuantidade = !!dados.execucao_fiscal_por_quantidade
+
+    // --- Execução Fiscal: tempo (dias) ou quantidade ---
+    let txtFiscalNoPeriodo: string, txtFiscalAtePeriodo: string, txtFiscalAExecutar: string
+    if (porQuantidade) {
+      txtFiscalNoPeriodo = txtFiscalAtePeriodo = txtFiscalAExecutar = '' // por item
+    } else {
+      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim))
+      txtFiscalNoPeriodo = fmtTempo(diasPeriodo)
+      if (dados.execucao_fiscal) {
+        txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados)
+        txtFiscalAExecutar = fmtTempo(dados.execucao_fiscal.dias_restantes)
+      } else if (dados.data_vigencia_inicio && dados.data_vigencia_fim) {
+        const diasAte = Math.max(0, diasEntreDatasComercial(dados.data_vigencia_inicio, dados.periodo_fim, dados.data_vigencia_fim))
+        txtFiscalAtePeriodo = fmtTempo(diasAte)
+        txtFiscalAExecutar = fmtTempo(Math.max(0, 360 - diasAte))
+      } else {
+        txtFiscalAtePeriodo = txtFiscalAExecutar = '-'
+      }
+    }
 
     let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0
 
     const body: any[][] = dados.itens.map(item => {
-      // Usar valor_acumulado_anterior se disponível (contratos migrados)
       const vlrAcumAnterior = item.valor_acumulado_anterior !== undefined
         ? item.valor_acumulado_anterior
         : item.quantidade_acumulada_aprovada * item.valor_unitario
@@ -522,23 +668,32 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       totalAteoPeriodo += vlrAtePeriodo
       totalAExecutar += vlrAExecutar
 
+      const un = item.unidade || 'UNIDADE'
+      const fiscalNo = porQuantidade ? fmtQuantidade(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo
+      const fiscalAte = porQuantidade ? fmtQuantidade(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo
+      const fiscalExec = porQuantidade ? fmtQuantidade(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar
+
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: item.descricao, styles: { fontSize: 6 } },
-        { content: txtFiscalNoPeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: txtFiscalAtePeriodo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: txtFiscalAExecutar, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalNo, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalAte, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: fiscalExec, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmt(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },
       ]
     })
 
+    const totalNoPeriodoExibicao = dados.valor_medido ?? dados.execucao_financeira_totais?.no_periodo ?? totalNoPeriodo
+    const totalAtePeriodoExibicao = dados.execucao_financeira_totais?.ate_periodo ?? totalAteoPeriodo
+    const totalAExecutarExibicao = dados.execucao_financeira_totais?.a_executar ?? totalAExecutar
+
     body.push([
       { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalNoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalAteoPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalAExecutar), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalNoPeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalAtePeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmt(totalAExecutarExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
     ])
 
     autoTable(doc, {
@@ -546,21 +701,21 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
       head,
       body,
       theme: 'grid',
-      styles: { fontSize: 6, cellPadding: 1.5, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' },
+      styles: { fontSize: 5.8, cellPadding: 1.1, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 10 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 21 },
-        4: { cellWidth: 20 },
-        5: { cellWidth: 20 },
-        6: { cellWidth: 24 },
-        7: { cellWidth: 25 },
+        1: { cellWidth: 66 },
+        2: { cellWidth: 19 },
+        3: { cellWidth: 19 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 19 },
+        6: { cellWidth: 23 },
+        7: { cellWidth: 22 },
       },
       margin: { left: mX, right: mX },
     })
-    y = (doc as any).lastAutoTable.finalY + 5
+    y = (doc as any).lastAutoTable.finalY + 4
   }
 
   // =========================================================
@@ -605,7 +760,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   // =========================================================
   // RESUMO — apenas VALOR DA MEDIÇÃO (sem acumulado/% físico)
   // =========================================================
-  if (y + 14 > H - 30) { doc.addPage(); y = 15 }
+  if (y + 14 > H - 24) { doc.addPage(); y = 10 }
 
   doc.setFillColor(235, 245, 255)
   doc.setDrawColor(22, 60, 100)
@@ -618,44 +773,60 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   doc.setFontSize(13)
   doc.setTextColor(22, 60, 100)
   doc.text(fmt(dados.valor_medido), mX + 4, y + 12)
-  y += 18
+  y += 16
 
   // =========================================================
   // ASSINATURAS (estilo OS/OF — Lei 14.063/2020)
   // =========================================================
-  if (y + 70 > H - 10) { doc.addPage(); y = 15 }
+  if (y + 52 > H - 8) { doc.addPage(); y = 10 }
 
   const aForn = dados.assinatura_fornecedor
   const aFisc = dados.assinatura_fiscal
 
-  const altQuadro = desenharQuadroAssinaturas(
-    doc, y, mX, W,
-    [
-      {
-        titulo: 'FORNECEDOR',
-        cor: [22, 60, 100] as [number, number, number],
-        nome: aForn?.nome || '',
-        identificacao: aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}` : '',
-        cargo: aForn?.cargo || '',
-        dataHora: aForn?.data_hora || '',
-        pendente: !aForn,
-        codigoValidacao: aForn?.codigo_validacao,
-      },
-      {
-        titulo: 'FISCAL DE CONTRATO',
-        cor: [0, 100, 50] as [number, number, number],
-        nome: aFisc?.nome || '',
-        identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
-        cargo: aFisc?.cargo || '',
-        dataHora: aFisc?.data_hora || '',
-        pendente: !aFisc,
-        codigoValidacao: aFisc?.codigo_validacao,
-      },
-    ],
-    dados.url_validacao,
-  )
+  const assinaturasArr: Parameters<typeof desenharQuadroAssinaturas>[4] = [
+    {
+      titulo: 'FORNECEDOR',
+      cor: [22, 60, 100] as [number, number, number],
+      nome: aForn?.nome || '',
+      identificacao: aForn ? `CNPJ: ${fmtCnpj(aForn.cnpj)}` : '',
+      cargo: aForn?.cargo || '',
+      dataHora: aForn?.data_hora || '',
+      pendente: !aForn,
+      codigoValidacao: aForn?.codigo_validacao,
+    },
+    {
+      titulo: 'FISCAL DE CONTRATO',
+      cor: [0, 100, 50] as [number, number, number],
+      nome: aFisc?.nome || '',
+      identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
+      cargo: aFisc?.cargo || '',
+      matricula: aFisc?.matricula,
+      portaria: aFisc?.portaria,
+      dataHora: aFisc?.data_hora || '',
+      pendente: !aFisc,
+      codigoValidacao: aFisc?.codigo_validacao,
+    },
+  ]
 
-  y += altQuadro + 6
+  const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)
+
+  y += altQuadro + 4
+
+  // =========================================================
+  // PÁGINA EXCLUSIVA DE ASSINATURAS
+  // =========================================================
+  doc.addPage('a4', 'portrait')
+  let yPA = 20
+  doc.setFontSize(10).setFont('helvetica', 'bold').setTextColor(22, 60, 100)
+  doc.text(
+    `BOLETIM DE MEDIÇÃO Nº ${String(dados.numero_medicao).padStart(3, '0')}`,
+    W / 2, yPA, { align: 'center' },
+  )
+  doc.setFontSize(8).setFont('helvetica', 'normal').setTextColor(55, 65, 81)
+  if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' })
+  doc.text(`Contrato: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
+  yPA += 20
+  desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)
 
   // =========================================================
   // RODAPÉ em todas as páginas
@@ -673,5 +844,10 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): void {
   }
 
   const nomeArq = `BM_${dados.numero_contrato.replace(/[/\\]/g, '-')}_${String(dados.numero_medicao).padStart(3, '0')}_${competencia.replace('/', '-')}.pdf`
+  
+  // Fazer download do PDF
   doc.save(nomeArq)
+  
+  // Retornar blob para upload
+  return doc.output('blob')
 }

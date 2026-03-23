@@ -551,20 +551,38 @@ export class NotificacoesService {
     contratoId: string,
     fiscalNome: string,
     valorMedido: number,
-    destinatarios: { id: string; email?: string }[],
+    destinatarios: { id: string; email?: string; telefone?: string }[],
   ): Promise<void> {
     this.logger.log(`Notificando medição #${medicaoNumero} atestada - contrato ${contratoNumero}`);
     try {
+      const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+      const linkAprovacaoRelativo = '/orgao/aprovacoes?tab=medicoes';
+      const linkAprovacaoAbsoluto = `${appUrl}${linkAprovacaoRelativo}`;
+      const mensagem = `A Medição #${medicaoNumero} do contrato ${contratoNumero} (${this.formatarMoeda(valorMedido)}) foi atestada por ${fiscalNome} e aguarda aprovação do gestor.`;
+
       await this.criarParaMultiplos(destinatarios, {
         orgao_id: orgaoId,
         tipo: TipoNotificacao.MEDICAO_ATESTADA,
         titulo: `Medição #${medicaoNumero} atestada`,
-        mensagem: `A Medição #${medicaoNumero} do contrato ${contratoNumero} (${this.formatarMoeda(valorMedido)}) foi atestada por ${fiscalNome} e aguarda aprovação do gestor.`,
+        mensagem,
         prioridade: PrioridadeNotificacao.ALTA,
         entidade_tipo: 'medicao',
         entidade_id: medicaoId,
-        link: `/orgao/aprovacoes`,
-        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fiscal: fiscalNome, valor: valorMedido },
+        link: linkAprovacaoRelativo,
+        enviar_email: true,
+        metadata: {
+          medicao_numero: medicaoNumero,
+          contrato_numero: contratoNumero,
+          fiscal: fiscalNome,
+          valor: valorMedido,
+          whatsapp_text:
+            `*Medição #${medicaoNumero} aguardando aprovação*\n` +
+            `Contrato: ${contratoNumero}\n` +
+            `Valor: ${this.formatarMoeda(valorMedido)}\n` +
+            `Atestada por: ${fiscalNome}\n\n` +
+            'Acesse a Central de Aprovações para revisar boletim e anexos do fornecedor.',
+          whatsapp_url: linkAprovacaoAbsoluto,
+        },
       });
     } catch (error) {
       this.logger.error(`Erro ao notificar medição atestada: ${error.message}`, error.stack);

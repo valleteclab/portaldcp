@@ -24,6 +24,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'express';
 import { DataSource } from 'typeorm';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 
 async function bootstrap() {
   // Preferir IPv4 na resolução DNS para evitar ENETUNREACH em redes sem IPv6
@@ -42,7 +44,12 @@ async function bootstrap() {
   console.log('Total ENV vars:', Object.keys(process.env).length);
   console.log('======================');
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  
+  // Servir arquivos estáticos da pasta uploads
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
   
   // Migração: Alterar colunas de timestamp para 'timestamp without time zone'
   // Isso garante que as datas sejam armazenadas em horário de Brasília sem conversão UTC

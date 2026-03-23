@@ -27,6 +27,16 @@ export class Lance {
   @Column({ default: false })
   cancelado: boolean;
 
+  /** Após 15s o fornecedor não cancela direto; fica pendente até o pregoeiro. */
+  @Column({ default: false })
+  solicitacao_cancelamento_pendente: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  solicitacao_cancelamento_em: Date;
+
+  @Column({ type: 'text', nullable: true })
+  solicitacao_cancelamento_motivo: string;
+
   @CreateDateColumn()
   created_at: Date;
 

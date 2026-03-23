@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/table';
 import {
   ArrowLeft,
+  BarChart3,
   FileText,
   Calendar,
   DollarSign,
@@ -51,9 +52,9 @@ import {
   Download,
   Upload,
   FileDown,
+  Edit,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
-import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao';
 
 // ============ INTERFACES ============
 
@@ -66,6 +67,7 @@ interface Contrato {
   status: string;
   categoria: string;
   modalidade_execucao: string;
+  boletim_por_quantidade?: boolean;
   valor_global: number;
   valor_inicial: number;
   data_assinatura: string;
@@ -95,6 +97,7 @@ interface ItemCronograma {
   unidade_medida: string;
   quantidade: number;
   valor_unitario: number;
+  valor_mensal?: number;
   valor_total: number;
   quantidade_medida: number;
 }
@@ -104,6 +107,7 @@ interface Medicao {
   numero_medicao: number;
   periodo_inicio: string;
   periodo_fim: string;
+  competencia?: string;
   valor_medido: number;
   valor_acumulado_atual: number;
   percentual_fisico_medido: number;
@@ -124,6 +128,43 @@ interface Medicao {
   data_devolucao?: string;
   created_at: string;
   itens?: any[];
+  execucao_fiscal?: {
+    vigencia_inicio: string;
+    vigencia_fim: string;
+    total_dias: number;
+    dias_executados: number;
+    dias_restantes: number;
+    meses_executados: number;
+    dias_executados_extra: number;
+    meses_restantes: number;
+    dias_restantes_extra: number;
+    ano_comercial: boolean;
+  };
+  execucao_financeira?: {
+    itens: Array<{
+      etapa_id: string;
+      numero_etapa: number;
+      descricao: string;
+      valor_previsto: number;
+      percentual_fisico: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+      no_periodo_item?: number;
+      ate_periodo_item?: number;
+      a_executar_item?: number;
+      no_periodo_global?: number;
+      ate_periodo_global?: number;
+      a_executar_global?: number;
+    }>;
+    totais: {
+      valor_previsto: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    };
+    ajuste_migracao?: number;
+  };
 }
 
 interface Resumo {
@@ -159,6 +200,114 @@ interface Anexo {
   created_at: string;
 }
 
+interface AnexoReaproveitado {
+  id: string;
+  tipo: 'FOTO' | 'DOCUMENTO';
+  nome_original: string;
+  nome_arquivo: string;
+  mime_type: string;
+  tamanho_bytes: number;
+  url: string;
+  descricao: string;
+}
+
+// ============ FUNÇÕES ============
+
+// Função para calcular dias com ano comercial (360 dias)
+function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimContrato?: string): number {
+  const d1 = new Date(dataInicio);
+  const d2 = new Date(dataFim);
+  const dataFimContratoDate = dataFimContrato ? new Date(dataFimContrato) : null;
+  
+  // Usar UTC para evitar problemas de timezone
+  const ano1 = d1.getUTCFullYear();
+  const mes1 = d1.getUTCMonth();
+  const dia1 = d1.getUTCDate();
+  
+  const ano2 = d2.getUTCFullYear();
+  const mes2 = d2.getUTCMonth();
+  const dia2 = d2.getUTCDate();
+  const ehUltimoDiaDoContrato = dataFimContratoDate
+    ? d2.getUTCFullYear() === dataFimContratoDate.getUTCFullYear() &&
+      d2.getUTCMonth() === dataFimContratoDate.getUTCMonth() &&
+      d2.getUTCDate() === dataFimContratoDate.getUTCDate()
+    : false;
+  
+  let dias = 0;
+  
+  // Se mesmo mês
+  if (ano1 === ano2 && mes1 === mes2) {
+    // Para períodos normais: conta ambos os dias (dia_fim - dia_início + 1)
+    // Apenas não conta o dia final se for o último dia do contrato
+    dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30);
+  } else {
+    // Dias no primeiro mês (ano comercial) - conta o dia inicial
+    const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
+    
+    // Meses completos no meio
+    let mesesCompletos = 0;
+    if (ano2 > ano1 || mes2 > mes1 + 1) {
+      mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
+    }
+    
+    // Dias no último mês (ano comercial)
+    // Não conta o dia final se for o último dia do contrato
+    let diasUltimoMes = Math.min(dia2, 30);
+    if (ehUltimoDiaDoContrato) {
+      diasUltimoMes = dia2 - 1;
+    }
+    
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+  }
+  
+  // IMPORTANTE: Ano comercial sempre = 360 dias
+  return Math.max(0, Math.min(dias, 360));
+}
+
+// Função para calcular execução fiscal com ano comercial
+function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigenciaInicio: string, vigenciaFim: string) {
+  // Dias no período da medição
+  const diasPeriodo = calcularDiasMesComercial(periodoInicio, periodoFim, vigenciaFim);
+  
+  // Dias executados até o fim do período
+  const diasAte = calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim);
+  
+  // Dias restantes até o fim do contrato
+  const diasRestantes = Math.max(0, 360 - diasAte);
+  
+  // Formatar como meses e dias
+  const formatarDias = (dias: number) => {
+    const meses = Math.floor(dias / 30);
+    const diasResto = dias % 30;
+    if (meses === 0) return `${diasResto} dias`;
+    if (diasResto === 0) return `${meses} mês${meses > 1 ? 'es' : ''}`;
+    return `${meses} mês${meses > 1 ? 'es' : ''} e ${diasResto} dias`;
+  };
+  
+  return {
+    noPeriodo: formatarDias(diasPeriodo),
+    atePeriodo: formatarDias(diasAte),
+    aExecutar: formatarDias(diasRestantes),
+    diasNoPeriodo: diasPeriodo,
+    diasAte: diasAte,
+    diasRestantes: diasRestantes
+  };
+}
+
+// Calcular execução financeira
+function calcularExecucaoFinanceira(valorMedido: number, valorAcumulado: number, percentualFisico: number) {
+  // Calcular valor executado
+  const valorExecutado = valorMedido * (percentualFisico / 100);
+  
+  // Calcular valor restante
+  const valorRestante = valorAcumulado - valorExecutado;
+  
+  return {
+    valorExecutado: valorExecutado,
+    valorRestante: valorRestante
+  };
+}
+
 // ============ HELPERS ============
 
 const formatarMoeda = (valor: number | null | undefined) => {
@@ -180,7 +329,8 @@ const formatarData = (data: string | null | undefined) => {
 const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> = {
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-700', icon: FileText },
   SUBMETIDA: { label: 'Submetida', cor: 'bg-blue-100 text-blue-700', icon: Send },
-  AGUARDANDO_ATESTE: { label: 'Aguardando Ateste', cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  EM_ATESTE: { label: 'Em Ateste', cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  ATESTADA: { label: 'Atestada', cor: 'bg-indigo-100 text-indigo-700', icon: CheckCircle },
   PARCIALMENTE_ATESTADA: { label: 'Parcialmente Atestada', cor: 'bg-amber-100 text-amber-700', icon: Clock },
   AGUARDANDO_APROVACAO: { label: 'Aguardando Aprovação', cor: 'bg-orange-100 text-orange-700', icon: Clock },
   APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -200,6 +350,7 @@ const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
 export default function FornecedorContratoDetalhePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const contratoId = params.id as string;
 
   const [contrato, setContrato] = useState<Contrato | null>(null);
@@ -209,6 +360,7 @@ export default function FornecedorContratoDetalhePage() {
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [loading, setLoading] = useState(true);
   const [fornecedor, setFornecedor] = useState<any>(null);
+  const [abaAtiva, setAbaAtiva] = useState(searchParams.get('tab') || 'medicoes');
 
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(contrato?.modalidade_execucao || '');
   const usarItensCronograma = itensCronograma.length > 0;
@@ -220,6 +372,7 @@ export default function FornecedorContratoDetalhePage() {
   const [novaMedicao, setNovaMedicao] = useState({
     periodo_inicio: '',
     periodo_fim: '',
+    competencia: '',
     observacoes: '',
     nota_fiscal_numero: '',
     nota_fiscal_valor: '',
@@ -232,8 +385,12 @@ export default function FornecedorContratoDetalhePage() {
 
   // Arquivos pendentes para upload após criação da medição
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
+  const [anexosReaproveitados, setAnexosReaproveitados] = useState<AnexoReaproveitado[]>([]);
 
-  // Modal Submeter
+  // Estado para execução financeira do backend
+  const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null);
+
+  // Modal Submeter (legado — mantido para compatibilidade de estado)
   const [modalSubmeter, setModalSubmeter] = useState(false);
   const [medicaoParaSubmeter, setMedicaoParaSubmeter] = useState<Medicao | null>(null);
   const [dadosSubmissao, setDadosSubmissao] = useState({
@@ -243,6 +400,16 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_data: '',
   });
 
+  // Modal OTP Assinatura Digital
+  const [modalOtp, setModalOtp] = useState(false);
+  const [otpMedicaoId, setOtpMedicaoId] = useState<string | null>(null);
+  const [otpEtapa, setOtpEtapa] = useState<'info' | 'codigo' | 'sucesso'>('info');
+  const [otpCodigo, setOtpCodigo] = useState('');
+  const [otpCanais, setOtpCanais] = useState<{ canais_enviados: string[]; telefone_mascarado?: string; email_mascarado?: string } | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpErro, setOtpErro] = useState<string | null>(null);
+  const [otpCodigoValidacao, setOtpCodigoValidacao] = useState<string | null>(null);
+
   // Modal Detalhe
   const [modalDetalhe, setModalDetalhe] = useState(false);
   const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
@@ -250,9 +417,135 @@ export default function FornecedorContratoDetalhePage() {
   const [editandoItensDetalhe, setEditandoItensDetalhe] = useState(false);
   const [itensEditados, setItensEditados] = useState<Record<string, { percentual_executado_atual: number; valor_executado_atual: number }>>({});
 
+  // Modo de edição de medição devolvida
+  const [medicaoParaEditar, setMedicaoParaEditar] = useState<Medicao | null>(null);
+
   // Anexos
   const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
+
+  const valorMedicaoAtual = isServicoContinuado
+    ? (parseFloat(novaMedicao.valor_medido) || 0)
+    : usarItensCronograma
+      ? novaMedicao.itens.reduce((acc, item) => {
+          if (!('item_cronograma_id' in item)) return acc;
+          const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
+          return acc + (ic ? Number(item.quantidade_medida || 0) * Number(ic.valor_unitario) : 0);
+        }, 0)
+      : novaMedicao.itens.reduce((acc, item, idx) => {
+          const etapa = etapas[idx];
+          if (!etapa || !('etapa_id' in item)) return acc;
+          if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
+          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+        }, 0);
+
+  // Determina o tipo de medição atual com base nos itens já preenchidos (mensal vs quantidade)
+  const tipoMedicaoAtual: 'mensal' | 'quantidade' | null = (() => {
+    if (!usarItensCronograma) return null;
+    const primeiro = novaMedicao.itens.find(i => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0);
+    if (!primeiro) return null;
+    const ic = itensCronograma.find(c => c.id === (primeiro as any).item_cronograma_id);
+    return ic?.unidade_medida === 'MENSAL' ? 'mensal' : 'quantidade';
+  })();
+
+  // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
+  const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
+    // MENSAL: cálculo por item (igual ao portal do órgão)
+    if (tipoMedicaoAtual === 'mensal') {
+      let noPeriodo = 0, atePeriodo = 0, aExecutar = 0;
+      const itensMens = itensCronograma.filter(ic => ic.unidade_medida === 'MENSAL');
+      for (const ic of itensMens) {
+        const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+        const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
+        if (qtdNoPeriodo <= 0) continue;
+        const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0;
+        const valorNoPeriodo = qtdNoPeriodo * vm;
+        const backendItem = execucaoFinanceira?.itens?.find((i: any) => i.etapa_id === ic.id);
+        const fromBackend = backendItem ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0) : 0;
+        const fromMigracao = Number(ic.quantidade_medida ?? 0) * vm;
+        const valorAprovadoAnterior = Math.max(fromBackend, fromMigracao);
+        const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo;
+        const valorTotal = Number(ic.valor_total) || 0;
+        noPeriodo += valorNoPeriodo;
+        atePeriodo += valorAtePeriodo;
+        aExecutar += Math.max(0, valorTotal - valorAtePeriodo);
+      }
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Para tipo null sem itens: fallback proporcional por dias comerciais
+    if (tipoMedicaoAtual === null &&
+        novaMedicao.periodo_inicio && novaMedicao.periodo_fim &&
+        contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim) {
+      const vg = Number(contrato?.valor_global || 0);
+      const fiscal = calcularExecucaoFiscal(novaMedicao.periodo_inicio, novaMedicao.periodo_fim, contrato.data_vigencia_inicio, contrato.data_vigencia_fim);
+      return {
+        noPeriodoExibicao: (fiscal.diasNoPeriodo / 360) * vg,
+        atePeriodoExibicao: (fiscal.diasAte / 360) * vg,
+        aExecutarExibicao: (fiscal.diasRestantes / 360) * vg,
+      };
+    }
+
+    // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
+    // Isso garante que ajustes manuais de quantidade sejam respeitados
+    if (tipoMedicaoAtual === 'quantidade') {
+      let noPeriodo = 0, atePeriodo = 0, aExecutar = 0;
+      const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL');
+      for (const ic of itensQtd) {
+        const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+        const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
+        if (qtdNoPeriodo <= 0) continue;
+        const qtdAprovada = Number(ic.quantidade_medida ?? 0);
+        const qtdTotal = Number(ic.quantidade ?? 0);
+        const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo;
+        const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+        const vu = Number(ic.valor_unitario);
+        noPeriodo += qtdNoPeriodo * vu;
+        atePeriodo += qtdAtePeriodo * vu;
+        aExecutar += qtdAExecutar * vu;
+      }
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Demais tipos: usar dados do backend ou fallback por valor global
+    const itensBase = tipoMedicaoAtual === null
+      ? itensCronograma
+      : itensCronograma.filter(ic => {
+          const isMensal = ic.unidade_medida === 'MENSAL';
+          return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal;
+        });
+
+    // Quando temos backend data com itens
+    if (usarItensCronograma && execucaoFinanceira?.itens?.length) {
+      const idsBase = new Set(itensBase.map(ic => ic.id));
+      const itensBack = (execucaoFinanceira.itens as any[]).filter((i: any) => idsBase.has(i.etapa_id));
+      const noPeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.no_periodo || 0), 0);
+      const atePeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.ate_periodo_global ?? i.ate_periodo ?? 0), 0);
+      const noPeriodo = Math.max(noPeriodoBk, valorMedicaoAtual || 0);
+      const localExtra = Math.max(0, noPeriodo - noPeriodoBk);
+      const atePeriodo = atePeriodoBk + localExtra;
+      const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0);
+      const aExecutar = Math.max(0, valorTotal - atePeriodo);
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Fallback: sem dados do backend — calcular a partir dos itens do cronograma
+    const noPeriodo = valorMedicaoAtual || 0;
+    if (usarItensCronograma) {
+      const valorMigracao = itensBase.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0);
+      const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
+      const atePeriodo = valorMigracao + valorAprovadoAnterior + noPeriodo;
+      const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0);
+      const aExecutar = Math.max(0, valorTotal - atePeriodo);
+      return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+    }
+
+    // Sem itens cronograma — fallback genérico com valor global do contrato
+    const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
+    const atePeriodo = valorAprovadoAnterior + noPeriodo;
+    const aExecutar = Math.max(0, Number(contrato?.valor_global || 0) - atePeriodo);
+    return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar };
+  })();
 
   useEffect(() => {
     const fornecedorData = localStorage.getItem('fornecedor');
@@ -261,6 +554,55 @@ export default function FornecedorContratoDetalhePage() {
     }
     carregarDados();
   }, [contratoId]);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab) {
+      setAbaAtiva(tab);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const acao = searchParams.get('acao');
+    const medicaoId = searchParams.get('medicaoId');
+
+    if (tab === 'medicoes') {
+      setAbaAtiva('medicoes');
+    }
+
+    if (loading || tab !== 'medicoes' || !acao) return;
+
+    const executarAcao = async () => {
+      if (acao === 'nova') {
+        await abrirModalNovaMedicao();
+      } else if (acao === 'continuar') {
+        const rascunho = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes.find((medicao) => medicao.status === 'RASCUNHO');
+        if (rascunho) {
+          await carregarDadosMedicao(rascunho);
+          setModalNovaMedicao(true);
+        }
+      } else if (acao === 'editar') {
+        const medicaoEditar = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes.find((medicao) => medicao.status === 'DEVOLVIDA');
+        if (medicaoEditar) {
+          await carregarDadosMedicao(medicaoEditar);
+          setModalNovaMedicao(true);
+        }
+      } else if (acao === 'ver') {
+        const medicaoVisualizar = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes[medicoes.length - 1];
+        if (medicaoVisualizar) {
+          await abrirDetalheMedicao(medicaoVisualizar);
+        }
+      }
+
+      const novosParams = new URLSearchParams(searchParams.toString());
+      novosParams.delete('acao');
+      novosParams.delete('medicaoId');
+      router.replace(`/fornecedor/contratos/${contratoId}?${novosParams.toString()}`);
+    };
+
+    executarAcao();
+  }, [searchParams, loading, medicoes, contratoId]);
 
   const carregarDados = async () => {
     setLoading(true);
@@ -302,6 +644,62 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  const reaproveitarAnexosExistentes = async (medicaoId: string) => {
+    let anexosOriginais = anexos[medicaoId];
+
+    if (!anexosOriginais) {
+      try {
+        const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`);
+        if (res.ok) {
+          anexosOriginais = await res.json();
+          setAnexos(prev => ({ ...prev, [medicaoId]: anexosOriginais || [] }));
+        }
+      } catch {
+        anexosOriginais = [];
+      }
+    }
+
+    setAnexosReaproveitados((anexosOriginais || []).map((anexo: Anexo) => ({
+      id: anexo.id,
+      tipo: anexo.tipo,
+      nome_original: anexo.nome_original,
+      nome_arquivo: anexo.nome_arquivo,
+      mime_type: anexo.mime_type,
+      tamanho_bytes: anexo.tamanho_bytes,
+      url: anexo.url,
+      descricao: anexo.descricao || '',
+    })));
+  };
+
+  const uploadAnexosReaproveitados = async (medicaoId: string) => {
+    if (anexosReaproveitados.length === 0 || !fornecedor) return;
+
+    for (const anexo of anexosReaproveitados) {
+      try {
+        const arquivoUrl = anexo.url.startsWith('http') ? anexo.url : `${API_URL}${anexo.url}`;
+        const arquivoRes = await fetch(arquivoUrl);
+        if (!arquivoRes.ok) continue;
+
+        const blob = await arquivoRes.blob();
+        const file = new File([blob], anexo.nome_original || anexo.nome_arquivo, { type: anexo.mime_type || blob.type });
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('tipo', anexo.tipo);
+        formData.append('fornecedor_id', fornecedor.id);
+        formData.append('fornecedor_nome', fornecedor.razao_social || fornecedor.nome);
+        if (anexo.descricao) formData.append('descricao', anexo.descricao);
+
+        await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`, {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (err) {
+        console.error('Erro ao reaproveitar anexo:', err);
+      }
+    }
+  };
+
   const carregarAnexos = async (medicaoId: string) => {
     try {
       const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/anexos`);
@@ -311,6 +709,30 @@ export default function FornecedorContratoDetalhePage() {
       }
     } catch (error) {
       console.error('Erro ao carregar anexos:', error);
+    }
+  };
+
+  // Função para buscar execução financeira do backend
+  const carregarExecucaoFinanceira = async (medicaoId?: string) => {
+    if (!contrato || !fornecedor) return;
+    
+    try {
+      const url = medicaoId 
+        ? `${API_URL}/api/fornecedor/contratos/${contrato.id}/execucao-financeira?fornecedorId=${fornecedor.id}&medicaoId=${medicaoId}`
+        : `${API_URL}/api/fornecedor/contratos/${contrato.id}/execucao-financeira?fornecedorId=${fornecedor.id}`;
+      
+      const res = await authFetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('DEBUG: Execução financeira recebida:', data);
+        console.log('DEBUG: totais:', data.totais);
+        console.log('DEBUG: no_periodo:', data.totais?.no_periodo);
+        console.log('DEBUG: ate_periodo:', data.totais?.ate_periodo);
+        console.log('DEBUG: a_executar:', data.totais?.a_executar);
+        setExecucaoFinanceira(data);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar execução financeira:', error);
     }
   };
 
@@ -447,6 +869,7 @@ export default function FornecedorContratoDetalhePage() {
       const payload: any = {
         periodo_inicio: novaMedicao.periodo_inicio || undefined,
         periodo_fim: novaMedicao.periodo_fim || undefined,
+        competencia: novaMedicao.competencia || undefined,
         observacoes: novaMedicao.observacoes || undefined,
         nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
         nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
@@ -468,6 +891,16 @@ export default function FornecedorContratoDetalhePage() {
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        // Validar que não há mistura de tipos (mensal vs quantidade)
+        const itensMensaisNoSubmit = itensComQtd.filter(item => {
+          const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
+          return ic?.unidade_medida === 'MENSAL';
+        });
+        if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
+          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.');
+          setSubmitting(false);
+          return;
+        }
         if (resumo) {
           const totalMedicao = itensComQtd.reduce((acc, item) => {
             const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
@@ -500,24 +933,40 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComValor;
       }
 
-      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-      });
+      let res;
+      if (medicaoParaEditar) {
+        // Atualizar medição existente
+        res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoParaEditar.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+      } else {
+        // Criar nova medição
+        res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+      }
 
       if (res.ok) {
-        const medicaoCriada = await res.json();
-        if (discriminacoes.length > 0 && medicaoCriada?.id) {
-          try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
+        const medicaoSalva = await res.json();
+        if (discriminacoes.length > 0 && medicaoSalva?.id) {
+          try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
         }
-        if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
+        if (medicaoSalva?.id) {
+          if (anexosReaproveitados.length > 0) { await uploadAnexosReaproveitados(medicaoSalva.id); }
+          if (arquivosPendentes.length > 0) { await uploadArquivosPendentes(medicaoSalva.id); }
+        }
         setModalNovaMedicao(false);
-        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-        setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
+        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null); carregarDados();
+        
+        if (medicaoParaEditar) {
+          alert('Medição atualizada com sucesso! Clique em "Submeter" para reenviar.');
+        }
       } else {
-        const err = await res.json(); alert(err.message || 'Erro ao criar medição');
+        const err = await res.json(); alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
       }
     } catch (error) {
-      alert('Erro ao criar medição');
+      alert(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
@@ -530,6 +979,11 @@ export default function FornecedorContratoDetalhePage() {
     try {
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
         alert('Informe o período de início e fim da medição');
+        setSubmitting(false);
+        return;
+      }
+      if (discriminacoes.length === 0) {
+        alert('A discriminação de despesas é obrigatória antes de enviar para ateste.');
         setSubmitting(false);
         return;
       }
@@ -548,6 +1002,7 @@ export default function FornecedorContratoDetalhePage() {
       const payload: any = {
         periodo_inicio: novaMedicao.periodo_inicio || undefined,
         periodo_fim: novaMedicao.periodo_fim || undefined,
+        competencia: novaMedicao.competencia || undefined,
         observacoes: novaMedicao.observacoes || undefined,
         nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
         nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
@@ -569,6 +1024,16 @@ export default function FornecedorContratoDetalhePage() {
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        // Validar que não há mistura de tipos (mensal vs quantidade)
+        const itensMensaisNoSubmit = itensComQtd.filter(item => {
+          const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
+          return ic?.unidade_medida === 'MENSAL';
+        });
+        if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
+          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.');
+          setSubmitting(false);
+          return;
+        }
         if (resumo) {
           const totalMedicao = itensComQtd.reduce((acc, item) => {
             const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
@@ -586,7 +1051,7 @@ export default function FornecedorContratoDetalhePage() {
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
-            return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+            return item.modo_input === 'valor' && item.valor_executado_atual ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
           }, 0);
           if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
@@ -611,21 +1076,19 @@ export default function FornecedorContratoDetalhePage() {
       if (discriminacoes.length > 0 && medicaoCriada?.id) {
         try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
       }
-      if (arquivosPendentes.length > 0 && medicaoCriada?.id) { await uploadArquivosPendentes(medicaoCriada.id); }
-
-      const resSubmeter = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/submeter`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fornecedor_id: fornecedor.id, fornecedor_observacoes: novaMedicao.observacoes || undefined, nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined, nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined, nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined }),
-      });
-
-      if (resSubmeter.ok) {
-        setModalNovaMedicao(false);
-        setNovaMedicao({ periodo_inicio: '', periodo_fim: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-        setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
-      } else {
-        alert('Medição criada como rascunho, mas houve erro ao enviar. Clique em "Submeter" na lista para tentar novamente.');
-        setModalNovaMedicao(false); setDiscriminacoes([]); setArquivosPendentes([]); carregarDados();
+      if (medicaoCriada?.id) {
+        if (anexosReaproveitados.length > 0) { await uploadAnexosReaproveitados(medicaoCriada.id); }
+        if (arquivosPendentes.length > 0) { await uploadArquivosPendentes(medicaoCriada.id); }
       }
+
+      // Abrir modal OTP para assinatura digital antes de submeter
+      // Delay to allow Radix to fully unmount the creation dialog before opening OTP,
+      // preventing pointer-events:none from getting stuck on body.
+      setModalNovaMedicao(false);
+      setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+      setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]);
+      const medicaoIdParaOtp = medicaoCriada.id;
+      setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
     } catch (error) {
       alert('Erro ao criar medição');
     } finally {
@@ -654,37 +1117,118 @@ export default function FornecedorContratoDetalhePage() {
 
   const handleSubmeterMedicao = async () => {
     if (!medicaoParaSubmeter || !fornecedor) return;
-    setSubmitting(true);
-    try {
-      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoParaSubmeter.id}/submeter`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fornecedor_id: fornecedor.id,
-          ...dadosSubmissao,
-          nota_fiscal_valor: dadosSubmissao.nota_fiscal_valor ? Number(dadosSubmissao.nota_fiscal_valor) : undefined,
-        }),
-      });
+    // Ao invés de submeter direto, abre modal OTP
+    setModalSubmeter(false);
+    abrirModalOtp(medicaoParaSubmeter.id);
+    setMedicaoParaSubmeter(null);
+    setDadosSubmissao({ fornecedor_observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' });
+  };
 
-      if (res.ok) {
-        setModalSubmeter(false);
-        setMedicaoParaSubmeter(null);
-        setDadosSubmissao({ fornecedor_observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' });
-        carregarDados();
-      } else {
+  // ============ FUNÇÕES DO MODAL OTP ============
+
+  const abrirModalOtp = (medicaoId: string) => {
+    setOtpMedicaoId(medicaoId);
+    setOtpEtapa('info');
+    setOtpCodigo('');
+    setOtpCanais(null);
+    setOtpErro(null);
+    setOtpCodigoValidacao(null);
+    setOtpLoading(false);
+    setModalOtp(true);
+  };
+
+  const handleEnviarOtp = async () => {
+    if (!otpMedicaoId || !fornecedor) return;
+    setOtpLoading(true);
+    setOtpErro(null);
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${otpMedicaoId}/solicitar-otp-assinatura`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fornecedor_id: fornecedor.id }),
+      });
+      if (!res.ok) {
         const err = await res.json();
-        alert(err.message || 'Erro ao submeter medição');
+        setOtpErro(err.message || 'Erro ao enviar código de verificação');
+        setOtpLoading(false);
+        return;
       }
-    } catch (error) {
-      alert('Erro ao submeter medição');
+      const data = await res.json();
+      setOtpCanais(data);
+      setOtpEtapa('codigo');
+    } catch {
+      setOtpErro('Erro de conexão ao enviar código');
     } finally {
-      setSubmitting(false);
+      setOtpLoading(false);
+    }
+  };
+
+  const handleValidarOtp = async () => {
+    if (!otpMedicaoId || !fornecedor || !otpCodigo) return;
+    setOtpLoading(true);
+    setOtpErro(null);
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${otpMedicaoId}/validar-otp-assinatura`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fornecedor_id: fornecedor.id, codigo: otpCodigo }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setOtpErro(err.message || 'Código incorreto ou expirado');
+        setOtpLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao);
+      setOtpEtapa('sucesso');
+
+      await baixarPdfArmazenado(otpMedicaoId);
+
+      carregarDados();
+    } catch {
+      setOtpErro('Erro de conexão ao validar código');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const baixarPdfArmazenado = async (medicaoId: string): Promise<boolean> => {
+    try {
+      const resBoletim = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoId}/boletim-oficial?fornecedorId=${fornecedor?.id || ''}`);
+      if (!resBoletim.ok) return false;
+
+      const boletim = await resBoletim.json();
+      if (!boletim?.pdf_url) return false;
+
+      const pdfUrl = boletim.pdf_url.startsWith('http')
+        ? boletim.pdf_url
+        : `${API_URL}${boletim.pdf_url}`;
+
+      const arquivoRes = await fetch(pdfUrl);
+      if (!arquivoRes.ok) return false;
+
+      const pdfBlob = await arquivoRes.blob();
+      const objectUrl = window.URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = boletim.filename || `boletim_medicao_${medicaoId}.pdf`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        link.remove();
+        window.URL.revokeObjectURL(objectUrl);
+      }, 1000);
+      return true;
+    } catch {
+      return false;
     }
   };
 
   const abrirModalNovaMedicao = async () => {
     setNovaMedicao({
-      periodo_inicio: '', periodo_fim: '', observacoes: '',
+      periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       valor_medido: '',
       itens: isServicoContinuado ? [] : usarItensCronograma
@@ -692,6 +1236,7 @@ export default function FornecedorContratoDetalhePage() {
         : etapas.map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, valor_executado_atual: 0, modo_input: 'percentual' as const })),
     });
     setArquivosPendentes([]);
+    setAnexosReaproveitados([]);
     setDiscriminacoes([]);
     setModalNovaMedicao(true);
   };
@@ -807,6 +1352,71 @@ export default function FornecedorContratoDetalhePage() {
       nota_fiscal_data: medicao.nota_fiscal_data || '',
     });
     setModalSubmeter(true);
+  };
+
+  const abrirDetalheMedicao = async (medicao: Medicao) => {
+    setModalDetalhe(true);
+    setMedicaoDetalhe(medicao);
+    setDiscriminacoesDetalhe([]);
+    setEditandoItensDetalhe(false);
+    setItensEditados({});
+
+    try {
+      const [medRes, dRes] = await Promise.all([
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
+      ]);
+
+      if (medRes.ok) setMedicaoDetalhe(await medRes.json());
+      if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
+    } catch {}
+  };
+
+  // Carregar dados da medição devolvida para edição
+  const carregarDadosMedicao = async (medicao: Medicao) => {
+    try {
+      // Buscar itens da medição
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`);
+      if (res.ok) {
+        const medicaoCompleta = await res.json();
+        
+        // Preparar nova medição com os dados da devolvida
+        setNovaMedicao({
+          periodo_inicio: medicao.periodo_inicio,
+          periodo_fim: medicao.periodo_fim,
+          competencia: medicao.competencia || '',
+          observacoes: medicao.fornecedor_observacoes || '',
+          nota_fiscal_numero: medicao.nota_fiscal_numero || '',
+          nota_fiscal_valor: medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : '',
+          nota_fiscal_data: medicao.nota_fiscal_data || '',
+          valor_medido: String(medicao.valor_medido || ''),
+          itens: medicaoCompleta.itens?.map((item: any) => {
+            if (item.tipo_item === 'item_cronograma') {
+              return {
+                item_cronograma_id: item.item_cronograma_id,
+                quantidade_medida: item.quantidade_medida || 0,
+                modo_input: 'quantidade',
+              };
+            } else {
+              return {
+                etapa_id: item.etapa_id,
+                percentual_executado_atual: item.percentual_executado_atual || 0,
+                valor_executado_atual: item.valor_executado_atual || 0,
+                modo_input: 'percentual',
+              };
+            }
+          }) || [],
+        });
+        
+        // Setar a medição original para atualização
+        setMedicaoParaEditar(medicao);
+        await reaproveitarAnexosExistentes(medicao.id);
+        await carregarExecucaoFinanceira(medicao.id);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar medição:', error);
+      alert('Erro ao carregar dados da medição para edição.');
+    }
   };
 
   if (loading) {
@@ -933,7 +1543,7 @@ export default function FornecedorContratoDetalhePage() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="medicoes">
+      <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
         <TabsList>
           <TabsTrigger value="medicoes" className="gap-2">
             <FileText className="w-4 h-4" />Medições ({medicoes.length})
@@ -973,6 +1583,7 @@ export default function FornecedorContratoDetalhePage() {
               {medicoes.map((medicao) => {
                 const statusInfo = STATUS_MEDICAO[medicao.status] || STATUS_MEDICAO.RASCUNHO;
                 const StatusIcon = statusInfo.icon;
+                const medicaoDevolvidaSuperada = medicao.status === 'DEVOLVIDA' && medicoes.some((outraMedicao) => outraMedicao.numero_medicao > medicao.numero_medicao);
                 return (
                   <Card key={medicao.id} className={`hover:shadow-md transition-shadow ${medicao.status === 'DEVOLVIDA' ? 'border-amber-300' : ''}`}>
                     <CardContent className="pt-4 pb-4">
@@ -999,7 +1610,7 @@ export default function FornecedorContratoDetalhePage() {
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          {(medicao.status === 'RASCUNHO' || medicao.status === 'DEVOLVIDA') && (
+                          {medicao.status === 'RASCUNHO' && (
                             <>
                               <Button size="sm" onClick={() => abrirModalSubmeter(medicao)} className="gap-1">
                                 <Send className="w-3 h-3" />Submeter
@@ -1009,22 +1620,32 @@ export default function FornecedorContratoDetalhePage() {
                               </Button>
                             </>
                           )}
-                          <Button size="sm" variant="outline" onClick={async () => {
-                            setModalDetalhe(true);
-                            setMedicaoDetalhe(medicao);
-                            setDiscriminacoesDetalhe([]);
-                            setEditandoItensDetalhe(false);
-                            setItensEditados({});
-                            try {
-                              const [medRes, dRes] = await Promise.all([
-                                authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
-                                authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedor?.id || ''}`),
-                              ]);
-                              if (medRes.ok) setMedicaoDetalhe(await medRes.json());
-                              if (dRes.ok) setDiscriminacoesDetalhe(await dRes.json());
-                            } catch {}
+                          {medicao.data_submissao && (
+                            <Button size="sm" variant="outline" className="gap-1 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={async () => {
+                              await baixarPdfArmazenado(medicao.id)
+                            }}>
+                              <FileDown className="w-3 h-3" />PDF - BOLETIM DE MEDIÇÃO
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" disabled={medicaoDevolvidaSuperada} title={medicaoDevolvidaSuperada ? 'Esta medição devolvida já foi substituída por uma medição posterior.' : undefined} onClick={async () => {
+                            if (medicao.status === 'DEVOLVIDA') {
+                              // Abrir modal de criação com dados da medição devolvida
+                              await carregarDadosMedicao(medicao);
+                              setModalNovaMedicao(true);
+                            } else {
+                              // Abrir modal de detalhes para outros status
+                              await abrirDetalheMedicao(medicao);
+                            }
                           }}>
-                            <Eye className="w-3 h-3 mr-1" />Ver
+                            {medicao.status === 'DEVOLVIDA' ? (
+                              <>
+                                <Edit className="w-3 h-3 mr-1" />{medicaoDevolvidaSuperada ? 'Corrigida' : 'Editar'}
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-3 h-3 mr-1" />Ver
+                              </>
+                            )}
                           </Button>
                         </div>
                       </div>
@@ -1051,9 +1672,9 @@ export default function FornecedorContratoDetalhePage() {
                       {/* Seção de Anexos (Fotos e Documentos) */}
                       <div className="mt-3 pt-3 border-t">
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                            <Paperclip className="w-3 h-3" /> Evidências e Documentos
-                            {anexos[medicao.id] && anexos[medicao.id].length > 0 && (
+                          <p className="text-xs text-gray-500 mb-1">Evidências e Documentos</p>
+                          <p className="text-xs text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                            <Paperclip className="w-3 h-3" />{anexos[medicao.id] && anexos[medicao.id].length > 0 && (
                               <Badge variant="outline" className="ml-1 text-xs px-1.5 py-0">{anexos[medicao.id].length}</Badge>
                             )}
                           </p>
@@ -1062,8 +1683,6 @@ export default function FornecedorContratoDetalhePage() {
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
                                 onClick={() => {
-                                  const titulo = prompt('Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):');
-                                  if (titulo === null) return; // cancelou
                                   const input = document.createElement('input');
                                   input.type = 'file';
                                   input.accept = 'image/jpeg,image/png,image/jpg';
@@ -1071,6 +1690,8 @@ export default function FornecedorContratoDetalhePage() {
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files) {
+                                      const titulo = prompt('Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):');
+                                      if (titulo === null) return;
                                       for (const file of Array.from(files)) {
                                         await handleUploadAnexo(medicao.id, file, 'FOTO', titulo || undefined);
                                       }
@@ -1085,14 +1706,14 @@ export default function FornecedorContratoDetalhePage() {
                               <Button
                                 size="sm" variant="outline" className="h-7 text-xs gap-1"
                                 onClick={() => {
-                                  const titulo = prompt('Título do documento (ex: Nota Fiscal, Relatório de medição):');
-                                  if (titulo === null) return;
                                   const input = document.createElement('input');
                                   input.type = 'file';
                                   input.accept = 'application/pdf,image/jpeg,image/png';
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files && files[0]) {
+                                      const titulo = prompt('Título do documento (ex: Nota Fiscal, Relatório de medição):');
+                                      if (titulo === null) return;
                                       await handleUploadAnexo(medicao.id, files[0], 'DOCUMENTO', titulo || undefined);
                                     }
                                   };
@@ -1294,13 +1915,30 @@ export default function FornecedorContratoDetalhePage() {
       </Tabs>
 
       {/* ============ MODAL: Nova Medição (Planilha Orçamentária) ============ */}
-      <Dialog open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
+      <Dialog open={modalNovaMedicao} onOpenChange={(open) => {
+        setModalNovaMedicao(open);
+        if (!open) {
+          setMedicaoParaEditar(null);
+          setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+          setDiscriminacoes([]);
+          setArquivosPendentes([]);
+          setAnexosReaproveitados([]);
+          setTimeout(() => { document.body.style.pointerEvents = ''; }, 0);
+        }
+      }}>
         <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle className="text-xl">
-                  Boletim de Medição #{(medicoes.length || 0) + 1}
+                  {medicaoParaEditar ? (
+                    <>
+                      Editar Medição #{medicaoParaEditar.numero_medicao}
+                      <Badge className="ml-2 bg-amber-100 text-amber-800 text-xs">Devolvida</Badge>
+                    </>
+                  ) : (
+                    <>Boletim de Medição #{(medicoes.length || 0) + 1}</>
+                  )}
                 </DialogTitle>
                 <DialogDescription>
                   {novaMedicao.periodo_inicio && novaMedicao.periodo_fim
@@ -1343,6 +1981,26 @@ export default function FornecedorContratoDetalhePage() {
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-lg border bg-orange-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-700">Vigência do contrato</p>
+                <p className="mt-1 text-sm font-semibold text-orange-900">
+                  {contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim
+                    ? `${formatarData(contrato.data_vigencia_inicio)} a ${formatarData(contrato.data_vigencia_fim)}`
+                    : '-'}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-blue-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Saldo disponível</p>
+                <p className={`mt-1 text-sm font-semibold ${(resumo?.saldo_disponivel || 0) > 0 ? 'text-blue-900' : 'text-red-700'}`}>
+                  {formatarMoeda(resumo?.saldo_disponivel || 0)}
+                </p>
+                {(resumo?.valor_em_analise || 0) > 0 && (
+                  <p className="mt-1 text-xs text-amber-600">Em análise: {formatarMoeda(resumo?.valor_em_analise || 0)}</p>
+                )}
+              </div>
+            </div>
+
             {/* Período */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1350,18 +2008,10 @@ export default function FornecedorContratoDetalhePage() {
                 <Input type="date" value={novaMedicao.periodo_inicio}
                   onChange={(e) => {
                     const novoInicio = e.target.value;
-                    const novoFim = novaMedicao.periodo_fim;
-                    if (usarItensCronograma && novoInicio && novoFim) {
-                      const dias = calcularDiasMesComercial(novoInicio, novoFim, contrato?.data_vigencia_fim);
-                      const fator = Math.min(dias / 30, 1);
-                      const itens = itensCronograma.map((ic) => {
-                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const qtd = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
-                      });
-                      setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio, itens });
-                    } else {
-                      setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio });
+                    setNovaMedicao({ ...novaMedicao, periodo_inicio: novoInicio });
+                    // Recarregar execução financeira quando mudar o período
+                    if (novoInicio && novaMedicao.periodo_fim) {
+                      carregarExecucaoFinanceira(medicaoParaEditar?.id);
                     }
                   }} />
               </div>
@@ -1370,21 +2020,27 @@ export default function FornecedorContratoDetalhePage() {
                 <Input type="date" value={novaMedicao.periodo_fim}
                   onChange={(e) => {
                     const novoFim = e.target.value;
-                    const novoInicio = novaMedicao.periodo_inicio;
-                    if (usarItensCronograma && novoInicio && novoFim) {
-                      const dias = calcularDiasMesComercial(novoInicio, novoFim, contrato?.data_vigencia_fim);
-                      const fator = Math.min(dias / 30, 1);
-                      const itens = itensCronograma.map((ic) => {
-                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0);
-                        const qtd = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
-                      });
-                      setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim, itens });
-                    } else {
-                      setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim });
+                    setNovaMedicao({ ...novaMedicao, periodo_fim: novoFim });
+                    // Recarregar execução financeira quando mudar o período
+                    if (novaMedicao.periodo_inicio && novoFim) {
+                      carregarExecucaoFinanceira(medicaoParaEditar?.id);
                     }
                   }} />
               </div>
+            </div>
+
+            {/* Competência */}
+            <div>
+              <Label>Competência *</Label>
+              <Input 
+                value={novaMedicao.competencia}
+                onChange={(e) => setNovaMedicao({ ...novaMedicao, competencia: e.target.value })}
+                placeholder="Ex: FEVEREIRO/2026"
+                className="uppercase"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Informe a competência no formato MÊS/ANO (ex: FEVEREIRO/2026)
+              </p>
             </div>
 
             {/* Valor Medido (serviços continuados) */}
@@ -1429,7 +2085,15 @@ export default function FornecedorContratoDetalhePage() {
                       const qtdAprovada = Number(ic.quantidade_medida);
                       const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                       const saldo = qtdTotal - qtdAprovada - emTransito;
-                      const qtdProporcional = Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
+                      const isMensalProp = ic.unidade_medida === 'MENSAL';
+                      const tipoItemProp = isMensalProp ? 'mensal' : 'quantidade';
+                      // Se já há um tipo selecionado, não preencher itens de tipo diferente
+                      if (tipoMedicaoAtual !== null && tipoItemProp !== tipoMedicaoAtual) {
+                        return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
+                      }
+                      const qtdProporcional = isMensalProp
+                        ? Math.min(Math.round(fator * 1000) / 1000, saldo)
+                        : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
                       const valorOverride = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
                       return { item_cronograma_id: ic.id, quantidade_medida: qtdProporcional, modo_input: 'quantidade' as const, valor_override: valorOverride };
                     });
@@ -1442,6 +2106,16 @@ export default function FornecedorContratoDetalhePage() {
                     : 'defina o período'})
                 </Button>
               </div>
+              {/* Aviso sobre mistura de tipos */}
+              {itensCronograma.some(ic => ic.unidade_medida === 'MENSAL') && itensCronograma.some(ic => ic.unidade_medida !== 'MENSAL') && (
+                <div className="mx-0 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                  <p className="text-xs text-amber-800">
+                    <strong>Atenção:</strong> Este contrato possui itens medidos por quantidade e itens mensais.
+                    Não é possível incluir ambos os tipos na mesma medição — preencha apenas itens de um tipo por vez.
+                    {tipoMedicaoAtual && <span className="font-medium"> Tipo atual: <strong>{tipoMedicaoAtual === 'mensal' ? 'Mensal' : 'Por quantidade'}</strong>.</span>}
+                  </p>
+                </div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50">
@@ -1449,9 +2123,8 @@ export default function FornecedorContratoDetalhePage() {
                     <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
-                    <TableHead className="text-right font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
-                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-28 bg-green-50">Valor R$</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24 bg-blue-50">Subtotal</TableHead>
                   </TableRow>
@@ -1471,22 +2144,29 @@ export default function FornecedorContratoDetalhePage() {
                     const excedeSaldo = modoInput === 'valor'
                       ? (valorOverride || 0) > saldo * valorUnit + 0.01
                       : qtdMedida > saldo + 0.001;
+                    const isMensal = ic.unidade_medida === 'MENSAL';
+                    const tipoEsteItem = isMensal ? 'mensal' : 'quantidade';
+                    const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
                     return (
-                      <TableRow key={ic.id} className="hover:bg-gray-50">
+                      <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
-                        <TableCell><p className="text-sm font-medium">{ic.descricao}</p></TableCell>
+                        <TableCell className="whitespace-normal break-words align-top min-w-[320px] max-w-[520px]">
+                          <p className="text-sm font-medium whitespace-normal break-words">{ic.descricao}</p>
+                          {bloqueado && (
+                            <p className="text-xs text-amber-600 mt-0.5">
+                              Inclua em medição separada (tipo: {isMensal ? 'mensal' : 'por quantidade'})
+                            </p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
                         <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
-                        <TableCell className="text-right text-blue-600 text-sm">
-                          {qtdAprovada.toLocaleString('pt-BR')}
-                          {emTransito > 0 && <span className="text-amber-500 text-xs ml-0.5">+{emTransito.toLocaleString('pt-BR')}</span>}
-                        </TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
                         {/* Qtd. Mês */}
                         <TableCell className="bg-blue-50/50">
                           <Input
                             type="number" step="0.001" min="0" max={saldo}
                             placeholder="0"
+                            disabled={bloqueado}
                             value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
@@ -1496,12 +2176,16 @@ export default function FornecedorContratoDetalhePage() {
                             }}
                             className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
                           />
+                          {qtdMedida > 0 && qtdMedida !== 1 && (ic.unidade_medida === 'MES' || ic.unidade_medida === 'MÊS') && (
+                            <p className="text-xs text-blue-700 font-medium text-center mt-0.5">= {Math.round(qtdMedida * 30)} dias</p>
+                          )}
                         </TableCell>
                         {/* Valor R$ */}
                         <TableCell className="bg-green-50/50">
                           <Input
                             type="number" step="0.01" min="0" max={saldo * valorUnit}
                             placeholder="0,00"
+                            disabled={bloqueado}
                             value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
@@ -1649,6 +2333,142 @@ export default function FornecedorContratoDetalhePage() {
             </div>
             )}
 
+            {/* Execução Fiscal e Financeira */}
+            {novaMedicao.periodo_inicio && novaMedicao.periodo_fim && contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim && (
+              <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingUp className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-blue-800">Execução Fiscal e Financeira</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Execução Fiscal (Tempo ou Quantidade) */}
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contrato?.boletim_por_quantidade)) ? (
+                        <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</>
+                      ) : (
+                        <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>
+                      )}
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contrato?.boletim_por_quantidade)) ? (() => {
+                        const forcarQtdMensal = !!(contrato?.boletim_por_quantidade);
+                        const itensComQtd = itensCronograma.filter(ic => {
+                          if (ic.unidade_medida === 'MENSAL' && !forcarQtdMensal) return false;
+                          const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+                          return itemState && Number(itemState.quantidade_medida) > 0;
+                        });
+                        if (itensComQtd.length === 0) {
+                          return <p className="text-gray-500 text-xs">Informe quantidades nos itens para ver a execução</p>;
+                        }
+                        if (itensComQtd.length === 1) {
+                          const ic = itensComQtd[0];
+                          const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+                          const isMensalComFlag = ic.unidade_medida === 'MENSAL' && forcarQtdMensal;
+                          const qtdNoPeriodo = isMensalComFlag ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0);
+                          const qtdAprovada = isMensalComFlag ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0);
+                          const qtdTotal = isMensalComFlag ? Math.round(Number(ic.quantidade ?? 0)) : Number(ic.quantidade ?? 0);
+                          const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo;
+                          const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+                          const unidade = ic.unidade_medida || 'UNIDADE';
+                          return (
+                            <>
+                              <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{qtdNoPeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{qtdAtePeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{qtdAExecutar.toLocaleString('pt-BR')} {unidade}</span></div>
+                            </>
+                          );
+                        }
+                        // Múltiplos itens — mostrar resumo por item
+                        return (
+                          <>
+                            {itensComQtd.map(ic => {
+                              const itemState = novaMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any;
+                              const isMensalComFlag = ic.unidade_medida === 'MENSAL' && forcarQtdMensal;
+                              const qtdNoPeriodo = isMensalComFlag ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0);
+                              const qtdAprovada = isMensalComFlag ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0);
+                              const qtdAExecutar = Math.max(0, (isMensalComFlag ? Math.round(Number(ic.quantidade)) : Number(ic.quantidade)) - qtdAprovada - qtdNoPeriodo);
+                              return (
+                                <div key={ic.id} className="flex justify-between text-xs">
+                                  <span className="text-gray-600 truncate mr-2">{ic.descricao?.substring(0, 30)}...</span>
+                                  <span className="font-medium whitespace-nowrap">{qtdNoPeriodo > 0 ? `+${qtdNoPeriodo}` : '-'} / {qtdAExecutar} {ic.unidade_medida}</span>
+                                </div>
+                              );
+                            })}
+                          </>
+                        );
+                      })() : (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">No Período:</span>
+                            <span className="font-medium text-blue-700">
+                              {calcularExecucaoFiscal(
+                                novaMedicao.periodo_inicio,
+                                novaMedicao.periodo_fim,
+                                contrato.data_vigencia_inicio,
+                                contrato.data_vigencia_fim
+                              ).noPeriodo}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Até o Período:</span>
+                            <span className="font-medium text-blue-700">
+                              {calcularExecucaoFiscal(
+                                novaMedicao.periodo_inicio,
+                                novaMedicao.periodo_fim,
+                                contrato.data_vigencia_inicio,
+                                contrato.data_vigencia_fim
+                              ).atePeriodo}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">A Executar:</span>
+                            <span className="font-medium text-green-700">
+                              {calcularExecucaoFiscal(
+                                novaMedicao.periodo_inicio,
+                                novaMedicao.periodo_fim,
+                                contrato.data_vigencia_inicio,
+                                contrato.data_vigencia_fim
+                              ).aExecutar}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Execução Financeira (Valores) */}
+                  <div className="bg-white rounded-lg p-4 border border-green-200">
+                    <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2">
+                      <DollarSign className="w-4 h-4" />
+                      Execução Financeira (Valores)
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">No Período:</span>
+                        <span className="font-medium text-green-700">
+                          {formatarMoeda(noPeriodoExibicao)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Até o Período:</span>
+                        <span className="font-medium text-blue-700">
+                          {formatarMoeda(atePeriodoExibicao)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">A Executar:</span>
+                        <span className="font-medium text-orange-700">
+                          {formatarMoeda(aExecutarExibicao)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Observações e NF lado a lado */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -1669,13 +2489,6 @@ export default function FornecedorContratoDetalhePage() {
                 <Input value={novaMedicao.nota_fiscal_numero}
                   onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_numero: e.target.value })}
                   placeholder="Número da NF" />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" step="0.01" value={novaMedicao.nota_fiscal_valor}
-                    onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_valor: e.target.value })}
-                    placeholder="Valor NF" />
-                  <Input type="date" value={novaMedicao.nota_fiscal_data}
-                    onChange={(e) => setNovaMedicao({ ...novaMedicao, nota_fiscal_data: e.target.value })} />
-                </div>
               </div>
             </div>
 
@@ -1694,16 +2507,21 @@ export default function FornecedorContratoDetalhePage() {
                       return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
                     }, 0);
 
-              const totalDiscValor = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);
+              const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+              // Quando % somam ~100% e diferença é só arredondamento (≤ 1 cent), exibe o valor exato da medição
+              const arredondamentoApenas = valorMedidoAtual > 0
+                && Math.abs(totalDiscPerc - 100) < 0.05
+                && Math.abs(totalDiscValorBruto - valorMedidoAtual) <= 0.02;
+              const totalDiscValor = arredondamentoApenas ? valorMedidoAtual : totalDiscValorBruto;
 
               return (
                 <div className="border rounded-lg p-4 bg-amber-50/30">
                   <div className="flex items-center justify-between mb-3">
                     <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
                       <DollarSign className="w-4 h-4" />
-                      Discriminacao das Despesas
-                      <span className="text-xs font-normal text-gray-400">(opcional - composicao do valor da NF)</span>
+                      Discriminação das Despesas
+                      <span className="text-xs font-normal text-red-500">* obrigatória</span>
                     </Label>
                     <div className="flex gap-2">
                       {medicoes.length > 0 && (
@@ -1833,7 +2651,6 @@ export default function FornecedorContratoDetalhePage() {
                   <Button
                     type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
                     onClick={() => {
-                      const titulo = prompt('Título da foto (opcional):') ?? '';
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.accept = 'image/jpeg,image/png,image/jpg';
@@ -1841,6 +2658,7 @@ export default function FornecedorContratoDetalhePage() {
                       input.onchange = (e) => {
                         const files = (e.target as HTMLInputElement).files;
                         if (files) {
+                          const titulo = prompt('Título da foto (opcional):') ?? '';
                           const novos = Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }));
                           setArquivosPendentes(prev => [...prev, ...novos]);
                         }
@@ -1853,14 +2671,15 @@ export default function FornecedorContratoDetalhePage() {
                   <Button
                     type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
                     onClick={() => {
-                      const titulo = prompt('Título do documento (opcional):') ?? '';
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.accept = 'application/pdf,image/jpeg,image/png';
+                      input.multiple = true;
                       input.onchange = (e) => {
                         const files = (e.target as HTMLInputElement).files;
-                        if (files && files[0]) {
-                          setArquivosPendentes(prev => [...prev, { file: files[0], tipo: 'DOCUMENTO', descricao: titulo }]);
+                        if (files && files.length > 0) {
+                          const titulo = prompt('Título dos documentos (opcional):') ?? '';
+                          setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'DOCUMENTO' as const, descricao: titulo }))]);
                         }
                       };
                       input.click();
@@ -1870,10 +2689,26 @@ export default function FornecedorContratoDetalhePage() {
                   </Button>
                 </div>
               </div>
-              {arquivosPendentes.length === 0 ? (
+              {anexosReaproveitados.length === 0 && arquivosPendentes.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-2">Nenhum arquivo adicionado. Você pode adicionar fotos e documentos agora ou depois.</p>
               ) : (
                 <div className="space-y-1">
+                  {anexosReaproveitados.map((arq, idx) => (
+                    <div key={arq.id} className="flex items-center justify-between bg-blue-50 rounded px-3 py-1.5 text-xs border border-blue-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{arq.tipo === 'FOTO' ? '📷' : '📄'}</span>
+                        <span className="truncate font-medium">{arq.descricao || arq.nome_original || arq.nome_arquivo}</span>
+                        <span className="text-blue-500 flex-shrink-0">(reaproveitado)</span>
+                        <span className="text-gray-400 flex-shrink-0">({(arq.tamanho_bytes / 1024).toFixed(0)} KB)</span>
+                      </div>
+                      <Button
+                        type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                        onClick={() => setAnexosReaproveitados(prev => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
                   {arquivosPendentes.map((arq, idx) => (
                     <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs border">
                       <div className="flex items-center gap-2 min-w-0">
@@ -1959,8 +2794,8 @@ export default function FornecedorContratoDetalhePage() {
       </Dialog>
 
       {/* ============ MODAL: Detalhe da Medição ============ */}
-      <Dialog open={modalDetalhe} onOpenChange={setModalDetalhe}>
-        <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
+      <Dialog open={modalDetalhe} onOpenChange={(open) => { setModalDetalhe(open); if (!open) setTimeout(() => { document.body.style.pointerEvents = ''; }, 0); }}>
+        <DialogContent className="w-[98vw] max-w-7xl max-h-[96vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{medicaoDetalhe?.numero_medicao}ª Medição — Detalhes</DialogTitle>
           </DialogHeader>
@@ -2026,7 +2861,7 @@ export default function FornecedorContratoDetalhePage() {
                         {medicaoDetalhe.itens.map((item: any, idx: number) => (
                           <TableRow key={item.id || idx} className={item.atestado === false ? 'bg-amber-50/50' : ''}>
                             <TableCell className="text-sm font-mono">{item.etapa_numero || idx + 1}</TableCell>
-                            <TableCell className="text-sm">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
+                            <TableCell className="text-sm whitespace-normal break-words align-top min-w-[280px] max-w-[480px]">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.etapa_valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-center text-gray-500">{Number(item.percentual_executado_anterior || 0).toFixed(1)}%</TableCell>
                             <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">
@@ -2147,6 +2982,15 @@ export default function FornecedorContratoDetalhePage() {
                 </div>
               )}
 
+              {medicaoDetalhe.status === 'RASCUNHO' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-4">
+                  <p className="text-sm text-blue-800">Esta medição ainda não foi enviada para ateste.</p>
+                  <Button size="sm" className="gap-1 shrink-0" onClick={() => { setModalDetalhe(false); abrirModalSubmeter(medicaoDetalhe); }}>
+                    <Send className="w-3 h-3" /> Assinar e Enviar
+                  </Button>
+                </div>
+              )}
+
               {medicaoDetalhe.status === 'DEVOLVIDA' && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
                   {medicaoDetalhe.motivo_devolucao && (
@@ -2178,128 +3022,7 @@ export default function FornecedorContratoDetalhePage() {
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  const competenciaDefault = derivarCompetencia(medicaoDetalhe.periodo_inicio || '')
-                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
-                  if (competencia === null) return
-
-                  const somaValorItens = itensCronograma.reduce((s: number, ic: any) => s + Number(ic.valor_total || 0), 0)
-                  const valorJaExecutado = Math.max(0, Number(contrato?.valor_inicial || 0) - Number(resumo?.saldo_disponivel || 0))
-
-                  const calcAcum = (vlrRestante: number) =>
-                    somaValorItens > 0 && valorJaExecutado > 0
-                      ? (vlrRestante / somaValorItens) * valorJaExecutado
-                      : 0
-
-                  const itensItem = (medicaoDetalhe.itens || [])
-                    .filter((i: any) => i.tipo_item === 'item_cronograma')
-                    .map((i: any) => {
-                      const vlrUnitario = Number(i.item_valor_unitario || 0)
-                      const ic = itensCronograma.find((c: any) => c.numero_item === i.item_numero)
-                      const vlrTotal = ic ? Number(ic.valor_total || 0) : Number(i.item_quantidade_total || 0) * vlrUnitario
-                      const vlrAcumAnterior = ic ? calcAcum(vlrTotal) : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
-                      return {
-                        numero: i.item_numero || i.etapa_numero || 0,
-                        descricao: i.item_descricao || i.etapa_descricao || '',
-                        unidade: i.item_unidade || '',
-                        quantidade_no_periodo: Number(i.quantidade_medida || 0),
-                        quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
-                        quantidade_total_contrato: Number(i.item_quantidade_total || 0),
-                        valor_no_periodo: Number(i.valor_medido || 0),
-                        valor_unitario: vlrUnitario,
-                        valor_acumulado_anterior: vlrAcumAnterior,
-                        valor_total_item: vlrTotal,
-                      }
-                    })
-                  const itensEtapa = (medicaoDetalhe.itens || [])
-                    .filter((i: any) => i.tipo_item !== 'item_cronograma')
-                    .map((i: any) => ({
-                      numero: i.etapa_numero || 0,
-                      descricao: i.etapa_descricao || '',
-                      percentual_fisico: Number(i.etapa_percentual_fisico || 0),
-                      percentual_executado_anterior: Number(i.percentual_executado_anterior || 0),
-                      percentual_executado_atual: Number(i.percentual_executado_atual || 0),
-                      valor_previsto: Number(i.etapa_valor_previsto || 0),
-                      valor_medido: Number(i.valor_medido || 0),
-                    }))
-                  const dadosPdf: DadosMedicaoPdf = {
-                    numero_contrato: contrato?.numero_contrato || '',
-                    objeto_contrato: contrato?.objeto || '',
-                    orgao_nome: contrato?.orgao?.nome || '',
-                    fornecedor_nome: fornecedor?.razao_social || fornecedor?.nome || '',
-                    fornecedor_cnpj: fornecedor?.cpf_cnpj || '',
-                    valor_total_contrato: Number(contrato?.valor_inicial || 0) || undefined,
-                    data_vigencia_inicio: contrato?.data_vigencia_inicio || undefined,
-                    data_vigencia_fim: contrato?.data_vigencia_fim || undefined,
-                    numero_medicao: medicaoDetalhe.numero_medicao,
-                    periodo_inicio: medicaoDetalhe.periodo_inicio || '',
-                    periodo_fim: medicaoDetalhe.periodo_fim || '',
-                    competencia: competencia || competenciaDefault,
-                    valor_medido: Number(medicaoDetalhe.valor_medido || 0),
-                    nota_fiscal_numero: medicaoDetalhe.nota_fiscal_numero || undefined,
-                    nota_fiscal_valor: medicaoDetalhe.nota_fiscal_valor ? Number(medicaoDetalhe.nota_fiscal_valor) : undefined,
-                    itens: itensItem.length > 0 ? itensItem : undefined,
-                    etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-                    itens_contratados: itensCronograma.length > 0 ? itensCronograma.map((ic: any, idx: number) => ({
-                      numero: ic.numero_item || idx + 1,
-                      descricao: ic.descricao || '',
-                      unidade: ic.unidade_medida || '',
-                      quantidade: Number(ic.quantidade || 0),
-                      valor_unitario: Number(ic.valor_unitario || 0),
-                      valor_total: Number(ic.valor_total || 0),
-                    })) : undefined,
-                    discriminacoes: discriminacoesDetalhe && discriminacoesDetalhe.length > 0 ? discriminacoesDetalhe.map((d: any, idx: number) => ({
-                      numero: d.numero || idx + 1,
-                      descricao: d.descricao || d.tipo_despesa || '',
-                      valor: Number(d.valor || 0),
-                      percentual: Number(d.percentual || 0),
-                    })) : undefined,
-                  }
-
-                  // Registrar assinaturas no módulo digital (mesmo módulo OS/OF)
-                  let codigoFornecedor: string | undefined
-                  let codigoFiscal: string | undefined
-                  try {
-                    if (medicaoDetalhe.data_submissao) {
-                      const rForn = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoDetalhe.id}/assinar`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          papel: 'FORNECEDOR',
-                          usuario_nome: fornecedor?.razao_social || fornecedor?.nome || '',
-                          usuario_cpf_cnpj: fornecedor?.cpf_cnpj || '',
-                          usuario_cargo: 'Fornecedor / Contratado',
-                        }),
-                      })
-                      if (rForn.ok) { const d = await rForn.json(); codigoFornecedor = d.codigo_formatado }
-                    }
-                    if (medicaoDetalhe.ateste_fiscal_nome) {
-                      const rFisc = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoDetalhe.id}/assinar`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          papel: 'FISCAL',
-                          usuario_nome: medicaoDetalhe.ateste_fiscal_nome,
-                          usuario_cpf_cnpj: '',
-                          usuario_cargo: 'Fiscal de Contrato',
-                        }),
-                      })
-                      if (rFisc.ok) { const d = await rFisc.json(); codigoFiscal = d.codigo_formatado }
-                    }
-                  } catch { /* sem assinatura digital, continua */ }
-
-                  dadosPdf.assinatura_fornecedor = medicaoDetalhe.data_submissao ? {
-                    nome: fornecedor?.razao_social || fornecedor?.nome || '',
-                    cnpj: fornecedor?.cpf_cnpj || '',
-                    data_hora: new Date(medicaoDetalhe.data_submissao).toLocaleString('pt-BR'),
-                    codigo_validacao: codigoFornecedor,
-                  } : undefined
-                  dadosPdf.assinatura_fiscal = medicaoDetalhe.ateste_fiscal_nome ? {
-                    nome: medicaoDetalhe.ateste_fiscal_nome,
-                    data_hora: medicaoDetalhe.ateste_data ? new Date(medicaoDetalhe.ateste_data).toLocaleString('pt-BR') : '',
-                    codigo_validacao: codigoFiscal,
-                  } : undefined
-                  dadosPdf.url_validacao = `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`
-                  gerarPdfMedicao(dadosPdf)
+                  await baixarPdfArmazenado(medicaoDetalhe.id)
                 }}
               >
                 <FileDown className="w-4 h-4" />
@@ -2307,6 +3030,119 @@ export default function FornecedorContratoDetalhePage() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ MODAL: Assinatura Digital com OTP ============ */}
+      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setTimeout(() => { document.body.style.pointerEvents = ''; }, 0); if (otpEtapa !== 'sucesso') { carregarDados(); } } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-blue-600" />
+              Assinatura Digital do Boletim
+            </DialogTitle>
+            <DialogDescription>
+              {otpEtapa === 'info' && 'O boletim de medição será gerado e assinado digitalmente.'}
+              {otpEtapa === 'codigo' && 'Digite o código de verificação enviado.'}
+              {otpEtapa === 'sucesso' && 'Boletim assinado e enviado com sucesso!'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {otpEtapa === 'info' && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+                <p className="text-sm text-blue-900 font-medium">Ao confirmar, o sistema irá:</p>
+                <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                  <li>Enviar um código de verificação para seu <strong>WhatsApp</strong> e/ou <strong>email</strong> cadastrado</li>
+                  <li>Gerar o PDF do Boletim de Medição</li>
+                  <li>Registrar sua <strong>assinatura digital</strong> no documento</li>
+                  <li>Enviar o boletim assinado para o órgão</li>
+                </ul>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-xs text-amber-800">
+                  <strong>Importante:</strong> Ao assinar, você confirma que os dados da medição estão corretos e concorda com o envio para análise do fiscal do contrato.
+                </p>
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+            </div>
+          )}
+
+          {otpEtapa === 'codigo' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                <p className="font-medium mb-1">Código enviado com sucesso!</p>
+                {otpCanais?.canais_enviados.includes('whatsapp') && otpCanais.telefone_mascarado && (
+                  <p>📱 WhatsApp: {otpCanais.telefone_mascarado}</p>
+                )}
+                {otpCanais?.canais_enviados.includes('email') && otpCanais.email_mascarado && (
+                  <p>📧 Email: {otpCanais.email_mascarado}</p>
+                )}
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Código de Verificação (6 dígitos)</Label>
+                <Input
+                  value={otpCodigo}
+                  onChange={(e) => setOtpCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="text-center text-2xl tracking-[0.5em] font-mono mt-1"
+                  maxLength={6}
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter' && otpCodigo.length === 6) handleValidarOtp(); }}
+                />
+                <p className="text-xs text-gray-500 mt-1">O código expira em 5 minutos.</p>
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+              <Button variant="link" size="sm" className="text-xs p-0 h-auto" onClick={handleEnviarOtp} disabled={otpLoading}>
+                Não recebeu? Reenviar código
+              </Button>
+            </div>
+          )}
+
+          {otpEtapa === 'sucesso' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center space-y-2">
+                <CheckCircle className="w-10 h-10 text-green-600 mx-auto" />
+                <p className="text-green-900 font-semibold">Boletim assinado digitalmente!</p>
+                <p className="text-sm text-green-700">A medição foi enviada para análise do fiscal do contrato.</p>
+                {otpCodigoValidacao && (
+                  <div className="mt-2 bg-white border border-green-300 rounded p-2">
+                    <p className="text-xs text-gray-500">Código de validação da assinatura:</p>
+                    <p className="font-mono text-sm font-bold text-green-800">{otpCodigoValidacao}</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 text-center">
+                O PDF do boletim foi baixado automaticamente. Ele também está disponível na tela de detalhes da medição.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {otpEtapa === 'info' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleEnviarOtp} disabled={otpLoading} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Enviar Código e Assinar
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'codigo' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleValidarOtp} disabled={otpLoading || otpCodigo.length !== 6} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Confirmar Assinatura
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'sucesso' && (
+              <Button onClick={() => { setModalOtp(false); carregarDados(); }} className="w-full bg-green-600 hover:bg-green-700">
+                Fechar
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

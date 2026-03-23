@@ -28,6 +28,11 @@ import {
   MessageCircle,
   Bot,
   FileSearch,
+  Car,
+  Fuel,
+  KeyRound,
+  Landmark,
+  Wrench,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -49,6 +54,8 @@ interface MenuLink {
   modulos?: ModuloSistema[]
   requerAprovador?: boolean
   requerPermissao?: string
+  /** Se definido, apenas usuários com este role veem o link ('ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO') */
+  requerRole?: string
 }
 
 export function Sidebar({ userType }: SidebarProps) {
@@ -57,6 +64,7 @@ export function Sidebar({ userType }: SidebarProps) {
   const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
   const [podeAprovar, setPodeAprovar] = useState(false)
   const [permissoesUsuario, setPermissoesUsuario] = useState<Record<string, boolean>>({})
+  const [roleUsuario, setRoleUsuario] = useState<string | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -80,6 +88,7 @@ export function Sidebar({ userType }: SidebarProps) {
         if (usuarioStr) {
           const usuario = JSON.parse(usuarioStr)
           setPodeAprovar(usuario.pode_aprovar_requisicoes === true || usuario.pode_liberar_contratos === true)
+          setRoleUsuario(usuario.role || null)
           setPermissoesUsuario({
             pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes === true,
             pode_liberar_contratos: usuario.pode_liberar_contratos === true,
@@ -116,6 +125,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/fornecedor/licitacoes", label: "Licitações Disponíveis", icon: Search },
     { href: "/fornecedor/participacoes", label: "Minhas Participações", icon: FileText },
     { href: "/fornecedor/propostas", label: "Minhas Propostas", icon: Gavel },
+    { href: "/fornecedor/medicoes", label: "Medições", icon: ClipboardCheck },
     { href: "/fornecedor/contratos", label: "Meus Contratos", icon: FileCheck },
     { href: "/fornecedor/ordens", label: "Ordens de Fornecimento", icon: Send },
     { href: "/fornecedor/cadastro-sicaf", label: "Meu Cadastro", icon: User },
@@ -127,10 +137,11 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     { href: "/orgao/licitacoes", label: "Licitações", icon: FileText, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
+    { href: "/orgao/disputa-v3", label: "Sala de Disputa V3", icon: Search, modulo: ModuloSistema.DISPUTA },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/medicoes", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/agente-contratos", label: "Agente IA", icon: Bot, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.CONTRATOS },
+    { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
+    { href: "/orgao/agente-contratos", label: "Agente IA", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
+    { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/fornecedores", label: "Gestão de Fornecedores", icon: Building2, modulo: ModuloSistema.FORNECEDORES },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/requisicoes", label: "Requisições", icon: ClipboardList, modulo: ModuloSistema.ALMOXARIFADO },
@@ -142,9 +153,16 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3 },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/portal-assinaturas", label: "Portal de Assinaturas", icon: FilePen, modulo: ModuloSistema.PORTAL_ASSINATURAS },
-    { href: "/orgao/whatsapp", label: "WhatsApp Chat", icon: MessageCircle, modulo: 'WHATSAPP_CHAT' as ModuloSistema },
-    { href: "/orgao/emails", label: "Caixa de Entrada", icon: Mail }, // Sempre visível
-    { href: "/orgao/configuracoes", label: "Configurações", icon: Settings }, // Sempre visível
+    { href: "/orgao/frota", label: "Frota e Combustível", icon: Car, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/frota/posto", label: "Painel do Posto", icon: Fuel, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/frota/requisicoes", label: "Requisições Combustível", icon: ClipboardList, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/frota/contratos", label: "Contratos Combustível", icon: FileText, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/frota/credenciais", label: "Acessos Frota", icon: KeyRound, modulo: ModuloSistema.FROTA },
+    { href: "/orgao/patrimonio", label: "Patrimônio", icon: Landmark, modulo: ModuloSistema.PATRIMONIO },
+    { href: "/orgao/patrimonio/manutencoes", label: "Manutenções", icon: Wrench, modulo: ModuloSistema.PATRIMONIO },
+    { href: "/orgao/whatsapp", label: "WhatsApp Chat", icon: MessageCircle, modulo: ModuloSistema.WHATSAPP_CHAT },
+    { href: "/orgao/emails", label: "Caixa de Entrada", icon: Mail, modulo: ModuloSistema.EMAILS },
+    { href: "/orgao/configuracoes", label: "Configurações", icon: Settings, requerRole: 'ADMIN' },
   ]
 
   // Debug: log dos módulos carregados
@@ -169,8 +187,21 @@ export function Sidebar({ userType }: SidebarProps) {
     // Se não há módulos configurados, mostra apenas Dashboard e Configurações
     // Isso é mais seguro que mostrar tudo
     return links.filter(link => {
-      // Se não tem módulo definido, sempre mostra (Dashboard, Configurações)
+      // Verifica role (ex: Configurações — apenas ADMIN)
+      // null roleUsuario = login direto do órgão (sem usuário individual) → acesso total
+      if (link.requerRole && roleUsuario !== null && roleUsuario !== link.requerRole) {
+        return false
+      }
+
+      // Se não tem módulo definido, verifica apenas permissões especiais
       if (!link.modulo && !link.modulos) {
+        // Verifica aprovador mesmo sem módulo (ex: Central de Aprovações)
+        if (link.requerAprovador && !podeAprovar) {
+          return false
+        }
+        if (link.requerPermissao && !permissoesUsuario[link.requerPermissao]) {
+          return false
+        }
         return true
       }
 

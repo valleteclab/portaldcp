@@ -33,6 +33,8 @@ export class UsuariosController {
       cpf?: string;
       telefone?: string;
       cargo?: string;
+      matricula?: string;
+      portaria_fiscal?: string;
       role?: RoleUsuario;
       orgao_id?: string;
       pode_receber_patrimonio?: boolean;
@@ -115,6 +117,8 @@ export class UsuariosController {
       cpf: string;
       telefone: string;
       cargo: string;
+      matricula: string;
+      portaria_fiscal: string;
       role: RoleUsuario;
       orgao_id: string;
       ativo: boolean;
@@ -122,6 +126,7 @@ export class UsuariosController {
       pode_cancelar_estornar: boolean;
       pode_liberar_contratos: boolean;
       pode_excluir_medicao: boolean;
+      pode_excluir_requisicao_combustivel: boolean;
       eh_fiscal_contrato: boolean;
       pode_gerenciar_os: boolean;
       pode_receber_patrimonio: boolean;
@@ -187,6 +192,7 @@ export class UsuariosController {
       pode_cancelar_estornar?: boolean;
       pode_liberar_contratos?: boolean;
       pode_excluir_medicao?: boolean;
+      pode_excluir_requisicao_combustivel?: boolean;
       eh_fiscal_contrato?: boolean;
       pode_gerenciar_os?: boolean;
       pode_receber_patrimonio?: boolean;

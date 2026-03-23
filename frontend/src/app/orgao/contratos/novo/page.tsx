@@ -125,6 +125,7 @@ export default function NovoContratoPage() {
     percentual_garantia: '',
     tipo_garantia: '',
     observacoes: '',
+    boletim_por_quantidade: false,
   })
 
   useEffect(() => {
@@ -307,6 +308,7 @@ export default function NovoContratoPage() {
         percentual_garantia: formData.percentual_garantia ? parseFloat(formData.percentual_garantia) : null,
         tipo_garantia: formData.tipo_garantia || null,
         observacoes: formData.observacoes || null,
+        boletim_por_quantidade: formData.boletim_por_quantidade || false,
       }
 
       let res: Response
@@ -445,6 +447,20 @@ export default function NovoContratoPage() {
                 {MODALIDADES_EXECUCAO.find(m => m.value === formData.modalidade_execucao)?.desc}
               </p>
             </div>
+            {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(formData.modalidade_execucao) && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="boletim_por_quantidade"
+                  checked={formData.boletim_por_quantidade}
+                  onChange={(e) => handleInputChange('boletim_por_quantidade', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="boletim_por_quantidade" className="cursor-pointer font-normal text-sm">
+                  Boletim de medição por quantidade (Execução Fiscal em un/h/m em vez de dias)
+                </Label>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -15,6 +15,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
+import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 
 @Injectable()
 export class ContratosService {
@@ -44,6 +45,8 @@ export class ContratosService {
     private medicaoRepository: Repository<Medicao>,
     @InjectRepository(AtestacaoMensal)
     private atestacaoRepository: Repository<AtestacaoMensal>,
+    @InjectRepository(FrotaContrato)
+    private frotaContratoRepository: Repository<FrotaContrato>,
     private notificacoesService: NotificacoesService,
   ) {
     if (!fs.existsSync(this.uploadPath)) {
@@ -265,6 +268,28 @@ export class ContratosService {
       order: { numero_item: 'ASC' },
     });
 
+    // Sobrepõe consumo real do módulo de frota, se este contrato tiver um FrotaContrato vinculado
+    const frotaContrato = await this.frotaContratoRepository.findOne({
+      where: { contrato_id: id },
+    });
+    if (frotaContrato?.itens?.length) {
+      const consumoMap = new Map<string, number>();
+      for (const fi of frotaContrato.itens) {
+        if (fi.item_contrato_id) {
+          consumoMap.set(fi.item_contrato_id, Number(fi.quantidade_consumida ?? 0));
+        }
+      }
+      for (const item of itens) {
+        const consumido = consumoMap.get(item.id);
+        if (consumido !== undefined && consumido > 0) {
+          const qtdContratada = Number(item.quantidade_contratada);
+          const qtdEmpenhada = Number(item.quantidade_empenhada);
+          (item as any).quantidade_entregue = consumido;
+          (item as any).saldo_disponivel = Math.max(0, qtdContratada - qtdEmpenhada - consumido);
+        }
+      }
+    }
+
     let saldoTotalEmValor: number;
     const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
 
@@ -375,6 +400,83 @@ export class ContratosService {
     });
 
     return contrato || null;
+  }
+
+  async detectarItensDuplicados(contratoId: string): Promise<{
+    grupos: Array<{
+      descricao: string;
+      valor_unitario: number;
+      quantidade: number;
+      ids: string[];
+      manter_id: string;
+      remover_ids: string[];
+    }>;
+    total_duplicados: number;
+  }> {
+    const itens = await this.itemContratoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_item: 'ASC', created_at: 'ASC' },
+    });
+
+    const agrupados = new Map<string, typeof itens>();
+    for (const item of itens) {
+      const descNorm = (item.descricao || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const chave = `${descNorm}|${Number(item.valor_unitario)}|${Number(item.quantidade_contratada)}`;
+      if (!agrupados.has(chave)) agrupados.set(chave, []);
+      agrupados.get(chave)!.push(item);
+    }
+
+    const grupos: Array<{
+      descricao: string;
+      valor_unitario: number;
+      quantidade: number;
+      ids: string[];
+      manter_id: string;
+      remover_ids: string[];
+    }> = [];
+
+    for (const [, grupo] of agrupados) {
+      if (grupo.length <= 1) continue;
+      const manter = grupo[0];
+      const remover = grupo.slice(1);
+      grupos.push({
+        descricao: manter.descricao,
+        valor_unitario: Number(manter.valor_unitario),
+        quantidade: Number(manter.quantidade_contratada),
+        ids: grupo.map((i) => i.id),
+        manter_id: manter.id,
+        remover_ids: remover.map((i) => i.id),
+      });
+    }
+
+    return {
+      grupos,
+      total_duplicados: grupos.reduce((s, g) => s + g.remover_ids.length, 0),
+    };
+  }
+
+  async removerItensDuplicados(contratoId: string): Promise<{ removidos: number; grupos: number }> {
+    const { grupos } = await this.detectarItensDuplicados(contratoId);
+    if (grupos.length === 0) return { removidos: 0, grupos: 0 };
+
+    const idsRemover = grupos.flatMap((g) => g.remover_ids);
+    await this.itemContratoRepository.delete(idsRemover);
+
+    return { removidos: idsRemover.length, grupos: grupos.length };
+  }
+
+  async buscarTermoAditivoPorNome(contratoId: string, nome: string): Promise<TermoAditivo | null> {
+    return this.termoAditivoRepository.findOne({
+      where: { contrato_id: contratoId, objeto: nome },
+    }) as Promise<TermoAditivo | null>;
+  }
+
+  async findByNumeros(numeros: string[], orgaoId: string): Promise<Contrato[]> {
+    if (numeros.length === 0) return [];
+    return this.contratoRepository.find({
+      where: numeros.map((n) => ({ numero_contrato: n, orgao_id: orgaoId })),
+      select: ['id', 'numero_contrato'],
+    });
   }
 
   async atualizar(id: string, dados: Partial<Contrato>, usuarioId?: string, usuarioNome?: string): Promise<Contrato> {
@@ -1506,5 +1608,57 @@ export class ContratosService {
     await this.contratoRepository.remove(contrato);
 
     this.logger.log(`Contrato ${contrato.numero_contrato} (ID: ${contratoId}) excluído por ${usuarioNome}`);
+  }
+
+  /**
+   * Retorna fornecedores disponíveis para o órgão:
+   * - Todos os fornecedores cadastrados no sistema (cadastrado_sistema = true)
+   * - Fornecedores não-cadastrados que aparecem em contratos do órgão
+   * Em ambos os casos inclui a contagem de contratos firmados com o órgão.
+   */
+  async getFornecedoresDoOrgao(orgaoId: string): Promise<any[]> {
+    // 1. Contratos do órgão agrupados por fornecedor_id
+    const contractsRaw = await this.contratoRepository
+      .createQueryBuilder('c')
+      .select('c.fornecedor_id', 'fornecedor_id')
+      .addSelect('COUNT(c.id)', 'total_contratos')
+      .where('c.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('c.fornecedor_id IS NOT NULL')
+      .groupBy('c.fornecedor_id')
+      .getRawMany();
+
+    if (contractsRaw.length === 0) {
+      return [];
+    }
+
+    const countMap = new Map<string, number>(
+      contractsRaw.map((r) => [r.fornecedor_id, Number(r.total_contratos)]),
+    );
+
+    const fornecedorIds = contractsRaw.map((r) => r.fornecedor_id);
+
+    // 2. Buscar detalhes dos fornecedores
+    const fornecedores = await this.fornecedorRepository.findByIds(fornecedorIds, {
+      select: ['id', 'cpf_cnpj', 'razao_social', 'nome_fantasia', 'email', 'telefone',
+               'representante_whatsapp', 'representante_telefone', 'status', 'porte', 'cidade', 'uf'],
+    } as any);
+
+    return fornecedores
+      .map((f) => ({
+        cnpj: f.cpf_cnpj,
+        razao_social: f.razao_social,
+        fornecedor_id: f.id,
+        total_contratos: countMap.get(f.id) ?? 0,
+        cadastrado_sistema: true,
+        nome_fantasia: f.nome_fantasia,
+        email: f.email,
+        telefone: f.telefone,
+        whatsapp: f.representante_whatsapp || f.representante_telefone || f.telefone,
+        status_cadastro: f.status,
+        cidade: f.cidade,
+        uf: f.uf,
+        porte: f.porte,
+      }))
+      .sort((a, b) => (a.razao_social || '').localeCompare(b.razao_social || '', 'pt-BR'));
   }
 }

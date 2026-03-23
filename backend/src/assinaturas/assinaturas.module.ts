@@ -6,12 +6,14 @@ import { AssinaturasController } from './assinaturas.controller';
 import { GeradorPdfService } from './gerador-pdf.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AuthModule } from '../auth/auth.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([AssinaturaDigital]),
     WhatsAppModule,
     AuthModule,
+    EmailModule,
   ],
   controllers: [AssinaturasController],
   providers: [AssinaturasService, GeradorPdfService],

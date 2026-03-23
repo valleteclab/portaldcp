@@ -24,15 +24,19 @@ export class UsuariosService {
     cpf?: string;
     telefone?: string;
     cargo?: string;
+    matricula?: string;
+    portaria_fiscal?: string;
     role?: RoleUsuario;
     orgao_id?: string;
     pode_aprovar_requisicoes?: boolean;
     pode_cancelar_estornar?: boolean;
     pode_liberar_contratos?: boolean;
     pode_excluir_medicao?: boolean;
+    pode_excluir_requisicao_combustivel?: boolean;
     eh_fiscal_contrato?: boolean;
     pode_gerenciar_os?: boolean;
     pode_receber_patrimonio?: boolean;
+    pode_enviar_contabilidade?: boolean;
   }): Promise<Usuario> {
     const existente = await this.usuarioRepository.findOneBy({ email: data.email });
     if (existente) {
@@ -48,6 +52,8 @@ export class UsuariosService {
       cpf: data.cpf,
       telefone: data.telefone,
       cargo: data.cargo,
+      matricula: data.matricula,
+      portaria_fiscal: data.portaria_fiscal,
       role: data.role || RoleUsuario.EQUIPE_APOIO,
       orgao_id: data.orgao_id,
       ativo: true,
@@ -58,9 +64,11 @@ export class UsuariosService {
       pode_cancelar_estornar: data.pode_cancelar_estornar || false,
       pode_liberar_contratos: data.pode_liberar_contratos || false,
       pode_excluir_medicao: data.pode_excluir_medicao || false,
+      pode_excluir_requisicao_combustivel: data.pode_excluir_requisicao_combustivel || false,
       eh_fiscal_contrato: data.eh_fiscal_contrato || false,
       pode_gerenciar_os: data.pode_gerenciar_os || false,
       pode_receber_patrimonio: data.pode_receber_patrimonio || false,
+      pode_enviar_contabilidade: data.pode_enviar_contabilidade || false,
     });
 
     return await this.usuarioRepository.save(usuario);
@@ -113,6 +121,8 @@ export class UsuariosService {
     cpf: string;
     telefone: string;
     cargo: string;
+    matricula: string;
+    portaria_fiscal: string;
     role: RoleUsuario;
     orgao_id: string;
     ativo: boolean;
@@ -120,9 +130,11 @@ export class UsuariosService {
     pode_cancelar_estornar: boolean;
     pode_liberar_contratos: boolean;
     pode_excluir_medicao: boolean;
+    pode_excluir_requisicao_combustivel: boolean;
     eh_fiscal_contrato: boolean;
     pode_gerenciar_os: boolean;
     pode_receber_patrimonio: boolean;
+    pode_enviar_contabilidade?: boolean;
   }>): Promise<Usuario> {
     const usuario = await this.findById(id);
 
@@ -283,9 +295,11 @@ export class UsuariosService {
     pode_cancelar_estornar?: boolean;
     pode_liberar_contratos?: boolean;
     pode_excluir_medicao?: boolean;
+    pode_excluir_requisicao_combustivel?: boolean;
     eh_fiscal_contrato?: boolean;
     pode_gerenciar_os?: boolean;
     pode_receber_patrimonio?: boolean;
+    pode_enviar_contabilidade?: boolean;
   }): Promise<Usuario> {
     const usuario = await this.findById(id);
     if (usuario.status !== 'PENDENTE') {
@@ -301,9 +315,11 @@ export class UsuariosService {
       pode_cancelar_estornar: dados.pode_cancelar_estornar ?? false,
       pode_liberar_contratos: dados.pode_liberar_contratos ?? false,
       pode_excluir_medicao: dados.pode_excluir_medicao ?? false,
+      pode_excluir_requisicao_combustivel: dados.pode_excluir_requisicao_combustivel ?? false,
       eh_fiscal_contrato: dados.eh_fiscal_contrato ?? false,
       pode_gerenciar_os: dados.pode_gerenciar_os ?? false,
       pode_receber_patrimonio: dados.pode_receber_patrimonio ?? false,
+      pode_enviar_contabilidade: dados.pode_enviar_contabilidade ?? false,
     });
     this.logger.log(`Usuário ${usuario.email} aprovado por ${adminId}`);
     return await this.usuarioRepository.save(usuario);

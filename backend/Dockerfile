@@ -20,8 +20,8 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Instalar su-exec para drop de privilégios no entrypoint
-RUN apk add --no-cache su-exec
+# Instalar su-exec (drop de privilégios) e poppler-utils (pdftoppm para OCR de PDFs escaneados)
+RUN apk add --no-cache su-exec poppler-utils
 
 # Criar usuário não-root
 RUN addgroup -g 1001 -S nodejs && \

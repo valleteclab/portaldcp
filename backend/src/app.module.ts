@@ -35,6 +35,7 @@ import { LotesModule } from './lotes/lotes.module';
 import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { DisputaModule } from './disputa-v2/disputa.module';
+import { DisputaV3Module } from './disputa-v3/disputa-v3.module';
 import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
@@ -45,6 +46,11 @@ import { AssinaturasModule } from './assinaturas/assinaturas.module';
 import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AgenteContratosModule } from './agente-contratos/agente-contratos.module';
+import { AgenteTarefasModule } from './agente-tarefas/agente-tarefas.module';
+import { FrotaModule } from './frota/frota.module';
+import { AnpModule } from './anp/anp.module';
+import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
+import { PatrimonioModule } from './patrimonio/patrimonio.module';
 
 @Module({
   imports: [
@@ -56,25 +62,42 @@ import { AgenteContratosModule } from './agente-contratos/agente-contratos.modul
     }),
     ScheduleModule.forRoot(),
     // Rate limiting global: 100 requisições por minuto por IP
-    ThrottlerModule.forRoot([{
-      ttl: 60000, // 1 minuto em ms
-      limit: 100, // 100 requisições por minuto
-    }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 1 minuto em ms
+        limit: 100, // 100 requisições por minuto
+      },
+    ]),
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
-      host: process.env.DATABASE_URL ? undefined : (process.env.DB_HOST || 'localhost'),
-      port: process.env.DATABASE_URL ? undefined : parseInt(process.env.DB_PORT || '5432'),
-      username: process.env.DATABASE_URL ? undefined : (process.env.DB_USERNAME || 'admin'),
-      password: process.env.DATABASE_URL ? undefined : (process.env.DB_PASSWORD || 'admin_password'),
-      database: process.env.DATABASE_URL ? undefined : (process.env.DB_DATABASE || 'licitafacil'),
+      host: process.env.DATABASE_URL
+        ? undefined
+        : process.env.DB_HOST || 'localhost',
+      port: process.env.DATABASE_URL
+        ? undefined
+        : parseInt(process.env.DB_PORT || '5432'),
+      username: process.env.DATABASE_URL
+        ? undefined
+        : process.env.DB_USERNAME || 'admin',
+      password: process.env.DATABASE_URL
+        ? undefined
+        : process.env.DB_PASSWORD || 'admin_password',
+      database: process.env.DATABASE_URL
+        ? undefined
+        : process.env.DB_DATABASE || 'licitafacil',
       autoLoadEntities: true,
       // ⚠️ IMPORTANTE: synchronize habilitado temporariamente em produção
       // TODO: Criar migrations e desabilitar synchronize em produção
       synchronize: true,
       migrations: [],
       migrationsRun: false,
-      ssl: process.env.DB_SSL === 'false' ? false : (process.env.DATABASE_URL ? { rejectUnauthorized: false } : false),
+      ssl:
+        process.env.DB_SSL === 'false'
+          ? false
+          : process.env.DATABASE_URL
+            ? { rejectUnauthorized: false }
+            : false,
       extra: {
         options: '-c timezone=UTC',
       },
@@ -107,6 +130,7 @@ import { AgenteContratosModule } from './agente-contratos/agente-contratos.modul
     EsclarecimentosModule,
     UsuariosModule,
     DisputaModule,
+    DisputaV3Module,
     AdminModule,
     AlmoxarifadoModule,
     NotificacoesModule,
@@ -117,6 +141,11 @@ import { AgenteContratosModule } from './agente-contratos/agente-contratos.modul
     PortalAssinaturasModule,
     WhatsAppModule,
     AgenteContratosModule,
+    AgenteTarefasModule,
+    FrotaModule,
+    AnpModule,
+    WhatsappAgentModule,
+    PatrimonioModule,
   ],
   controllers: [HealthController],
   providers: [

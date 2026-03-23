@@ -1,5 +1,107 @@
 # Scratchpad
 
+## Tarefa Atual: Sala de Disputa V3 - PR1 Fundação Backend (2026-03-20)
+
+- [X] Definir contrato V3 com semântica jurídica correta (modo, etapa, cronometria)
+- [X] Criar módulo/backend `disputa-v3` consumindo dados do PortalDCP
+- [X] Expor endpoints read-only para contexto e board da sessão
+- [X] Cobrir presenter/mapeamentos com teste unitário
+- [X] Validar com jest direcionado, commit, push e PR
+
+
+## Tarefa Atual: Sala de Disputa V3 - PR3 Anonimização REST + política cancelamento (2026-03-22)
+
+- [X] Corrigir vazamento: GET público item/:id/lances|melhores|propostas resolve sessão e anonimiza
+- [X] Helper + teste unitário para fase com anonimização obrigatória
+- [X] Documentar no controller: cancelamento fornecedor inexistente na disputa-v2 REST
+- [X] Commit, push, PR
+
+## Tarefa Atual: Sala de Disputa V3 - PR2 Frontend Cockpit (2026-03-20)
+
+- [X] Criar hook compartilhado para carregar board/contexto V3 e sincronizar via websocket
+- [X] Criar tela `/orgao/disputa-v3` com cockpit do pregoeiro e ações principais
+- [X] Criar tela `/fornecedor/disputa-v3` com foco em posição, tempo e envio de lance
+- [X] Reaproveitar eventos/ações da V2 enquanto a V3 ganha backend operacional próprio
+- [X] Validar manualmente em UI, gravar walkthrough, commit, push e atualizar PR
+
+## Tarefa Atual: Melhorias fluxo Medições (3 PRs) (2026-03-19)
+
+- [X] PR1: UX + regra 100% itens no envio para assinatura e ateste (sem parcial no fluxo guiado)
+- [X] PR2: Autoencaminhar para aprovação do gestor após assinatura fiscal (somente 100%)
+- [X] PR3: WhatsApp para gestor/aprovador + anexos do fornecedor na tela de aprovação
+
+## Tarefa Atual: Erro de download PDF no Railway (UPLOAD_DIR) (2026-03-19)
+
+- [X] Analisar logs do usuário e localizar causa no backend
+- [X] Corrigir salvamento do boletim para usar `UPLOAD_DIR` (sem hardcode `process.cwd()/uploads`)
+- [X] Validar cenário simulando Railway com `UPLOAD_DIR=/tmp/...`
+- [X] Commit, push e atualizar PR
+
+## Tarefa Atual: Boletim fornecedor com execução financeira divergente (2026-03-19)
+
+- [X] Entender relato: NO PERÍODO correto, ATÉ O PERÍODO e A EXECUTAR incorretos no PDF do fornecedor
+- [X] Revisar fluxo fornecedor x órgão de geração/download do boletim
+- [X] Remover fallback client-side (geração/upload de PDF no frontend fornecedor)
+- [X] Garantir endpoint fornecedor retornando PDF oficial backend (mesmo cálculo do órgão)
+- [X] Validar via build/testes direcionados
+- [X] Commit, push e atualização de PR
+
+## Tarefa Concluída: Boletim Medição - NF, Até Período migração, OTP Fornecedor (2026-03-16)
+
+- [X] Número da NF: campo exibido no PDF (backend + frontend), valor ou "-" quando vazio
+- [X] Até o Período: considerar quantidade_medida (ItemCronograma) na execução fiscal por quantidade
+- [X] OTP quando órgão cria medição: assinatura do FORNECEDOR (não do fiscal)
+- [X] solicitar-otp-fornecedor: envia OTP para telefone do fornecedor cadastrado
+- [X] validar-otp-fornecedor: registra assinatura FORNECEDOR, submete, gera PDF
+- [X] Modal: "O código será enviado ao fornecedor" — nome e telefone mascarado
+
+## Tarefa Concluída: Ajuste Migração - Quantidade Medida por Item (2026-03-16)
+
+- [X] Em contratos com itens cronograma (migração): admin pode informar quantidade já utilizada no campo Medido
+- [X] Backend: PATCH /api/contratos/:contratoId/itens-cronograma/:itemId/quantidade-migracao (apenas ADMIN)
+- [X] Frontend TabMedicao: quando isAdmin, célula Medido editável (clique → input → blur/Enter salva)
+- [X] Sistema usa quantidade_medida para cálculos de disponibilidade (requisicao.service, saldo = quantidade - medido - comprometido)
+- [X] aprovarMedicao: atualiza ItemCronograma.quantidade_medida ao aprovar medição com itens cronograma
+- [X] excluirMedicao: reverte ItemCronograma.quantidade_medida ao excluir medição APROVADA
+
+## Tarefa Concluída: Boletim de Medição por Quantidade (2026-03-16)
+
+- [X] Flag boletim_por_quantidade no contrato (entity + migration)
+- [X] Quando marcada: Execução Fiscal em quantidade (un/h/m) em vez de dias, mesmo layout
+- [X] Backend: calcularExecucaoFinanceiraFornecedor, montarDadosPdfFrontend
+- [X] PDF: frontend + backend medicao-pdf-jspdf.ts — condicional por quantidade
+- [X] Checkbox nos formulários novo/editar contrato (MEDICAO, CONTINUADO, LICENCA)
+- [X] Frontend fornecedor: bloco Execução Fiscal (Quantidade) quando flag
+
+## Tarefa Concluída: Validade requisição combustível - fim do mês (2026-03-15)
+
+- [X] Regra: requisição válida até o fim do mês da autorização (não mais 7 dias)
+- [X] frota.service.ts: token_expiry = último dia do mês 23:59:59.999
+- [X] frota-auth.service.ts: gerarTokenAcesso alinhado à mesma regra
+
+## Tarefa Concluída: Nova Medição órgão 100% igual ao fornecedor (2026-03-16)
+
+- [X] Modal Nova Medição do órgão replicado 100% do fornecedor
+- [X] Discriminação das Despesas (Reaproveitar último mês, Adicionar Item, tabela)
+- [X] Fotos e Documentos (Foto, Documento, lista de arquivos pendentes)
+- [X] Saldo "Em análise" quando valor_em_analise > 0
+- [X] Valor da Medição com mensagem "Excede o saldo" quando aplicável
+- [X] Competência: "Informe no formato MÊS/ANO (ex: FEVEREIRO/2026)"
+- [X] Proporcional: "Para períodos parciais (ex: 21 dias)..."
+- [X] Footer: Cancelar Lançamento, Salvar Rascunho, Enviar para Ateste
+- [X] Backend: POST /api/contratos/medicoes/:id/anexos (fiscal)
+- [X] Backend: GET /api/contratos/medicoes/:id/discriminacoes/sugestao
+- [X] salvarMedicao(comoRascunho): discriminacoes PUT + anexos POST + enviar-aprovacao quando false
+- [X] Execução Fiscal/Financeira: cálculos no frontend (noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao)
+- [X] Backend execucao-financeira: usar calcularExecucaoFinanceiraFornecedor quando itens cronograma
+- [X] Enviar para Ateste: fluxo OTP (telefone → código → assinatura) + PDF gerado + enviar-aprovacao
+
+## Tarefa Concluída: Frota Vereador - QR Code e seleção de requisição (2026-03-15)
+
+- [X] QR Code exibido junto ao código na autorização ativa (mesmo serviço qrserver.com da página /frota/req)
+- [X] Quando múltiplas requisições aprovadas: dropdown para selecionar qual mostrar ao posto
+- [X] Últimos pedidos: tap em pedido aprovado seleciona para exibição; badge "Em exibição" na selecionada
+
 ## Tarefa Concluída: Fila de NFs quando fornecedor envia várias antes da validação (2026-03-01)
 
 - [X] Backend upload: sempre adicionar NF (removida lógica de substituir a anterior)
@@ -362,4 +464,7 @@ Implementar sistema completo de autenticação JWT para proteger todas as APIs d
 - Add debug information to stderr while keeping the main output clean in stdout for better pipeline integration
 - When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
 - Use 'gpt-4o' as the model name for OpenAI's GPT-4 with vision capabilities
+- Boletim de medição do fornecedor deve sempre usar PDF oficial gerado no backend; evitar geração/upload de PDF no frontend para não divergir nos totais de execução financeira
+- Para scripts de integração que sobem `AppModule` fora do `main.ts` (ex.: `node -r ts-node/register ...`), definir explicitamente `DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_DATABASE` e `JWT_SECRET`; sem isso o TypeORM/JWT podem falhar com credenciais padrão.
+- Em testes manuais no frontend do órgão, limpar `localStorage` pode ser necessário para remover sessão/token stale que mascara dados atualizados (ex.: cards aparecendo zerados apesar da API retornar itens).
 

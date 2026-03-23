@@ -76,6 +76,8 @@ interface Usuario {
   cpf?: string
   telefone?: string
   cargo?: string
+  matricula?: string
+  portaria_fiscal?: string
   role: 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO'
   orgao_id?: string
   orgao?: Orgao
@@ -91,6 +93,7 @@ interface Usuario {
   pode_liberar_contratos?: boolean
   pode_excluir_medicao?: boolean
   pode_excluir_contratos?: boolean
+  pode_excluir_requisicao_combustivel?: boolean
   eh_fiscal_contrato?: boolean
   pode_gerenciar_os?: boolean
   pode_receber_patrimonio?: boolean
@@ -109,6 +112,12 @@ const MODULOS_DISPONIVEIS = [
   { codigo: 'USUARIOS', nome: 'Usuários', descricao: 'Gestão de usuários do órgão' },
   { codigo: 'FORNECEDORES', nome: 'Fornecedores', descricao: 'Gestão de fornecedores' },
   { codigo: 'ALMOXARIFADO', nome: 'Almoxarifado', descricao: 'Gestão de almoxarifado e ordens de fornecimento' },
+  { codigo: 'ORDENS_SERVICO', nome: 'Ordens de Serviço', descricao: 'Gestão de ordens de serviço' },
+  { codigo: 'FROTA', nome: 'Frota e Combustível', descricao: 'Controle de frota e requisições de abastecimento' },
+  { codigo: 'IA_CONTRATOS', nome: 'Agente IA / Análise de Contratos', descricao: 'Agente IA e análise de contratos por IA' },
+  { codigo: 'PORTAL_ASSINATURAS', nome: 'Portal de Assinaturas', descricao: 'Assinatura eletrônica de documentos' },
+  { codigo: 'WHATSAPP_CHAT', nome: 'WhatsApp Chat', descricao: 'Chat direto com contatos via WhatsApp' },
+  { codigo: 'EMAILS', nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão' },
 ]
 
 const roleLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -151,6 +160,8 @@ export default function AdminUsuariosPage() {
     cpf: '',
     telefone: '',
     cargo: '',
+    matricula: '',
+    portaria_fiscal: '',
     role: 'PREGOEIRO' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO',
     orgao_id: '',
     pode_aprovar_requisicoes: false,
@@ -158,6 +169,7 @@ export default function AdminUsuariosPage() {
     pode_liberar_contratos: false,
     pode_excluir_medicao: false,
     pode_excluir_contratos: false,
+    pode_excluir_requisicao_combustivel: false,
     eh_fiscal_contrato: false,
     pode_gerenciar_os: false,
     pode_receber_patrimonio: false,
@@ -201,6 +213,8 @@ export default function AdminUsuariosPage() {
       cpf: '',
       telefone: '',
       cargo: '',
+      matricula: '',
+      portaria_fiscal: '',
       role: 'PREGOEIRO',
       orgao_id: '',
       pode_aprovar_requisicoes: false,
@@ -208,6 +222,7 @@ export default function AdminUsuariosPage() {
       pode_liberar_contratos: false,
       pode_excluir_medicao: false,
       pode_excluir_contratos: false,
+      pode_excluir_requisicao_combustivel: false,
       eh_fiscal_contrato: false,
       pode_gerenciar_os: false,
       pode_receber_patrimonio: false,
@@ -224,6 +239,8 @@ export default function AdminUsuariosPage() {
       cpf: usuario.cpf || '',
       telefone: usuario.telefone || '',
       cargo: usuario.cargo || '',
+      matricula: usuario.matricula || '',
+      portaria_fiscal: usuario.portaria_fiscal || '',
       role: usuario.role,
       orgao_id: usuario.orgao_id || '',
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
@@ -231,6 +248,7 @@ export default function AdminUsuariosPage() {
       pode_liberar_contratos: usuario.pode_liberar_contratos || false,
       pode_excluir_medicao: usuario.pode_excluir_medicao || false,
       pode_excluir_contratos: usuario.pode_excluir_contratos || false,
+      pode_excluir_requisicao_combustivel: usuario.pode_excluir_requisicao_combustivel || false,
       eh_fiscal_contrato: usuario.eh_fiscal_contrato || false,
       pode_gerenciar_os: usuario.pode_gerenciar_os || false,
       pode_receber_patrimonio: usuario.pode_receber_patrimonio || false,
@@ -270,6 +288,8 @@ export default function AdminUsuariosPage() {
         cpf: formUsuario.cpf || undefined,
         telefone: formUsuario.telefone || undefined,
         cargo: formUsuario.cargo || undefined,
+        matricula: formUsuario.matricula || undefined,
+        portaria_fiscal: formUsuario.portaria_fiscal || undefined,
         role: formUsuario.role,
         orgao_id: formUsuario.orgao_id,
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
@@ -277,6 +297,7 @@ export default function AdminUsuariosPage() {
         pode_liberar_contratos: formUsuario.pode_liberar_contratos,
         pode_excluir_medicao: formUsuario.pode_excluir_medicao,
         pode_excluir_contratos: formUsuario.pode_excluir_contratos,
+        pode_excluir_requisicao_combustivel: formUsuario.pode_excluir_requisicao_combustivel,
         eh_fiscal_contrato: formUsuario.eh_fiscal_contrato,
         pode_gerenciar_os: formUsuario.pode_gerenciar_os,
         pode_receber_patrimonio: formUsuario.pode_receber_patrimonio,
@@ -691,7 +712,12 @@ export default function AdminUsuariosPage() {
                               Patrimônio
                             </Badge>
                           )}
-                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && !usuario.pode_gerenciar_os && !usuario.pode_receber_patrimonio && (
+                          {usuario.pode_excluir_requisicao_combustivel && (
+                            <Badge className="bg-orange-100 text-orange-800 text-xs" title="Pode excluir requisições de combustível">
+                              Excluir Req. Combustível
+                            </Badge>
+                          )}
+                          {!usuario.pode_aprovar_requisicoes && !usuario.pode_liberar_contratos && !usuario.pode_cancelar_estornar && !usuario.pode_excluir_medicao && !usuario.eh_fiscal_contrato && !usuario.pode_gerenciar_os && !usuario.pode_receber_patrimonio && !usuario.pode_excluir_requisicao_combustivel && (
                             <span className="text-gray-400 text-xs">-</span>
                           )}
                         </div>
@@ -825,7 +851,7 @@ export default function AdminUsuariosPage() {
             setErro(null)
           }}
         >
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {showEditarUsuario ? 'Editar Usuário' : 'Novo Usuário'}
@@ -955,6 +981,28 @@ export default function AdminUsuariosPage() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Matrícula</Label>
+                  <Input
+                    value={formUsuario.matricula}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, matricula: e.target.value })}
+                    placeholder="Ex: 36912"
+                  />
+                </div>
+                <div>
+                  <Label>
+                    Portaria Fiscal
+                    <span className="ml-1 text-xs text-gray-400 font-normal">(opcional, para fiscais de contrato)</span>
+                  </Label>
+                  <Input
+                    value={formUsuario.portaria_fiscal}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, portaria_fiscal: e.target.value })}
+                    placeholder="Ex: 102/2025"
+                  />
+                </div>
+              </div>
+
               {/* Permissões */}
               <div className="p-4 bg-gray-50 border rounded-lg">
                 <Label className="text-sm font-semibold text-gray-700 mb-3 block">Permissões Especiais</Label>
@@ -1055,6 +1103,20 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-excluir-contratos" className="cursor-pointer">
                       <p className="text-sm font-medium text-rose-800">Excluir contratos</p>
                       <p className="text-xs text-rose-600">Permite excluir contratos e todos os dados vinculados</p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <Checkbox
+                      id="perm-excluir-req-combustivel"
+                      checked={formUsuario.pode_excluir_requisicao_combustivel}
+                      onCheckedChange={(checked) => 
+                        setFormUsuario({ ...formUsuario, pode_excluir_requisicao_combustivel: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-excluir-req-combustivel" className="cursor-pointer">
+                      <p className="text-sm font-medium text-orange-800">Excluir requisição frota</p>
+                      <p className="text-xs text-orange-600">Excluir requisições de abastecimento (frota). O saldo do contrato é restaurado.</p>
                     </label>
                   </div>
                   <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">

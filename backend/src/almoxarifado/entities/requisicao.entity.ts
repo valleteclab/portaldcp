@@ -267,6 +267,12 @@ export class Requisicao {
   @Column({ type: 'text', nullable: true })
   pdf_assinado_url: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  enviado_ao_fornecedor: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_envio_fornecedor: Date | null;
+
   // ============================================================================
   // AUDITORIA
   // ============================================================================

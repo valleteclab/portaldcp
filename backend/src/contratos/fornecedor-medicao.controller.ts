@@ -123,6 +123,25 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Obtém ou gera o boletim PDF oficial persistido da medição.
+   * GET /api/fornecedor/contratos/medicoes/:medicaoId/boletim-oficial?fornecedorId=X
+   */
+  @Get('medicoes/:medicaoId/boletim-oficial')
+  async obterBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (!fornecedorId) throw new BadRequestException('fornecedorId é obrigatório');
+
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(medicao.contrato_id, fornecedorId);
+
+    // Sempre regenera no backend para garantir que o fornecedor baixe
+    // o mesmo boletim oficial (cálculo/estrutura) utilizado pelo órgão.
+    return this.medicaoService.gerarPdfOficialMedicao(medicaoId);
+  }
+
+  /**
    * Fornecedor atualiza os itens (percentuais/valores) de uma medição DEVOLVIDA.
    * PUT /api/fornecedor/contratos/medicoes/:medicaoId/itens
    */
@@ -559,5 +578,83 @@ export class FornecedorMedicaoController {
       usuario_cpf_cnpj: body.usuario_cpf_cnpj || '',
       usuario_cargo: body.usuario_cargo,
     });
+  }
+
+  /**
+   * Solicita envio de OTP para assinatura do boletim de medição.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/solicitar-otp-assinatura
+   */
+  @Post('medicoes/:medicaoId/solicitar-otp-assinatura')
+  async solicitarOtpAssinatura(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fornecedor_id: string },
+  ) {
+    if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
+    return this.medicaoService.solicitarOtpAssinaturaMedicao(medicaoId, body.fornecedor_id);
+  }
+
+  /**
+   * Valida OTP, registra assinatura digital e submete a medição.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/validar-otp-assinatura
+   */
+  @Post('medicoes/:medicaoId/validar-otp-assinatura')
+  async validarOtpAssinatura(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fornecedor_id: string; codigo: string },
+  ) {
+    if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
+    if (!body.codigo) throw new BadRequestException('codigo é obrigatório');
+    return this.medicaoService.validarOtpAssinaturaMedicao(medicaoId, body.fornecedor_id, body.codigo);
+  }
+
+  /**
+   * Upload do boletim PDF assinado.
+   * POST /api/fornecedor/contratos/medicoes/:medicaoId/upload-boletim
+   */
+  @Post('medicoes/:medicaoId/upload-boletim')
+  @UseInterceptors(FileInterceptor('arquivo', {
+    limits: { fileSize: 10 * 1024 * 1024 },
+  }))
+  async uploadBoletim(
+    @Param('medicaoId') medicaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
+    
+    // Salvar PDF usando o service (que gerencia o armazenamento)
+    const pdfUrl = await this.medicaoService.salvarBoletimPdf(medicaoId, file.buffer);
+    
+    return { url: pdfUrl, filename: file.filename };
+  }
+
+  /**
+   * Retorna o resumo de execução fiscal/financeira por item do contrato para o fornecedor.
+   * GET /api/fornecedor/contratos/:contratoId/execucao-financeira?fornecedorId=xxx&medicaoId=xxx
+   */
+  @Get(':contratoId/execucao-financeira')
+  async execucaoFinanceira(
+    @Param('contratoId') contratoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+    @Query('medicaoId') medicaoId: string,
+  ) {
+    console.log('DEBUG: Endpoint execucaoFinanceira chamado');
+    console.log('DEBUG: contratoId:', contratoId);
+    console.log('DEBUG: fornecedorId:', fornecedorId);
+    console.log('DEBUG: medicaoId:', medicaoId);
+    
+    if (!fornecedorId) {
+      console.log('DEBUG: fornecedorId não fornecido');
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    
+    // Validar acesso do fornecedor
+    console.log('DEBUG: Validando acesso do fornecedor...');
+    await this.validarAcessoFornecedor(contratoId, fornecedorId);
+    console.log('DEBUG: Acesso validado com sucesso');
+    
+    const resultado = await this.medicaoService.calcularExecucaoFinanceiraFornecedor(contratoId, medicaoId || undefined);
+    console.log('DEBUG: Resultado calculado:', resultado);
+    
+    return resultado;
   }
 }

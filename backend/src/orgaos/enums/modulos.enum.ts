@@ -14,6 +14,9 @@ export enum ModuloSistema {
   ORDENS_SERVICO = 'ORDENS_SERVICO',
   IA_CONTRATOS = 'IA_CONTRATOS',
   WHATSAPP_CHAT = 'WHATSAPP_CHAT',
+  FROTA = 'FROTA',
+  EMAILS = 'EMAILS',
+  PATRIMONIO = 'PATRIMONIO',
 }
 
 export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
@@ -32,5 +35,8 @@ export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
   [ModuloSistema.ORDENS_SERVICO]: 'Gestão de Ordens de Serviço',
   [ModuloSistema.IA_CONTRATOS]: 'IA — Importação de Contratos',
   [ModuloSistema.WHATSAPP_CHAT]: 'WhatsApp Chat',
+  [ModuloSistema.FROTA]: 'Controle de Frota e Combustível',
+  [ModuloSistema.EMAILS]: 'Caixa de Entrada de E-mails',
+  [ModuloSistema.PATRIMONIO]: 'Controle de Patrimônio',
 };
 

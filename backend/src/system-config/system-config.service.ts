@@ -223,4 +223,15 @@ export class SystemConfigService {
       await this.setValue('WHATSAPP_ZAPI_CLIENT_TOKEN', encrypted, 'Z-API Client Token (criptografado)');
     }
   }
+
+  // ============ AGENTE WHATSAPP ============
+
+  async getWhatsAppAgentConfig(): Promise<{ ativo: boolean }> {
+    const valor = await this.getValue('WHATSAPP_AGENT_ATIVO');
+    return { ativo: valor === 'true' };
+  }
+
+  async setWhatsAppAgentAtivo(ativo: boolean): Promise<void> {
+    await this.setValue('WHATSAPP_AGENT_ATIVO', String(ativo), 'Agente de IA WhatsApp ativo');
+  }
 }

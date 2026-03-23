@@ -1398,6 +1398,77 @@ export class FornecedoresService {
     return { message: 'Instruções de recuperação enviadas para seu email e WhatsApp (se cadastrado)' };
   }
 
+  /**
+   * Solicita reset de senha pelo órgão — usa o e-mail do fornecedor cadastrado.
+   * Seguro: envia apenas o link de reset, não expõe a senha.
+   */
+  async solicitarResetPorOrgao(fornecedorId: string, orgaoId: string): Promise<{ message: string }> {
+    const fornecedor = await this.findOne(fornecedorId);
+    if (!fornecedor.email) {
+      throw new BadRequestException('Fornecedor não possui e-mail cadastrado para reset de senha');
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
+
+    const resetToken = this.passwordResetTokenRepository.create({
+      fornecedor_id: fornecedor.id,
+      token,
+      expires_at: expiresAt,
+      used: false,
+    });
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/resetar-senha/${token}`;
+
+    try {
+      await this.emailService.enviar(orgaoId, {
+        to: fornecedor.email,
+        subject: 'Redefina sua senha — Portal DCP',
+        html: `
+          <h2>Redefinição de Senha</h2>
+          <p>Olá, ${fornecedor.razao_social || fornecedor.nome_fantasia},</p>
+          <p>O órgão contratante solicitou a redefinição da sua senha no Portal DCP.</p>
+          <p>Clique no link abaixo para criar uma nova senha:</p>
+          <p><a href="${resetLink}">${resetLink}</a></p>
+          <p>Este link é válido por 24 horas.</p>
+          <p>Se você não reconhece esta solicitação, entre em contato com o órgão.</p>
+        `,
+      });
+    } catch (error) {
+      console.error('Erro ao enviar e-mail de reset pelo órgão:', error);
+    }
+
+    return { message: `Link de reset enviado para ${fornecedor.email}` };
+  }
+
+  /**
+   * Atualiza dados de contato do fornecedor pelo órgão contratante.
+   * Permite editar: nome_fantasia, email, telefone, representante_whatsapp.
+   */
+  async atualizarContatoOrgao(
+    fornecedorId: string,
+    dados: {
+      nome_fantasia?: string;
+      email?: string;
+      telefone?: string;
+      representante_whatsapp?: string;
+      representante_nome?: string;
+      representante_cargo?: string;
+    },
+  ): Promise<FornecedorSemSenha> {
+    const fornecedor = await this.findOne(fornecedorId);
+    if (dados.nome_fantasia !== undefined) fornecedor.nome_fantasia = dados.nome_fantasia;
+    if (dados.email !== undefined) fornecedor.email = dados.email;
+    if (dados.telefone !== undefined) fornecedor.telefone = dados.telefone;
+    if (dados.representante_whatsapp !== undefined) fornecedor.representante_whatsapp = dados.representante_whatsapp;
+    if (dados.representante_nome !== undefined) fornecedor.representante_nome = dados.representante_nome;
+    if (dados.representante_cargo !== undefined) fornecedor.representante_cargo = dados.representante_cargo;
+    const saved = await this.fornecedorRepository.save(fornecedor);
+    return this.removerSenha(saved);
+  }
+
   async resetarSenha(token: string, novaSenha: string): Promise<{ message: string }> {
     const resetToken = await this.passwordResetTokenRepository.findOne({
       where: { 
@@ -1423,5 +1494,102 @@ export class FornecedoresService {
     await this.passwordResetTokenRepository.save(resetToken);
 
     return { message: 'Senha redefinida com sucesso' };
+  }
+
+  /**
+   * Cadastra fornecedor via agente WhatsApp.
+   * Cria conta mínima com CNPJ e email. Envia e-mail com link para definir senha.
+   */
+  async cadastrarViaWhatsapp(
+    email: string,
+    dadosCnpj: DadosCnpjFormatados,
+    phoneWhatsapp: string,
+  ): Promise<{ fornecedor: FornecedorSemSenha; resetLink: string }> {
+    const cnpjLimpo = dadosCnpj.cnpj.replace(/\D/g, '');
+
+    // Verifica duplicidade de CNPJ
+    const existenteCnpj = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
+    if (existenteCnpj) {
+      throw new ConflictException('CNPJ já cadastrado no sistema');
+    }
+
+    // Verifica duplicidade de email
+    const existenteEmail = await this.fornecedorRepository.findOne({ where: { email } });
+    if (existenteEmail) {
+      throw new ConflictException('E-mail já cadastrado no sistema');
+    }
+
+    const porteMap: Record<string, PorteEmpresa> = {
+      'MEI': PorteEmpresa.MEI, 'ME': PorteEmpresa.ME, 'EPP': PorteEmpresa.EPP,
+      'MEDIO': PorteEmpresa.MEDIO, 'GRANDE': PorteEmpresa.GRANDE,
+    };
+
+    const fornecedor = this.fornecedorRepository.create({
+      email,
+      cpf_cnpj: cnpjLimpo,
+      razao_social: dadosCnpj.razao_social,
+      nome_fantasia: dadosCnpj.nome_fantasia || undefined,
+      porte: porteMap[dadosCnpj.porte] || PorteEmpresa.ME,
+      tipo_pessoa: TipoPessoa.JURIDICA,
+      telefone: dadosCnpj.telefone || '',
+      representante_whatsapp: phoneWhatsapp,
+      logradouro: `${dadosCnpj.endereco.tipo_logradouro || ''} ${dadosCnpj.endereco.logradouro}`.trim(),
+      numero: dadosCnpj.endereco.numero,
+      complemento: dadosCnpj.endereco.complemento || undefined,
+      bairro: dadosCnpj.endereco.bairro,
+      cidade: dadosCnpj.endereco.cidade,
+      uf: dadosCnpj.endereco.uf,
+      cep: dadosCnpj.endereco.cep,
+      representante_nome: '',
+      representante_cpf: '',
+      nivel_atual: NivelCadastro.NIVEL_I,
+      nivel_i_completo: true,
+      status: StatusCadastro.PENDENTE,
+    });
+
+    const saved = await this.fornecedorRepository.save(fornecedor);
+
+    // Gera token de reset de senha (válido por 48h) para o fornecedor definir a senha
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 48);
+
+    const resetToken = this.passwordResetTokenRepository.create({
+      fornecedor_id: saved.id,
+      token,
+      expires_at: expiresAt,
+      used: false,
+    });
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    const resetLink = `${process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000'}/resetar-senha/${token}`;
+
+    // Envia email com o link
+    try {
+      const orgaos = await this.fornecedorRepository.manager.getRepository('orgaos').find({ where: { ativo: true } });
+      const orgaoComEmail = orgaos.find((o: any) =>
+        (o.email_metodo === 'RESEND' && o.email_resend_api_key && o.email_resend_from) ||
+        (o.email_metodo === 'SMTP' && o.email_smtp_host && o.email_smtp_user),
+      );
+      if (orgaoComEmail) {
+        await this.emailService.enviar(orgaoComEmail.id, {
+          to: email,
+          subject: 'Bem-vindo ao Portal DCP — Defina sua senha',
+          html: `
+            <h2>Cadastro realizado com sucesso!</h2>
+            <p>Olá, <strong>${dadosCnpj.razao_social}</strong>!</p>
+            <p>Seu cadastro no Portal DCP foi criado via WhatsApp.</p>
+            <p>Clique no link abaixo para definir sua senha e acessar o portal:</p>
+            <p><a href="${resetLink}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Definir minha senha</a></p>
+            <p>Ou copie e cole este link no navegador:<br>${resetLink}</p>
+            <p>Este link é válido por 48 horas.</p>
+          `,
+        });
+      }
+    } catch (err) {
+      // Falha no email não deve interromper o cadastro
+    }
+
+    return { fornecedor: this.removerSenha(saved), resetLink };
   }
 }

@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { API_URL, authFetch } from '@/lib/api'
 
 /**
- * Redirect para a versão completa da sala de disputa v2
+ * Redirect para a versão completa da sala de disputa V3.
+ * A V2 segue acessível como fallback operacional dentro da tela V3.
  */
 export default function SalaDisputaRedirect({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
@@ -20,15 +21,18 @@ export default function SalaDisputaRedirect({ params }: { params: Promise<{ id: 
         if (res.ok) {
           const sessao = await res.json()
           sessaoId = sessao.id
+          if (typeof window !== 'undefined' && sessao.id) {
+            localStorage.setItem('sessao_disputa_selecionada', sessao.id)
+          }
         }
       } catch (error) {
         console.error('Erro ao buscar sessão:', error)
       }
-      // Redirecionar para a nova sala de disputa v2
+      // Redirecionar para a nova sala de disputa V3
       if (sessaoId) {
-        router.replace(`/fornecedor/disputa?sessao=${sessaoId}`)
+        router.replace(`/fornecedor/disputa-v3?sessao=${sessaoId}`)
       } else {
-        router.replace(`/fornecedor/disputa?licitacao=${resolvedParams.id}`)
+        router.replace(`/fornecedor/disputa-v3?licitacao=${resolvedParams.id}`)
       }
     }
     prepararSessao()

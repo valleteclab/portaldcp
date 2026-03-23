@@ -19,7 +19,10 @@ import {
   Building,
   Eye,
   Download,
-  Bell
+  Bell,
+  ArrowRight,
+  ClipboardCheck,
+  RotateCcw,
 } from 'lucide-react'
 
 interface Contrato {
@@ -58,6 +61,13 @@ interface Ata {
 }
 
 import { API_URL, authFetch } from '@/lib/api'
+import {
+  buildContratoMedicaoOverview,
+  formatarData as formatarDataMedicao,
+  formatarMoeda as formatarMoedaMedicao,
+  obterStatusMedicaoLabel,
+  type ContratoMedicaoOverview,
+} from '@/lib/fornecedor-medicoes'
 
 const STATUS_CONTRATO = {
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },
@@ -69,6 +79,7 @@ const STATUS_CONTRATO = {
 export default function ContratosFornecedorPage() {
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [atas, setAtas] = useState<Ata[]>([])
+  const [medicoesPorContrato, setMedicoesPorContrato] = useState<Record<string, ContratoMedicaoOverview>>({})
   const [loading, setLoading] = useState(true)
   const [filtros, setFiltros] = useState({
     busca: '',
@@ -94,7 +105,25 @@ export default function ContratosFornecedorPage() {
 
       if (contratosRes.ok) {
         const json = await contratosRes.json()
-        setContratos(Array.isArray(json) ? json : (json.data || []))
+        const contratosData = Array.isArray(json) ? json : (json.data || [])
+        setContratos(contratosData)
+
+        const overviews = await Promise.all(contratosData.map(async (contrato: Contrato) => {
+          try {
+            const [medicoesRes, resumoRes] = await Promise.all([
+              authFetch(`${API_URL}/api/fornecedor/contratos/${contrato.id}/medicoes`),
+              authFetch(`${API_URL}/api/fornecedor/contratos/${contrato.id}/medicoes/resumo`),
+            ])
+
+            const medicoes = medicoesRes.ok ? await medicoesRes.json() : []
+            const resumo = resumoRes.ok ? await resumoRes.json() : null
+            return buildContratoMedicaoOverview(contrato, medicoes, resumo)
+          } catch {
+            return buildContratoMedicaoOverview(contrato, [], null)
+          }
+        }))
+
+        setMedicoesPorContrato(Object.fromEntries(overviews.map((item) => [item.contrato.id, item])))
       }
       if (atasRes.ok) {
         setAtas(await atasRes.json())
@@ -296,6 +325,7 @@ export default function ContratosFornecedorPage() {
                 <div className="space-y-4">
                   {contratosFiltrados.map((contrato) => {
                     const diasRestantes = calcularDiasRestantes(contrato.data_vigencia_fim)
+                    const overview = medicoesPorContrato[contrato.id]
                     
                     return (
                       <div key={contrato.id} className="border rounded-lg p-4 hover:bg-gray-50">
@@ -330,9 +360,48 @@ export default function ContratosFornecedorPage() {
                                 {formatarMoeda(contrato.valor_global)}
                               </span>
                             </div>
+
+                            {overview && (
+                              <div className="mt-3 rounded-lg border bg-white p-3 space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge className="bg-blue-100 text-blue-800">
+                                    <ClipboardCheck className="w-3 h-3 mr-1" />
+                                    {overview.acaoPrincipal.label}
+                                  </Badge>
+                                  {overview.devolvidaEditavel && (
+                                    <Badge className="bg-amber-100 text-amber-800">
+                                      <RotateCcw className="w-3 h-3 mr-1" />Devolvida para correção
+                                    </Badge>
+                                  )}
+                                  {overview.ultimaMedicao && (
+                                    <Badge variant="secondary">
+                                      Última: {obterStatusMedicaoLabel(overview.ultimaMedicao.status)}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                                  <span>Total medido: {formatarMoedaMedicao(overview.resumo?.valor_medido_total || 0)}</span>
+                                  <span>Em análise: {overview.emAnalise}</span>
+                                  <span>Devolvidas: {overview.devolvidas.length}</span>
+                                  {overview.ultimaMedicao && (
+                                    <span>
+                                      Período: {formatarDataMedicao(overview.ultimaMedicao.periodo_inicio)} a {formatarDataMedicao(overview.ultimaMedicao.periodo_fim)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex flex-col gap-2 ml-4">
+                            {overview && (
+                              <Button size="sm" asChild className="gap-2 bg-blue-600 hover:bg-blue-700">
+                                <Link href={overview.acaoPrincipal.href}>
+                                  {overview.acaoPrincipal.label}
+                                  <ArrowRight className="w-4 h-4" />
+                                </Link>
+                              </Button>
+                            )}
                             <Button variant="outline" size="sm" asChild>
                               <Link href={`/fornecedor/contratos/${contrato.id}`}>
                                 <Eye className="w-4 h-4 mr-1" />

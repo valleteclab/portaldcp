@@ -18,10 +18,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
-  ChevronRight, Eye, Clock, Shield, ListOrdered, Layers,
+  ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
+  Camera, Paperclip, Upload,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
+import { derivarCompetencia } from '@/lib/pdf-medicao'
 
 interface OSRequisicao {
   id: string
@@ -122,6 +124,8 @@ interface Resumo {
   os_ativa: OSRequisicao | null
   total_os: number
   fluxo_os?: 'REQUISICAO' | 'MODULO_OS'
+  itens_comprometidos?: Record<string, number>
+  etapas_comprometidas?: Record<string, number>
 }
 
 const STATUS_OS: Record<string, { label: string; cor: string }> = {
@@ -175,7 +179,45 @@ function formatarData(d: string | null | undefined) {
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
-export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { contratoId: string; valorGlobal: number; modalidade?: string }) {
+/** Dias entre datas usando ano comercial (30 dias/mês, máx 360) */
+function calcularDiasMesComercial(data1: string, data2: string, dataFimContrato?: string): number {
+  const d1 = new Date(data1); const d2 = new Date(data2)
+  const df = dataFimContrato ? new Date(dataFimContrato) : null
+  const ano1 = d1.getUTCFullYear(); const mes1 = d1.getUTCMonth(); const dia1 = d1.getUTCDate()
+  const ano2 = d2.getUTCFullYear(); const mes2 = d2.getUTCMonth(); const dia2 = d2.getUTCDate()
+  let dias = 0
+  if (ano1 === ano2 && mes1 === mes2) {
+    const ehUltimo = df && ano2 === df.getUTCFullYear() && mes2 === df.getUTCMonth() && dia2 === df.getUTCDate()
+    dias = Math.min(dia2 - dia1 + (ehUltimo ? 0 : 1), 30)
+  } else {
+    const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30)
+    let mesesCompletos = 0
+    if (ano2 > ano1 || mes2 > mes1 + 1) mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1)
+    let diasUltimoMes = Math.min(dia2, 30)
+    if (df && ano2 === df.getUTCFullYear() && mes2 === df.getUTCMonth() && dia2 === df.getUTCDate()) diasUltimoMes = dia2 - 1
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes
+  }
+  return Math.max(0, Math.min(dias, 360))
+}
+
+function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigenciaInicio: string, vigenciaFim: string) {
+  const diasPeriodo = calcularDiasMesComercial(periodoInicio, periodoFim, vigenciaFim)
+  const diasAte = calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim)
+  const diasRestantes = Math.max(0, 360 - diasAte)
+  const fmt = (d: number) => {
+    const m = Math.floor(d / 30); const r = d % 30
+    const pM = m === 1 ? '1 mês' : m > 1 ? `${m} meses` : ''
+    const pD = r === 1 ? '1 dia' : r > 1 ? `${r} dias` : ''
+    return pM && pD ? `${pM} e ${pD}` : pM || pD || '0 dias'
+  }
+  return { noPeriodo: fmt(diasPeriodo), atePeriodo: fmt(diasAte), aExecutar: fmt(diasRestantes), diasNoPeriodo: diasPeriodo, diasAte, diasRestantes }
+}
+
+export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
+  contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
+  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string };
+  isAdmin?: boolean;
+}) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([])
@@ -215,18 +257,39 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
     data_inicio_prevista: '', data_fim_prevista: '', observacoes: '',
   })
   const [formItemCronograma, setFormItemCronograma] = useState({
+    numero_item: '',
     descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '',
+    quantidade_medida: '', // Apenas para admin (ajuste migração)
+    valor_medida_reais: '', // Para itens MENSAL: entrada alternativa em R$
   })
+  const [editandoMedidoItemId, setEditandoMedidoItemId] = useState<string | null>(null)
+  const [editandoMedidoValor, setEditandoMedidoValor] = useState<string>('')
   const [formMedicao, setFormMedicao] = useState({
-    periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
-    itens: [] as ({ etapa_id: string; percentual_executado_atual: number } | { item_cronograma_id: string; quantidade_medida: number })[],
+    periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', valor_medido: '',
+    nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
+    itens: [] as (
+      | { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' }
+      | { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number }
+    )[],
   })
+  const [execucaoFinanceiraModal, setExecucaoFinanceiraModal] = useState<any>(null)
   const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
   const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
 
   const [motivoDevolucao, setMotivoDevolucao] = useState('')
   const [anexosMedicao, setAnexosMedicao] = useState<any[]>([])
   const [loadingAnexos, setLoadingAnexos] = useState(false)
+  const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([])
+  const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([])
+  const [modalOtp, setModalOtp] = useState(false)
+  const [otpMedicaoId, setOtpMedicaoId] = useState<string | null>(null)
+  const [otpEtapa, setOtpEtapa] = useState<'enviar' | 'codigo' | 'sucesso'>('enviar')
+  const [otpFornecedorNome, setOtpFornecedorNome] = useState<string | null>(null)
+  const [otpCodigo, setOtpCodigo] = useState('')
+  const [otpCanais, setOtpCanais] = useState<{ telefone_mascarado?: string } | null>(null)
+  const [otpErro, setOtpErro] = useState<string | null>(null)
+  const [otpCodigoValidacao, setOtpCodigoValidacao] = useState<string | null>(null)
+  const [otpLoading, setOtpLoading] = useState(false)
 
   const abrirDetalhe = async (m: Medicao) => {
     setModalDetalhe(m)
@@ -410,6 +473,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
     if (item) {
       setEditandoItemCronograma(item)
       setFormItemCronograma({
+        numero_item: String(item.numero_item),
         descricao: item.descricao,
         unidade_medida: item.unidade_medida,
         quantidade: String(item.quantidade),
@@ -418,10 +482,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         valor_mensal: String(item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario))),
         valor_total: String(item.valor_total),
         observacoes: item.observacoes || '',
+        quantidade_medida: String(Number(item.quantidade_medida) || 0),
+        valor_medida_reais: item.unidade_medida === 'MENSAL' && Number(item.quantidade_medida) > 0
+          ? String(Math.round(Number(item.quantidade_medida) * Number(item.valor_unitario) * 100) / 100)
+          : '',
       })
     } else {
       setEditandoItemCronograma(null)
-      setFormItemCronograma({ descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '' })
+      setFormItemCronograma({ numero_item: '', descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '', valor_medida_reais: '' })
     }
     setModalItemCronograma(true)
   }
@@ -448,6 +516,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
     setActionLoading(true)
     try {
       const payload = {
+        ...(editandoItemCronograma && formItemCronograma.numero_item !== '' && {
+          numero_item: parseInt(formItemCronograma.numero_item) || editandoItemCronograma.numero_item,
+        }),
         descricao: formItemCronograma.descricao,
         unidade_medida: formItemCronograma.unidade_medida,
         quantidade: qtd,
@@ -458,6 +529,13 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
       if (editandoItemCronograma) {
         const res = await authFetch(`${API_URL}/api/contratos/itens-cronograma/${editandoItemCronograma.id}`, { method: 'PUT', body: JSON.stringify(payload) })
         if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+        if (isAdmin) {
+          const qtdMedida = parseFloat(formItemCronograma.quantidade_medida || '0') || 0
+          const resMig = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma/${editandoItemCronograma.id}/quantidade-migracao`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantidade_medida: qtdMedida }),
+          })
+          if (!resMig.ok) { const e = await resMig.json().catch(() => ({})); alert(e.message || 'Erro ao salvar quantidade já utilizada'); return }
+        }
       } else {
         const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma`, { method: 'POST', body: JSON.stringify(payload) })
         if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
@@ -477,45 +555,241 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
     } catch (e) { console.error(e) }
   }
 
+  const salvarQuantidadeMedidaMigracao = async (itemId: string, valor: string) => {
+    const qtd = parseFloat(valor)
+    if (isNaN(qtd) || qtd < 0) return
+    setEditandoMedidoItemId(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma/${itemId}/quantidade-migracao`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantidade_medida: qtd }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      carregarDados()
+    } catch (e) { console.error(e); alert('Erro ao salvar quantidade medida') }
+  }
+
   // ============ MEDIÇÕES — Criação interna (fiscal) ============
+
+  // Determina o tipo de medição atual (mensal vs quantidade) com base nos itens preenchidos
+  const tipoMedicaoAtual: 'mensal' | 'quantidade' | null = (() => {
+    if (!usarItensCronograma) return null
+    const primeiro = formMedicao.itens.find(i => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+    if (!primeiro) return null
+    const ic = itensCronograma.find(c => c.id === (primeiro as any).item_cronograma_id)
+    return ic?.unidade_medida === 'MENSAL' ? 'mensal' : 'quantidade'
+  })()
 
   const abrirModalMedicao = () => {
     setFormMedicao({
-      periodo_inicio: '', periodo_fim: '', observacoes: '', valor_medido: '',
+      periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', valor_medido: '',
+      nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
       itens: isServicoContinuado ? [] : usarItensCronograma
-        ? itensCronograma.map(i => ({ item_cronograma_id: i.id, quantidade_medida: 0 }))
-        : etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({ etapa_id: e.id, percentual_executado_atual: 0 })),
+        ? itensCronograma.map(i => ({ item_cronograma_id: i.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 }))
+        : etapas.filter(e => e.status !== 'CONCLUIDA').map(e => ({ etapa_id: e.id, percentual_executado_atual: 0, modo_input: 'percentual' as const })),
     })
+    setExecucaoFinanceiraModal(null)
+    setDiscriminacoes([])
+    setArquivosPendentes([])
     setModalMedicao(true)
   }
 
-  const salvarMedicao = async () => {
+  const carregarExecucaoFinanceiraModal = useCallback(async (medicaoId?: string, periodoInicio?: string, periodoFim?: string) => {
+    try {
+      let url = `${API_URL}/api/contratos/${contratoId}/execucao-financeira`
+      const params = new URLSearchParams()
+      if (medicaoId) params.set('medicaoId', medicaoId)
+      else if (periodoInicio && periodoFim) {
+        params.set('periodo_inicio', periodoInicio)
+        params.set('periodo_fim', periodoFim)
+      }
+      if (params.toString()) url += `?${params.toString()}`
+      const res = await authFetch(url)
+      if (res.ok) setExecucaoFinanceiraModal(await res.json())
+    } catch { setExecucaoFinanceiraModal(null) }
+  }, [contratoId])
+
+  const salvarMedicao = async (comoRascunho: boolean) => {
+    if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) {
+      alert('Informe o período de início e fim da medição')
+      return
+    }
+    if (contratoProp?.data_vigencia_fim) {
+      const dataFimPeriodo = new Date(formMedicao.periodo_fim)
+      const dataVigenciaFim = new Date(contratoProp.data_vigencia_fim)
+      if (dataFimPeriodo > dataVigenciaFim) {
+        alert(`O período de medição não pode ultrapassar a data de vigência do contrato.`)
+        return
+      }
+    }
+    if (!comoRascunho && discriminacoes.length === 0) {
+      alert('A discriminação de despesas é obrigatória antes de salvar a medição.')
+      return
+    }
     setActionLoading(true)
     try {
       const payload: any = {
         periodo_inicio: formMedicao.periodo_inicio,
         periodo_fim: formMedicao.periodo_fim,
+        competencia: formMedicao.competencia || derivarCompetencia(formMedicao.periodo_inicio) || undefined,
         observacoes: formMedicao.observacoes || null,
+        nota_fiscal_numero: formMedicao.nota_fiscal_numero || undefined,
+        nota_fiscal_valor: formMedicao.nota_fiscal_valor ? Number(formMedicao.nota_fiscal_valor) : undefined,
+        nota_fiscal_data: formMedicao.nota_fiscal_data || undefined,
       }
+      const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
+      if (usuario?.id) payload.fiscal_id = usuario.id
+      if (usuario?.nome) payload.fiscal_nome = usuario.nome
       if (isServicoContinuado) {
-        payload.valor_medido = parseFloat(formMedicao.valor_medido) || 0
+        const valor = parseFloat(formMedicao.valor_medido) || 0
+        if (valor <= 0) { alert('Informe o valor medido'); setActionLoading(false); return }
+        payload.valor_medido = valor
       } else if (usarItensCronograma) {
-        payload.itens = formMedicao.itens
+        const itensComQtd = formMedicao.itens
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
           .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }))
+        if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setActionLoading(false); return }
+        // Validar que não há mistura de tipos (mensal vs quantidade)
+        const itensMensaisNoSubmit = itensComQtd.filter(item => {
+          const ic = itensCronograma.find(c => c.id === item.item_cronograma_id)
+          return ic?.unidade_medida === 'MENSAL'
+        })
+        if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
+          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.')
+          setActionLoading(false); return
+        }
+        payload.itens = itensComQtd
       } else {
-        payload.itens = formMedicao.itens
-          .filter((i): i is { etapa_id: string; percentual_executado_atual: number } => 'etapa_id' in i && (i as any).percentual_executado_atual > 0)
-          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual }))
+        const itensComValor = formMedicao.itens
+          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number } => 'etapa_id' in i && ((i as any).percentual_executado_atual > 0 || ((i as any).valor_executado_atual != null && (i as any).valor_executado_atual > 0)))
+          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: (i as any).percentual_executado_atual || 0, valor_executado_atual: (i as any).valor_executado_atual || undefined }))
+        if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setActionLoading(false); return }
+        payload.itens = itensComValor
       }
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/medicoes`, {
-        method: 'POST', body: JSON.stringify(payload),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setActionLoading(false); return }
+      const medicaoSalva = await res.json()
+
+      if (discriminacoes.length > 0 && medicaoSalva?.id) {
+        try {
+          await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itens: discriminacoes, motivo_correcao: 'Criação inicial pelo fiscal' }),
+          })
+        } catch { /* ignore */ }
+      }
+      if (medicaoSalva?.id && arquivosPendentes.length > 0) {
+        for (const arq of arquivosPendentes) {
+          try {
+            const formData = new FormData()
+            formData.append('file', arq.file)
+            formData.append('tipo', arq.tipo)
+            if (arq.descricao) formData.append('descricao', arq.descricao)
+            await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoSalva.id}/anexos`, { method: 'POST', body: formData })
+          } catch { /* ignore */ }
+        }
+      }
+
+      if (!comoRascunho && medicaoSalva?.id) {
+        setModalMedicao(false)
+        setDiscriminacoes([])
+        setArquivosPendentes([])
+        abrirModalOtpFornecedor(medicaoSalva.id)
+        return
+      }
+
       setModalMedicao(false)
+      setDiscriminacoes([])
+      setArquivosPendentes([])
       carregarDados()
     } catch (e) { console.error(e) }
     setActionLoading(false)
+  }
+
+  const abrirModalOtpFornecedor = (medicaoId: string) => {
+    setOtpMedicaoId(medicaoId)
+    setOtpEtapa('enviar')
+    setOtpCodigo('')
+    setOtpCanais(null)
+    setOtpFornecedorNome(null)
+    setOtpErro(null)
+    setOtpCodigoValidacao(null)
+    setOtpLoading(false)
+    setModalOtp(true)
+  }
+
+  const handleEnviarOtpFornecedor = async () => {
+    if (!otpMedicaoId) return
+    setOtpLoading(true)
+    setOtpErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/solicitar-otp-fornecedor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setOtpErro(err.message || 'Erro ao enviar código')
+        setOtpLoading(false)
+        return
+      }
+      const data = await res.json()
+      setOtpCanais(data)
+      setOtpFornecedorNome(data.fornecedor_nome || null)
+      setOtpEtapa('codigo')
+    } catch {
+      setOtpErro('Erro de conexão ao enviar código')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const handleValidarOtpFornecedor = async () => {
+    if (!otpMedicaoId || !otpCodigo) return
+    setOtpLoading(true)
+    setOtpErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/validar-otp-fornecedor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: otpCodigo }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setOtpErro(err.message || 'Código incorreto ou expirado')
+        setOtpLoading(false)
+        return
+      }
+      const data = await res.json()
+      setOtpCodigoValidacao(data.codigo_formatado || data.codigo_validacao)
+      setOtpEtapa('sucesso')
+
+      try {
+        const resDownload = await authFetch(`${API_URL}/api/contratos/medicoes/${otpMedicaoId}/boletim-oficial/download`)
+        if (resDownload.ok) {
+          const pdfBlob = await resDownload.blob()
+          const objectUrl = window.URL.createObjectURL(pdfBlob)
+          const link = document.createElement('a')
+          link.href = objectUrl
+          link.download = `boletim_medicao_${otpMedicaoId}.pdf`
+          link.style.display = 'none'
+          document.body.appendChild(link)
+          link.click()
+          setTimeout(() => { link.remove(); window.URL.revokeObjectURL(objectUrl) }, 1000)
+        }
+      } catch { /* ignore download errors */ }
+
+      carregarDados()
+    } catch {
+      setOtpErro('Erro de conexão ao validar código')
+    } finally {
+      setOtpLoading(false)
+    }
   }
 
   // ============ MEDIÇÕES — Envio direto para aprovação (fiscal cria internamente) ============
@@ -625,7 +899,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
           motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setActionLoading(false); return }
       const resultado = await res.json().catch(() => ({}))
       setModalAteste(null)
       setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
@@ -818,7 +1092,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                   <Button size="sm" variant="outline" onClick={() => abrirDetalhe(m)}>
                     <Eye className="w-3 h-3 mr-1" />Ver
                   </Button>
-                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
+                  <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => onAtestar ? onAtestar(m) : abrirModalAteste(m)}>
                     <ClipboardCheck className="w-3 h-3 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                   </Button>
                   <Button size="sm" variant="outline" className="text-amber-600 border-amber-300" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
@@ -938,7 +1212,37 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                     <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
-                    <TableCell className="text-center text-blue-600 font-medium whitespace-nowrap">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-center whitespace-nowrap">
+                      {isAdmin ? (
+                        editandoMedidoItemId === i.id ? (
+                          <div className="flex items-center gap-1 justify-center">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={Number(i.quantidade) || 0}
+                              value={editandoMedidoValor}
+                              onChange={e => setEditandoMedidoValor(e.target.value)}
+                              onBlur={() => salvarQuantidadeMedidaMigracao(i.id, editandoMedidoValor)}
+                              onKeyDown={e => { if (e.key === 'Enter') salvarQuantidadeMedidaMigracao(i.id, editandoMedidoValor); if (e.key === 'Escape') setEditandoMedidoItemId(null) }}
+                              className="w-20 h-8 text-sm text-center"
+                              autoFocus
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setEditandoMedidoItemId(i.id); setEditandoMedidoValor(String(Number(i.quantidade_medida) || 0)) }}
+                            className="text-blue-600 font-medium hover:bg-blue-50 rounded px-1 py-0.5 text-sm"
+                            title="Clique para informar quantidade já utilizada (migração)"
+                          >
+                            {Number(i.quantidade_medida).toLocaleString('pt-BR')}
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-blue-600 font-medium">{Number(i.quantidade_medida).toLocaleString('pt-BR')}</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button variant="ghost" size="icon" onClick={() => abrirModalItemCronograma(i)}>
@@ -1064,7 +1368,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                       )}
                       {(m.status === 'SUBMETIDA' || m.status === 'PARCIALMENTE_ATESTADA') && (
                         <>
-                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => abrirModalAteste(m)}>
+                          <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => onAtestar ? onAtestar(m) : abrirModalAteste(m)}>
                             <ClipboardCheck className="w-3.5 h-3.5 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                           </Button>
                           <Button size="sm" variant="outline" className="text-amber-600" onClick={() => { setModalDevolver(m); setMotivoDevolucao('') }}>
@@ -1240,6 +1544,17 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                 <span className="font-bold text-blue-700">{formatarMoeda(editandoItemCronograma ? saldoValorItens + Number(editandoItemCronograma.valor_total) : saldoValorItens)}</span>
               </div>
             </div>
+            {editandoItemCronograma && (
+              <div className="space-y-2">
+                <Label>Nº Item</Label>
+                <Input
+                  type="number" min="1" step="1"
+                  value={formItemCronograma.numero_item}
+                  onChange={e => setFormItemCronograma({ ...formItemCronograma, numero_item: e.target.value })}
+                  className="w-24"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Descrição *</Label>
               <Input placeholder="Ex: Serviço de gravações, Manutenção mensal..." value={formItemCronograma.descricao} onChange={e => setFormItemCronograma({ ...formItemCronograma, descricao: e.target.value })} />
@@ -1247,7 +1562,21 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Unidade de Medida</Label>
-                <Select value={formItemCronograma.unidade_medida} onValueChange={v => setFormItemCronograma({ ...formItemCronograma, unidade_medida: v })}>
+                <Select value={formItemCronograma.unidade_medida} onValueChange={v => {
+                  // Ao trocar para MENSAL, limpa quantidade_meses e recalcula
+                  const q = parseFloat(formItemCronograma.quantidade) || 0
+                  const vl = parseFloat(formItemCronograma.valor_unitario) || 0
+                  const isMensal = v === 'MENSAL'
+                  const mensal = isMensal ? (vl ? vl.toFixed(2) : '') : (q && vl ? (q * vl).toFixed(2) : '')
+                  const total = isMensal ? (q && vl ? (q * vl).toFixed(2) : '') : mensal
+                  setFormItemCronograma({
+                    ...formItemCronograma,
+                    unidade_medida: v,
+                    quantidade_meses: isMensal ? '' : formItemCronograma.quantidade_meses,
+                    valor_mensal: mensal,
+                    valor_total: total,
+                  })
+                }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {unidadesCronograma.map(u => (
@@ -1257,16 +1586,24 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Quantidade *</Label>
+                <Label>Quantidade {formItemCronograma.unidade_medida === 'MENSAL' ? '(Meses) *' : '*'}</Label>
                 <Input
-                  type="number" step="0.0001" min="0" placeholder="0"
+                  type="number" step="0.0001" min="0"
+                  placeholder={formItemCronograma.unidade_medida === 'MENSAL' ? 'Ex: 12' : '0'}
                   value={formItemCronograma.quantidade}
                   onChange={e => {
                     const q = e.target.value
                     const vl = parseFloat(formItemCronograma.valor_unitario) || 0
-                    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
-                    const mensal = q && vl ? (parseFloat(q) * vl).toFixed(2) : ''
-                    const total = mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal
+                    const isMensal = formItemCronograma.unidade_medida === 'MENSAL'
+                    const meses = isMensal ? null : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null)
+                    // MENSAL: Valor Mensal = Valor Unitário (por mês); Valor Total = Qtd. meses × Valor Unitário
+                    // OUTROS: Valor Mensal = Qtd × Valor Unitário; Valor Total = Valor Mensal × Qtd.Meses
+                    const mensal = isMensal
+                      ? (vl ? vl.toFixed(2) : '')
+                      : (q && vl ? (parseFloat(q) * vl).toFixed(2) : '')
+                    const total = isMensal
+                      ? (q && vl ? (parseFloat(q) * vl).toFixed(2) : '')
+                      : (mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal)
                     setFormItemCronograma({ ...formItemCronograma, quantidade: q, valor_mensal: mensal, valor_total: total })
                   }}
                 />
@@ -1274,33 +1611,41 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Valor Unitário (R$) *</Label>
+                <Label>Valor Unitário {formItemCronograma.unidade_medida === 'MENSAL' ? '(R$/mês) *' : '(R$) *'}</Label>
                 <Input
                   type="number" step="0.01" min="0" placeholder="0,00"
                   value={formItemCronograma.valor_unitario}
                   onChange={e => {
                     const v = e.target.value
                     const q = parseFloat(formItemCronograma.quantidade) || 0
-                    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
-                    const mensal = v && q ? (parseFloat(v) * q).toFixed(2) : ''
-                    const total = mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal
+                    const isMensal = formItemCronograma.unidade_medida === 'MENSAL'
+                    const meses = isMensal ? null : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null)
+                    const mensal = isMensal
+                      ? (v ? parseFloat(v).toFixed(2) : '')
+                      : (v && q ? (parseFloat(v) * q).toFixed(2) : '')
+                    const total = isMensal
+                      ? (q && v ? (q * parseFloat(v)).toFixed(2) : '')
+                      : (mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal)
                     setFormItemCronograma({ ...formItemCronograma, valor_unitario: v, valor_mensal: mensal, valor_total: total })
                   }}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Qtd. Meses</Label>
-                <Input
-                  type="number" step="1" min="1" placeholder="Ex: 12"
-                  value={formItemCronograma.quantidade_meses}
-                  onChange={e => {
-                    const m = e.target.value
-                    const mensal = parseFloat(formItemCronograma.valor_mensal) || 0
-                    const total = m && mensal ? (parseInt(m) * mensal).toFixed(2) : formItemCronograma.valor_mensal
-                    setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
-                  }}
-                />
-              </div>
+              {/* Qtd. Meses: oculto para unidade MENSAL (quantidade já representa os meses) */}
+              {formItemCronograma.unidade_medida !== 'MENSAL' && (
+                <div className="space-y-2">
+                  <Label>Qtd. Meses</Label>
+                  <Input
+                    type="number" step="1" min="1" placeholder="Ex: 12"
+                    value={formItemCronograma.quantidade_meses}
+                    onChange={e => {
+                      const m = e.target.value
+                      const mensal = parseFloat(formItemCronograma.valor_mensal) || 0
+                      const total = m && mensal ? (parseInt(m) * mensal).toFixed(2) : formItemCronograma.valor_mensal
+                      setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
+                    }}
+                  />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -1312,6 +1657,68 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                 <Input type="text" readOnly className="bg-gray-50 font-medium text-blue-700" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
               </div>
             </div>
+            {isAdmin && editandoItemCronograma && (
+              <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <Label className="text-amber-800 font-medium">
+                  {formItemCronograma.unidade_medida === 'MENSAL' ? 'Valor já consumido (ajuste migração)' : 'Quantidade já utilizada (ajuste migração)'}
+                </Label>
+                {formItemCronograma.unidade_medida === 'MENSAL' ? (
+                  <div className="space-y-2">
+                    <div>
+                      <Label className="text-xs text-amber-700 mb-1 block">Valor em R$ (recomendado para medições parciais)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={parseFloat(formItemCronograma.valor_total) || 0}
+                        value={formItemCronograma.valor_medida_reais}
+                        onChange={e => {
+                          const reais = parseFloat(e.target.value) || 0
+                          const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
+                          const meses = vlUnit > 0 ? Math.round((reais / vlUnit) * 100000) / 100000 : 0
+                          setFormItemCronograma({ ...formItemCronograma, valor_medida_reais: e.target.value, quantidade_medida: String(meses) })
+                        }}
+                        placeholder="Ex: 9282,16"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-amber-700 mb-1 block">Ou informe em meses (pode ser decimal)</Label>
+                      <Input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        max={parseFloat(formItemCronograma.quantidade) || 0}
+                        value={formItemCronograma.quantidade_medida}
+                        onChange={e => {
+                          const meses = parseFloat(e.target.value) || 0
+                          const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
+                          const reais = Math.round(meses * vlUnit * 100) / 100
+                          setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value, valor_medida_reais: reais > 0 ? String(reais) : '' })
+                        }}
+                        placeholder="Ex: 0.5 (meio mês)"
+                      />
+                    </div>
+                    {parseFloat(formItemCronograma.quantidade_medida) > 0 && (
+                      <p className="text-xs text-amber-800 font-medium">
+                        = {parseFloat(formItemCronograma.quantidade_medida).toLocaleString('pt-BR', { minimumFractionDigits: 4 })} meses
+                        {' '}(≈ {Math.round(parseFloat(formItemCronograma.quantidade_medida) * 30)} dias)
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max={parseFloat(formItemCronograma.quantidade) || 0}
+                    value={formItemCronograma.quantidade_medida}
+                    onChange={e => setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value })}
+                    placeholder="0"
+                  />
+                )}
+                <p className="text-xs text-amber-700">Informe o valor já consumido antes da implantação do sistema. Será considerado nos cálculos de disponibilidade.</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Observações</Label>
               <Textarea placeholder="Opcional" value={formItemCronograma.observacoes} onChange={e => setFormItemCronograma({ ...formItemCronograma, observacoes: e.target.value })} rows={2} />
@@ -1327,133 +1734,623 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         </DialogContent>
       </Dialog>
 
-      {/* Modal Nova Medição */}
-      <Dialog open={modalMedicao} onOpenChange={setModalMedicao}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      {/* Modal Nova Medição — 100% igual ao fornecedor */}
+      <Dialog open={modalMedicao} onOpenChange={(open) => {
+        setModalMedicao(open)
+        if (!open) {
+          setExecucaoFinanceiraModal(null)
+          setDiscriminacoes([])
+          setArquivosPendentes([])
+        }
+      }}>
+        <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nova Medição {isServicoContinuado ? '' : '(Fiscal)'}</DialogTitle>
-            <DialogDescription>
-              {isServicoContinuado
-                ? 'Crie uma medição mensal informando o período e o valor dos serviços prestados.'
-                : 'Crie uma medição internamente. Ela será enviada diretamente para aprovação do gestor.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Período Início *</Label>
-                <Input type="date" value={formMedicao.periodo_inicio} onChange={e => setFormMedicao({ ...formMedicao, periodo_inicio: e.target.value })} />
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-xl">Boletim de Medição #{medicoes.length + 1}</DialogTitle>
+                <DialogDescription>
+                  {formMedicao.periodo_inicio && formMedicao.periodo_fim
+                    ? `Período: ${formatarData(formMedicao.periodo_inicio)} a ${formatarData(formMedicao.periodo_fim)}`
+                    : 'Informe o período e preencha a execução de cada item'}
+                </DialogDescription>
               </div>
-              <div className="space-y-2">
-                <Label>Período Fim *</Label>
-                <Input type="date" value={formMedicao.periodo_fim} onChange={e => setFormMedicao({ ...formMedicao, periodo_fim: e.target.value })} />
+              <div className="text-right">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
+                {(() => {
+                  const totalMedicao = isServicoContinuado
+                    ? (parseFloat(formMedicao.valor_medido) || 0)
+                    : usarItensCronograma
+                      ? formMedicao.itens.reduce((acc, item) => {
+                          if (!('item_cronograma_id' in item)) return acc
+                          const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
+                          return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                        }, 0)
+                      : formMedicao.itens.reduce((acc, item, idx) => {
+                          const etapa = etapas[idx]
+                          if (!etapa || !('etapa_id' in item)) return acc
+                          return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
+                        }, 0)
+                  const saldoDisp = resumo?.saldo_disponivel ?? Infinity
+                  const excedeSaldo = totalMedicao > saldoDisp + 0.01
+                  return (
+                    <>
+                      <p className={`text-2xl font-bold ${excedeSaldo ? 'text-red-600' : 'text-blue-700'}`}>
+                        {formatarMoeda(totalMedicao)}
+                      </p>
+                      {excedeSaldo && (
+                        <p className="text-xs text-red-500 mt-1">Excede o saldo de {formatarMoeda(saldoDisp)}</p>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-lg border bg-orange-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-700">Vigência do contrato</p>
+                <p className="mt-1 text-sm font-semibold text-orange-900">
+                  {contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim
+                    ? `${formatarData(contratoProp.data_vigencia_inicio)} a ${formatarData(contratoProp.data_vigencia_fim)}`
+                    : '-'}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-blue-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Saldo disponível</p>
+                <p className={`mt-1 text-sm font-semibold ${(resumo?.saldo_disponivel || 0) > 0 ? 'text-blue-900' : 'text-red-700'}`}>
+                  {formatarMoeda(resumo?.saldo_disponivel || 0)}
+                </p>
+                {(resumo?.valor_em_analise || 0) > 0 && (
+                  <p className="mt-1 text-xs text-amber-600">Em análise: {formatarMoeda(resumo?.valor_em_analise || 0)}</p>
+                )}
               </div>
             </div>
 
-            {isServicoContinuado ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Valor Medido (R$) *</Label>
-                  <Input
-                    type="number" step="0.01" min="0" placeholder="0,00"
-                    value={formMedicao.valor_medido}
-                    onChange={e => setFormMedicao({ ...formMedicao, valor_medido: e.target.value })}
-                  />
-                  {resumo && (
-                    <p className="text-xs text-gray-500">
-                      Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)}
-                    </p>
-                  )}
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Período Início *</Label>
+                <Input type="date" value={formMedicao.periodo_inicio}
+                  onChange={e => {
+                    const v = e.target.value
+                    setFormMedicao({ ...formMedicao, periodo_inicio: v })
+                    if (v && formMedicao.periodo_fim) carregarExecucaoFinanceiraModal(undefined, v, formMedicao.periodo_fim)
+                  }} />
               </div>
-            ) : usarItensCronograma ? (
-              <div className="space-y-2">
-                <Label>Itens — Informe a quantidade medida neste período</Label>
-                <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-                  {formMedicao.itens.map((item, idx) => {
-                    const ic = 'item_cronograma_id' in item ? itensCronograma.find(i => i.id === item.item_cronograma_id) : null
-                    if (!ic) return null
-                    const qtdTotal = Number(ic.quantidade)
-                    const qtdMedida = Number(ic.quantidade_medida)
-                    const saldo = qtdTotal - qtdMedida
-                    return (
-                      <div key={ic.id} className="flex items-center gap-4 p-3">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{ic.numero_item}. {ic.descricao}</p>
-                          <p className="text-xs text-gray-400">
-                            Saldo: {saldo.toLocaleString('pt-BR')} {ic.unidade_medida} | Vl. unit.: {formatarMoeda(ic.valor_unitario)}
-                          </p>
-                        </div>
-                        <div className="w-28">
-                          <Input
-                            type="number" step="0.001" min="0" max={saldo}
-                            placeholder="0" className="text-center"
-                            value={(item as { item_cronograma_id: string; quantidade_medida: number }).quantidade_medida || ''}
-                            onChange={e => {
-                              const itens = [...formMedicao.itens]
-                              itens[idx] = { ...itens[idx], quantidade_medida: parseFloat(e.target.value) || 0 }
-                              setFormMedicao({ ...formMedicao, itens })
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-400 w-16">{ic.unidade_medida}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+              <div><Label>Período Fim *</Label>
+                <Input type="date" value={formMedicao.periodo_fim}
+                  onChange={e => {
+                    const v = e.target.value
+                    setFormMedicao({ ...formMedicao, periodo_fim: v })
+                    if (formMedicao.periodo_inicio && v) carregarExecucaoFinanceiraModal(undefined, formMedicao.periodo_inicio, v)
+                  }} />
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>Etapas — Informe o % executado neste período</Label>
-                <div className="border rounded-lg divide-y">
-                  {formMedicao.itens.map((item, idx) => {
-                    const etapa = 'etapa_id' in item ? etapas.find(e => e.id === item.etapa_id) : null
-                    if (!etapa) return null
-                    const itemEtapa = item as { etapa_id: string; percentual_executado_atual: number }
-                    return (
-                      <div key={etapa.id} className="flex items-center gap-4 p-3">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{etapa.numero_etapa}. {etapa.descricao}</p>
-                          <p className="text-xs text-gray-400">
-                            Executado: {Number(etapa.percentual_executado).toFixed(1)}% | Valor: {formatarMoeda(etapa.valor_previsto)}
-                          </p>
-                        </div>
-                        <div className="w-28">
-                          <Input
-                            type="number" step="0.01" min="0" max={100 - Number(etapa.percentual_executado)}
-                            placeholder="0" className="text-center"
-                            value={itemEtapa.percentual_executado_atual || ''}
-                            onChange={e => {
-                              const itens = [...formMedicao.itens]
-                              itens[idx] = { ...itens[idx], percentual_executado_atual: parseFloat(e.target.value) || 0 }
-                              setFormMedicao({ ...formMedicao, itens })
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-400 w-6">%</span>
-                      </div>
-                    )
-                  })}
-                </div>
+            </div>
+
+            <div>
+              <Label>Competência *</Label>
+              <Input value={formMedicao.competencia} onChange={e => setFormMedicao({ ...formMedicao, competencia: e.target.value })} placeholder="Ex: FEVEREIRO/2026" className="uppercase" />
+              <p className="text-xs text-gray-500 mt-1">Informe a competência no formato MÊS/ANO (ex: FEVEREIRO/2026)</p>
+            </div>
+
+            {isServicoContinuado && (
+              <div className="border rounded-lg p-4 bg-blue-50/30">
+                <Label className="text-sm font-bold text-gray-700 mb-2 block">Valor Medido no Período (R$) *</Label>
+                <Input type="number" step="0.01" min="0" value={formMedicao.valor_medido} onChange={e => setFormMedicao({ ...formMedicao, valor_medido: e.target.value })} placeholder="0,00" className="max-w-xs text-lg font-medium" />
+                {resumo && <p className="text-xs text-gray-500 mt-2">Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)} de {formatarMoeda(valorGlobal)}</p>}
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label>Observações</Label>
-              <Textarea placeholder="Observações da medição" value={formMedicao.observacoes} onChange={e => setFormMedicao({ ...formMedicao, observacoes: e.target.value })} rows={2} />
+            {!isServicoContinuado && usarItensCronograma && (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b gap-3">
+                  <p className="text-xs text-gray-500">Para períodos parciais (ex: 21 dias), use <strong>Proporcional</strong> ou informe o <strong>Valor R$</strong> diretamente.</p>
+                  <Button type="button" variant="outline" size="sm" disabled={!formMedicao.periodo_inicio || !formMedicao.periodo_fim}
+                    onClick={() => {
+                      if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) return
+                      const dias = calcularDiasMesComercial(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)
+                      const fator = Math.min(dias / 30, 1)
+                      const itens = itensCronograma.map(ic => {
+                        const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
+                        const isMensal = ic.unidade_medida === 'MENSAL'
+                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
+                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+                      })
+                      setFormMedicao({ ...formMedicao, itens })
+                    }}
+                    className="text-blue-700 border-blue-300 hover:bg-blue-50 whitespace-nowrap">
+                    Proporcional ({formMedicao.periodo_inicio && formMedicao.periodo_fim ? `${calcularDiasMesComercial(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp?.data_vigencia_fim)}/30 dias` : 'defina o período'})
+                  </Button>
+                </div>
+                {/* Aviso sobre mistura de tipos */}
+                {itensCronograma.some(ic => ic.unidade_medida === 'MENSAL') && itensCronograma.some(ic => ic.unidade_medida !== 'MENSAL') && (
+                  <div className="mx-0 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                    <p className="text-xs text-amber-800">
+                      <strong>Atenção:</strong> Este contrato possui itens medidos por quantidade e itens mensais.
+                      Não é possível incluir ambos os tipos na mesma medição — preencha apenas itens de um tipo por vez.
+                      {tipoMedicaoAtual && <span className="font-medium"> Tipo atual: <strong>{tipoMedicaoAtual === 'mensal' ? 'Mensal' : 'Por quantidade'}</strong>.</span>}
+                    </p>
+                  </div>
+                )}
+                <Table>
+                  <TableHeader><TableRow className="bg-gray-50">
+                    <TableHead className="w-12 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-green-50">Valor R$</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-24 bg-blue-50">Subtotal</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {itensCronograma.map((ic, idx) => {
+                      const itemState = formMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined
+                      const qtdMedida = itemState?.quantidade_medida || 0
+                      const valorOverride = itemState?.valor_override
+                      const modoInput = itemState?.modo_input ?? 'quantidade'
+                      const qtdTotal = Number(ic.quantidade)
+                      const qtdAprovada = Number(ic.quantidade_medida)
+                      const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0
+                      const saldo = qtdTotal - qtdAprovada - emTransito
+                      const valorUnit = Number(ic.valor_unitario)
+                      const subtotal = modoInput === 'valor' && valorOverride != null ? valorOverride : qtdMedida * valorUnit
+                      const excedeSaldo = modoInput === 'valor' ? (valorOverride || 0) > saldo * valorUnit + 0.01 : qtdMedida > saldo + 0.001
+                      const isMensal = ic.unidade_medida === 'MENSAL'
+                      const tipoEsteItem = isMensal ? 'mensal' : 'quantidade'
+                      const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual
+                      return (
+                        <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
+                          <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
+                          <TableCell className="whitespace-normal break-words min-w-[200px]">
+                            <p className="text-sm font-medium">{ic.descricao}</p>
+                            {bloqueado && <p className="text-xs text-amber-600 mt-0.5">Inclua em medição separada (tipo: {isMensal ? 'mensal' : 'por quantidade'})</p>}
+                          </TableCell>
+                          <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
+                          <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
+                          <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
+                          <TableCell className="bg-blue-50/50">
+                            <Input type="number" step="0.001" min="0" max={saldo} placeholder="0" disabled={bloqueado} value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
+                              onChange={e => { const val = parseFloat(e.target.value) || 0; const itens = [...formMedicao.itens]; itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.round(val * valorUnit * 100) / 100 }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="bg-green-50/50">
+                            <Input type="number" step="0.01" min="0" max={saldo * valorUnit} placeholder="0,00" disabled={bloqueado} value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
+                              onChange={e => { const val = parseFloat(e.target.value) || 0; const qtdCalc = valorUnit > 0 ? Math.round((val / valorUnit) * 10000) / 10000 : 0; const itens = [...formMedicao.itens]; itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: qtdCalc, modo_input: 'valor', valor_override: val }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="text-right font-medium bg-blue-50/50">
+                            <span className={`text-sm ${subtotal > 0 ? (excedeSaldo ? 'text-red-600' : 'text-blue-700') : 'text-gray-400'}`}>{formatarMoeda(subtotal)}</span>
+                            {excedeSaldo && <p className="text-xs text-red-500">Excede saldo</p>}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {!isServicoContinuado && !usarItensCronograma && (
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader><TableRow className="bg-gray-50">
+                    <TableHead className="w-16 text-center font-bold text-xs uppercase">Item</TableHead>
+                    <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28">Valor Prev.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-20">Med. Acum.</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28 bg-blue-50">Exec. Mês (%)</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-32 bg-green-50">Exec. Mês (R$)</TableHead>
+                    <TableHead className="text-right font-bold text-xs uppercase w-28 bg-blue-50">Subtotal</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {etapas.filter(e => e.status !== 'CONCLUIDA').map((etapa, idx) => {
+                      const jaExecutado = Number(etapa.percentual_executado)
+                      const emTransito = resumo?.etapas_comprometidas?.[etapa.id] || 0
+                      const itemState = formMedicao.itens[idx] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | undefined
+                      const modoInput = itemState?.modo_input ?? 'percentual'
+                      const execPerc = itemState?.percentual_executado_atual ?? 0
+                      const execValor = itemState?.valor_executado_atual ?? 0
+                      const valorPrevisto = Number(etapa.valor_previsto)
+                      const restante = 100 - jaExecutado - emTransito
+                      const valorRestante = (restante / 100) * valorPrevisto
+                      const subtotal = modoInput === 'valor' ? execValor : (execPerc / 100) * valorPrevisto
+                      const percExibido = modoInput === 'valor' && valorPrevisto > 0 ? (execValor / valorPrevisto) * 100 : execPerc
+                      const excedeLimite = percExibido > restante + 0.01
+                      return (
+                        <TableRow key={etapa.id} className="hover:bg-gray-50">
+                          <TableCell className="text-center font-mono text-sm font-medium">{etapa.numero_etapa}</TableCell>
+                          <TableCell><p className="text-sm font-medium">{etapa.descricao}</p><p className="text-xs text-gray-400">Disponível: {restante.toFixed(1)}% ({formatarMoeda(valorRestante)})</p></TableCell>
+                          <TableCell className="text-right text-sm">{formatarMoeda(valorPrevisto)}</TableCell>
+                          <TableCell className="text-center"><span className="text-sm font-medium text-blue-600">{jaExecutado.toFixed(0)}%</span></TableCell>
+                          <TableCell className="bg-blue-50/50">
+                            <Input type="number" min="0" max={restante} step="0.1" placeholder="0" value={modoInput === 'percentual' ? (execPerc || '') : (percExibido > 0 ? percExibido.toFixed(2) : '')}
+                              onChange={e => { const num = e.target.value === '' ? 0 : Number(e.target.value); const itens = [...formMedicao.itens]; itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: num, valor_executado_atual: valorPrevisto > 0 ? (num / 100) * valorPrevisto : 0, modo_input: 'percentual' }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'percentual' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeLimite ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="bg-green-50/50">
+                            <Input type="number" min="0" max={valorRestante} step="0.01" placeholder="0,00" value={modoInput === 'valor' ? (execValor || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
+                              onChange={e => { const num = e.target.value === '' ? 0 : Number(e.target.value); const perc = valorPrevisto > 0 ? (num / valorPrevisto) * 100 : 0; const itens = [...formMedicao.itens]; itens[idx] = { etapa_id: etapa.id, percentual_executado_atual: Math.round(perc * 100) / 100, valor_executado_atual: num, modo_input: 'valor' }; setFormMedicao({ ...formMedicao, itens }) }}
+                              className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeLimite ? 'border-red-400' : ''}`} />
+                          </TableCell>
+                          <TableCell className="text-right bg-blue-50/50"><span className={`text-sm font-medium ${subtotal > 0 ? (excedeLimite ? 'text-red-600' : 'text-blue-700') : 'text-gray-400'}`}>{formatarMoeda(subtotal)}</span></TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {formMedicao.periodo_inicio && formMedicao.periodo_fim && contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim && (() => {
+              const valorMedicaoAtual = isServicoContinuado
+                ? (parseFloat(formMedicao.valor_medido) || 0)
+                : usarItensCronograma
+                  ? formMedicao.itens.reduce((acc, item) => {
+                      if (!('item_cronograma_id' in item)) return acc
+                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
+                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                    }, 0)
+                  : formMedicao.itens.reduce((acc, item, idx) => {
+                      const etapa = etapas[idx]
+                      if (!etapa || !('etapa_id' in item)) return acc
+                      return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
+                    }, 0)
+              // Calcula totais de execução financeira filtrando pelo tipo de item selecionado
+              const { noPeriodoExibicao, atePeriodoExibicao, aExecutarExibicao } = (() => {
+                // Para null com itens cronograma: nenhum item preenchido, retornar zeros
+                if (tipoMedicaoAtual === null && usarItensCronograma) {
+                  return { noPeriodoExibicao: 0, atePeriodoExibicao: 0, aExecutarExibicao: 0 }
+                }
+
+                // Para itens MENSAL: usar dados reais do backend para atePeriodo (evita erro de arredondamento por qtd × vm)
+                if (tipoMedicaoAtual === 'mensal') {
+                  let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
+                  const itensMens = itensCronograma.filter(ic => ic.unidade_medida === 'MENSAL')
+                  for (const ic of itensMens) {
+                    const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                    const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                    if (qtdNoPeriodo <= 0) continue
+                    const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0
+                    const valorNoPeriodo = qtdNoPeriodo * vm
+                    // Usa o valor financeiro aprovado do backend quando disponível para evitar acúmulo de arredondamento
+                    // Também considera ic.quantidade_medida (migração por item) que o backend não computa
+                    const backendItem = execucaoFinanceiraModal?.itens?.find((i: any) => i.etapa_id === ic.id)
+                    const fromBackend = backendItem
+                      ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0)
+                      : 0
+                    const fromMigracao = Number(ic.quantidade_medida ?? 0) * vm
+                    const valorAprovadoAnterior = Math.max(fromBackend, fromMigracao)
+                    const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo
+                    const valorTotal = Number(ic.valor_total) || 0
+                    noPeriodo += valorNoPeriodo
+                    atePeriodo += valorAtePeriodo
+                    aExecutar += Math.max(0, valorTotal - valorAtePeriodo)
+                  }
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+
+                // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
+                // Isso garante que ajustes manuais de quantidade sejam respeitados
+                if (tipoMedicaoAtual === 'quantidade') {
+                  let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
+                  const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL')
+                  for (const ic of itensQtd) {
+                    const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                    const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
+                    if (qtdNoPeriodo <= 0) continue
+                    const qtdAprovada = Number(ic.quantidade_medida ?? 0)
+                    const qtdTotal = Number(ic.quantidade ?? 0)
+                    const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
+                    const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
+                    const vu = Number(ic.valor_unitario)
+                    noPeriodo += qtdNoPeriodo * vu
+                    atePeriodo += qtdAtePeriodo * vu
+                    aExecutar += qtdAExecutar * vu
+                  }
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+
+                // Demais tipos: usar dados do backend ou fallback por valor global
+                const itensBase = tipoMedicaoAtual === null
+                  ? itensCronograma
+                  : itensCronograma.filter(ic => {
+                      const isMensal = ic.unidade_medida === 'MENSAL'
+                      return tipoMedicaoAtual === 'mensal' ? isMensal : !isMensal
+                    })
+
+                if (usarItensCronograma && execucaoFinanceiraModal?.itens?.length) {
+                  const idsBase = new Set(itensBase.map(ic => ic.id))
+                  const itensBack = (execucaoFinanceiraModal.itens as any[]).filter((i: any) => idsBase.has(i.etapa_id))
+                  const noPeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.no_periodo || 0), 0)
+                  const atePeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.ate_periodo_global ?? i.ate_periodo ?? 0), 0)
+                  const noPeriodo = Math.max(noPeriodoBk, valorMedicaoAtual || 0)
+                  const localExtra = Math.max(0, noPeriodo - noPeriodoBk)
+                  const atePeriodo = atePeriodoBk + localExtra
+                  const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                  const aExecutar = Math.max(0, valorTotal - atePeriodo)
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+                const noPeriodo = valorMedicaoAtual || 0
+                if (usarItensCronograma) {
+                  const valorMigracao = itensBase.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
+                  const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
+                  const atePeriodo = valorMigracao + valorAprovadoAnterior + noPeriodo
+                  const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
+                  const aExecutar = Math.max(0, valorTotal - atePeriodo)
+                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                }
+                const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
+                const valorExecAnterior = Number(contratoProp?.valor_executado_anterior || 0)
+                const atePeriodo = valorAprovadoAnterior + valorExecAnterior + noPeriodo
+                const aExecutar = Math.max(0, Number(valorGlobal || contratoProp?.valor_global || 0) - atePeriodo)
+                return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+              })()
+              return (
+              <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3"><TrendingUp className="w-5 h-5 text-blue-600" /><h3 className="text-lg font-semibold text-blue-800">Execução Fiscal e Financeira</h3></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-medium text-blue-700 mb-3 flex items-center gap-2">
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contratoProp?.boletim_por_quantidade)) ? <><BarChart3 className="w-4 h-4" />Execução Fiscal (Quantidade)</> : <><Clock className="w-4 h-4" />Execução Fiscal (Tempo)</>}
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      {(tipoMedicaoAtual === 'quantidade' || (tipoMedicaoAtual === 'mensal' && contratoProp?.boletim_por_quantidade)) ? (() => {
+                        // Itens com quantidade informada nesta medição
+                        // Quando boletim_por_quantidade + MENSAL: inclui MENSAL (cada mês = 1 unidade)
+                        const forcarQtdMensal = !!(contratoProp?.boletim_por_quantidade)
+                        const itensComQtd = itensCronograma.filter(ic => {
+                          if (ic.unidade_medida === 'MENSAL' && !forcarQtdMensal) return false
+                          const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                          return itemState && Number(itemState.quantidade_medida) > 0
+                        })
+                        if (itensComQtd.length === 0) {
+                          return <p className="text-gray-500 text-xs">Informe quantidades nos itens para ver a execução</p>
+                        }
+                        if (itensComQtd.length === 1) {
+                          const ic = itensComQtd[0]
+                          const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                          const isMensalFlag = ic.unidade_medida === 'MENSAL' && forcarQtdMensal
+                          const qtdNoPeriodo = isMensalFlag ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0)
+                          const qtdAprovada = isMensalFlag ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0)
+                          const qtdTotal = isMensalFlag ? Math.round(Number(ic.quantidade ?? 0)) : Number(ic.quantidade ?? 0)
+                          const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
+                          const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
+                          const unidade = ic.unidade_medida || 'UNIDADE'
+                          return (
+                            <>
+                              <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{qtdNoPeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{qtdAtePeriodo.toLocaleString('pt-BR')} {unidade}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{qtdAExecutar.toLocaleString('pt-BR')} {unidade}</span></div>
+                            </>
+                          )
+                        }
+                        return (
+                          <>
+                            {itensComQtd.map(ic => {
+                              const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
+                              const isMF = ic.unidade_medida === 'MENSAL' && forcarQtdMensal
+                              const qtdNoPeriodo = isMF ? Math.round(Number(itemState?.quantidade_medida ?? 0)) : Number(itemState?.quantidade_medida ?? 0)
+                              const qtdAprovada = isMF ? Math.round(Number(ic.quantidade_medida ?? 0)) : Number(ic.quantidade_medida ?? 0)
+                              const qtdAExecutar = Math.max(0, (isMF ? Math.round(Number(ic.quantidade)) : Number(ic.quantidade)) - qtdAprovada - qtdNoPeriodo)
+                              return (
+                                <div key={ic.id} className="flex justify-between text-xs">
+                                  <span className="text-gray-600 truncate mr-2">{ic.descricao?.substring(0, 30)}...</span>
+                                  <span className="font-medium whitespace-nowrap">{qtdNoPeriodo > 0 ? `+${qtdNoPeriodo}` : '-'} / {qtdAExecutar} {ic.unidade_medida}</span>
+                                </div>
+                              )
+                            })}
+                          </>
+                        )
+                      })() : (
+                        <>
+                          <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).noPeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).atePeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).aExecutar}</span></div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-green-200">
+                    <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4" />Execução Financeira (Valores)</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-green-700">{formatarMoeda(noPeriodoExibicao)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{formatarMoeda(atePeriodoExibicao)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-orange-700">{formatarMoeda(aExecutarExibicao)}</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              )
+            })()}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><Label>Observações do Boletim</Label><Textarea value={formMedicao.observacoes} onChange={e => setFormMedicao({ ...formMedicao, observacoes: e.target.value })} placeholder="Observações relevantes..." rows={4} /></div>
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2"><DollarSign className="w-4 h-4" />Nota Fiscal (opcional)</Label>
+                <Input value={formMedicao.nota_fiscal_numero} onChange={e => setFormMedicao({ ...formMedicao, nota_fiscal_numero: e.target.value })} placeholder="Número da NF" />
+              </div>
+            </div>
+
+            {/* Discriminação das Despesas — igual ao fornecedor */}
+            {(() => {
+              const valorMedidoAtual = isServicoContinuado
+                ? (parseFloat(formMedicao.valor_medido) || 0)
+                : usarItensCronograma
+                  ? formMedicao.itens.reduce((acc, item) => {
+                      if (!('item_cronograma_id' in item)) return acc
+                      const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
+                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                    }, 0)
+                  : formMedicao.itens.reduce((acc, item, idx) => {
+                      const etapa = etapas[idx]
+                      if (!etapa || !('etapa_id' in item)) return acc
+                      return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
+                    }, 0)
+              const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0)
+              const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0)
+              const arredondamentoApenas = valorMedidoAtual > 0 && Math.abs(totalDiscPerc - 100) < 0.05 && Math.abs(totalDiscValorBruto - valorMedidoAtual) <= 0.02
+              const totalDiscValor = arredondamentoApenas ? valorMedidoAtual : totalDiscValorBruto
+              return (
+                <div className="border rounded-lg p-4 bg-amber-50/30">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                      <DollarSign className="w-4 h-4" />
+                      Discriminação das Despesas
+                      <span className="text-xs font-normal text-red-500">* obrigatória</span>
+                    </Label>
+                    <div className="flex gap-2">
+                      {medicoes.length > 0 && (
+                        <Button type="button" variant="outline" size="sm" onClick={async () => {
+                          if (valorMedidoAtual <= 0) {
+                            alert(isServicoContinuado ? 'Informe o valor medido antes de reaproveitar.' : 'Preencha os itens da planilha antes de reaproveitar.')
+                            return
+                          }
+                          try {
+                            const ultima = medicoes[medicoes.length - 1]
+                            const res = await authFetch(`${API_URL}/api/contratos/medicoes/${ultima.id}/discriminacoes/sugestao`)
+                            if (!res.ok) return
+                            const sugestoes = await res.json()
+                            if (!sugestoes?.length) {
+                              alert('Nenhuma medição anterior possui discriminação para reaproveitar.')
+                              return
+                            }
+                            setDiscriminacoes(sugestoes.map((s: any) => {
+                              const perc = Number(s.percentual) || 0
+                              const valor = (perc / 100) * valorMedidoAtual
+                              return { descricao: s.descricao || '', percentual: perc, valor: Math.round(valor * 100) / 100 }
+                            }))
+                          } catch {
+                            alert('Erro ao buscar despesas da última medição.')
+                          }
+                        }} className="text-amber-700 border-amber-300 hover:bg-amber-50">
+                          Reaproveitar despesas do último mês
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" size="sm" onClick={() => setDiscriminacoes([...discriminacoes, { descricao: '', valor: 0, percentual: 0 }])}>
+                        <Plus className="w-3 h-3 mr-1" /> Adicionar Item
+                      </Button>
+                    </div>
+                  </div>
+                  {discriminacoes.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 text-xs font-semibold text-gray-500 uppercase px-1">
+                        <span>Item</span><span>Discriminação</span><span className="text-right">Valor R$</span><span className="text-right">%</span><span></span>
+                      </div>
+                      {discriminacoes.map((disc, idx) => (
+                        <div key={idx} className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center">
+                          <span className="text-sm text-center font-mono text-gray-500">{idx + 1}</span>
+                          <Input value={disc.descricao} onChange={e => { const u = [...discriminacoes]; u[idx] = { ...u[idx], descricao: e.target.value }; setDiscriminacoes(u) }} placeholder="Ex: Tributação, Serviços..." className="h-8 text-sm" />
+                          <Input type="number" step="0.01" min="0" value={disc.valor || ''} onChange={e => { const val = e.target.value === '' ? 0 : Number(e.target.value); const perc = valorMedidoAtual > 0 ? (val / valorMedidoAtual) * 100 : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], valor: val, percentual: Math.round(perc * 10000) / 10000 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
+                          <Input type="number" step="0.01" min="0" max="100" value={disc.percentual || ''} onChange={e => { const perc = e.target.value === '' ? 0 : Number(e.target.value); const val = valorMedidoAtual > 0 ? (perc / 100) * valorMedidoAtual : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], percentual: perc, valor: Math.round(val * 100) / 100 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-400 hover:text-red-600" onClick={() => setDiscriminacoes(discriminacoes.filter((_, i) => i !== idx))}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center border-t pt-2 mt-2">
+                        <span></span><span className="text-sm font-bold text-gray-700">Total</span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorMedidoAtual) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{formatarMoeda(totalDiscValor)}</span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscPerc - 100) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{totalDiscPerc.toFixed(2)}%</span><span></span>
+                      </div>
+                      {valorMedidoAtual > 0 && Math.abs(totalDiscValor - valorMedidoAtual) > 0.02 && (
+                        <p className="text-xs text-amber-600 mt-1">Valor da medição: {formatarMoeda(valorMedidoAtual)}. Diferença: {formatarMoeda(totalDiscValor - valorMedidoAtual)}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-3">
+                      Nenhuma discriminação adicionada. Use &quot;Reaproveitar despesas do último mês&quot; para trazer os % da última medição (valores recalculados pela medição atual) ou &quot;Adicionar Item&quot; para criar manualmente.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* Fotos e Documentos — igual ao fornecedor */}
+            <div className="border rounded-lg p-4 bg-gray-50/50">
+              <div className="flex items-center justify-between mb-3">
+                <Label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                  <Paperclip className="w-4 h-4" />
+                  Fotos e Documentos
+                  <span className="text-xs font-normal text-gray-400">(opcional)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = 'image/jpeg,image/png,image/jpg'
+                    input.multiple = true
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files
+                      if (files) {
+                        const titulo = prompt('Título da foto (opcional):') ?? ''
+                        setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }))])
+                      }
+                    }
+                    input.click()
+                  }}>
+                    <Camera className="w-3 h-3" /> Foto
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = 'application/pdf,image/jpeg,image/png'
+                    input.multiple = true
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files
+                      if (files && files.length > 0) {
+                        const titulo = prompt('Título dos documentos (opcional):') ?? ''
+                        setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'DOCUMENTO' as const, descricao: titulo }))])
+                      }
+                    }
+                    input.click()
+                  }}>
+                    <Upload className="w-3 h-3" /> Documento
+                  </Button>
+                </div>
+              </div>
+              {arquivosPendentes.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-2">Nenhum arquivo adicionado. Você pode adicionar fotos e documentos agora ou depois.</p>
+              ) : (
+                <div className="space-y-1">
+                  {arquivosPendentes.map((arq, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span>{arq.tipo === 'FOTO' ? '📷' : '📄'}</span>
+                        <span className="truncate font-medium">{arq.descricao || arq.file.name}</span>
+                        <span className="text-gray-400 flex-shrink-0">({(arq.file.size / 1024).toFixed(0)} KB)</span>
+                      </div>
+                      <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600" onClick={() => setArquivosPendentes(prev => prev.filter((_, i) => i !== idx))}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalMedicao(false)}>Cancelar</Button>
-            <Button onClick={salvarMedicao} disabled={
-              actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
-              (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
-              (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0)) ||
-              (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
-            }>
-              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Criar Medição
-            </Button>
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <Button variant="outline" onClick={() => setModalMedicao(false)}>Cancelar Lançamento</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => salvarMedicao(true)} disabled={
+                actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
+                (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
+                (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0 && ((i as any).valor_executado_atual == null || (i as any).valor_executado_atual <= 0))) ||
+                (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
+              }>
+                {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+                Salvar Rascunho
+              </Button>
+              <Button onClick={() => salvarMedicao(false)} disabled={
+                actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
+                (isServicoContinuado && (!formMedicao.valor_medido || parseFloat(formMedicao.valor_medido) <= 0)) ||
+                (!isServicoContinuado && !usarItensCronograma && formMedicao.itens.every(i => 'percentual_executado_atual' in i && (i as any).percentual_executado_atual <= 0 && ((i as any).valor_executado_atual == null || (i as any).valor_executado_atual <= 0))) ||
+                (!isServicoContinuado && usarItensCronograma && formMedicao.itens.every(i => 'quantidade_medida' in i && (i as any).quantidade_medida <= 0))
+              } className="bg-blue-600 hover:bg-blue-700">
+                {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                Enviar para Ateste
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1751,6 +2648,98 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
         </DialogContent>
       </Dialog>
 
+      {/* Modal Assinatura Digital OTP — Fornecedor (quando órgão cria a medição) */}
+      <Dialog open={modalOtp} onOpenChange={(open) => { if (!open) { setModalOtp(false); setOtpMedicaoId(null); setTimeout(() => { document.body.style.pointerEvents = ''; }, 0); carregarDados(); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-blue-600" />
+              Assinatura Digital do Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              {otpEtapa === 'enviar' && 'O código será enviado para o telefone do fornecedor cadastrado. A assinatura aparecerá no campo FORNECEDOR do boletim.'}
+              {otpEtapa === 'codigo' && 'Digite o código de verificação enviado ao fornecedor.'}
+              {otpEtapa === 'sucesso' && 'Boletim assinado pelo fornecedor e enviado para análise do fiscal!'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {otpEtapa === 'enviar' && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <p className="font-medium mb-1">Caso excepcional: medição criada pelo órgão</p>
+                <p className="text-amber-700">O fornecedor deve assinar digitalmente. O código será enviado via WhatsApp para o telefone cadastrado do fornecedor.</p>
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+            </div>
+          )}
+
+          {otpEtapa === 'codigo' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                <p className="font-medium mb-1">Código enviado ao fornecedor!</p>
+                {otpFornecedorNome && <p className="font-medium">{otpFornecedorNome}</p>}
+                {otpCanais?.telefone_mascarado && <p>📱 {otpCanais.telefone_mascarado}</p>}
+              </div>
+              <div>
+                <Label>Código (6 dígitos)</Label>
+                <Input
+                  value={otpCodigo}
+                  onChange={e => setOtpCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="text-center text-2xl tracking-[0.5em] font-mono mt-1"
+                  maxLength={6}
+                  onKeyDown={e => { if (e.key === 'Enter' && otpCodigo.length === 6) handleValidarOtpFornecedor(); }}
+                />
+              </div>
+              {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
+            </div>
+          )}
+
+          {otpEtapa === 'sucesso' && (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                <CheckCircle className="w-10 h-10 text-green-600 mx-auto mb-2" />
+                <p className="font-semibold text-green-900">Boletim assinado pelo fornecedor!</p>
+                <p className="text-sm text-green-700 mt-1">A medição foi enviada para análise do fiscal.</p>
+                {otpCodigoValidacao && (
+                  <div className="mt-2 bg-white border border-green-300 rounded p-2">
+                    <p className="text-xs text-gray-500">Código de validação:</p>
+                    <p className="font-mono text-sm font-bold text-green-800">{otpCodigoValidacao}</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 text-center">O PDF do boletim foi baixado automaticamente.</p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {otpEtapa === 'enviar' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleEnviarOtpFornecedor} disabled={otpLoading} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Enviar Código ao Fornecedor
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'codigo' && (
+              <div className="flex w-full gap-2 justify-between">
+                <Button variant="outline" onClick={() => { setModalOtp(false); carregarDados(); }}>Cancelar</Button>
+                <Button onClick={handleValidarOtpFornecedor} disabled={otpLoading || otpCodigo.length !== 6} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                  {otpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Confirmar e Enviar
+                </Button>
+              </div>
+            )}
+            {otpEtapa === 'sucesso' && (
+              <Button onClick={() => { setModalOtp(false); carregarDados(); }} className="w-full bg-green-600 hover:bg-green-700">
+                Fechar
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal Detalhe da Medição */}
       <Dialog open={!!modalDetalhe} onOpenChange={() => setModalDetalhe(null)}>
         <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
@@ -1789,7 +2778,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                         {(modalDetalhe as any).itens.map((item: any, idx: number) => (
                           <TableRow key={item.id || idx}>
                             <TableCell className="text-sm font-mono">{item.etapa_numero || idx + 1}</TableCell>
-                            <TableCell className="text-sm">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
+                            <TableCell className="text-sm break-words whitespace-normal">{item.etapa_descricao || `Etapa ${idx + 1}`}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.etapa_valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-center text-gray-500">{Number(item.percentual_executado_anterior || 0).toFixed(1)}%</TableCell>
                             <TableCell className="text-sm text-center font-medium text-blue-700 bg-blue-50/50">{Number(item.percentual_executado_atual || 0).toFixed(1)}%</TableCell>
@@ -1908,12 +2897,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
               {execucaoFinanceira && execucaoFinanceira.itens && execucaoFinanceira.itens.length > 0 && (
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-bold">Execucao Fiscal/Financeira</p>
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border rounded-lg overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-indigo-50">
                           <TableHead className="text-xs font-bold w-12">Item</TableHead>
-                          <TableHead className="text-xs font-bold">Descricao</TableHead>
+                          <TableHead className="text-xs font-bold min-w-[220px]">Descricao</TableHead>
                           <TableHead className="text-xs font-bold text-right w-24">Previsto</TableHead>
                           <TableHead className="text-xs font-bold text-right w-24 bg-blue-50">No Periodo</TableHead>
                           <TableHead className="text-xs font-bold text-right w-24">Ate Periodo</TableHead>
@@ -1924,7 +2913,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade }: { co
                         {execucaoFinanceira.itens.map((item: any, idx: number) => (
                           <TableRow key={item.etapa_id || idx}>
                             <TableCell className="text-sm font-mono">{item.numero_etapa}</TableCell>
-                            <TableCell className="text-sm">{item.descricao}</TableCell>
+                            <TableCell className="text-sm break-words whitespace-normal min-w-[220px]">{item.descricao}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>

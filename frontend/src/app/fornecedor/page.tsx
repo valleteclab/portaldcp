@@ -12,13 +12,23 @@ import {
   UserPlus,
   CheckCircle,
   XCircle,
-  Shield
+  Shield,
+  ClipboardCheck,
+  RotateCcw,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { Badge } from "@/components/ui/badge"
 
 import { API_URL, authFetch } from '@/lib/api'
+import {
+  carregarOverviewMedicoesFornecedor,
+  formatarData,
+  formatarMoeda,
+  obterStatusMedicaoLabel,
+  type ContratoMedicaoOverview,
+} from '@/lib/fornecedor-medicoes'
 
 interface StatusCadastro {
   nivel_i_completo: boolean
@@ -34,6 +44,7 @@ interface StatusCadastro {
 
 export default function FornecedorDashboard() {
   const [statusCadastro, setStatusCadastro] = useState<StatusCadastro | null>(null)
+  const [medicoesOverview, setMedicoesOverview] = useState<ContratoMedicaoOverview[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -53,6 +64,8 @@ export default function FornecedorDashboard() {
             setStatusCadastro(data)
           }
         }
+
+        setMedicoesOverview(await carregarOverviewMedicoesFornecedor())
       } catch (e) {
         console.error('Erro ao carregar status:', e)
       } finally {
@@ -133,6 +146,8 @@ export default function FornecedorDashboard() {
 
   const progresso = calcularProgresso()
   const pendencias = obterPendencias()
+  const medicoesPendentes = medicoesOverview.filter((item) => item.devolvidaEditavel || item.rascunho || item.temNovaMedicaoDisponivel)
+  const medicoesHistorico = medicoesOverview.filter((item) => item.ultimaMedicao).slice(0, 4)
 
   return (
     <div className="space-y-6">
@@ -296,6 +311,85 @@ export default function FornecedorDashboard() {
           </CardContent>
         </Card>
       )}
+
+      <Card className="border-blue-200">
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardCheck className="h-5 w-5 text-blue-600" />
+                Medições pendentes e histórico
+              </CardTitle>
+              <CardDescription>
+                Abra rapidamente a próxima ação ou acompanhe a última situação de cada contrato.
+              </CardDescription>
+            </div>
+            <Button asChild className="bg-blue-600 hover:bg-blue-700">
+              <Link href="/fornecedor/medicoes">
+                Ir para central de medições
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {medicoesPendentes.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              Nenhuma pendência de medição no momento.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {medicoesPendentes.slice(0, 3).map((item) => (
+                <div key={item.contrato.id} className="rounded-lg border p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-800">{item.contrato.numero_contrato}</span>
+                      <Badge className="bg-blue-100 text-blue-800">{item.acaoPrincipal.label}</Badge>
+                      {item.devolvidaEditavel && (
+                        <Badge className="bg-amber-100 text-amber-800">
+                          <RotateCcw className="mr-1 h-3 w-3" />Devolvida
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{item.contrato.objeto}</p>
+                  </div>
+                  <Button asChild className="bg-blue-600 hover:bg-blue-700">
+                    <Link href={item.acaoPrincipal.href}>{item.acaoPrincipal.label}</Link>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {medicoesHistorico.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Últimas medições</h3>
+                <p className="text-sm text-muted-foreground">Resumo rápido das medições mais recentes.</p>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {medicoesHistorico.map((item) => (
+                  <div key={item.contrato.id} className="rounded-lg border p-4 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-800">{item.contrato.numero_contrato}</span>
+                      <Badge variant="secondary">
+                        {item.ultimaMedicao ? obterStatusMedicaoLabel(item.ultimaMedicao.status) : 'Sem medições'}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{item.contrato.objeto}</p>
+                    {item.ultimaMedicao && (
+                      <div className="text-sm text-slate-600 space-y-1">
+                        <p>Período: {formatarData(item.ultimaMedicao.periodo_inicio)} a {formatarData(item.ultimaMedicao.periodo_fim)}</p>
+                        <p>Valor: {formatarMoeda(item.ultimaMedicao.valor_medido)}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Licitações Vazias */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

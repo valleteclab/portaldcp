@@ -17,7 +17,10 @@ export type ModuloSistema =
   | 'PORTAL_ASSINATURAS'
   | 'ORDENS_SERVICO'
   | 'IA_CONTRATOS'
-  | 'WHATSAPP_CHAT';
+  | 'WHATSAPP_CHAT'
+  | 'FROTA'
+  | 'EMAILS'
+  | 'PATRIMONIO';
 
 // Constantes para uso como valores (não apenas tipos)
 export const ModuloSistema = {
@@ -36,6 +39,9 @@ export const ModuloSistema = {
   ORDENS_SERVICO: 'ORDENS_SERVICO' as ModuloSistema,
   IA_CONTRATOS: 'IA_CONTRATOS' as ModuloSistema,
   WHATSAPP_CHAT: 'WHATSAPP_CHAT' as ModuloSistema,
+  FROTA: 'FROTA' as ModuloSistema,
+  EMAILS: 'EMAILS' as ModuloSistema,
+  PATRIMONIO: 'PATRIMONIO' as ModuloSistema,
 } as const;
 
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
@@ -54,6 +60,9 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
   ORDENS_SERVICO: { nome: 'Ordens de Serviço', descricao: 'Gestão de Ordens de Serviço' },
   IA_CONTRATOS: { nome: 'IA — Importar Contratos', descricao: 'Importação de contratos via IA (PDF/imagem)' },
   WHATSAPP_CHAT: { nome: 'WhatsApp Chat', descricao: 'Chat direto com contatos via WhatsApp' },
+  FROTA: { nome: 'Frota e Combustível', descricao: 'Controle de frota de veículos e consumo de combustível' },
+  EMAILS: { nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão' },
+  PATRIMONIO: { nome: 'Patrimônio', descricao: 'Controle de Bens Patrimoniais' },
 };
 
 export function useModulosOrgao() {

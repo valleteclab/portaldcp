@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2,
@@ -30,6 +30,9 @@ import {
   Download,
   Mail,
   MessageCircle,
+  FileDown,
+  PenLine,
+  Paperclip,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -139,6 +142,7 @@ interface OSPendente {
 
 interface MedicaoPendente {
   id: string;
+  contrato_id?: string;
   numero_medicao: number;
   periodo_inicio: string;
   periodo_fim: string;
@@ -157,6 +161,7 @@ interface MedicaoPendente {
   ateste_data?: string;
   ateste_observacoes?: string;
   ateste_verificado_in_loco?: boolean;
+  boletim_pdf_url?: string;
   created_at: string;
   contrato?: {
     id: string;
@@ -218,6 +223,7 @@ const formatarCNPJ = (cnpj: string) => {
 
 export default function CentralAprovacoesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('contratos');
 
@@ -243,13 +249,18 @@ export default function CentralAprovacoesPage() {
   // Discriminação e Execução Financeira (carregados ao expandir medição)
   const [discriminacoesAprov, setDiscriminacoesAprov] = useState<Record<string, any[]>>({});
   const [execucaoAprov, setExecucaoAprov] = useState<Record<string, any>>({});
+  const [assinaturasAprov, setAssinaturasAprov] = useState<Record<string, any[]>>({});
+  const [anexosAprov, setAnexosAprov] = useState<Record<string, any[]>>({});
+  const [baixandoBoletim, setBaixandoBoletim] = useState<string | null>(null);
 
   const carregarDadosMedicaoExpanded = async (medicaoId: string, contratoId: string) => {
     if (discriminacoesAprov[medicaoId]) return; // já carregado
     try {
-      const [discRes, execRes] = await Promise.all([
+      const [discRes, execRes, assinRes, anexRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/discriminacoes`),
         authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${medicaoId}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/assinaturas`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/anexos`),
       ]);
       if (discRes.ok) {
         const discData = await discRes.json();
@@ -259,7 +270,36 @@ export default function CentralAprovacoesPage() {
         const execData = await execRes.json();
         setExecucaoAprov(prev => ({ ...prev, [medicaoId]: execData }));
       }
+      if (assinRes.ok) {
+        const assinData = await assinRes.json();
+        setAssinaturasAprov(prev => ({ ...prev, [medicaoId]: Array.isArray(assinData) ? assinData : [] }));
+      }
+      if (anexRes.ok) {
+        const anexData = await anexRes.json();
+        setAnexosAprov(prev => ({ ...prev, [medicaoId]: Array.isArray(anexData) ? anexData : [] }));
+      } else {
+        setAnexosAprov(prev => ({ ...prev, [medicaoId]: [] }));
+      }
     } catch { /* ignore */ }
+  };
+
+  const baixarBoletimAprov = async (medicao: MedicaoPendente) => {
+    setBaixandoBoletim(medicao.id);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/boletim-oficial`);
+      if (!res.ok) { alert('Boletim não disponível'); return; }
+      const boletim = await res.json();
+      if (!boletim?.pdf_url) { alert('Boletim não disponível'); return; }
+      const fileRes = await fetch(boletim.pdf_url.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url}`);
+      if (!fileRes.ok) { alert('Erro ao baixar arquivo'); return; }
+      const blob = await fileRes.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = boletim.filename || `boletim_medicao_${medicao.numero_medicao}.pdf`;
+      a.click();
+    } finally {
+      setBaixandoBoletim(null);
+    }
   };
 
   // Modais Requisição
@@ -301,6 +341,15 @@ export default function CentralAprovacoesPage() {
   const [showRejeitarMedicao, setShowRejeitarMedicao] = useState(false);
   const [observacaoMedicao, setObservacaoMedicao] = useState('');
   const [motivoRejeicaoMedicao, setMotivoRejeicaoMedicao] = useState('');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (!tabParam) return;
+    const tabsPermitidas = new Set(['contratos', 'requisicoes', 'medicoes', 'ordens-servico']);
+    if (tabsPermitidas.has(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // Verifica permissões
   useEffect(() => {
@@ -1256,7 +1305,7 @@ export default function CentralAprovacoesPage() {
                         ) : (
                           <div className="mt-4">
                             <h4 className="font-medium mb-2">Itens ({requisicao.itens?.length || 0})</h4>
-                            <Table>
+                            <Table className="table-fixed">
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="w-16">#</TableHead>
@@ -1312,8 +1361,9 @@ export default function CentralAprovacoesPage() {
                   <Collapsible open={expandedId === medicao.id} onOpenChange={() => {
                     const newId = expandedId === medicao.id ? null : medicao.id;
                     setExpandedId(newId);
-                    if (newId && medicao.contrato) {
-                      carregarDadosMedicaoExpanded(medicao.id, medicao.contrato.id);
+                    const contratoId = medicao.contrato?.id || medicao.contrato_id;
+                    if (newId && contratoId) {
+                      carregarDadosMedicaoExpanded(medicao.id, contratoId);
                     }
                   }}>
                     <div className="p-4 hover:bg-gray-50 transition-colors">
@@ -1370,6 +1420,20 @@ export default function CentralAprovacoesPage() {
                               {expandedId === medicao.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </Button>
                           </CollapsibleTrigger>
+                          {medicao.boletim_pdf_url && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Baixar Boletim Assinado"
+                              disabled={baixandoBoletim === medicao.id}
+                              onClick={() => baixarBoletimAprov(medicao)}
+                            >
+                              {baixandoBoletim === medicao.id
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <FileDown className="h-4 w-4" />}
+                              <span className="ml-1 hidden sm:inline">Boletim</span>
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             className="bg-green-600 hover:bg-green-700"
@@ -1478,6 +1542,119 @@ export default function CentralAprovacoesPage() {
                           </div>
                         </div>
 
+                        {/* Assinaturas Digitais + Boletim */}
+                        {(assinaturasAprov[medicao.id] || medicao.boletim_pdf_url) && (
+                          <div className="mt-4 bg-white p-4 rounded-lg">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                              <PenLine className="h-4 w-4 text-indigo-600" />
+                              Assinaturas Digitais
+                            </h4>
+                            {assinaturasAprov[medicao.id]?.length > 0 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                {assinaturasAprov[medicao.id].map((as: any, idx: number) => (
+                                  <div key={idx} className={`p-3 rounded-lg border text-sm ${as.papel_assinante === 'FISCAL' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
+                                    <p className="font-semibold text-xs uppercase tracking-wide mb-1 text-gray-500">
+                                      {as.papel_assinante === 'FISCAL' ? 'Fiscal de Contrato' : 'Fornecedor / Contratado'}
+                                    </p>
+                                    <p className="font-medium text-gray-800">{as.usuario_nome}</p>
+                                    {as.usuario_cargo && <p className="text-gray-500 text-xs">{as.usuario_cargo}</p>}
+                                    {as.data_assinatura && (
+                                      <p className="text-gray-500 text-xs mt-1">
+                                        {new Date(as.data_assinatura).toLocaleString('pt-BR')}
+                                      </p>
+                                    )}
+                                    {as.codigo_validacao && (
+                                      <code className="text-xs font-mono text-indigo-600 mt-1 block">
+                                        {as.codigo_validacao.match(/.{1,4}/g)?.join('-')}
+                                      </code>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-400 mb-3">Nenhuma assinatura digital registrada</p>
+                            )}
+                            {medicao.boletim_pdf_url && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                disabled={baixandoBoletim === medicao.id}
+                                onClick={() => baixarBoletimAprov(medicao)}
+                              >
+                                {baixandoBoletim === medicao.id
+                                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                                  : <FileDown className="h-4 w-4" />}
+                                Baixar Boletim Assinado
+                              </Button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Anexos enviados pelo fornecedor */}
+                        {anexosAprov[medicao.id] !== undefined && (
+                          <div className="mt-4 bg-white p-4 rounded-lg">
+                            <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                              <Paperclip className="h-4 w-4 text-indigo-600" />
+                              Documentos e Evidências do Fornecedor
+                              <Badge variant="outline" className="ml-1 text-xs">
+                                {anexosAprov[medicao.id]?.length || 0}
+                              </Badge>
+                            </h4>
+
+                            {(anexosAprov[medicao.id]?.length || 0) === 0 ? (
+                              <p className="text-sm text-gray-500">
+                                Nenhum anexo enviado pelo fornecedor nesta medição.
+                              </p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {anexosAprov[medicao.id].map((anexo: any) => {
+                                  const anexoUrl = anexo?.url
+                                    ? (anexo.url.startsWith('http') ? anexo.url : `${API_URL}${anexo.url}`)
+                                    : '';
+                                  const isFoto = anexo?.tipo === 'FOTO';
+                                  return (
+                                    <div key={anexo.id} className="border rounded-lg overflow-hidden bg-white">
+                                      {isFoto && anexoUrl ? (
+                                        <img
+                                          src={anexoUrl}
+                                          alt={anexo.descricao || anexo.nome_original || 'Anexo da medição'}
+                                          className="w-full h-28 object-cover bg-gray-100"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-28 flex items-center justify-center bg-gray-50">
+                                          <FileText className="h-8 w-8 text-gray-400" />
+                                        </div>
+                                      )}
+                                      <div className="p-2 space-y-1">
+                                        <p className="text-xs font-medium text-gray-800 line-clamp-2">
+                                          {anexo.descricao || anexo.nome_original || 'Arquivo'}
+                                        </p>
+                                        <p className="text-[11px] text-gray-500">
+                                          {(anexo.tamanho_bytes || 0) > 0
+                                            ? `${Math.max(1, Math.round((anexo.tamanho_bytes || 0) / 1024))} KB`
+                                            : 'Tamanho não informado'}
+                                        </p>
+                                        {anexoUrl && (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-xs gap-1.5"
+                                            onClick={() => window.open(anexoUrl, '_blank')}
+                                          >
+                                            <Eye className="h-3.5 w-3.5" />
+                                            Abrir anexo
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Discriminação das Despesas */}
                         {discriminacoesAprov[medicao.id] && discriminacoesAprov[medicao.id].length > 0 && (
                           <div className="mt-4 bg-white p-4 rounded-lg">
@@ -1485,7 +1662,7 @@ export default function CentralAprovacoesPage() {
                               <DollarSign className="h-4 w-4 text-amber-600" />
                               Discriminacao das Despesas
                             </h4>
-                            <Table>
+                            <Table className="table-fixed">
                               <TableHeader>
                                 <TableRow className="bg-amber-50">
                                   <TableHead className="text-xs font-bold w-12">Item</TableHead>
@@ -1498,7 +1675,7 @@ export default function CentralAprovacoesPage() {
                                 {discriminacoesAprov[medicao.id].map((d: any, idx: number) => (
                                   <TableRow key={d.id || idx}>
                                     <TableCell className="text-sm font-mono">{d.numero_item || idx + 1}</TableCell>
-                                    <TableCell className="text-sm">
+                                    <TableCell className="text-sm whitespace-normal break-words max-w-[520px] align-top">
                                       {d.descricao}
                                       {d.corrigido_por_nome && <span className="ml-1 text-xs text-amber-600">(corrigido)</span>}
                                     </TableCell>
@@ -1539,7 +1716,9 @@ export default function CentralAprovacoesPage() {
                                 {execucaoAprov[medicao.id].itens.map((item: any, idx: number) => (
                                   <TableRow key={item.etapa_id || idx}>
                                     <TableCell className="text-sm font-mono">{item.numero_etapa}</TableCell>
-                                    <TableCell className="text-sm">{item.descricao}</TableCell>
+                                    <TableCell className="text-sm whitespace-normal break-words max-w-[520px] align-top">
+                                      {item.descricao}
+                                    </TableCell>
                                     <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
                                     <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
                                     <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>

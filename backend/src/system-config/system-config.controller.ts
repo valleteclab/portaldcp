@@ -93,6 +93,27 @@ export class SystemConfigController {
     }
   }
 
+  // ============ AGENTE WHATSAPP ============
+
+  @Get('whatsapp-agent')
+  async getWhatsAppAgentConfig() {
+    try {
+      return await this.systemConfigService.getWhatsAppAgentConfig();
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Put('whatsapp-agent')
+  async setWhatsAppAgentAtivo(@Body() body: { ativo: boolean }) {
+    try {
+      await this.systemConfigService.setWhatsAppAgentAtivo(body.ativo);
+      return { success: true, message: `Agente WhatsApp ${body.ativo ? 'ativado' : 'desativado'} com sucesso!` };
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   // ============ CONFIGURAÇÕES GERAIS ============
 
   @Get()

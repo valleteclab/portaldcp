@@ -108,6 +108,8 @@ interface Requisicao {
   // Assinatura digital
   codigo_validacao?: string | null;
   pdf_assinado_url?: string | null;
+  enviado_ao_fornecedor?: boolean;
+  data_envio_fornecedor?: string | null;
   // Campos específicos de OS
   descricao_os?: string | null;
   local_execucao?: string | null;
@@ -150,6 +152,20 @@ const STATUS_LABELS: Record<string, string> = {
   ORDEM_GERADA: 'Ordem Gerada',
   ATENDIDA_PARCIAL: 'Parcialmente Atendida',
   ATENDIDA: 'Atendida',
+};
+
+const getStatusDisplay = (req: Requisicao) => {
+  if (req.tipo === 'ORDEM_SERVICO' && req.enviado_ao_fornecedor) {
+    return {
+      label: 'Enviada ao Fornecedor',
+      className: 'bg-teal-100 text-teal-800',
+    };
+  }
+
+  return {
+    label: STATUS_LABELS[req.status] || req.status,
+    className: STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-800',
+  };
 };
 
 const PRIORIDADE_COLORS: Record<string, string> = {
@@ -956,7 +972,9 @@ function RequisicoesList() {
                   </TableCell>
                 </TableRow>
               ) : (
-                requisicoesFiltradas.map((req) => (
+                requisicoesFiltradas.map((req) => {
+                  const statusDisplay = getStatusDisplay(req)
+                  return (
                   <TableRow key={req.id}>
                     <TableCell className="font-medium whitespace-nowrap">{req.numero}</TableCell>
                     <TableCell>
@@ -977,8 +995,8 @@ function RequisicoesList() {
                       {req.contrato?.fornecedor?.razao_social || '-'}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
-                      <Badge className={`text-xs ${STATUS_COLORS[req.status]}`}>
-                        {STATUS_LABELS[req.status]}
+                      <Badge className={`text-xs ${statusDisplay.className}`}>
+                        {statusDisplay.label}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -1109,6 +1127,11 @@ function RequisicoesList() {
                             OF gerada — acesse Ordens de Fornecimento
                           </span>
                         )}
+                        {req.tipo === 'ORDEM_SERVICO' && req.enviado_ao_fornecedor && (
+                          <span className="text-xs text-teal-600 font-medium px-2 py-1 bg-teal-50 rounded-md border border-teal-200">
+                            Enviada ao fornecedor
+                          </span>
+                        )}
                         {/* Botão de cancelar */}
                         {/* Qualquer usuário pode cancelar: RASCUNHO, AGUARDANDO_AUTORIZACAO, NEGADA */}
                         {req.status === 'RASCUNHO' && (
@@ -1170,7 +1193,8 @@ function RequisicoesList() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
+                  )
+                })
               )}
             </TableBody>
           </Table>
@@ -1220,8 +1244,8 @@ function RequisicoesList() {
                 <div>
                   <label className="text-sm font-medium text-gray-500">Status</label>
                   <div>
-                    <Badge className={STATUS_COLORS[requisicaoSelecionada.status]}>
-                      {STATUS_LABELS[requisicaoSelecionada.status]}
+                    <Badge className={getStatusDisplay(requisicaoSelecionada).className}>
+                      {getStatusDisplay(requisicaoSelecionada).label}
                     </Badge>
                   </div>
                 </div>
@@ -1259,6 +1283,14 @@ function RequisicoesList() {
                   <div>
                     <label className="text-sm font-medium text-gray-500">Autorizador</label>
                     <p>{requisicaoSelecionada.usuario_autorizador_nome}</p>
+                  </div>
+                )}
+                {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' && requisicaoSelecionada.enviado_ao_fornecedor && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Envio ao Fornecedor</label>
+                    <p>
+                      Enviada{requisicaoSelecionada.data_envio_fornecedor ? ` em ${formatarData(requisicaoSelecionada.data_envio_fornecedor)}` : ''}
+                    </p>
                   </div>
                 )}
               </div>

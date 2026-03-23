@@ -4,26 +4,36 @@ import { Repository, In } from 'typeorm';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
+import { LinkAssinaturaFiscal } from './entities/link-assinatura-fiscal.entity';
+import { DocumentoContrato, TipoDocumentoContrato } from './entities/documento-contrato.entity';
 import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
+import { AnexoMedicao } from './entities/anexo-medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
-import { Usuario } from '../usuarios/entities/usuario.entity';
+import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao, PrioridadeNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.entity';
+import * as fs from 'fs';
+import * as path from 'path';
+import { createHash } from 'crypto';
+import QRCode from 'qrcode';
 
 @Injectable()
 export class MedicaoService {
   private readonly logger = new Logger(MedicaoService.name);
+  private readonly uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
   constructor(
     @InjectRepository(Contrato)
@@ -54,8 +64,17 @@ export class MedicaoService {
     private usuarioRepository: Repository<Usuario>,
     @InjectRepository(Fornecedor)
     private fornecedorRepository: Repository<Fornecedor>,
+    @InjectRepository(AssinaturaDigital)
+    private assinaturaDigitalRepository: Repository<AssinaturaDigital>,
+    @InjectRepository(AnexoMedicao)
+    private anexoMedicaoRepository: Repository<AnexoMedicao>,
+    @InjectRepository(LinkAssinaturaFiscal)
+    private linkAssinaturaRepository: Repository<LinkAssinaturaFiscal>,
+    @InjectRepository(DocumentoContrato)
+    private documentoContratoRepository: Repository<DocumentoContrato>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
+    private geradorPdfService: GeradorPdfService,
   ) { }
 
   // ============================================================================
@@ -283,9 +302,14 @@ export class MedicaoService {
     const somaValorExistente = itensExistentes.reduce((sum, i) => sum + Number(i.valor_total), 0);
     const quantidade = Number(dados.quantidade) || 0;
     const valorUnitario = Number(dados.valor_unitario) || 0;
-    const quantidadeMeses = dados.quantidade_meses ? Number(dados.quantidade_meses) : null;
-    const valorMensal = quantidade * valorUnitario;
-    const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
+    const unidade = (dados as any).unidade_medida as string | undefined;
+    // Para itens MENSAL: Quantidade = meses, Valor Unitário = preço/mês.
+    // Valor Mensal = Valor Unitário (custo mensal fixo), Valor Total = Qtd × Valor Unitário.
+    // Qtd. Meses é ignorado para MENSAL (seria redundante / causaria dupla contagem).
+    const isMensal = unidade === 'MENSAL';
+    const quantidadeMeses = isMensal ? null : (dados.quantidade_meses ? Number(dados.quantidade_meses) : null);
+    const valorMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
+    const valorTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal);
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
@@ -296,9 +320,10 @@ export class MedicaoService {
       );
     }
 
-    const numeroItem = itensExistentes.length > 0
+    const proximoNumero = itensExistentes.length > 0
       ? Math.max(...itensExistentes.map(i => i.numero_item)) + 1
       : 1;
+    const numeroItem = (dados as any).numero_item > 0 ? (dados as any).numero_item : proximoNumero;
 
     const item = this.itemCronogramaRepository.create({
       contrato_id: contratoId,
@@ -330,11 +355,15 @@ export class MedicaoService {
       );
     }
 
-    const quantidadeMeses = dados.quantidade_meses !== undefined
+    const unidade = (dados as any).unidade_medida !== undefined ? (dados as any).unidade_medida : item.unidade_medida;
+    const isMensal = unidade === 'MENSAL';
+    const quantidadeMeses = isMensal ? null : (dados.quantidade_meses !== undefined
       ? (dados.quantidade_meses ? Number(dados.quantidade_meses) : null)
-      : item.quantidade_meses;
-    const valorMensal = quantidade * valorUnitario;
-    const valorTotal = quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal;
+      : item.quantidade_meses);
+    // MENSAL: Valor Mensal = preço/mês (Valor Unitário), Valor Total = Qtd(meses) × Valor Unitário
+    // OUTROS: Valor Mensal = Qtd × Valor Unitário, Valor Total = Valor Mensal × Qtd. Meses
+    const valorMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
+    const valorTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? valorMensal * quantidadeMeses : valorMensal);
     Object.assign(item, {
       ...dados,
       quantidade,
@@ -362,6 +391,33 @@ export class MedicaoService {
     await this.itemCronogramaRepository.remove(item);
   }
 
+  /**
+   * Atualiza quantidade_medida do item do cronograma (ajuste de migração).
+   * Apenas administradores. Usado para informar quantidade já consumida antes da implantação do sistema.
+   */
+  async atualizarQuantidadeMedidaMigracao(
+    contratoId: string,
+    itemId: string,
+    quantidadeMedida: number,
+  ): Promise<ItemCronograma> {
+    const item = await this.itemCronogramaRepository.findOne({
+      where: { id: itemId, contrato_id: contratoId },
+    });
+    if (!item) throw new NotFoundException('Item do cronograma não encontrado');
+
+    const qtd = Number(quantidadeMedida) || 0;
+    const quantidadeTotal = Number(item.quantidade) || 0;
+    if (qtd < 0) throw new BadRequestException('Quantidade medida não pode ser negativa');
+    if (qtd > quantidadeTotal + 0.0001) {
+      throw new BadRequestException(
+        `Quantidade medida (${qtd.toFixed(2)}) não pode exceder a quantidade total do item (${quantidadeTotal.toFixed(2)})`,
+      );
+    }
+
+    item.quantidade_medida = qtd;
+    return this.itemCronogramaRepository.save(item);
+  }
+
   // ============================================================================
   // MEDIÇÕES — Criação (pelo fornecedor ou fiscal)
   // ============================================================================
@@ -373,6 +429,7 @@ export class MedicaoService {
   async criarMedicao(contratoId: string, dados: {
     periodo_inicio: string;
     periodo_fim: string;
+    competencia?: string;
     valor_medido?: number;
     fornecedor_id?: string;
     fornecedor_nome?: string;
@@ -427,6 +484,7 @@ export class MedicaoService {
     }
 
     let osVinculada: OrdemServicoContrato | null = null;
+    const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
 
     if (!servicoContinuado) {
       if (!dados.itens || !Array.isArray(dados.itens) || dados.itens.length === 0) {
@@ -443,10 +501,18 @@ export class MedicaoService {
         );
       }
 
-      if (osVinculada.status === StatusOrdemServico.AUTORIZADA) {
-        osVinculada.status = StatusOrdemServico.EM_EXECUCAO;
-        await this.ordemServicoRepository.save(osVinculada);
-        this.logger.log(`OS ${osVinculada.numero_os} movida para EM_EXECUCAO ao criar medição`);
+      const statusAtual = String(osVinculada.status);
+      if (statusAtual === StatusOrdemServico.AUTORIZADA || statusAtual === 'AUTORIZADA') {
+        if (fluxoOs === 'REQUISICAO') {
+          await this.requisicaoRepository.update(osVinculada.id, {
+            status: StatusRequisicao.ORDEM_GERADA,
+          });
+          this.logger.log(`Requisição OS ${osVinculada.numero_os} atualizada para ORDEM_GERADA ao criar medição`);
+        } else {
+          osVinculada.status = StatusOrdemServico.EM_EXECUCAO;
+          await this.ordemServicoRepository.save(osVinculada);
+          this.logger.log(`OS ${osVinculada.numero_os} movida para EM_EXECUCAO ao criar medição`);
+        }
       }
     }
 
@@ -506,12 +572,16 @@ export class MedicaoService {
 
       const quantidadeEmTransitoPorItem = await this.calcularQuantidadeComprometidaPorItem(contratoId);
 
+      const unidadesAtivas: string[] = []; // para validar homogeneidade no final
+
       for (const item of itensComItemCronograma) {
         const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: item.item_cronograma_id! } });
         if (!itemCron) throw new NotFoundException(`Item do cronograma ${item.item_cronograma_id} não encontrado`);
 
         const qtdMedida = Number(item.quantidade_medida) || 0;
         if (qtdMedida <= 0) continue;
+
+        unidadesAtivas.push(itemCron.unidade_medida);
 
         const quantidadeTotal = Number(itemCron.quantidade);
         const quantidadeAprovada = Number(itemCron.quantidade_medida) || 0;
@@ -542,6 +612,16 @@ export class MedicaoService {
 
       if (valorMedido <= 0) {
         throw new BadRequestException('A medição deve ter pelo menos um item com quantidade > 0');
+      }
+
+      // Validar que não há mistura de itens mensais com itens por quantidade
+      const temMensal = unidadesAtivas.some((u) => u === 'MENSAL');
+      const temQuantidade = unidadesAtivas.some((u) => u !== 'MENSAL');
+      if (temMensal && temQuantidade) {
+        throw new BadRequestException(
+          'Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição. ' +
+          'Crie uma medição separada para os itens de cada tipo.'
+        );
       }
     } else {
       // Fluxo completo com etapas (obras/engenharia)
@@ -591,10 +671,12 @@ export class MedicaoService {
 
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
-      ordem_servico_id: osVinculada?.id || null,
+      ordem_servico_id: (fluxoOs === 'REQUISICAO') ? null : osVinculada?.id || null,
+      requisicao_id: (fluxoOs === 'REQUISICAO') ? osVinculada?.id || null : null,
       numero_medicao: numeroMedicao,
       periodo_inicio: dados.periodo_inicio,
       periodo_fim: dados.periodo_fim,
+      competencia: dados.competencia || null,
       valor_medido: valorMedido,
       valor_acumulado_anterior: valorAcumuladoAnterior,
       valor_acumulado_atual: valorAcumuladoAnterior + valorMedido,
@@ -615,6 +697,21 @@ export class MedicaoService {
     } as any);
 
     const medicaoSalva = await this.medicaoRepository.save(medicao) as unknown as Medicao;
+
+    // Calcular e salvar execução fiscal (temporal) com ano comercial
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceira(contratoId, '', medicaoSalva.id);
+      if (execucaoFinanceira) {
+        await this.medicaoRepository.update(medicaoSalva.id, {
+          execucao_fiscal: execucaoFinanceira.execucao_fiscal,
+          execucao_financeira: this.montarSnapshotExecucaoFinanceira(execucaoFinanceira),
+        });
+        this.logger.log(`Execução fiscal/financeira calculada e salva para medição ${medicaoSalva.id}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao calcular execução fiscal/financeira para medição ${medicaoSalva.id}: ${error.message}`);
+      // Não falhar a criação da medição se der erro no snapshot de execução
+    }
 
     // Salvar itens da medição (obras/etapas)
     for (const item of itensParaSalvar) {
@@ -678,31 +775,43 @@ export class MedicaoService {
       throw new ForbiddenException('Você não tem permissão para excluir esta medição');
     }
 
-    // Se medição APROVADA, reverter os valores das etapas
+    // Se medição APROVADA, reverter os valores das etapas ou itens do cronograma
     if (medicao.status === StatusMedicao.APROVADA) {
-      const itensMedicao = await this.itemMedicaoRepository.find({
-        where: { medicao_id: medicaoId },
-      });
-
-      for (const item of itensMedicao) {
-        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-        if (etapa) {
-          // Reverter percentual: subtrair o percentual_executado_atual desta medição
-          etapa.percentual_executado = Math.max(0, Number(etapa.percentual_executado) - Number(item.percentual_executado_atual));
-          // Reverter valor: subtrair o valor_medido desta medição
-          etapa.valor_executado = Math.max(0, Number(etapa.valor_executado) - Number(item.valor_medido));
-
-          // Recalcular status da etapa
-          if (Number(etapa.percentual_executado) >= 100) {
-            etapa.status = StatusEtapaCronograma.CONCLUIDA;
-          } else if (Number(etapa.percentual_executado) > 0) {
-            etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
-          } else {
-            etapa.status = StatusEtapaCronograma.PENDENTE;
-            etapa.data_fim_real = null as any;
+      const usarItens = await this.usarItensCronograma(medicao.contrato_id);
+      if (usarItens) {
+        const itensItem = await this.itemMedicaoItemRepository.find({
+          where: { medicao_id: medicaoId },
+          relations: ['itemCronograma'],
+        });
+        for (const imi of itensItem) {
+          const ic = imi.itemCronograma;
+          if (ic) {
+            ic.quantidade_medida = Math.max(0, Number(ic.quantidade_medida) - Number(imi.quantidade_medida));
+            await this.itemCronogramaRepository.save(ic);
           }
+        }
+      } else {
+        const itensMedicao = await this.itemMedicaoRepository.find({
+          where: { medicao_id: medicaoId },
+        });
 
-          await this.etapaRepository.save(etapa);
+        for (const item of itensMedicao) {
+          const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+          if (etapa) {
+            etapa.percentual_executado = Math.max(0, Number(etapa.percentual_executado) - Number(item.percentual_executado_atual));
+            etapa.valor_executado = Math.max(0, Number(etapa.valor_executado) - Number(item.valor_medido));
+
+            if (Number(etapa.percentual_executado) >= 100) {
+              etapa.status = StatusEtapaCronograma.CONCLUIDA;
+            } else if (Number(etapa.percentual_executado) > 0) {
+              etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+            } else {
+              etapa.status = StatusEtapaCronograma.PENDENTE;
+              etapa.data_fim_real = null as any;
+            }
+
+            await this.etapaRepository.save(etapa);
+          }
         }
       }
 
@@ -714,6 +823,7 @@ export class MedicaoService {
 
     // Excluir itens da medição primeiro
     await this.itemMedicaoRepository.delete({ medicao_id: medicaoId });
+    await this.itemMedicaoItemRepository.delete({ medicao_id: medicaoId });
 
     // Excluir a medição
     await this.medicaoRepository.remove(medicao);
@@ -811,6 +921,16 @@ export class MedicaoService {
     medicao.motivo_devolucao = null as any;
     medicao.data_devolucao = null as any;
 
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicao.id);
+      medicao.execucao_fiscal = execucaoFinanceira?.execucao_fiscal || null as any;
+      medicao.execucao_financeira = execucaoFinanceira
+        ? this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any
+        : null as any;
+    } catch (error) {
+      this.logger.warn(`Erro ao persistir snapshot de execução da medição ${medicao.id} na submissão: ${error.message}`);
+    }
+
     await this.medicaoRepository.save(medicao);
     this.logger.log(`Medição #${medicao.numero_medicao} submetida pelo fornecedor ${fornecedorId}`);
 
@@ -819,6 +939,60 @@ export class MedicaoService {
       this.logger.error(`Erro ao enviar notificações de submissão: ${e.message}`),
     );
 
+    return this.buscarMedicaoCompleta(medicaoId);
+  }
+
+  /**
+   * Fiscal submete medição criada internamente para análise (fluxo igual ao fornecedor).
+   * Status: RASCUNHO → SUBMETIDA (depois fiscal atesta → AGUARDANDO_APROVACAO)
+   */
+  async submeterMedicaoFiscal(medicaoId: string, fiscalId: string, fiscalNome: string): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    if (medicao.status !== StatusMedicao.RASCUNHO && medicao.status !== StatusMedicao.DEVOLVIDA) {
+      throw new BadRequestException('Apenas medições em rascunho ou devolvidas podem ser submetidas');
+    }
+
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato) {
+      const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
+      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+      const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
+      const valorMedicao = Number(medicao.valor_medido) || 0;
+      if (valorMedicao > saldoDisponivel + 0.01) {
+        throw new BadRequestException(
+          `O valor desta medição (R$ ${valorMedicao.toFixed(2)}) excede o saldo disponível (R$ ${saldoDisponivel.toFixed(2)}).`
+        );
+      }
+    }
+
+    medicao.status = StatusMedicao.SUBMETIDA;
+    medicao.data_submissao = new Date() as any;
+    medicao.fiscal_id = fiscalId;
+    medicao.fiscal_nome = fiscalNome;
+    medicao.motivo_devolucao = null as any;
+    medicao.data_devolucao = null as any;
+
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceiraFornecedor(medicao.contrato_id, medicao.id);
+      medicao.execucao_fiscal = execucaoFinanceira?.execucao_fiscal || null as any;
+      medicao.execucao_financeira = execucaoFinanceira
+        ? this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any
+        : null as any;
+    } catch (error) {
+      this.logger.warn(`Erro ao persistir snapshot da medição ${medicao.id}: ${error.message}`);
+    }
+
+    await this.medicaoRepository.save(medicao);
+    this.logger.log(`Medição #${medicao.numero_medicao} submetida pelo fiscal ${fiscalNome}`);
+    const contratoNotif = contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contratoNotif) {
+      this.notificarSubmissaoMedicao(medicao, contratoNotif).catch(e =>
+        this.logger.error(`Erro ao enviar notificações de submissão: ${e.message}`),
+      );
+    }
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
@@ -924,17 +1098,33 @@ export class MedicaoService {
       throw new BadRequestException('Apenas medições submetidas ou parcialmente atestadas podem receber ateste');
     }
 
-    // Atestar todos os itens da medição
-    const itens = await this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } });
-    for (const item of itens) {
+    // Atestar todos os itens da medição (etapas + itens de quantidade)
+    const [itensEtapa, itensQuantidade] = await Promise.all([
+      this.itemMedicaoRepository.find({ where: { medicao_id: medicaoId } }),
+      this.itemMedicaoItemRepository.find({ where: { medicao_id: medicaoId } }),
+    ]);
+
+    for (const item of itensEtapa) {
       if (!item.atestado) {
         item.atestado = true;
         item.ateste_fiscal_nome = fiscalNome;
         item.ateste_data = new Date() as any;
       }
     }
-    if (itens.length > 0) {
-      await this.itemMedicaoRepository.save(itens);
+
+    for (const item of itensQuantidade) {
+      if (!item.atestado) {
+        item.atestado = true;
+        item.ateste_fiscal_nome = fiscalNome;
+        item.ateste_data = new Date() as any;
+      }
+    }
+
+    if (itensEtapa.length > 0) {
+      await this.itemMedicaoRepository.save(itensEtapa);
+    }
+    if (itensQuantidade.length > 0) {
+      await this.itemMedicaoItemRepository.save(itensQuantidade);
     }
 
     medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
@@ -945,7 +1135,8 @@ export class MedicaoService {
     medicao.ateste_verificado_in_loco = dados?.verificado_in_loco || false;
 
     await this.medicaoRepository.save(medicao);
-    this.logger.log(`Medição #${medicao.numero_medicao} atestada (todos os itens) pelo fiscal ${fiscalNome}`);
+    const totalItens = itensEtapa.length + itensQuantidade.length;
+    this.logger.log(`Medição #${medicao.numero_medicao} atestada (todos os itens: ${totalItens}) pelo fiscal ${fiscalNome}`);
 
     // Notificar gestores/aprovadores que há medição aguardando aprovação
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
@@ -1165,24 +1356,40 @@ export class MedicaoService {
 
     // Atualizar etapas do cronograma (apenas para obras, serviços continuados não têm etapas)
     if (!servicoContinuado) {
-      const itensMedicao = await this.itemMedicaoRepository.find({
-        where: { medicao_id: medicaoId },
-      });
-
-      for (const item of itensMedicao) {
-        const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
-        if (etapa) {
-          etapa.percentual_executado = Number(item.percentual_executado_acumulado);
-          etapa.valor_executado = Number(etapa.valor_executado) + Number(item.valor_medido);
-
-          if (Number(etapa.percentual_executado) >= 100) {
-            etapa.status = StatusEtapaCronograma.CONCLUIDA;
-            etapa.data_fim_real = new Date() as any;
-          } else if (Number(etapa.percentual_executado) > 0) {
-            etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+      const usarItens = await this.usarItensCronograma(medicao.contrato_id);
+      if (usarItens) {
+        const itensItem = await this.itemMedicaoItemRepository.find({
+          where: { medicao_id: medicaoId },
+          relations: ['itemCronograma'],
+        });
+        for (const imi of itensItem) {
+          const ic = imi.itemCronograma;
+          if (ic) {
+            const qtdNova = Number(ic.quantidade_medida) + Number(imi.quantidade_medida);
+            ic.quantidade_medida = Math.min(qtdNova, Number(ic.quantidade));
+            await this.itemCronogramaRepository.save(ic);
           }
+        }
+      } else {
+        const itensMedicao = await this.itemMedicaoRepository.find({
+          where: { medicao_id: medicaoId },
+        });
 
-          await this.etapaRepository.save(etapa);
+        for (const item of itensMedicao) {
+          const etapa = await this.etapaRepository.findOne({ where: { id: item.etapa_id } });
+          if (etapa) {
+            etapa.percentual_executado = Number(item.percentual_executado_acumulado);
+            etapa.valor_executado = Number(etapa.valor_executado) + Number(item.valor_medido);
+
+            if (Number(etapa.percentual_executado) >= 100) {
+              etapa.status = StatusEtapaCronograma.CONCLUIDA;
+              etapa.data_fim_real = new Date() as any;
+            } else if (Number(etapa.percentual_executado) > 0) {
+              etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+            }
+
+            await this.etapaRepository.save(etapa);
+          }
         }
       }
     }
@@ -1269,10 +1476,367 @@ export class MedicaoService {
     return this.buscarMedicaoCompleta(medicaoId);
   }
 
+  private getBoletinsDir(): string {
+    return path.join(this.uploadDir, 'boletins');
+  }
+
+  private getBoletimPdfFilename(medicaoId: string): string {
+    return `boletim_${medicaoId}.pdf`;
+  }
+
+  private getBoletimPdfPath(medicaoId: string): string {
+    return path.join(this.getBoletinsDir(), this.getBoletimPdfFilename(medicaoId));
+  }
+
+  private getBoletimPdfUrl(medicaoId: string): string {
+    return `/api/uploads/boletins/${this.getBoletimPdfFilename(medicaoId)}`;
+  }
+
+  private normalizarBoletimPdfUrl(pdfUrl: string | null | undefined, medicaoId: string): string {
+    if (!pdfUrl) {
+      return this.getBoletimPdfUrl(medicaoId);
+    }
+
+    if (pdfUrl.startsWith('/uploads/')) {
+      return `/api${pdfUrl}`;
+    }
+
+    return pdfUrl;
+  }
+
+  private async registrarAssinaturaMedicaoSeAusente(
+    medicaoId: string,
+    dados: {
+      orgao_id?: string;
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      usuario_id?: string;
+      usuario_nome: string;
+      usuario_cpf_cnpj: string;
+      usuario_cargo?: string;
+      ip_address?: string;
+      user_agent?: string;
+    },
+  ): Promise<void> {
+    const papelMap: Record<string, PapelAssinante> = {
+      FORNECEDOR: PapelAssinante.FORNECEDOR,
+      FISCAL: PapelAssinante.FISCAL,
+      GESTOR: PapelAssinante.GESTOR,
+    };
+
+    const assinaturaExistente = await this.assinaturaDigitalRepository.findOne({
+      where: {
+        entidade_tipo: EntidadeTipo.MEDICAO,
+        entidade_id: medicaoId,
+        papel_assinante: papelMap[dados.papel] || PapelAssinante.FORNECEDOR,
+      },
+      order: { data_assinatura: 'ASC' },
+    });
+
+    if (!assinaturaExistente) {
+      await this.registrarAssinaturaMedicao(medicaoId, dados);
+    }
+  }
+
+  private async montarDadosPdfOficialMedicao(medicaoId: string): Promise<any> {
+    const medicao = await this.buscarMedicaoCompleta(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const fornecedor = contrato.fornecedor_id
+      ? await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } })
+      : null;
+
+    const discriminacoes = await this.listarDiscriminacoes(medicaoId);
+
+    return {
+      orgao: contrato.orgao || null,
+      contrato,
+      numero_medicao: medicao.numero_medicao,
+      periodo_inicio: medicao.periodo_inicio,
+      periodo_fim: medicao.periodo_fim,
+      valor_medido: Number(medicao.execucao_financeira?.totais?.no_periodo ?? medicao.valor_medido ?? 0),
+      percentual_fisico_medido: Number(medicao.percentual_fisico_medido || 0),
+      execucao_financeira: medicao.execucao_financeira || null,
+      discriminacoes,
+      fornecedor: fornecedor ? {
+        razao_social: fornecedor.razao_social,
+        cpf_cnpj: fornecedor.cpf_cnpj,
+      } : null,
+    };
+  }
+
   /**
-   * Lista medições pendentes de ateste do fiscal (SUBMETIDA + PARCIALMENTE_ATESTADA).
-   * Retorna dados enriquecidos para o Painel de Medições (contrato, fornecedor, itens).
+   * Monta dados no formato DadosMedicaoPdf (compatível com a lib jsPDF do frontend)
+   * incluindo assinaturas já registradas, para o frontend regenerar o PDF com o layout correto.
    */
+  async montarDadosPdfFrontend(medicaoId: string): Promise<any> {
+    const medicao = await this.buscarMedicaoCompleta(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const fornecedor = contrato.fornecedor_id
+      ? await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } })
+      : null;
+
+    const discriminacoes = await this.listarDiscriminacoes(medicaoId);
+
+    const assinaturas = await this.assinaturaDigitalRepository.find({
+      where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
+      order: { data_assinatura: 'ASC' },
+    });
+    const asFornecedor = assinaturas.find(a => a.papel_assinante === PapelAssinante.FORNECEDOR);
+    const asFiscal    = assinaturas.find(a => a.papel_assinante === PapelAssinante.FISCAL);
+
+    const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
+    // timestamp without time zone: o driver pg interpreta o valor do banco
+    // como horário LOCAL do processo Node.js. Para obter o UTC real (valor
+    // armazenado pelo PostgreSQL), desfazemos o offset local e depois
+    // convertemos para BRT (UTC-3). Funciona tanto em servidor UTC quanto BRT.
+    const fmtDataBR = (date: Date) => {
+      const d = date instanceof Date ? date : new Date(date as any);
+      const trueUtcMs = d.getTime() - d.getTimezoneOffset() * 60 * 1000;
+      const brt = new Date(trueUtcMs - 3 * 60 * 60 * 1000);
+      const dd = String(brt.getUTCDate()).padStart(2, '0');
+      const mm = String(brt.getUTCMonth() + 1).padStart(2, '0');
+      const yyyy = brt.getUTCFullYear();
+      const hh = String(brt.getUTCHours()).padStart(2, '0');
+      const mi = String(brt.getUTCMinutes()).padStart(2, '0');
+      const ss = String(brt.getUTCSeconds()).padStart(2, '0');
+      return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
+    };
+
+    // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
+    // Usa o snapshot execucao_financeira salvo na submissão do fornecedor.
+    // Para itens MENSAL com migração via /quantidade-migracao, o snapshot não
+    // inclui ic.quantidade_medida no ate_periodo. Aplicamos Math.max igual ao frontend.
+    const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
+    const efItemMap = new Map<string, any>();
+    for (const ef of efItens) {
+      if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
+    }
+
+    // Carregar itens do cronograma para obter quantidade_medida (migração por item)
+    const icMigracao = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_item: 'ASC' } as any,
+    });
+    const icMigracaoMap = new Map<string, any>();
+    for (const ic of icMigracao) {
+      icMigracaoMap.set(ic.id, ic);
+    }
+
+    const itensParaPdf = ((medicao as any).itens || [])
+      .filter((i: any) => i.tipo_item === 'item_cronograma')
+      .sort((a: any, b: any) => (Number(a.item_numero) || 0) - (Number(b.item_numero) || 0))
+      .map((item: any) => {
+        const vlrUnitario  = Number(item.item_valor_unitario || 0);
+        const qtdMedida    = Number(item.quantidade_medida || 0);
+        const qtdTotal     = Number(item.item_quantidade_total || 0);
+
+        const efItem = efItemMap.get(item.item_cronograma_id || '');
+        const vlrNoPeriodo = efItem ? Number(efItem.no_periodo || 0) : qtdMedida * vlrUnitario;
+
+        // ate_periodo_global do snapshot pode não incluir ic.quantidade_medida (migração por item).
+        // Usa Math.max entre snapshot e migração — mesma lógica do frontend.
+        const ic = icMigracaoMap.get(item.item_cronograma_id || '');
+        const fromSnapshot = efItem ? Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0) : vlrNoPeriodo;
+        const fromMigracao = ic ? Number(ic.quantidade_medida || 0) * vlrUnitario + vlrNoPeriodo : vlrNoPeriodo;
+        const vlrAtePeriodo = Math.max(fromSnapshot, fromMigracao);
+
+        const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
+        const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
+
+        // Para MENSAL com boletim_por_quantidade: cada mês = 1 unidade inteira (arredonda imprecisão de migração)
+        const isMensalComFlag = (item.item_unidade || '') === 'MENSAL' && !!(contrato as any).boletim_por_quantidade;
+        const qtdAcumuladaRaw = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
+        const qtdAcumulada = isMensalComFlag ? Math.round(qtdAcumuladaRaw) : qtdAcumuladaRaw;
+        const qtdAtePeriodo = qtdAcumulada + qtdMedida;
+        const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+        const base: any = {
+          numero:                        Number(item.etapa_numero || item.item_numero || 0),
+          descricao:                     item.item_descricao || item.etapa_descricao || '',
+          unidade:                       item.item_unidade || '',
+          quantidade_no_periodo:         qtdMedida,
+          quantidade_acumulada_aprovada: qtdAcumulada,
+          quantidade_total_contrato:     qtdTotal,
+          valor_no_periodo:              vlrNoPeriodo,
+          valor_unitario:                vlrUnitario,
+          valor_acumulado_anterior:      vlrAcumAnterior,
+          valor_total_item:              vlrTotal,
+        };
+        // Sempre incluir campos de quantidade para o PDF poder mostrar corretamente
+        // para itens não-MENSAL, independente da flag boletim_por_quantidade
+        base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 10000) / 10000;
+        base.quantidade_a_executar = Math.round(qtdAExecutar * 10000) / 10000;
+        return base;
+      });
+
+    // Recalcular totais com base nos itens corrigidos (inclui migração por item)
+    const totalNoPeriodoPdf = itensParaPdf.reduce((s, i) => s + (i.valor_no_periodo || 0), 0);
+    const totalAtePeriodoPdf = itensParaPdf.reduce((s, i) => s + ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0)), 0);
+    const totalAExecutarPdf = itensParaPdf.reduce((s, i) => s + Math.max(0, (i.valor_total_item || 0) - ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0))), 0);
+    const execucaoFinanceiraTotaisCorrigidos = itensParaPdf.length > 0 ? {
+      no_periodo: Math.round(totalNoPeriodoPdf * 100) / 100,
+      ate_periodo: Math.round(totalAtePeriodoPdf * 100) / 100,
+      a_executar: Math.round(totalAExecutarPdf * 100) / 100,
+      valor_previsto: itensParaPdf.reduce((s, i) => s + (i.valor_total_item || 0), 0),
+    } : (medicao.execucao_financeira as any)?.totais || undefined;
+
+    // Itens contratados (para bloco ITENS CONTRATADOS) — reutiliza icMigracao
+    const itensContratados = icMigracao.map((ic, idx) => ({
+      numero:         ic.numero_item || idx + 1,
+      descricao:      ic.descricao || '',
+      unidade:        ic.unidade_medida || '',
+      quantidade:     Number(ic.quantidade || 0),
+      valor_unitario: Number(ic.valor_unitario || 0),
+      valor_total:    Number(ic.valor_total || 0),
+    }));
+
+    return {
+      orgao:                contrato.orgao || null,
+      orgao_nome:           contrato.orgao?.nome || '',
+      numero_contrato:      contrato.numero_contrato || '',
+      objeto_contrato:      contrato.objeto || '',
+      fornecedor_nome:      medicao.fornecedor_nome || fornecedor?.razao_social || '',
+      fornecedor_cnpj:      fornecedor?.cpf_cnpj || '',
+      valor_total_contrato: Number(contrato.valor_global || 0) || undefined,
+      data_vigencia_inicio: contrato.data_vigencia_inicio || undefined,
+      data_vigencia_fim:    contrato.data_vigencia_fim || undefined,
+      numero_medicao:       medicao.numero_medicao || 1,
+      periodo_inicio:       medicao.periodo_inicio || '',
+      periodo_fim:          medicao.periodo_fim || '',
+      competencia:          (medicao as any).competencia || undefined,
+      valor_medido:         Number(medicao.valor_medido || 0),
+      execucao_financeira_totais: execucaoFinanceiraTotaisCorrigidos,
+      nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
+      nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
+      execucao_fiscal:      medicao.execucao_fiscal || undefined,
+      // Usa quantidade se o contrato tem a flag OU se qualquer item tem unidade não-MENSAL
+      // (espelha a lógica do frontend: tipoMedicaoAtual = 'quantidade' quando unidade != 'MENSAL')
+      execucao_fiscal_por_quantidade: !!(contrato as any).boletim_por_quantidade ||
+        itensParaPdf.some(i => i.unidade && i.unidade !== 'MENSAL'),
+      itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
+      itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
+      discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
+        numero:     d.numero_item || idx + 1,
+        descricao:  d.descricao || d.tipo_despesa || '',
+        valor:      Number(d.valor || 0),
+        percentual: Number(d.percentual || 0),
+      })) || undefined,
+      assinatura_fornecedor: asFornecedor ? {
+        nome:             asFornecedor.usuario_nome,
+        cnpj:             asFornecedor.usuario_cpf_cnpj,
+        cargo:            asFornecedor.usuario_cargo || 'Fornecedor / Contratado',
+        data_hora:        fmtDataBR(asFornecedor.data_assinatura),
+        codigo_validacao: fmtCodigo(asFornecedor.codigo_validacao),
+      } : undefined,
+      assinatura_fiscal: asFiscal ? {
+        nome:             asFiscal.usuario_nome,
+        cpf:              asFiscal.usuario_cpf_cnpj,
+        cargo:            asFiscal.usuario_cargo || 'Fiscal de Contrato',
+        matricula:        asFiscal.usuario_matricula || undefined,
+        portaria:         asFiscal.usuario_portaria || undefined,
+        data_hora:        fmtDataBR(asFiscal.data_assinatura),
+        codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
+      } : undefined,
+      url_validacao: `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento`,
+      qr_code_data_url: await (async () => {
+        const primeiroCodigoValido = (asFiscal || asFornecedor)?.codigo_validacao;
+        if (!primeiroCodigoValido) return undefined;
+        const appUrl = process.env.APP_URL || 'https://portaldcp.com.br';
+        try {
+          return await QRCode.toDataURL(
+            `${appUrl}/validar-documento/${primeiroCodigoValido}`,
+            { width: 80, margin: 1, color: { dark: '#000000', light: '#ffffff' } },
+          );
+        } catch {
+          return undefined;
+        }
+      })(),
+    };
+  }
+
+  async gerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
+    const dadosMedicao = await this.montarDadosPdfFrontend(medicaoId);
+    const assinaturas = await this.assinaturaDigitalRepository.find({
+      where: {
+        entidade_tipo: EntidadeTipo.MEDICAO,
+        entidade_id: medicaoId,
+      },
+      order: { data_assinatura: 'ASC' },
+    });
+
+    const boletinsDir = this.getBoletinsDir();
+    if (!fs.existsSync(boletinsDir)) {
+      fs.mkdirSync(boletinsDir, { recursive: true });
+    }
+
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    await this.geradorPdfService.gerarPdfMedicao(
+      dadosMedicao,
+      assinaturas,
+      `${process.env.APP_URL || 'http://localhost:3000'}/validar-documento`,
+      filePath,
+    );
+
+    // Calcular SHA-256 do PDF gerado e gravar nas assinaturas
+    try {
+      const pdfBuffer = fs.readFileSync(filePath);
+      const documentoHash = createHash('sha256').update(pdfBuffer).digest('hex');
+      await this.assinaturaDigitalRepository.update(
+        { entidade_id: medicaoId, entidade_tipo: EntidadeTipo.MEDICAO },
+        { documento_hash: documentoHash } as any,
+      );
+      this.logger.log(`Hash SHA-256 gravado (gerador oficial) para medição ${medicaoId}: ${documentoHash.slice(0, 16)}...`);
+    } catch (e) {
+      this.logger.warn(`Erro ao gravar hash do boletim oficial ${medicaoId}: ${e.message}`);
+    }
+
+    const pdfUrl = this.getBoletimPdfUrl(medicaoId);
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+
+    return {
+      pdf_url: pdfUrl,
+      filename: this.getBoletimPdfFilename(medicaoId),
+    };
+  }
+
+  async obterOuGerarPdfOficialMedicao(medicaoId: string): Promise<{ pdf_url: string; filename: string }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    if (medicao.boletim_pdf_url && fs.existsSync(filePath)) {
+      const pdfUrl = this.normalizarBoletimPdfUrl(medicao.boletim_pdf_url, medicaoId);
+      if (pdfUrl !== medicao.boletim_pdf_url) {
+        await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+      }
+
+      return {
+        pdf_url: pdfUrl,
+        filename: this.getBoletimPdfFilename(medicaoId),
+      };
+    }
+
+    return this.gerarPdfOficialMedicao(medicaoId);
+  }
+
+  /** Retorna o caminho absoluto do arquivo PDF do boletim, ou null se não existir. */
+  getBoletimPdfFilePath(medicaoId: string): string | null {
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    return fs.existsSync(filePath) ? filePath : null;
+  }
+
   async listarPendentesAteste(orgaoId: string): Promise<any[]> {
     const medicoes = await this.medicaoRepository
       .createQueryBuilder('m')
@@ -1282,7 +1846,6 @@ export class MedicaoService {
       .orderBy('m.data_submissao', 'ASC')
       .getMany();
 
-    // Mapa (contrato_id|mes_referencia) -> data_solicitacao mais recente
     const pares = medicoes.map(med => {
       const inicio = med.periodo_inicio instanceof Date ? med.periodo_inicio : new Date(med.periodo_inicio as any);
       const mesRef = `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}`;
@@ -1311,7 +1874,6 @@ export class MedicaoService {
       if (!existing || dt > existing) dataSolicitacaoMap.set(key, dt);
     }
 
-    // Enriquecer com contagem de itens (total e atestados) e data_solicitacao
     const result = [];
     for (const med of medicoes) {
       const inicio = med.periodo_inicio instanceof Date ? med.periodo_inicio : new Date(med.periodo_inicio as any);
@@ -1412,6 +1974,153 @@ export class MedicaoService {
     });
   }
 
+  // ============================================================================
+  // MEDIÇÕES APROVADAS — Listagem, contabilidade e ZIP
+  // ============================================================================
+
+  async listarAprovadas(orgaoId: string): Promise<any[]> {
+    const medicoes = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.contrato', 'c')
+      .innerJoin('c.orgao', 'o')
+      .where('o.id = :orgaoId', { orgaoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .orderBy('m.data_aprovacao', 'DESC')
+      .getMany();
+
+    if (medicoes.length === 0) return [];
+
+    const ids = medicoes.map(m => m.id);
+    const counts = await this.anexoMedicaoRepository
+      .createQueryBuilder('a')
+      .select('a.medicao_id', 'medicao_id')
+      .addSelect('COUNT(a.id)', 'total')
+      .where('a.medicao_id IN (:...ids)', { ids })
+      .groupBy('a.medicao_id')
+      .getRawMany();
+
+    const countMap = Object.fromEntries(counts.map(c => [c.medicao_id, Number(c.total)]));
+
+    return medicoes.map(m => {
+      const contrato = (m as any).contrato;
+      return {
+        id: m.id,
+        numero_medicao: m.numero_medicao,
+        contrato_id: m.contrato_id,
+        periodo_inicio: m.periodo_inicio,
+        periodo_fim: m.periodo_fim,
+        valor_medido: m.valor_medido,
+        boletim_pdf_url: m.boletim_pdf_url,
+        data_aprovacao: m.data_aprovacao,
+        fornecedor_nome: m.fornecedor_nome || contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
+        competencia: m.competencia,
+        enviado_contabilidade: m.enviado_contabilidade,
+        data_envio_contabilidade: m.data_envio_contabilidade,
+        enviado_contabilidade_por_nome: m.enviado_contabilidade_por_nome,
+        contrato: {
+          numero_contrato: contrato?.numero_contrato,
+          objeto_contrato: contrato?.objeto,
+          modalidade_execucao: contrato?.modalidade_execucao,
+        },
+        total_anexos: countMap[m.id] || 0,
+      };
+    });
+  }
+
+  async marcarEnviadoContabilidade(
+    medicaoId: string,
+    orgaoId: string,
+    usuarioNome: string,
+  ): Promise<{ enviado_contabilidade: boolean; data_envio_contabilidade: Date | null }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.orgao'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if ((medicao as any).contrato?.orgao?.id !== orgaoId) throw new ForbiddenException('Acesso negado');
+
+    const novoEstado = !medicao.enviado_contabilidade;
+    medicao.enviado_contabilidade = novoEstado;
+    medicao.data_envio_contabilidade = novoEstado ? new Date() : null;
+    medicao.enviado_contabilidade_por_nome = novoEstado ? usuarioNome : null;
+    await this.medicaoRepository.save(medicao);
+
+    return {
+      enviado_contabilidade: medicao.enviado_contabilidade,
+      data_envio_contabilidade: medicao.data_envio_contabilidade,
+    };
+  }
+
+  async gerarZipMedicao(medicaoId: string, orgaoId: string): Promise<Buffer> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.orgao'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if ((medicao as any).contrato?.orgao?.id !== orgaoId) throw new ForbiddenException('Acesso negado');
+
+    const anexos = await this.anexoMedicaoRepository.find({ where: { medicao_id: medicaoId } });
+
+    // Documentos do contrato: tipo CONTRATO e último TERMO_ADITIVO
+    const docContrato = await this.documentoContratoRepository.findOne({
+      where: { contrato_id: (medicao as any).contrato?.id, tipo: TipoDocumentoContrato.CONTRATO },
+      order: { created_at: 'ASC' },
+    });
+    const docsAditivos = await this.documentoContratoRepository.find({
+      where: { contrato_id: (medicao as any).contrato?.id, tipo: TipoDocumentoContrato.TERMO_ADITIVO },
+      order: { created_at: 'DESC' },
+    });
+    const ultimoAditivo = docsAditivos.length > 0 ? docsAditivos[0] : null;
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const archiver = require('archiver');
+    const chunks: Buffer[] = [];
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    await new Promise<void>((resolve, reject) => {
+      archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+      archive.on('end', resolve);
+      archive.on('error', reject);
+
+      // 1. Boletim PDF assinado
+      if (medicao.boletim_pdf_url) {
+        const pdfPath = path.join(process.cwd(), medicao.boletim_pdf_url.replace(/^\/api/, ''));
+        if (fs.existsSync(pdfPath)) {
+          archive.file(pdfPath, { name: `boletim_medicao_${medicao.numero_medicao}.pdf` });
+        }
+      }
+
+      // 2. Documento do contrato (tipo CONTRATO)
+      if (docContrato) {
+        const filePath = path.join(process.cwd(), docContrato.caminho_arquivo);
+        if (fs.existsSync(filePath)) {
+          archive.file(filePath, { name: `contrato_${docContrato.nome_original}` });
+        }
+      }
+
+      // 3. Último termo aditivo (se houver)
+      if (ultimoAditivo) {
+        const filePath = path.join(process.cwd(), ultimoAditivo.caminho_arquivo);
+        if (fs.existsSync(filePath)) {
+          archive.file(filePath, { name: `ultimo_aditivo_${ultimoAditivo.nome_original}` });
+        }
+      }
+
+      // 4. Todos os anexos da medição (FOTO, DOCUMENTO — inclui nota fiscal se enviada como anexo)
+      for (const anexo of anexos) {
+        const filePath = path.join(process.cwd(), anexo.url.replace(/^\/api/, ''));
+        if (fs.existsSync(filePath)) {
+          const prefix = anexo.tipo === 'FOTO' ? 'foto' : 'doc';
+          archive.file(filePath, { name: `${prefix}_${anexo.nome_original}` });
+        }
+      }
+
+      archive.finalize();
+    });
+
+    return Buffer.concat(chunks);
+  }
+
   /**
    * Lista medições de um fornecedor específico em um contrato.
    */
@@ -1470,6 +2179,19 @@ export class MedicaoService {
       mapa.forEach((qtd, itemId) => { itensComprometidos[itemId] = qtd; });
     }
 
+    // Migração por item: valor já consumido registrado diretamente em cada ItemCronograma
+    // (ic.quantidade_medida × valor_unitario), mas apenas o excesso não coberto por valorMedidoTotal
+    let valorMigracaoPorItem = 0;
+    if (usarItens) {
+      const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
+      const somaIcMigracao = itensCronograma.reduce(
+        (sum, ic) => sum + Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0),
+        0,
+      );
+      // Only count the portion NOT already in valorMedidoTotal (approved measurements)
+      valorMigracaoPorItem = Math.max(0, somaIcMigracao - valorMedidoTotal);
+    }
+
     return {
       contrato_id: contratoId,
       fluxo_os: fluxoOs,
@@ -1478,7 +2200,7 @@ export class MedicaoService {
       valor_medido_total: valorMedidoTotal,
       valor_comprometido_total: valorComprometido,
       valor_em_analise: valorEmAnalise,
-      saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido),
+      saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido - valorMigracaoPorItem),
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       etapas_comprometidas: etapasComprometidas,
       itens_comprometidos: itensComprometidos,
@@ -1980,6 +2702,44 @@ export class MedicaoService {
     return { ...medicao, itens } as any;
   }
 
+  private montarSnapshotExecucaoFinanceira(execucaoFinanceira: any) {
+    const itens: Array<{
+      valor_previsto?: number;
+      no_periodo?: number;
+      ate_periodo?: number;
+      a_executar?: number;
+      no_periodo_item?: number;
+      ate_periodo_item?: number;
+      a_executar_item?: number;
+      no_periodo_global?: number;
+      ate_periodo_global?: number;
+      a_executar_global?: number;
+    }> = Array.isArray(execucaoFinanceira?.itens) ? execucaoFinanceira.itens : [];
+    const totalPrevisto = Number(execucaoFinanceira?.totais?.valor_previsto);
+    const totalNoPeriodo = Number(execucaoFinanceira?.totais?.no_periodo);
+    const totalAtePeriodo = Number(execucaoFinanceira?.totais?.ate_periodo);
+    const totalAExecutar = Number(execucaoFinanceira?.totais?.a_executar);
+
+    return {
+      itens,
+      totais: {
+        valor_previsto: Number.isFinite(totalPrevisto)
+          ? Math.round(totalPrevisto * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.valor_previsto) || 0), 0) * 100) / 100,
+        no_periodo: Number.isFinite(totalNoPeriodo)
+          ? Math.round(totalNoPeriodo * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.no_periodo) || 0), 0) * 100) / 100,
+        ate_periodo: Number.isFinite(totalAtePeriodo)
+          ? Math.round(totalAtePeriodo * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.ate_periodo) || 0), 0) * 100) / 100,
+        a_executar: Number.isFinite(totalAExecutar)
+          ? Math.round(totalAExecutar * 100) / 100
+          : Math.round(itens.reduce((s: number, item) => s + (Number(item.a_executar) || 0), 0) * 100) / 100,
+      },
+      ajuste_migracao: Math.round((Number(execucaoFinanceira?.ajuste_migracao) || 0) * 100) / 100,
+    };
+  }
+
   // ============================================================================
   // HELPERS — Notificações de Medição
   // ============================================================================
@@ -1998,6 +2758,33 @@ export class MedicaoService {
     } catch (e) {
       this.logger.warn(`Não foi possível buscar usuários do órgão ${orgaoId}: ${(e as any).message}`);
       return [];
+    }
+  }
+
+  /**
+   * Busca usuários que podem aprovar (gestor/aprovador) para central de aprovações.
+   * Prioriza usuários com permissão explícita e admins; faz fallback para todos ativos.
+   */
+  private async buscarAprovadoresOrgao(orgaoId: string): Promise<{ id: string; email?: string; telefone?: string }[]> {
+    try {
+      const aprovadores = await this.usuarioRepository
+        .createQueryBuilder('u')
+        .select(['u.id', 'u.email', 'u.telefone'])
+        .where('u.orgao_id = :orgaoId', { orgaoId })
+        .andWhere('u.ativo = true')
+        .andWhere('(u.pode_aprovar_requisicoes = true OR u.role = :adminRole)', {
+          adminRole: RoleUsuario.ADMIN,
+        })
+        .getMany();
+
+      if (aprovadores.length > 0) {
+        return aprovadores.map(u => ({ id: u.id, email: u.email, telefone: u.telefone }));
+      }
+
+      return this.buscarUsuariosOrgao(orgaoId);
+    } catch (e) {
+      this.logger.warn(`Não foi possível buscar aprovadores do órgão ${orgaoId}: ${(e as any).message}`);
+      return this.buscarUsuariosOrgao(orgaoId);
     }
   }
 
@@ -2035,7 +2822,7 @@ export class MedicaoService {
 
   private async notificarAtesteMedicao(medicao: Medicao, contrato: Contrato, fiscalNome: string): Promise<void> {
     // Notificar gestores/aprovadores do órgão
-    const destinatarios = await this.buscarUsuariosOrgao(contrato.orgao_id);
+    const destinatarios = await this.buscarAprovadoresOrgao(contrato.orgao_id);
     if (destinatarios.length === 0) return;
 
     await this.notificacoesService.notificarMedicaoAtestada(
@@ -2151,16 +2938,47 @@ export class MedicaoService {
     // Deletar anteriores
     await this.discriminacaoRepository.delete({ medicao_id: medicaoId });
 
+    // Filtrar itens válidos
+    const itensValidos = itens.filter(i => i.descricao && i.descricao.trim() !== '');
+
+    // Ajuste de arredondamento: quando os percentuais somam ~100%, a soma dos valores
+    // arredondados individualmente pode diferir do valor da medição em 1 centavo.
+    // Recalcula os valores usando o método "maior resto" para garantir que a soma
+    // seja exatamente igual ao valor bruto da medição.
+    const valorBruto = Number(medicao.valor_medido) || 0;
+    const somaPercentuais = itensValidos.reduce((s, i) => s + (Number(i.percentual) || 0), 0);
+    const somaValores = itensValidos.reduce((s, i) => s + (Number(i.valor) || 0), 0);
+    const percentuaisSomam100 = Math.abs(somaPercentuais - 100) < 0.05;
+    const valorAlvo = percentuaisSomam100 && valorBruto > 0 ? valorBruto : Math.round(somaValores * 100) / 100;
+
+    // Recalcula valores com arredondamento correto: floor em todos, depois distribui
+    // os centavos restantes aos itens com maior parte fracionária (largest remainder method)
+    const exatos = itensValidos.map(i => {
+      const perc = Number(i.percentual) || 0;
+      return percentuaisSomam100 && valorBruto > 0
+        ? (perc / 100) * valorAlvo
+        : Number(i.valor) || 0;
+    });
+    const floors = exatos.map(v => Math.floor(v * 100) / 100);
+    const restos = exatos.map((v, i) => ({ idx: i, resto: v * 100 - Math.floor(v * 100) }));
+    const somaFloors = Math.round(floors.reduce((s, v) => s + v, 0) * 100);
+    const alvocentavos = Math.round(valorAlvo * 100);
+    const centavosExtra = alvocentavos - somaFloors;
+    restos.sort((a, b) => b.resto - a.resto);
+    const valoresFinais = [...floors];
+    for (let k = 0; k < centavosExtra; k++) {
+      valoresFinais[restos[k].idx] = Math.round((valoresFinais[restos[k].idx] + 0.01) * 100) / 100;
+    }
+
     // Inserir novas
     const novas: DiscriminacaoDespesaMedicao[] = [];
-    for (let i = 0; i < itens.length; i++) {
-      const item = itens[i];
-      if (!item.descricao || item.descricao.trim() === '') continue;
+    for (let i = 0; i < itensValidos.length; i++) {
+      const item = itensValidos[i];
       const disc = this.discriminacaoRepository.create({
         medicao_id: medicaoId,
         numero_item: i + 1,
         descricao: item.descricao.trim(),
-        valor: Number(item.valor) || 0,
+        valor: valoresFinais[i],
         percentual: Number(item.percentual) || 0,
       });
       novas.push(await this.discriminacaoRepository.save(disc));
@@ -2177,6 +2995,16 @@ export class MedicaoService {
     return this.discriminacaoRepository.find({
       where: { medicao_id: medicaoId },
       order: { numero_item: 'ASC' },
+    });
+  }
+
+  /**
+   * Lista assinaturas digitais registradas para uma medição.
+   */
+  async listarAssinaturasMedicao(medicaoId: string): Promise<any[]> {
+    return this.assinaturaDigitalRepository.find({
+      where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
+      order: { data_assinatura: 'ASC' },
     });
   }
 
@@ -2358,6 +3186,343 @@ export class MedicaoService {
    *   - a_executar: valor_previsto - ate_periodo - no_periodo
    *   - execução temporal baseada nas datas de vigência do contrato
    */
+  /**
+   * Calcula execução financeira para o FORNECEDOR (sem validar orgaoId).
+   * Retorna valores por item e totais.
+   * 
+   * Estrutura de retorno:
+   * {
+   *   contrato_id: string,
+   *   itens: [{
+   *     etapa_id: string,
+   *     no_periodo: number,
+   *     ate_periodo: number,
+   *     a_executar: number
+   *   }],
+   *   totais: {
+   *     valor_previsto: number,
+   *     no_periodo: number,
+   *     ate_periodo: number,
+   *     a_executar: number
+   *   },
+   *   execucao_fiscal: {...}
+   * }
+   */
+  async calcularExecucaoFinanceiraFornecedor(contratoId: string, medicaoId?: string): Promise<any> {
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const usarItensCronograma = await this.usarItensCronograma(contratoId);
+
+    const etapas = usarItensCronograma
+      ? []
+      : await this.etapaRepository.find({
+          where: { contrato_id: contratoId },
+          order: { numero_etapa: 'ASC' },
+        });
+
+    const itensCronograma = usarItensCronograma
+      ? await this.itemCronogramaRepository.find({
+          where: { contrato_id: contratoId },
+          order: { numero_item: 'ASC' },
+        })
+      : [];
+    
+    
+
+    // Buscar todas as medições aprovadas
+    const medicoesAprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      order: { numero_medicao: 'ASC' },
+    });
+
+    // Buscar a medição atual (se informada)
+    let medicaoAtual = null;
+    if (medicaoId) {
+      medicaoAtual = await this.medicaoRepository.findOne({
+        where: { id: medicaoId },
+      });
+    } else if (medicoesAprovadas.length > 0) {
+      medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
+    }
+
+    const itensPorMedicao: Record<string, any[]> = {};
+    for (const m of medicoesAprovadas) {
+      const itens = usarItensCronograma
+        ? await this.itemMedicaoItemRepository.find({
+            where: { medicao_id: m.id },
+            relations: ['itemCronograma'],
+          })
+        : await this.itemMedicaoRepository.find({
+            where: { medicao_id: m.id },
+          });
+      itensPorMedicao[m.id] = itens;
+    }
+
+    let itensMedicaoAtual: any[] = [];
+    if (medicaoAtual && medicaoAtual.status !== StatusMedicao.APROVADA) {
+      itensMedicaoAtual = usarItensCronograma
+        ? await this.itemMedicaoItemRepository.find({
+            where: { medicao_id: medicaoAtual.id },
+            relations: ['itemCronograma'],
+          })
+        : await this.itemMedicaoRepository.find({
+            where: { medicao_id: medicaoAtual.id },
+          });
+    }
+
+    const boletimPorQuantidade = !!(contrato as any).boletim_por_quantidade && usarItensCronograma;
+
+    const obterQuantidadeItemMedicao = (itemMedicao: any): number =>
+      Number(itemMedicao?.quantidade_medida) || 0;
+
+    // Calcular execução por etapa/item
+    const resultado = usarItensCronograma
+      ? itensCronograma.map((item) => {
+          const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
+          const quantidadeTotal = Number(item.quantidade) || 0;
+          const unidadeMedida = (item as any).unidade_medida || 'UNIDADE';
+
+          const obterValorBrutoItemMedicao = (itemMedicao: any): number => {
+            const quantidadeMedida = Number(itemMedicao?.quantidade_medida) || 0;
+            const valorUnitario = Number(itemMedicao?.itemCronograma?.valor_unitario ?? item.valor_unitario) || 0;
+            if (quantidadeMedida > 0 && valorUnitario > 0) {
+              return quantidadeMedida * valorUnitario;
+            }
+            return Number(itemMedicao?.valor_medido) || 0;
+          };
+
+          let valorAnterior = 0;
+          for (const m of medicoesAprovadas) {
+            if (medicaoAtual && m.id === medicaoAtual.id) continue;
+            const itensM = itensPorMedicao[m.id] || [];
+            const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
+            if (itemMedicao) {
+              valorAnterior += obterValorBrutoItemMedicao(itemMedicao);
+            }
+          }
+
+          let noPeriodo = 0;
+          let quantidadeNoPeriodo = 0;
+          if (medicaoAtual) {
+            const itensFonte = medicaoAtual.status === StatusMedicao.APROVADA
+              ? (itensPorMedicao[medicaoAtual.id] || [])
+              : itensMedicaoAtual;
+            const itemMedicao = itensFonte.find((i: any) => i.item_cronograma_id === item.id);
+            if (itemMedicao) {
+              noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
+              quantidadeNoPeriodo = obterQuantidadeItemMedicao(itemMedicao);
+            }
+          }
+
+          const atePeriodo = valorAnterior + noPeriodo;
+          const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
+          const quantidadeMedidaItem = Number(item.quantidade_medida) || 0;
+          const quantidadeAtePeriodo = quantidadeMedidaItem + quantidadeNoPeriodo;
+          const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
+
+          const base: any = {
+            etapa_id: item.id,
+            numero_etapa: item.numero_item,
+            descricao: item.descricao,
+            valor_previsto: valorPrevisto,
+            percentual_fisico: 0,
+            no_periodo: Math.round(noPeriodo * 100) / 100,
+            ate_periodo: Math.round(atePeriodo * 100) / 100,
+            a_executar: Math.round(aExecutar * 100) / 100,
+          };
+          if (boletimPorQuantidade) {
+            base.unidade_medida = unidadeMedida;
+            base.quantidade_no_periodo = Math.round(quantidadeNoPeriodo * 10000) / 10000;
+            base.quantidade_ate_periodo = Math.round(quantidadeAtePeriodo * 10000) / 10000;
+            base.quantidade_a_executar = Math.round(quantidadeAExecutar * 10000) / 10000;
+          }
+          return base;
+        })
+      : etapas.map((etapa) => {
+          const valorPrevisto = Number(etapa.valor_previsto) || 0;
+
+          let valorAnterior = 0;
+          for (const m of medicoesAprovadas) {
+            if (medicaoAtual && m.id === medicaoAtual.id) continue;
+            const itensM = itensPorMedicao[m.id] || [];
+            const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+            if (itemEtapa) {
+              valorAnterior += Number(itemEtapa.valor_medido) || 0;
+            }
+          }
+
+          let noPeriodo = 0;
+          if (medicaoAtual) {
+            if (medicaoAtual.status === StatusMedicao.APROVADA) {
+              const itensM = itensPorMedicao[medicaoAtual.id] || [];
+              const itemEtapa = itensM.find(i => i.etapa_id === etapa.id);
+              if (itemEtapa) {
+                noPeriodo = Number(itemEtapa.valor_medido) || 0;
+              }
+            } else {
+              const itemEtapa = itensMedicaoAtual.find(i => i.etapa_id === etapa.id);
+              if (itemEtapa) {
+                noPeriodo = Number(itemEtapa.valor_medido) || 0;
+              }
+            }
+          }
+
+          const atePeriodo = valorAnterior + noPeriodo;
+          const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
+
+          return {
+            etapa_id: etapa.id,
+            numero_etapa: etapa.numero_etapa,
+            descricao: etapa.descricao,
+            valor_previsto: valorPrevisto,
+            percentual_fisico: Number(etapa.percentual_fisico) || 0,
+            no_periodo: Math.round(noPeriodo * 100) / 100,
+            ate_periodo: Math.round(atePeriodo * 100) / 100,
+            a_executar: Math.round(aExecutar * 100) / 100,
+          };
+        });
+
+    // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
+    // Quando boletim_por_quantidade, não calcular execução em dias
+    const vigenciaInicio = contrato.data_vigencia_inicio
+      ? new Date(contrato.data_vigencia_inicio as any)
+      : null;
+    const vigenciaFim = contrato.data_vigencia_fim
+      ? new Date(contrato.data_vigencia_fim as any)
+      : null;
+
+    let execucaoFiscal: any = null;
+    if (!boletimPorQuantidade && vigenciaInicio && vigenciaFim) {
+      // Para execução temporal, usar data final da medição atual se existir, senão data atual
+      let dataReferencia = new Date();
+      
+      // Se temos uma medição, usar o período_fim dela como referência
+      if (medicaoAtual && medicaoAtual.periodo_fim) {
+        dataReferencia = new Date(medicaoAtual.periodo_fim);
+        console.log('Usando data da medição:', dataReferencia.toISOString());
+      } else {
+        console.log('Usando data atual do servidor:', dataReferencia.toISOString());
+      }
+      
+      // Para ano comercial: total sempre 360 dias para contratos anuais
+      const totalDias = 360;
+      
+      // Calcular dias executados usando ano comercial (360 dias)
+      // Função inline para calcular dias comerciais
+      const calcularDiasComercial = (inicio: Date, fim: Date): number => {
+        const ano1 = inicio.getFullYear();
+        const mes1 = inicio.getMonth();
+        const dia1 = inicio.getDate();
+        
+        const ano2 = fim.getFullYear();
+        const mes2 = fim.getMonth();
+        const dia2 = fim.getDate();
+        
+        let dias = 0;
+        
+        if (ano1 === ano2 && mes1 === mes2) {
+          dias = Math.min(dia2 - dia1 + 1, 30);
+        } else {
+          const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
+          
+          let mesesCompletos = 0;
+          if (ano2 > ano1 || mes2 > mes1 + 1) {
+            mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
+          }
+          
+          const diasUltimoMes = Math.min(dia2, 30);
+          
+          dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+        }
+        
+        return Math.min(dias, 360);
+      };
+      
+      const diasExecutados = calcularDiasComercial(vigenciaInicio, dataReferencia);
+      const diasRestantes = Math.max(0, totalDias - diasExecutados);
+      
+      // Usar ano comercial: 12 meses de 30 dias = 360 dias
+      execucaoFiscal = {
+        vigencia_inicio: vigenciaInicio.toISOString().split('T')[0],
+        vigencia_fim: vigenciaFim.toISOString().split('T')[0],
+        total_dias: totalDias,
+        dias_executados: diasExecutados,
+        dias_restantes: diasRestantes,
+        meses_executados: Math.floor(diasExecutados / 30),
+        dias_executados_extra: diasExecutados % 30,
+        meses_restantes: Math.floor(diasRestantes / 30),
+        dias_restantes_extra: diasRestantes % 30,
+        ano_comercial: true, // Flag para indicar uso de ano comercial
+      };
+    }
+
+    // Totais
+    const totalNoPeriodo = resultado.reduce((s, r) => s + r.no_periodo, 0);
+    const totalAtePeriodo = resultado.reduce((s, r) => s + r.ate_periodo, 0);
+    const totalPrevisto = resultado.reduce((s, r) => s + r.valor_previsto, 0);
+    const ajusteMigracao = Number(contrato.valor_executado_anterior) || 0;
+    const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
+    const totalAExecutar = Math.max(0, totalPrevisto - totalAtePeriodoComAjuste);
+    const totalAtePeriodoGlobalExibicao = Math.min(totalPrevisto, totalAtePeriodoComAjuste);
+    const ajusteGlobalParaDistribuir = totalAtePeriodoGlobalExibicao - totalAtePeriodo;
+
+    const baseRateio = resultado.map((item) => ({
+      valor_previsto: Number(item.valor_previsto) || 0,
+    }));
+    const totalBaseRateio = baseRateio.reduce((s, item) => s + item.valor_previsto, 0);
+    let ajusteRateadoAcumulado = 0;
+
+    const resultadoComVisoes = resultado.map((item, index) => {
+      const valorPrevistoItem = Number(item.valor_previsto) || 0;
+      const proporcao = totalBaseRateio > 0 ? valorPrevistoItem / totalBaseRateio : 0;
+      const ajusteRateado = index === resultado.length - 1
+        ? ajusteGlobalParaDistribuir - ajusteRateadoAcumulado
+        : Math.round((ajusteGlobalParaDistribuir * proporcao) * 100) / 100;
+      ajusteRateadoAcumulado += ajusteRateado;
+
+      // Usar valores já arredondados do item (não arredondar novamente)
+      const noPeriodoItem = Number(item.no_periodo) || 0;
+      const atePeriodoItem = Number(item.ate_periodo) || 0;
+      const aExecutarItem = Number(item.a_executar) || 0;
+      const atePeriodoGlobal = Math.round((atePeriodoItem + ajusteRateado) * 100) / 100;
+      const aExecutarGlobal = Math.round(Math.max(0, valorPrevistoItem - atePeriodoGlobal) * 100) / 100;
+
+      return {
+        ...item,
+        no_periodo: noPeriodoItem,
+        ate_periodo: atePeriodoItem,
+        a_executar: aExecutarItem,
+        no_periodo_item: noPeriodoItem,
+        ate_periodo_item: atePeriodoItem,
+        a_executar_item: aExecutarItem,
+        no_periodo_global: noPeriodoItem,
+        ate_periodo_global: atePeriodoGlobal,
+        a_executar_global: aExecutarGlobal,
+      };
+    });
+
+    return {
+      contrato_id: contratoId,
+      itens: resultadoComVisoes,
+      totais: {
+        valor_previsto: Math.round(totalPrevisto * 100) / 100,
+        no_periodo: Math.round(totalNoPeriodo * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodoGlobalExibicao * 100) / 100,
+        a_executar: Math.round(Math.max(0, totalPrevisto - totalAtePeriodoGlobalExibicao) * 100) / 100,
+      },
+      ajuste_migracao: Math.round(ajusteMigracao * 100) / 100,
+      execucao_fiscal: execucaoFiscal,
+      execucao_fiscal_por_quantidade: boletimPorQuantidade,
+      medicao_referencia: medicaoAtual ? {
+        id: medicaoAtual.id,
+        numero_medicao: medicaoAtual.numero_medicao,
+        periodo_inicio: medicaoAtual.periodo_inicio,
+        periodo_fim: medicaoAtual.periodo_fim,
+      } : null,
+    };
+  }
+
   async calcularExecucaoFinanceira(contratoId: string, orgaoId: string, medicaoId?: string): Promise<any> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
@@ -2449,7 +3614,7 @@ export class MedicaoService {
       };
     });
 
-    // Calcular execução temporal (fiscal)
+    // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
     const vigenciaInicio = contrato.data_vigencia_inicio
       ? new Date(contrato.data_vigencia_inicio as any)
       : null;
@@ -2459,11 +3624,61 @@ export class MedicaoService {
 
     let execucaoFiscal: any = null;
     if (vigenciaInicio && vigenciaFim) {
-      const hoje = new Date();
-      const totalDias = Math.max(1, Math.ceil((vigenciaFim.getTime() - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
-      const diasExecutados = Math.max(0, Math.ceil((Math.min(hoje.getTime(), vigenciaFim.getTime()) - vigenciaInicio.getTime()) / (1000 * 60 * 60 * 24)));
-      const diasRestantes = Math.max(0, totalDias - diasExecutados);
+      // Para execução temporal, usar data final da medição atual se existir, senão data atual
+      let dataReferencia = new Date();
+      
+      // Se temos uma medição, usar o período_fim dela como referência
+      if (medicaoAtual && medicaoAtual.periodo_fim) {
+        dataReferencia = new Date(medicaoAtual.periodo_fim);
+        console.log('Usando data da medição:', dataReferencia.toISOString());
+      } else {
+        console.log('Usando data atual do servidor:', dataReferencia.toISOString());
+      }
+      
+      // Para ano comercial: total sempre 360 dias para contratos anuais
+      const totalDias = 360;
+      
+      // Calcular dias executados usando ano comercial com UTC para evitar timezone issues
+      let diasExecutados = 0;
+      
+      if (dataReferencia >= vigenciaInicio) {
+        const dataFimExecucao = dataReferencia > vigenciaFim ? vigenciaFim : dataReferencia;
+        
+        // Usar métodos UTC para evitar problemas de timezone
+        const anoInicio = vigenciaInicio.getUTCFullYear();
+        const mesInicio = vigenciaInicio.getUTCMonth();
+        const diaInicio = vigenciaInicio.getUTCDate();
+        
+        const anoFim = dataFimExecucao.getUTCFullYear();
+        const mesFim = dataFimExecucao.getUTCMonth();
+        const diaFim = dataFimExecucao.getUTCDate();
+        
+        // Se mesmo mês
+        if (anoInicio === anoFim && mesInicio === mesFim) {
+          diasExecutados = Math.min(diaFim - diaInicio + 1, 30);
+        } else {
+          // Dias no primeiro mês (ano comercial)
+          const diasPrimeiroMes = Math.min(30 - diaInicio + 1, 30);
+          
+          // Meses completos no meio
+          let mesesCompletos = 0;
+          if (anoFim > anoInicio || mesFim > mesInicio + 1) {
+            mesesCompletos = (anoFim - anoInicio) * 12 + (mesFim - mesInicio - 1);
+          }
+          
+          // Dias no último mês (ano comercial)
+          const diasUltimoMes = Math.min(diaFim, 30);
+          
+          diasExecutados = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+        }
+        
+        // Limitar a 360 dias
+        diasExecutados = Math.min(diasExecutados, 360);
+      }
+      
+      const diasRestantes = 360 - diasExecutados;
 
+      // Usar ano comercial: 12 meses de 30 dias = 360 dias
       execucaoFiscal = {
         vigencia_inicio: vigenciaInicio.toISOString().split('T')[0],
         vigencia_fim: vigenciaFim.toISOString().split('T')[0],
@@ -2474,6 +3689,7 @@ export class MedicaoService {
         dias_executados_extra: diasExecutados % 30,
         meses_restantes: Math.floor(diasRestantes / 30),
         dias_restantes_extra: diasRestantes % 30,
+        ano_comercial: true, // Flag para indicar uso de ano comercial
       };
     }
 
@@ -2519,6 +3735,8 @@ export class MedicaoService {
       usuario_nome: string;
       usuario_cpf_cnpj: string;
       usuario_cargo?: string;
+      usuario_matricula?: string;
+      usuario_portaria?: string;
       ip_address?: string;
       user_agent?: string;
     },
@@ -2547,6 +3765,8 @@ export class MedicaoService {
       usuario_nome: dados.usuario_nome,
       usuario_cpf_cnpj: dados.usuario_cpf_cnpj,
       usuario_cargo: dados.usuario_cargo,
+      usuario_matricula: dados.usuario_matricula,
+      usuario_portaria: dados.usuario_portaria,
       ip_address: dados.ip_address,
       user_agent: dados.user_agent,
     });
@@ -2558,5 +3778,958 @@ export class MedicaoService {
       codigo_formatado: this.assinaturasService.formatarCodigoValidacao(assinatura.codigo_validacao),
       data_assinatura: assinatura.data_assinatura,
     };
+  }
+
+  // =========================================================
+  // OTP — Assinatura Digital para Boletim de Medição
+  // =========================================================
+
+  /**
+   * Solicita envio de OTP para o fornecedor via WhatsApp e/ou email.
+   * Retorna os canais utilizados e dados mascarados.
+   */
+  async solicitarOtpAssinaturaMedicao(
+    medicaoId: string,
+    fornecedorId: string,
+  ): Promise<{
+    canais_enviados: string[];
+    telefone_mascarado?: string;
+    email_mascarado?: string;
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    if (contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para assinar esta medição');
+    }
+
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    const orgaoId = contrato.orgao_id || '';
+    const usuarioNome = fornecedor.razao_social || fornecedor.nome_fantasia || '';
+
+    // Gerar código OTP único para ambos os canais
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const canaisEnviados: string[] = [];
+    let telefoneMascarado: string | undefined;
+    let emailMascarado: string | undefined;
+
+    // Enviar via WhatsApp
+    const telefone = fornecedor.representante_whatsapp || fornecedor.representante_telefone || fornecedor.telefone || '';
+    if (telefone && telefone.replace(/\D/g, '').length >= 10) {
+      try {
+        const telefoneLimpo = telefone.replace(/\D/g, '');
+
+        // Salvar no cache de WhatsApp
+        (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefoneLimpo}`, {
+          codigo,
+          expiracao: Date.now() + 5 * 60 * 1000,
+          tentativas: 0,
+        });
+
+        // Enviar via WhatsApp
+        const mensagem = `Olá, *${usuarioNome}*.\n\nSeu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
+        const whatsappEnviado = await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+          to: telefoneLimpo,
+          mensagem,
+        });
+
+        if (whatsappEnviado) {
+          canaisEnviados.push('whatsapp');
+          telefoneMascarado = telefoneLimpo.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+          this.logger.log(`OTP WhatsApp enviado para medição ${medicaoId}: ${telefoneMascarado}`);
+        } else {
+          (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${telefoneLimpo}`);
+          this.logger.warn(`WhatsApp configurado mas não confirmou envio do OTP para medição ${medicaoId}`);
+        }
+      } catch (err) {
+        this.logger.warn(`Falha ao enviar OTP WhatsApp para medição ${medicaoId}: ${err.message}`);
+      }
+    }
+
+    // Enviar via Email
+    const email = fornecedor.representante_email || fornecedor.email || '';
+    if (email && email.includes('@')) {
+      try {
+        await this.assinaturasService.solicitarOtpEmail(orgaoId, email, usuarioNome, codigo);
+        canaisEnviados.push('email');
+        emailMascarado = email.replace(/^(.)(.*)(@.*)$/, '$1***$3');
+      } catch (err) {
+        this.logger.warn(`Falha ao enviar OTP email para medição ${medicaoId}: ${err.message}`);
+      }
+    }
+
+    if (canaisEnviados.length === 0) {
+      throw new BadRequestException(
+        'Não foi possível enviar o código de verificação. Verifique se o fornecedor possui email ou WhatsApp cadastrado.',
+      );
+    }
+
+    // Também salvar no cache genérico por medicaoId (para validação flexível)
+    (this.assinaturasService as any).otpCache?.set(`otp_medicao_${medicaoId}`, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    this.logger.log(`OTP enviado para medição ${medicaoId} via: ${canaisEnviados.join(', ')}`);
+
+    return { canais_enviados: canaisEnviados, telefone_mascarado: telefoneMascarado, email_mascarado: emailMascarado };
+  }
+
+  /**
+   * Valida OTP, registra assinatura digital e submete a medição.
+   */
+  async validarOtpAssinaturaMedicao(
+    medicaoId: string,
+    fornecedorId: string,
+    codigoOtp: string,
+  ): Promise<{
+    sucesso: boolean;
+    codigo_validacao: string;
+    codigo_formatado: string;
+    pdf_url: string;
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (contrato && contrato.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Você não tem permissão para assinar esta medição');
+    }
+
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    // Tentar validar pelo cache genérico por medicaoId
+    const cacheKeyMedicao = `otp_medicao_${medicaoId}`;
+    const otpMedicao = (this.assinaturasService as any).otpCache?.get(cacheKeyMedicao);
+
+    let otpValido = false;
+    if (otpMedicao && otpMedicao.expiracao > Date.now() && otpMedicao.codigo === codigoOtp) {
+      otpValido = true;
+      (this.assinaturasService as any).otpCache?.delete(cacheKeyMedicao);
+    }
+
+    if (!otpValido) {
+      // Tentar validar via email ou WhatsApp
+      const orgaoId = contrato?.orgao_id || '';
+      const email = fornecedor.representante_email || fornecedor.email || '';
+      const telefone = (fornecedor.representante_whatsapp || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
+
+      try {
+        if (email) await this.assinaturasService.validarOtpEmail(orgaoId, email, codigoOtp);
+        otpValido = true;
+      } catch {
+        try {
+          if (telefone) await this.assinaturasService.validarOtp(orgaoId, telefone, codigoOtp);
+          otpValido = true;
+        } catch { /* nenhum canal validou */ }
+      }
+    }
+
+    if (!otpValido) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+
+    // Registrar assinatura digital
+    const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: contrato?.orgao_id || '',
+      papel: 'FORNECEDOR',
+      usuario_nome: fornecedor.razao_social || fornecedor.nome_fantasia || '',
+      usuario_cpf_cnpj: fornecedor.cpf_cnpj || '',
+      usuario_cargo: 'Fornecedor / Contratado',
+    });
+
+    // Submeter a medição (se ainda não submetida)
+    if (medicao.status === StatusMedicao.RASCUNHO || medicao.status === StatusMedicao.DEVOLVIDA) {
+      try {
+        await this.submeterMedicao(medicaoId, fornecedorId);
+      } catch (err) {
+        this.logger.warn(`Assinatura OK mas falha ao submeter medição ${medicaoId}: ${err.message}`);
+        throw err;
+      }
+    }
+
+    const medicaoAtualizada = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+
+    this.logger.log(`Medição ${medicaoId} assinada e submetida com OTP pelo fornecedor ${fornecedorId}`);
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+      pdf_url: medicaoAtualizada?.boletim_pdf_url || '',
+    };
+  }
+
+  // =========================================================
+  // OTP — Assinatura Digital do Fiscal via WhatsApp
+  // =========================================================
+
+  /**
+   * Envia OTP via WhatsApp para um número informado pelo usuário.
+   * Usado pelo fiscal para assinar digitalmente o boletim.
+   */
+  async solicitarOtpAssinaturaFiscal(
+    medicaoId: string,
+    telefone: string,
+  ): Promise<{ telefone_mascarado: string }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato
+      || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+
+    const orgaoId = contrato?.orgao_id || '';
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+
+    if (telefoneLimpo.length < 10) {
+      throw new BadRequestException('Número de WhatsApp inválido.');
+    }
+
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const cacheKey = `otp_fiscal_${medicaoId}`;
+
+    (this.assinaturasService as any).otpCache?.set(cacheKey, {
+      codigo,
+      telefone: telefoneLimpo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    // Também registrar no cache por telefone para compatibilidade com validarOtp
+    (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefoneLimpo}`, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    const mensagem = `Seu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
+
+    try {
+      await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+        to: telefoneLimpo,
+        mensagem,
+      });
+    } catch (err) {
+      this.logger.warn(`Falha ao enviar OTP fiscal via WhatsApp para medição ${medicaoId}: ${err.message}`);
+      throw new BadRequestException('Não foi possível enviar o código. Verifique o número de WhatsApp.');
+    }
+
+    const telefoneMascarado = telefoneLimpo.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+    this.logger.log(`OTP fiscal enviado para medição ${medicaoId}: ${telefoneMascarado}`);
+
+    return { telefone_mascarado: telefoneMascarado };
+  }
+
+  /**
+   * Envia OTP via WhatsApp para o telefone do fornecedor do contrato.
+   * Usado quando o órgão cria a medição (caso excepcional): a assinatura deve ser do fornecedor.
+   */
+  async solicitarOtpAssinaturaFornecedor(medicaoId: string): Promise<{ telefone_mascarado: string; fornecedor_nome: string }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.fornecedor'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato
+      || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id }, relations: ['fornecedor'] });
+    if (!contrato?.fornecedor_id) throw new BadRequestException('Contrato sem fornecedor cadastrado');
+
+    const fornecedor = (contrato as any).fornecedor
+      || await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    const telefone = (fornecedor.representante_whatsapp || fornecedor.representante_telefone || fornecedor.telefone || '').replace(/\D/g, '');
+    if (telefone.length < 10) {
+      throw new BadRequestException('Fornecedor não possui telefone/WhatsApp cadastrado para envio do código.');
+    }
+
+    const orgaoId = contrato.orgao_id || '';
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const cacheKey = `otp_fornecedor_${medicaoId}`;
+
+    (this.assinaturasService as any).otpCache?.set(cacheKey, {
+      codigo,
+      telefone,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    (this.assinaturasService as any).otpCache?.set(`otp_${orgaoId}_${telefone}`, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    const mensagem = `Seu código de confirmação para *Assinatura do Boletim de Medição* no Portal DCP é: *${codigo}*\n\nEste código expira em 5 minutos. Não o compartilhe com ninguém.`;
+
+    try {
+      await (this.assinaturasService as any).whatsappService.enviar(orgaoId, {
+        to: telefone,
+        mensagem,
+      });
+    } catch (err) {
+      this.logger.warn(`Falha ao enviar OTP fornecedor via WhatsApp para medição ${medicaoId}: ${err.message}`);
+      throw new BadRequestException('Não foi possível enviar o código para o telefone do fornecedor. Verifique a configuração de WhatsApp do órgão.');
+    }
+
+    const telefoneMascarado = telefone.replace(/^(.{2})(.*)(.{4})$/, '$1***$3');
+    const fornecedorNome = fornecedor.razao_social || fornecedor.nome_fantasia || 'Fornecedor';
+    this.logger.log(`OTP fornecedor enviado para medição ${medicaoId}: ${fornecedorNome} — ${telefoneMascarado}`);
+
+    return { telefone_mascarado: telefoneMascarado, fornecedor_nome: fornecedorNome };
+  }
+
+  /**
+   * Valida OTP do fornecedor, registra assinatura digital como FORNECEDOR e submete a medição.
+   * Usado quando o órgão cria a medição: a assinatura é do fornecedor (campo FORNECEDOR no boletim).
+   */
+  async validarOtpAssinaturaFornecedor(medicaoId: string, codigoOtp: string): Promise<{
+    sucesso: boolean;
+    codigo_validacao: string;
+    codigo_formatado: string;
+    pdf_url?: string;
+  }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato', 'contrato.fornecedor'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = medicao.contrato
+      || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id }, relations: ['fornecedor'] });
+    if (!contrato?.fornecedor_id) throw new BadRequestException('Contrato sem fornecedor cadastrado');
+
+    const fornecedor = (contrato as any).fornecedor
+      || await this.fornecedorRepository.findOne({ where: { id: contrato.fornecedor_id } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    const cacheKey = `otp_fornecedor_${medicaoId}`;
+    const otpEntry = (this.assinaturasService as any).otpCache?.get(cacheKey);
+
+    if (!otpEntry || otpEntry.expiracao <= Date.now() || otpEntry.codigo !== codigoOtp) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+
+    (this.assinaturasService as any).otpCache?.delete(cacheKey);
+    if (otpEntry.telefone) {
+      const orgaoId = contrato.orgao_id || '';
+      (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${otpEntry.telefone}`);
+    }
+
+    const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: contrato.orgao_id || '',
+      papel: 'FORNECEDOR',
+      usuario_nome: fornecedor.razao_social || fornecedor.nome_fantasia || '',
+      usuario_cpf_cnpj: fornecedor.cpf_cnpj || '',
+      usuario_cargo: 'Fornecedor / Contratado',
+    });
+
+    if (medicao.status === StatusMedicao.RASCUNHO || medicao.status === StatusMedicao.DEVOLVIDA) {
+      try {
+        await this.submeterMedicao(medicaoId, contrato.fornecedor_id);
+      } catch (err) {
+        this.logger.warn(`Assinatura OK mas falha ao submeter medição ${medicaoId}: ${err.message}`);
+        throw err;
+      }
+    }
+
+    try {
+      await this.gerarPdfOficialMedicao(medicaoId);
+      this.logger.log(`PDF do boletim regenerado com assinatura do fornecedor para medição ${medicaoId}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fornecedor: ${err.message}`);
+    }
+
+    const medicaoAtualizada = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    this.logger.log(`Medição ${medicaoId} assinada e submetida com OTP pelo fornecedor (orgão criou)`);
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+      pdf_url: medicaoAtualizada?.boletim_pdf_url || '',
+    };
+  }
+
+  /**
+   * Valida OTP do fiscal e registra assinatura digital como FISCAL.
+   */
+  async validarOtpAssinaturaFiscal(
+    medicaoId: string,
+    codigoOtp: string,
+    dadosFiscal: {
+      usuario_id?: string;
+      usuario_nome: string;
+      usuario_cpf_cnpj: string;
+      usuario_cargo?: string;
+      orgao_id?: string;
+    },
+  ): Promise<{ sucesso: boolean; codigo_validacao: string; codigo_formatado: string }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const cacheKey = `otp_fiscal_${medicaoId}`;
+    const otpEntry = (this.assinaturasService as any).otpCache?.get(cacheKey);
+
+    if (!otpEntry || otpEntry.expiracao <= Date.now() || otpEntry.codigo !== codigoOtp) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+
+    (this.assinaturasService as any).otpCache?.delete(cacheKey);
+    if (otpEntry.telefone) {
+      const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+      const orgaoId = dadosFiscal.orgao_id || contrato?.orgao_id || '';
+      (this.assinaturasService as any).otpCache?.delete(`otp_${orgaoId}_${otpEntry.telefone}`);
+    }
+
+    // Buscar dados completos do usuário (matricula, portaria_fiscal)
+    const fiscalUserOtp = dadosFiscal.usuario_id
+      ? await this.usuarioRepository.findOne({ where: { id: dadosFiscal.usuario_id } })
+      : null;
+    const assinatura = await this.registrarAssinaturaMedicao(medicaoId, {
+      orgao_id: dadosFiscal.orgao_id || '',
+      papel: 'FISCAL',
+      usuario_id: dadosFiscal.usuario_id,
+      usuario_nome: dadosFiscal.usuario_nome,
+      usuario_cpf_cnpj: dadosFiscal.usuario_cpf_cnpj,
+      usuario_cargo: dadosFiscal.usuario_cargo || fiscalUserOtp?.cargo || 'Fiscal',
+      usuario_matricula: fiscalUserOtp?.matricula || undefined,
+      usuario_portaria: fiscalUserOtp?.portaria_fiscal || undefined,
+    });
+
+    this.logger.log(`Medição ${medicaoId} assinada digitalmente pelo fiscal ${dadosFiscal.usuario_nome}`);
+
+    // Regenerar PDF oficial no servidor com a assinatura do fiscal incluída
+    try {
+      await this.gerarPdfOficialMedicao(medicaoId);
+      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${medicaoId}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal: ${err.message}`);
+    }
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+    };
+  }
+
+  /**
+   * Salva arquivo PDF do boletim em disco e atualiza a URL na medição.
+   */
+  async salvarBoletimPdf(medicaoId: string, pdfBuffer: Buffer): Promise<string> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    // Criar diretório se não existir
+    const uploadsDir = this.getBoletinsDir();
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    const filepath = this.getBoletimPdfPath(medicaoId);
+
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+
+    // Salvar arquivo
+    fs.writeFileSync(filepath, pdfBuffer);
+
+    // Calcular SHA-256 e gravar nas assinaturas digitais desta medição
+    try {
+      const documentoHash = createHash('sha256').update(pdfBuffer).digest('hex');
+      await this.assinaturaDigitalRepository.update(
+        { entidade_id: medicaoId, entidade_tipo: EntidadeTipo.MEDICAO },
+        { documento_hash: documentoHash } as any,
+      );
+      this.logger.log(`Hash SHA-256 gravado para medição ${medicaoId}: ${documentoHash.slice(0, 16)}...`);
+    } catch (e) {
+      this.logger.warn(`Erro ao gravar hash do boletim ${medicaoId}: ${e.message}`);
+    }
+
+    // URL relativa para acesso
+    const pdfUrl = this.getBoletimPdfUrl(medicaoId);
+
+    // Atualizar medição
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
+
+    this.logger.log(`Boletim PDF salvo para medição ${medicaoId}: ${pdfUrl}`);
+    return pdfUrl;
+  }
+
+  // ============================================================================
+  // FLUXO DE ASSINATURA FISCAL VIA LINK WHATSAPP
+  // ============================================================================
+
+  /**
+   * Retorna usuários do órgão com eh_fiscal_contrato = true.
+   */
+  async listarFiscaisOrgao(orgaoId: string): Promise<any[]> {
+    return this.usuarioRepository.find({
+      where: { orgao_id: orgaoId, eh_fiscal_contrato: true, ativo: true } as any,
+      select: ['id', 'nome', 'cpf', 'cargo', 'telefone'],
+      order: { nome: 'ASC' } as any,
+    });
+  }
+
+  private async listarIdsItensMedicao(medicaoId: string): Promise<string[]> {
+    const [itensEtapa, itensQuantidade] = await Promise.all([
+      this.itemMedicaoRepository.find({
+        where: { medicao_id: medicaoId },
+        select: ['id'],
+      } as any),
+      this.itemMedicaoItemRepository.find({
+        where: { medicao_id: medicaoId },
+        select: ['id'],
+      } as any),
+    ]);
+
+    return [...itensEtapa.map(item => item.id), ...itensQuantidade.map(item => item.id)];
+  }
+
+  private async validarAutoEncaminhamentoAssinatura(
+    medicaoId: string,
+    itensSelecionadosIds?: string[],
+  ): Promise<{
+    habilitado: boolean;
+    itensSelecionadosValidos: string[];
+    totalItensMedicao: number;
+    itensSelecionadosTotal: number;
+  }> {
+    if (!Array.isArray(itensSelecionadosIds) || itensSelecionadosIds.length === 0) {
+      return {
+        habilitado: false,
+        itensSelecionadosValidos: [],
+        totalItensMedicao: 0,
+        itensSelecionadosTotal: 0,
+      };
+    }
+
+    const itensDisponiveis = await this.listarIdsItensMedicao(medicaoId);
+    if (itensDisponiveis.length === 0) {
+      throw new BadRequestException(
+        'Não foi possível habilitar autoencaminhamento: medição sem itens para ateste.',
+      );
+    }
+
+    const itensSelecionados = [...new Set(itensSelecionadosIds.filter(Boolean))];
+    const itensDisponiveisSet = new Set(itensDisponiveis);
+    const possuiItemInvalido = itensSelecionados.some(itemId => !itensDisponiveisSet.has(itemId));
+    if (possuiItemInvalido) {
+      throw new BadRequestException(
+        'Seleção inválida de itens para assinatura fiscal. Atualize a tela e tente novamente.',
+      );
+    }
+
+    const selecionouTodos =
+      itensSelecionados.length === itensDisponiveis.length &&
+      itensDisponiveis.every(itemId => itensSelecionados.includes(itemId));
+
+    if (!selecionouTodos) {
+      throw new BadRequestException(
+        'Autoencaminhamento só é permitido quando 100% dos itens estão selecionados.',
+      );
+    }
+
+    return {
+      habilitado: true,
+      itensSelecionadosValidos: itensSelecionados,
+      totalItensMedicao: itensDisponiveis.length,
+      itensSelecionadosTotal: itensSelecionados.length,
+    };
+  }
+
+  /**
+   * Cria um link temporário e envia WhatsApp para o fiscal assinar.
+   */
+  async solicitarAssinaturaFiscalWhatsApp(
+    medicaoId: string,
+    fiscalUsuarioId: string,
+    solicitadoPorId: string,
+    opcoes?: { itensSelecionadosIds?: string[] },
+  ): Promise<{ link_enviado: boolean; fiscal_nome: string; expira_em: Date; auto_enviar_aprovacao: boolean }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const fiscal = await this.usuarioRepository.findOne({ where: { id: fiscalUsuarioId } });
+    if (!fiscal) throw new NotFoundException('Fiscal não encontrado');
+
+    const solicitante = await this.usuarioRepository.findOne({ where: { id: solicitadoPorId } });
+
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+
+    const autoEncaminhamento = await this.validarAutoEncaminhamentoAssinatura(
+      medicaoId,
+      opcoes?.itensSelecionadosIds,
+    );
+
+    // Invalidar links anteriores pendentes para esta medição
+    await this.linkAssinaturaRepository.update(
+      { medicao_id: medicaoId, status: 'pendente' },
+      { status: 'expirado' } as any,
+    );
+
+    const { randomUUID } = await import('crypto');
+    const token = randomUUID();
+    const expira_em = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
+
+    const link = await this.linkAssinaturaRepository.save({
+      token,
+      medicao_id: medicaoId,
+      fiscal_usuario_id: fiscal.id,
+      fiscal_nome: fiscal.nome,
+      fiscal_telefone: fiscal.telefone || '',
+      solicitado_por_id: solicitadoPorId,
+      solicitado_por_nome: solicitante?.nome || '',
+      solicitado_por_telefone: solicitante?.telefone || '',
+      status: 'pendente',
+      expira_em,
+      auto_enviar_aprovacao: autoEncaminhamento.habilitado,
+      itens_total_medicao: autoEncaminhamento.totalItensMedicao || null,
+      itens_selecionados_total: autoEncaminhamento.itensSelecionadosTotal || null,
+      itens_selecionados_ids: autoEncaminhamento.itensSelecionadosValidos.length > 0
+        ? autoEncaminhamento.itensSelecionadosValidos
+        : null,
+    });
+
+    // Montar mensagem WhatsApp
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+    const linkUrl = `${appUrl}/assinar-medicao/${token}`;
+    const orgaoNome = contrato?.orgao?.nome || 'Órgão';
+    const numContrato = contrato?.numero_contrato || '';
+    const numMedicao = String(medicao.numero_medicao || '').padStart(3, '0');
+    const periodoInicio = medicao.periodo_inicio ? new Date(medicao.periodo_inicio).toLocaleDateString('pt-BR') : '';
+    const periodoFim   = medicao.periodo_fim    ? new Date(medicao.periodo_fim).toLocaleDateString('pt-BR')    : '';
+
+    const mensagem =
+      `Olá, *${fiscal.nome}*! 👋\n\n` +
+      `Você recebeu uma solicitação de *assinatura de boletim de medição*.\n\n` +
+      `🏛️ *Órgão:* ${orgaoNome}\n` +
+      `📋 *Contrato:* ${numContrato}\n` +
+      `🔢 *Medição Nº:* ${numMedicao}\n` +
+      `🗓️ *Período:* ${periodoInicio} a ${periodoFim}\n\n` +
+      `Acesse o link abaixo para revisar os documentos e assinar digitalmente:\n` +
+      `🔗 ${linkUrl}\n\n` +
+      `⏳ Este link expira em *48 horas*.`;
+
+    if (fiscal.telefone) {
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(
+          contrato?.orgao_id || '',
+          { to: fiscal.telefone, mensagem },
+        );
+      } catch (err) {
+        this.logger.warn(`Não foi possível enviar WhatsApp para fiscal ${fiscal.nome}: ${err.message}`);
+      }
+    }
+
+    return {
+      link_enviado: !!fiscal.telefone,
+      fiscal_nome: fiscal.nome,
+      expira_em,
+      auto_enviar_aprovacao: autoEncaminhamento.habilitado,
+    };
+  }
+
+  /**
+   * Retorna o status do link de assinatura mais recente para a medição.
+   */
+  async statusAssinaturaFiscal(medicaoId: string): Promise<any> {
+    const link = await this.linkAssinaturaRepository.findOne({
+      where: { medicao_id: medicaoId },
+      order: { criado_em: 'DESC' } as any,
+    });
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      select: ['id', 'status'],
+    } as any);
+
+    const autoEncaminhada =
+      !!link?.auto_enviar_aprovacao &&
+      link?.status === 'assinado' &&
+      medicao?.status === StatusMedicao.AGUARDANDO_APROVACAO;
+
+    return {
+      status: link?.status || 'sem_solicitacao',
+      fiscal_nome: link?.fiscal_nome || null,
+      atualizado_em: link?.atualizado_em || null,
+      auto_enviar_aprovacao: !!link?.auto_enviar_aprovacao,
+      auto_encaminhada: autoEncaminhada,
+      medicao_status: medicao?.status || null,
+    };
+  }
+
+  /**
+   * Retorna dados da medição para a página pública de assinatura.
+   * Valida que o token existe, não expirou e está pendente.
+   */
+  async obterDadosLinkPublico(token: string): Promise<any> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link) throw new NotFoundException('Link inválido');
+    if (link.status !== 'pendente') throw new BadRequestException('Este link já foi utilizado ou expirou');
+    if (new Date() > link.expira_em) {
+      await this.linkAssinaturaRepository.update(link.id, { status: 'expirado' } as any);
+      throw new BadRequestException('Este link expirou');
+    }
+
+    const medicao = await this.buscarMedicaoCompleta(link.medicao_id);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    const anexos = await this.anexoMedicaoRepository.find({ where: { medicao_id: link.medicao_id } });
+
+    return {
+      medicao_id: link.medicao_id,
+      fiscal_nome: link.fiscal_nome,
+      numero_medicao: medicao.numero_medicao,
+      periodo_inicio: medicao.periodo_inicio,
+      periodo_fim: medicao.periodo_fim,
+      valor_medido: medicao.valor_medido,
+      orgao_nome: contrato?.orgao?.nome || '',
+      numero_contrato: contrato?.numero_contrato || '',
+      fornecedor_nome: medicao.fornecedor_nome || '',
+      boletim_pdf_url: medicao.boletim_pdf_url || null,
+      anexos: anexos.map(a => ({
+        id: a.id,
+        url: a.url,
+        nome_original: a.nome_original,
+        tipo: a.tipo,
+        tamanho_bytes: a.tamanho_bytes,
+      })),
+    };
+  }
+
+  /**
+   * Envia OTP via WhatsApp para o fiscal assinar via link público.
+   */
+  async solicitarOtpLinkPublico(token: string): Promise<{ enviado: boolean }> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
+    if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
+    if (!link.fiscal_telefone) throw new BadRequestException('Fiscal não possui telefone cadastrado');
+
+    const contrato = await this.contratoRepository.findOne({ where: { id: (await this.medicaoRepository.findOne({ where: { id: link.medicao_id } }))?.contrato_id || '' } });
+    const orgaoId = contrato?.orgao_id || '';
+
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    const cacheKey = `otp_link_${token}`;
+    (this.assinaturasService as any).otpCache?.set(cacheKey, {
+      codigo,
+      expiracao: Date.now() + 5 * 60 * 1000,
+      tentativas: 0,
+    });
+
+    const mensagem =
+      `Olá, *${link.fiscal_nome}*!\n\n` +
+      `Seu código de verificação para *assinar o boletim de medição* é:\n\n` +
+      `*${codigo}*\n\n` +
+      `Este código expira em *5 minutos*. Não o compartilhe.`;
+
+    try {
+      await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
+        to: link.fiscal_telefone,
+        mensagem,
+      });
+      return { enviado: true };
+    } catch (err) {
+      this.logger.warn(`Erro ao enviar OTP para link ${token}: ${err.message}`);
+      return { enviado: false };
+    }
+  }
+
+  private async autoEncaminharAssinaturaFiscal(link: LinkAssinaturaFiscal): Promise<boolean> {
+    if (!link.auto_enviar_aprovacao) return false;
+
+    const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
+    if (!medicao) {
+      this.logger.warn(`Autoencaminhamento ignorado: medição ${link.medicao_id} não encontrada.`);
+      return false;
+    }
+
+    if (medicao.status === StatusMedicao.AGUARDANDO_APROVACAO || medicao.status === StatusMedicao.APROVADA) {
+      return true;
+    }
+
+    if (medicao.status !== StatusMedicao.SUBMETIDA && medicao.status !== StatusMedicao.PARCIALMENTE_ATESTADA) {
+      this.logger.warn(
+        `Autoencaminhamento ignorado: medição ${medicao.id} em status ${medicao.status}.`,
+      );
+      return false;
+    }
+
+    await this.atestarMedicao(
+      medicao.id,
+      link.fiscal_usuario_id,
+      link.fiscal_nome || 'Fiscal',
+      {
+        observacoes: 'Ateste automático após assinatura digital do fiscal.',
+        verificado_in_loco: false,
+      },
+    );
+    this.logger.log(`Medição ${medicao.id} autoencaminhada para aprovação após assinatura fiscal.`);
+    return true;
+  }
+
+  /**
+   * Valida OTP e registra a assinatura do fiscal via link público.
+   * Retorna dados_pdf para o frontend regenerar o PDF com o layout correto.
+   */
+  async assinarViaLinkPublico(
+    token: string,
+    codigoOtp: string,
+  ): Promise<{
+    sucesso: boolean;
+    codigo_validacao: string;
+    codigo_formatado: string;
+    dados_pdf: any;
+    medicao_id: string;
+    auto_encaminhada_aprovacao: boolean;
+    medicao_status: StatusMedicao | null;
+  }> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
+    if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
+
+    // Validar OTP
+    const cacheKey = `otp_link_${token}`;
+    const otpEntry = (this.assinaturasService as any).otpCache?.get(cacheKey);
+    if (!otpEntry || otpEntry.expiracao <= Date.now() || otpEntry.codigo !== codigoOtp) {
+      throw new BadRequestException('Código incorreto ou expirado. Solicite um novo código.');
+    }
+    (this.assinaturasService as any).otpCache?.delete(cacheKey);
+
+    // Registrar assinatura
+    const fiscalUser = await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } });
+    const assinatura = await this.registrarAssinaturaMedicao(link.medicao_id, {
+      orgao_id: '',
+      papel: 'FISCAL',
+      usuario_id: link.fiscal_usuario_id,
+      usuario_nome: link.fiscal_nome,
+      usuario_cpf_cnpj: fiscalUser?.cpf || '',
+      usuario_cargo: fiscalUser?.cargo || 'Fiscal de Contrato',
+      usuario_matricula: fiscalUser?.matricula || undefined,
+      usuario_portaria: fiscalUser?.portaria_fiscal || undefined,
+    });
+
+    // Montar dados para o frontend gerar o PDF
+    let dados_pdf: any = null;
+    try {
+      dados_pdf = await this.montarDadosPdfFrontend(link.medicao_id);
+    } catch (err) {
+      this.logger.warn(`Erro ao montar dados PDF após assinatura por link: ${err.message}`);
+    }
+
+    // Regenerar PDF oficial no servidor com a assinatura do fiscal incluída
+    try {
+      await this.gerarPdfOficialMedicao(link.medicao_id);
+      this.logger.log(`PDF do boletim regenerado com assinatura fiscal para medição ${link.medicao_id}`);
+    } catch (err) {
+      this.logger.warn(`Não foi possível regenerar PDF após assinatura fiscal por link: ${err.message}`);
+    }
+
+    // Atualizar status do link
+    await this.linkAssinaturaRepository.update(link.id, { status: 'assinado' } as any);
+
+    let autoEncaminhadaAprovacao = false;
+    try {
+      autoEncaminhadaAprovacao = await this.autoEncaminharAssinaturaFiscal(link);
+    } catch (err) {
+      this.logger.warn(`Falha no autoencaminhamento pós-assinatura: ${err.message}`);
+    }
+
+    const medicaoAtualizada = await this.medicaoRepository.findOne({
+      where: { id: link.medicao_id },
+      select: ['id', 'status'],
+    } as any);
+
+    // Notificar solicitante via WhatsApp
+    if (link.solicitado_por_telefone) {
+      const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
+      const contrato = await this.contratoRepository.findOne({ where: { id: medicao?.contrato_id || '' } });
+      const orgaoId = contrato?.orgao_id || '';
+      const numMedicao = String(medicao?.numero_medicao || '').padStart(3, '0');
+      const mensagemNotif =
+        autoEncaminhadaAprovacao
+          ? `✅ *${link.fiscal_nome}* assinou digitalmente o boletim da *Medição Nº ${numMedicao}*.\n\n` +
+            `A medição foi enviada automaticamente para *aprovação do gestor*.`
+          : `✅ *${link.fiscal_nome}* assinou digitalmente o boletim da *Medição Nº ${numMedicao}*.\n\n` +
+            `O boletim assinado já está disponível para download.`;
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
+          to: link.solicitado_por_telefone,
+          mensagem: mensagemNotif,
+        });
+      } catch (err) {
+        this.logger.warn(`Erro ao notificar solicitante: ${err.message}`);
+      }
+    }
+
+    return {
+      sucesso: true,
+      codigo_validacao: assinatura.codigo_validacao,
+      codigo_formatado: assinatura.codigo_formatado,
+      dados_pdf,
+      medicao_id: link.medicao_id,
+      auto_encaminhada_aprovacao: autoEncaminhadaAprovacao,
+      medicao_status: (medicaoAtualizada?.status as StatusMedicao) || null,
+    };
+  }
+
+  /**
+   * Recusa a assinatura via link público.
+   */
+  async recusarViaLinkPublico(token: string, motivo?: string): Promise<{ sucesso: boolean }> {
+    const link = await this.linkAssinaturaRepository.findOne({ where: { token } });
+    if (!link || link.status !== 'pendente') throw new BadRequestException('Link inválido ou já utilizado');
+    if (new Date() > link.expira_em) throw new BadRequestException('Link expirado');
+
+    await this.linkAssinaturaRepository.update(link.id, {
+      status: 'recusado',
+      motivo_recusa: motivo || null,
+    } as any);
+
+    // Notificar solicitante
+    if (link.solicitado_por_telefone) {
+      const medicao = await this.medicaoRepository.findOne({ where: { id: link.medicao_id } });
+      const contrato = await this.contratoRepository.findOne({ where: { id: medicao?.contrato_id || '' } });
+      const orgaoId = contrato?.orgao_id || '';
+      const numMedicao = String(medicao?.numero_medicao || '').padStart(3, '0');
+      const motivoTxt = motivo ? `\n\nMotivo: _${motivo}_` : '';
+      const mensagem =
+        `❌ *${link.fiscal_nome}* recusou a assinatura do boletim da *Medição Nº ${numMedicao}*.${motivoTxt}`;
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(orgaoId, {
+          to: link.solicitado_por_telefone,
+          mensagem,
+        });
+      } catch (err) {
+        this.logger.warn(`Erro ao notificar solicitante de recusa: ${err.message}`);
+      }
+    }
+
+    return { sucesso: true };
   }
 }

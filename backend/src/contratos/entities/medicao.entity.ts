@@ -39,6 +39,7 @@ import {
 } from 'typeorm';
 import { Contrato } from './contrato.entity';
 import { OrdemServicoContrato } from './ordem-servico-contrato.entity';
+import { Requisicao } from '../../almoxarifado/entities/requisicao.entity';
 
 export enum StatusMedicao {
   RASCUNHO = 'RASCUNHO',                         // Fornecedor ainda editando
@@ -72,6 +73,14 @@ export class Medicao {
   @Column({ type: 'varchar', nullable: true })
   ordem_servico_id: string;
 
+  // Vinculação com Requisição (quando fluxo for REQUISICAO)
+  @ManyToOne(() => Requisicao, { nullable: true })
+  @JoinColumn({ name: 'requisicao_id' })
+  requisicao: Requisicao;
+
+  @Column({ type: 'varchar', nullable: true })
+  requisicao_id: string;
+
   // ============ IDENTIFICAÇÃO ============
 
   @Column({ type: 'int' })
@@ -104,10 +113,51 @@ export class Medicao {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
   percentual_fisico_acumulado: number; // % físico acumulado total
 
+  // ============ EXECUÇÃO FISCAL (TEMPORAL) ============
+  // Dados calculados com ano comercial (360 dias)
+
+  @Column({ type: 'json', nullable: true })
+  execucao_fiscal: {
+    vigencia_inicio: string;
+    vigencia_fim: string;
+    total_dias: number;
+    dias_executados: number;
+    dias_restantes: number;
+    meses_executados: number;
+    dias_executados_extra: number;
+    meses_restantes: number;
+    dias_restantes_extra: number;
+    ano_comercial: boolean;
+  };
+
+  @Column({ type: 'json', nullable: true })
+  execucao_financeira: {
+    itens: Array<{
+      etapa_id: string;
+      numero_etapa: number;
+      descricao: string;
+      valor_previsto: number;
+      percentual_fisico: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    }>;
+    totais: {
+      valor_previsto: number;
+      no_periodo: number;
+      ate_periodo: number;
+      a_executar: number;
+    };
+    ajuste_migracao?: number;
+  };
+
   // ============ FORNECEDOR (quem submete) ============
 
-  @Column({ nullable: true })
-  fornecedor_id: string;
+  @Column({ type: 'text', nullable: true })
+  competencia?: string; // ex: FEVEREIRO/2026
+
+  @Column({ type: 'text', nullable: true })
+  fornecedor_id?: string;
 
   @Column({ nullable: true })
   fornecedor_nome: string;
@@ -190,6 +240,22 @@ export class Medicao {
 
   @Column({ type: 'text', nullable: true })
   documentos: string; // JSON array de URLs de documentos
+
+  // ============ BOLETIM PDF ASSINADO ============
+
+  @Column({ type: 'text', nullable: true })
+  boletim_pdf_url: string; // URL/caminho do PDF do boletim assinado digitalmente
+
+  // ============ ENVIO PARA CONTABILIDADE ============
+
+  @Column({ name: 'enviado_contabilidade', type: 'boolean', default: false })
+  enviado_contabilidade: boolean;
+
+  @Column({ name: 'data_envio_contabilidade', type: 'timestamp', nullable: true })
+  data_envio_contabilidade: Date | null;
+
+  @Column({ name: 'enviado_contabilidade_por_nome', type: 'varchar', length: 255, nullable: true })
+  enviado_contabilidade_por_nome: string | null;
 
   // ============ DEVOLUÇÃO (quando fiscal devolve ao fornecedor) ============
 

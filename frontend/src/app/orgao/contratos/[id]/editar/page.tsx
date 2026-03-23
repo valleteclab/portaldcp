@@ -90,6 +90,7 @@ export default function EditarContratoPage() {
     elemento_despesa: '', fiscal_nome: '', fiscal_matricula: '', gestor_nome: '', gestor_matricula: '',
     exige_garantia: false, percentual_garantia: '', tipo_garantia: '', observacoes: '',
     modalidade_licitacao: '',
+    boletim_por_quantidade: false,
   })
 
   useEffect(() => {
@@ -137,6 +138,7 @@ export default function EditarContratoPage() {
           tipo_garantia: contrato.tipo_garantia || '',
           observacoes: contrato.observacoes || '',
           modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '__NONE__',
+          boletim_por_quantidade: contrato.boletim_por_quantidade || false,
         })
       } else {
         setError('Contrato não encontrado')
@@ -235,6 +237,48 @@ export default function EditarContratoPage() {
     }
   }
 
+  const atualizarFornecedorExistente = async () => {
+    if (!fornecedorExistente) return
+    const razao = novoFornecedorRazao.trim()
+    if (!razao) {
+      setErroNovoFornecedor('Informe a razão social')
+      return
+    }
+    setSalvandoFornecedor(true)
+    setErroNovoFornecedor(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${fornecedorExistente.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ razao_social: razao }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Erro ao atualizar fornecedor')
+      }
+      const fornecedorAtualizado = await res.json()
+      setFornecedores(prev => prev.map(f => (
+        f.id === fornecedorExistente.id
+          ? { ...f, razao_social: fornecedorAtualizado.razao_social || razao }
+          : f
+      )))
+      setFormData(prev => ({
+        ...prev,
+        fornecedor_id: fornecedorExistente.id,
+        fornecedor_cnpj: fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj || prev.fornecedor_cnpj,
+        fornecedor_razao_social: fornecedorAtualizado.razao_social || razao,
+      }))
+      setFornecedorExistente(prev => prev ? { ...prev, razao_social: fornecedorAtualizado.razao_social || razao } : prev)
+      setShowNovoFornecedor(false)
+      setNovoFornecedorCnpj('')
+      setNovoFornecedorRazao('')
+    } catch (err: unknown) {
+      setErroNovoFornecedor(err instanceof Error ? err.message : 'Erro ao atualizar fornecedor')
+    } finally {
+      setSalvandoFornecedor(false)
+    }
+  }
+
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
@@ -269,6 +313,7 @@ export default function EditarContratoPage() {
         percentual_garantia: formData.percentual_garantia ? parseFloat(formData.percentual_garantia) : null,
         tipo_garantia: formData.tipo_garantia || null, observacoes: formData.observacoes || null,
         modalidade_licitacao: (formData.modalidade_licitacao && formData.modalidade_licitacao !== '__NONE__') ? formData.modalidade_licitacao : null,
+        boletim_por_quantidade: formData.boletim_por_quantidade || false,
       }
 
       const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
@@ -358,6 +403,20 @@ export default function EditarContratoPage() {
                 {MODALIDADES_EXECUCAO.find(m => m.value === formData.modalidade_execucao)?.desc}
               </p>
             </div>
+            {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(formData.modalidade_execucao) && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="boletim_por_quantidade"
+                  checked={formData.boletim_por_quantidade}
+                  onChange={(e) => handleInputChange('boletim_por_quantidade', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="boletim_por_quantidade" className="cursor-pointer font-normal text-sm">
+                  Boletim de medição por quantidade (Execução Fiscal em un/h/m em vez de dias)
+                </Label>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -425,6 +484,7 @@ export default function EditarContratoPage() {
                     <div className="p-3 rounded-lg bg-amber-50 text-amber-800 text-sm border border-amber-200">
                       <p className="font-medium">Fornecedor já cadastrado</p>
                       <p className="mt-1">{fornecedorExistente.razao_social} — {fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj}</p>
+                      <p className="mt-2 text-xs">Se a razão social estiver incorreta, você pode ajustá-la abaixo e salvar a correção.</p>
                       <Button type="button" size="sm" className="mt-2" onClick={() => { handleFornecedorChange(fornecedorExistente.id); setShowNovoFornecedor(false); setFornecedorExistente(null); setNovoFornecedorCnpj(''); setNovoFornecedorRazao(''); }}>Usar este fornecedor</Button>
                     </div>
                   )}
@@ -447,9 +507,15 @@ export default function EditarContratoPage() {
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setShowNovoFornecedor(false)} disabled={salvandoFornecedor}>Cancelar</Button>
-                  <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor || !!fornecedorExistente}>
-                    {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cadastrando...</> : <>Cadastrar</>}
-                  </Button>
+                  {fornecedorExistente ? (
+                    <Button type="button" onClick={atualizarFornecedorExistente} disabled={salvandoFornecedor}>
+                      {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <>Salvar correção</>}
+                    </Button>
+                  ) : (
+                    <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor}>
+                      {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cadastrando...</> : <>Cadastrar</>}
+                    </Button>
+                  )}
                 </DialogFooter>
               </DialogContent>
             </Dialog>

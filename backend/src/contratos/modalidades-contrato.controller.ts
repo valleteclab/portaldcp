@@ -9,10 +9,18 @@ import {
   Body,
   Query,
   Req,
+  Res,
   ForbiddenException,
   BadRequestException,
   NotFoundException,
+  UseInterceptors,
+  UploadedFile,
+  StreamableFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import { createReadStream, existsSync } from 'fs';
+import * as path from 'path';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +33,7 @@ import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
+import { Medicao } from './entities/medicao.entity';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -38,6 +47,8 @@ export class ModalidadesContratoController {
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
+    @InjectRepository(Medicao)
+    private readonly medicaoRepository: Repository<Medicao>,
   ) {}
 
   /**
@@ -139,10 +150,58 @@ export class ModalidadesContratoController {
     return { success: true };
   }
 
+  @Patch(':contratoId/itens-cronograma/:itemId/quantidade-migracao')
+  async atualizarQuantidadeMedidaMigracao(
+    @Param('contratoId') contratoId: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { quantidade_medida: number },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const isAdmin = request.user.type === UserType.ADMIN || request.user.role === 'ADMIN';
+    if (!isAdmin) {
+      throw new ForbiddenException('Apenas administradores podem informar quantidade medida em ajuste de migração');
+    }
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    return this.medicaoService.atualizarQuantidadeMedidaMigracao(
+      contratoId,
+      itemId,
+      Number(body.quantidade_medida) || 0,
+    );
+  }
+
   // ============================================================================
   // MEDIÇÃO — Rotas estáticas DEVEM vir ANTES das rotas com :parametro
   //           para evitar que NestJS interprete "resumo-fiscal" como :medicaoId
   // ============================================================================
+
+  @Get('medicoes/fiscais')
+  async listarFiscaisOrgao(
+    @Query('orgaoId') orgaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const oid = orgaoId || this.getOrgaoId(request.user, undefined);
+    return this.medicaoService.listarFiscaisOrgao(oid);
+  }
+
+  @Post('medicoes/:medicaoId/solicitar-assinatura-fiscal')
+  async solicitarAssinaturaFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fiscalUsuarioId: string; itensSelecionadosIds?: string[] },
+    @Req() request: { user: JwtPayload },
+  ) {
+    return this.medicaoService.solicitarAssinaturaFiscalWhatsApp(
+      medicaoId,
+      body.fiscalUsuarioId,
+      request.user.sub,
+      { itensSelecionadosIds: body.itensSelecionadosIds },
+    );
+  }
+
+  @Get('medicoes/:medicaoId/status-assinatura-fiscal')
+  async statusAssinaturaFiscal(@Param('medicaoId') medicaoId: string) {
+    return this.medicaoService.statusAssinaturaFiscal(medicaoId);
+  }
 
   @Get('medicoes/pendentes-ateste')
   async listarPendentesAteste(
@@ -151,6 +210,15 @@ export class ModalidadesContratoController {
   ) {
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.medicaoService.listarPendentesAteste(orgaoId);
+  }
+
+  @Get('medicoes/aprovadas')
+  async listarAprovadas(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarAprovadas(orgaoId);
   }
 
   @Get('medicoes/devolvidas')
@@ -343,6 +411,20 @@ export class ModalidadesContratoController {
   // ============================================================================
 
   /**
+   * Sugestão de discriminações (da última medição do contrato).
+   * GET /api/contratos/medicoes/:medicaoId/discriminacoes/sugestao
+   */
+  @Get('medicoes/:medicaoId/discriminacoes/sugestao')
+  async sugestaoDiscriminacoes(@Param('medicaoId') medicaoId: string) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    return this.medicaoService.sugerirDiscriminacoes(medicao.contrato_id);
+  }
+
+  /**
    * Lista discriminações de despesa de uma medição.
    * GET /api/contratos/medicoes/:medicaoId/discriminacoes
    */
@@ -351,6 +433,17 @@ export class ModalidadesContratoController {
     @Param('medicaoId') medicaoId: string,
   ) {
     return this.medicaoService.listarDiscriminacoes(medicaoId);
+  }
+
+  /**
+   * Lista assinaturas digitais de uma medição.
+   * GET /api/contratos/medicoes/:medicaoId/assinaturas
+   */
+  @Get('medicoes/:medicaoId/assinaturas')
+  async listarAssinaturasMedicao(
+    @Param('medicaoId') medicaoId: string,
+  ) {
+    return this.medicaoService.listarAssinaturasMedicao(medicaoId);
   }
 
   /**
@@ -418,12 +511,96 @@ export class ModalidadesContratoController {
     @Req() request: { user: JwtPayload },
   ) {
     const orgaoId = this.getOrgaoId(request.user);
+    const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    const usarItensCronograma = await this.medicaoService.usarItensCronograma(contratoId);
+    if (usarItensCronograma && contrato.fornecedor_id) {
+      return this.medicaoService.calcularExecucaoFinanceiraFornecedor(contratoId, medicaoId || undefined);
+    }
     return this.medicaoService.calcularExecucaoFinanceira(contratoId, orgaoId, medicaoId || undefined);
   }
 
   @Get('medicoes/:medicaoId')
   async buscarMedicao(@Param('medicaoId') medicaoId: string) {
     return this.medicaoService.buscarMedicao(medicaoId);
+  }
+
+  @Get('medicoes/:medicaoId/boletim-oficial/download')
+  async downloadBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Res({ passthrough: true }) res: Response,
+    @Query('orgaoId') orgaoIdParam?: string,
+  ): Promise<StreamableFile> {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+
+    await this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+    const filePath = this.medicaoService.getBoletimPdfFilePath(medicaoId);
+    if (!filePath || !existsSync(filePath)) {
+      throw new NotFoundException('Boletim PDF não encontrado');
+    }
+
+    const filename = `boletim_medicao_${medicao.numero_medicao || medicaoId}.pdf`;
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return new StreamableFile(createReadStream(filePath));
+  }
+
+  @Get('medicoes/:medicaoId/boletim-oficial')
+  async obterBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+
+    return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+  }
+
+  @Patch('medicoes/:medicaoId/marcar-enviado-contabilidade')
+  async marcarEnviadoContabilidade(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (request.user.type === UserType.USUARIO && !usuario?.pode_enviar_contabilidade) {
+      throw new ForbiddenException('Você não tem permissão para marcar envio para contabilidade');
+    }
+    const orgaoId = this.getOrgaoId(request.user);
+    const nomeUsuario = usuario?.nome || request.user.email || '';
+    return this.medicaoService.marcarEnviadoContabilidade(medicaoId, orgaoId, nomeUsuario);
+  }
+
+  @Get('medicoes/:medicaoId/download-zip')
+  async downloadZipMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Res() res: Response,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const buffer = await this.medicaoService.gerarZipMedicao(medicaoId, orgaoId);
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="medicao_${medicaoId}.zip"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Patch('medicoes/:medicaoId/submeter')
@@ -438,6 +615,20 @@ export class ModalidadesContratoController {
     },
   ) {
     return this.medicaoService.submeterMedicao(medicaoId, body.fornecedor_id, body);
+  }
+
+  @Patch('medicoes/:medicaoId/submeter-fiscal')
+  async submeterMedicaoFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { fiscal_id: string; fiscal_nome: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    const orgaoId = this.getOrgaoId(request.user);
+    if (contrato.orgao_id !== orgaoId) throw new ForbiddenException('Sem acesso a esta medição');
+    return this.medicaoService.submeterMedicaoFiscal(medicaoId, body.fiscal_id, body.fiscal_nome);
   }
 
   @Patch('medicoes/:medicaoId/atestar')
@@ -833,6 +1024,62 @@ export class ModalidadesContratoController {
    * Usa o mesmo módulo de assinaturas das OS/OF (assinaturas_digitais).
    * Retorna o código de validação formatado para inclusão no PDF.
    */
+  @Post('medicoes/:medicaoId/solicitar-otp-fiscal')
+  async solicitarOtpFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { telefone: string },
+  ) {
+    return this.medicaoService.solicitarOtpAssinaturaFiscal(medicaoId, body.telefone);
+  }
+
+  /**
+   * Envia OTP para o telefone do fornecedor (quando o órgão cria a medição).
+   * A assinatura será do fornecedor, no campo FORNECEDOR do boletim.
+   */
+  @Post('medicoes/:medicaoId/solicitar-otp-fornecedor')
+  async solicitarOtpFornecedor(@Param('medicaoId') medicaoId: string) {
+    return this.medicaoService.solicitarOtpAssinaturaFornecedor(medicaoId);
+  }
+
+  @Post('medicoes/:medicaoId/validar-otp-fornecedor')
+  async validarOtpFornecedor(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { codigo: string },
+  ) {
+    return this.medicaoService.validarOtpAssinaturaFornecedor(medicaoId, body.codigo);
+  }
+
+  @Post('medicoes/:medicaoId/validar-otp-fiscal')
+  async validarOtpFiscal(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { codigo: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const orgaoId = request.user.type === UserType.ORGAO
+      ? request.user.sub
+      : usuario?.orgao_id || '';
+
+    return this.medicaoService.validarOtpAssinaturaFiscal(medicaoId, body.codigo, {
+      usuario_id: request.user.sub,
+      usuario_nome: usuario?.nome || '',
+      usuario_cpf_cnpj: usuario?.cpf || '',
+      usuario_cargo: usuario?.cargo || 'Fiscal',
+      orgao_id: orgaoId,
+    });
+  }
+
+  @Post('medicoes/:medicaoId/upload-boletim-oficial')
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  async uploadBoletimOficial(
+    @Param('medicaoId') medicaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
+    const pdfUrl = await this.medicaoService.salvarBoletimPdf(medicaoId, file.buffer);
+    return { url: pdfUrl };
+  }
+
   @Post('medicoes/:medicaoId/assinar')
   async assinarMedicao(
     @Param('medicaoId') medicaoId: string,

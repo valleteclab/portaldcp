@@ -75,6 +75,19 @@ function formatCurrency(value: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 }
 
+async function parseResponseSafely(res: Response): Promise<any> {
+  const contentType = res.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    return await res.json()
+  }
+
+  const text = await res.text()
+  return {
+    message: text || `Erro HTTP ${res.status}`,
+  }
+}
+
 export default function ImportarContratoIaPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -105,7 +118,7 @@ export default function ImportarContratoIaPage() {
         method: 'POST',
         body: formData,
       })
-      const json = await res.json()
+      const json = await parseResponseSafely(res)
       if (!res.ok) throw new Error(json.message || 'Erro ao processar arquivo')
 
       setDados(json)
@@ -186,7 +199,7 @@ export default function ImportarContratoIaPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dados),
       })
-      const json = await res.json()
+      const json = await parseResponseSafely(res)
       if (!res.ok) throw new Error(json.message || 'Erro ao cadastrar contrato')
 
       setResultado(json)

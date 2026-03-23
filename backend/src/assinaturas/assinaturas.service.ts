@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AssinaturaDigital, EntidadeTipo, PapelAssinante } from './entities/assinatura-digital.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { EmailService } from '../email/email.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class AssinaturasService {
     @InjectRepository(AssinaturaDigital)
     private readonly assinaturaRepository: Repository<AssinaturaDigital>,
     private readonly whatsappService: WhatsAppService,
+    private readonly emailService: EmailService,
   ) {}
 
   // ==========================================
@@ -83,7 +85,29 @@ export class AssinaturasService {
       tentativas: otpExistente ? otpExistente.tentativas + 1 : 1,
     });
 
-    this.logger.log(`OTP email gerado para ${email}: ${codigoGerado}`);
+    // Enviar email com o código OTP
+    try {
+      await this.emailService.enviar(orgaoId, {
+        to: email,
+        subject: 'Código de Assinatura Eletrônica — Portal DCP',
+        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:8px">
+          <h2 style="color:#163c64;margin-top:0">Portal DCP — Assinatura Eletrônica</h2>
+          <p>Olá, <strong>${usuarioNome}</strong>.</p>
+          <p>Seu código de confirmação para <strong>Assinatura Eletrônica</strong> é:</p>
+          <div style="background:#f0f7ff;border:2px solid #163c64;border-radius:8px;padding:16px;text-align:center;margin:16px 0">
+            <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#163c64">${codigoGerado}</span>
+          </div>
+          <p style="color:#6b7280;font-size:13px">Este código expira em <strong>5 minutos</strong>. Não o compartilhe com ninguém.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
+          <p style="color:#9ca3af;font-size:11px;text-align:center">Portal DCP — Diário de Compras Públicas</p>
+        </div>`,
+      });
+      this.logger.log(`OTP email enviado para ${email}`);
+    } catch (error) {
+      this.logger.warn(`Falha ao enviar OTP por email para ${email}: ${error.message}`);
+      // Não falha — o código já foi gerado no cache, pode ter sido enviado via WhatsApp
+    }
+
     return true;
   }
 
@@ -154,6 +178,8 @@ export class AssinaturasService {
     usuario_nome: string;
     usuario_cpf_cnpj: string;
     usuario_cargo?: string;
+    usuario_matricula?: string;
+    usuario_portaria?: string;
     usuario_telefone?: string;
     papel_assinante: PapelAssinante;
     ip_address?: string;

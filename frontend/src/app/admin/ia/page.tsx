@@ -51,14 +51,13 @@ const MODELOS_DISPONIVEIS = [
   { value: 'x-ai/grok-3', label: 'Grok 3 (xAI)', descricao: 'Modelo da xAI. Alto desempenho em raciocínio.' },
   { value: 'x-ai/grok-3-mini', label: 'Grok 3 Mini (xAI) — Econômico', descricao: 'Versão compacta do Grok 3.' },
   { value: 'x-ai/grok-4', label: 'Grok 4 (xAI)', descricao: 'Próxima geração do Grok.' },
-  // NVIDIA
-  { value: 'nvidia/llama-nemotron-embed-vl-1b-v2:free', label: 'Llama Nemotron Embed VL 1B (NVIDIA) — FREE', descricao: 'Modelo de embeddings multimodal da NVIDIA. Gratuito.' },
-  // Sourceful
-  { value: 'sourceful/riverflow-v2-pro', label: 'Riverflow V2 Pro (Sourceful)', descricao: 'Modelo especializado da Sourceful.' },
+  // Sourceful (pode requerer configuração de privacidade no OpenRouter)
+  { value: 'sourceful/riverflow-v2-pro', label: 'Riverflow V2 Pro (Sourceful) ⚠️', descricao: 'Modelo especializado da Sourceful. Pode requerer configuração de privacidade no OpenRouter.' },
   // Liquid
   { value: 'liquid/lfm-2.5-1.2b-thinking:free', label: 'LFM 2.5 1.2B Thinking (Liquid) — FREE', descricao: 'Modelo thinking da Liquid com 1.2B parâmetros. Gratuito.' },
   // Z-AI
   { value: 'z-ai/glm-4.5-air:free', label: 'GLM 4.5 Air (Z-AI) — FREE', descricao: 'Modelo GLM da Z-AI. Gratuito.' },
+  // NOTA: nvidia/llama-nemotron-embed-vl-1b-v2:free é modelo de EMBEDDINGS, não de chat - removido
 ]
 
 export default function IaConfigPage() {

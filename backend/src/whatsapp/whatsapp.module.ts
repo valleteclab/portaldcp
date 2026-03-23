@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { SystemConfigModule } from '../system-config/system-config.module';
@@ -10,6 +10,7 @@ import { WhatsappChatController } from './whatsapp-chat.controller';
 import { WhatsappConversa } from './entities/whatsapp-conversa.entity';
 import { WhatsappMensagem } from './entities/whatsapp-mensagem.entity';
 
+@Global()
 @Module({
   imports: [
     TypeOrmModule.forFeature([Orgao, WhatsappConversa, WhatsappMensagem]),

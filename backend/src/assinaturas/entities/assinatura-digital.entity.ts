@@ -49,6 +49,12 @@ export class AssinaturaDigital {
   @Column({ type: 'varchar', length: 255, nullable: true })
   usuario_cargo: string;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  usuario_matricula: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  usuario_portaria: string;
+
   @Column({ type: 'varchar', length: 20, nullable: true })
   usuario_telefone: string;
 

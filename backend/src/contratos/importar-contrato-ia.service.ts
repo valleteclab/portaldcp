@@ -70,7 +70,12 @@ COMO IDENTIFICAR OS CAMPOS:
 - "valor_inicial": mesmo que valor_global se não especificado separadamente
 - "tipo": analise o cabeçalho do documento (CONTRATO, NOTA_EMPENHO, ORDEM_SERVICO, ORDEM_FORNECIMENTO, CARTA_CONTRATO, TERMO_ADESAO, ATA_REGISTRO_PRECO)
 - "categoria": COMPRAS=produtos físicos, SERVICOS=serviços gerais, OBRAS=construção, SERVICOS_ENGENHARIA=eng, LOCACAO=aluguel/locação, ALIENACAO=venda
-- "modalidade_execucao": ITEM_QUANTIDADE=compra de itens, MEDICAO=por medição, CONTINUADO=serviço contínuo mensal, LICENCA=licença de software, ORDEM_SERVICO=por OS
+- Para software, licença, implantação, suporte técnico, automação e locação de sistema, escolha SERVICOS
+- "modalidade_execucao": use SOMENTE ITEM_QUANTIDADE ou MEDICAO
+- Se a categoria for SERVICOS, a modalidade_execucao deve ser MEDICAO
+- Use MEDICAO para serviços em geral, inclusive software, licença, implantação, locação de sistema, suporte e mensalidade
+- Dentro de MEDICAO: obra/engenharia normalmente usa etapas; demais serviços usam itens
+- Use ITEM_QUANTIDADE apenas para COMPRAS de produtos físicos
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
 - "itens": array de objetos, cada um representando um item do contrato
@@ -86,7 +91,7 @@ Schema de retorno (JSON puro e válido):
   "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
   "fornecedor_razao_social": "nome completo ou null",
   "tipo": "CONTRATO",
-  "categoria": "COMPRAS",
+  "categoria": "SERVICOS",
   "modalidade_execucao": "ITEM_QUANTIDADE",
   "valor_inicial": 27499.24,
   "valor_global": 27499.24,
@@ -263,6 +268,55 @@ function tentarExtrairJson(str: string): any | null {
   return null;
 }
 
+function normalizarCategoriaContrato(categoria: any, objeto?: string): string {
+  const categoriaTexto = String(categoria || '').trim().toUpperCase();
+  const objetoTexto = String(objeto || '').toLowerCase();
+
+  if (['COMPRAS', 'SERVICOS', 'OBRAS', 'SERVICOS_ENGENHARIA', 'LOCACAO', 'ALIENACAO'].includes(categoriaTexto)) {
+    if (categoriaTexto === 'COMPRAS' && /(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos)/i.test(objetoTexto)) {
+      return 'SERVICOS';
+    }
+
+    if (categoriaTexto === 'LOCACAO' && /(software|sistema|licen[cç]a|m[oó]dulo|api|mos)/i.test(objetoTexto)) {
+      return 'SERVICOS';
+    }
+
+    return categoriaTexto;
+  }
+
+  if (/(obra|reforma|amplia[cç][aã]o|constru[cç][aã]o)/i.test(objetoTexto)) {
+    return 'OBRAS';
+  }
+
+  if (/(engenharia|projeto executivo|projeto b[aá]sico|servi[cç]os? de engenharia)/i.test(objetoTexto)) {
+    return 'SERVICOS_ENGENHARIA';
+  }
+
+  if (/(software|sistema|licen[cç]a|implanta[cç][aã]o|loca[cç][aã]o|suporte t[eé]cnico|manuten[cç][aã]o|automa[cç][aã]o|intelig[eê]ncia artificial|m[oó]dulo|api|mos)/i.test(objetoTexto)) {
+    return 'SERVICOS';
+  }
+
+  return 'SERVICOS';
+}
+
+function normalizarModalidadeExecucao(modalidade: any, categoria: string): string {
+  const modalidadeTexto = String(modalidade || '').trim().toUpperCase();
+
+  if (categoria === 'SERVICOS' || categoria === 'OBRAS' || categoria === 'SERVICOS_ENGENHARIA') {
+    return 'MEDICAO';
+  }
+
+  if (categoria === 'COMPRAS') {
+    return 'ITEM_QUANTIDADE';
+  }
+
+  if (modalidadeTexto === 'MEDICAO') {
+    return 'MEDICAO';
+  }
+
+  return 'ITEM_QUANTIDADE';
+}
+
 @Injectable()
 export class ImportarContratoIaService {
   private readonly logger = new Logger(ImportarContratoIaService.name);
@@ -280,27 +334,32 @@ export class ImportarContratoIaService {
 
     let respostaIA: string;
 
-    if (file.mimetype === 'application/pdf') {
-      const textoExtraido = await extrairTextoPdf(file.buffer);
-      this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
+    try {
+      if (file.mimetype === 'application/pdf') {
+        const textoExtraido = await extrairTextoPdf(file.buffer);
+        this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
-      if (textoExtraido.trim().length >= 200) {
-        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
-      } else {
-        this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
-        try {
-          respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_EXTRACAO, file.buffer);
-        } catch (visionErr: any) {
-          throw new BadRequestException(
-            'Este PDF parece ser escaneado (sem texto digital). ' +
-            'O sistema tentou converter para imagens mas falhou. ' +
-            'Tire uma foto/screenshot do contrato e envie como imagem JPG ou PNG.',
-          );
+        if (textoExtraido.trim().length >= 200) {
+          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
+        } else {
+          this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
+          try {
+            respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_EXTRACAO, file.buffer);
+          } catch (visionErr: any) {
+            throw new BadRequestException(
+              'Este PDF parece ser escaneado (sem texto digital). ' +
+              'O sistema tentou converter para imagens mas falhou. ' +
+              'Tire uma foto/screenshot do contrato e envie como imagem JPG ou PNG.',
+            );
+          }
         }
+      } else {
+        const imagemBase64 = file.buffer.toString('base64');
+        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
       }
-    } else {
-      const imagemBase64 = file.buffer.toString('base64');
-      respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
+    } catch (error: any) {
+      this.logger.error(`Falha ao consultar IA na importação de contrato: ${error?.message || error}`);
+      throw new BadRequestException('A IA de importação de contratos está indisponível ou retornou uma resposta inválida. Tente novamente em instantes.');
     }
 
     let dadosExtraidos: any;
@@ -339,6 +398,9 @@ export class ImportarContratoIaService {
       }
     }
 
+    const categoriaNormalizada = normalizarCategoriaContrato(dadosExtraidos.categoria, dadosExtraidos.objeto);
+    const modalidadeNormalizada = normalizarModalidadeExecucao(dadosExtraidos.modalidade_execucao, categoriaNormalizada);
+
     return {
       objeto: dadosExtraidos.objeto || '',
       fornecedor_cnpj,
@@ -346,8 +408,8 @@ export class ImportarContratoIaService {
       fornecedor_id,
       fornecedor_ja_cadastrado,
       tipo: dadosExtraidos.tipo || 'CONTRATO',
-      categoria: dadosExtraidos.categoria || 'SERVICOS',
-      modalidade_execucao: dadosExtraidos.modalidade_execucao || 'ITEM_QUANTIDADE',
+      categoria: categoriaNormalizada,
+      modalidade_execucao: modalidadeNormalizada,
       valor_inicial: Number(dadosExtraidos.valor_inicial) || 0,
       valor_global: Number(dadosExtraidos.valor_global) || 0,
       data_assinatura: dadosExtraidos.data_assinatura || undefined,
@@ -365,6 +427,8 @@ export class ImportarContratoIaService {
     dados: ConfirmarImportacaoDto,
     orgaoId: string,
   ): Promise<{ contrato_id: string; numero_contrato: string; itens_criados: number; aviso?: string }> {
+    const categoriaNormalizada = normalizarCategoriaContrato(dados.categoria, dados.objeto);
+    const modalidadeNormalizada = normalizarModalidadeExecucao(dados.modalidade_execucao, categoriaNormalizada);
     let fornecedorId = dados.fornecedor_id;
 
     if (!fornecedorId && dados.fornecedor_cnpj) {
@@ -402,8 +466,8 @@ export class ImportarContratoIaService {
       fornecedor_id: fornecedorId,
       objeto: dados.objeto,
       tipo: dados.tipo as any,
-      categoria: dados.categoria as any,
-      modalidade_execucao: dados.modalidade_execucao as any,
+      categoria: categoriaNormalizada as any,
+      modalidade_execucao: modalidadeNormalizada as any,
       valor_inicial: dados.valor_inicial,
       valor_global: dados.valor_global,
       data_assinatura: dados.data_assinatura ? new Date(dados.data_assinatura) : undefined,
@@ -414,23 +478,27 @@ export class ImportarContratoIaService {
       amparo_legal: dados.amparo_legal,
     } as any);
 
-    const modalidade = dados.modalidade_execucao;
+    const modalidade = modalidadeNormalizada;
     let itensCriados = 0;
     let aviso: string | undefined;
 
-    if (modalidade === 'CONTINUADO' || modalidade === 'LICENCA') {
-      aviso = 'Modalidade contínua/licença: itens de medição serão cadastrados conforme execução do contrato.';
-    } else if ((modalidade === 'MEDICAO' || modalidade === 'ITEM_QUANTIDADE' || modalidade === 'ORDEM_SERVICO') && dados.itens?.length > 0) {
+    if (dados.modalidade_execucao !== modalidade) {
+      aviso = `Modalidade "${dados.modalidade_execucao}" foi padronizada automaticamente para "${modalidade}".`;
+    }
+
+    if ((modalidade === 'MEDICAO' || modalidade === 'ITEM_QUANTIDADE') && dados.itens?.length > 0) {
       for (const item of dados.itens) {
         try {
-          await this.medicaoService.criarItemCronograma(contrato.id, {
-            descricao: item.descricao,
-            unidade_medida: item.unidade_medida,
-            quantidade: item.quantidade,
-            valor_unitario: item.valor_unitario,
-            quantidade_meses: item.quantidade_meses || null,
-          } as any);
-          itensCriados++;
+          if (modalidade === 'MEDICAO') {
+            await this.medicaoService.criarItemCronograma(contrato.id, {
+              descricao: item.descricao,
+              unidade_medida: item.unidade_medida,
+              quantidade: item.quantidade,
+              valor_unitario: item.valor_unitario,
+              quantidade_meses: item.quantidade_meses || null,
+            } as any);
+            itensCriados++;
+          }
         } catch (err) {
           this.logger.warn(`Erro ao criar item "${item.descricao}": ${err.message}`);
         }

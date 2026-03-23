@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,10 +14,13 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
   ClipboardCheck, TrendingUp, Search, Building2, FileText,
   Loader2, AlertTriangle, ChevronRight, ChevronLeft, CheckCircle, Clock,
   Send, XCircle, Calendar, History, Mail, Eye, Shield, RotateCcw, ChevronDown,
-  MessageCircle, FileDown,
+  MessageCircle, FileDown, Paperclip, PenLine,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
 import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao'
@@ -211,6 +214,16 @@ export default function MedicoesPage() {
   const [formAteste, setFormAteste] = useState({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
   const [itensAteste, setItensAteste] = useState<Record<string, { selecionado: boolean; observacoes: string }>>({})
   const [actionLoading, setActionLoading] = useState(false)
+  // Anexos do modal de ateste
+  const [anexosAteste, setAnexosAteste] = useState<any[]>([])
+  const [loadingAnexos, setLoadingAnexos] = useState(false)
+  // Assinatura digital via link WhatsApp
+  const [fiscaisDisponiveis, setFiscaisDisponiveis] = useState<any[]>([])
+  const [fiscalSelecionado, setFiscalSelecionado] = useState('')
+  const [etapaAssinatura, setEtapaAssinatura] = useState<'idle' | 'aguardando' | 'assinado' | 'recusado'>('idle')
+  const [statusAssinatura, setStatusAssinatura] = useState<any>(null)
+  const [loadingAssinatura, setLoadingAssinatura] = useState(false)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Solicitar em lote
   const [contratosSelecionados, setContratosSelecionados] = useState<Record<string, boolean>>({})
@@ -324,7 +337,39 @@ export default function MedicoesPage() {
         itensMap[item.id] = { selecionado: !!item.atestado, observacoes: item.ateste_observacoes || '' }
       }
       setItensAteste(itensMap)
+      setEtapaAssinatura('idle')
+      setFiscalSelecionado('')
+      setStatusAssinatura(null)
+      setFiscaisDisponiveis([])
+      setAnexosAteste([])
       setModalAteste(medicaoCompleta)
+      // Buscar anexos em paralelo
+      setLoadingAnexos(true)
+      authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/anexos`)
+        .then(r => r.ok ? r.json() : [])
+        .then(data => setAnexosAteste(Array.isArray(data) ? data : []))
+        .catch(() => {})
+        .finally(() => setLoadingAnexos(false))
+      // Buscar fiscais disponíveis
+      const orgaoId = JSON.parse(localStorage.getItem('orgao') || '{}').id || ''
+      if (orgaoId) {
+        authFetch(`${API_URL}/api/contratos/medicoes/fiscais?orgaoId=${orgaoId}`)
+          .then(r => r.ok ? r.json() : [])
+          .then(data => setFiscaisDisponiveis(Array.isArray(data) ? data : []))
+          .catch(() => {})
+      }
+      // Verificar se já existe um link de assinatura pendente/assinado
+      authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/status-assinatura-fiscal`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.status && data.status !== 'sem_solicitacao') {
+            setStatusAssinatura(data)
+            if (data.status === 'pendente') setEtapaAssinatura('aguardando')
+            else if (data.status === 'assinado') setEtapaAssinatura('assinado')
+            else if (data.status === 'recusado') setEtapaAssinatura('recusado')
+          }
+        })
+        .catch(() => {})
     } catch { alert('Erro ao carregar medição') }
     setLoadingAteste(false)
   }
@@ -1328,7 +1373,12 @@ export default function MedicoesPage() {
                           </TableCell>
                           <TableCell className="text-center text-sm">
                             {isItemCronograma
-                              ? <span className="text-blue-700">{Number(item.quantidade_medida || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {item.item_unidade || ''}</span>
+                              ? <span className="text-blue-700">
+                                  {Number(item.quantidade_medida || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {item.item_unidade || ''}
+                                  {Number(item.quantidade_medida || 0) > 0 && Number(item.quantidade_medida || 0) < 1 && (item.item_unidade === 'MES' || item.item_unidade === 'MÊS') && (
+                                    <span className="text-[10px] text-blue-500 ml-1">({Math.round(Number(item.quantidade_medida) * 30)}d)</span>
+                                  )}
+                                </span>
                               : <span>{Number(item.percentual_executado_atual || 0).toFixed(1)}%</span>
                             }
                           </TableCell>
@@ -1411,121 +1461,179 @@ export default function MedicoesPage() {
               })()}
             </div>
           )}
+
+          {/* Anexos do Fornecedor */}
+          {modalAteste && (loadingAnexos || anexosAteste.length > 0) && (
+            <div className="space-y-2 px-1">
+              <div className="flex items-center gap-2">
+                <Paperclip className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700">Evidências do Fornecedor</span>
+                {anexosAteste.length > 0 && (
+                  <Badge variant="outline" className="text-xs">{anexosAteste.length}</Badge>
+                )}
+              </div>
+              {loadingAnexos ? (
+                <p className="text-xs text-gray-400">Carregando anexos...</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {anexosAteste.map((anexo: any) => (
+                    <div
+                      key={anexo.id}
+                      className="border rounded-lg overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                      onClick={() => window.open(`${API_URL}${anexo.url}`, '_blank')}
+                    >
+                      {anexo.tipo === 'FOTO' ? (
+                        <img
+                          src={`${API_URL}${anexo.url}`}
+                          alt={anexo.descricao || anexo.nome_original}
+                          className="w-full h-20 object-cover"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="w-full h-20 flex items-center justify-center bg-gray-50">
+                          <FileText className="w-8 h-8 text-gray-400" />
+                        </div>
+                      )}
+                      <div className="p-1.5">
+                        <p className="text-xs text-gray-600 truncate">{anexo.descricao || anexo.nome_original}</p>
+                        <p className="text-xs text-gray-400">{Math.round((anexo.tamanho_bytes || 0) / 1024)} KB</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Assinatura Digital do Fiscal */}
+          {modalAteste && (
+            <div className="border-t pt-4 space-y-3 px-1">
+              <div className="flex items-center gap-2">
+                <PenLine className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-semibold text-gray-800">Assinatura Digital do Fiscal</span>
+                {etapaAssinatura === 'assinado' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                {etapaAssinatura === 'recusado' && <XCircle className="w-4 h-4 text-red-500" />}
+              </div>
+
+              {etapaAssinatura === 'idle' && (
+                <div className="flex gap-2">
+                  <Select value={fiscalSelecionado} onValueChange={setFiscalSelecionado}>
+                    <SelectTrigger className="flex-1 text-sm">
+                      <SelectValue placeholder={fiscaisDisponiveis.length === 0 ? 'Carregando fiscais...' : 'Selecione o fiscal...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {fiscaisDisponiveis.map((f: any) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.nome}{f.cargo ? ` — ${f.cargo}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!fiscalSelecionado || loadingAssinatura}
+                    onClick={async () => {
+                      setLoadingAssinatura(true)
+                      try {
+                        const res = await authFetch(
+                          `${API_URL}/api/contratos/medicoes/${modalAteste.id}/solicitar-assinatura-fiscal`,
+                          { method: 'POST', body: JSON.stringify({ fiscalUsuarioId: fiscalSelecionado }) }
+                        )
+                        if (res.ok) {
+                          const data = await res.json()
+                          setStatusAssinatura(data)
+                          setEtapaAssinatura('aguardando')
+                          if (pollingRef.current) clearInterval(pollingRef.current)
+                          pollingRef.current = setInterval(async () => {
+                            const r = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/status-assinatura-fiscal`)
+                            if (!r.ok) return
+                            const s = await r.json()
+                            setStatusAssinatura(s)
+                            if (s.status === 'assinado') {
+                              setEtapaAssinatura('assinado')
+                              clearInterval(pollingRef.current!)
+                              pollingRef.current = null
+                            } else if (s.status === 'recusado') {
+                              setEtapaAssinatura('recusado')
+                              clearInterval(pollingRef.current!)
+                              pollingRef.current = null
+                            }
+                          }, 30_000)
+                        } else {
+                          const err = await res.json().catch(() => ({}))
+                          alert(err.message || 'Erro ao enviar solicitação.')
+                        }
+                      } catch { alert('Erro ao enviar solicitação.') }
+                      setLoadingAssinatura(false)
+                    }}
+                  >
+                    {loadingAssinatura ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enviar para assinar'}
+                  </Button>
+                </div>
+              )}
+
+              {etapaAssinatura === 'aguardando' && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
+                  <p className="text-yellow-800 font-medium flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Aguardando assinatura de <strong>{statusAssinatura?.fiscal_nome}</strong>
+                  </p>
+                  <p className="text-yellow-600 text-xs mt-1">Link enviado via WhatsApp. Verificando automaticamente a cada 30s.</p>
+                </div>
+              )}
+
+              {etapaAssinatura === 'assinado' && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  ✅ Boletim assinado digitalmente por <strong>{statusAssinatura?.fiscal_nome}</strong>
+                </div>
+              )}
+
+              {etapaAssinatura === 'recusado' && (
+                <div className="space-y-2">
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                    ❌ Assinatura recusada por <strong>{statusAssinatura?.fiscal_nome}</strong>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => {
+                    setEtapaAssinatura('idle')
+                    setFiscalSelecionado('')
+                    setStatusAssinatura(null)
+                  }}>
+                    Solicitar novamente
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } }}>Cancelar</Button>
             {modalAteste && (
               <Button
-                variant="outline"
                 size="sm"
                 className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
-                  const competenciaDefault = derivarCompetencia(modalAteste.periodo_inicio || '')
-                  const competencia = window.prompt('Informe a competência (ex: FEVEREIRO/2026):', competenciaDefault)
-                  if (competencia === null) return
+                  const resBoletim = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/boletim-oficial`)
+                  if (!resBoletim.ok) return
 
-                  const itensCron = (modalAteste.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
-                  const somaValorItens = itensCron.reduce((s: number, i: any) => s + Number(i.item_quantidade_total || 0) * Number(i.item_valor_unitario || 0), 0)
-                  const valorInicial = Number(modalAteste.contrato?.valor_inicial || 0)
-                  const saldoDisp = Number(modalAteste.contrato?.saldo_disponivel || modalAteste.saldo_disponivel || 0)
-                  const valorJaExecutado = Math.max(0, valorInicial - saldoDisp)
+                  const boletim = await resBoletim.json()
+                  if (!boletim?.pdf_url) return
 
-                  const calcAcum = (vlrRestante: number) =>
-                    somaValorItens > 0 && valorJaExecutado > 0
-                      ? (vlrRestante / somaValorItens) * valorJaExecutado
-                      : 0
+                  const arquivoRes = await fetch(boletim.pdf_url)
+                  if (!arquivoRes.ok) return
 
-                  const itensItem = itensCron.map((i: any) => {
-                    const vlrUnitario = Number(i.item_valor_unitario || 0)
-                    const vlrTotal = Number(i.item_quantidade_total || 0) * vlrUnitario
-                    const vlrAcumAnterior = vlrTotal > 0 && valorJaExecutado > 0
-                      ? calcAcum(vlrTotal)
-                      : Number(i.item_quantidade_acumulada || 0) * vlrUnitario
-                    return {
-                      numero: i.item_numero || i.etapa_numero || 0,
-                      descricao: i.item_descricao || i.etapa_descricao || '',
-                      unidade: i.item_unidade || '',
-                      quantidade_no_periodo: Number(i.quantidade_medida || 0),
-                      quantidade_acumulada_aprovada: Number(i.item_quantidade_acumulada || 0),
-                      quantidade_total_contrato: Number(i.item_quantidade_total || 0),
-                      valor_no_periodo: Number(i.valor_medido || 0),
-                      valor_unitario: vlrUnitario,
-                      valor_acumulado_anterior: vlrAcumAnterior,
-                      valor_total_item: vlrTotal,
-                    }
-                  })
-                  const itensEtapa = (modalAteste.itens || []).filter((i: any) => i.tipo_item !== 'item_cronograma').map((i: any) => ({
-                    numero: i.etapa_numero || 0,
-                    descricao: i.etapa_descricao || '',
-                    percentual_fisico: Number(i.etapa_percentual_fisico || 0),
-                    percentual_executado_anterior: Number(i.percentual_executado_anterior || 0),
-                    percentual_executado_atual: Number(i.percentual_executado_atual || 0),
-                    valor_previsto: Number(i.etapa_valor_previsto || 0),
-                    valor_medido: Number(i.valor_medido || 0),
-                  }))
-                  const dadosPdf: DadosMedicaoPdf = {
-                    numero_contrato: modalAteste.contrato?.numero_contrato || modalAteste.numero_contrato || '',
-                    objeto_contrato: modalAteste.contrato?.objeto || modalAteste.objeto_contrato || '',
-                    orgao_nome: modalAteste.contrato?.orgao?.nome || '',
-                    fornecedor_nome: modalAteste.contrato?.fornecedor_razao_social || modalAteste.fornecedor_nome || '',
-                    fornecedor_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                    data_vigencia_inicio: modalAteste.contrato?.data_vigencia_inicio || undefined,
-                    data_vigencia_fim: modalAteste.contrato?.data_vigencia_fim || undefined,
-                    numero_medicao: modalAteste.numero_medicao,
-                    periodo_inicio: modalAteste.periodo_inicio || '',
-                    periodo_fim: modalAteste.periodo_fim || '',
-                    competencia: competencia || competenciaDefault,
-                    valor_medido: Number(modalAteste.valor_medido || 0),
-                    nota_fiscal_numero: modalAteste.nota_fiscal_numero || undefined,
-                    nota_fiscal_valor: modalAteste.nota_fiscal_valor ? Number(modalAteste.nota_fiscal_valor) : undefined,
-                    itens: itensItem.length > 0 ? itensItem : undefined,
-                    etapas: itensEtapa.length > 0 ? itensEtapa : undefined,
-                  }
-
-                  // Registrar assinaturas no módulo digital (mesmo módulo OS/OF)
-                  let codigoFornecedor: string | undefined
-                  let codigoFiscal: string | undefined
-                  try {
-                    if (modalAteste.data_submissao) {
-                      const rForn = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/assinar`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          papel: 'FORNECEDOR',
-                          usuario_nome: modalAteste.fornecedor_nome || '',
-                          usuario_cpf_cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                          usuario_cargo: 'Fornecedor / Contratado',
-                        }),
-                      })
-                      if (rForn.ok) { const d = await rForn.json(); codigoFornecedor = d.codigo_formatado }
-                    }
-                    if (modalAteste.ateste_fiscal_nome) {
-                      const rFisc = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/assinar`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          papel: 'FISCAL',
-                          usuario_nome: modalAteste.ateste_fiscal_nome,
-                          usuario_cpf_cnpj: '',
-                          usuario_cargo: 'Fiscal de Contrato',
-                        }),
-                      })
-                      if (rFisc.ok) { const d = await rFisc.json(); codigoFiscal = d.codigo_formatado }
-                    }
-                  } catch { /* sem assinatura digital, continua */ }
-
-                  dadosPdf.assinatura_fornecedor = modalAteste.data_submissao ? {
-                    nome: modalAteste.fornecedor_nome || '',
-                    cnpj: modalAteste.contrato?.fornecedor_cnpj || '',
-                    data_hora: new Date(modalAteste.data_submissao).toLocaleString('pt-BR'),
-                    codigo_validacao: codigoFornecedor,
-                  } : undefined
-                  dadosPdf.assinatura_fiscal = modalAteste.ateste_fiscal_nome ? {
-                    nome: modalAteste.ateste_fiscal_nome,
-                    data_hora: modalAteste.ateste_data ? new Date(modalAteste.ateste_data).toLocaleString('pt-BR') : '',
-                    codigo_validacao: codigoFiscal,
-                  } : undefined
-                  dadosPdf.url_validacao = `${typeof window !== 'undefined' ? window.location.origin : 'https://portaldcp.com.br'}/validar-documento`
-                  gerarPdfMedicao(dadosPdf)
+                  const pdfBlob = await arquivoRes.blob()
+                  const objectUrl = window.URL.createObjectURL(pdfBlob)
+                  const link = document.createElement('a')
+                  link.href = objectUrl
+                  link.download = boletim.filename || `boletim_medicao_${modalAteste.id}.pdf`
+                  link.style.display = 'none'
+                  document.body.appendChild(link)
+                  link.click()
+                  setTimeout(() => {
+                    link.remove()
+                    window.URL.revokeObjectURL(objectUrl)
+                  }, 1000)
                 }}
               >
                 <FileDown className="w-4 h-4" />
@@ -1571,6 +1679,9 @@ export default function MedicoesPage() {
             <TabMedicao
               contratoId={contratoAberto.id}
               valorGlobal={contratoAberto.valor_global}
+              modalidade={(contratoAberto as any).modalidade_execucao}
+              contrato={(contratoAberto as any).data_vigencia_inicio ? contratoAberto as any : undefined}
+              onAtestar={(med) => { setContratoAberto(null); abrirModalAtesteDireto(med) }}
             />
           )}
         </DialogContent>

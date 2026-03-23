@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as QRCode from 'qrcode';
 import { join } from 'path';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { AssinaturaDigital } from './entities/assinatura-digital.entity';
+import { gerarBoletimMedicaoPdf } from './medicao-pdf-jspdf';
 
 const PDFDocument = require('pdfkit');
 
@@ -458,57 +459,141 @@ export class GeradorPdfService {
   }
 
   /**
-   * Gera o PDF do Boletim de Medição com as assinaturas
+   * Gera o PDF do Boletim de Medição usando jsPDF (layout idêntico ao frontend)
    */
-  async gerarPdfMedicao(dadosMedicao: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string): Promise<string> {
-    const filename = `Medicao_${dadosMedicao.numero_medicao}_${Date.now()}.pdf`;
-    const filePath = join(this.uploadDir, 'documentos_assinados', filename);
+  async gerarPdfMedicao(dados: any, assinaturas: AssinaturaDigital[], urlValidacaoBase: string, outputPath?: string): Promise<string> {
+    const filename = `Medicao_${dados.numero_medicao}_${Date.now()}.pdf`;
+    const filePath = outputPath || join(this.uploadDir, 'documentos_assinados', filename);
 
-    return new Promise(async (resolve, reject) => {
-      try {
-        const doc = new PDFDocument({ margin: 50, size: 'A4' });
-        const writeStream = createWriteStream(filePath);
-        doc.pipe(writeStream);
+    // Extrair código de validação bruto (sem formatação) da primeira assinatura
+    const codigoValidacaoRaw = assinaturas?.[0]?.codigo_validacao || undefined;
 
-        // Cabeçalho (com logo do órgão se disponível)
-        this.escreverCabecalho(doc, 'BOLETIM DE MEDIÇÃO', dadosMedicao.orgao);
+    const buffer = await gerarBoletimMedicaoPdf(dados, codigoValidacaoRaw, urlValidacaoBase);
+    writeFileSync(filePath, buffer);
 
-        // Dados da Medição
-        doc.fontSize(11).font('Helvetica-Bold').text(`Medição Nº: `, { continued: true })
-          .font('Helvetica').text(`${dadosMedicao.numero_medicao}ª`);
-        doc.moveDown(0.3);
+    return filePath;
+  }
 
-        if (dadosMedicao.contrato?.numero_contrato) {
-          doc.font('Helvetica-Bold').text('Contrato: ', { continued: true })
-            .font('Helvetica').text(dadosMedicao.contrato.numero_contrato);
-          doc.moveDown(0.3);
-        }
+  private escreverTabelaItensContratados(doc: any, itens: any[]): void {
+    const pageWidth = doc.page.width - 100;
+    const marginL = 50;
+    const colNum   = pageWidth * 0.06;
+    const colDesc  = pageWidth * 0.40;
+    const colUnid  = pageWidth * 0.10;
+    const colQtd   = pageWidth * 0.11;
+    const colValor = pageWidth * 0.16;
+    const colTotal = pageWidth * 0.17;
 
-        if (dadosMedicao.periodo_inicio && dadosMedicao.periodo_fim) {
-          doc.font('Helvetica-Bold').text('Período: ', { continued: true })
-            .font('Helvetica').text(
-              `${new Date(dadosMedicao.periodo_inicio).toLocaleDateString('pt-BR')} a ${new Date(dadosMedicao.periodo_fim).toLocaleDateString('pt-BR')}`
-            );
-          doc.moveDown(0.3);
-        }
+    const x0 = marginL;
+    const x1 = x0 + colNum;
+    const x2 = x1 + colDesc;
+    const x3 = x2 + colUnid;
+    const x4 = x3 + colQtd;
+    const x5 = x4 + colValor;
 
-        doc.font('Helvetica-Bold').text('Valor Medido: ', { continued: true })
-          .font('Helvetica').text(`R$ ${Number(dadosMedicao.valor_medido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-        doc.moveDown(0.3);
+    const headerY = doc.y;
+    doc.rect(x0, headerY, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
+    doc.fontSize(7).font('Helvetica-Bold').fillColor('#111827');
+    doc.text('Nº',          x0 + 2, headerY + 5, { width: colNum - 4, align: 'center' });
+    doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
+    doc.text('Unid.',       x2,     headerY + 5, { width: colUnid,  align: 'center' });
+    doc.text('Qtd.',        x3,     headerY + 5, { width: colQtd,   align: 'right' });
+    doc.text('Valor Unit.', x4,     headerY + 5, { width: colValor, align: 'right' });
+    doc.text('Valor Total', x5,     headerY + 5, { width: colTotal, align: 'right' });
+    doc.y = headerY + 20;
 
-        doc.font('Helvetica-Bold').text('Percentual Físico: ', { continued: true })
-          .font('Helvetica').text(`${Number(dadosMedicao.percentual_fisico_medido || 0).toFixed(2)}%`);
+    doc.font('Helvetica').fillColor('#374151');
+    let totalGeral = 0;
 
-        // Quadro de assinaturas
-        await this.escreverQuadroAssinaturas(doc, assinaturas, urlValidacaoBase);
+    for (const item of itens) {
+      const desc = item.descricao || '-';
+      doc.fontSize(7.5);
+      const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
+      const rowH = Math.max(descHeight, 12);
 
-        doc.end();
-        writeStream.on('finish', () => resolve(filePath));
-        writeStream.on('error', reject);
-      } catch (err) {
-        reject(err);
+      if (doc.y + rowH + 4 > doc.page.height - 80) {
+        doc.addPage(); doc.y = 50;
       }
-    });
+
+      const rowY = doc.y + 2;
+      const total = Number(item.valor_total || 0);
+      totalGeral += total;
+
+      doc.text(String(item.numero || '-'), x0 + 2, rowY, { width: colNum - 4, align: 'center' });
+      doc.text(desc, x1 + 3, rowY, { width: colDesc - 6 });
+      doc.text(item.unidade || '-', x2, rowY, { width: colUnid, align: 'center' });
+      doc.text(Number(item.quantidade || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }), x3, rowY, { width: colQtd, align: 'right' });
+      doc.text(`R$ ${Number(item.valor_unitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x4, rowY, { width: colValor, align: 'right' });
+      doc.text(`R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x5, rowY, { width: colTotal, align: 'right' });
+
+      doc.y = rowY + rowH + 2;
+      doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
+      doc.y += 1;
+    }
+
+    doc.moveDown(0.2);
+    doc.rect(x0, doc.y, pageWidth, 18).fillAndStroke('#f3f4f6', '#9ca3af');
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
+    doc.text('TOTAL', x0 + 3, doc.y + 5, { width: colNum + colDesc + colUnid + colQtd + colValor - 6 });
+    doc.text(`R$ ${totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x5, doc.y + 5, { width: colTotal, align: 'right' });
+    doc.y += 20;
+  }
+
+  private escreverTabelaDiscriminacoes(doc: any, discriminacoes: any[]): void {
+    const pageWidth = doc.page.width - 100;
+    const marginL = 50;
+    const colNum  = pageWidth * 0.08;
+    const colDesc = pageWidth * 0.52;
+    const colVal  = pageWidth * 0.22;
+    const colPerc = pageWidth * 0.18;
+
+    const x0 = marginL;
+    const x1 = x0 + colNum;
+    const x2 = x1 + colDesc;
+    const x3 = x2 + colVal;
+
+    const headerY = doc.y;
+    doc.rect(x0, headerY, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
+    doc.fontSize(7).font('Helvetica-Bold').fillColor('#111827');
+    doc.text('Nº',          x0 + 2, headerY + 5, { width: colNum - 4, align: 'center' });
+    doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
+    doc.text('Valor (R$)',  x2,     headerY + 5, { width: colVal,  align: 'right' });
+    doc.text('%',           x3,     headerY + 5, { width: colPerc, align: 'right' });
+    doc.y = headerY + 20;
+
+    doc.font('Helvetica').fillColor('#374151');
+    let totalValor = 0;
+
+    for (const disc of discriminacoes) {
+      const desc = disc.descricao || '-';
+      doc.fontSize(7.5);
+      const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
+      const rowH = Math.max(descHeight, 12);
+
+      if (doc.y + rowH + 4 > doc.page.height - 80) {
+        doc.addPage(); doc.y = 50;
+      }
+
+      const rowY = doc.y + 2;
+      const valor = Number(disc.valor || 0);
+      totalValor += valor;
+
+      doc.text(String(disc.numero || '-'), x0 + 2, rowY, { width: colNum - 4, align: 'center' });
+      doc.text(desc, x1 + 3, rowY, { width: colDesc - 6 });
+      doc.text(`R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x2, rowY, { width: colVal, align: 'right' });
+      doc.text(`${Number(disc.percentual || 0).toFixed(2)}%`, x3, rowY, { width: colPerc, align: 'right' });
+
+      doc.y = rowY + rowH + 2;
+      doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
+      doc.y += 1;
+    }
+
+    doc.moveDown(0.2);
+    doc.rect(x0, doc.y, pageWidth, 18).fillAndStroke('#f3f4f6', '#9ca3af');
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
+    doc.text('TOTAL', x0 + 3, doc.y + 5, { width: colNum + colDesc - 6 });
+    doc.text(`R$ ${totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, x2, doc.y + 5, { width: colVal, align: 'right' });
+    doc.y += 20;
   }
 
   private escreverCabecalho(doc: any, titulo: string, orgao?: { logo_url?: string }): void {
@@ -599,7 +684,18 @@ export class GeradorPdfService {
   }
 
   private formatarDataHora(data: Date): string {
-    return new Date(data).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const d = data instanceof Date ? data : new Date(data as any);
+    // timestamp without time zone: pg driver interpreta como LOCAL.
+    // Desfaz offset local para obter UTC real, depois converte para BRT.
+    const trueUtcMs = d.getTime() - d.getTimezoneOffset() * 60 * 1000;
+    const brt = new Date(trueUtcMs - 3 * 60 * 60 * 1000);
+    const dd = String(brt.getUTCDate()).padStart(2, '0');
+    const mm = String(brt.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = brt.getUTCFullYear();
+    const hh = String(brt.getUTCHours()).padStart(2, '0');
+    const mi = String(brt.getUTCMinutes()).padStart(2, '0');
+    const ss = String(brt.getUTCSeconds()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
   }
 
   private normalizarNome(nome: string): string {

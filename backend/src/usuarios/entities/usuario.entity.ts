@@ -39,6 +39,19 @@ export class Usuario {
   @Column({ nullable: true })
   cargo: string;
 
+  /**
+   * Matrícula funcional do servidor.
+   */
+  @Column({ nullable: true })
+  matricula: string;
+
+  /**
+   * Portaria que designou o usuário como fiscal de contrato.
+   * Ex: "102/2025", "Portaria nº 12/2024"
+   */
+  @Column({ nullable: true })
+  portaria_fiscal: string;
+
   @Column({
     type: 'enum',
     enum: RoleUsuario,
@@ -107,6 +120,13 @@ export class Usuario {
   pode_excluir_contratos: boolean;
 
   /**
+   * Indica se o usuário pode excluir requisições de combustível (frota).
+   * Ao excluir, o saldo do contrato é restaurado automaticamente.
+   */
+  @Column({ default: false })
+  pode_excluir_requisicao_combustivel: boolean;
+
+  /**
    * Indica se o usuário é fiscal de contrato.
    * Fiscais podem atestar medições, devolver ao fornecedor e acessar o painel de medições.
    */
@@ -122,6 +142,20 @@ export class Usuario {
    */
   @Column({ default: false })
   pode_receber_patrimonio: boolean;
+
+  /**
+   * Indica se o usuário pode marcar medições como enviadas para contabilidade.
+   * Apenas usuários com essa permissão podem registrar o envio para pagamento.
+   */
+  @Column({ default: false })
+  pode_enviar_contabilidade: boolean;
+
+  /**
+   * Indica se o usuário pode gerenciar o módulo de patrimônio.
+   * Controle de bens, manutenções, locações, comodatos e etiquetas.
+   */
+  @Column({ default: false })
+  pode_gerenciar_patrimonio: boolean;
 
   @Column({ nullable: true })
   google_id: string;
