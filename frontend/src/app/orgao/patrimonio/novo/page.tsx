@@ -63,7 +63,7 @@ export default function NovoBemPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Cadastrar Novo Bem</h1>
         <p className="text-muted-foreground">Preencha os dados do bem patrimonial</p>
