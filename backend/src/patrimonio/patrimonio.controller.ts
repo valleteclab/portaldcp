@@ -15,7 +15,7 @@ import { Response } from 'express';
 import { PatrimonioService } from './patrimonio.service';
 import { PatrimonioEtiquetasService } from './patrimonio-etiquetas.service';
 import { PatrimonioRelatoriosService } from './patrimonio-relatorios.service';
-import { RequireModule } from '../auth/modulo.guard';
+import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { CriarBemDto } from './dto/criar-bem.dto';
