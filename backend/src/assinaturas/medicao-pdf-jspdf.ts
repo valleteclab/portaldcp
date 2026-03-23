@@ -344,8 +344,8 @@ export async function gerarBoletimMedicaoPdf(
   doc.text('OBJETO:', mX, y);
   doc.setFont('helvetica', 'normal');
   const linhasObj = doc.splitTextToSize(dados.objeto_contrato, W - mX - infoX2 - 2);
-  doc.text(linhasObj.slice(0, 3), infoX2, y);
-  y += Math.min(linhasObj.length, 3) * 4.5 + 1;
+  doc.text(linhasObj, infoX2, y);
+  y += linhasObj.length * 4.5 + 1;
 
   linhaInfo('FORNECEDOR', `${dados.fornecedor_nome}  —  CNPJ: ${fmtCnpj(dados.fornecedor_cnpj)}`);
 
