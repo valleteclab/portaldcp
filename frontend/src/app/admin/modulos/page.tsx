@@ -35,6 +35,8 @@ import {
   Bot,
   MessageCircle,
   Car,
+  Landmark,
+  Mail,
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -67,6 +69,8 @@ const MODULOS = [
   { codigo: 'IA_CONTRATOS', nome: 'IA Contratos', descricao: 'Importação de contratos via Inteligência Artificial', icon: Bot },
   { codigo: 'WHATSAPP_CHAT', nome: 'WhatsApp Chat', descricao: 'Chat integrado com WhatsApp via Z-API', icon: MessageCircle },
   { codigo: 'FROTA', nome: 'Frota e Combustível', descricao: 'Controle de frota de veículos e consumo de combustível', icon: Car },
+  { codigo: 'EMAILS', nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão', icon: Mail },
+  { codigo: 'PATRIMONIO', nome: 'Patrimônio', descricao: 'Controle de bens patrimoniais, manutenções, locações e etiquetas', icon: Landmark },
 ]
 
 export default function AdminModulosPage() {
