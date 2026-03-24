@@ -743,6 +743,7 @@ Gere a versão revisada e melhorada:`;
   async chatComImagensPdf(
     systemPrompt: string,
     imagensBase64: string[],
+    instrucaoBatch = 'Extraia TODOS os itens que encontrar nestas páginas.',
   ): Promise<string> {
     const apiKey = await this.getApiKey();
     const model = await this.getModel();
@@ -765,7 +766,7 @@ Gere a versão revisada e melhorada:`;
       const numeroParte = Math.floor(i / maxPorRequisicao) + 1;
       const totalPartes = Math.ceil(imagensBase64.length / maxPorRequisicao);
 
-      const promptLote = `${systemPrompt}\n\n[Parte ${numeroParte} de ${totalPartes} — páginas ${i + 1} a ${i + lote.length} de ${imagensBase64.length}. Extraia TODOS os itens que encontrar nestas páginas.]`;
+      const promptLote = `${systemPrompt}\n\n[Parte ${numeroParte} de ${totalPartes} — páginas ${i + 1} a ${i + lote.length} de ${imagensBase64.length}. ${instrucaoBatch}]`;
 
       this.logger.log(`[chatComImagensPdf] Enviando lote ${numeroParte}/${totalPartes} (${lote.length} imagens)`);
       const resposta = await this.enviarLoteImagens(apiKey, model, promptLote, lote);
@@ -829,11 +830,19 @@ Gere a versão revisada e melhorada:`;
     const todosItens: any[] = [];
     let observacoes: string[] = [];
     let algumJsonParsed = false;
+    let camposBase: Record<string, any> = {};
 
     for (const parte of partes) {
       try {
         const jsonLimpo = parte.replace(/```json\n?|```/g, '').trim();
         const parsed = JSON.parse(jsonLimpo);
+
+        // Preserve all non-itens/non-observacoes fields from the first successfully parsed batch
+        if (!algumJsonParsed) {
+          const { itens: _i, observacoes: _o, ...outros } = parsed;
+          camposBase = outros;
+        }
+
         algumJsonParsed = true;
 
         if (Array.isArray(parsed.itens)) {
@@ -851,6 +860,7 @@ Gere a versão revisada e melhorada:`;
     if (algumJsonParsed) {
       this.logger.log(`[mergeRespostasJson] Merge de ${partes.length} lotes → ${todosItens.length} itens total`);
       return JSON.stringify({
+        ...camposBase,
         itens: todosItens,
         observacoes: observacoes.join(' | '),
       });
@@ -868,6 +878,7 @@ Gere a versão revisada e melhorada:`;
   async chatComPdfEscaneado(
     systemPrompt: string,
     pdfBuffer: Buffer,
+    instrucaoBatch?: string,
   ): Promise<string> {
     this.logger.log('[chatComPdfEscaneado] PDF escaneado detectado — tentando fallback via imagens');
 
@@ -875,7 +886,7 @@ Gere a versão revisada e melhorada:`;
 
     if (imagens.length > 0) {
       this.logger.log(`[chatComPdfEscaneado] Usando Vision com ${imagens.length} imagens PNG`);
-      return this.chatComImagensPdf(systemPrompt, imagens);
+      return this.chatComImagensPdf(systemPrompt, imagens, instrucaoBatch);
     }
 
     this.logger.warn('[chatComPdfEscaneado] pdftoppm indisponível — enviando PDF como document (fallback)');

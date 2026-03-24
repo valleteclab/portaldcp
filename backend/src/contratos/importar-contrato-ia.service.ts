@@ -344,7 +344,11 @@ export class ImportarContratoIaService {
         } else {
           this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
           try {
-            respostaIA = await this.iaService.chatComPdfEscaneado(SYSTEM_PROMPT_EXTRACAO, file.buffer);
+            respostaIA = await this.iaService.chatComPdfEscaneado(
+              SYSTEM_PROMPT_EXTRACAO,
+              file.buffer,
+              'Extraia TODOS os dados do contrato nestas páginas, incluindo itens, valores, datas e demais campos.',
+            );
           } catch (visionErr: any) {
             throw new BadRequestException(
               'Este PDF parece ser escaneado (sem texto digital). ' +
