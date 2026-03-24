@@ -108,6 +108,16 @@ export class AtualizarItemContratoDto {
   valor_unitario?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantidade_contratada?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantidade_ja_utilizada?: number;
+
+  @IsOptional()
   @IsString()
   observacoes?: string;
 }
