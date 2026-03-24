@@ -751,6 +751,7 @@ export default function DetalheContratoOrgaoPage() {
       unidade_medida: contrato?.categoria === 'SERVICOS' ? 'MES' : 'UNIDADE',
       valor_unitario: '',
       quantidade_contratada: '',
+      quantidade_ja_utilizada: '',
       codigo_catalogo: '',
       codigo_catalogo_proprio: '',
       lote_numero: '',
