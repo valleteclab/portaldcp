@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake } from "lucide-react"
+import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -126,6 +126,9 @@ export default function PatrimonioPage() {
           </Link>
           <Link href="/orgao/patrimonio/relatorios">
             <Button variant="outline"><FileText className="h-4 w-4 mr-2" />Relatórios</Button>
+          </Link>
+          <Link href="/orgao/patrimonio/categorias">
+            <Button variant="outline"><FolderOpen className="h-4 w-4 mr-2" />Categorias</Button>
           </Link>
           <Link href="/orgao/patrimonio/novo">
             <Button><Plus className="h-4 w-4 mr-2" />Novo Bem</Button>
