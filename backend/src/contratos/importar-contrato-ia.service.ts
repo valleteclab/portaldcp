@@ -390,15 +390,22 @@ export class ImportarContratoIaService {
       throw new BadRequestException('A IA não conseguiu extrair dados estruturados do documento. Tente com uma imagem mais nítida.');
     }
 
-    const fornecedor_cnpj = dadosExtraidos.fornecedor_cnpj?.replace(/\D/g, '') || null;
+    const cnpjRaw = dadosExtraidos.fornecedor_cnpj;
+    const fornecedor_cnpj = cnpjRaw != null
+      ? String(cnpjRaw).replace(/\D/g, '') || null
+      : null;
     let fornecedor_id: string | undefined;
     let fornecedor_ja_cadastrado = false;
 
     if (fornecedor_cnpj) {
-      const fornecedor = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: fornecedor_cnpj } });
-      if (fornecedor) {
-        fornecedor_id = fornecedor.id;
-        fornecedor_ja_cadastrado = true;
+      try {
+        const fornecedor = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: fornecedor_cnpj } });
+        if (fornecedor) {
+          fornecedor_id = fornecedor.id;
+          fornecedor_ja_cadastrado = true;
+        }
+      } catch (dbErr: any) {
+        this.logger.warn(`[extrairDadosContrato] Erro ao buscar fornecedor por CNPJ ${fornecedor_cnpj}: ${dbErr?.message}`);
       }
     }
 
