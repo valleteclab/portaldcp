@@ -286,6 +286,7 @@ export default function DetalheContratoOrgaoPage() {
     unidade_medida: 'UNIDADE',
     valor_unitario: '',
     quantidade_contratada: '',
+    quantidade_ja_utilizada: '',
     codigo_catalogo: '',
     codigo_catalogo_proprio: '',
     lote_numero: '',
@@ -773,6 +774,7 @@ export default function DetalheContratoOrgaoPage() {
       unidade_medida: item.unidade_medida,
       valor_unitario: String(item.valor_unitario),
       quantidade_contratada: String(item.quantidade_contratada),
+      quantidade_ja_utilizada: String(item.quantidade_entregue ?? 0),
       codigo_catalogo: item.codigo_catalogo || '',
       codigo_catalogo_proprio: item.codigo_catalogo_proprio || '',
       lote_numero: item.lote_numero ? String(item.lote_numero) : '',
@@ -796,6 +798,8 @@ export default function DetalheContratoOrgaoPage() {
           marca: novoItem.marca || null,
           modelo: novoItem.modelo || null,
           valor_unitario: parseFloat(novoItem.valor_unitario),
+          quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
+          quantidade_ja_utilizada: novoItem.quantidade_ja_utilizada !== '' ? parseFloat(novoItem.quantidade_ja_utilizada) : undefined,
           codigo_catalogo: novoItem.codigo_catalogo || null,
           codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
           lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
@@ -2108,13 +2112,30 @@ export default function DetalheContratoOrgaoPage() {
               </div>
               <div className="space-y-2">
                 <Label>Quantidade Contratada *</Label>
-                <Input type="number" step="0.01" min="0" placeholder="Ex: 100" value={novoItem.quantidade_contratada} onChange={(e) => setNovoItem({...novoItem, quantidade_contratada: e.target.value})} disabled={!!editandoItem} />
+                <Input type="number" step="0.01" min="0" placeholder="Ex: 100" value={novoItem.quantidade_contratada} onChange={(e) => setNovoItem({...novoItem, quantidade_contratada: e.target.value})} />
               </div>
               <div className="space-y-2">
                 <Label>Valor Unitário (R$) *</Label>
                 <Input type="number" step="0.01" min="0" placeholder="Ex: 25.90" value={novoItem.valor_unitario} onChange={(e) => setNovoItem({...novoItem, valor_unitario: e.target.value})} />
               </div>
             </div>
+
+            {editandoItem && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Quantidade já utilizada</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ex: 30"
+                    value={novoItem.quantidade_ja_utilizada}
+                    onChange={(e) => setNovoItem({...novoItem, quantidade_ja_utilizada: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">Para migração: qtd. já entregue antes de cadastrar no sistema.</p>
+                </div>
+              </div>
+            )}
 
             {novoItem.valor_unitario && novoItem.quantidade_contratada && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">

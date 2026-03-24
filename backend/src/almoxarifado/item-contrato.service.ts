@@ -95,7 +95,24 @@ export class ItemContratoService {
 
   async atualizar(id: string, dto: AtualizarItemContratoDto): Promise<ItemContrato> {
     const item = await this.findOne(id);
-    Object.assign(item, dto);
+
+    const { quantidade_contratada, quantidade_ja_utilizada, ...camposBase } = dto;
+    Object.assign(item, camposBase);
+
+    if (quantidade_contratada !== undefined) {
+      item.quantidade_contratada = quantidade_contratada;
+    }
+
+    if (quantidade_ja_utilizada !== undefined) {
+      item.quantidade_entregue = quantidade_ja_utilizada;
+    }
+
+    // Recalcula valor_total e saldo_disponivel sempre que campos que os afetam mudaram
+    item.valor_total = Number(item.valor_unitario) * Number(item.quantidade_contratada);
+    item.saldo_disponivel = Number(item.quantidade_contratada)
+      - Number(item.quantidade_empenhada)
+      - Number(item.quantidade_entregue);
+
     return this.itemContratoRepository.save(item);
   }
 
