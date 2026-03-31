@@ -191,19 +191,21 @@ function StepProgress({ currentStep, steps }: { currentStep: number; steps: stri
 }
 
 // Componente de Input de Quantidade melhorado
-function QuantidadeInput({ 
-  value, 
-  max, 
+function QuantidadeInput({
+  value,
+  max,
   onChange,
   disabled = false,
-}: { 
-  value: number; 
-  max: number; 
+  allowZero = false,
+}: {
+  value: number;
+  max: number;
   onChange: (value: number) => void;
   disabled?: boolean;
+  allowZero?: boolean;
 }) {
   const [inputValue, setInputValue] = useState(String(value));
-  
+
   useEffect(() => {
     setInputValue(String(value));
   }, [value]);
@@ -219,8 +221,8 @@ function QuantidadeInput({
   const handleBlur = () => {
     const valorNormalizado = inputValue.replace(',', '.');
     let numValue = parseFloat(valorNormalizado) || 0;
-    // Garante mínimo > 0 e máximo = saldo
-    numValue = Math.max(0.01, Math.min(numValue, max));
+    // Garante mínimo (0 se allowZero, senão 0.01) e máximo = saldo
+    numValue = Math.max(allowZero ? 0 : 0.01, Math.min(numValue, max));
     setInputValue(String(numValue));
     onChange(numValue);
   };
@@ -1870,6 +1872,7 @@ function NovaRequisicaoForm() {
                                 value={qtdSolicitada}
                                 max={saldo}
                                 onChange={(v) => handleAlterarQuantidadeOSDemanda(item.id, v)}
+                                allowZero={true}
                               />
                             </TableCell>
                           ) : null}
