@@ -2322,9 +2322,16 @@ function NovaRequisicaoForm() {
           </div>
 
           {/* Itens da OS (quando usarItensCronograma) */}
-          {isOS && usarItensCronograma && itensCronograma.length > 0 && (
+          {isOS && usarItensCronograma && itensCronograma.length > 0 && (() => {
+            const itensResumo = modoOS === 'ORDEM_DEMANDA'
+              ? itensCronograma.filter(item => {
+                  const d = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
+                  return (d?.quantidade_solicitada ?? 0) > 0;
+                })
+              : itensCronograma;
+            return (
             <div>
-              <h4 className="font-medium mb-2">Itens da OS ({itensCronograma.length})</h4>
+              <h4 className="font-medium mb-2">Itens da OS ({itensResumo.length})</h4>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -2339,19 +2346,25 @@ function NovaRequisicaoForm() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {itensCronograma.map((item) => {
+                  {itensResumo.map((item) => {
                     const saldo = Number(item.quantidade) - Number(item.quantidade_medida);
                     const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
                     const qtd = modoOS === 'ORDEM_GLOBAL' ? saldo : (demanda?.quantidade_solicitada ?? 0);
                     const vlMensal = item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario));
-                    const total = item.quantidade_meses ? vlMensal * item.quantidade_meses : qtd * Number(item.valor_unitario);
+                    const total = modoOS === 'ORDEM_DEMANDA'
+                      ? qtd * Number(item.valor_unitario)
+                      : (item.quantidade_meses ? vlMensal * item.quantidade_meses : qtd * Number(item.valor_unitario));
                     return (
                       <TableRow key={item.id}>
                         <TableCell>{item.numero_item}</TableCell>
                         <TableCell className="max-w-[300px] truncate">{item.descricao}</TableCell>
                         <TableCell className="text-right">{item.unidade_medida}</TableCell>
                         <TableCell className="text-right">{qtd}</TableCell>
-                        <TableCell className="text-right">{item.quantidade_meses != null ? item.quantidade_meses : '-'}</TableCell>
+                        <TableCell className="text-right">
+                          {modoOS === 'ORDEM_DEMANDA'
+                            ? (demanda?.meses_solicitados ?? '-')
+                            : (item.quantidade_meses != null ? item.quantidade_meses : '-')}
+                        </TableCell>
                         <TableCell className="text-right">{formatarMoeda(vlMensal)}</TableCell>
                         <TableCell className="text-right">{formatarMoeda(Number(item.valor_unitario))}</TableCell>
                         <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
@@ -2362,16 +2375,19 @@ function NovaRequisicaoForm() {
               </Table>
               <div className="mt-2 p-3 bg-indigo-50 rounded-lg text-sm text-indigo-800">
                 <strong>Total estimado:</strong>{' '}
-                {formatarMoeda(itensCronograma.reduce((s, i) => {
+                {formatarMoeda(itensResumo.reduce((s, i) => {
                   const saldo = Number(i.quantidade) - Number(i.quantidade_medida);
                   const d = itensOSDemanda.find(x => x.item_cronograma_id === i.id);
                   const q = modoOS === 'ORDEM_GLOBAL' ? saldo : (d?.quantidade_solicitada ?? 0);
                   const vlMensal = i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario));
-                  return s + (i.quantidade_meses ? vlMensal * i.quantidade_meses : q * Number(i.valor_unitario));
+                  return s + (modoOS === 'ORDEM_DEMANDA'
+                    ? q * Number(i.valor_unitario)
+                    : (i.quantidade_meses ? vlMensal * i.quantidade_meses : q * Number(i.valor_unitario)));
                 }, 0))}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Etapas do cronograma (OS com etapas) */}
           {isOS && usarEtapasCronograma && etapasOS.length > 0 && (
