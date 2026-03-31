@@ -247,6 +247,50 @@ function QuantidadeInput({
   );
 }
 
+// Input inteiro de meses para Ordem por Demanda
+function MesesInput({
+  value,
+  maxMeses,
+  onChange,
+  disabled = false,
+}: {
+  value?: number;
+  maxMeses: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const [inputValue, setInputValue] = useState(value != null ? String(value) : '');
+
+  useEffect(() => {
+    setInputValue(value != null ? String(value) : '');
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === '' || /^\d+$/.test(val)) setInputValue(val);
+  };
+
+  const handleBlur = () => {
+    const n = parseInt(inputValue) || 0;
+    const clamped = Math.max(0, Math.min(n, maxMeses));
+    setInputValue(clamped === 0 ? '' : String(clamped));
+    onChange(clamped);
+  };
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      value={inputValue}
+      placeholder="0"
+      onChange={handleChange}
+      onBlur={handleBlur}
+      disabled={disabled}
+      className="w-16 text-center"
+    />
+  );
+}
+
 // Input de valor monetário para etapas (min=0, aceita decimais)
 function ValorInput({
   value,
@@ -353,7 +397,7 @@ function NovaRequisicaoForm() {
   const [etapasOS, setEtapasOS] = useState<any[]>([]);
   const [carregandoCronograma, setCarregandoCronograma] = useState(false);
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
-  const [itensOSDemanda, setItensOSDemanda] = useState<{ item_cronograma_id: string; quantidade_solicitada: number }[]>([]);
+  const [itensOSDemanda, setItensOSDemanda] = useState<{ item_cronograma_id: string; quantidade_solicitada: number; meses_solicitados?: number }[]>([]);
   const [etapasOSDemanda, setEtapasOSDemanda] = useState<{ etapa_id: string; percentual_solicitado?: number; valor_solicitado?: number }[]>([]);
 
   // Ref para controlar auto-save
@@ -969,7 +1013,21 @@ function NovaRequisicaoForm() {
         const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
         const saldo = itemCron ? Number(itemCron.quantidade) - Number(itemCron.quantidade_medida) : 0;
         const qtd = Math.max(0, Math.min(quantidade, saldo));
-        return { ...item, quantidade_solicitada: qtd };
+        return { ...item, quantidade_solicitada: qtd, meses_solicitados: undefined };
+      }
+      return item;
+    }));
+  };
+
+  const handleAlterarMesesOSDemanda = (itemCronogramaId: string, meses: number) => {
+    setItensOSDemanda(prev => prev.map(item => {
+      if (item.item_cronograma_id === itemCronogramaId) {
+        const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
+        if (!itemCron || !itemCron.quantidade_meses) return item;
+        const saldo = Number(itemCron.quantidade) - Number(itemCron.quantidade_medida);
+        const qtdPorMes = Number(itemCron.quantidade) / Number(itemCron.quantidade_meses);
+        const qtd = Math.min(meses * qtdPorMes, saldo);
+        return { ...item, quantidade_solicitada: qtd, meses_solicitados: meses > 0 ? meses : undefined };
       }
       return item;
     }));
@@ -1843,6 +1901,9 @@ function NovaRequisicaoForm() {
                       <TableHead className="text-right">Meses</TableHead>
                       <TableHead className="text-right">Val. Mensal</TableHead>
                       <TableHead className="text-right">Valor unit.</TableHead>
+                      {modoOS === 'ORDEM_DEMANDA' && itensCronograma.some(i => i.quantidade_meses != null) && (
+                        <TableHead className="text-right">Meses sol.</TableHead>
+                      )}
                       {modoOS === 'ORDEM_DEMANDA' && (
                         <TableHead className="text-right">Qtd solicitada</TableHead>
                       )}
@@ -1866,6 +1927,21 @@ function NovaRequisicaoForm() {
                           <TableCell className="text-right">{item.quantidade_meses != null ? item.quantidade_meses : '-'}</TableCell>
                           <TableCell className="text-right">{formatarMoeda(item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario)))}</TableCell>
                           <TableCell className="text-right">{formatarMoeda(Number(item.valor_unitario))}</TableCell>
+                          {modoOS === 'ORDEM_DEMANDA' && itensCronograma.some(i => i.quantidade_meses != null) ? (
+                            <TableCell className="text-right">
+                              {item.quantidade_meses != null ? (() => {
+                                const qtdPorMes = Number(item.quantidade) / Number(item.quantidade_meses);
+                                const maxMeses = qtdPorMes > 0 ? Math.floor(saldo / qtdPorMes) : 0;
+                                return (
+                                  <MesesInput
+                                    value={demanda?.meses_solicitados}
+                                    maxMeses={maxMeses}
+                                    onChange={(v) => handleAlterarMesesOSDemanda(item.id, v)}
+                                  />
+                                );
+                              })() : <span className="text-muted-foreground text-sm">—</span>}
+                            </TableCell>
+                          ) : null}
                           {modoOS === 'ORDEM_DEMANDA' ? (
                             <TableCell className="text-right">
                               <QuantidadeInput
