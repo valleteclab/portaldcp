@@ -3216,6 +3216,8 @@ export class MedicaoService {
   }
 
 
+  /**
+   * Notifica o fornecedor quando o fiscal corrige uma discriminação.
    */
   private async notificarCorrecaoDiscriminacao(medicao: Medicao, fiscalNome: string, motivo: string): Promise<void> {
     const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
