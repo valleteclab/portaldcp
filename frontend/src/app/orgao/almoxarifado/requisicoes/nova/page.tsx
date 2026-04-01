@@ -777,7 +777,7 @@ function NovaRequisicaoForm() {
           setModoOS('ORDEM_GLOBAL');
           setItensOSDemanda(itens.map(i => ({
             item_cronograma_id: i.id,
-            quantidade_solicitada: Number(i.quantidade) - Number(i.quantidade_medida),
+            quantidade_solicitada: Number(i.quantidade) * (i.quantidade_meses ?? 1) - Number(i.quantidade_medida),
           })));
           setEtapasOSDemanda([]);
         } else if (etapas.length > 0) {
@@ -1011,7 +1011,9 @@ function NovaRequisicaoForm() {
     setItensOSDemanda(prev => prev.map(item => {
       if (item.item_cronograma_id === itemCronogramaId) {
         const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
-        const saldo = itemCron ? Number(itemCron.quantidade) - Number(itemCron.quantidade_medida) : 0;
+        const saldo = itemCron
+          ? Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) - Number(itemCron.quantidade_medida)
+          : 0;
         const qtd = Math.max(0, Math.min(quantidade, saldo));
         return { ...item, quantidade_solicitada: qtd, meses_solicitados: undefined };
       }
@@ -1024,9 +1026,9 @@ function NovaRequisicaoForm() {
       if (item.item_cronograma_id === itemCronogramaId) {
         const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
         if (!itemCron || !itemCron.quantidade_meses) return item;
-        const saldo = Number(itemCron.quantidade) - Number(itemCron.quantidade_medida);
-        const qtdPorMes = Number(itemCron.quantidade) / Number(itemCron.quantidade_meses);
-        const qtd = Math.min(meses * qtdPorMes, saldo);
+        const saldo = Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) - Number(itemCron.quantidade_medida);
+        // quantidade já é a qtd por período; multiplicar direto pelo nº de meses
+        const qtd = Math.min(meses * Number(itemCron.quantidade), saldo);
         return { ...item, quantidade_solicitada: qtd, meses_solicitados: meses > 0 ? meses : undefined };
       }
       return item;
@@ -1134,7 +1136,7 @@ function NovaRequisicaoForm() {
           dados.itens_os = modoOS === 'ORDEM_GLOBAL'
             ? itensCronograma.map(i => ({
                 item_cronograma_id: i.id,
-                quantidade_solicitada: Number(i.quantidade) - Number(i.quantidade_medida),
+                quantidade_solicitada: Number(i.quantidade) * (i.quantidade_meses ?? 1) - Number(i.quantidade_medida),
               }))
             : itensOSDemanda.filter(d => d.quantidade_solicitada > 0).map(d => ({
                 item_cronograma_id: d.item_cronograma_id,
@@ -1911,7 +1913,10 @@ function NovaRequisicaoForm() {
                   </TableHeader>
                   <TableBody>
                     {itensCronograma.map((item) => {
-                      const saldo = Number(item.quantidade) - Number(item.quantidade_medida);
+                      const saldo = Number(item.quantidade) * (item.quantidade_meses ?? 1) - Number(item.quantidade_medida);
+                      const qtdContratada = item.quantidade_meses
+                        ? Number(item.quantidade) * item.quantidade_meses
+                        : Number(item.quantidade);
                       const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
                       const qtdSolicitada = demanda?.quantidade_solicitada ?? saldo;
                       return (
@@ -1921,7 +1926,7 @@ function NovaRequisicaoForm() {
                             <span className="whitespace-normal break-words text-sm">{item.descricao}</span>
                           </TableCell>
                           <TableCell className="text-right">{item.unidade_medida}</TableCell>
-                          <TableCell className="text-right">{Number(item.quantidade)}</TableCell>
+                          <TableCell className="text-right">{qtdContratada}</TableCell>
                           <TableCell className="text-right">{Number(item.quantidade_medida)}</TableCell>
                           <TableCell className="text-right font-medium">{saldo}</TableCell>
                           <TableCell className="text-right">{item.quantidade_meses != null ? item.quantidade_meses : '-'}</TableCell>
@@ -1930,8 +1935,7 @@ function NovaRequisicaoForm() {
                           {modoOS === 'ORDEM_DEMANDA' && itensCronograma.some(i => i.quantidade_meses != null) ? (
                             <TableCell className="text-right">
                               {item.quantidade_meses != null ? (() => {
-                                const qtdPorMes = Number(item.quantidade) / Number(item.quantidade_meses);
-                                const maxMeses = qtdPorMes > 0 ? Math.floor(saldo / qtdPorMes) : 0;
+                                const maxMeses = Number(item.quantidade) > 0 ? Math.floor(saldo / Number(item.quantidade)) : 0;
                                 return (
                                   <MesesInput
                                     value={demanda?.meses_solicitados}
@@ -2347,7 +2351,7 @@ function NovaRequisicaoForm() {
                 </TableHeader>
                 <TableBody>
                   {itensResumo.map((item) => {
-                    const saldo = Number(item.quantidade) - Number(item.quantidade_medida);
+                    const saldo = Number(item.quantidade) * (item.quantidade_meses ?? 1) - Number(item.quantidade_medida);
                     const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
                     const qtd = modoOS === 'ORDEM_GLOBAL' ? saldo : (demanda?.quantidade_solicitada ?? 0);
                     const vlMensal = item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario));
@@ -2376,7 +2380,7 @@ function NovaRequisicaoForm() {
               <div className="mt-2 p-3 bg-indigo-50 rounded-lg text-sm text-indigo-800">
                 <strong>Total estimado:</strong>{' '}
                 {formatarMoeda(itensResumo.reduce((s, i) => {
-                  const saldo = Number(i.quantidade) - Number(i.quantidade_medida);
+                  const saldo = Number(i.quantidade) * (i.quantidade_meses ?? 1) - Number(i.quantidade_medida);
                   const d = itensOSDemanda.find(x => x.item_cronograma_id === i.id);
                   const q = modoOS === 'ORDEM_GLOBAL' ? saldo : (d?.quantidade_solicitada ?? 0);
                   const vlMensal = i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario));

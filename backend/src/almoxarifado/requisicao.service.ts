@@ -420,10 +420,10 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
             const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id } });
             if (!itemCron) throw new BadRequestException(`Item do cronograma ${io.item_cronograma_id} não encontrado`);
             if (itemCron.contrato_id !== dto.contrato_id) throw new BadRequestException(`Item não pertence ao contrato`);
-            const qtd = Number(itemCron.quantidade);
+            const qtdTotal = Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1);
             const medido = Number(itemCron.quantidade_medida || 0);
             const comprometido = comprometidoPorItem.get(io.item_cronograma_id) || 0;
-            const saldo = qtd - medido - comprometido;
+            const saldo = qtdTotal - medido - comprometido;
             if (Number(io.quantidade_solicitada) > saldo + 0.0001) {
               throw new BadRequestException(
                 `Quantidade solicitada do item "${itemCron.descricao}" excede o saldo disponível (${saldo.toFixed(2)})`
@@ -1915,7 +1915,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           for (const io of itens_os) {
             const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id } });
             if (!itemCron || itemCron.contrato_id !== requisicao.contrato_id) continue;
-            const saldo = Number(itemCron.quantidade) - Number(itemCron.quantidade_medida || 0) - (comprometido.get(io.item_cronograma_id) || 0);
+            const saldo = Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1) - Number(itemCron.quantidade_medida || 0) - (comprometido.get(io.item_cronograma_id) || 0);
             if (Number(io.quantidade_solicitada) > saldo + 0.0001) throw new BadRequestException(`Item "${itemCron.descricao}" excede saldo (${saldo.toFixed(2)})`);
             await this.requisicaoItemOSRepository.save(this.requisicaoItemOSRepository.create({ requisicao_id: id, item_cronograma_id: io.item_cronograma_id, quantidade_solicitada: Number(io.quantidade_solicitada) }));
           }
