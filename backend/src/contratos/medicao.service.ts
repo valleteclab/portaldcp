@@ -3163,6 +3163,7 @@ export class MedicaoService {
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number | null;
       nota_fiscal_data?: string | null;
+      objeto_contrato?: string;
     },
     fiscalId: string,
     fiscalNome: string,
@@ -3187,8 +3188,57 @@ export class MedicaoService {
     // Limpa o PDF para forçar regeneração
     updates.boletim_pdf_url = null;
 
+    // Atualiza objeto do contrato se fornecido
+    if (dados.objeto_contrato !== undefined && medicao.contrato) {
+      await this.contratoRepository.update(medicao.contrato.id, { objeto: dados.objeto_contrato });
+    }
+
     await this.medicaoRepository.update(medicaoId, updates);
     this.logger.log(`Cabeçalho corrigido por ${fiscalNome} na medição ${medicaoId}`);
+    return this.medicaoRepository.findOne({ where: { id: medicaoId } });
+  }
+
+  /**
+   * Atualiza o JSON execucao_fiscal de uma medição (corrige vigência e dias calculados).
+   */
+  async corrigirExecucaoFiscal(
+    medicaoId: string,
+    dados: {
+      vigencia_inicio?: string;
+      vigencia_fim?: string;
+      dias_executados?: number;
+      dias_restantes?: number;
+      meses_executados?: number;
+      dias_executados_extra?: number;
+      meses_restantes?: number;
+      dias_restantes_extra?: number;
+    },
+    orgaoId: string,
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para corrigir esta medição');
+    }
+
+    const efAtual: any = medicao.execucao_fiscal || {};
+    const efNovo = {
+      ...efAtual,
+      ...(dados.vigencia_inicio !== undefined ? { vigencia_inicio: dados.vigencia_inicio } : {}),
+      ...(dados.vigencia_fim !== undefined ? { vigencia_fim: dados.vigencia_fim } : {}),
+      ...(dados.dias_executados !== undefined ? { dias_executados: dados.dias_executados } : {}),
+      ...(dados.dias_restantes !== undefined ? { dias_restantes: dados.dias_restantes } : {}),
+      ...(dados.meses_executados !== undefined ? { meses_executados: dados.meses_executados } : {}),
+      ...(dados.dias_executados_extra !== undefined ? { dias_executados_extra: dados.dias_executados_extra } : {}),
+      ...(dados.meses_restantes !== undefined ? { meses_restantes: dados.meses_restantes } : {}),
+      ...(dados.dias_restantes_extra !== undefined ? { dias_restantes_extra: dados.dias_restantes_extra } : {}),
+    };
+
+    await this.medicaoRepository.update(medicaoId, { execucao_fiscal: efNovo, boletim_pdf_url: null });
+    this.logger.log(`Execução fiscal corrigida manualmente na medição ${medicaoId}`);
     return this.medicaoRepository.findOne({ where: { id: medicaoId } });
   }
 

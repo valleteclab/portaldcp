@@ -583,6 +583,7 @@ export class ModalidadesContratoController {
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number | null;
       nota_fiscal_data?: string | null;
+      objeto_contrato?: string;
     },
     @Req() request: { user: JwtPayload },
   ) {
@@ -590,6 +591,25 @@ export class ModalidadesContratoController {
     const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
     const fiscalNome = usuario?.nome || 'Fiscal';
     return this.medicaoService.corrigirCabecalho(medicaoId, body, request.user.sub, fiscalNome, orgaoId);
+  }
+
+  @Patch('medicoes/:medicaoId/execucao-fiscal')
+  async corrigirExecucaoFiscalMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      vigencia_inicio?: string;
+      vigencia_fim?: string;
+      dias_executados?: number;
+      dias_restantes?: number;
+      meses_executados?: number;
+      dias_executados_extra?: number;
+      meses_restantes?: number;
+      dias_restantes_extra?: number;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.medicaoService.corrigirExecucaoFiscal(medicaoId, body, orgaoId);
   }
 
   @Post('medicoes/:medicaoId/regenerar-boletim')
