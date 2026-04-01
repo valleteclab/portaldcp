@@ -1938,7 +1938,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     return { pdf_url: pdfPath };
   }
 
-(orgaoId: string): Promise<Requisicao[]> {
+  async findPendentesAutorizacao(orgaoId: string): Promise<Requisicao[]> {
     return this.requisicaoRepository.find({
       where: { 
         orgao_id: orgaoId, 
