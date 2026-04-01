@@ -255,6 +255,10 @@ export class Contrato {
   @Column({ default: false })
   boletim_por_quantidade: boolean;
 
+  /** Quando false, os valores calculados (valor_mensal, valor_total) são truncados em vez de arredondados */
+  @Column({ default: true })
+  arredondar_calculo: boolean;
+
   // Observações
   @Column({ type: 'text', nullable: true })
   observacoes: string;

@@ -91,6 +91,7 @@ export default function EditarContratoPage() {
     exige_garantia: false, percentual_garantia: '', tipo_garantia: '', observacoes: '',
     modalidade_licitacao: '',
     boletim_por_quantidade: false,
+    arredondar_calculo: true,
   })
 
   useEffect(() => {
@@ -139,6 +140,7 @@ export default function EditarContratoPage() {
           observacoes: contrato.observacoes || '',
           modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '__NONE__',
           boletim_por_quantidade: contrato.boletim_por_quantidade || false,
+          arredondar_calculo: contrato.arredondar_calculo ?? true,
         })
       } else {
         setError('Contrato não encontrado')
@@ -314,6 +316,7 @@ export default function EditarContratoPage() {
         tipo_garantia: formData.tipo_garantia || null, observacoes: formData.observacoes || null,
         modalidade_licitacao: (formData.modalidade_licitacao && formData.modalidade_licitacao !== '__NONE__') ? formData.modalidade_licitacao : null,
         boletim_por_quantidade: formData.boletim_por_quantidade || false,
+        arredondar_calculo: formData.arredondar_calculo ?? true,
       }
 
       const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
@@ -417,6 +420,18 @@ export default function EditarContratoPage() {
                 </Label>
               </div>
             )}
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="checkbox"
+                id="arredondar_calculo"
+                checked={formData.arredondar_calculo}
+                onChange={(e) => handleInputChange('arredondar_calculo', e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <Label htmlFor="arredondar_calculo" className="cursor-pointer font-normal text-sm">
+                Arredondar valores calculados (valor mensal/total)
+              </Label>
+            </div>
           </CardContent>
         </Card>
 

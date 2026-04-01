@@ -215,7 +215,7 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
 
 export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
   contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
-  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string };
+  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string; arredondar_calculo?: boolean };
   isAdmin?: boolean;
 }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
@@ -501,8 +501,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     const qtd = parseFloat(formItemCronograma.quantidade) || 0
     const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
     const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
-    const vlMensal = qtd * vlUnit
-    const novoValorTotal = meses ? vlMensal * meses : vlMensal
+    const arredondar = contratoProp?.arredondar_calculo ?? true;
+    const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
+    const vlMensal = ap(qtd * vlUnit);
+    const novoValorTotal = meses ? ap(qtd * vlUnit * meses) : vlMensal;
 
     const somaOutras = editandoItemCronograma
       ? itensCronograma.filter(i => i.id !== editandoItemCronograma.id).reduce((a, b) => a + Number(b.valor_total), 0)
