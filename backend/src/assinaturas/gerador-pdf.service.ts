@@ -213,7 +213,8 @@ export class GeradorPdfService {
           doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
             .text('Itens da Ordem de Serviço:', marginL, doc.y, { width: contentW });
           doc.moveDown(0.3);
-          this.escreverTabelaItensOS(doc, itensParaRender);
+          const arredondar = dadosOS.contrato?.arredondar_calculo ?? true;
+          this.escreverTabelaItensOS(doc, itensParaRender, arredondar);
         }
 
         // ── ASSINATURAS (nova página se restar menos de 180pt) ────────────────
@@ -713,7 +714,7 @@ export class GeradorPdfService {
     return nome;
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; total_override?: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
     const pageWidth = doc.page.width - 100;
     const colDesc  = pageWidth * 0.44;
     const colUnid  = pageWidth * 0.10;
@@ -748,9 +749,9 @@ export class GeradorPdfService {
       const unid = ic.unidade_medida || '-';
       const qtd  = Number(item.quantidade_solicitada);
       const vlUnit = Number(ic.valor_unitario ?? 0);
-      const meses  = ic.quantidade_meses ? Number(ic.quantidade_meses) : null;
-      const vlMensal = ic.valor_mensal ?? (qtd * vlUnit);
-      const total  = item.total_override !== undefined ? item.total_override : (meses ? vlMensal * meses : qtd * vlUnit);
+      const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
+      // total: use qtd (already incorporates meses_solicitados × qty_per_period) × vlUnit
+      const total  = item.total_override !== undefined ? item.total_override : ap(qtd * vlUnit);
       totalGeral  += total;
 
       doc.fontSize(8);
