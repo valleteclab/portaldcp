@@ -107,6 +107,16 @@ interface Medicao {
   status: string
   created_at: string
   itens?: any[]
+  execucao_fiscal?: {
+    vigencia_inicio?: string
+    vigencia_fim?: string
+    dias_executados?: number
+    dias_restantes?: number
+    meses_executados?: number
+    dias_executados_extra?: number
+    meses_restantes?: number
+    dias_restantes_extra?: number
+  } | null
 }
 
 interface Resumo {
@@ -216,7 +226,7 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
 
 export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
   contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
-  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string; arredondar_calculo?: boolean };
+  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string; arredondar_calculo?: boolean; objeto?: string };
   isAdmin?: boolean;
 }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
@@ -254,13 +264,17 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
   // Corrigir Boletim
   const [modalCorrigir, setModalCorrigir] = useState<Medicao | null>(null)
-  const [abaCorrigir, setAbaCorrigir] = useState<'cabecalho' | 'discriminacoes'>('cabecalho')
-  const [cabecalhoForm, setCabecalhoForm] = useState({ competencia: '', periodo_inicio: '', periodo_fim: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' })
+  const [abaCorrigir, setAbaCorrigir] = useState<'cabecalho' | 'itens_cronograma' | 'execucao_fiscal' | 'discriminacoes'>('cabecalho')
+  const [cabecalhoForm, setCabecalhoForm] = useState({ competencia: '', periodo_inicio: '', periodo_fim: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', objeto_contrato: '' })
   const [discCorrigir, setDiscCorrigir] = useState<{ descricao: string; valor: string; percentual: string }[]>([])
   const [motivoDiscCorrigir, setMotivoDiscCorrigir] = useState('')
   const [salvandoCorrecao, setSalvandoCorrecao] = useState(false)
   const [pdfRegeneradoUrl, setPdfRegeneradoUrl] = useState<string | null>(null)
   const [regenerandoPdf, setRegenerandoPdf] = useState(false)
+  const [itensCronoCorrigir, setItensCronoCorrigir] = useState<{ id: string; numero_item: number; descricao: string; unidade_medida: string }[]>([])
+  const [salvandoItensCrono, setSalvandoItensCrono] = useState(false)
+  const [execFiscalForm, setExecFiscalForm] = useState({ vigencia_inicio: '', vigencia_fim: '', dias_executados: '', dias_restantes: '', meses_executados: '', dias_executados_extra: '', meses_restantes: '', dias_restantes_extra: '' })
+  const [salvandoExecFiscal, setSalvandoExecFiscal] = useState(false)
 
   // Forms
   const [formEtapa, setFormEtapa] = useState({
@@ -361,6 +375,26 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       nota_fiscal_numero: m.nota_fiscal_numero ?? '',
       nota_fiscal_valor: m.nota_fiscal_valor != null ? String(m.nota_fiscal_valor) : '',
       nota_fiscal_data: m.nota_fiscal_data ? m.nota_fiscal_data.slice(0, 10) : '',
+      objeto_contrato: contratoProp?.objeto ?? '',
+    })
+    // Itens cronograma (cópia editável)
+    setItensCronoCorrigir(itensCronograma.map(ic => ({
+      id: ic.id,
+      numero_item: ic.numero_item,
+      descricao: ic.descricao,
+      unidade_medida: ic.unidade_medida,
+    })))
+    // Execução fiscal
+    const ef = m.execucao_fiscal
+    setExecFiscalForm({
+      vigencia_inicio: ef?.vigencia_inicio ? ef.vigencia_inicio.slice(0, 10) : '',
+      vigencia_fim: ef?.vigencia_fim ? ef.vigencia_fim.slice(0, 10) : '',
+      dias_executados: ef?.dias_executados != null ? String(ef.dias_executados) : '',
+      dias_restantes: ef?.dias_restantes != null ? String(ef.dias_restantes) : '',
+      meses_executados: ef?.meses_executados != null ? String(ef.meses_executados) : '',
+      dias_executados_extra: ef?.dias_executados_extra != null ? String(ef.dias_executados_extra) : '',
+      meses_restantes: ef?.meses_restantes != null ? String(ef.meses_restantes) : '',
+      dias_restantes_extra: ef?.dias_restantes_extra != null ? String(ef.dias_restantes_extra) : '',
     })
     // Carregar discriminações existentes
     try {
@@ -386,6 +420,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         body.nota_fiscal_valor = cabecalhoForm.nota_fiscal_valor !== '' ? Number(cabecalhoForm.nota_fiscal_valor.replace(',', '.')) : null
       }
       if (cabecalhoForm.nota_fiscal_data !== (modalCorrigir.nota_fiscal_data?.slice(0, 10) ?? '')) body.nota_fiscal_data = cabecalhoForm.nota_fiscal_data || null
+      if (cabecalhoForm.objeto_contrato !== (contratoProp?.objeto ?? '')) body.objeto_contrato = cabecalhoForm.objeto_contrato
       if (Object.keys(body).length === 0) { alert('Nenhuma alteração detectada.'); return }
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/corrigir`, {
         method: 'PATCH', body: JSON.stringify(body),
@@ -422,6 +457,57 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       }
     } catch { alert('Erro ao salvar discriminações') }
     finally { setSalvandoCorrecao(false) }
+  }
+
+  const salvarItensCronograma = async () => {
+    setSalvandoItensCrono(true)
+    let erros = 0
+    try {
+      for (const ic of itensCronoCorrigir) {
+        const original = itensCronograma.find(o => o.id === ic.id)
+        if (!original) continue
+        if (ic.descricao === original.descricao && ic.unidade_medida === original.unidade_medida) continue
+        const res = await authFetch(`${API_URL}/api/contratos/itens-cronograma/${ic.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ descricao: ic.descricao, unidade_medida: ic.unidade_medida }),
+        })
+        if (!res.ok) erros++
+      }
+      if (erros === 0) {
+        alert('Itens salvos! Clique em "Regenerar PDF" para atualizar o documento.')
+        carregarDados()
+      } else {
+        alert(`${erros} item(ns) não puderam ser salvos.`)
+      }
+    } catch { alert('Erro ao salvar itens') }
+    finally { setSalvandoItensCrono(false) }
+  }
+
+  const salvarExecucaoFiscal = async () => {
+    if (!modalCorrigir) return
+    setSalvandoExecFiscal(true)
+    try {
+      const body: any = {}
+      if (execFiscalForm.vigencia_inicio) body.vigencia_inicio = execFiscalForm.vigencia_inicio
+      if (execFiscalForm.vigencia_fim) body.vigencia_fim = execFiscalForm.vigencia_fim
+      if (execFiscalForm.dias_executados !== '') body.dias_executados = Number(execFiscalForm.dias_executados)
+      if (execFiscalForm.dias_restantes !== '') body.dias_restantes = Number(execFiscalForm.dias_restantes)
+      if (execFiscalForm.meses_executados !== '') body.meses_executados = Number(execFiscalForm.meses_executados)
+      if (execFiscalForm.dias_executados_extra !== '') body.dias_executados_extra = Number(execFiscalForm.dias_executados_extra)
+      if (execFiscalForm.meses_restantes !== '') body.meses_restantes = Number(execFiscalForm.meses_restantes)
+      if (execFiscalForm.dias_restantes_extra !== '') body.dias_restantes_extra = Number(execFiscalForm.dias_restantes_extra)
+      if (Object.keys(body).length === 0) { alert('Nenhuma alteração.'); return }
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/execucao-fiscal`, {
+        method: 'PATCH', body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        alert('Execução fiscal salva! Clique em "Regenerar PDF" para atualizar o documento.')
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar execução fiscal')
+      }
+    } catch { alert('Erro ao salvar execução fiscal') }
+    finally { setSalvandoExecFiscal(false) }
   }
 
   const regenerarBoletim = async () => {
@@ -3133,126 +3219,249 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
       {/* ── Modal Corrigir Boletim ── */}
       <Dialog open={!!modalCorrigir} onOpenChange={(open) => { if (!open) setModalCorrigir(null) }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-5xl w-[92vw] max-h-[90vh] flex flex-col">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Wrench className="w-5 h-5 text-violet-600" />
               Corrigir Boletim — {modalCorrigir?.numero_medicao}ª Medição
             </DialogTitle>
-            <DialogDescription>Corrija os dados e depois clique em "Regenerar PDF".</DialogDescription>
+            <DialogDescription>Corrija os dados em cada aba e depois clique em "Regenerar PDF".</DialogDescription>
           </DialogHeader>
 
           {/* Abas */}
-          <div className="flex gap-1 border-b mb-4">
-            {(['cabecalho', 'discriminacoes'] as const).map((aba) => (
-              <button key={aba} onClick={() => setAbaCorrigir(aba)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${abaCorrigir === aba ? 'border-violet-600 text-violet-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {aba === 'cabecalho' ? 'Cabeçalho' : 'Discriminações'}
+          <div className="flex gap-0 border-b shrink-0">
+            {([
+              { id: 'cabecalho', label: 'Cabeçalho' },
+              { id: 'itens_cronograma', label: 'Itens do Contrato' },
+              { id: 'execucao_fiscal', label: 'Execução Fiscal' },
+              { id: 'discriminacoes', label: 'Discriminações' },
+            ] as const).map(({ id, label }) => (
+              <button key={id} onClick={() => setAbaCorrigir(id)}
+                className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${abaCorrigir === id ? 'border-violet-600 text-violet-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                {label}
               </button>
             ))}
           </div>
 
-          {/* Aba Cabeçalho */}
-          {abaCorrigir === 'cabecalho' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label>Competência</Label>
-                  <Input placeholder="ex: MARÇO/2026" value={cabecalhoForm.competencia}
-                    onChange={e => setCabecalhoForm(f => ({ ...f, competencia: e.target.value }))} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Nº Nota Fiscal</Label>
-                  <Input placeholder="ex: 000123" value={cabecalhoForm.nota_fiscal_numero}
-                    onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_numero: e.target.value }))} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Período Início</Label>
-                  <Input type="date" value={cabecalhoForm.periodo_inicio}
-                    onChange={e => setCabecalhoForm(f => ({ ...f, periodo_inicio: e.target.value }))} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Período Fim</Label>
-                  <Input type="date" value={cabecalhoForm.periodo_fim}
-                    onChange={e => setCabecalhoForm(f => ({ ...f, periodo_fim: e.target.value }))} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Valor Nota Fiscal (R$)</Label>
-                  <Input placeholder="ex: 19310,14" value={cabecalhoForm.nota_fiscal_valor}
-                    onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_valor: e.target.value }))} />
-                </div>
-                <div className="space-y-1">
-                  <Label>Data Nota Fiscal</Label>
-                  <Input type="date" value={cabecalhoForm.nota_fiscal_data}
-                    onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_data: e.target.value }))} />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={salvarCabecalho} disabled={salvandoCorrecao} className="bg-violet-600 hover:bg-violet-700">
-                  {salvandoCorrecao ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                  Salvar Cabeçalho
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Conteúdo das abas — rola verticalmente */}
+          <div className="flex-1 overflow-y-auto py-2">
 
-          {/* Aba Discriminações */}
-          {abaCorrigir === 'discriminacoes' && (
-            <div className="space-y-3">
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Descrição</th>
-                      <th className="px-3 py-2 text-right w-32">Valor (R$)</th>
-                      <th className="px-3 py-2 text-right w-24">%</th>
-                      <th className="px-3 py-2 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {discCorrigir.map((d, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-3 py-1">
-                          <Input className="h-8 text-sm" value={d.descricao}
-                            onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, descricao: e.target.value } : r))} />
-                        </td>
-                        <td className="px-3 py-1">
-                          <Input className="h-8 text-sm text-right" value={d.valor}
-                            onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, valor: e.target.value } : r))} />
-                        </td>
-                        <td className="px-3 py-1">
-                          <Input className="h-8 text-sm text-right" value={d.percentual}
-                            onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, percentual: e.target.value } : r))} />
-                        </td>
-                        <td className="px-3 py-1 text-center">
-                          <button className="text-red-400 hover:text-red-600" onClick={() => setDiscCorrigir(prev => prev.filter((_, j) => j !== i))}>
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
+            {/* Aba Cabeçalho */}
+            {abaCorrigir === 'cabecalho' && (
+              <div className="space-y-4 px-1">
+                <div className="space-y-1">
+                  <Label>Objeto do Contrato</Label>
+                  <Textarea rows={3} placeholder="Descreva o objeto do contrato..." value={cabecalhoForm.objeto_contrato}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, objeto_contrato: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>Competência</Label>
+                    <Input placeholder="ex: MARÇO/2026" value={cabecalhoForm.competencia}
+                      onChange={e => setCabecalhoForm(f => ({ ...f, competencia: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nº Nota Fiscal</Label>
+                    <Input placeholder="ex: 000123" value={cabecalhoForm.nota_fiscal_numero}
+                      onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_numero: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Período Início</Label>
+                    <Input type="date" value={cabecalhoForm.periodo_inicio}
+                      onChange={e => setCabecalhoForm(f => ({ ...f, periodo_inicio: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Período Fim</Label>
+                    <Input type="date" value={cabecalhoForm.periodo_fim}
+                      onChange={e => setCabecalhoForm(f => ({ ...f, periodo_fim: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Valor Nota Fiscal (R$)</Label>
+                    <Input placeholder="ex: 19310,14" value={cabecalhoForm.nota_fiscal_valor}
+                      onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_valor: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Data Nota Fiscal</Label>
+                    <Input type="date" value={cabecalhoForm.nota_fiscal_data}
+                      onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_data: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={salvarCabecalho} disabled={salvandoCorrecao} className="bg-violet-600 hover:bg-violet-700">
+                    {salvandoCorrecao ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    Salvar Cabeçalho
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Aba Itens do Contrato */}
+            {abaCorrigir === 'itens_cronograma' && (
+              <div className="space-y-3 px-1">
+                <p className="text-xs text-gray-500">Edite a descrição e unidade de cada item do cronograma (tabela "Itens Contratados" do PDF).</p>
+                {itensCronoCorrigir.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-8">Nenhum item de cronograma cadastrado para este contrato.</p>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+                        <tr>
+                          <th className="px-3 py-2 text-center w-10">#</th>
+                          <th className="px-3 py-2 text-left">Descrição</th>
+                          <th className="px-3 py-2 text-center w-36">Unidade</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensCronoCorrigir.map((ic, i) => (
+                          <tr key={ic.id} className="border-t">
+                            <td className="px-3 py-1 text-center text-gray-500 text-xs">{ic.numero_item}</td>
+                            <td className="px-3 py-1">
+                              <Input className="h-8 text-sm" value={ic.descricao}
+                                onChange={e => setItensCronoCorrigir(prev => prev.map((r, j) => j === i ? { ...r, descricao: e.target.value } : r))} />
+                            </td>
+                            <td className="px-3 py-1">
+                              <Input className="h-8 text-sm text-center uppercase" value={ic.unidade_medida}
+                                onChange={e => setItensCronoCorrigir(prev => prev.map((r, j) => j === i ? { ...r, unidade_medida: e.target.value.toUpperCase() } : r))} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <Button onClick={salvarItensCronograma} disabled={salvandoItensCrono || itensCronoCorrigir.length === 0} className="bg-violet-600 hover:bg-violet-700">
+                    {salvandoItensCrono ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    Salvar Itens
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Aba Execução Fiscal */}
+            {abaCorrigir === 'execucao_fiscal' && (
+              <div className="space-y-4 px-1">
+                <p className="text-xs text-gray-500">Corrija os valores calculados de vigência e execução temporal que aparecem na tabela de execução fiscal do PDF.</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>Vigência Início</Label>
+                    <Input type="date" value={execFiscalForm.vigencia_inicio}
+                      onChange={e => setExecFiscalForm(f => ({ ...f, vigencia_inicio: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Vigência Fim</Label>
+                    <Input type="date" value={execFiscalForm.vigencia_fim}
+                      onChange={e => setExecFiscalForm(f => ({ ...f, vigencia_fim: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="border rounded-lg p-4 space-y-3 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Execução até o período</p>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Meses executados</Label>
+                      <Input type="number" min={0} placeholder="ex: 3" value={execFiscalForm.meses_executados}
+                        onChange={e => setExecFiscalForm(f => ({ ...f, meses_executados: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Dias extras executados</Label>
+                      <Input type="number" min={0} placeholder="ex: 15" value={execFiscalForm.dias_executados_extra}
+                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_executados_extra: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Total dias executados</Label>
+                      <Input type="number" min={0} placeholder="ex: 105" value={execFiscalForm.dias_executados}
+                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_executados: e.target.value }))} />
+                    </div>
+                  </div>
+                </div>
+                <div className="border rounded-lg p-4 space-y-3 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">A executar</p>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Meses restantes</Label>
+                      <Input type="number" min={0} placeholder="ex: 9" value={execFiscalForm.meses_restantes}
+                        onChange={e => setExecFiscalForm(f => ({ ...f, meses_restantes: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Dias extras restantes</Label>
+                      <Input type="number" min={0} placeholder="ex: 15" value={execFiscalForm.dias_restantes_extra}
+                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_restantes_extra: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Total dias restantes</Label>
+                      <Input type="number" min={0} placeholder="ex: 255" value={execFiscalForm.dias_restantes}
+                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_restantes: e.target.value }))} />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={salvarExecucaoFiscal} disabled={salvandoExecFiscal} className="bg-violet-600 hover:bg-violet-700">
+                    {salvandoExecFiscal ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    Salvar Execução Fiscal
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Aba Discriminações */}
+            {abaCorrigir === 'discriminacoes' && (
+              <div className="space-y-3 px-1">
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Descrição</th>
+                        <th className="px-3 py-2 text-right w-36">Valor (R$)</th>
+                        <th className="px-3 py-2 text-right w-24">%</th>
+                        <th className="px-3 py-2 w-10"></th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <Button size="sm" variant="outline" onClick={() => setDiscCorrigir(prev => [...prev, { descricao: '', valor: '0', percentual: '0' }])}>
-                <Plus className="w-3.5 h-3.5 mr-1" />Adicionar Linha
-              </Button>
-              <div className="space-y-1">
-                <Label>Motivo da correção <span className="text-red-500">*</span></Label>
-                <Input placeholder="Descreva o motivo" value={motivoDiscCorrigir}
-                  onChange={e => setMotivoDiscCorrigir(e.target.value)} />
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={salvarDiscriminacoes} disabled={salvandoCorrecao} className="bg-violet-600 hover:bg-violet-700">
-                  {salvandoCorrecao ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                  Salvar Discriminações
+                    </thead>
+                    <tbody>
+                      {discCorrigir.map((d, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-1">
+                            <Input className="h-8 text-sm" value={d.descricao}
+                              onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, descricao: e.target.value } : r))} />
+                          </td>
+                          <td className="px-3 py-1">
+                            <Input className="h-8 text-sm text-right" value={d.valor}
+                              onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, valor: e.target.value } : r))} />
+                          </td>
+                          <td className="px-3 py-1">
+                            <Input className="h-8 text-sm text-right" value={d.percentual}
+                              onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, percentual: e.target.value } : r))} />
+                          </td>
+                          <td className="px-3 py-1 text-center">
+                            <button className="text-red-400 hover:text-red-600" onClick={() => setDiscCorrigir(prev => prev.filter((_, j) => j !== i))}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setDiscCorrigir(prev => [...prev, { descricao: '', valor: '0', percentual: '0' }])}>
+                  <Plus className="w-3.5 h-3.5 mr-1" />Adicionar Linha
                 </Button>
+                <div className="space-y-1">
+                  <Label>Motivo da correção <span className="text-red-500">*</span></Label>
+                  <Input placeholder="Descreva o motivo" value={motivoDiscCorrigir}
+                    onChange={e => setMotivoDiscCorrigir(e.target.value)} />
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={salvarDiscriminacoes} disabled={salvandoCorrecao} className="bg-violet-600 hover:bg-violet-700">
+                    {salvandoCorrecao ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    Salvar Discriminações
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+          </div>{/* fim scroll */}
 
           {/* Botão Regenerar + link resultado */}
-          <div className="border-t pt-4 flex items-center justify-between gap-4">
+          <div className="border-t pt-4 flex items-center justify-between gap-4 shrink-0">
             <p className="text-xs text-gray-500">Após salvar as correções, clique para gerar o novo PDF.</p>
             <div className="flex items-center gap-2">
               {pdfRegeneradoUrl && (
