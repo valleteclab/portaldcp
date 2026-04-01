@@ -47,6 +47,12 @@ export class ItemOSDto {
   @IsNumber()
   @Min(0)
   quantidade_solicitada: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  meses_solicitados?: number;
 }
 
 export class EtapaOSDto {

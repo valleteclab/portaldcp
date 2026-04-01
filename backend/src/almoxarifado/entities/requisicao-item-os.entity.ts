@@ -42,6 +42,9 @@ export class RequisicaoItemOS {
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   quantidade_solicitada: number;
 
+  @Column({ type: 'int', nullable: true, default: null })
+  meses_solicitados: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 }

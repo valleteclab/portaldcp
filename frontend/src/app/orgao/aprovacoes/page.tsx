@@ -1259,9 +1259,12 @@ export default function CentralAprovacoesPage() {
                                       const ic = item.itemCronograma || {}
                                       const qtd = Number(item.quantidade_solicitada)
                                       const vlUnit = Number(ic.valor_unitario ?? 0)
-                                      const meses = ic.quantidade_meses ? Number(ic.quantidade_meses) : null
-                                      const vlMensal = ic.valor_mensal ?? (qtd * vlUnit)
-                                      const total = meses ? vlMensal * meses : qtd * vlUnit
+                                      // meses_solicitados: what was requested in the OS (not the contract total)
+                                      const meses = item.meses_solicitados ? Number(item.meses_solicitados) : null
+                                      // vlMensal: per-period value from the contract item (ic.quantidade × vlUnit)
+                                      const vlMensal = ic.valor_mensal ?? (Number(ic.quantidade ?? 0) * vlUnit)
+                                      // total: qtd (já incorpora meses × qty_per_period) × vlUnit
+                                      const total = qtd * vlUnit
                                       return (
                                         <TableRow key={item.id}>
                                           <TableCell>{ic.descricao || '-'}</TableCell>
