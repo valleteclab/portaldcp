@@ -19,7 +19,7 @@ import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
   ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
-  Camera, Paperclip, Upload,
+  Camera, Paperclip, Upload, Wrench, RefreshCw, Download,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -90,6 +90,7 @@ interface Medicao {
   fiscal_nome: string
   fornecedor_nome?: string
   fornecedor_observacoes?: string
+  competencia?: string | null
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
   nota_fiscal_data?: string
@@ -251,6 +252,16 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [editandoDiscriminacao, setEditandoDiscriminacao] = useState<string | null>(null)
   const [motivoCorrecao, setMotivoCorrecao] = useState('')
 
+  // Corrigir Boletim
+  const [modalCorrigir, setModalCorrigir] = useState<Medicao | null>(null)
+  const [abaCorrigir, setAbaCorrigir] = useState<'cabecalho' | 'discriminacoes'>('cabecalho')
+  const [cabecalhoForm, setCabecalhoForm] = useState({ competencia: '', periodo_inicio: '', periodo_fim: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '' })
+  const [discCorrigir, setDiscCorrigir] = useState<{ descricao: string; valor: string; percentual: string }[]>([])
+  const [motivoDiscCorrigir, setMotivoDiscCorrigir] = useState('')
+  const [salvandoCorrecao, setSalvandoCorrecao] = useState(false)
+  const [pdfRegeneradoUrl, setPdfRegeneradoUrl] = useState<string | null>(null)
+  const [regenerandoPdf, setRegenerandoPdf] = useState(false)
+
   // Forms
   const [formEtapa, setFormEtapa] = useState({
     descricao: '', percentual_fisico: '', valor_previsto: '',
@@ -337,6 +348,98 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     } catch {
       alert('Erro ao corrigir discriminação')
     }
+  }
+
+  const abrirModalCorrigir = async (m: Medicao) => {
+    setModalCorrigir(m)
+    setAbaCorrigir('cabecalho')
+    setPdfRegeneradoUrl(null)
+    setCabecalhoForm({
+      competencia: m.competencia ?? '',
+      periodo_inicio: m.periodo_inicio ? m.periodo_inicio.slice(0, 10) : '',
+      periodo_fim: m.periodo_fim ? m.periodo_fim.slice(0, 10) : '',
+      nota_fiscal_numero: m.nota_fiscal_numero ?? '',
+      nota_fiscal_valor: m.nota_fiscal_valor != null ? String(m.nota_fiscal_valor) : '',
+      nota_fiscal_data: m.nota_fiscal_data ? m.nota_fiscal_data.slice(0, 10) : '',
+    })
+    // Carregar discriminações existentes
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/discriminacoes`)
+      if (res.ok) {
+        const disc = await res.json()
+        setDiscCorrigir(disc.map((d: any) => ({ descricao: d.descricao, valor: String(d.valor), percentual: String(d.percentual) })))
+      }
+    } catch { }
+    setMotivoDiscCorrigir('')
+  }
+
+  const salvarCabecalho = async () => {
+    if (!modalCorrigir) return
+    setSalvandoCorrecao(true)
+    try {
+      const body: any = {}
+      if (cabecalhoForm.competencia !== (modalCorrigir.competencia ?? '')) body.competencia = cabecalhoForm.competencia
+      if (cabecalhoForm.periodo_inicio !== modalCorrigir.periodo_inicio?.slice(0, 10)) body.periodo_inicio = cabecalhoForm.periodo_inicio
+      if (cabecalhoForm.periodo_fim !== modalCorrigir.periodo_fim?.slice(0, 10)) body.periodo_fim = cabecalhoForm.periodo_fim
+      if (cabecalhoForm.nota_fiscal_numero !== (modalCorrigir.nota_fiscal_numero ?? '')) body.nota_fiscal_numero = cabecalhoForm.nota_fiscal_numero
+      if (cabecalhoForm.nota_fiscal_valor !== (modalCorrigir.nota_fiscal_valor != null ? String(modalCorrigir.nota_fiscal_valor) : '')) {
+        body.nota_fiscal_valor = cabecalhoForm.nota_fiscal_valor !== '' ? Number(cabecalhoForm.nota_fiscal_valor.replace(',', '.')) : null
+      }
+      if (cabecalhoForm.nota_fiscal_data !== (modalCorrigir.nota_fiscal_data?.slice(0, 10) ?? '')) body.nota_fiscal_data = cabecalhoForm.nota_fiscal_data || null
+      if (Object.keys(body).length === 0) { alert('Nenhuma alteração detectada.'); return }
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/corrigir`, {
+        method: 'PATCH', body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        alert('Cabeçalho salvo! Clique em "Regenerar PDF" para atualizar o documento.')
+        carregarDados()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar cabeçalho')
+      }
+    } catch { alert('Erro ao salvar cabeçalho') }
+    finally { setSalvandoCorrecao(false) }
+  }
+
+  const salvarDiscriminacoes = async () => {
+    if (!modalCorrigir) return
+    if (!motivoDiscCorrigir.trim()) { alert('Informe o motivo da correção'); return }
+    setSalvandoCorrecao(true)
+    try {
+      const itens = discCorrigir.map(d => ({
+        descricao: d.descricao,
+        valor: Number(d.valor.replace(',', '.')),
+        percentual: Number(d.percentual.replace(',', '.')),
+      }))
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/discriminacoes`, {
+        method: 'PUT', body: JSON.stringify({ itens, motivo_correcao: motivoDiscCorrigir }),
+      })
+      if (res.ok) {
+        alert('Discriminações salvas! Clique em "Regenerar PDF" para atualizar o documento.')
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar discriminações')
+      }
+    } catch { alert('Erro ao salvar discriminações') }
+    finally { setSalvandoCorrecao(false) }
+  }
+
+  const regenerarBoletim = async () => {
+    if (!modalCorrigir) return
+    setRegenerandoPdf(true)
+    setPdfRegeneradoUrl(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/regenerar-boletim`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setPdfRegeneradoUrl(`${API_URL}${data.pdf_url}`)
+        carregarDados()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao regenerar PDF')
+      }
+    } catch { alert('Erro ao regenerar PDF') }
+    finally { setRegenerandoPdf(false) }
   }
 
   const handleExcluirAnexoOrgao = async (anexoId: string, nomeAnexo: string) => {
@@ -1094,6 +1197,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   <Button size="sm" variant="outline" onClick={() => abrirDetalhe(m)}>
                     <Eye className="w-3 h-3 mr-1" />Ver
                   </Button>
+                  <Button size="sm" variant="outline" className="text-violet-600 border-violet-300" title="Corrigir Boletim" onClick={() => abrirModalCorrigir(m)}>
+                    <Wrench className="w-3 h-3 mr-1" />Corrigir
+                  </Button>
                   <Button size="sm" className="bg-yellow-600 hover:bg-yellow-700 text-white" onClick={() => onAtestar ? onAtestar(m) : abrirModalAteste(m)}>
                     <ClipboardCheck className="w-3 h-3 mr-1" />{m.status === 'PARCIALMENTE_ATESTADA' ? 'Continuar Ateste' : 'Atestar'}
                   </Button>
@@ -1385,6 +1491,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       )}
                       <Button variant="ghost" size="sm" onClick={() => abrirDetalhe(m)}>
                         <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-violet-600" title="Corrigir Boletim" onClick={() => abrirModalCorrigir(m)}>
+                        <Wrench className="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -3019,6 +3128,145 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal Corrigir Boletim ── */}
+      <Dialog open={!!modalCorrigir} onOpenChange={(open) => { if (!open) setModalCorrigir(null) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wrench className="w-5 h-5 text-violet-600" />
+              Corrigir Boletim — {modalCorrigir?.numero_medicao}ª Medição
+            </DialogTitle>
+            <DialogDescription>Corrija os dados e depois clique em "Regenerar PDF".</DialogDescription>
+          </DialogHeader>
+
+          {/* Abas */}
+          <div className="flex gap-1 border-b mb-4">
+            {(['cabecalho', 'discriminacoes'] as const).map((aba) => (
+              <button key={aba} onClick={() => setAbaCorrigir(aba)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${abaCorrigir === aba ? 'border-violet-600 text-violet-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                {aba === 'cabecalho' ? 'Cabeçalho' : 'Discriminações'}
+              </button>
+            ))}
+          </div>
+
+          {/* Aba Cabeçalho */}
+          {abaCorrigir === 'cabecalho' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Competência</Label>
+                  <Input placeholder="ex: MARÇO/2026" value={cabecalhoForm.competencia}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, competencia: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Nº Nota Fiscal</Label>
+                  <Input placeholder="ex: 000123" value={cabecalhoForm.nota_fiscal_numero}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_numero: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Período Início</Label>
+                  <Input type="date" value={cabecalhoForm.periodo_inicio}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, periodo_inicio: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Período Fim</Label>
+                  <Input type="date" value={cabecalhoForm.periodo_fim}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, periodo_fim: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Valor Nota Fiscal (R$)</Label>
+                  <Input placeholder="ex: 19310,14" value={cabecalhoForm.nota_fiscal_valor}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_valor: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Data Nota Fiscal</Label>
+                  <Input type="date" value={cabecalhoForm.nota_fiscal_data}
+                    onChange={e => setCabecalhoForm(f => ({ ...f, nota_fiscal_data: e.target.value }))} />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={salvarCabecalho} disabled={salvandoCorrecao} className="bg-violet-600 hover:bg-violet-700">
+                  {salvandoCorrecao ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Salvar Cabeçalho
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Aba Discriminações */}
+          {abaCorrigir === 'discriminacoes' && (
+            <div className="space-y-3">
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Descrição</th>
+                      <th className="px-3 py-2 text-right w-32">Valor (R$)</th>
+                      <th className="px-3 py-2 text-right w-24">%</th>
+                      <th className="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {discCorrigir.map((d, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="px-3 py-1">
+                          <Input className="h-8 text-sm" value={d.descricao}
+                            onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, descricao: e.target.value } : r))} />
+                        </td>
+                        <td className="px-3 py-1">
+                          <Input className="h-8 text-sm text-right" value={d.valor}
+                            onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, valor: e.target.value } : r))} />
+                        </td>
+                        <td className="px-3 py-1">
+                          <Input className="h-8 text-sm text-right" value={d.percentual}
+                            onChange={e => setDiscCorrigir(prev => prev.map((r, j) => j === i ? { ...r, percentual: e.target.value } : r))} />
+                        </td>
+                        <td className="px-3 py-1 text-center">
+                          <button className="text-red-400 hover:text-red-600" onClick={() => setDiscCorrigir(prev => prev.filter((_, j) => j !== i))}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setDiscCorrigir(prev => [...prev, { descricao: '', valor: '0', percentual: '0' }])}>
+                <Plus className="w-3.5 h-3.5 mr-1" />Adicionar Linha
+              </Button>
+              <div className="space-y-1">
+                <Label>Motivo da correção <span className="text-red-500">*</span></Label>
+                <Input placeholder="Descreva o motivo" value={motivoDiscCorrigir}
+                  onChange={e => setMotivoDiscCorrigir(e.target.value)} />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={salvarDiscriminacoes} disabled={salvandoCorrecao} className="bg-violet-600 hover:bg-violet-700">
+                  {salvandoCorrecao ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Salvar Discriminações
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Botão Regenerar + link resultado */}
+          <div className="border-t pt-4 flex items-center justify-between gap-4">
+            <p className="text-xs text-gray-500">Após salvar as correções, clique para gerar o novo PDF.</p>
+            <div className="flex items-center gap-2">
+              {pdfRegeneradoUrl && (
+                <a href={pdfRegeneradoUrl} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1 text-sm text-blue-600 hover:underline">
+                  <Download className="w-4 h-4" />Baixar PDF
+                </a>
+              )}
+              <Button onClick={regenerarBoletim} disabled={regenerandoPdf} className="bg-green-600 hover:bg-green-700">
+                {regenerandoPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                Regenerar PDF
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
