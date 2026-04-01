@@ -714,29 +714,32 @@ export class GeradorPdfService {
     return nome;
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; itemCronograma?: { descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; itemCronograma?: { numero_item?: number; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
     const pageWidth = doc.page.width - 100;
-    const colDesc  = pageWidth * 0.44;
+    const colNum   = pageWidth * 0.05;
+    const colDesc  = pageWidth * 0.39;
     const colUnid  = pageWidth * 0.10;
     const colQtd   = pageWidth * 0.11;
     const colValor = pageWidth * 0.17;
     const colTotal = pageWidth * 0.18;
 
     const x0 = 50;
-    const x1 = x0 + colDesc;
-    const x2 = x1 + colUnid;
-    const x3 = x2 + colQtd;
-    const x4 = x3 + colValor;
+    const x1 = x0 + colNum;
+    const x2 = x1 + colDesc;
+    const x3 = x2 + colUnid;
+    const x4 = x3 + colQtd;
+    const x5 = x4 + colValor;
 
     // ── Cabeçalho da tabela
     const headerY = doc.y;
     doc.rect(x0, headerY, pageWidth, 18).fillAndStroke('#e5e7eb', '#9ca3af');
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
-    doc.text('Descrição',   x0 + 3, headerY + 5, { width: colDesc - 6 });
-    doc.text('Unidade',     x1,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
-    doc.text('Qtd.',        x2,     headerY - 13 + 5, { width: colQtd,   align: 'right' });
-    doc.text('Valor Unit.', x3,     headerY - 13 + 5, { width: colValor, align: 'right' });
-    doc.text('Total',       x4,     headerY - 13 + 5, { width: colTotal, align: 'right' });
+    doc.text('#',           x0 + 3, headerY + 5, { width: colNum - 4 });
+    doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
+    doc.text('Unidade',     x2,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
+    doc.text('Qtd.',        x3,     headerY - 13 + 5, { width: colQtd,   align: 'right' });
+    doc.text('Valor Unit.', x4,     headerY - 13 + 5, { width: colValor, align: 'right' });
+    doc.text('Total',       x5,     headerY - 13 + 5, { width: colTotal, align: 'right' });
     doc.y = headerY + 20;
 
     // ── Linhas
@@ -763,19 +766,20 @@ export class GeradorPdfService {
       }
 
       const rowY = doc.y + 2;
-      doc.text(desc,  x0 + 3, rowY, { width: colDesc - 6 });
-      doc.text(unid,  x1, rowY, { width: colUnid,  align: 'center' });
+      doc.text(ic.numero_item != null ? String(ic.numero_item) : '-', x0 + 3, rowY, { width: colNum - 4 });
+      doc.text(desc,  x1 + 3, rowY, { width: colDesc - 6 });
+      doc.text(unid,  x2, rowY, { width: colUnid,  align: 'center' });
       doc.text(
         qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
-        x2, rowY, { width: colQtd, align: 'right' }
+        x3, rowY, { width: colQtd, align: 'right' }
       );
       doc.text(
         vlUnit > 0 ? `R$ ${vlUnit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-',
-        x3, rowY, { width: colValor, align: 'right' }
+        x4, rowY, { width: colValor, align: 'right' }
       );
       doc.text(
         `R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-        x4, rowY, { width: colTotal, align: 'right' }
+        x5, rowY, { width: colTotal, align: 'right' }
       );
       doc.y = rowY + rowH + 2;
       doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
@@ -786,10 +790,10 @@ export class GeradorPdfService {
     doc.moveDown(0.2);
     doc.rect(x0, doc.y, pageWidth, 18).fillAndStroke('#f3f4f6', '#9ca3af');
     doc.fontSize(9).font('Helvetica-Bold').fillColor('#111827');
-    doc.text('TOTAL GERAL', x0 + 3, doc.y + 5, { width: colDesc + colUnid + colQtd + colValor - 6 });
+    doc.text('TOTAL GERAL', x0 + 3, doc.y + 5, { width: colNum + colDesc + colUnid + colQtd + colValor - 6 });
     doc.text(
       `R$ ${totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-      x4, doc.y - 14 + 5, { width: colTotal, align: 'right' }
+      x5, doc.y - 14 + 5, { width: colTotal, align: 'right' }
     );
     doc.y += 20;
     doc.moveDown(0.5);
