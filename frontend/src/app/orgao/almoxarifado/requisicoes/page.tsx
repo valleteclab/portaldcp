@@ -230,6 +230,7 @@ function RequisicoesList() {
   const [emailEnviarFornecedor, setEmailEnviarFornecedor] = useState('');
   const [telefoneEnviarFornecedor, setTelefoneEnviarFornecedor] = useState('');
   const [enviandoFornecedorId, setEnviandoFornecedorId] = useState<string | null>(null);
+  const [regenerandoPdfId, setRegenerandoPdfId] = useState<string | null>(null);
 
   // Modal Histórico (OS)
   const [showHistoricoOS, setShowHistoricoOS] = useState(false);
@@ -429,6 +430,25 @@ function RequisicoesList() {
         alert('Erro ao enviar ao fornecedor');
     } finally {
       setEnviandoFornecedorId(null);
+    }
+  };
+
+  const handleRegenerarPdf = async (req: Requisicao) => {
+    if (!confirm(`Regenerar PDF da ${req.numero}? O PDF atual será substituído.`)) return;
+    setRegenerandoPdfId(req.id);
+    try {
+      const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/regenerar-pdf`, { method: 'POST' });
+      if (response.ok) {
+        alert('PDF regenerado com sucesso!');
+        carregarRequisicoes();
+      } else {
+        const err = await response.json();
+        alert(`Erro: ${err.message || 'Erro ao regenerar PDF'}`);
+      }
+    } catch (error) {
+      alert('Erro ao regenerar PDF');
+    } finally {
+      setRegenerandoPdfId(null);
     }
   };
 
@@ -1056,6 +1076,23 @@ function RequisicoesList() {
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Send className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {/* OS autorizada → Regenerar PDF */}
+                        {req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-orange-600 hover:text-orange-700"
+                            onClick={() => handleRegenerarPdf(req)}
+                            disabled={!!regenerandoPdfId}
+                            title="Regenerar PDF da OS"
+                          >
+                            {regenerandoPdfId === req.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-4 w-4" />
                             )}
                           </Button>
                         )}

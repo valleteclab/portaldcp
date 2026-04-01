@@ -356,6 +356,16 @@ export class AlmoxarifadoController {
     return this.requisicaoService.enviarAoFornecedor(id, dto);
   }
 
+  @Post('requisicoes/:id/regenerar-pdf')
+  async regenerarPdfOS(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
+    return this.requisicaoService.regenerarPdf(id, request.user.sub, request.user.email || 'Sistema');
+  }
+
   @Post('requisicoes/:id/negar')
   async negarRequisicao(
     @Param('id', ParseUUIDPipe) id: string,

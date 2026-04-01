@@ -1885,7 +1885,60 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     return { notificacoes_fornecedor: resultado };
   }
 
-  async findPendentesAutorizacao(orgaoId: string): Promise<Requisicao[]> {
+  /**
+   * Regenera o PDF assinado de uma OS já autorizada, mantendo a assinatura original.
+   * Útil para reemitir o PDF após correções sem precisar excluir/recriar a OS.
+   */
+  async regenerarPdf(id: string, usuarioId: string, usuarioNome: string): Promise<{ pdf_url: string }> {
+    const requisicao = await this.requisicaoRepository.findOne({
+      where: { id },
+      relations: [
+        'itens', 'itens.item_contrato',
+        'itensOS', 'itensOS.itemCronograma',
+        'etapasOS', 'etapasOS.etapa',
+        'contrato', 'contrato.fornecedor',
+        'orgao',
+      ],
+    });
+    if (!requisicao) throw new BadRequestException('OS não encontrada');
+    if (requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) throw new BadRequestException('Apenas Ordens de Serviço podem ter o PDF regenerado.');
+    if (requisicao.status !== StatusRequisicao.AUTORIZADA && requisicao.status !== StatusRequisicao.ORDEM_GERADA) {
+      throw new BadRequestException('A OS deve estar autorizada para regenerar o PDF.');
+    }
+
+    const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: usuarioId } });
+    const cargo = usuario?.cargo || 'Gestor / Ordenador de Despesa';
+    const assinatura = await this.assinaturasService.registrarAssinatura({
+      orgao_id: requisicao.orgao_id,
+      entidade_tipo: EntidadeTipo.ORDEM_SERVICO,
+      entidade_id: id,
+      papel_assinante: PapelAssinante.GESTOR,
+      usuario_id: usuarioId,
+      usuario_nome: usuario?.nome || usuarioNome,
+      usuario_cpf_cnpj: '',
+      usuario_cargo: cargo,
+      usuario_telefone: undefined,
+      ip_address: undefined,
+      user_agent: undefined,
+    });
+
+    const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+      requisicao,
+      [assinatura],
+      `${urlBase}/validar-documento`,
+    );
+
+    requisicao.pdf_assinado_url = pdfPath;
+    requisicao.codigo_validacao = assinatura.codigo_validacao;
+    await this.requisicaoRepository.save(requisicao);
+
+    this.logger.log(`PDF regenerado para OS ${requisicao.numero} por ${usuarioNome}`);
+    return { pdf_url: pdfPath };
+  }
+
+(orgaoId: string): Promise<Requisicao[]> {
     return this.requisicaoRepository.find({
       where: { 
         orgao_id: orgaoId, 
