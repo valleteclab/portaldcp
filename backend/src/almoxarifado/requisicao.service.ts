@@ -469,7 +469,17 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       novaOS.usuario_solicitante_email = usuarioEmail || null;
       novaOS.data_solicitacao = new Date();
       novaOS.status = StatusRequisicao.RASCUNHO;
-      novaOS.valor_total_estimado = contrato ? Number(contrato.valor_global) : 0;
+      // Calcula valor_total_estimado a partir dos itens solicitados (não do valor global do contrato)
+      let valorTotalOS = 0;
+      if (dto.itens_os?.length) {
+        for (const io of dto.itens_os) {
+          if (Number(io.quantidade_solicitada) > 0) {
+            const ic = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id }, select: ['id', 'valor_unitario'] });
+            if (ic) valorTotalOS += Number(io.quantidade_solicitada) * Number(ic.valor_unitario ?? 0);
+          }
+        }
+      }
+      novaOS.valor_total_estimado = valorTotalOS || (contrato ? Number(contrato.valor_global) : 0);
       novaOS.saldo_reservado = false;
       novaOS.observacoes = dto.observacoes || null;
       // Campos específicos de OS
@@ -491,6 +501,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           item.requisicao_id = osSalva.id;
           item.item_cronograma_id = io.item_cronograma_id;
           item.quantidade_solicitada = Number(io.quantidade_solicitada);
+          item.meses_solicitados = io.meses_solicitados != null ? Number(io.meses_solicitados) : null;
           return item;
         });
         await this.requisicaoItemOSRepository.save(itensOS);

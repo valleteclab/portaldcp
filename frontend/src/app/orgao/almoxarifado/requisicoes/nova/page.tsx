@@ -1142,6 +1142,7 @@ function NovaRequisicaoForm() {
             : itensOSDemanda.filter(d => d.quantidade_solicitada > 0).map(d => ({
                 item_cronograma_id: d.item_cronograma_id,
                 quantidade_solicitada: d.quantidade_solicitada,
+                ...(d.meses_solicitados != null ? { meses_solicitados: d.meses_solicitados } : {}),
               }));
           dados.descricao_os = modoOS === 'ORDEM_GLOBAL'
             ? 'Ordem Global - todos os itens do cronograma'
