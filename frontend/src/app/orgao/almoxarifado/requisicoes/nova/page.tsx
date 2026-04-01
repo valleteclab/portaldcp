@@ -2359,8 +2359,8 @@ function NovaRequisicaoForm() {
                     const _apR = (v: number) => _ar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
                     const vlMensal = item.valor_mensal ?? _apR(Number(item.quantidade) * Number(item.valor_unitario));
                     const total = modoOS === 'ORDEM_DEMANDA'
-                      ? qtd * Number(item.valor_unitario)
-                      : (item.quantidade_meses ? vlMensal * item.quantidade_meses : qtd * Number(item.valor_unitario));
+                      ? _apR(qtd * Number(item.valor_unitario))
+                      : (item.quantidade_meses ? _apR(vlMensal * item.quantidade_meses) : _apR(qtd * Number(item.valor_unitario)));
                     return (
                       <TableRow key={item.id}>
                         <TableCell>{item.numero_item}</TableCell>
@@ -2387,10 +2387,11 @@ function NovaRequisicaoForm() {
                   const d = itensOSDemanda.find(x => x.item_cronograma_id === i.id);
                   const q = modoOS === 'ORDEM_GLOBAL' ? saldo : (d?.quantidade_solicitada ?? 0);
                   const _ar2 = contratoSelecionado?.arredondar_calculo ?? true;
-                  const vlMensal = i.valor_mensal ?? (_ar2 ? Math.round(Number(i.quantidade) * Number(i.valor_unitario) * 100) / 100 : Math.floor(Number(i.quantidade) * Number(i.valor_unitario) * 100) / 100);
+                  const _ap2 = (v: number) => _ar2 ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
+                  const vlMensal = i.valor_mensal ?? _ap2(Number(i.quantidade) * Number(i.valor_unitario));
                   return s + (modoOS === 'ORDEM_DEMANDA'
-                    ? q * Number(i.valor_unitario)
-                    : (i.quantidade_meses ? vlMensal * i.quantidade_meses : q * Number(i.valor_unitario)));
+                    ? _ap2(q * Number(i.valor_unitario))
+                    : (i.quantidade_meses ? _ap2(vlMensal * i.quantidade_meses) : _ap2(q * Number(i.valor_unitario))));
                 }, 0))}
               </div>
             </div>
