@@ -126,6 +126,7 @@ export default function NovoContratoPage() {
     tipo_garantia: '',
     observacoes: '',
     boletim_por_quantidade: false,
+    arredondar_calculo: true,
   })
 
   useEffect(() => {
@@ -309,6 +310,7 @@ export default function NovoContratoPage() {
         tipo_garantia: formData.tipo_garantia || null,
         observacoes: formData.observacoes || null,
         boletim_por_quantidade: formData.boletim_por_quantidade || false,
+        arredondar_calculo: formData.arredondar_calculo ?? true,
       }
 
       let res: Response
@@ -461,6 +463,18 @@ export default function NovoContratoPage() {
                 </Label>
               </div>
             )}
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="checkbox"
+                id="arredondar_calculo"
+                checked={formData.arredondar_calculo}
+                onChange={(e) => handleInputChange('arredondar_calculo', e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <Label htmlFor="arredondar_calculo" className="cursor-pointer font-normal text-sm">
+                Arredondar valores calculados (valor mensal/total)
+              </Label>
+            </div>
           </CardContent>
         </Card>
 

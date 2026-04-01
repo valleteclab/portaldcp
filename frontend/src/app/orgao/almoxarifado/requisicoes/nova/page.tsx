@@ -86,6 +86,7 @@ interface Contrato {
   };
   total_itens?: number;
   modalidade_execucao?: string;
+  arredondar_calculo?: boolean;
 }
 
 const CATEGORIA_LABELS: Record<string, { label: string; cor: string }> = {
@@ -1930,7 +1931,7 @@ function NovaRequisicaoForm() {
                           <TableCell className="text-right">{Number(item.quantidade_medida)}</TableCell>
                           <TableCell className="text-right font-medium">{saldo}</TableCell>
                           <TableCell className="text-right">{item.quantidade_meses != null ? item.quantidade_meses : '-'}</TableCell>
-                          <TableCell className="text-right">{formatarMoeda(item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario)))}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(item.valor_mensal ?? (() => { const ar = contratoSelecionado?.arredondar_calculo ?? true; const v = Number(item.quantidade) * Number(item.valor_unitario); return ar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100; })())}</TableCell>
                           <TableCell className="text-right">{formatarMoeda(Number(item.valor_unitario))}</TableCell>
                           {modoOS === 'ORDEM_DEMANDA' && itensCronograma.some(i => i.quantidade_meses != null) ? (
                             <TableCell className="text-right">
@@ -2354,7 +2355,9 @@ function NovaRequisicaoForm() {
                     const saldo = Number(item.quantidade) * (item.quantidade_meses ?? 1) - Number(item.quantidade_medida);
                     const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
                     const qtd = modoOS === 'ORDEM_GLOBAL' ? saldo : (demanda?.quantidade_solicitada ?? 0);
-                    const vlMensal = item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario));
+                    const _ar = contratoSelecionado?.arredondar_calculo ?? true;
+                    const _apR = (v: number) => _ar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
+                    const vlMensal = item.valor_mensal ?? _apR(Number(item.quantidade) * Number(item.valor_unitario));
                     const total = modoOS === 'ORDEM_DEMANDA'
                       ? qtd * Number(item.valor_unitario)
                       : (item.quantidade_meses ? vlMensal * item.quantidade_meses : qtd * Number(item.valor_unitario));
@@ -2383,7 +2386,8 @@ function NovaRequisicaoForm() {
                   const saldo = Number(i.quantidade) * (i.quantidade_meses ?? 1) - Number(i.quantidade_medida);
                   const d = itensOSDemanda.find(x => x.item_cronograma_id === i.id);
                   const q = modoOS === 'ORDEM_GLOBAL' ? saldo : (d?.quantidade_solicitada ?? 0);
-                  const vlMensal = i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario));
+                  const _ar2 = contratoSelecionado?.arredondar_calculo ?? true;
+                  const vlMensal = i.valor_mensal ?? (_ar2 ? Math.round(Number(i.quantidade) * Number(i.valor_unitario) * 100) / 100 : Math.floor(Number(i.quantidade) * Number(i.valor_unitario) * 100) / 100);
                   return s + (modoOS === 'ORDEM_DEMANDA'
                     ? q * Number(i.valor_unitario)
                     : (i.quantidade_meses ? vlMensal * i.quantidade_meses : q * Number(i.valor_unitario)));
