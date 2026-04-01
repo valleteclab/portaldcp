@@ -573,6 +573,34 @@ export class ModalidadesContratoController {
     return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
   }
 
+  @Patch('medicoes/:medicaoId/corrigir')
+  async corrigirCabecalhoMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      competencia?: string;
+      periodo_inicio?: string;
+      periodo_fim?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number | null;
+      nota_fiscal_data?: string | null;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.corrigirCabecalho(medicaoId, body, request.user.sub, fiscalNome, orgaoId);
+  }
+
+  @Post('medicoes/:medicaoId/regenerar-boletim')
+  async regenerarBoletimMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.medicaoService.regenerarBoletim(medicaoId, orgaoId);
+  }
+
   @Patch('medicoes/:medicaoId/marcar-enviado-contabilidade')
   async marcarEnviadoContabilidade(
     @Param('medicaoId') medicaoId: string,

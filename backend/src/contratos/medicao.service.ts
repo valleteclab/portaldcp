@@ -3151,7 +3151,71 @@ export class MedicaoService {
   }
 
   /**
-   * Notifica o fornecedor quando o fiscal corrige uma discriminação.
+   * Corrige campos do cabeçalho da medição (competência, período, nota fiscal).
+   * Limpa boletim_pdf_url para forçar regeneração do PDF na próxima consulta.
+   */
+  async corrigirCabecalho(
+    medicaoId: string,
+    dados: {
+      competencia?: string;
+      periodo_inicio?: string;
+      periodo_fim?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number | null;
+      nota_fiscal_data?: string | null;
+    },
+    fiscalId: string,
+    fiscalNome: string,
+    orgaoId: string,
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para corrigir esta medição');
+    }
+
+    const updates: Partial<Medicao> = {};
+    if (dados.competencia !== undefined) updates.competencia = dados.competencia.trim() || null;
+    if (dados.periodo_inicio !== undefined) updates.periodo_inicio = new Date(dados.periodo_inicio) as any;
+    if (dados.periodo_fim !== undefined) updates.periodo_fim = new Date(dados.periodo_fim) as any;
+    if (dados.nota_fiscal_numero !== undefined) updates.nota_fiscal_numero = dados.nota_fiscal_numero || null;
+    if (dados.nota_fiscal_valor !== undefined) updates.nota_fiscal_valor = dados.nota_fiscal_valor as any;
+    if (dados.nota_fiscal_data !== undefined) updates.nota_fiscal_data = dados.nota_fiscal_data ? new Date(dados.nota_fiscal_data) as any : null;
+    // Limpa o PDF para forçar regeneração
+    updates.boletim_pdf_url = null;
+
+    await this.medicaoRepository.update(medicaoId, updates);
+    this.logger.log(`Cabeçalho corrigido por ${fiscalNome} na medição ${medicaoId}`);
+    return this.medicaoRepository.findOne({ where: { id: medicaoId } });
+  }
+
+  /**
+   * Força a regeneração do boletim PDF, descartando o arquivo anterior.
+   */
+  async regenerarBoletim(medicaoId: string, orgaoId: string): Promise<{ pdf_url: string; filename: string }> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem permissão para regenerar o boletim desta medição');
+    }
+
+    // Apaga PDF antigo do disco e limpa URL no banco
+    const filePath = this.getBoletimPdfPath(medicaoId);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: null });
+
+    return this.gerarPdfOficialMedicao(medicaoId);
+  }
+
+
    */
   private async notificarCorrecaoDiscriminacao(medicao: Medicao, fiscalNome: string, motivo: string): Promise<void> {
     const contrato = medicao.contrato || await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
