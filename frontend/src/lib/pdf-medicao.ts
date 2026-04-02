@@ -225,7 +225,8 @@ function fmtQuantidade(valor: number, unidade: string): string {
     : u === 'METROS' || u === 'M' ? ' m'
     : u === 'LITROS' || u === 'L' ? ' l'
     : u === 'MENSAL' ? (valor === 1 ? ' mês' : ' meses')
-    : ' un'
+    : u === 'UN' || u === 'UNIDADE' ? ' un'
+    : ` ${(unidade || 'un').toLowerCase()}`
   return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}${suf}`
 }
 
