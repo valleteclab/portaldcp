@@ -1690,6 +1690,8 @@ export class MedicaoService {
           if (override.no_periodo != null) base.quantidade_no_periodo = Number(override.no_periodo);
           if (override.ate_periodo != null) base.quantidade_ate_periodo = Number(override.ate_periodo);
           if (override.a_executar != null) base.quantidade_a_executar = Number(override.a_executar);
+          if (override.descricao) base.descricao = String(override.descricao);
+          if (override.unidade) base.unidade = String(override.unidade);
         }
 
         return base;
@@ -3222,7 +3224,7 @@ export class MedicaoService {
       dias_executados_extra?: number;
       meses_restantes?: number;
       dias_restantes_extra?: number;
-      item_overrides?: Array<{ item_cronograma_id: string; no_periodo?: number; ate_periodo?: number; a_executar?: number }>;
+      item_overrides?: Array<{ item_cronograma_id: string; no_periodo?: number; ate_periodo?: number; a_executar?: number; descricao?: string; unidade?: string }>;
     },
     orgaoId: string,
   ): Promise<Medicao> {

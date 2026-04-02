@@ -274,7 +274,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [itensCronoCorrigir, setItensCronoCorrigir] = useState<{ id: string; numero_item: number; descricao: string; unidade_medida: string }[]>([])
   const [salvandoItensCrono, setSalvandoItensCrono] = useState(false)
   const [execFiscalForm, setExecFiscalForm] = useState({ vigencia_inicio: '', vigencia_fim: '', dias_executados: '', dias_restantes: '', meses_executados: '', dias_executados_extra: '', meses_restantes: '', dias_restantes_extra: '' })
-  const [execFiscalItens, setExecFiscalItens] = useState<{ item_cronograma_id: string; numero: number; descricao: string; unidade: string; no_periodo: string; ate_periodo: string; a_executar: string; fin_no_periodo: number; fin_ate_periodo: number; fin_a_executar: number }[]>([])
+  const [execFiscalItens, setExecFiscalItens] = useState<{ item_cronograma_id: string; numero: number; descricao: string; unidade: string; no_periodo: string; ate_periodo: string; a_executar: string; fin_no_periodo: number; fin_ate_periodo: number; fin_a_executar: number; orig_descricao: string; orig_unidade: string }[]>([])
   const [carregandoExecFiscal, setCarregandoExecFiscal] = useState(false)
   const [salvandoExecFiscal, setSalvandoExecFiscal] = useState(false)
 
@@ -399,28 +399,48 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       meses_restantes: ef?.meses_restantes != null ? String(ef.meses_restantes) : '',
       dias_restantes_extra: ef?.dias_restantes_extra != null ? String(ef.dias_restantes_extra) : '',
     })
-    // Execução fiscal — itens (carrega execução financeira para ter os valores calculados)
+    // Execução fiscal — itens: carrega apenas os itens medidos (igual ao PDF)
+    // usando buscarMedicaoCompleta (GET /medicoes/:id) + execução financeira para valores
     setCarregandoExecFiscal(true)
     setExecFiscalItens([])
     try {
-      const resEf = await authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${m.id}`)
-      if (resEf.ok) {
+      const [resMed, resEf] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}`),
+        authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${m.id}`),
+      ])
+      if (resMed.ok && resEf.ok) {
+        const medData = await resMed.json()
         const efData = await resEf.json()
-        const itens: typeof execFiscalItens = (efData.itens || []).map((it: any) => {
-          const ov = efOverrides.find((o: any) => o.item_cronograma_id === it.etapa_id)
+        // efMap: item_cronograma_id → valores financeiros calculados
+        const efMap: Record<string, any> = {}
+        for (const it of (efData.itens || [])) {
+          if (it.etapa_id) efMap[it.etapa_id] = it
+        }
+        // Filtrar apenas itens com tipo_item === 'item_cronograma' (os que aparecem no PDF)
+        const medItens: any[] = (medData.itens || []).filter((i: any) => i.tipo_item === 'item_cronograma')
+        const itens = medItens.map((item: any) => {
+          const icId = item.item_cronograma_id || ''
+          const ef = efMap[icId] || {}
+          const ov = efOverrides.find((o: any) => o.item_cronograma_id === icId)
+          const origDescricao = item.item_descricao || ''
+          const origUnidade = item.item_unidade || ''
           return {
-            item_cronograma_id: it.etapa_id,
-            numero: it.numero_etapa,
-            descricao: it.descricao,
-            unidade: it.unidade_medida || '',
-            no_periodo: ov?.no_periodo != null ? String(ov.no_periodo) : (it.quantidade_no_periodo != null ? String(it.quantidade_no_periodo) : ''),
-            ate_periodo: ov?.ate_periodo != null ? String(ov.ate_periodo) : (it.quantidade_ate_periodo != null ? String(it.quantidade_ate_periodo) : ''),
-            a_executar: ov?.a_executar != null ? String(ov.a_executar) : (it.quantidade_a_executar != null ? String(it.quantidade_a_executar) : ''),
-            fin_no_periodo: it.no_periodo ?? 0,
-            fin_ate_periodo: it.ate_periodo ?? 0,
-            fin_a_executar: it.a_executar ?? 0,
+            item_cronograma_id: icId,
+            numero: item.item_numero,
+            descricao: ov?.descricao ?? origDescricao,
+            unidade: ov?.unidade ?? origUnidade,
+            no_periodo: ov?.no_periodo != null ? String(ov.no_periodo) : (ef.quantidade_no_periodo != null ? String(ef.quantidade_no_periodo) : String(item.quantidade_medida ?? '')),
+            ate_periodo: ov?.ate_periodo != null ? String(ov.ate_periodo) : (ef.quantidade_ate_periodo != null ? String(ef.quantidade_ate_periodo) : ''),
+            a_executar: ov?.a_executar != null ? String(ov.a_executar) : (ef.quantidade_a_executar != null ? String(ef.quantidade_a_executar) : ''),
+            fin_no_periodo: ef.no_periodo ?? 0,
+            fin_ate_periodo: ef.ate_periodo ?? 0,
+            fin_a_executar: ef.a_executar ?? 0,
+            orig_descricao: origDescricao,
+            orig_unidade: origUnidade,
           }
         })
+        // Ordenar por numero_item
+        itens.sort((a, b) => a.numero - b.numero)
         setExecFiscalItens(itens)
       }
     } catch { }
@@ -532,6 +552,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           no_periodo: it.no_periodo !== '' ? Number(it.no_periodo) : undefined,
           ate_periodo: it.ate_periodo !== '' ? Number(it.ate_periodo) : undefined,
           a_executar: it.a_executar !== '' ? Number(it.a_executar) : undefined,
+          descricao: it.descricao !== it.orig_descricao ? it.descricao : undefined,
+          unidade: it.unidade !== it.orig_unidade ? it.unidade : undefined,
         }))
       }
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/execucao-fiscal`, {
@@ -3385,54 +3407,55 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   <p className="text-sm text-gray-400 text-center py-8">Nenhum item de execução encontrado para esta medição.</p>
                 ) : (
                   <div className="border rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm min-w-[680px]">
+                    <table className="w-full text-sm min-w-[860px]">
                       <thead>
-                        <tr className="bg-gray-800 text-white text-xs uppercase">
-                          <th className="px-2 py-2 text-center w-10" rowSpan={2}>Nº</th>
-                          <th className="px-3 py-2 text-left" rowSpan={2}>Descrição</th>
-                          <th className="px-2 py-1.5 text-center" colSpan={3} style={{ backgroundColor: '#1e3a5f' }}>Execução Fiscal</th>
-                          <th className="px-2 py-1.5 text-center" colSpan={3} style={{ backgroundColor: '#14532d' }}>Execução Financeira</th>
+                        <tr className="bg-gray-800 text-white text-xs">
+                          <th className="px-2 py-2 text-center w-8" rowSpan={2}>Nº</th>
+                          <th className="px-2 py-2 text-left w-48" rowSpan={2}>Descrição</th>
+                          <th className="px-2 py-2 text-center w-20" rowSpan={2}>Unidade</th>
+                          <th className="px-1 py-1.5 text-center uppercase text-xs" colSpan={3} style={{ backgroundColor: '#1e3a5f' }}>Execução Fiscal</th>
+                          <th className="px-1 py-1.5 text-center uppercase text-xs" colSpan={3} style={{ backgroundColor: '#14532d' }}>Execução Financeira</th>
                         </tr>
                         <tr className="text-xs text-white">
-                          <th className="px-2 py-1.5 text-center" style={{ backgroundColor: '#1e4976' }}>No Período</th>
-                          <th className="px-2 py-1.5 text-center" style={{ backgroundColor: '#1e4976' }}>Até o Período</th>
-                          <th className="px-2 py-1.5 text-center" style={{ backgroundColor: '#1e4976' }}>A Executar</th>
-                          <th className="px-2 py-1.5 text-center text-gray-300" style={{ backgroundColor: '#166534' }}>No Período</th>
-                          <th className="px-2 py-1.5 text-center text-gray-300" style={{ backgroundColor: '#166534' }}>Até o Período</th>
-                          <th className="px-2 py-1.5 text-center text-gray-300" style={{ backgroundColor: '#166534' }}>A Executar</th>
+                          <th className="px-1 py-1 text-center" style={{ backgroundColor: '#1e4976' }}>No Período</th>
+                          <th className="px-1 py-1 text-center" style={{ backgroundColor: '#1e4976' }}>Até o Período</th>
+                          <th className="px-1 py-1 text-center" style={{ backgroundColor: '#1e4976' }}>A Executar</th>
+                          <th className="px-1 py-1 text-center" style={{ backgroundColor: '#166534' }}>No Período</th>
+                          <th className="px-1 py-1 text-center" style={{ backgroundColor: '#166534' }}>Até o Período</th>
+                          <th className="px-1 py-1 text-center" style={{ backgroundColor: '#166534' }}>A Executar</th>
                         </tr>
                       </thead>
                       <tbody>
                         {execFiscalItens.map((it, i) => (
-                          <tr key={it.item_cronograma_id} className={`border-t ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                            <td className="px-2 py-1.5 text-center text-xs text-gray-500">{it.numero}</td>
-                            <td className="px-3 py-1.5 text-xs text-gray-700 max-w-xs">{it.descricao}</td>
+                          <tr key={it.item_cronograma_id} className={`border-t align-top ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                            <td className="px-2 py-2 text-center text-xs text-gray-500">{it.numero}</td>
+                            {/* Descrição — editável */}
+                            <td className="px-2 py-1">
+                              <Textarea className="text-xs min-h-[52px] resize-none" value={it.descricao}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, descricao: e.target.value } : r))} />
+                            </td>
+                            {/* Unidade — editável */}
+                            <td className="px-2 py-1">
+                              <Input className="h-7 text-xs text-center uppercase w-full" value={it.unidade}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, unidade: e.target.value.toUpperCase() } : r))} />
+                            </td>
                             {/* Execução Fiscal — editável */}
-                            <td className="px-2 py-1">
-                              <div className="flex items-center gap-1">
-                                <Input className="h-7 text-xs text-center w-16" value={it.no_periodo}
-                                  onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, no_periodo: e.target.value } : r))} />
-                                {it.unidade && <span className="text-xs text-gray-400 whitespace-nowrap">{it.unidade.toLowerCase()}</span>}
-                              </div>
+                            <td className="px-1 py-1">
+                              <Input className="h-7 text-xs text-center w-14" value={it.no_periodo}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, no_periodo: e.target.value } : r))} />
                             </td>
-                            <td className="px-2 py-1">
-                              <div className="flex items-center gap-1">
-                                <Input className="h-7 text-xs text-center w-16" value={it.ate_periodo}
-                                  onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, ate_periodo: e.target.value } : r))} />
-                                {it.unidade && <span className="text-xs text-gray-400 whitespace-nowrap">{it.unidade.toLowerCase()}</span>}
-                              </div>
+                            <td className="px-1 py-1">
+                              <Input className="h-7 text-xs text-center w-14" value={it.ate_periodo}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, ate_periodo: e.target.value } : r))} />
                             </td>
-                            <td className="px-2 py-1">
-                              <div className="flex items-center gap-1">
-                                <Input className="h-7 text-xs text-center w-16" value={it.a_executar}
-                                  onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, a_executar: e.target.value } : r))} />
-                                {it.unidade && <span className="text-xs text-gray-400 whitespace-nowrap">{it.unidade.toLowerCase()}</span>}
-                              </div>
+                            <td className="px-1 py-1">
+                              <Input className="h-7 text-xs text-center w-14" value={it.a_executar}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, a_executar: e.target.value } : r))} />
                             </td>
                             {/* Execução Financeira — somente leitura */}
-                            <td className="px-2 py-1.5 text-xs text-right text-gray-500">{formatarMoeda(it.fin_no_periodo)}</td>
-                            <td className="px-2 py-1.5 text-xs text-right text-gray-500">{formatarMoeda(it.fin_ate_periodo)}</td>
-                            <td className="px-2 py-1.5 text-xs text-right text-gray-500">{formatarMoeda(it.fin_a_executar)}</td>
+                            <td className="px-2 py-2 text-xs text-right text-gray-500 whitespace-nowrap">{formatarMoeda(it.fin_no_periodo)}</td>
+                            <td className="px-2 py-2 text-xs text-right text-gray-500 whitespace-nowrap">{formatarMoeda(it.fin_ate_periodo)}</td>
+                            <td className="px-2 py-2 text-xs text-right text-gray-500 whitespace-nowrap">{formatarMoeda(it.fin_a_executar)}</td>
                           </tr>
                         ))}
                       </tbody>
