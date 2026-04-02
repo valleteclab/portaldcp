@@ -1682,6 +1682,16 @@ export class MedicaoService {
         // para itens não-MENSAL, independente da flag boletim_por_quantidade
         base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 10000) / 10000;
         base.quantidade_a_executar = Math.round(qtdAExecutar * 10000) / 10000;
+
+        // Aplicar overrides manuais de execução fiscal (corrigirExecucaoFiscal)
+        const efOverrides: any[] = (medicao.execucao_fiscal as any)?.item_overrides || [];
+        const override = efOverrides.find((o: any) => o.item_cronograma_id === (item.item_cronograma_id || ''));
+        if (override) {
+          if (override.no_periodo != null) base.quantidade_no_periodo = Number(override.no_periodo);
+          if (override.ate_periodo != null) base.quantidade_ate_periodo = Number(override.ate_periodo);
+          if (override.a_executar != null) base.quantidade_a_executar = Number(override.a_executar);
+        }
+
         return base;
       });
 
@@ -3212,6 +3222,7 @@ export class MedicaoService {
       dias_executados_extra?: number;
       meses_restantes?: number;
       dias_restantes_extra?: number;
+      item_overrides?: Array<{ item_cronograma_id: string; no_periodo?: number; ate_periodo?: number; a_executar?: number }>;
     },
     orgaoId: string,
   ): Promise<Medicao> {
@@ -3225,7 +3236,7 @@ export class MedicaoService {
     }
 
     const efAtual: any = medicao.execucao_fiscal || {};
-    const efNovo = {
+    const efNovo: any = {
       ...efAtual,
       ...(dados.vigencia_inicio !== undefined ? { vigencia_inicio: dados.vigencia_inicio } : {}),
       ...(dados.vigencia_fim !== undefined ? { vigencia_fim: dados.vigencia_fim } : {}),
@@ -3236,6 +3247,9 @@ export class MedicaoService {
       ...(dados.meses_restantes !== undefined ? { meses_restantes: dados.meses_restantes } : {}),
       ...(dados.dias_restantes_extra !== undefined ? { dias_restantes_extra: dados.dias_restantes_extra } : {}),
     };
+    if (dados.item_overrides !== undefined) {
+      efNovo.item_overrides = dados.item_overrides;
+    }
 
     await this.medicaoRepository.update(medicaoId, { execucao_fiscal: efNovo, boletim_pdf_url: null });
     this.logger.log(`Execução fiscal corrigida manualmente na medição ${medicaoId}`);

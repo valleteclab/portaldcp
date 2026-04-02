@@ -274,6 +274,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [itensCronoCorrigir, setItensCronoCorrigir] = useState<{ id: string; numero_item: number; descricao: string; unidade_medida: string }[]>([])
   const [salvandoItensCrono, setSalvandoItensCrono] = useState(false)
   const [execFiscalForm, setExecFiscalForm] = useState({ vigencia_inicio: '', vigencia_fim: '', dias_executados: '', dias_restantes: '', meses_executados: '', dias_executados_extra: '', meses_restantes: '', dias_restantes_extra: '' })
+  const [execFiscalItens, setExecFiscalItens] = useState<{ item_cronograma_id: string; numero: number; descricao: string; unidade: string; no_periodo: string; ate_periodo: string; a_executar: string; fin_no_periodo: number; fin_ate_periodo: number; fin_a_executar: number }[]>([])
+  const [carregandoExecFiscal, setCarregandoExecFiscal] = useState(false)
   const [salvandoExecFiscal, setSalvandoExecFiscal] = useState(false)
 
   // Forms
@@ -384,8 +386,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       descricao: ic.descricao,
       unidade_medida: ic.unidade_medida,
     })))
-    // Execução fiscal
+    // Execução fiscal — campos globais
     const ef = m.execucao_fiscal
+    const efOverrides: any[] = (ef as any)?.item_overrides || []
     setExecFiscalForm({
       vigencia_inicio: ef?.vigencia_inicio ? ef.vigencia_inicio.slice(0, 10) : '',
       vigencia_fim: ef?.vigencia_fim ? ef.vigencia_fim.slice(0, 10) : '',
@@ -396,6 +399,32 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       meses_restantes: ef?.meses_restantes != null ? String(ef.meses_restantes) : '',
       dias_restantes_extra: ef?.dias_restantes_extra != null ? String(ef.dias_restantes_extra) : '',
     })
+    // Execução fiscal — itens (carrega execução financeira para ter os valores calculados)
+    setCarregandoExecFiscal(true)
+    setExecFiscalItens([])
+    try {
+      const resEf = await authFetch(`${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${m.id}`)
+      if (resEf.ok) {
+        const efData = await resEf.json()
+        const itens: typeof execFiscalItens = (efData.itens || []).map((it: any) => {
+          const ov = efOverrides.find((o: any) => o.item_cronograma_id === it.etapa_id)
+          return {
+            item_cronograma_id: it.etapa_id,
+            numero: it.numero_etapa,
+            descricao: it.descricao,
+            unidade: it.unidade_medida || '',
+            no_periodo: ov?.no_periodo != null ? String(ov.no_periodo) : (it.quantidade_no_periodo != null ? String(it.quantidade_no_periodo) : ''),
+            ate_periodo: ov?.ate_periodo != null ? String(ov.ate_periodo) : (it.quantidade_ate_periodo != null ? String(it.quantidade_ate_periodo) : ''),
+            a_executar: ov?.a_executar != null ? String(ov.a_executar) : (it.quantidade_a_executar != null ? String(it.quantidade_a_executar) : ''),
+            fin_no_periodo: it.no_periodo ?? 0,
+            fin_ate_periodo: it.ate_periodo ?? 0,
+            fin_a_executar: it.a_executar ?? 0,
+          }
+        })
+        setExecFiscalItens(itens)
+      }
+    } catch { }
+    finally { setCarregandoExecFiscal(false) }
     // Carregar discriminações existentes
     try {
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/discriminacoes`)
@@ -496,7 +525,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       if (execFiscalForm.dias_executados_extra !== '') body.dias_executados_extra = Number(execFiscalForm.dias_executados_extra)
       if (execFiscalForm.meses_restantes !== '') body.meses_restantes = Number(execFiscalForm.meses_restantes)
       if (execFiscalForm.dias_restantes_extra !== '') body.dias_restantes_extra = Number(execFiscalForm.dias_restantes_extra)
-      if (Object.keys(body).length === 0) { alert('Nenhuma alteração.'); return }
+      // Sempre salva item_overrides (mesmo que vazio, para limpar overrides anteriores)
+      if (execFiscalItens.length > 0) {
+        body.item_overrides = execFiscalItens.map(it => ({
+          item_cronograma_id: it.item_cronograma_id,
+          no_periodo: it.no_periodo !== '' ? Number(it.no_periodo) : undefined,
+          ate_periodo: it.ate_periodo !== '' ? Number(it.ate_periodo) : undefined,
+          a_executar: it.a_executar !== '' ? Number(it.a_executar) : undefined,
+        }))
+      }
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/execucao-fiscal`, {
         method: 'PATCH', body: JSON.stringify(body),
       })
@@ -3341,59 +3378,121 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             {/* Aba Execução Fiscal */}
             {abaCorrigir === 'execucao_fiscal' && (
               <div className="space-y-4 px-1">
-                <p className="text-xs text-gray-500">Corrija os valores calculados de vigência e execução temporal que aparecem na tabela de execução fiscal do PDF.</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <Label>Vigência Início</Label>
-                    <Input type="date" value={execFiscalForm.vigencia_inicio}
-                      onChange={e => setExecFiscalForm(f => ({ ...f, vigencia_inicio: e.target.value }))} />
+                {/* Tabela de itens — NO PERÍODO / ATÉ O PERÍODO / A EXECUTAR */}
+                {carregandoExecFiscal ? (
+                  <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-violet-500" /></div>
+                ) : execFiscalItens.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-8">Nenhum item de execução encontrado para esta medição.</p>
+                ) : (
+                  <div className="border rounded-lg overflow-x-auto">
+                    <table className="w-full text-sm min-w-[680px]">
+                      <thead>
+                        <tr className="bg-gray-800 text-white text-xs uppercase">
+                          <th className="px-2 py-2 text-center w-10" rowSpan={2}>Nº</th>
+                          <th className="px-3 py-2 text-left" rowSpan={2}>Descrição</th>
+                          <th className="px-2 py-1.5 text-center" colSpan={3} style={{ backgroundColor: '#1e3a5f' }}>Execução Fiscal</th>
+                          <th className="px-2 py-1.5 text-center" colSpan={3} style={{ backgroundColor: '#14532d' }}>Execução Financeira</th>
+                        </tr>
+                        <tr className="text-xs text-white">
+                          <th className="px-2 py-1.5 text-center" style={{ backgroundColor: '#1e4976' }}>No Período</th>
+                          <th className="px-2 py-1.5 text-center" style={{ backgroundColor: '#1e4976' }}>Até o Período</th>
+                          <th className="px-2 py-1.5 text-center" style={{ backgroundColor: '#1e4976' }}>A Executar</th>
+                          <th className="px-2 py-1.5 text-center text-gray-300" style={{ backgroundColor: '#166534' }}>No Período</th>
+                          <th className="px-2 py-1.5 text-center text-gray-300" style={{ backgroundColor: '#166534' }}>Até o Período</th>
+                          <th className="px-2 py-1.5 text-center text-gray-300" style={{ backgroundColor: '#166534' }}>A Executar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {execFiscalItens.map((it, i) => (
+                          <tr key={it.item_cronograma_id} className={`border-t ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                            <td className="px-2 py-1.5 text-center text-xs text-gray-500">{it.numero}</td>
+                            <td className="px-3 py-1.5 text-xs text-gray-700 max-w-xs">{it.descricao}</td>
+                            {/* Execução Fiscal — editável */}
+                            <td className="px-2 py-1">
+                              <div className="flex items-center gap-1">
+                                <Input className="h-7 text-xs text-center w-16" value={it.no_periodo}
+                                  onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, no_periodo: e.target.value } : r))} />
+                                {it.unidade && <span className="text-xs text-gray-400 whitespace-nowrap">{it.unidade.toLowerCase()}</span>}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1">
+                              <div className="flex items-center gap-1">
+                                <Input className="h-7 text-xs text-center w-16" value={it.ate_periodo}
+                                  onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, ate_periodo: e.target.value } : r))} />
+                                {it.unidade && <span className="text-xs text-gray-400 whitespace-nowrap">{it.unidade.toLowerCase()}</span>}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1">
+                              <div className="flex items-center gap-1">
+                                <Input className="h-7 text-xs text-center w-16" value={it.a_executar}
+                                  onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, a_executar: e.target.value } : r))} />
+                                {it.unidade && <span className="text-xs text-gray-400 whitespace-nowrap">{it.unidade.toLowerCase()}</span>}
+                              </div>
+                            </td>
+                            {/* Execução Financeira — somente leitura */}
+                            <td className="px-2 py-1.5 text-xs text-right text-gray-500">{formatarMoeda(it.fin_no_periodo)}</td>
+                            <td className="px-2 py-1.5 text-xs text-right text-gray-500">{formatarMoeda(it.fin_ate_periodo)}</td>
+                            <td className="px-2 py-1.5 text-xs text-right text-gray-500">{formatarMoeda(it.fin_a_executar)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="space-y-1">
-                    <Label>Vigência Fim</Label>
-                    <Input type="date" value={execFiscalForm.vigencia_fim}
-                      onChange={e => setExecFiscalForm(f => ({ ...f, vigencia_fim: e.target.value }))} />
+                )}
+
+                {/* Campos globais de vigência (para contratos não-por-quantidade) */}
+                <details className="border rounded-lg">
+                  <summary className="px-4 py-2 text-xs font-semibold text-gray-600 cursor-pointer select-none">
+                    Vigência e dados globais (contratos por tempo)
+                  </summary>
+                  <div className="px-4 pb-4 pt-2 space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Vigência Início</Label>
+                        <Input type="date" value={execFiscalForm.vigencia_inicio}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, vigencia_inicio: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Vigência Fim</Label>
+                        <Input type="date" value={execFiscalForm.vigencia_fim}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, vigencia_fim: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Meses executados</Label>
+                        <Input type="number" min={0} value={execFiscalForm.meses_executados}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, meses_executados: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Dias extras executados</Label>
+                        <Input type="number" min={0} value={execFiscalForm.dias_executados_extra}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, dias_executados_extra: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Total dias executados</Label>
+                        <Input type="number" min={0} value={execFiscalForm.dias_executados}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, dias_executados: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Meses restantes</Label>
+                        <Input type="number" min={0} value={execFiscalForm.meses_restantes}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, meses_restantes: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Dias extras restantes</Label>
+                        <Input type="number" min={0} value={execFiscalForm.dias_restantes_extra}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, dias_restantes_extra: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Total dias restantes</Label>
+                        <Input type="number" min={0} value={execFiscalForm.dias_restantes}
+                          onChange={e => setExecFiscalForm(f => ({ ...f, dias_restantes: e.target.value }))} />
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="border rounded-lg p-4 space-y-3 bg-gray-50">
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Execução até o período</p>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Meses executados</Label>
-                      <Input type="number" min={0} placeholder="ex: 3" value={execFiscalForm.meses_executados}
-                        onChange={e => setExecFiscalForm(f => ({ ...f, meses_executados: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Dias extras executados</Label>
-                      <Input type="number" min={0} placeholder="ex: 15" value={execFiscalForm.dias_executados_extra}
-                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_executados_extra: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Total dias executados</Label>
-                      <Input type="number" min={0} placeholder="ex: 105" value={execFiscalForm.dias_executados}
-                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_executados: e.target.value }))} />
-                    </div>
-                  </div>
-                </div>
-                <div className="border rounded-lg p-4 space-y-3 bg-gray-50">
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">A executar</p>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Meses restantes</Label>
-                      <Input type="number" min={0} placeholder="ex: 9" value={execFiscalForm.meses_restantes}
-                        onChange={e => setExecFiscalForm(f => ({ ...f, meses_restantes: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Dias extras restantes</Label>
-                      <Input type="number" min={0} placeholder="ex: 15" value={execFiscalForm.dias_restantes_extra}
-                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_restantes_extra: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Total dias restantes</Label>
-                      <Input type="number" min={0} placeholder="ex: 255" value={execFiscalForm.dias_restantes}
-                        onChange={e => setExecFiscalForm(f => ({ ...f, dias_restantes: e.target.value }))} />
-                    </div>
-                  </div>
-                </div>
+                </details>
+
                 <div className="flex justify-end">
                   <Button onClick={salvarExecucaoFiscal} disabled={salvandoExecFiscal} className="bg-violet-600 hover:bg-violet-700">
                     {salvandoExecFiscal ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
