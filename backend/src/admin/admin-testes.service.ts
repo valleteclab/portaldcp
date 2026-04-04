@@ -144,6 +144,7 @@ export class AdminTestesService implements OnModuleDestroy {
           esfera: EsferaAdministrativa.MUNICIPAL,
           cidade: 'Teste',
           uf: 'SP',
+          ativo: true, // validateToken rejeita orgao.ativo=false (auth.service.ts:322)
           modulos_habilitados: null,
         } as any);
         const saved = await orgaoRepo.save(orgao);
