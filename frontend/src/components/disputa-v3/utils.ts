@@ -10,6 +10,8 @@ export const ETAPAS_V3: Array<{ codigo: DisputaV3Etapa; label: string }> = [
   { codigo: 'BENEFICIO_MPE', label: 'Benef. ME/EPP' },
   { codigo: 'RECURSOS', label: 'Recursos' },
   { codigo: 'ADJUDICACAO', label: 'Adjudicacao' },
+  // Lei 14.133/2021, Art. 71 - homologacao obrigatoria antes do encerramento
+  { codigo: 'HOMOLOGACAO', label: 'Homologacao' },
   { codigo: 'ENCERRAMENTO', label: 'Encerramento' },
 ]
 

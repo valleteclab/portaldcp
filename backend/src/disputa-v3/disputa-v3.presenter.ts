@@ -25,6 +25,7 @@ export type DisputaV3Etapa =
   | 'BENEFICIO_MPE'
   | 'RECURSOS'
   | 'ADJUDICACAO'
+  | 'HOMOLOGACAO'
   | 'ENCERRAMENTO';
 
 export interface DisputaV3Cronometria {
@@ -155,6 +156,8 @@ export function mapearEtapaSessaoV3(etapa: EtapaSessao): DisputaV3Etapa {
       return 'RECURSOS';
     case EtapaSessao.ADJUDICACAO:
       return 'ADJUDICACAO';
+    case EtapaSessao.HOMOLOGACAO:
+      return 'HOMOLOGACAO';
     case EtapaSessao.ENCERRAMENTO:
       return 'ENCERRAMENTO';
     case EtapaSessao.ABERTURA_SESSAO:
@@ -171,6 +174,9 @@ export function montarCronometriaSessaoV3(
     | 'intervalo_minimo_lances_minutos'
     | 'tempo_inatividade_minutos'
     | 'tempo_prorrogacao_minutos'
+    | 'tempo_aleatorio_max_minutos'
+    | 'etapa_aberta_minutos_hibrido'
+    | 'lance_final_fechado_minutos'
   >,
   diferencaMinimaLances?: number | null,
 ): DisputaV3Cronometria {
@@ -196,15 +202,15 @@ export function montarCronometriaSessaoV3(
   }
 
   if (modo === 'ABERTO_FECHADO') {
-    // Valores padrao conforme IN SEGES/ME 73/2022, art. 24
+    // Defaults conforme IN SEGES/ME 73/2022, art. 24; sobrescritos pela sessao quando configurados
     return {
       modo,
       baseLegal: 'IN SEGES/ME 73/2022, art. 24',
       intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
       diferencaMinimaLances: decremento,
-      etapaAbertaMinutos: 15,
-      fechamentoIminenteAleatorioMaxMinutos: 10,
-      lanceFinalFechadoMinutos: 5,
+      etapaAbertaMinutos: sessao.etapa_aberta_minutos_hibrido ?? sessao.tempo_inatividade_minutos ?? 15,
+      fechamentoIminenteAleatorioMaxMinutos: sessao.tempo_aleatorio_max_minutos ?? 10,
+      lanceFinalFechadoMinutos: sessao.lance_final_fechado_minutos ?? 5,
       usaTempoAleatorioNoModoAberto: false,
       requerFluxoEspecificoNaV3: true,
       observacao:
@@ -213,16 +219,16 @@ export function montarCronometriaSessaoV3(
   }
 
   if (modo === 'FECHADO_ABERTO') {
-    // Valores padrao conforme IN SEGES/ME 73/2022, art. 25
+    // Defaults conforme IN SEGES/ME 73/2022, art. 25; sobrescritos pela sessao quando configurados
     return {
       modo,
       baseLegal: 'IN SEGES/ME 73/2022, art. 25',
       intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
       diferencaMinimaLances: decremento,
       faixaClassificacaoPercentual: 10,
-      etapaAbertaMinutos: 10,
-      janelaGatilhoProrrogacaoMinutos: 2,
-      duracaoProrrogacaoMinutos: 2,
+      etapaAbertaMinutos: sessao.etapa_aberta_minutos_hibrido ?? sessao.tempo_inatividade_minutos ?? 10,
+      janelaGatilhoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
+      duracaoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
       usaTempoAleatorioNoModoAberto: false,
       requerFluxoEspecificoNaV3: true,
       observacao:
@@ -260,6 +266,9 @@ export function montarContextoSessaoV3(
     | 'intervalo_minimo_lances_minutos'
     | 'tempo_inatividade_minutos'
     | 'tempo_prorrogacao_minutos'
+    | 'tempo_aleatorio_max_minutos'
+    | 'etapa_aberta_minutos_hibrido'
+    | 'lance_final_fechado_minutos'
   > & {
     licitacao?: {
       id: string;

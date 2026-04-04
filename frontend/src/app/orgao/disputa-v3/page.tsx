@@ -236,7 +236,11 @@ export default function DisputaV3OrgaoPage() {
                       <div className="flex items-start gap-2 text-amber-800">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>
-                          Este modo exige fluxo dedicado na V3. Nesta PR, a experiencia esta otimizada para o modo aberto e usa a V2 como fallback operacional.
+                          {contexto.cronometria.modo === 'ABERTO_FECHADO'
+                            ? 'Modo aberto-fechado (IN SEGES/ME 73/2022, art. 24): a etapa aberta e o encerramento iminente aleatorio sao operados pela V2. Use "Abrir sala operacional V2" para controlar a fase de lance final fechado. A V3 exibe contexto e decisoes administrativas.'
+                            : contexto.cronometria.modo === 'FECHADO_ABERTO'
+                            ? 'Modo fechado-aberto (IN SEGES/ME 73/2022, art. 25): a classificacao previa e a selecao dos fornecedores na faixa de 10% sao realizadas pela V2. A etapa aberta subsequente deve ser acompanhada na V2. A V3 exibe contexto e decisoes administrativas.'
+                            : 'Modo fechado (Lei 14.133/2021, art. 56): lances sigilosos sao operados exclusivamente pela V2. Use "Abrir sala operacional V2" para toda a operacao de lances.'}
                         </span>
                       </div>
                     )}

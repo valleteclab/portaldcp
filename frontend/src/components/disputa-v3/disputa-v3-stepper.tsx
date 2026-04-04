@@ -11,7 +11,7 @@ export function DisputaV3Stepper({ contexto }: Props) {
   const etapaAtual = getEtapaAtualIndex(contexto)
 
   return (
-    <div className="grid grid-cols-4 gap-2 lg:grid-cols-9">
+    <div className="grid grid-cols-5 gap-2 lg:grid-cols-10">
       {ETAPAS_V3.map((etapa, index) => {
         const ativa = contexto?.etapa.codigo === etapa.codigo
         const concluida = index < etapaAtual
