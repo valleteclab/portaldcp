@@ -201,19 +201,23 @@ export class AdminTestesService implements OnModuleDestroy {
       });
 
       // ── Step 7: Publicar edital ──────────────────────────────────────────
+      // IMPORTANTE: data_abertura_sessao deve ser FUTURA aqui para que
+      // o PropostasService aceite propostas (valida agora < data_abertura).
+      // Será ajustada para o passado no Step 12 (após classificar propostas)
+      // via DataSource direto, para que a sessão possa ser iniciada.
       await this.runStep(7, async () => {
         const agora = Date.now();
         const menos48h = new Date(agora - 48 * 3_600_000).toISOString();
         const menos24h = new Date(agora - 24 * 3_600_000).toISOString();
-        const menos2h = new Date(agora - 2 * 3_600_000).toISOString();
+        const mais24h = new Date(agora + 24 * 3_600_000).toISOString();
         await this.put(base, `/licitacoes/${licitacaoId}/publicar-edital`, orgaoToken, {
           data_publicacao_edital: menos48h,
           data_limite_impugnacao: menos48h,
           data_inicio_acolhimento: menos48h,
           data_fim_acolhimento: menos24h,
-          data_abertura_sessao: menos2h,
+          data_abertura_sessao: mais24h, // futuro → propostas aceitas
         });
-        return 'abertura da sessão: -2h (passado)';
+        return 'abertura da sessão: +24h (futuro, para aceitar propostas)';
       });
 
       // ── Step 8: Avançar 2× → ACOLHIMENTO_PROPOSTAS ──────────────────────
@@ -274,7 +278,7 @@ export class AdminTestesService implements OnModuleDestroy {
         return r.fase;
       });
 
-      // ── Step 12: Classificar propostas ──────────────────────────────────
+      // ── Step 12: Classificar propostas + retroagir data abertura ──────────
       await this.runStep(12, async () => {
         const list = await this.get(base, `/propostas/licitacao/${licitacaoId}`, orgaoToken);
         const enviadas = (list as any[]).filter(
@@ -283,7 +287,13 @@ export class AdminTestesService implements OnModuleDestroy {
         for (const p of enviadas) {
           await this.put(base, `/propostas/${p.id}/classificar`, orgaoToken, {});
         }
-        return `${enviadas.length} propostas classificadas`;
+        // Retroage data_abertura_sessao para o passado via DataSource direto.
+        // Necessário para que iniciarSessao / iniciarDisputa não rejeitem por "aguardando data".
+        await this.dataSource.query(
+          `UPDATE licitacao SET data_abertura_sessao = NOW() - INTERVAL '2 hours' WHERE id = $1`,
+          [licitacaoId],
+        );
+        return `${enviadas.length} propostas classificadas; data_abertura_sessao → passado`;
       });
 
       // ── Step 13: Criar sessão ────────────────────────────────────────────
