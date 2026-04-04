@@ -31,9 +31,15 @@ export class DisputaV3Controller {
 
   @Get('sessao/:sessaoId/board')
   async getBoard(
+    @Req() req: { user: JwtPayload },
     @Param('sessaoId') sessaoId: string,
     @Query('fornecedorId') fornecedorId?: string,
   ) {
+    // Fornecedor sempre recebe a visao restrita do proprio usuario
+    if (req.user.type === UserType.FORNECEDOR) {
+      return this.disputaV3Service.getBoardFornecedor(sessaoId, req.user.sub);
+    }
+
     if (fornecedorId) {
       return this.disputaV3Service.getBoardFornecedor(sessaoId, fornecedorId);
     }
