@@ -93,7 +93,7 @@ export default function DisputaV3FornecedorPage() {
   const itensOrdenados = board ? [...board.colunas.emDisputa, ...board.colunas.aguardando, ...board.colunas.encerrados] : []
   const itemFoco = selectedItem || itensOrdenados[0] || null
   const diferenca = calcularDiferencaParaLider(itemFoco)
-  const lanceSugerido = calcularLanceSugerido(itemFoco)
+  const lanceSugerido = calcularLanceSugerido(itemFoco, contexto?.cronometria.diferencaMinimaLances)
   const percentualTempo = (() => {
     if (!itemFoco || itemFoco.status !== 'EM_DISPUTA') return 0
     const totalMinutos = itemFoco.cronometro.fase === 'PRORROGACAO'

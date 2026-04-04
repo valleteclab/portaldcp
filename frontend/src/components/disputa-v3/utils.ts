@@ -6,6 +6,8 @@ export const ETAPAS_V3: Array<{ codigo: DisputaV3Etapa; label: string }> = [
   { codigo: 'DISPUTA', label: 'Lances' },
   { codigo: 'NEGOCIACAO', label: 'Negociacao' },
   { codigo: 'HABILITACAO', label: 'Habilitacao' },
+  // LC 123/2006, Art. 48 - beneficio ME/EPP deve ser etapa visivel no fluxo
+  { codigo: 'BENEFICIO_MPE', label: 'Benef. ME/EPP' },
   { codigo: 'RECURSOS', label: 'Recursos' },
   { codigo: 'ADJUDICACAO', label: 'Adjudicacao' },
   { codigo: 'ENCERRAMENTO', label: 'Encerramento' },
@@ -94,10 +96,12 @@ export function calcularDiferencaParaLider(item?: DisputaV3ItemBoard | null) {
   return diferenca > 0 ? diferenca : 0
 }
 
-export function calcularLanceSugerido(item?: DisputaV3ItemBoard | null) {
+export function calcularLanceSugerido(item?: DisputaV3ItemBoard | null, diferencaMinimaLances?: number | null) {
   if (!item?.melhorLance) return null
   const referencia = item.meuMelhorLance && item.meuMelhorLance < item.melhorLance.valor
     ? item.meuMelhorLance
     : item.melhorLance.valor
-  return Math.max(0, Number((referencia - 0.01).toFixed(2)))
+  // Art. 56, §3º: respeitar decremento minimo configurado no edital
+  const decremento = diferencaMinimaLances && diferencaMinimaLances > 0 ? diferencaMinimaLances : 0.01
+  return Math.max(0, Number((referencia - decremento).toFixed(2)))
 }

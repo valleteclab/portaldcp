@@ -15,6 +15,8 @@ export interface DisputaV3Cronometria {
   modo: DisputaV3Modo
   baseLegal: string
   intervaloMinimoLancesMinutos: number
+  /** Art. 56, §3º - Decremento minimo entre lances conforme edital */
+  diferencaMinimaLances?: number
   etapaAbertaMinutos?: number
   janelaGatilhoProrrogacaoMinutos?: number
   duracaoProrrogacaoMinutos?: number

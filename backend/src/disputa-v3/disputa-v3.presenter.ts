@@ -31,6 +31,8 @@ export interface DisputaV3Cronometria {
   modo: DisputaV3Modo;
   baseLegal: string;
   intervaloMinimoLancesMinutos: number;
+  /** Art. 56, §3º - Decremento minimo entre lances conforme edital */
+  diferencaMinimaLances?: number;
   etapaAbertaMinutos?: number;
   janelaGatilhoProrrogacaoMinutos?: number;
   duracaoProrrogacaoMinutos?: number;
@@ -170,14 +172,19 @@ export function montarCronometriaSessaoV3(
     | 'tempo_inatividade_minutos'
     | 'tempo_prorrogacao_minutos'
   >,
+  diferencaMinimaLances?: number | null,
 ): DisputaV3Cronometria {
   const modo = inferirModoDisputaV3(sessao);
+  const decremento = diferencaMinimaLances && diferencaMinimaLances > 0
+    ? diferencaMinimaLances
+    : undefined;
 
   if (modo === 'ABERTO') {
     return {
       modo,
       baseLegal: 'IN SEGES/ME 73/2022, art. 23',
       intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
+      diferencaMinimaLances: decremento,
       etapaAbertaMinutos: sessao.tempo_inatividade_minutos,
       janelaGatilhoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
       duracaoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
@@ -189,10 +196,12 @@ export function montarCronometriaSessaoV3(
   }
 
   if (modo === 'ABERTO_FECHADO') {
+    // Valores padrao conforme IN SEGES/ME 73/2022, art. 24
     return {
       modo,
       baseLegal: 'IN SEGES/ME 73/2022, art. 24',
       intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
+      diferencaMinimaLances: decremento,
       etapaAbertaMinutos: 15,
       fechamentoIminenteAleatorioMaxMinutos: 10,
       lanceFinalFechadoMinutos: 5,
@@ -204,10 +213,12 @@ export function montarCronometriaSessaoV3(
   }
 
   if (modo === 'FECHADO_ABERTO') {
+    // Valores padrao conforme IN SEGES/ME 73/2022, art. 25
     return {
       modo,
       baseLegal: 'IN SEGES/ME 73/2022, art. 25',
       intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
+      diferencaMinimaLances: decremento,
       faixaClassificacaoPercentual: 10,
       etapaAbertaMinutos: 10,
       janelaGatilhoProrrogacaoMinutos: 2,
@@ -223,6 +234,7 @@ export function montarCronometriaSessaoV3(
     modo,
     baseLegal: 'Lei 14.133/2021, art. 56',
     intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
+    diferencaMinimaLances: decremento,
     usaTempoAleatorioNoModoAberto: false,
     requerFluxoEspecificoNaV3: true,
     observacao:
@@ -254,6 +266,7 @@ export function montarContextoSessaoV3(
       numero_edital?: string | null;
       numero_processo?: string | null;
       objeto: string;
+      diferenca_minima_lances?: number | null;
     } | null;
   },
 ): DisputaV3Contexto {
@@ -277,7 +290,10 @@ export function montarContextoSessaoV3(
       suspensa: sessao.status === StatusSessao.SUSPENSA,
       motivoSuspensao: sessao.motivo_suspensao || null,
     },
-    cronometria: montarCronometriaSessaoV3(sessao),
+    cronometria: montarCronometriaSessaoV3(
+      sessao,
+      sessao.licitacao?.diferenca_minima_lances,
+    ),
     licitacao: sessao.licitacao
       ? {
           id: sessao.licitacao.id,
