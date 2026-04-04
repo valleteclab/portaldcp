@@ -201,23 +201,22 @@ export class AdminTestesService implements OnModuleDestroy {
       });
 
       // ── Step 7: Publicar edital ──────────────────────────────────────────
-      // IMPORTANTE: data_abertura_sessao deve ser FUTURA aqui para que
-      // o PropostasService aceite propostas (valida agora < data_abertura).
-      // Será ajustada para o passado no Step 12 (após classificar propostas)
-      // via DataSource direto, para que a sessão possa ser iniciada.
+      // Todas as datas futuras para evitar que o scheduler (EVERY_MINUTE) auto-avance
+      // ACOLHIMENTO_PROPOSTAS → ANALISE_PROPOSTAS antes do step 10.
+      // O UPDATE atômico de fase + datas ocorre ao final do step 10.
       await this.runStep(7, async () => {
         const agora = Date.now();
         const menos48h = new Date(agora - 48 * 3_600_000).toISOString();
-        const menos24h = new Date(agora - 24 * 3_600_000).toISOString();
-        const mais24h = new Date(agora + 24 * 3_600_000).toISOString();
+        const mais2d = new Date(agora + 2 * 24 * 3_600_000).toISOString();
+        const mais3d = new Date(agora + 3 * 24 * 3_600_000).toISOString();
         await this.put(base, `/licitacoes/${licitacaoId}/publicar-edital`, orgaoToken, {
           data_publicacao_edital: menos48h,
           data_limite_impugnacao: menos48h,
           data_inicio_acolhimento: menos48h,
-          data_fim_acolhimento: menos24h,
-          data_abertura_sessao: mais24h, // futuro → propostas aceitas
+          data_fim_acolhimento: mais2d,  // futuro → bloqueia encerrarAcolhimento()
+          data_abertura_sessao: mais3d,  // futuro → PropostasService aceita propostas
         });
-        return 'abertura da sessão: +24h (futuro, para aceitar propostas)';
+        return 'fim acolhimento: +2d · abertura sessão: +3d (futuro, bloqueia scheduler)';
       });
 
       // ── Step 8: Avançar 2× → ACOLHIMENTO_PROPOSTAS ──────────────────────
@@ -269,13 +268,25 @@ export class AdminTestesService implements OnModuleDestroy {
           propostaIds.push(r.id);
           await this.put(base, `/propostas/${r.id}/enviar`, orgaoToken, {});
         }
-        return `${propostaIds.length} propostas enviadas`;
+        // Avanço atômico: seta fase + retroage datas em uma única operação, sem janela para o scheduler
+        await this.dataSource.query(
+          `UPDATE licitacao
+           SET fase = 'ANALISE_PROPOSTAS',
+               data_fim_acolhimento  = NOW() - INTERVAL '2 hours',
+               data_abertura_sessao  = NOW() - INTERVAL '1 hour'
+           WHERE id = $1`,
+          [licitacaoId],
+        );
+        return `${propostaIds.length} propostas enviadas; fase→ANALISE_PROPOSTAS, datas→passado`;
       });
 
-      // ── Step 11: ANALISE_PROPOSTAS ───────────────────────────────────────
+      // ── Step 11: Verificar ANALISE_PROPOSTAS (fase já setada via DataSource no step 10) ──
       await this.runStep(11, async () => {
-        const r = await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
-        return r.fase;
+        const r = await this.get(base, `/licitacoes/${licitacaoId}`, orgaoToken);
+        if (r.fase !== 'ANALISE_PROPOSTAS') {
+          throw new Error(`Fase esperada ANALISE_PROPOSTAS, obteve ${r.fase}`);
+        }
+        return `fase: ${r.fase} ✓`;
       });
 
       // ── Step 12: Classificar propostas + retroagir data abertura ──────────
@@ -287,13 +298,7 @@ export class AdminTestesService implements OnModuleDestroy {
         for (const p of enviadas) {
           await this.put(base, `/propostas/${p.id}/classificar`, orgaoToken, {});
         }
-        // Retroage data_abertura_sessao para o passado via DataSource direto.
-        // Necessário para que iniciarSessao / iniciarDisputa não rejeitem por "aguardando data".
-        await this.dataSource.query(
-          `UPDATE licitacao SET data_abertura_sessao = NOW() - INTERVAL '2 hours' WHERE id = $1`,
-          [licitacaoId],
-        );
-        return `${enviadas.length} propostas classificadas; data_abertura_sessao → passado`;
+        return `${enviadas.length} propostas classificadas`;
       });
 
       // ── Step 13: Criar sessão ────────────────────────────────────────────

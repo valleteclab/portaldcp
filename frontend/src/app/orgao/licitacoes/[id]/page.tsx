@@ -426,6 +426,14 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     return map[status] || { label: status, className: 'bg-gray-100 text-gray-700' }
   }
 
+  const podeRevelarFornecedor = () => {
+    const fasesReveladas = ['JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO']
+    return fasesReveladas.includes(licitacao?.fase ?? '')
+  }
+
+  const anonimizarNome = (index: number) => `Fornecedor ${String.fromCharCode(65 + index)}`
+  const anonimizarCnpj = () => '**.***.***/****-**'
+
   // Upload de documento
   const uploadDocumento = async () => {
     if (!arquivoSelecionado || !novoDocumento.titulo) {
@@ -1637,8 +1645,23 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                                 <Badge variant="outline">{proposta.fornecedor.porte}</Badge>
                               )}
                             </div>
-                            <p className="font-medium">{proposta.fornecedor?.razao_social || 'Fornecedor não identificado'}</p>
-                            <p className="text-sm text-muted-foreground">{proposta.fornecedor?.cpf_cnpj}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium">
+                                {podeRevelarFornecedor()
+                                  ? proposta.fornecedor?.razao_social || 'Fornecedor não identificado'
+                                  : anonimizarNome(index)}
+                              </p>
+                              {!podeRevelarFornecedor() && (
+                                <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                                  Identificação sigilosa
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {podeRevelarFornecedor()
+                                ? proposta.fornecedor?.cpf_cnpj
+                                : anonimizarCnpj()}
+                            </p>
                             <div className="flex items-center gap-4 mt-2 text-sm">
                               <span className="font-semibold text-green-600">
                                 {formatarMoeda(proposta.valor_total_proposta)}
