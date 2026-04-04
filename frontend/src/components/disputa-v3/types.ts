@@ -9,6 +9,7 @@ export type DisputaV3Etapa =
   | 'BENEFICIO_MPE'
   | 'RECURSOS'
   | 'ADJUDICACAO'
+  | 'HOMOLOGACAO'
   | 'ENCERRAMENTO'
 
 export interface DisputaV3Cronometria {

@@ -49,6 +49,8 @@ export enum EtapaSessao {
   
   // Finalizacao
   ADJUDICACAO = 'ADJUDICACAO',
+  // Lei 14.133/2021, Art. 71 - homologacao obrigatoria antes do encerramento
+  HOMOLOGACAO = 'HOMOLOGACAO',
   ENCERRAMENTO = 'ENCERRAMENTO',
 }
 
@@ -116,6 +118,16 @@ export class SessaoDisputa {
   // Timestamp de inicio do tempo aleatorio
   @Column({ type: 'timestamp', nullable: true })
   inicio_tempo_aleatorio: Date;
+
+  // === MODOS HIBRIDOS (ABERTO_FECHADO / FECHADO_ABERTO) ===
+  // Duração da etapa aberta para modos híbridos (null = usa tempo_inatividade_minutos como fallback)
+  // IN SEGES/ME 73/2022, arts. 24-25
+  @Column({ type: 'int', nullable: true })
+  etapa_aberta_minutos_hibrido: number | null;
+
+  // Duração do lance final fechado para ABERTO_FECHADO (null = 5 min conforme IN 73/2022, art. 24)
+  @Column({ type: 'int', nullable: true })
+  lance_final_fechado_minutos: number | null;
 
   // === PRORROGACAO ===
   // Art. 56, §4º - Prorrogacao automatica
