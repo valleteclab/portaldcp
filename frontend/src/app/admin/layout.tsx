@@ -4,11 +4,11 @@ import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import { 
-  Shield, 
-  Globe, 
-  Users, 
-  Building2, 
-  FileText, 
+  Shield,
+  Globe,
+  Users,
+  Building2,
+  FileText,
   Monitor,
   LogOut,
   Menu,
@@ -18,6 +18,7 @@ import {
   Database,
   Bot,
   MessageCircle,
+  FlaskConical,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -33,6 +34,7 @@ const menuItems = [
   { href: "/admin/configuracoes-aprovacao", label: "Config. Aprovações", icon: Settings },
   { href: "/admin/fornecedores", label: "Fornecedores", icon: FileText },
   { href: "/admin/solicitacoes", label: "Solicitações", icon: FileText },
+  { href: "/admin/testes", label: "Testes E2E", icon: FlaskConical },
   { href: "/admin/monitoramento", label: "Monitoramento", icon: Monitor },
 ]
 
