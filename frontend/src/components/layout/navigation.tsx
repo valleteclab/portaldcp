@@ -110,11 +110,13 @@ export function Sidebar({ userType }: SidebarProps) {
       localStorage.removeItem('usuario')
       localStorage.removeItem('orgao_token')
       localStorage.removeItem('access_token')
+      localStorage.removeItem('sessao_disputa_selecionada')
       router.push('/orgao-login')
     } else {
       localStorage.removeItem('fornecedor')
       localStorage.removeItem('token')
       localStorage.removeItem('access_token')
+      localStorage.removeItem('sessao_disputa_selecionada')
       router.push('/login')
     }
   }
