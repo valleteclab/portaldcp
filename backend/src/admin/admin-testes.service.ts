@@ -270,7 +270,7 @@ export class AdminTestesService implements OnModuleDestroy {
         }
         // Avanço atômico: seta fase + retroage datas em uma única operação, sem janela para o scheduler
         await this.dataSource.query(
-          `UPDATE licitacao
+          `UPDATE licitacoes
            SET fase = 'ANALISE_PROPOSTAS',
                data_fim_acolhimento  = NOW() - INTERVAL '2 hours',
                data_abertura_sessao  = NOW() - INTERVAL '1 hour'
