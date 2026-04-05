@@ -312,9 +312,15 @@ export class AdminTestesService implements OnModuleDestroy {
       });
 
       // ── Step 14: Iniciar sessão ──────────────────────────────────────────
+      // iniciarSessao() mantém etapa=ABERTURA_SESSAO; avancarParaDisputa() exige
+      // ANALISE_PROPOSTAS — não existe endpoint de transição, avançar via DataSource.
       await this.runStep(14, async () => {
         await this.put(base, `/sessao/${sessaoId}/iniciar`, orgaoToken, {});
-        return 'AGUARDANDO_INICIO → EM_ANDAMENTO';
+        await this.dataSource.query(
+          `UPDATE sessoes_disputa SET etapa = 'ANALISE_PROPOSTAS' WHERE id = $1`,
+          [sessaoId],
+        );
+        return 'AGUARDANDO_INICIO → EM_ANDAMENTO; etapa → ANALISE_PROPOSTAS';
       });
 
       // ── Step 15: Avançar para disputa ────────────────────────────────────
