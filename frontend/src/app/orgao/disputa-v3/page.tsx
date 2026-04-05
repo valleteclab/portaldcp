@@ -122,6 +122,30 @@ export default function DisputaV3OrgaoPage() {
   const [habActionError, setHabActionError] = useState<string | null>(null)
   const [habActionLoading, setHabActionLoading] = useState(false)
 
+  // === NEGOCIAÇÃO STATE ===
+  interface NegVencedor { fornecedorId: string; razaoSocial: string; cpfCnpj: string; valorProposta: number; porte?: string | null }
+  interface NegStatus { sessaoId: string; etapa: string; vencedor: NegVencedor | null; melhorLance: number | null; historicoNegociacao: { tipo: string; mensagem: string; remetente: string; dataHora: string }[] }
+  const [negStatus, setNegStatus] = useState<NegStatus | null>(null)
+  const [negValorFinal, setNegValorFinal] = useState('')
+  const [negActionLoading, setNegActionLoading] = useState(false)
+  const [negActionError, setNegActionError] = useState<string | null>(null)
+
+  // === INTENÇÃO DE RECURSO STATE ===
+  interface IntencaoItem { fornecedorId: string; mensagem: string; dataHora: string }
+  interface IntencaoStatus { sessaoId: string; etapa: string; intencoes: IntencaoItem[]; participantes: { fornecedorId: string; razaoSocial: string }[]; semIntencao: { fornecedorId: string; razaoSocial: string }[]; totalIntencoes: number }
+  const [intencaoStatus, setIntencaoStatus] = useState<IntencaoStatus | null>(null)
+  const [intencaoActionLoading, setIntencaoActionLoading] = useState(false)
+  const [intencaoActionError, setIntencaoActionError] = useState<string | null>(null)
+  const [intencaoTimer, setIntencaoTimer] = useState(0)
+
+  // === ADJUDICAÇÃO STATE ===
+  interface AdjItem { itemId: string; numero: number; descricao: string; quantidade: number; unidade: string; vencedor: { fornecedorId: string; razaoSocial: string; cpfCnpj: string; valor: number } | null }
+  interface AdjStatus { sessaoId: string; licitacaoId: string; etapa: string; itens: AdjItem[] }
+  const [adjStatus, setAdjStatus] = useState<AdjStatus | null>(null)
+  const [adjActionLoading, setAdjActionLoading] = useState(false)
+  const [adjActionError, setAdjActionError] = useState<string | null>(null)
+  const [adjDialogOpen, setAdjDialogOpen] = useState(false)
+
   const contexto = board?.contexto
   const aguardando = board?.colunas.aguardando || []
   const emDisputa = board?.colunas.emDisputa || []
@@ -277,6 +301,118 @@ export default function DisputaV3OrgaoPage() {
     REGULARIDADE_FISCAL: 'Regularidade Fiscal',
     QUALIFICACAO_TECNICA: 'Qualificação Técnica',
     QUALIFICACAO_ECONOMICA: 'Qualificação Econômica',
+  }
+
+  // === NEGOCIAÇÃO LOGIC ===
+  const isNegociacaoAtiva = etapaCodigo === 'NEGOCIACAO'
+  const carregarNegociacao = useCallback(async () => {
+    if (!sessaoId) return
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/negociacao`)
+      if (res.ok) setNegStatus(await res.json())
+    } catch { /* silently ignore */ }
+  }, [sessaoId])
+  useEffect(() => {
+    if (!isNegociacaoAtiva || !sessaoId) return
+    carregarNegociacao()
+    const iv = setInterval(carregarNegociacao, 5000)
+    return () => clearInterval(iv)
+  }, [isNegociacaoAtiva, sessaoId, carregarNegociacao])
+
+  const encerrarNegociacaoFn = async (pularNegociacao = false) => {
+    if (!sessaoId) return
+    setNegActionLoading(true)
+    setNegActionError(null)
+    try {
+      const valorFinal = pularNegociacao ? undefined : (negValorFinal ? Number(negValorFinal) : undefined)
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/negociacao/encerrar`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valorFinal }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao encerrar negociação') }
+      setNegValorFinal('')
+    } catch (e: any) {
+      setNegActionError(e.message)
+    } finally {
+      setNegActionLoading(false)
+    }
+  }
+
+  // === INTENÇÃO DE RECURSO LOGIC ===
+  const isIntencaoAtiva = etapaCodigo === 'INTENCAO_RECURSO'
+  const carregarIntencao = useCallback(async () => {
+    if (!sessaoId) return
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/recursos/intencoes`)
+      if (res.ok) setIntencaoStatus(await res.json())
+    } catch { /* silently ignore */ }
+  }, [sessaoId])
+  useEffect(() => {
+    if (!isIntencaoAtiva || !sessaoId) return
+    carregarIntencao()
+    const iv = setInterval(carregarIntencao, 5000)
+    // Timer countdown (30 min displayed)
+    setIntencaoTimer(30 * 60)
+    const tiv = setInterval(() => setIntencaoTimer(t => Math.max(0, t - 1)), 1000)
+    return () => { clearInterval(iv); clearInterval(tiv) }
+  }, [isIntencaoAtiva, sessaoId, carregarIntencao])
+
+  const encerrarPrazoIntencao = async () => {
+    if (!sessaoId) return
+    setIntencaoActionLoading(true)
+    setIntencaoActionError(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/recursos/encerrar-prazo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao encerrar prazo') }
+    } catch (e: any) {
+      setIntencaoActionError(e.message)
+    } finally {
+      setIntencaoActionLoading(false)
+    }
+  }
+
+  // === ADJUDICAÇÃO LOGIC ===
+  const isAdjudicacaoAtiva = etapaCodigo === 'ADJUDICACAO'
+  const carregarAdjudicacao = useCallback(async () => {
+    if (!sessaoId) return
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/adjudicacao`)
+      if (res.ok) setAdjStatus(await res.json())
+    } catch { /* silently ignore */ }
+  }, [sessaoId])
+  useEffect(() => {
+    if (!isAdjudicacaoAtiva || !sessaoId) return
+    carregarAdjudicacao()
+  }, [isAdjudicacaoAtiva, sessaoId, carregarAdjudicacao])
+
+  const confirmarAdjudicacaoTodos = async () => {
+    if (!sessaoId) return
+    setAdjActionLoading(true)
+    setAdjActionError(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/adjudicar-todos`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao adjudicar') }
+      setAdjDialogOpen(false)
+    } catch (e: any) {
+      setAdjActionError(e.message)
+    } finally {
+      setAdjActionLoading(false)
+    }
+  }
+
+  const formatTimer = (s: number) => {
+    const m = Math.floor(s / 60).toString().padStart(2, '0')
+    const sec = (s % 60).toString().padStart(2, '0')
+    return `${m}:${sec}`
   }
 
   return (
@@ -646,7 +782,89 @@ export default function DisputaV3OrgaoPage() {
                 </div>
 
                 <div className="space-y-4 xl:col-span-3">
-                  {isHabilitacaoAtiva ? (
+                  {isNegociacaoAtiva ? (
+                    /* =============================================
+                       PAINEL DE NEGOCIAÇÃO (Art. 61 Lei 14.133)
+                       ============================================= */
+                    <Card>
+                      <CardHeader className="border-b bg-blue-50">
+                        <CardTitle className="flex items-center gap-2 text-blue-800">
+                          <MessageSquare className="h-4 w-4" />
+                          Negociação (Art. 61)
+                        </CardTitle>
+                        <CardDescription>Negocie o preço com o 1º classificado antes da habilitação.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-4">
+                        {negActionError && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {negActionError}
+                          </div>
+                        )}
+                        {negStatus?.vencedor ? (
+                          <div className="space-y-4">
+                            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">1º Classificado</div>
+                              <div className="mt-1 font-semibold text-slate-900">{negStatus.vencedor.razaoSocial}</div>
+                              <div className="text-sm text-slate-600">{negStatus.vencedor.cpfCnpj}</div>
+                              {negStatus.melhorLance && (
+                                <div className="mt-1 text-sm font-medium text-blue-700">
+                                  Melhor lance: {negStatus.melhorLance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </div>
+                              )}
+                            </div>
+
+                            {negStatus.historicoNegociacao.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Histórico</div>
+                                <ScrollArea className="h-28 pr-1">
+                                  {negStatus.historicoNegociacao.map((h, i) => (
+                                    <div key={i} className="mb-2 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">
+                                      <span className="font-medium">{h.remetente}: </span>{h.mensagem}
+                                    </div>
+                                  ))}
+                                </ScrollArea>
+                              </div>
+                            )}
+
+                            <div className="space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Valor negociado (opcional)</div>
+                              <div className="flex gap-2">
+                                <input
+                                  type="number"
+                                  className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                                  placeholder="R$ 0,00"
+                                  value={negValorFinal}
+                                  onChange={(e) => setNegValorFinal(e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            <Button
+                              className="w-full bg-blue-600 hover:bg-blue-700"
+                              onClick={() => encerrarNegociacaoFn(false)}
+                              disabled={negActionLoading}
+                            >
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                              Registrar e avançar para habilitação
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => encerrarNegociacaoFn(true)}
+                              disabled={negActionLoading}
+                            >
+                              Pular negociação → habilitação
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="py-6 text-center text-sm text-slate-400">
+                            <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                            Carregando vencedor...
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ) : isHabilitacaoAtiva ? (
                     /* =============================================
                        PAINEL DE HABILITAÇÃO (Art. 62-70 Lei 14.133)
                        Substitui o chat quando em fase de habilitação
@@ -787,6 +1005,130 @@ export default function DisputaV3OrgaoPage() {
                             </ScrollArea>
                           </div>
                         )}
+                      </CardContent>
+                    </Card>
+                  ) : isIntencaoAtiva ? (
+                    /* =============================================
+                       PAINEL DE INTENÇÃO DE RECURSO (Art. 165)
+                       ============================================= */
+                    <Card>
+                      <CardHeader className="border-b bg-amber-50">
+                        <CardTitle className="flex items-center gap-2 text-amber-800">
+                          <AlertTriangle className="h-4 w-4" />
+                          Intenção de Recurso (Art. 165)
+                        </CardTitle>
+                        <CardDescription>Prazo para fornecedores manifestarem intenção de recorrer.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-4">
+                        {intencaoActionError && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {intencaoActionError}
+                          </div>
+                        )}
+
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Tempo restante</div>
+                          <div className="mt-1 text-3xl font-bold tabular-nums text-amber-800">{formatTimer(intencaoTimer)}</div>
+                        </div>
+
+                        {intencaoStatus && (
+                          <div className="space-y-3">
+                            {intencaoStatus.intencoes.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Registraram intenção ({intencaoStatus.intencoes.length})
+                                </div>
+                                {intencaoStatus.intencoes.map((it, i) => (
+                                  <div key={i} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm">
+                                    <div className="font-medium text-amber-800">
+                                      {intencaoStatus.participantes.find(p => p.fornecedorId === it.fornecedorId)?.razaoSocial || it.fornecedorId}
+                                    </div>
+                                    <div className="text-xs text-slate-600">{it.mensagem}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {intencaoStatus.semIntencao.length > 0 && (
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sem manifestação</div>
+                                {intencaoStatus.semIntencao.map((p, i) => (
+                                  <div key={i} className="text-sm text-slate-500">{p.razaoSocial}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <Button
+                          className="w-full"
+                          onClick={encerrarPrazoIntencao}
+                          disabled={intencaoActionLoading}
+                          variant={intencaoStatus && intencaoStatus.totalIntencoes > 0 ? 'default' : 'outline'}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          {intencaoStatus && intencaoStatus.totalIntencoes > 0
+                            ? `Encerrar prazo (${intencaoStatus.totalIntencoes} intenção/ões → Prazo Recursal)`
+                            : 'Encerrar prazo sem recursos → Adjudicar'
+                          }
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : isAdjudicacaoAtiva ? (
+                    /* =============================================
+                       PAINEL DE ADJUDICAÇÃO (Art. 71)
+                       ============================================= */
+                    <Card>
+                      <CardHeader className="border-b bg-slate-900 text-white">
+                        <CardTitle className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Adjudicação (Art. 71)
+                        </CardTitle>
+                        <CardDescription className="text-slate-300">Confirme o vencedor de cada item antes de encerrar.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-4">
+                        {adjActionError && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {adjActionError}
+                          </div>
+                        )}
+
+                        <ScrollArea className="h-[calc(100vh-560px)] pr-1">
+                          <div className="space-y-3">
+                            {(adjStatus?.itens || []).map((item) => (
+                              <div key={item.itemId} className="rounded-xl border border-slate-200 bg-white p-3">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Item {item.numero}</div>
+                                <div className="font-medium text-slate-900">{item.descricao}</div>
+                                {item.vencedor ? (
+                                  <>
+                                    <div className="mt-1 text-sm font-semibold text-emerald-700">
+                                      {item.vencedor.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    </div>
+                                    <div className="text-sm text-slate-600">{item.vencedor.razaoSocial}</div>
+                                    <div className="text-xs text-slate-400">{item.vencedor.cpfCnpj}</div>
+                                  </>
+                                ) : (
+                                  <div className="mt-1 text-sm text-slate-400">Sem lance registrado</div>
+                                )}
+                              </div>
+                            ))}
+                            {!adjStatus && (
+                              <div className="py-6 text-center text-sm text-slate-400">
+                                <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                                Carregando itens...
+                              </div>
+                            )}
+                          </div>
+                        </ScrollArea>
+
+                        <Button
+                          className="w-full bg-emerald-700 hover:bg-emerald-800"
+                          onClick={() => setAdjDialogOpen(true)}
+                          disabled={adjActionLoading || !adjStatus?.itens?.some(i => i.vencedor)}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Confirmar adjudicação de todos os itens
+                        </Button>
                       </CardContent>
                     </Card>
                   ) : (
@@ -957,6 +1299,39 @@ export default function DisputaV3OrgaoPage() {
                 }}
               >
                 Confirmar cancelamento
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog de confirmação de adjudicação */}
+        <Dialog open={adjDialogOpen} onOpenChange={setAdjDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Confirmar Adjudicação</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-slate-600">
+                Você está prestes a adjudicar o objeto licitado ao(s) vencedor(es) de cada item, conforme Art. 71 da Lei 14.133/2021.
+              </p>
+              {adjStatus?.itens?.filter(i => i.vencedor).map(item => (
+                <div key={item.itemId} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <div className="font-semibold">Item {item.numero}</div>
+                  <div className="text-slate-700">{item.vencedor?.razaoSocial}</div>
+                  <div className="text-emerald-700 font-medium">
+                    {item.vencedor?.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAdjDialogOpen(false)}>Cancelar</Button>
+              <Button
+                className="bg-emerald-700 hover:bg-emerald-800"
+                onClick={confirmarAdjudicacaoTodos}
+                disabled={adjActionLoading}
+              >
+                Confirmar Adjudicação
               </Button>
             </DialogFooter>
           </DialogContent>
