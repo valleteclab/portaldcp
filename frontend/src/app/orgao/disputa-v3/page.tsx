@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
@@ -14,7 +14,12 @@ import {
   RefreshCw,
   Send,
   ShieldAlert,
+  ThumbsDown,
+  ThumbsUp,
+  UserCheck,
+  XCircle,
 } from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { useDisputaV3 } from '@/hooks/useDisputaV3'
@@ -92,6 +97,31 @@ export default function DisputaV3OrgaoPage() {
   } | null>(null)
   const [justificativaCancelPregoeiro, setJustificativaCancelPregoeiro] = useState('')
 
+  // === HABILITAÇÃO STATE ===
+  type DocStatus = 'PENDENTE' | 'VALIDO' | 'INVALIDO'
+  interface HabRanking {
+    posicao: number
+    fornecedorId: string
+    razaoSocial: string
+    cpfCnpj: string
+    valorTotal: number
+    status: string
+    isConvocado: boolean
+  }
+  interface HabStatus {
+    sessaoId: string
+    licitacaoId: string
+    etapa: string
+    convocado: HabRanking | null
+    ranking: HabRanking[]
+  }
+  const [habStatus, setHabStatus] = useState<HabStatus | null>(null)
+  const [habLoading, setHabLoading] = useState(false)
+  const [habDocStatus, setHabDocStatus] = useState<Record<string, DocStatus>>({})
+  const [habMotivoReprovar, setHabMotivoReprovar] = useState('')
+  const [habActionError, setHabActionError] = useState<string | null>(null)
+  const [habActionLoading, setHabActionLoading] = useState(false)
+
   const contexto = board?.contexto
   const aguardando = board?.colunas.aguardando || []
   const emDisputa = board?.colunas.emDisputa || []
@@ -145,6 +175,108 @@ export default function DisputaV3OrgaoPage() {
     reiniciarSessao(justificativaReinicio)
     setDialogoReiniciar(false)
     setJustificativaReinicio('')
+  }
+
+  // === HABILITAÇÃO LOGIC ===
+  const etapaCodigo = contexto?.etapa?.codigo || ''
+  const isHabilitacaoAtiva = ['CONVOCACAO_HABILITACAO', 'ANALISE_HABILITACAO'].includes(etapaCodigo)
+
+  const carregarHabilitacao = useCallback(async () => {
+    if (!sessaoId) return
+    setHabLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao`)
+      if (!res.ok) throw new Error('Erro ao carregar habilitação')
+      const data: HabStatus = await res.json()
+      setHabStatus(data)
+      // Init doc status map for convocado if changed
+      if (data.convocado) {
+        setHabDocStatus((prev) => {
+          const tipos = ['HABILITACAO_JURIDICA', 'REGULARIDADE_FISCAL', 'QUALIFICACAO_TECNICA', 'QUALIFICACAO_ECONOMICA']
+          const next: Record<string, DocStatus> = {}
+          tipos.forEach((t) => { next[t] = prev[t] || 'PENDENTE' })
+          return next
+        })
+      }
+    } catch {
+      // silently ignore poll errors
+    } finally {
+      setHabLoading(false)
+    }
+  }, [sessaoId])
+
+  useEffect(() => {
+    if (!isHabilitacaoAtiva || !sessaoId) return
+    carregarHabilitacao()
+    const interval = setInterval(carregarHabilitacao, 5000)
+    return () => clearInterval(interval)
+  }, [isHabilitacaoAtiva, sessaoId, carregarHabilitacao])
+
+  const convocarFornecedor = async (fornecedorId: string) => {
+    if (!sessaoId) return
+    setHabActionLoading(true)
+    setHabActionError(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/convocar/${fornecedorId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao convocar') }
+      await carregarHabilitacao()
+    } catch (e: any) {
+      setHabActionError(e.message)
+    } finally {
+      setHabActionLoading(false)
+    }
+  }
+
+  const aprovarHabilitacao = async () => {
+    if (!sessaoId || !habStatus?.convocado) return
+    setHabActionLoading(true)
+    setHabActionError(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/aprovar/${habStatus.convocado.fornecedorId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao aprovar') }
+      await carregarHabilitacao()
+    } catch (e: any) {
+      setHabActionError(e.message)
+    } finally {
+      setHabActionLoading(false)
+    }
+  }
+
+  const reprovarHabilitacao = async () => {
+    if (!sessaoId || !habStatus?.convocado || !habMotivoReprovar.trim()) return
+    setHabActionLoading(true)
+    setHabActionError(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/reprovar/${habStatus.convocado.fornecedorId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: habMotivoReprovar }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao reprovar') }
+      setHabMotivoReprovar('')
+      await carregarHabilitacao()
+    } catch (e: any) {
+      setHabActionError(e.message)
+    } finally {
+      setHabActionLoading(false)
+    }
+  }
+
+  const toggleDoc = (tipo: string) => {
+    setHabDocStatus((prev) => {
+      const atual = prev[tipo] || 'PENDENTE'
+      const proximo: DocStatus = atual === 'PENDENTE' ? 'VALIDO' : atual === 'VALIDO' ? 'INVALIDO' : 'PENDENTE'
+      return { ...prev, [tipo]: proximo }
+    })
+  }
+
+  const todosDocsValidos = Object.values(habDocStatus).length > 0 && Object.values(habDocStatus).every((s) => s === 'VALIDO')
+
+  const DOC_LABELS: Record<string, string> = {
+    HABILITACAO_JURIDICA: 'Habilitação Jurídica',
+    REGULARIDADE_FISCAL: 'Regularidade Fiscal',
+    QUALIFICACAO_TECNICA: 'Qualificação Técnica',
+    QUALIFICACAO_ECONOMICA: 'Qualificação Econômica',
   }
 
   return (
@@ -514,67 +646,215 @@ export default function DisputaV3OrgaoPage() {
                 </div>
 
                 <div className="space-y-4 xl:col-span-3">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="h-4 w-4" />
-                        Comunicacao da sessao
-                      </CardTitle>
-                      <CardDescription>Mensagens oficiais e orientacoes rapidas do pregoeiro.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <ScrollArea className="h-[calc(100vh-520px)] pr-3">
-                        <div className="space-y-3">
-                          {mensagens.length === 0 ? (
-                            <div className="rounded-lg border border-dashed px-3 py-5 text-sm text-slate-400">
-                              Nenhuma mensagem ainda.
-                            </div>
-                          ) : (
-                            mensagens.map((mensagem, index) => (
-                              <div key={`${mensagem.remetente}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                                <div className="mb-1 flex items-center justify-between gap-2">
-                                  <Badge variant="outline">{mensagem.tipo}</Badge>
-                                  <span className="text-xs text-slate-400">
-                                    {new Date(mensagem.dataHora).toLocaleTimeString('pt-BR')}
-                                  </span>
-                                </div>
-                                <div className="text-sm font-medium text-slate-800">{mensagem.remetente}</div>
-                                <div className="mt-1 text-sm text-slate-600">{mensagem.conteudo}</div>
+                  {isHabilitacaoAtiva ? (
+                    /* =============================================
+                       PAINEL DE HABILITAÇÃO (Art. 62-70 Lei 14.133)
+                       Substitui o chat quando em fase de habilitação
+                       ============================================= */
+                    <Card>
+                      <CardHeader className="border-b bg-emerald-50">
+                        <CardTitle className="flex items-center gap-2 text-emerald-800">
+                          <UserCheck className="h-4 w-4" />
+                          Habilitação
+                        </CardTitle>
+                        <CardDescription>
+                          Art. 62-70 — Lei 14.133/2021. Convoque o vencedor e analise os documentos.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-4">
+                        {habActionError && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {habActionError}
+                          </div>
+                        )}
+
+                        {habLoading && !habStatus ? (
+                          <div className="py-6 text-center text-sm text-slate-400">
+                            <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                            Carregando...
+                          </div>
+                        ) : habStatus?.convocado ? (
+                          /* Fornecedor convocado — mostrar identidade + docs */
+                          <div className="space-y-4">
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Convocado</div>
+                              <div className="mt-1 font-semibold text-slate-900">{habStatus.convocado.razaoSocial}</div>
+                              <div className="text-sm text-slate-600">{habStatus.convocado.cpfCnpj}</div>
+                              <div className="mt-1 text-sm font-medium text-emerald-700">
+                                {habStatus.convocado.valorTotal?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </div>
-                            ))
-                          )}
-                        </div>
-                      </ScrollArea>
+                            </div>
 
-                      <div className="space-y-2">
-                        <Textarea
-                          value={novaMensagem}
-                          onChange={(event) => setNovaMensagem(event.target.value)}
-                          placeholder="Envie uma orientacao oficial para a sala..."
-                          rows={4}
-                        />
-                        <Button className="w-full" onClick={enviarMensagemChat} disabled={sendingMessage || !contexto?.operacao.chatHabilitado}>
-                          <Send className="mr-2 h-4 w-4" />
-                          Enviar mensagem
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                            <div className="space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documentos</div>
+                              {Object.entries(DOC_LABELS).map(([tipo, label]) => {
+                                const status = habDocStatus[tipo] || 'PENDENTE'
+                                return (
+                                  <div key={tipo} className={`flex items-center justify-between rounded-lg border p-2 text-sm ${
+                                    status === 'VALIDO' ? 'border-emerald-200 bg-emerald-50' :
+                                    status === 'INVALIDO' ? 'border-red-200 bg-red-50' :
+                                    'border-slate-200 bg-white'
+                                  }`}>
+                                    <span className={status === 'INVALIDO' ? 'text-red-700' : status === 'VALIDO' ? 'text-emerald-700' : 'text-slate-700'}>
+                                      {label}
+                                    </span>
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => setHabDocStatus((p) => ({ ...p, [tipo]: 'VALIDO' }))}
+                                        className={`rounded p-1 transition ${status === 'VALIDO' ? 'bg-emerald-600 text-white' : 'hover:bg-emerald-100 text-slate-400'}`}
+                                        title="Aprovar documento"
+                                      >
+                                        <ThumbsUp className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setHabDocStatus((p) => ({ ...p, [tipo]: 'INVALIDO' }))}
+                                        className={`rounded p-1 transition ${status === 'INVALIDO' ? 'bg-red-600 text-white' : 'hover:bg-red-100 text-slate-400'}`}
+                                        title="Reprovar documento"
+                                      >
+                                        <ThumbsDown className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Governanca e fallback</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm text-slate-600">
-                      <p>
-                        Esta V3 ja usa o board e a semantica legal nova, mas ainda reaproveita os eventos operacionais da V2 para iniciar itens, encerrar item, suspender e retomar.
-                      </p>
-                      <Button variant="outline" className="w-full" onClick={abrirV2}>
-                        <ExternalLink className="mr-2 h-4 w-4" />
-                        Abrir fallback operacional
-                      </Button>
-                    </CardContent>
-                  </Card>
+                            <Button
+                              className="w-full bg-emerald-600 hover:bg-emerald-700"
+                              onClick={aprovarHabilitacao}
+                              disabled={habActionLoading || !todosDocsValidos}
+                              title={!todosDocsValidos ? 'Todos os documentos devem estar aprovados' : ''}
+                            >
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                              Habilitar fornecedor
+                            </Button>
+
+                            <div className="space-y-2">
+                              <Textarea
+                                value={habMotivoReprovar}
+                                onChange={(e) => setHabMotivoReprovar(e.target.value)}
+                                placeholder="Motivo da inabilitação (obrigatório para reprovar)..."
+                                rows={3}
+                              />
+                              <Button
+                                variant="destructive"
+                                className="w-full"
+                                onClick={reprovarHabilitacao}
+                                disabled={habActionLoading || !habMotivoReprovar.trim()}
+                              >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Inabilitar e convocar próximo
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Nenhum convocado ainda — mostrar ranking para convocar */
+                          <div className="space-y-3">
+                            <p className="text-sm text-slate-600">
+                              Convoque o 1º classificado para apresentar documentos de habilitação.
+                            </p>
+                            <ScrollArea className="h-[calc(100vh-560px)] pr-1">
+                              <div className="space-y-2">
+                                {(habStatus?.ranking || []).map((item) => (
+                                  <div
+                                    key={item.fornecedorId}
+                                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3"
+                                  >
+                                    <div>
+                                      <div className="text-xs text-slate-500">{item.posicao}º colocado</div>
+                                      <div className="font-medium text-slate-900">{item.razaoSocial}</div>
+                                      <div className="text-sm text-slate-600">
+                                        {item.valorTotal?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                      </div>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => convocarFornecedor(item.fornecedorId)}
+                                      disabled={habActionLoading}
+                                    >
+                                      Convocar
+                                    </Button>
+                                  </div>
+                                ))}
+                                {(!habStatus?.ranking || habStatus.ranking.length === 0) && (
+                                  <div className="rounded-lg border border-dashed px-3 py-5 text-sm text-slate-400">
+                                    Nenhum classificado disponível.
+                                  </div>
+                                )}
+                              </div>
+                            </ScrollArea>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    /* PAINEL PADRÃO — chat + governança */
+                    <>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <MessageSquare className="h-4 w-4" />
+                            Comunicacao da sessao
+                          </CardTitle>
+                          <CardDescription>Mensagens oficiais e orientacoes rapidas do pregoeiro.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <ScrollArea className="h-[calc(100vh-520px)] pr-3">
+                            <div className="space-y-3">
+                              {mensagens.length === 0 ? (
+                                <div className="rounded-lg border border-dashed px-3 py-5 text-sm text-slate-400">
+                                  Nenhuma mensagem ainda.
+                                </div>
+                              ) : (
+                                mensagens.map((mensagem, index) => (
+                                  <div key={`${mensagem.remetente}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                      <Badge variant="outline">{mensagem.tipo}</Badge>
+                                      <span className="text-xs text-slate-400">
+                                        {new Date(mensagem.dataHora).toLocaleTimeString('pt-BR')}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm font-medium text-slate-800">{mensagem.remetente}</div>
+                                    <div className="mt-1 text-sm text-slate-600">{mensagem.conteudo}</div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </ScrollArea>
+
+                          <div className="space-y-2">
+                            <Textarea
+                              value={novaMensagem}
+                              onChange={(event) => setNovaMensagem(event.target.value)}
+                              placeholder="Envie uma orientacao oficial para a sala..."
+                              rows={4}
+                            />
+                            <Button className="w-full" onClick={enviarMensagemChat} disabled={sendingMessage || !contexto?.operacao.chatHabilitado}>
+                              <Send className="mr-2 h-4 w-4" />
+                              Enviar mensagem
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Governanca e fallback</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3 text-sm text-slate-600">
+                          <p>
+                            Esta V3 ja usa o board e a semantica legal nova, mas ainda reaproveita os eventos operacionais da V2 para iniciar itens, encerrar item, suspender e retomar.
+                          </p>
+                          <Button variant="outline" className="w-full" onClick={abrirV2}>
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Abrir fallback operacional
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
