@@ -417,12 +417,16 @@ export class AdminTestesService implements OnModuleDestroy {
             throw new Error(`Ranking fora de ordem: ${valores.join(', ')}`);
           }
         }
-        // Verificar que o líder é forn[4] (menor multiplicador)
-        const liderId = melhores[0].fornecedorId;
-        if (liderId !== fornecedores[4].id) {
-          throw new Error(`Líder inesperado: ${liderId}`);
+        // Verificar que o líder tem o menor valor esperado.
+        // Nota: anonimização ativa retorna fornecedorId="anonimo-a" em vez do UUID real,
+        // por isso comparamos o valor numérico em vez do ID.
+        // fornecedores[4] (mult 0.8): propostaTotal=40000, lance=40000*0.98-4*100=38800
+        const valorEsperado = 38_800;
+        const valorLider = Number(melhores[0].melhorValor);
+        if (valorLider !== valorEsperado) {
+          throw new Error(`Valor do líder inesperado: ${valorLider}, esperado: ${valorEsperado}`);
         }
-        return `${melhores.length} fornecedores rankeados — líder: ${fornecedores[4].nome}`;
+        return `${melhores.length} fornecedores rankeados — líder: R$ ${valorLider.toLocaleString('pt-BR')}`;
       });
 
       this.currentRun.status = 'passed';
