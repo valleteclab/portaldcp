@@ -1,56 +1,47 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useState, useEffect, useCallback } from "react"
+import { useParams } from "next/navigation"
 import Link from "next/link"
-import { 
-  ArrowLeft, 
-  CheckCircle, 
-  XCircle, 
+import {
+  ArrowLeft,
+  CheckCircle,
+  XCircle,
   AlertCircle,
   Loader2,
   FileText,
-  User,
-  Download,
-  Eye,
   ThumbsUp,
   ThumbsDown,
   Award,
   Building2,
   Clock,
   FileCheck,
-  Upload
+  ShieldCheck,
+  ShieldX,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-
 import { API_URL, authFetch } from '@/lib/api'
 
-interface Fornecedor {
-  id: string
-  razao_social: string
-  cpf_cnpj: string
-  email: string
-}
-
-interface DocumentoHabilitacao {
-  tipo: string
-  nome: string
-  status: 'PENDENTE' | 'VALIDO' | 'INVALIDO' | 'VENCIDO'
-  dataValidade?: string
-  observacao?: string
-}
-
-interface Proposta {
-  id: string
-  fornecedor_id: string
-  fornecedor: Fornecedor
-  valor_total_proposta: number
-  status: string
+interface RankingItem {
   posicao: number
+  fornecedorId: string
+  razaoSocial: string
+  cpfCnpj: string
+  porte: string | null
+  valorTotal: number
+  status: string
+  isConvocado: boolean
+}
+
+interface HabilitacaoStatus {
+  sessaoId: string
+  licitacaoId: string
+  etapa: string
+  convocado: RankingItem | null
+  ranking: RankingItem[]
 }
 
 interface Licitacao {
@@ -69,249 +60,259 @@ const DOCUMENTOS_OBRIGATORIOS = [
   { tipo: 'CERTIDAO_MUNICIPAL', nome: 'Certidão Negativa de Débitos Municipais' },
 ]
 
+// Validações locais dos documentos (até integração de upload de docs de habilitação)
+type DocStatus = 'PENDENTE' | 'VALIDO' | 'INVALIDO'
+type DocMap = Record<string, DocStatus>
+
 export default function HabilitacaoPage() {
   const params = useParams()
-  const router = useRouter()
   const licitacaoId = params.id as string
 
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
-  const [propostas, setPropostas] = useState<Proposta[]>([])
+  const [sessaoId, setSessaoId] = useState<string | null>(null)
+  const [habilitacao, setHabilitacao] = useState<HabilitacaoStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [fornecedorSelecionado, setFornecedorSelecionado] = useState<string | null>(null)
-  const [documentos, setDocumentos] = useState<DocumentoHabilitacao[]>([])
   const [processando, setProcessando] = useState(false)
-  const [motivoInabilitacao, setMotivoInabilitacao] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [docStatus, setDocStatus] = useState<DocMap>({})
+  const [erro, setErro] = useState<string | null>(null)
 
-  useEffect(() => {
-    carregarDados()
-  }, [licitacaoId])
-
-  const carregarDados = async () => {
+  const carregarDados = useCallback(async () => {
     try {
-      const [licRes, propRes] = await Promise.all([
+      const [licRes, sessaoRes] = await Promise.all([
         authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`),
-        authFetch(`${API_URL}/api/propostas/licitacao/${licitacaoId}`)
+        authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`),
       ])
-
-      if (licRes.ok) {
-        setLicitacao(await licRes.json())
-      }
-      if (propRes.ok) {
-        const data = await propRes.json()
-        // Ordena por valor e filtra apenas classificadas/vencedoras
-        const classificadas = data
-          .filter((p: Proposta) => ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA'].includes(p.status))
-          .sort((a: Proposta, b: Proposta) => a.valor_total_proposta - b.valor_total_proposta)
-          .map((p: Proposta, i: number) => ({ ...p, posicao: i + 1 }))
-        setPropostas(classificadas)
-        
-        // Seleciona o primeiro (vencedor provisório)
-        if (classificadas.length > 0) {
-          setFornecedorSelecionado(classificadas[0].fornecedor_id)
-          carregarDocumentos(classificadas[0].fornecedor_id)
-        }
-      }
-    } catch (error) {
-      console.error('Erro ao carregar dados:', error)
+      if (licRes.ok) setLicitacao(await licRes.json())
+      if (!sessaoRes.ok) { setErro('Sessão de disputa não encontrada para esta licitação.'); return }
+      const sessao = await sessaoRes.json()
+      setSessaoId(sessao.id)
+      await carregarHabilitacao(sessao.id)
+    } catch {
+      setErro('Erro ao carregar dados.')
     } finally {
       setLoading(false)
     }
+  }, [licitacaoId])
+
+  const carregarHabilitacao = async (sid: string) => {
+    const res = await authFetch(`${API_URL}/api/sessao/${sid}/habilitacao`)
+    if (res.ok) {
+      const data: HabilitacaoStatus = await res.json()
+      setHabilitacao(data)
+      // Inicializa status dos documentos como PENDENTE ao trocar de convocado
+      if (data.convocado) {
+        setDocStatus(
+          Object.fromEntries(DOCUMENTOS_OBRIGATORIOS.map(d => [d.tipo, 'PENDENTE' as DocStatus]))
+        )
+      }
+    }
   }
 
-  const carregarDocumentos = async (fornecedorId: string) => {
-    // Simula documentos do fornecedor
-    // Em produção, buscaria do backend
-    const docs: DocumentoHabilitacao[] = DOCUMENTOS_OBRIGATORIOS.map(doc => ({
-      ...doc,
-      status: Math.random() > 0.2 ? 'VALIDO' : (Math.random() > 0.5 ? 'PENDENTE' : 'VENCIDO'),
-      dataValidade: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString()
-    }))
-    setDocumentos(docs)
-  }
+  useEffect(() => { carregarDados() }, [carregarDados])
 
-  const selecionarFornecedor = (fornecedorId: string) => {
-    setFornecedorSelecionado(fornecedorId)
-    carregarDocumentos(fornecedorId)
-  }
-
-  const validarDocumento = (tipo: string, valido: boolean) => {
-    setDocumentos(prev => prev.map(doc => 
-      doc.tipo === tipo ? { ...doc, status: valido ? 'VALIDO' : 'INVALIDO' } : doc
-    ))
+  const convocarFornecedor = async (fornecedorId: string) => {
+    if (!sessaoId) return
+    setProcessando(true)
+    try {
+      await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/convocar/${fornecedorId}`, { method: 'PUT' })
+      await carregarHabilitacao(sessaoId)
+    } catch { setErro('Erro ao convocar fornecedor.') }
+    finally { setProcessando(false) }
   }
 
   const habilitarFornecedor = async () => {
-    const todosValidos = documentos.every(d => d.status === 'VALIDO')
-    if (!todosValidos) {
-      alert('Todos os documentos devem estar válidos para habilitar o fornecedor')
-      return
-    }
+    if (!sessaoId || !habilitacao?.convocado) return
+    const pendentes = Object.values(docStatus).filter(s => s === 'PENDENTE').length
+    if (pendentes > 0) { setErro(`${pendentes} documento(s) ainda não foram verificados.`); return }
+    const invalidos = Object.values(docStatus).filter(s => s === 'INVALIDO').length
+    if (invalidos > 0) { setErro(`${invalidos} documento(s) inválido(s). Inabilite o fornecedor ou corrija os documentos.`); return }
 
     setProcessando(true)
+    setErro(null)
     try {
-      // Em produção, chamaria o backend
-      alert('Fornecedor habilitado com sucesso!')
-      router.push(`/orgao/licitacoes/${licitacaoId}`)
-    } catch (error) {
-      alert('Erro ao habilitar fornecedor')
-    } finally {
-      setProcessando(false)
-    }
+      await authFetch(
+        `${API_URL}/api/sessao/${sessaoId}/habilitacao/aprovar/${habilitacao.convocado.fornecedorId}`,
+        { method: 'PUT' }
+      )
+      await carregarHabilitacao(sessaoId)
+    } catch { setErro('Erro ao aprovar habilitação.') }
+    finally { setProcessando(false) }
   }
 
   const inabilitarFornecedor = async () => {
-    if (!motivoInabilitacao.trim()) {
-      alert('Informe o motivo da inabilitação')
+    if (!sessaoId || !habilitacao?.convocado || !motivo.trim()) {
+      setErro('Informe o motivo da inabilitação.')
       return
     }
-
     setProcessando(true)
+    setErro(null)
     try {
-      // Em produção, chamaria o backend e passaria para o próximo classificado
-      alert('Fornecedor inabilitado. Convocando próximo classificado...')
-      
-      // Passa para o próximo
-      const propostaAtual = propostas.find(p => p.fornecedor_id === fornecedorSelecionado)
-      if (propostaAtual && propostaAtual.posicao < propostas.length) {
-        const proxima = propostas.find(p => p.posicao === propostaAtual.posicao + 1)
-        if (proxima) {
-          selecionarFornecedor(proxima.fornecedor_id)
-        }
-      }
-      setMotivoInabilitacao('')
-    } catch (error) {
-      alert('Erro ao inabilitar fornecedor')
-    } finally {
-      setProcessando(false)
+      await authFetch(
+        `${API_URL}/api/sessao/${sessaoId}/habilitacao/reprovar/${habilitacao.convocado.fornecedorId}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }) }
+      )
+      setMotivo('')
+      await carregarHabilitacao(sessaoId)
+    } catch { setErro('Erro ao reprovar habilitação.') }
+    finally { setProcessando(false) }
+  }
+
+  const toggleDoc = (tipo: string, valido: boolean) => {
+    setDocStatus(prev => ({ ...prev, [tipo]: valido ? 'VALIDO' : 'INVALIDO' }))
+  }
+
+  const formatarMoeda = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+  const getStatusBadge = (s: DocStatus) => {
+    const map = {
+      VALIDO: { label: 'Válido', cls: 'bg-green-100 text-green-800', Icon: CheckCircle },
+      INVALIDO: { label: 'Inválido', cls: 'bg-red-100 text-red-800', Icon: XCircle },
+      PENDENTE: { label: 'Pendente', cls: 'bg-yellow-100 text-yellow-800', Icon: Clock },
     }
+    const { label, cls, Icon } = map[s]
+    return <Badge className={cls}><Icon className="mr-1 h-3 w-3" />{label}</Badge>
   }
 
-  const formatarMoeda = (valor: number | string) => {
-    const numero = typeof valor === 'string' ? parseFloat(valor) : valor
-    return (numero || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  }
+  if (loading) return (
+    <div className="flex min-h-[400px] items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+    </div>
+  )
 
-  const formatarData = (data: string) => {
-    return new Date(data).toLocaleDateString('pt-BR')
-  }
-
-  const getStatusBadge = (status: string) => {
-    const config: Record<string, { label: string; color: string; icon: any }> = {
-      VALIDO: { label: 'Válido', color: 'bg-green-100 text-green-800', icon: CheckCircle },
-      INVALIDO: { label: 'Inválido', color: 'bg-red-100 text-red-800', icon: XCircle },
-      PENDENTE: { label: 'Pendente', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-      VENCIDO: { label: 'Vencido', color: 'bg-orange-100 text-orange-800', icon: AlertCircle }
-    }
-    const c = config[status] || config.PENDENTE
-    const Icon = c.icon
-    return (
-      <Badge className={c.color}>
-        <Icon className="h-3 w-3 mr-1" />
-        {c.label}
-      </Badge>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    )
-  }
-
-  const fornecedorAtual = propostas.find(p => p.fornecedor_id === fornecedorSelecionado)
-  const documentosValidos = documentos.filter(d => d.status === 'VALIDO').length
-  const totalDocumentos = documentos.length
+  const convocado = habilitacao?.convocado ?? null
+  const docValidos = Object.values(docStatus).filter(s => s === 'VALIDO').length
+  const docTotal = DOCUMENTOS_OBRIGATORIOS.length
+  const etapaPos = ['INTENCAO_RECURSO', 'PRAZO_RECURSAL', 'ANALISE_RECURSOS', 'ADJUDICACAO', 'HOMOLOGACAO', 'ENCERRAMENTO']
+  const habilitacaoConcluida = habilitacao ? etapaPos.includes(habilitacao.etapa) : false
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
         <Link href={`/orgao/licitacoes/${licitacaoId}`}>
-          <Button variant="outline" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
+          <Button variant="outline" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Habilitação</h1>
           <p className="text-muted-foreground">
-            {licitacao?.numero_processo} - Verificação de documentos
+            {licitacao?.numero_processo} — Art. 62-70, Lei 14.133/2021
           </p>
         </div>
+        {habilitacao && (
+          <Badge className="ml-auto text-sm" variant="outline">{habilitacao.etapa.replace(/_/g, ' ')}</Badge>
+        )}
       </div>
 
+      {erro && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {erro}
+        </div>
+      )}
+
+      {habilitacaoConcluida && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+          <CheckCircle className="h-4 w-4 shrink-0" />
+          Habilitação concluída. Sessão avançou para <strong className="ml-1">{habilitacao?.etapa}</strong>.
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-6">
-        {/* Lista de Classificados */}
+        {/* Ranking de classificados */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Ordem de Classificação</CardTitle>
-            <CardDescription>Selecione para verificar documentos</CardDescription>
+            <CardDescription>Clique para convocar manualmente</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            {propostas.map((proposta) => (
+            {habilitacao?.ranking.length === 0 && (
+              <p className="text-sm text-muted-foreground">Nenhum fornecedor classificado.</p>
+            )}
+            {habilitacao?.ranking.map((item) => (
               <div
-                key={proposta.id}
-                className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                  fornecedorSelecionado === proposta.fornecedor_id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'hover:bg-slate-50'
+                key={item.fornecedorId}
+                className={`rounded-lg border p-3 transition-colors ${
+                  item.isConvocado ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
                 }`}
-                onClick={() => selecionarFornecedor(proposta.fornecedor_id)}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-lg font-bold text-slate-400">#{proposta.posicao}</span>
-                  {proposta.posicao === 1 && (
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="text-lg font-bold text-slate-400">#{item.posicao}</span>
+                  {item.posicao === 1 && (
                     <Badge className="bg-green-100 text-green-800">
-                      <Award className="h-3 w-3 mr-1" />
-                      Menor Preço
+                      <Award className="mr-1 h-3 w-3" />Menor Preço
                     </Badge>
                   )}
+                  {item.isConvocado && (
+                    <Badge className="bg-blue-100 text-blue-800">Convocado</Badge>
+                  )}
+                  {item.porte && (
+                    <Badge variant="outline" className="text-xs">{item.porte}</Badge>
+                  )}
                 </div>
-                <p className="font-medium text-sm">{proposta.fornecedor?.razao_social}</p>
-                <p className="text-sm text-green-600 font-medium">
-                  {formatarMoeda(proposta.valor_total_proposta)}
-                </p>
+                <p className="text-sm font-medium">{item.razaoSocial}</p>
+                <p className="text-sm font-medium text-green-600">{formatarMoeda(item.valorTotal)}</p>
+                {!item.isConvocado && !habilitacaoConcluida && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 w-full text-xs"
+                    disabled={processando}
+                    onClick={() => convocarFornecedor(item.fornecedorId)}
+                  >
+                    Convocar para habilitação
+                  </Button>
+                )}
               </div>
             ))}
           </CardContent>
         </Card>
 
-        {/* Verificação de Documentos */}
+        {/* Documentos do convocado */}
         <div className="col-span-2 space-y-4">
-          {fornecedorAtual && (
+          {!convocado && !habilitacaoConcluida && (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                <Building2 className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+                Nenhum fornecedor convocado. Selecione o 1º classificado na lista ao lado
+                e clique em "Convocar para habilitação", ou use o endpoint da sessão.
+              </CardContent>
+            </Card>
+          )}
+
+          {convocado && (
             <>
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-start justify-between">
                     <div>
                       <CardTitle className="flex items-center gap-2">
                         <Building2 className="h-5 w-5" />
-                        {fornecedorAtual.fornecedor?.razao_social}
+                        {convocado.razaoSocial}
                       </CardTitle>
                       <CardDescription>
-                        CNPJ: {fornecedorAtual.fornecedor?.cpf_cnpj}
+                        CNPJ: {convocado.cpfCnpj}
+                        {convocado.porte && ` · ${convocado.porte}`}
+                        {' · '}Posição #{convocado.posicao}
                       </CardDescription>
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-muted-foreground">Proposta</p>
-                      <p className="text-xl font-bold text-green-600">
-                        {formatarMoeda(fornecedorAtual.valor_total_proposta)}
-                      </p>
+                      <p className="text-xl font-bold text-green-600">{formatarMoeda(convocado.valorTotal)}</p>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <div className="flex-1">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Documentos Verificados</span>
-                        <span>{documentosValidos}/{totalDocumentos}</span>
+                      <div className="mb-1 flex justify-between text-sm">
+                        <span>Documentos verificados</span>
+                        <span className="font-medium">{docValidos}/{docTotal}</span>
                       </div>
-                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                        <div 
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                        <div
                           className="h-full bg-green-500 transition-all"
-                          style={{ width: `${(documentosValidos / totalDocumentos) * 100}%` }}
+                          style={{ width: `${(docValidos / docTotal) * 100}%` }}
                         />
                       </div>
                     </div>
@@ -321,94 +322,83 @@ export default function HabilitacaoPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
                     <FileCheck className="h-5 w-5" />
                     Documentos de Habilitação
                   </CardTitle>
+                  <CardDescription>
+                    Verifique cada documento. Use ✓ para válido e ✗ para inválido.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {documentos.map((doc) => (
-                    <div 
-                      key={doc.tipo}
-                      className="flex items-center justify-between p-3 border rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-5 w-5 text-slate-400" />
-                        <div>
-                          <p className="font-medium text-sm">{doc.nome}</p>
-                          {doc.dataValidade && (
-                            <p className="text-xs text-muted-foreground">
-                              Validade: {formatarData(doc.dataValidade)}
-                            </p>
-                          )}
+                  {DOCUMENTOS_OBRIGATORIOS.map((doc) => {
+                    const status = docStatus[doc.tipo] ?? 'PENDENTE'
+                    return (
+                      <div key={doc.tipo} className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-3">
+                          <FileText className="h-5 w-5 text-slate-400" />
+                          <p className="text-sm font-medium">{doc.nome}</p>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(doc.status)}
-                        <div className="flex gap-1">
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(status)}
                           <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0"
-                            title="Visualizar"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-green-600"
-                            onClick={() => validarDocumento(doc.tipo, true)}
-                            title="Validar"
+                            size="sm" variant="ghost"
+                            className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                            title="Válido"
+                            onClick={() => toggleDoc(doc.tipo, true)}
                           >
                             <ThumbsUp className="h-4 w-4" />
                           </Button>
                           <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-red-600"
-                            onClick={() => validarDocumento(doc.tipo, false)}
-                            title="Invalidar"
+                            size="sm" variant="ghost"
+                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                            title="Inválido"
+                            onClick={() => toggleDoc(doc.tipo, false)}
                           >
                             <ThumbsDown className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </CardContent>
               </Card>
 
-              {/* Ações */}
+              {/* Decisão */}
               <Card>
-                <CardContent className="pt-6">
-                  <div className="flex gap-4">
+                <CardHeader>
+                  <CardTitle className="text-base">Decisão de Habilitação</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex gap-3">
                     <Button
                       className="flex-1 bg-green-600 hover:bg-green-700"
+                      disabled={processando || docValidos < docTotal}
                       onClick={habilitarFornecedor}
-                      disabled={processando || documentosValidos < totalDocumentos}
                     >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Habilitar Fornecedor
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      className="flex-1"
-                      onClick={() => {
-                        const motivo = prompt('Informe o motivo da inabilitação:')
-                        if (motivo) {
-                          setMotivoInabilitacao(motivo)
-                          inabilitarFornecedor()
-                        }
-                      }}
-                      disabled={processando}
-                    >
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Inabilitar
+                      <ShieldCheck className="mr-2 h-4 w-4" />
+                      Habilitar — avançar para intenção de recurso
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground text-center mt-2">
-                    Ao inabilitar, o próximo classificado será convocado automaticamente
+                  <div className="space-y-2">
+                    <Textarea
+                      value={motivo}
+                      onChange={e => setMotivo(e.target.value)}
+                      placeholder="Motivo da inabilitação (obrigatório)..."
+                      rows={2}
+                    />
+                    <Button
+                      variant="destructive"
+                      className="w-full"
+                      disabled={processando || !motivo.trim()}
+                      onClick={inabilitarFornecedor}
+                    >
+                      <ShieldX className="mr-2 h-4 w-4" />
+                      Inabilitar — convocar próximo classificado
+                    </Button>
+                  </div>
+                  <p className="text-center text-xs text-muted-foreground">
+                    Art. 68, Lei 14.133/2021 — se reprovado, o próximo classificado é convocado automaticamente
                   </p>
                 </CardContent>
               </Card>

@@ -156,6 +156,12 @@ export class SessaoController {
     return this.sessaoService.encerrarDisputaItem(id);
   }
 
+  /** Estado atual da habilitação: convocado, ranking completo e etapa */
+  @Get(':id/habilitacao')
+  async getHabilitacaoStatus(@Param('id') id: string) {
+    return this.sessaoService.getHabilitacaoStatus(id);
+  }
+
   @Put(':id/negociacao/:fornecedorId')
   async iniciarNegociacao(
     @Param('id') id: string,

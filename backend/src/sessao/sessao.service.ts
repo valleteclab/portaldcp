@@ -1001,20 +1001,33 @@ export class SessaoService {
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
     sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
+    sessao.fornecedor_habilitacao_id = fornecedorId;
     await this.sessaoRepository.save(sessao);
 
+    // Busca nome do fornecedor para o evento
+    const proposta = await this.propostaRepository.findOne({
+      where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId },
+      relations: ['fornecedor'],
+    });
+    const nomeFornecedor = proposta?.fornecedor?.razao_social ?? fornecedorId;
+
     await this.registrarEvento(sessao.id, TipoEvento.CONVOCACAO_HABILITACAO,
-      `Fornecedor ${fornecedorId} convocado para apresentar documentos de habilitacao`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, false);
+      `Fornecedor ${nomeFornecedor} convocado para apresentar documentos de habilitacao (Art. 62, Lei 14.133/2021)`,
+      undefined, fornecedorId, sessao.pregoeiro_nome, true);
   }
 
   async aprovarHabilitacao(sessaoId: string, fornecedorId: string): Promise<void> {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
+    // Avança para prazo de intenção de recurso (Art. 165, Lei 14.133/2021)
+    sessao.etapa = EtapaSessao.INTENCAO_RECURSO;
+    sessao.fornecedor_habilitacao_id = null;
+    await this.sessaoRepository.save(sessao);
+
     await this.registrarEvento(sessao.id, TipoEvento.HABILITACAO_APROVADA,
-      `Habilitacao do fornecedor ${fornecedorId} APROVADA`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, false);
+      `Habilitacao APROVADA. Sessao avancou para fase de intencao de recurso (Art. 165)`,
+      undefined, fornecedorId, sessao.pregoeiro_nome, true);
   }
 
   async reprovarHabilitacao(sessaoId: string, fornecedorId: string, motivo: string): Promise<void> {
@@ -1022,8 +1035,73 @@ export class SessaoService {
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
     await this.registrarEvento(sessao.id, TipoEvento.HABILITACAO_REPROVADA,
-      `Habilitacao do fornecedor ${fornecedorId} REPROVADA. Motivo: ${motivo}`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, false, { motivo });
+      `Habilitacao REPROVADA. Motivo: ${motivo}. Proximo classificado sera convocado.`,
+      undefined, fornecedorId, sessao.pregoeiro_nome, true, { motivo });
+
+    // Convoca o próximo classificado automaticamente
+    const proximoId = await this.encontrarProximoClassificado(sessao.licitacao_id, fornecedorId);
+    if (proximoId) {
+      await this.convocarParaHabilitacao(sessaoId, proximoId);
+    } else {
+      // Sem próximo — sessão vai para encerramento sem vencedor
+      sessao.etapa = EtapaSessao.ENCERRAMENTO;
+      sessao.fornecedor_habilitacao_id = null;
+      await this.sessaoRepository.save(sessao);
+      await this.registrarEvento(sessao.id, TipoEvento.SESSAO_ENCERRADA,
+        'Nenhum fornecedor habilitado. Sessao encerrada sem vencedor.',
+        undefined, undefined, sessao.pregoeiro_nome, true);
+    }
+  }
+
+  /** Retorna o ranking de habilitação: convocado atual + todos os classificados em ordem */
+  async getHabilitacaoStatus(sessaoId: string) {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Propostas classificadas ordenadas por valor total (menor = melhor colocado)
+    const propostas = await this.propostaRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      relations: ['fornecedor'],
+      order: { valor_total_proposta: 'ASC' },
+    });
+
+    const classificadas = propostas.filter(p =>
+      ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status)
+    );
+
+    const ranking = classificadas.map((p, i) => ({
+      posicao: i + 1,
+      fornecedorId: p.fornecedor_id,
+      razaoSocial: p.fornecedor?.razao_social ?? 'Desconhecido',
+      cpfCnpj: p.fornecedor?.cpf_cnpj ?? '',
+      porte: (p.fornecedor as any)?.porte ?? null,
+      valorTotal: Number(p.valor_total_proposta),
+      status: p.status,
+      isConvocado: p.fornecedor_id === sessao.fornecedor_habilitacao_id,
+    }));
+
+    const convocado = ranking.find(r => r.isConvocado) ?? null;
+
+    return {
+      sessaoId,
+      licitacaoId: sessao.licitacao_id,
+      etapa: sessao.etapa,
+      convocado,
+      ranking,
+    };
+  }
+
+  /** Encontra o próximo fornecedor classificado após o atual (para reprovar habilitação) */
+  private async encontrarProximoClassificado(licitacaoId: string, fornecedorAtualId: string): Promise<string | null> {
+    const propostas = await this.propostaRepository.find({
+      where: { licitacao_id: licitacaoId },
+      order: { valor_total_proposta: 'ASC' },
+    });
+    const classificadas = propostas.filter(p =>
+      ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status)
+    );
+    const idx = classificadas.findIndex(p => p.fornecedor_id === fornecedorAtualId);
+    return classificadas[idx + 1]?.fornecedor_id ?? null;
   }
 
   // ========================================
