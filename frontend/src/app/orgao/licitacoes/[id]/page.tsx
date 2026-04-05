@@ -249,9 +249,9 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     JULGAMENTO: {
       id: 'JULGAMENTO',
       label: 'Julgamento',
-      descricao: 'Análise final das propostas e definição do vencedor provisório.',
-      artigo: 'Art. 33 da Lei 14.133/2021',
-      acoes: ['Analisar proposta vencedora', 'Verificar exequibilidade', 'Declarar vencedor provisório']
+      descricao: 'Lances encerrados. O pregoeiro deve acessar a Sala de Disputa V3 para conduzir a negociação (Art. 61) e a habilitação do vencedor (Art. 62-70). As próximas etapas — negociação, habilitação, intenção de recurso e adjudicação — são gerenciadas na sala de disputa.',
+      artigo: 'Art. 61 e 62 da Lei 14.133/2021',
+      acoes: []
     },
     HABILITACAO: {
       id: 'HABILITACAO',
@@ -857,27 +857,26 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           acoes.push({ label: 'Encerrar Disputa', action: encerrarDisputa, variant: 'destructive', icon: XCircle })
           break
         case 'JULGAMENTO':
-          acoes.push({ label: 'Ver Resultado', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/propostas`), icon: Eye })
+          acoes.push({ label: 'Acessar Sala de Disputa V3', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
+          acoes.push({ label: 'Ver Ranking de Propostas', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/propostas`), icon: Eye })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
-          acoes.push({ label: 'Avançar para Habilitação', action: avancarFase, icon: ChevronRight })
           break
         case 'HABILITACAO':
-          acoes.push({ label: 'Verificar Documentos', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/habilitacao`), variant: 'default', icon: FileText })
+          acoes.push({ label: 'Sala de Disputa V3 (Habilitação)', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
+          acoes.push({ label: 'Página de Habilitação', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/habilitacao`), icon: FileText })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
-          acoes.push({ label: 'Avançar para Recursos', action: avancarFase, icon: ChevronRight })
           break
         case 'RECURSO':
-          acoes.push({ label: 'Ver Recursos', action: () => alert('Página de recursos em desenvolvimento'), icon: MessageSquare })
+          acoes.push({ label: 'Sala de Disputa V3 (Recursos)', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
-          acoes.push({ label: 'Avançar para Adjudicação', action: avancarFase, icon: ChevronRight })
           break
         case 'ADJUDICACAO':
-          acoes.push({ label: 'Gerar Termo de Adjudicação', action: () => alert('Gerando termo...'), icon: FileText })
+          acoes.push({ label: 'Sala de Disputa V3 (Adjudicação)', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
-          acoes.push({ label: 'Avançar para Homologação', action: avancarFase, icon: ChevronRight })
+          acoes.push({ label: 'Homologar processo', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/homologacao`), icon: Award })
           break
         case 'HOMOLOGACAO':
-          acoes.push({ label: 'Homologar e Concluir', action: homologarLicitacao, variant: 'default', icon: Award })
+          acoes.push({ label: 'Página de Homologação', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/homologacao`), variant: 'default', icon: Award })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           break
       }

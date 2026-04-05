@@ -162,12 +162,25 @@ export class SessaoController {
     return this.sessaoService.getHabilitacaoStatus(id);
   }
 
+  @Get(':id/negociacao')
+  async getNegociacaoStatus(@Param('id') id: string) {
+    return this.sessaoService.getNegociacaoStatus(id);
+  }
+
   @Put(':id/negociacao/:fornecedorId')
   async iniciarNegociacao(
     @Param('id') id: string,
     @Param('fornecedorId') fornecedorId: string
   ) {
     return this.sessaoService.iniciarNegociacao(id, fornecedorId);
+  }
+
+  @Put(':id/negociacao/encerrar')
+  async encerrarNegociacao(
+    @Param('id') id: string,
+    @Body() body: { valorFinal?: number }
+  ) {
+    return this.sessaoService.encerrarNegociacao(id, body.valorFinal);
   }
 
   @Put(':id/habilitacao/convocar/:fornecedorId')
@@ -200,12 +213,27 @@ export class SessaoController {
     return this.sessaoService.abrirPrazoIntencaoRecurso(id);
   }
 
+  @Get(':id/recursos/intencoes')
+  async getIntencaoRecursoStatus(@Param('id') id: string) {
+    return this.sessaoService.getIntencaoRecursoStatus(id);
+  }
+
   @Post(':id/recursos/intencao')
   async registrarIntencaoRecurso(
     @Param('id') id: string,
     @Body() body: { fornecedorId: string; motivacao: string }
   ) {
     return this.sessaoService.registrarIntencaoRecurso(id, body.fornecedorId, body.motivacao);
+  }
+
+  @Put(':id/recursos/encerrar-prazo')
+  async encerrarPrazoIntencaoRecurso(@Param('id') id: string) {
+    return this.sessaoService.encerrarPrazoIntencaoRecurso(id);
+  }
+
+  @Get(':id/adjudicacao')
+  async getAdjudicacaoStatus(@Param('id') id: string) {
+    return this.sessaoService.getAdjudicacaoStatus(id);
   }
 
   @Put(':id/adjudicar/:itemId')
@@ -215,6 +243,11 @@ export class SessaoController {
     @Body() body: { fornecedorId: string; valor: number }
   ) {
     return this.sessaoService.adjudicarItem(id, itemId, body.fornecedorId, body.valor);
+  }
+
+  @Put(':id/adjudicar-todos')
+  async adjudicarTodos(@Param('id') id: string) {
+    return this.sessaoService.adjudicarTodos(id);
   }
 
   @Put(':id/encerrar')

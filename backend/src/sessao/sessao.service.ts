@@ -1004,6 +1004,9 @@ export class SessaoService {
     sessao.fornecedor_habilitacao_id = fornecedorId;
     await this.sessaoRepository.save(sessao);
 
+    // Sync licitacao.fase → HABILITACAO (Art. 62)
+    await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.HABILITACAO });
+
     // Busca nome do fornecedor para o evento
     const proposta = await this.propostaRepository.findOne({
       where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId },
@@ -1170,6 +1173,261 @@ export class SessaoService {
       undefined, undefined, sessao.pregoeiro_nome, false);
 
     return sessao;
+  }
+
+  // ========================================
+  // NEGOCIACAO — métodos adicionais
+  // ========================================
+
+  /** Retorna o 1º classificado (vencedor) com identidade revelada + histórico de eventos de negociação */
+  async getNegociacaoStatus(sessaoId: string) {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // 1º classificado = proposta de menor valor total entre as classificadas
+    const propostas = await this.propostaRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      relations: ['fornecedor'],
+      order: { valor_total_proposta: 'ASC' },
+    });
+    const classificadas = propostas.filter(p =>
+      ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status)
+    );
+    const primeiro = classificadas[0] ?? null;
+
+    // Melhor lance registrado (menor valor entre todos os lances da licitação)
+    const melhorLance = await this.lanceRepository.findOne({
+      where: { licitacao_id: sessao.licitacao_id, cancelado: false },
+      order: { valor: 'ASC' },
+    });
+
+    // Histórico de eventos de negociação
+    const eventos = await this.eventoRepository.find({
+      where: { sessao_id: sessaoId },
+      order: { created_at: 'ASC' },
+    });
+    const tiposNegociacao = new Set([
+      TipoEvento.NEGOCIACAO_INICIADA,
+      TipoEvento.NEGOCIACAO_PROPOSTA,
+      TipoEvento.NEGOCIACAO_ACEITA,
+      TipoEvento.NEGOCIACAO_RECUSADA,
+      TipoEvento.NEGOCIACAO_ENCERRADA,
+    ]);
+    const historicoNegociacao = eventos
+      .filter(e => tiposNegociacao.has(e.tipo as TipoEvento))
+      .map(e => ({
+        tipo: e.tipo,
+        mensagem: e.descricao,
+        remetente: e.usuario_nome,
+        dataHora: e.created_at,
+        dados: e.dados_adicionais,
+      }));
+
+    return {
+      sessaoId,
+      etapa: sessao.etapa,
+      vencedor: primeiro ? {
+        fornecedorId: primeiro.fornecedor_id,
+        razaoSocial: primeiro.fornecedor?.razao_social ?? 'Desconhecido',
+        cpfCnpj: primeiro.fornecedor?.cpf_cnpj ?? '',
+        porte: (primeiro.fornecedor as any)?.porte ?? null,
+        valorProposta: Number(primeiro.valor_total_proposta),
+      } : null,
+      melhorLance: melhorLance ? Number(melhorLance.valor) : null,
+      historicoNegociacao,
+    };
+  }
+
+  /** Encerra a negociação, registra o valor final e avança para habilitação */
+  async encerrarNegociacao(sessaoId: string, valorFinal?: number): Promise<void> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    await this.registrarEvento(sessao.id, TipoEvento.NEGOCIACAO_ENCERRADA,
+      valorFinal
+        ? `Negociacao encerrada. Valor final negociado: R$ ${valorFinal.toFixed(2)}`
+        : 'Negociacao encerrada. Pregoeiro optou por pular a negociacao.',
+      undefined, undefined, sessao.pregoeiro_nome, true,
+      valorFinal ? { valor_final: valorFinal } : undefined);
+
+    // Avança para habilitação — o pregoeiro convocará manualmente o fornecedor
+    sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
+    await this.sessaoRepository.save(sessao);
+
+    // Sync licitacao.fase → HABILITACAO
+    await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.HABILITACAO });
+  }
+
+  // ========================================
+  // INTENÇÃO DE RECURSO — métodos adicionais
+  // ========================================
+
+  /** Retorna participantes da sessão e quais registraram intenção de recurso */
+  async getIntencaoRecursoStatus(sessaoId: string) {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Participantes com propostas classificadas
+    const propostas = await this.propostaRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      relations: ['fornecedor'],
+      order: { valor_total_proposta: 'ASC' },
+    });
+    const participantes = propostas
+      .filter(p => ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status))
+      .map(p => ({
+        fornecedorId: p.fornecedor_id,
+        razaoSocial: p.fornecedor?.razao_social ?? 'Desconhecido',
+        cpfCnpj: p.fornecedor?.cpf_cnpj ?? '',
+      }));
+
+    // Eventos de intenção de recurso
+    const eventos = await this.eventoRepository.find({
+      where: { sessao_id: sessaoId, tipo: TipoEvento.INTENCAO_RECURSO_REGISTRADA },
+      order: { created_at: 'ASC' },
+    });
+    const intencoes = eventos.map(e => ({
+      fornecedorId: e.fornecedor_identificador,
+      mensagem: e.descricao,
+      dataHora: e.created_at,
+      dados: e.dados_adicionais,
+    }));
+
+    const fornecedoresComIntencao = new Set(intencoes.map(i => i.fornecedorId));
+    const semIntencao = participantes.filter(p => !fornecedoresComIntencao.has(p.fornecedorId));
+
+    return {
+      sessaoId,
+      etapa: sessao.etapa,
+      intencoes,
+      participantes,
+      semIntencao,
+      totalIntencoes: intencoes.length,
+    };
+  }
+
+  /** Encerra o prazo de intenção de recurso e avança a etapa */
+  async encerrarPrazoIntencaoRecurso(sessaoId: string): Promise<{ etapaProxima: string; totalIntencoes: number }> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Conta intenções registradas
+    const totalIntencoes = await this.eventoRepository.count({
+      where: { sessao_id: sessaoId, tipo: TipoEvento.INTENCAO_RECURSO_REGISTRADA as any },
+    });
+
+    let etapaProxima: EtapaSessao;
+    let mensagem: string;
+
+    if (totalIntencoes > 0) {
+      etapaProxima = EtapaSessao.PRAZO_RECURSAL;
+      mensagem = `Prazo de intencao de recurso encerrado. ${totalIntencoes} intencao(oes) registrada(s). Prazo recursal aberto (3 dias uteis).`;
+    } else {
+      etapaProxima = EtapaSessao.ADJUDICACAO;
+      mensagem = 'Prazo de intencao de recurso encerrado sem manifestacoes. Sessao avancada para adjudicacao direta (Art. 71).';
+    }
+
+    sessao.etapa = etapaProxima;
+    await this.sessaoRepository.save(sessao);
+
+    await this.registrarEvento(sessao.id, TipoEvento.MENSAGEM_SISTEMA,
+      mensagem, undefined, undefined, sessao.pregoeiro_nome, true);
+
+    return { etapaProxima, totalIntencoes };
+  }
+
+  // ========================================
+  // ADJUDICAÇÃO — métodos adicionais
+  // ========================================
+
+  /** Retorna itens encerrados com seus vencedores para confirmação da adjudicação */
+  async getAdjudicacaoStatus(sessaoId: string) {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Itens da licitação
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      order: { numero: 'ASC' },
+    });
+
+    // Para cada item, busca o melhor lance
+    const itensPorLance = await Promise.all(
+      itens.map(async (item) => {
+        const melhorLance = await this.lanceRepository.findOne({
+          where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
+          order: { valor: 'ASC' },
+        });
+
+        let vencedor = null;
+        if (melhorLance) {
+          const proposta = await this.propostaRepository.findOne({
+            where: { licitacao_id: sessao.licitacao_id, fornecedor_id: melhorLance.fornecedor_id },
+            relations: ['fornecedor'],
+          });
+          vencedor = {
+            fornecedorId: melhorLance.fornecedor_id,
+            razaoSocial: proposta?.fornecedor?.razao_social ?? 'Desconhecido',
+            cpfCnpj: proposta?.fornecedor?.cpf_cnpj ?? '',
+            valor: Number(melhorLance.valor),
+          };
+        }
+
+        return {
+          itemId: item.id,
+          numero: item.numero,
+          descricao: item.descricao,
+          quantidade: item.quantidade,
+          unidade: item.unidade,
+          vencedor,
+        };
+      })
+    );
+
+    return {
+      sessaoId,
+      licitacaoId: sessao.licitacao_id,
+      etapa: sessao.etapa,
+      itens: itensPorLance,
+    };
+  }
+
+  /** Adjudica todos os itens de uma vez e avança a licitação para ADJUDICACAO */
+  async adjudicarTodos(sessaoId: string): Promise<void> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      order: { numero: 'ASC' },
+    });
+
+    let totalAdjudicados = 0;
+    for (const item of itens) {
+      const melhorLance = await this.lanceRepository.findOne({
+        where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
+        order: { valor: 'ASC' },
+      });
+      if (melhorLance) {
+        await this.registrarEvento(sessao.id, TipoEvento.ITEM_ADJUDICADO,
+          `Item ${item.numero} adjudicado ao fornecedor ${melhorLance.fornecedor_id} por R$ ${Number(melhorLance.valor).toFixed(2)}`,
+          item.id, melhorLance.fornecedor_id, sessao.pregoeiro_nome, true,
+          { valor: Number(melhorLance.valor) });
+        totalAdjudicados++;
+      }
+    }
+
+    // Registra adjudicação geral
+    await this.registrarEvento(sessao.id, TipoEvento.LICITACAO_ADJUDICADA,
+      `Licitacao adjudicada. ${totalAdjudicados} item(ns) adjudicado(s) (Art. 71, Lei 14.133/2021).`,
+      undefined, undefined, sessao.pregoeiro_nome, true);
+
+    // Avança etapa para HOMOLOGACAO
+    sessao.etapa = EtapaSessao.HOMOLOGACAO;
+    await this.sessaoRepository.save(sessao);
+
+    // Sync licitacao.fase → ADJUDICACAO
+    await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.ADJUDICACAO });
   }
 
   async suspenderSessao(sessaoId: string, motivo: string): Promise<SessaoDisputa> {
