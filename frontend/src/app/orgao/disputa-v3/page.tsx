@@ -151,7 +151,7 @@ export default function DisputaV3OrgaoPage() {
     <ModuleGuard modulo={ModuloSistema.DISPUTA} fallbackUrl="/orgao">
       <div className="min-h-screen bg-slate-50">
         <div className="border-b bg-white">
-          <div className="mx-auto max-w-7xl px-4 py-6">
+          <div className="px-6 py-3">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -206,7 +206,7 @@ export default function DisputaV3OrgaoPage() {
           </div>
         </div>
 
-        <div className="mx-auto max-w-7xl px-4 py-6">
+        <div className="px-6 py-4">
           {loading ? (
             <Card>
               <CardContent className="py-12 text-center text-slate-600">
@@ -318,8 +318,8 @@ export default function DisputaV3OrgaoPage() {
                 </Card>
               )}
 
-              <div className="grid gap-6 xl:grid-cols-12">
-                <div className="space-y-4 xl:col-span-3">
+              <div className="grid gap-4 xl:grid-cols-12">
+                <div className="space-y-4 xl:col-span-2">
                   <Card>
                     <CardHeader>
                       <CardTitle>Fila operacional</CardTitle>
@@ -333,7 +333,7 @@ export default function DisputaV3OrgaoPage() {
                         </Button>
                       </div>
 
-                      <ScrollArea className="h-[520px] pr-3">
+                      <ScrollArea className="h-[calc(100vh-340px)] pr-3">
                         <div className="space-y-3">
                           {[{ titulo: 'Em disputa', itens: emDisputa }, { titulo: 'Aguardando', itens: aguardando }, { titulo: 'Encerrados', itens: encerrados }].map((grupo) => (
                             <div key={grupo.titulo} className="space-y-2">
@@ -382,7 +382,7 @@ export default function DisputaV3OrgaoPage() {
                   </Card>
                 </div>
 
-                <div className="space-y-4 xl:col-span-6">
+                <div className="space-y-4 xl:col-span-7">
                   <Card className="overflow-hidden">
                     <CardHeader className="border-b bg-slate-950 text-white">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -523,7 +523,7 @@ export default function DisputaV3OrgaoPage() {
                       <CardDescription>Mensagens oficiais e orientacoes rapidas do pregoeiro.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <ScrollArea className="h-[360px] pr-3">
+                      <ScrollArea className="h-[calc(100vh-520px)] pr-3">
                         <div className="space-y-3">
                           {mensagens.length === 0 ? (
                             <div className="rounded-lg border border-dashed px-3 py-5 text-sm text-slate-400">
