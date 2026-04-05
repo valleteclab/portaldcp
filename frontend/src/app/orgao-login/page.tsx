@@ -78,6 +78,9 @@ export default function OrgaoLoginPage() {
         localStorage.setItem("orgao", JSON.stringify(data.orgao))
       }
 
+      // Limpa sessão de disputa de outro órgão que possa estar em cache
+      localStorage.removeItem('sessao_disputa_selecionada')
+
       // Vai para o dashboard do órgão
       router.push("/orgao")
 

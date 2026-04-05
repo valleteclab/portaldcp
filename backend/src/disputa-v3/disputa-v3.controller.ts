@@ -44,7 +44,9 @@ export class DisputaV3Controller {
       return this.disputaV3Service.getBoardFornecedor(sessaoId, fornecedorId);
     }
 
-    return this.disputaV3Service.getBoardPregoeiro(sessaoId);
+    // Valida que o órgão autenticado é dono da sessão (evita cross-org data leak)
+    const orgaoId = req.user.type === UserType.ORGAO ? req.user.sub : undefined;
+    return this.disputaV3Service.getBoardPregoeiro(sessaoId, orgaoId);
   }
 
   /** Últimos lances do fornecedor no item + flags para cancelamento (15s / solicitação). */

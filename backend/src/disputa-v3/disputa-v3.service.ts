@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -52,8 +52,8 @@ export class DisputaV3Service {
     return montarContextoSessaoV3(sessao);
   }
 
-  async getBoardPregoeiro(sessaoId: string): Promise<DisputaV3Board> {
-    const sessao = await this.buscarSessao(sessaoId);
+  async getBoardPregoeiro(sessaoId: string, orgaoId?: string): Promise<DisputaV3Board> {
+    const sessao = await this.buscarSessao(sessaoId, orgaoId);
     const itens = await this.disputaService.getItensPorStatus(sessaoId);
     const solicitacoesCancelamento =
       await this.disputaService.listarSolicitacoesCancelamentoPendentesV3(sessaoId);
@@ -104,7 +104,7 @@ export class DisputaV3Service {
     };
   }
 
-  private async buscarSessao(sessaoId: string): Promise<SessaoDisputa> {
+  private async buscarSessao(sessaoId: string, orgaoId?: string): Promise<SessaoDisputa> {
     const sessao = await this.sessaoRepo.findOne({
       where: { id: sessaoId },
       relations: ['licitacao'],
@@ -113,6 +113,10 @@ export class DisputaV3Service {
 
     if (!sessao) {
       throw new NotFoundException('Sessao nao encontrada');
+    }
+
+    if (orgaoId && sessao.licitacao?.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Acesso negado a esta sessao');
     }
 
     return sessao;
