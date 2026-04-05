@@ -203,7 +203,7 @@ export default function DisputaV3OrgaoPage() {
 
   // === HABILITAÇÃO LOGIC ===
   const etapaCodigo = contexto?.etapa?.codigo || ''
-  const isHabilitacaoAtiva = ['CONVOCACAO_HABILITACAO', 'ANALISE_HABILITACAO'].includes(etapaCodigo)
+  const isHabilitacaoAtiva = etapaCodigo === 'HABILITACAO'
 
   const carregarHabilitacao = useCallback(async () => {
     if (!sessaoId) return
@@ -340,7 +340,7 @@ export default function DisputaV3OrgaoPage() {
   }
 
   // === INTENÇÃO DE RECURSO LOGIC ===
-  const isIntencaoAtiva = etapaCodigo === 'INTENCAO_RECURSO'
+  const isIntencaoAtiva = etapaCodigo === 'RECURSOS'
   const carregarIntencao = useCallback(async () => {
     if (!sessaoId) return
     try {
