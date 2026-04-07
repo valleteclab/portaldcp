@@ -52,6 +52,7 @@ import { AnpModule } from './anp/anp.module';
 import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
 import { PatrimonioModule } from './patrimonio/patrimonio.module';
 import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
+import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
 
 @Module({
   imports: [
@@ -148,6 +149,7 @@ import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
     WhatsappAgentModule,
     PatrimonioModule,
     MedicaoIaModule,
+    NfseSpedyModule,
   ],
   controllers: [HealthController],
   providers: [
