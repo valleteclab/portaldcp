@@ -51,6 +51,7 @@ import { FrotaModule } from './frota/frota.module';
 import { AnpModule } from './anp/anp.module';
 import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
 import { PatrimonioModule } from './patrimonio/patrimonio.module';
+import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
 
 @Module({
   imports: [
@@ -146,6 +147,7 @@ import { PatrimonioModule } from './patrimonio/patrimonio.module';
     AnpModule,
     WhatsappAgentModule,
     PatrimonioModule,
+    MedicaoIaModule,
   ],
   controllers: [HealthController],
   providers: [
