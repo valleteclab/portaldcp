@@ -8,68 +8,103 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, ReceiptText, Search } from 'lucide-react'
 
-const EXEMPLO_PAYLOAD = JSON.stringify(
-  {
-    environment: 'homolog',
-    companyTaxId: '12345678000199',
-    municipalServiceCode: '0107',
-    description: 'Serviços técnicos especializados',
-    serviceValue: 1500.0,
-    customer: {
-      taxId: '00999999000199',
-      legalName: 'PREFEITURA EXEMPLO',
-      email: 'fiscal@orgao.gov.br',
-    },
-  },
-  null,
-  2,
-)
+interface FormNfse {
+  integrationId: string
+  referenceCode: string
+  environment: 'homolog' | 'production'
+  companyTaxId: string
+  municipalServiceCode: string
+  description: string
+  serviceValue: string
+  customerTaxId: string
+  customerLegalName: string
+  customerEmail: string
+}
+
+const initialForm: FormNfse = {
+  integrationId: '',
+  referenceCode: '',
+  environment: 'homolog',
+  companyTaxId: '',
+  municipalServiceCode: '',
+  description: '',
+  serviceValue: '',
+  customerTaxId: '',
+  customerLegalName: '',
+  customerEmail: '',
+}
+
+const onlyDigits = (value: string) => value.replace(/\D/g, '')
 
 export default function FornecedorNfseSpedyPage() {
-  const [integrationId, setIntegrationId] = useState('')
-  const [referenceCode, setReferenceCode] = useState('')
-  const [payloadJson, setPayloadJson] = useState(EXEMPLO_PAYLOAD)
+  const [form, setForm] = useState<FormNfse>(initialForm)
   const [consultaId, setConsultaId] = useState('')
+  const [modoAvancado, setModoAvancado] = useState(false)
+  const [payloadAvancado, setPayloadAvancado] = useState('')
 
   const [loadingEmitir, setLoadingEmitir] = useState(false)
   const [loadingConsultar, setLoadingConsultar] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [resultado, setResultado] = useState<any>(null)
 
-  const payloadValido = useMemo(() => {
-    try {
-      JSON.parse(payloadJson)
-      return true
-    } catch {
-      return false
+  const payloadGerado = useMemo(() => {
+    return {
+      environment: form.environment,
+      companyTaxId: onlyDigits(form.companyTaxId),
+      municipalServiceCode: form.municipalServiceCode,
+      description: form.description,
+      serviceValue: Number(form.serviceValue || 0),
+      customer: {
+        taxId: onlyDigits(form.customerTaxId),
+        legalName: form.customerLegalName,
+        email: form.customerEmail,
+      },
     }
-  }, [payloadJson])
+  }, [form])
+
+  const payloadFinal = useMemo(() => {
+    if (!modoAvancado) return payloadGerado
+    try {
+      return JSON.parse(payloadAvancado)
+    } catch {
+      return null
+    }
+  }, [modoAvancado, payloadAvancado, payloadGerado])
+
+  const errosFormulario = useMemo(() => {
+    const erros: string[] = []
+    if (!form.integrationId.trim()) erros.push('integrationId é obrigatório')
+    if (onlyDigits(form.companyTaxId).length !== 14) erros.push('CNPJ do emitente inválido')
+    if (!form.municipalServiceCode.trim()) erros.push('Código de serviço municipal é obrigatório')
+    if (!form.description.trim()) erros.push('Descrição do serviço é obrigatória')
+    if (!form.serviceValue || Number(form.serviceValue) <= 0) erros.push('Valor do serviço deve ser maior que zero')
+    if (onlyDigits(form.customerTaxId).length < 11) erros.push('CPF/CNPJ do tomador inválido')
+    if (!form.customerLegalName.trim()) erros.push('Razão social do tomador é obrigatória')
+    if (!form.customerEmail.trim()) erros.push('E-mail do tomador é obrigatório')
+    if (modoAvancado && !payloadFinal) erros.push('JSON do modo avançado inválido')
+    return erros
+  }, [form, modoAvancado, payloadFinal])
 
   const emitir = async () => {
     setErro(null)
     setResultado(null)
 
-    if (!integrationId.trim()) {
-      setErro('Informe o integrationId.')
-      return
-    }
-
-    if (!payloadValido) {
-      setErro('O JSON do payload está inválido.')
+    if (errosFormulario.length > 0) {
+      setErro(`Revise os campos obrigatórios: ${errosFormulario[0]}.`)
       return
     }
 
     setLoadingEmitir(true)
     try {
-      const payload = JSON.parse(payloadJson)
       const res = await authFetch(`${API_URL}/api/nfse/spedy/emitir`, {
         method: 'POST',
         body: JSON.stringify({
-          integrationId,
-          referenceCode: referenceCode || undefined,
-          payload,
+          integrationId: form.integrationId,
+          referenceCode: form.referenceCode || undefined,
+          payload: payloadFinal,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -121,52 +156,101 @@ export default function FornecedorNfseSpedyPage() {
           Emissão NFS-e (Spedy)
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Novo módulo isolado para fornecedor emitir e consultar NFS-e sem alterar fluxos antigos.
+          Fluxo guiado de emissão com dados fiscais essenciais do serviço e do tomador.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Emitir NFS-e</CardTitle>
+          <CardTitle>Dados da NFS-e</CardTitle>
           <CardDescription>
-            Preencha os campos e envie o payload no formato esperado pela Spedy.
+            Preencha os dados básicos para emissão. O payload é montado automaticamente.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>integrationId *</Label>
-              <Input
-                value={integrationId}
-                onChange={(e) => setIntegrationId(e.target.value)}
-                placeholder="of-123-medicao-04"
-              />
+              <Input value={form.integrationId} onChange={(e) => setForm({ ...form, integrationId: e.target.value })} placeholder="ordem-123-medicao-01" />
             </div>
             <div className="space-y-2">
-              <Label>referenceCode (opcional)</Label>
-              <Input
-                value={referenceCode}
-                onChange={(e) => setReferenceCode(e.target.value)}
-                placeholder="CONTRATO-2026-001"
-              />
+              <Label>referenceCode</Label>
+              <Input value={form.referenceCode} onChange={(e) => setForm({ ...form, referenceCode: e.target.value })} placeholder="CONTRATO-2026-001" />
+            </div>
+            <div className="space-y-2">
+              <Label>Ambiente *</Label>
+              <Select value={form.environment} onValueChange={(v: 'homolog' | 'production') => setForm({ ...form, environment: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="homolog">Homologação</SelectItem>
+                  <SelectItem value="production">Produção</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>CNPJ Emitente *</Label>
+              <Input value={form.companyTaxId} onChange={(e) => setForm({ ...form, companyTaxId: e.target.value })} placeholder="00.000.000/0001-00" />
+            </div>
+            <div className="space-y-2">
+              <Label>Código Serviço Municipal *</Label>
+              <Input value={form.municipalServiceCode} onChange={(e) => setForm({ ...form, municipalServiceCode: e.target.value })} placeholder="0107" />
+            </div>
+            <div className="space-y-2">
+              <Label>Valor do Serviço (R$) *</Label>
+              <Input type="number" step="0.01" min="0" value={form.serviceValue} onChange={(e) => setForm({ ...form, serviceValue: e.target.value })} placeholder="1500.00" />
             </div>
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Payload JSON *</Label>
-              <Badge variant={payloadValido ? 'default' : 'destructive'}>
-                {payloadValido ? 'JSON válido' : 'JSON inválido'}
-              </Badge>
-            </div>
-            <Textarea
-              className="font-mono text-xs min-h-[260px]"
-              value={payloadJson}
-              onChange={(e) => setPayloadJson(e.target.value)}
-            />
+            <Label>Descrição do Serviço *</Label>
+            <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex.: Prestação de serviços técnicos especializados referentes ao contrato..." />
           </div>
 
-          <Button onClick={emitir} disabled={loadingEmitir || !payloadValido}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>CPF/CNPJ Tomador *</Label>
+              <Input value={form.customerTaxId} onChange={(e) => setForm({ ...form, customerTaxId: e.target.value })} placeholder="00.000.000/0001-00" />
+            </div>
+            <div className="space-y-2">
+              <Label>Razão Social Tomador *</Label>
+              <Input value={form.customerLegalName} onChange={(e) => setForm({ ...form, customerLegalName: e.target.value })} placeholder="Prefeitura Municipal..." />
+            </div>
+            <div className="space-y-2">
+              <Label>E-mail Tomador *</Label>
+              <Input type="email" value={form.customerEmail} onChange={(e) => setForm({ ...form, customerEmail: e.target.value })} placeholder="fiscal@orgao.gov.br" />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button type="button" variant={modoAvancado ? 'default' : 'outline'} onClick={() => setModoAvancado(v => !v)}>
+              {modoAvancado ? 'Desativar modo avançado' : 'Ativar modo avançado (JSON)'}
+            </Button>
+            <Badge variant={errosFormulario.length === 0 ? 'default' : 'destructive'}>
+              {errosFormulario.length === 0 ? 'Pronto para emitir' : `${errosFormulario.length} pendência(s)`}
+            </Badge>
+          </div>
+
+          {modoAvancado && (
+            <div className="space-y-2">
+              <Label>Payload JSON manual</Label>
+              <Textarea
+                className="font-mono text-xs min-h-[220px]"
+                value={payloadAvancado}
+                onChange={(e) => setPayloadAvancado(e.target.value)}
+                placeholder={JSON.stringify(payloadGerado, null, 2)}
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Preview payload enviado</Label>
+            <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto">{JSON.stringify(payloadFinal || payloadGerado, null, 2)}</pre>
+          </div>
+
+          <Button onClick={emitir} disabled={loadingEmitir || errosFormulario.length > 0}>
             {loadingEmitir ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             Emitir NFS-e
           </Button>
@@ -181,11 +265,7 @@ export default function FornecedorNfseSpedyPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col md:flex-row gap-3">
-          <Input
-            value={consultaId}
-            onChange={(e) => setConsultaId(e.target.value)}
-            placeholder="ID da NFS-e na Spedy"
-          />
+          <Input value={consultaId} onChange={(e) => setConsultaId(e.target.value)} placeholder="ID da NFS-e na Spedy" />
           <Button onClick={consultarStatus} disabled={loadingConsultar} variant="outline">
             {loadingConsultar ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
             Consultar
