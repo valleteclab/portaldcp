@@ -33,6 +33,7 @@ import {
   KeyRound,
   Landmark,
   Wrench,
+  ReceiptText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -131,6 +132,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/fornecedor/medicao-ia", label: "Medição com IA (Beta)", icon: Bot },
     { href: "/fornecedor/contratos", label: "Meus Contratos", icon: FileCheck },
     { href: "/fornecedor/ordens", label: "Ordens de Fornecimento", icon: Send },
+    { href: "/fornecedor/nfse-spedy", label: "NFS-e (Spedy)", icon: ReceiptText },
     { href: "/fornecedor/cadastro-sicaf", label: "Meu Cadastro", icon: User },
   ]
 
