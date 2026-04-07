@@ -3,6 +3,15 @@ import { JwtPayload, UserType } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
 import { CreateNfseSpedyDto } from './dto/create-nfse-spedy.dto';
 import { NfseSpedyService } from './nfse-spedy.service';
+import { IsString } from 'class-validator';
+
+class VincularSpedyDto {
+  @IsString()
+  spedyCompanyId: string;
+
+  @IsString()
+  spedyApiKey: string;
+}
 
 @Controller('nfse/spedy')
 export class NfseSpedyController {
@@ -10,10 +19,24 @@ export class NfseSpedyController {
 
   private getFornecedorId(user: JwtPayload): string {
     if (user.type !== UserType.FORNECEDOR) {
-      throw new ForbiddenException('Apenas fornecedores podem emitir NFS-e');
+      throw new ForbiddenException('Apenas fornecedores podem usar este recurso');
     }
-
     return user.sub;
+  }
+
+  @Get('meus-dados')
+  async meusDados(@Req() request: { user: JwtPayload }) {
+    const fornecedorId = this.getFornecedorId(request.user);
+    return this.nfseSpedyService.dadosFornecedorParaSpedy(fornecedorId);
+  }
+
+  @Post('vincular')
+  async vincular(
+    @Req() request: { user: JwtPayload },
+    @Body() body: VincularSpedyDto,
+  ) {
+    const fornecedorId = this.getFornecedorId(request.user);
+    return this.nfseSpedyService.vincularEmpresaSpedy(fornecedorId, body.spedyCompanyId, body.spedyApiKey);
   }
 
   @Post('emitir')

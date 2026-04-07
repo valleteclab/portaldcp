@@ -199,6 +199,13 @@ export class Fornecedor {
   @Column({ default: true })
   ativo: boolean;
 
+  // === INTEGRAÇÃO SPEDY (NFS-e) ===
+  @Column({ nullable: true })
+  spedy_company_id: string;
+
+  @Column({ nullable: true })
+  spedy_api_key: string;
+
   @CreateDateColumn()
   created_at: Date;
 
