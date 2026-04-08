@@ -2223,6 +2223,16 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         await queryRunner.manager.remove(requisicao.etapasOS);
       }
 
+      // Nula FKs externas sem CASCADE que referenciam esta requisição
+      await queryRunner.manager.query(
+        `UPDATE medicoes SET requisicao_id = NULL WHERE requisicao_id = $1`,
+        [requisicao.id]
+      );
+      await queryRunner.manager.query(
+        `UPDATE ordens_fornecimento SET requisicao_id = NULL WHERE requisicao_id = $1`,
+        [requisicao.id]
+      );
+
       await queryRunner.manager.remove(requisicao);
 
       await queryRunner.commitTransaction();
