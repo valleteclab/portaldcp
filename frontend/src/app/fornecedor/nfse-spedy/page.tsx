@@ -57,7 +57,7 @@ const LC116_CODES = [
 ]
 
 const NBS_CODES = [
-  { code: '', desc: '— Não se aplica / Não sei —' },
+  { code: '_none', desc: '— Não se aplica / Não sei —' },
   { code: '1.01.01.10.00', desc: '1.01.01.10.00 — Análise e desenvolvimento de sistemas' },
   { code: '1.01.01.20.00', desc: '1.01.01.20.00 — Programação de computadores' },
   { code: '1.01.01.30.00', desc: '1.01.01.30.00 — Processamento de dados e congêneres' },
@@ -625,11 +625,11 @@ export default function FornecedorNfseSpedyPage() {
                   <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                 </span>
               </Label>
-              <Select value={form.nbsCode} onValueChange={v => set('nbsCode', v)}>
+              <Select value={form.nbsCode || '_none'} onValueChange={v => set('nbsCode', v === '_none' ? '' : v)}>
                 <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                 <SelectContent>
                   {NBS_CODES.map(n => (
-                    <SelectItem key={n.code || '_nenhum'} value={n.code}>{n.desc}</SelectItem>
+                    <SelectItem key={n.code} value={n.code}>{n.desc}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
