@@ -281,7 +281,7 @@ export class MedicaoService {
   }
 
   async listarItensCronograma(contratoId: string): Promise<ItemCronograma[]> {
-    await this.validarContratoMedicao(contratoId);
+    await this.validarContratoMedicao(contratoId, true);
     return this.itemCronogramaRepository.find({
       where: { contrato_id: contratoId },
       order: { numero_item: 'ASC' },
@@ -2163,7 +2163,7 @@ export class MedicaoService {
   // ============================================================================
 
   async resumoMedicoes(contratoId: string) {
-    const contrato = await this.validarContratoMedicao(contratoId);
+    const contrato = await this.validarContratoMedicao(contratoId, true);
     const etapas = await this.listarEtapas(contratoId);
     const medicoes = await this.listarMedicoes(contratoId);
 
@@ -2661,21 +2661,23 @@ export class MedicaoService {
     return [ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA].includes(contrato.modalidade_execucao);
   }
 
-  private async validarContratoMedicao(contratoId: string): Promise<Contrato> {
+  private async validarContratoMedicao(contratoId: string, somenteLeitura = false): Promise<Contrato> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
 
-    const STATUS_BLOQUEADOS: StatusContrato[] = [
-      StatusContrato.VENCIDO,
-      StatusContrato.ENCERRADO,
-      StatusContrato.RESCINDIDO,
-      StatusContrato.CANCELADO,
-      StatusContrato.SUSPENSO,
-    ];
-    if (STATUS_BLOQUEADOS.includes(contrato.status)) {
-      throw new BadRequestException(
-        `Contrato ${contrato.numero_contrato} está com status ${contrato.status}. Não é possível criar ou editar medições.`
-      );
+    if (!somenteLeitura) {
+      const STATUS_BLOQUEADOS: StatusContrato[] = [
+        StatusContrato.VENCIDO,
+        StatusContrato.ENCERRADO,
+        StatusContrato.RESCINDIDO,
+        StatusContrato.CANCELADO,
+        StatusContrato.SUSPENSO,
+      ];
+      if (STATUS_BLOQUEADOS.includes(contrato.status)) {
+        throw new BadRequestException(
+          `Contrato ${contrato.numero_contrato} está com status ${contrato.status}. Não é possível criar ou editar medições.`
+        );
+      }
     }
 
     if (!this.MODALIDADES_COM_MEDICAO.includes(contrato.modalidade_execucao)) {

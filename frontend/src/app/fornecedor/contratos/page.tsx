@@ -69,11 +69,24 @@ import {
   type ContratoMedicaoOverview,
 } from '@/lib/fornecedor-medicoes'
 
-const STATUS_CONTRATO = {
+const STATUS_CONTRATO: Record<string, { label: string; cor: string }> = {
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },
+  'VENCIDO': { label: 'Vencido', cor: 'bg-red-100 text-red-800' },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800' },
   'RESCINDIDO': { label: 'Rescindido', cor: 'bg-red-100 text-red-800' },
-  'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800' }
+  'SUSPENSO': { label: 'Suspenso', cor: 'bg-yellow-100 text-yellow-800' },
+  'CANCELADO': { label: 'Cancelado', cor: 'bg-red-100 text-red-800' },
+  'RASCUNHO': { label: 'Rascunho', cor: 'bg-gray-100 text-gray-500' },
+  'AGUARDANDO_LIBERACAO': { label: 'Aguardando liberação', cor: 'bg-yellow-100 text-yellow-800' },
+}
+
+function resolverStatusEfetivo(status: string, dataVigenciaFim?: string): string {
+  if (status === 'VIGENTE' && dataVigenciaFim) {
+    const fim = new Date(dataVigenciaFim)
+    fim.setHours(23, 59, 59, 999)
+    if (fim < new Date()) return 'VENCIDO'
+  }
+  return status
 }
 
 export default function ContratosFornecedorPage() {
@@ -153,8 +166,8 @@ export default function ContratosFornecedorPage() {
     return Math.ceil((fim.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
   }
 
-  const contratosVigentes = contratos.filter(c => c.status === 'VIGENTE')
-  const contratosAVencer = contratosVigentes.filter(c => calcularDiasRestantes(c.data_vigencia_fim) <= 30)
+  const contratosVigentes = contratos.filter(c => resolverStatusEfetivo(c.status, c.data_vigencia_fim) === 'VIGENTE')
+  const contratosAVencer = contratosVigentes.filter(c => calcularDiasRestantes(c.data_vigencia_fim) <= 30 && calcularDiasRestantes(c.data_vigencia_fim) >= 0)
   const valorTotalContratos = contratosVigentes.reduce((sum, c) => sum + Number(c.valor_global), 0)
 
   const contratosFiltrados = contratos.filter(contrato => {
@@ -327,18 +340,24 @@ export default function ContratosFornecedorPage() {
                     const diasRestantes = calcularDiasRestantes(contrato.data_vigencia_fim)
                     const overview = medicoesPorContrato[contrato.id]
                     
+                    const statusEfetivo = resolverStatusEfetivo(contrato.status, contrato.data_vigencia_fim)
                     return (
                       <div key={contrato.id} className="border rounded-lg p-4 hover:bg-gray-50">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-2">
-                              <Badge className={STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.cor || ''}>
-                                {STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.label || contrato.status}
+                              <Badge className={STATUS_CONTRATO[statusEfetivo]?.cor || ''}>
+                                {STATUS_CONTRATO[statusEfetivo]?.label || statusEfetivo}
                               </Badge>
-                              {contrato.status === 'VIGENTE' && diasRestantes <= 30 && (
+                              {statusEfetivo === 'VIGENTE' && diasRestantes <= 30 && diasRestantes >= 0 && (
                                 <Badge variant="secondary">
                                   <Clock className="w-3 h-3 mr-1" />
                                   {diasRestantes} dias
+                                </Badge>
+                              )}
+                              {statusEfetivo === 'VENCIDO' && (
+                                <Badge variant="destructive" className="text-xs">
+                                  Vencido há {Math.abs(diasRestantes)} dias
                                 </Badge>
                               )}
                             </div>
