@@ -38,11 +38,19 @@ class EnderecoDto {
 
   @IsString()
   @IsOptional()
+  complement?: string;
+
+  @IsString()
+  @IsOptional()
   district?: string;
 
   @IsString()
   @IsNotEmpty()
   postalCode: string;
+
+  @IsString()
+  @IsOptional()
+  country?: string;
 
   @ValidateNested()
   @Type(() => CidadeDto)
@@ -61,9 +69,23 @@ class TomadorDto {
   @IsEmail()
   email: string;
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
   @ValidateNested()
   @Type(() => EnderecoDto)
   address: EnderecoDto;
+}
+
+class RpsDto {
+  @IsString()
+  @IsOptional()
+  series?: string;
+
+  @IsNumber()
+  @IsOptional()
+  number?: number;
 }
 
 class TotalDto {
@@ -71,6 +93,7 @@ class TotalDto {
   @IsPositive()
   invoiceAmount: number;
 
+  // ISS
   @IsNumber()
   @Min(0)
   issRate: number;
@@ -81,6 +104,102 @@ class TotalDto {
 
   @IsBoolean()
   issWithheld: boolean;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  issBaseTax?: number;
+
+  // Descontos / deduções
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  discountUnconditionedAmount?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  discountConditionedAmount?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  deductionsAmount?: number;
+
+  // IR
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  irRate?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  irAmount?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  irWithheld?: boolean;
+
+  // CSLL
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  csllRate?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  csllAmount?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  csllWithheld?: boolean;
+
+  // PIS
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  pisRate?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  pisAmount?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  pisWithheld?: boolean;
+
+  // COFINS
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  cofinsRate?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  cofinsAmount?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  cofinsWithheld?: boolean;
+
+  // INSS
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  inssRate?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  inssAmount?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  inssWithheld?: boolean;
 }
 
 export class CreateNfseSpedyDto {
@@ -104,6 +223,19 @@ export class CreateNfseSpedyDto {
   @IsString()
   @IsNotEmpty()
   cityServiceCode: string;
+
+  @IsString()
+  @IsOptional()
+  nbsCode?: string;
+
+  @IsString()
+  @IsOptional()
+  nationalTaxationCode?: string;
+
+  @ValidateNested()
+  @IsOptional()
+  @Type(() => RpsDto)
+  rps?: RpsDto;
 
   @IsString()
   @IsNotEmpty()
