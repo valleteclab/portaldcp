@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { AgenteContratosService } from './agente-contratos.service';
+import { ContratosService } from '../contratos/contratos.service';
 
 @Injectable()
 export class AgenteContratosScheduler {
   private readonly logger = new Logger(AgenteContratosScheduler.name);
   private isRunning = false;
 
-  constructor(private readonly agenteService: AgenteContratosService) {}
+  constructor(
+    private readonly agenteService: AgenteContratosService,
+    private readonly contratosService: ContratosService,
+  ) {}
 
   /**
    * Executa diariamente às 06:00 da manhã
@@ -38,6 +42,27 @@ export class AgenteContratosScheduler {
       this.logger.error(`❌ Erro na execução agendada: ${error.message}`);
     } finally {
       this.isRunning = false;
+    }
+  }
+
+  /**
+   * Executa diariamente às 00:30 para vencer contratos com vigência expirada
+   */
+  @Cron('30 0 * * *', {
+    name: 'vencer-contratos-expirados',
+    timeZone: 'America/Sao_Paulo',
+  })
+  async vencerContratosExpirados() {
+    this.logger.log('⏰ Verificando contratos VIGENTES com vigência expirada...');
+    try {
+      const resultado = await this.contratosService.vencerContratosExpirados();
+      if (resultado.count > 0) {
+        this.logger.warn(`⚠️ ${resultado.count} contrato(s) marcado(s) como VENCIDO automaticamente.`);
+      } else {
+        this.logger.log('✅ Nenhum contrato expirado encontrado.');
+      }
+    } catch (error) {
+      this.logger.error(`❌ Erro ao vencer contratos expirados: ${error.message}`);
     }
   }
 
