@@ -249,6 +249,7 @@ export default function DetalheContratoOrgaoPage() {
   const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
   const [novoTermo, setNovoTermo] = useState({
     tipo: 'ADITIVO_PRAZO',
+    renovacao_ciclo: false,
     objeto: '',
     justificativa: '',
     valor_acrescimo: '',
@@ -420,7 +421,9 @@ export default function DetalheContratoOrgaoPage() {
         valorSupressao = valorGlobalAtual * (parseFloat(novoTermo.percentual_supressao) / 100)
       }
       const payload = {
-        tipo: novoTermo.tipo,
+        tipo: novoTermo.tipo === 'ADITIVO_PRAZO' && novoTermo.renovacao_ciclo
+          ? 'ADITIVO_PRAZO_VALOR'
+          : novoTermo.tipo,
         objeto: novoTermo.objeto,
         justificativa: novoTermo.justificativa || novoTermo.objeto,
         valor_acrescimo: valorAcrescimo,
@@ -434,7 +437,7 @@ export default function DetalheContratoOrgaoPage() {
       })
       if (res.ok) {
         setModalTermo(false)
-        setNovoTermo({ tipo: 'ADITIVO_PRAZO', objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', modo_acrescimo: 'incremento', modo_supressao: 'incremento', novo_valor_global_acrescimo: '', novo_valor_global_supressao: '', percentual_acrescimo: '', percentual_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
+        setNovoTermo({ tipo: 'ADITIVO_PRAZO', renovacao_ciclo: false, objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', modo_acrescimo: 'incremento', modo_supressao: 'incremento', novo_valor_global_acrescimo: '', novo_valor_global_supressao: '', percentual_acrescimo: '', percentual_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
         carregarDados()
       } else {
         const error = await res.json()
@@ -1762,7 +1765,7 @@ export default function DetalheContratoOrgaoPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Tipo *</Label>
-                <Select value={novoTermo.tipo} onValueChange={(v) => setNovoTermo({...novoTermo, tipo: v})}>
+                <Select value={novoTermo.tipo} onValueChange={(v) => setNovoTermo({...novoTermo, tipo: v, renovacao_ciclo: false})}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TIPOS_TERMO.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
@@ -1782,30 +1785,69 @@ export default function DetalheContratoOrgaoPage() {
               <Label>Justificativa *</Label>
               <Textarea placeholder="Justifique a necessidade do termo aditivo (ex.: necessidade de prorrogação para conclusão dos serviços)" value={novoTermo.justificativa} onChange={(e) => setNovoTermo({...novoTermo, justificativa: e.target.value})} rows={2} />
             </div>
-            <div className="space-y-4">
-              <div>
-                <Label className="mb-2 block">Acréscimo</Label>
-                <div className="flex gap-4 mb-2">
-                  <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'incremento'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'incremento'})} /> Incremento (R$)</label>
-                  <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'novo_global'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'novo_global'})} /> Novo valor global (R$)</label>
-                  <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'percentual'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'percentual'})} /> Percentual (%)</label>
-                </div>
-                {novoTermo.modo_acrescimo === 'incremento' && <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})} />}
-                {novoTermo.modo_acrescimo === 'novo_global' && <Input type="number" step="0.01" min="0" placeholder="Novo valor total" value={novoTermo.novo_valor_global_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, novo_valor_global_acrescimo: e.target.value})} />}
-                {novoTermo.modo_acrescimo === 'percentual' && <Input type="number" step="0.01" min="0" placeholder="Ex: 8,44" value={novoTermo.percentual_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, percentual_acrescimo: e.target.value})} />}
+            {novoTermo.tipo === 'ADITIVO_PRAZO' ? (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={novoTermo.renovacao_ciclo}
+                    onChange={(e) => setNovoTermo({
+                      ...novoTermo,
+                      renovacao_ciclo: e.target.checked,
+                      valor_acrescimo: e.target.checked ? String(Number(contrato?.valor_global) || '') : '',
+                    })}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <span className="font-medium text-blue-900">Renovação de ciclo</span>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      O período prorrogado executará um novo valor além do já executado. O valor global do contrato será acrescido para acomodar o novo ciclo.
+                    </p>
+                  </div>
+                </label>
+                {novoTermo.renovacao_ciclo && (
+                  <div className="space-y-1">
+                    <Label>Valor do novo ciclo (acréscimo ao contrato)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0,00"
+                      value={novoTermo.valor_acrescimo}
+                      onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})}
+                    />
+                    <p className="text-xs text-blue-600">
+                      Sugestão: {formatarMoeda(Number(contrato?.valor_global) || 0)} (valor global atual do contrato)
+                    </p>
+                  </div>
+                )}
               </div>
-              <div>
-                <Label className="mb-2 block">Supressão</Label>
-                <div className="flex gap-4 mb-2">
-                  <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'incremento'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'incremento'})} /> Valor (R$)</label>
-                  <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'novo_global'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'novo_global'})} /> Novo valor global (R$)</label>
-                  <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'percentual'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'percentual'})} /> Percentual (%)</label>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <Label className="mb-2 block">Acréscimo</Label>
+                  <div className="flex gap-4 mb-2">
+                    <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'incremento'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'incremento'})} /> Incremento (R$)</label>
+                    <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'novo_global'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'novo_global'})} /> Novo valor global (R$)</label>
+                    <label className="flex items-center gap-2"><input type="radio" name="modo_acrescimo" checked={novoTermo.modo_acrescimo === 'percentual'} onChange={() => setNovoTermo({...novoTermo, modo_acrescimo: 'percentual'})} /> Percentual (%)</label>
+                  </div>
+                  {novoTermo.modo_acrescimo === 'incremento' && <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})} />}
+                  {novoTermo.modo_acrescimo === 'novo_global' && <Input type="number" step="0.01" min="0" placeholder="Novo valor total" value={novoTermo.novo_valor_global_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, novo_valor_global_acrescimo: e.target.value})} />}
+                  {novoTermo.modo_acrescimo === 'percentual' && <Input type="number" step="0.01" min="0" placeholder="Ex: 8,44" value={novoTermo.percentual_acrescimo} onChange={(e) => setNovoTermo({...novoTermo, percentual_acrescimo: e.target.value})} />}
                 </div>
-                {novoTermo.modo_supressao === 'incremento' && <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_supressao} onChange={(e) => setNovoTermo({...novoTermo, valor_supressao: e.target.value})} />}
-                {novoTermo.modo_supressao === 'novo_global' && <Input type="number" step="0.01" min="0" placeholder="Novo valor apos supressao" value={novoTermo.novo_valor_global_supressao} onChange={(e) => setNovoTermo({...novoTermo, novo_valor_global_supressao: e.target.value})} />}
-                {novoTermo.modo_supressao === 'percentual' && <Input type="number" step="0.01" min="0" placeholder="Ex: 5" value={novoTermo.percentual_supressao} onChange={(e) => setNovoTermo({...novoTermo, percentual_supressao: e.target.value})} />}
+                <div>
+                  <Label className="mb-2 block">Supressão</Label>
+                  <div className="flex gap-4 mb-2">
+                    <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'incremento'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'incremento'})} /> Valor (R$)</label>
+                    <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'novo_global'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'novo_global'})} /> Novo valor global (R$)</label>
+                    <label className="flex items-center gap-2"><input type="radio" name="modo_supressao" checked={novoTermo.modo_supressao === 'percentual'} onChange={() => setNovoTermo({...novoTermo, modo_supressao: 'percentual'})} /> Percentual (%)</label>
+                  </div>
+                  {novoTermo.modo_supressao === 'incremento' && <Input type="number" step="0.01" min="0" placeholder="0,00" value={novoTermo.valor_supressao} onChange={(e) => setNovoTermo({...novoTermo, valor_supressao: e.target.value})} />}
+                  {novoTermo.modo_supressao === 'novo_global' && <Input type="number" step="0.01" min="0" placeholder="Novo valor apos supressao" value={novoTermo.novo_valor_global_supressao} onChange={(e) => setNovoTermo({...novoTermo, novo_valor_global_supressao: e.target.value})} />}
+                  {novoTermo.modo_supressao === 'percentual' && <Input type="number" step="0.01" min="0" placeholder="Ex: 5" value={novoTermo.percentual_supressao} onChange={(e) => setNovoTermo({...novoTermo, percentual_supressao: e.target.value})} />}
+                </div>
               </div>
-            </div>
+            )}
             <div className="space-y-2">
               <Label>Nova Data de Vigência</Label>
               <Input type="date" value={novoTermo.nova_data_vigencia_fim} onChange={(e) => setNovoTermo({...novoTermo, nova_data_vigencia_fim: e.target.value})} />
