@@ -237,6 +237,21 @@ export class CreateNfseSpedyDto {
   @Type(() => RpsDto)
   rps?: RpsDto;
 
+  @IsIn([
+    'taxationInMunicipality', 'taxationOutsideMunicipality', 'exemption', 'immune',
+    'suspendedByCourt', 'suspendedByAdministrativeProcedure', 'exportation', 'nonIncidence',
+  ])
+  @IsOptional()
+  taxationType?: string;
+
+  @IsString()
+  @IsOptional()
+  effectiveDate?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  sendEmailToCustomer?: boolean;
+
   @IsString()
   @IsNotEmpty()
   description: string;

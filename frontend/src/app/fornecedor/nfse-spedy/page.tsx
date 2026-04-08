@@ -56,6 +56,45 @@ const LC116_CODES = [
   { code: '26.01', desc: 'Serviços de coleta e processamento de dados' },
 ]
 
+const NBS_CODES = [
+  { code: '', desc: '— Não se aplica / Não sei —' },
+  { code: '1.01.01.10.00', desc: '1.01.01.10.00 — Análise e desenvolvimento de sistemas' },
+  { code: '1.01.01.20.00', desc: '1.01.01.20.00 — Programação de computadores' },
+  { code: '1.01.01.30.00', desc: '1.01.01.30.00 — Processamento de dados e congêneres' },
+  { code: '1.01.01.40.00', desc: '1.01.01.40.00 — Elaboração de programas de computadores' },
+  { code: '1.01.01.50.00', desc: '1.01.01.50.00 — Licenciamento ou cessão de software' },
+  { code: '1.01.01.60.00', desc: '1.01.01.60.00 — Consultoria em informática' },
+  { code: '1.01.01.70.00', desc: '1.01.01.70.00 — Suporte técnico em informática' },
+  { code: '1.01.01.80.00', desc: '1.01.01.80.00 — Manutenção de páginas eletrônicas' },
+  { code: '1.09.01.00.00', desc: '1.09.01.00.00 — Serviços de engenharia' },
+  { code: '1.09.03.00.00', desc: '1.09.03.00.00 — Arquitetura e urbanismo' },
+  { code: '1.09.04.00.00', desc: '1.09.04.00.00 — Agronomia e agrimensura' },
+  { code: '1.10.01.10.00', desc: '1.10.01.10.00 — Obras de construção civil' },
+  { code: '1.10.02.20.00', desc: '1.10.02.20.00 — Reparação e reforma de edifícios' },
+  { code: '1.14.02.00.00', desc: '1.14.02.00.00 — Limpeza, manutenção e conservação' },
+  { code: '1.14.03.00.00', desc: '1.14.03.00.00 — Vigilância e segurança' },
+  { code: '1.14.04.00.00', desc: '1.14.04.00.00 — Transporte de valores' },
+  { code: '1.17.01.00.00', desc: '1.17.01.00.00 — Assessoria ou consultoria de qualquer natureza' },
+  { code: '1.17.02.00.00', desc: '1.17.02.00.00 — Análise, pesquisa e fornecimento de dados' },
+  { code: '1.17.05.00.00', desc: '1.17.05.00.00 — Fornecimento de mão de obra temporária' },
+  { code: '1.17.09.00.00', desc: '1.17.09.00.00 — Publicidade e propaganda' },
+  { code: '1.17.11.00.00', desc: '1.17.11.00.00 — Administração em geral' },
+  { code: '1.17.19.00.00', desc: '1.17.19.00.00 — Gerenciamento de projetos' },
+  { code: '1.22.01.00.00', desc: '1.22.01.00.00 — Planos de saúde' },
+  { code: '1.26.01.00.00', desc: '1.26.01.00.00 — Serviços de coleta e processamento de dados' },
+]
+
+const TAX_TYPES = [
+  { value: 'taxationInMunicipality', label: 'Tributada no município (mais comum)' },
+  { value: 'taxationOutsideMunicipality', label: 'Tributada fora do município' },
+  { value: 'exemption', label: 'Isento de ISS' },
+  { value: 'immune', label: 'Imune' },
+  { value: 'exportation', label: 'Exportação de serviços' },
+  { value: 'nonIncidence', label: 'Não incidência' },
+  { value: 'suspendedByCourt', label: 'Suspensa por decisão judicial' },
+  { value: 'suspendedByAdministrativeProcedure', label: 'Suspensa por procedimento administrativo' },
+]
+
 interface FornecedorDados {
   spedyVinculado: boolean
   cnpj: string
@@ -77,6 +116,9 @@ interface Emissao {
   integrationId: string
   referenceCode: string
   ambiente: 'development' | 'production'
+  taxationType: string
+  effectiveDate: string
+  sendEmailToCustomer: boolean
   nbsCode: string
   nationalTaxationCode: string
   rpsSeries: string
@@ -121,6 +163,9 @@ const EMPTY: Emissao = {
   integrationId: '',
   referenceCode: '',
   ambiente: 'development',
+  taxationType: 'taxationInMunicipality',
+  effectiveDate: new Date().toISOString().slice(0, 10),
+  sendEmailToCustomer: false,
   nbsCode: '',
   nationalTaxationCode: '',
   rpsSeries: '',
@@ -217,6 +262,8 @@ export default function FornecedorNfseSpedyPage() {
   const [consultaId, setConsultaId] = useState('')
   const [loadingEmitir, setLoadingEmitir] = useState(false)
   const [loadingConsultar, setLoadingConsultar] = useState(false)
+  const [polling, setPolling] = useState(false)
+  const [cidadeInfo, setCidadeInfo] = useState<any>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [resultado, setResultado] = useState<any>(null)
   const [emitido, setEmitido] = useState<any>(null)
@@ -258,6 +305,7 @@ export default function FornecedorNfseSpedyPage() {
       const res = await authFetch(`${API_URL}/api/fornecedores/consultar-cnpj/${cnpj}`)
       const d = await res.json()
       if (!res.ok) return
+      const newIbge = d.endereco?.ibge || form.tomadorCidadeIbge
       setForm(f => ({
         ...f,
         tomadorNome: d.razao_social || f.tomadorNome,
@@ -268,10 +316,37 @@ export default function FornecedorNfseSpedyPage() {
         tomadorCep: d.endereco?.cep || f.tomadorCep,
         tomadorCidadeNome: d.endereco?.cidade || f.tomadorCidadeNome,
         tomadorUf: d.endereco?.uf || f.tomadorUf,
+        tomadorCidadeIbge: newIbge || f.tomadorCidadeIbge,
       }))
+      if (newIbge) verificarCidade(newIbge)
     } catch { /* silencioso */ } finally {
       setLoadingTomadorCnpj(false)
     }
+  }
+
+  const verificarCidade = async (ibge: string) => {
+    if (!ibge || ibge.length < 6) return
+    try {
+      const res = await authFetch(`${API_URL}/api/nfse/spedy/cidade/${ibge}`)
+      const d = await res.json().catch(() => null)
+      setCidadeInfo(res.ok ? d : null)
+    } catch { setCidadeInfo(null) }
+  }
+
+  const pollStatus = async (id: string, attempts = 0) => {
+    if (attempts >= 20) { setPolling(false); return }
+    try {
+      const res = await authFetch(`${API_URL}/api/nfse/spedy/${id}/status`)
+      const d = await res.json().catch(() => null)
+      const status = d?.providerResponse?.status ?? d?.status
+      if (['authorized', 'rejected', 'canceled', 'denied'].includes(status)) {
+        setEmitido((prev: any) => ({ ...prev, providerResponse: d?.providerResponse ?? d }))
+        setPolling(false)
+        if (d?.providerResponse?.id) setConsultaId(d.providerResponse.id)
+      } else {
+        setTimeout(() => pollStatus(id, attempts + 1), 5000)
+      }
+    } catch { setTimeout(() => pollStatus(id, attempts + 1), 5000) }
   }
 
   const validar = (): string | null => {
@@ -316,6 +391,9 @@ export default function FornecedorNfseSpedyPage() {
       integrationId: form.integrationId,
       federalServiceCode: form.federalServiceCode,
       cityServiceCode: form.cityServiceCode,
+      taxationType: form.taxationType,
+      effectiveDate: form.effectiveDate ? `${form.effectiveDate}T00:00:00` : undefined,
+      sendEmailToCustomer: form.sendEmailToCustomer,
       description: form.descricao,
       total,
       receiver: {
@@ -350,7 +428,15 @@ export default function FornecedorNfseSpedyPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setErro(data?.message || 'Erro ao emitir NFS-e.'); return }
       setEmitido(data)
-      if (data?.providerResponse?.id) setConsultaId(data.providerResponse.id)
+      const nfseId = data?.providerResponse?.id
+      if (nfseId) {
+        setConsultaId(nfseId)
+        const status = data?.providerResponse?.status
+        if (!['authorized', 'rejected', 'canceled', 'denied'].includes(status)) {
+          setPolling(true)
+          setTimeout(() => pollStatus(nfseId, 0), 5000)
+        }
+      }
     } catch {
       setErro('Falha de comunicação com o servidor.')
     } finally {
@@ -391,7 +477,16 @@ export default function FornecedorNfseSpedyPage() {
         </Alert>
       )}
 
-      {emitido && (
+      {polling && (
+        <Alert className="border-blue-300 bg-blue-50">
+          <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+          <AlertDescription className="text-blue-800">
+            Aguardando autorização da prefeitura... (verificando a cada 5 segundos)
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {emitido && !polling && (
         <Alert className="border-green-300 bg-green-50">
           <CheckCircle2 className="h-4 w-4 text-green-600" />
           <AlertDescription className="text-green-800 space-y-2">
@@ -492,16 +587,55 @@ export default function FornecedorNfseSpedyPage() {
               </Select>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>Tipo de Tributação ISS <span className="text-red-500">*</span></Label>
+              <Select value={form.taxationType} onValueChange={v => set('taxationType', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TAX_TYPES.map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data de Competência</Label>
+              <Input type="date" value={form.effectiveDate} onChange={e => set('effectiveDate', e.target.value)} />
+              <p className="text-xs text-muted-foreground">Data em que o serviço foi prestado.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Enviar e-mail ao tomador?</Label>
+              <Select value={form.sendEmailToCustomer ? 'sim' : 'nao'} onValueChange={v => set('sendEmailToCustomer', v === 'sim')}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nao">Não</SelectItem>
+                  <SelectItem value="sim">Sim — enviar DANFE por e-mail</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1">
                 Código NBS
-                <span title="Nomenclatura Brasileira de Serviços — exigido a partir de 2026 pela reforma tributária">
+                <span title="Nomenclatura Brasileira de Serviços — exigido por alguns municípios e para a reforma tributária 2026">
                   <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                 </span>
               </Label>
-              <Input value={form.nbsCode} onChange={e => set('nbsCode', e.target.value)} placeholder="1.09.01.00.00" />
-              <p className="text-xs text-muted-foreground">Reforma tributária — consulte seu contador.</p>
+              <Select value={form.nbsCode} onValueChange={v => set('nbsCode', v)}>
+                <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  {NBS_CODES.map(n => (
+                    <SelectItem key={n.code || '_nenhum'} value={n.code}>{n.desc}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {cidadeInfo?.provider?.options?.nbsCode && (
+                <p className="text-xs text-amber-600 font-medium">Esta prefeitura exige o código NBS.</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Código de Tributação Nacional</Label>
@@ -782,11 +916,27 @@ export default function FornecedorNfseSpedyPage() {
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1">
                 Código IBGE da Cidade
-                <span title="Código IBGE de 7 dígitos. Se informado, tem prioridade sobre o nome da cidade.">
+                <span title="Código IBGE de 7 dígitos. Se informado, verifica integração com a Spedy.">
                   <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                 </span>
               </Label>
-              <Input value={form.tomadorCidadeIbge} onChange={e => set('tomadorCidadeIbge', e.target.value)} placeholder="3550308" maxLength={7} />
+              <Input
+                value={form.tomadorCidadeIbge}
+                onChange={e => {
+                  set('tomadorCidadeIbge', e.target.value)
+                  if (e.target.value.length >= 6) verificarCidade(e.target.value)
+                  else setCidadeInfo(null)
+                }}
+                placeholder="3550308"
+                maxLength={7}
+              />
+              {cidadeInfo !== null && (
+                <p className={`text-xs font-medium ${cidadeInfo ? 'text-green-600' : 'text-amber-600'}`}>
+                  {cidadeInfo
+                    ? `✓ ${cidadeInfo.name} — ${cidadeInfo.provider?.name ?? 'integrado'}`
+                    : '⚠ Município não encontrado na Spedy'}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>País</Label>

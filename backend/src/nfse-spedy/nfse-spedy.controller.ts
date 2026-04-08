@@ -48,6 +48,15 @@ export class NfseSpedyController {
     return this.nfseSpedyService.emitirNfse(fornecedorId, dto);
   }
 
+  @Get('cidade/:ibge')
+  async cidade(
+    @Req() request: { user: JwtPayload },
+    @Param('ibge') ibge: string,
+  ) {
+    this.getFornecedorId(request.user);
+    return this.nfseSpedyService.verificarCidade(ibge);
+  }
+
   @Get(':id/status')
   async status(
     @Req() request: { user: JwtPayload },

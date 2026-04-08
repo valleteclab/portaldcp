@@ -70,6 +70,9 @@ export class NfseSpedyService {
     if (dto.nbsCode) payload.nbsCode = dto.nbsCode;
     if (dto.nationalTaxationCode) payload.nationalTaxationCode = dto.nationalTaxationCode;
     if (dto.rps) payload.rps = dto.rps;
+    payload.taxationType = dto.taxationType ?? 'taxationInMunicipality';
+    payload.sendEmailToCustomer = dto.sendEmailToCustomer ?? false;
+    if (dto.effectiveDate) payload.effectiveDate = dto.effectiveDate;
 
     try {
       const response = await client.post('/v1/service-invoices', payload);
@@ -117,6 +120,18 @@ export class NfseSpedyService {
     await this.fornecedorRepo.save(fornecedor);
 
     return { ok: true, fornecedorId, spedyCompanyId };
+  }
+
+  async verificarCidade(ibgeCode: string) {
+    const client = this.getClient();
+    try {
+      const response = await client.get(`/v1/service-invoices/cities?code=${ibgeCode}&pageSize=1`);
+      return response.data?.items?.[0] ?? null;
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Erro ao consultar município';
+      this.logger.warn(`Falha ao consultar cidade Spedy [${ibgeCode}]: ${message}`);
+      return null;
+    }
   }
 
   async dadosFornecedorParaSpedy(fornecedorId: string) {
