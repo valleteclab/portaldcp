@@ -42,16 +42,34 @@ export class NfseSpedyService {
 
     const client = this.getClient(fornecedor.spedy_api_key);
 
-    const payload = {
+    const payload: Record<string, any> = {
       integrationId: dto.integrationId,
-      referenceCode: dto.referenceCode,
       environmentType: dto.ambiente,
       federalServiceCode: dto.federalServiceCode,
       cityServiceCode: dto.cityServiceCode,
       description: dto.description,
       total: dto.total,
-      receiver: dto.receiver,
+      receiver: {
+        name: dto.receiver.name,
+        federalTaxNumber: dto.receiver.federalTaxNumber,
+        email: dto.receiver.email,
+        ...(dto.receiver.phone ? { phoneNumber: dto.receiver.phone } : {}),
+        address: {
+          street: dto.receiver.address.street,
+          ...(dto.receiver.address.number ? { number: dto.receiver.address.number } : {}),
+          ...(dto.receiver.address.complement ? { additionalInformation: dto.receiver.address.complement } : {}),
+          ...(dto.receiver.address.district ? { district: dto.receiver.address.district } : {}),
+          postalCode: dto.receiver.address.postalCode,
+          ...(dto.receiver.address.country ? { country: dto.receiver.address.country } : {}),
+          city: dto.receiver.address.city,
+        },
+      },
     };
+
+    if (dto.referenceCode) payload.referenceCode = dto.referenceCode;
+    if (dto.nbsCode) payload.nbsCode = dto.nbsCode;
+    if (dto.nationalTaxationCode) payload.nationalTaxationCode = dto.nationalTaxationCode;
+    if (dto.rps) payload.rps = dto.rps;
 
     try {
       const response = await client.post('/v1/service-invoices', payload);
