@@ -2118,6 +2118,11 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
             detalhes.recebimentos_excluidos++;
           }
 
+          // Nula FK para nota fiscal antes de excluir (evita violação de constraint)
+          if (recebimento.nota_fiscal_fornecedor_id) {
+            await queryRunner.manager.update(Recebimento, recebimento.id, { nota_fiscal_fornecedor_id: null });
+          }
+
           // Exclui o recebimento
           await queryRunner.manager.remove(recebimento);
           this.logger.log(`[EXCLUIR] Recebimento ${recebimento.numero} excluído`);
@@ -2208,6 +2213,14 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       
       if (requisicao.itens && requisicao.itens.length > 0) {
         await queryRunner.manager.remove(requisicao.itens);
+      }
+
+      if (requisicao.itensOS && requisicao.itensOS.length > 0) {
+        await queryRunner.manager.remove(requisicao.itensOS);
+      }
+
+      if (requisicao.etapasOS && requisicao.etapasOS.length > 0) {
+        await queryRunner.manager.remove(requisicao.etapasOS);
       }
 
       await queryRunner.manager.remove(requisicao);
