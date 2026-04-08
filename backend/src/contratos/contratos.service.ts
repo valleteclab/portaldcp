@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { Repository, Between, LessThan, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Contrato, StatusContrato, TipoContrato, CategoriaContrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -991,6 +991,40 @@ export class ContratosService {
     });
 
     return contagem;
+  }
+
+  async vencerContratosExpirados(): Promise<{ count: number; ids: string[] }> {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+
+    const contratos = await this.contratoRepository.find({
+      where: {
+        status: StatusContrato.VIGENTE,
+        data_vigencia_fim: LessThan(hoje),
+      },
+    });
+
+    if (contratos.length === 0) return { count: 0, ids: [] };
+
+    const ids: string[] = [];
+    for (const contrato of contratos) {
+      const dataFimBR = new Date(contrato.data_vigencia_fim).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+      contrato.status = StatusContrato.VENCIDO;
+      await this.contratoRepository.save(contrato);
+      await this.registrarHistorico({
+        contrato_id: contrato.id,
+        tipo_acao: TipoAcaoContrato.STATUS_ALTERADO,
+        descricao: `Contrato vencido automaticamente — vigência encerrada em ${dataFimBR}`,
+        status_anterior: StatusContrato.VIGENTE,
+        status_novo: StatusContrato.VENCIDO,
+        usuario_id: null,
+        usuario_nome: 'Sistema (automático)',
+      });
+      ids.push(contrato.id);
+    }
+
+    this.logger.log(`Contratos vencidos automaticamente: ${contratos.length} (${ids.join(', ')})`);
+    return { count: contratos.length, ids };
   }
 
   async contratosAVencer(orgaoId: string, dias: number = 30): Promise<Contrato[]> {

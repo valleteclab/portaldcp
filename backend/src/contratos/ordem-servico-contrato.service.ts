@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
+import { Contrato, ModalidadeExecucao, StatusContrato } from './entities/contrato.entity';
 import { OrdemServicoContrato, StatusOrdemServico, MetricaOS } from './entities/ordem-servico-contrato.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
@@ -547,6 +547,19 @@ export class OrdemServicoContratoService {
   private async validarContratoOS(contratoId: string): Promise<Contrato> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const STATUS_BLOQUEADOS: StatusContrato[] = [
+      StatusContrato.VENCIDO,
+      StatusContrato.ENCERRADO,
+      StatusContrato.RESCINDIDO,
+      StatusContrato.CANCELADO,
+      StatusContrato.SUSPENSO,
+    ];
+    if (STATUS_BLOQUEADOS.includes(contrato.status)) {
+      throw new BadRequestException(
+        `Contrato ${contrato.numero_contrato} está com status ${contrato.status}. Não é possível criar ou editar Ordens de Serviço.`
+      );
+    }
 
     if (!MODALIDADES_COM_OS.includes(contrato.modalidade_execucao)) {
       throw new BadRequestException(

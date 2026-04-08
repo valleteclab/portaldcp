@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
+import { Contrato, ModalidadeExecucao, StatusContrato } from './entities/contrato.entity';
 import { EtapaCronograma, StatusEtapaCronograma } from './entities/etapa-cronograma.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { LinkAssinaturaFiscal } from './entities/link-assinatura-fiscal.entity';
@@ -2664,6 +2664,19 @@ export class MedicaoService {
   private async validarContratoMedicao(contratoId: string): Promise<Contrato> {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    const STATUS_BLOQUEADOS: StatusContrato[] = [
+      StatusContrato.VENCIDO,
+      StatusContrato.ENCERRADO,
+      StatusContrato.RESCINDIDO,
+      StatusContrato.CANCELADO,
+      StatusContrato.SUSPENSO,
+    ];
+    if (STATUS_BLOQUEADOS.includes(contrato.status)) {
+      throw new BadRequestException(
+        `Contrato ${contrato.numero_contrato} está com status ${contrato.status}. Não é possível criar ou editar medições.`
+      );
+    }
 
     if (!this.MODALIDADES_COM_MEDICAO.includes(contrato.modalidade_execucao)) {
       throw new BadRequestException(
