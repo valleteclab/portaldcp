@@ -120,11 +120,23 @@ export class GeradorPdfService {
         campo('Órgão:', (orgao.nome || '-').toUpperCase(), marginL, rowY, contentW - labelW);
         rowY += 16;
 
+        const tipoInstrumentoLabels: Record<string, string> = {
+          CONTRATO: 'Contrato', NOTA_EMPENHO: 'Nota de Empenho', ORDEM_SERVICO: 'Ordem de Serviço',
+          ORDEM_FORNECIMENTO: 'Ordem de Fornecimento', CARTA_CONTRATO: 'Carta Contrato',
+          TERMO_ADESAO: 'Termo de Adesão', ATA_REGISTRO_PRECO: 'Ata de Reg. de Preço',
+        };
+        const tipoInstrumentoOS = tipoInstrumentoLabels[dadosOS.contrato?.tipo] || 'Contrato';
+
         if (dadosOS.contrato?.numero_contrato) {
-          campo('Contrato:', dadosOS.contrato.numero_contrato, marginL, rowY, valueW);
+          campo(`${tipoInstrumentoOS}:`, dadosOS.contrato.numero_contrato, marginL, rowY, valueW);
           if (dadosOS.contrato?.fornecedor?.cpf_cnpj) {
             campo('CNPJ/CPF:', dadosOS.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
           }
+          rowY += 16;
+        }
+
+        if (dadosOS.contrato?.numero_processo) {
+          campo('Proc. Administrativo:', dadosOS.contrato.numero_processo, marginL, rowY, contentW - labelW);
           rowY += 16;
         }
 
@@ -254,7 +266,7 @@ export class GeradorPdfService {
         valor_total: number;
       }>;
       orgao?: { nome?: string; logo_url?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cnpj?: string };
-      contrato?: { numero_contrato?: string; numero_processo?: string; objeto?: string; fornecedor?: { razao_social?: string; cpf_cnpj?: string } };
+      contrato?: { numero_contrato?: string; numero_processo?: string; tipo?: string; objeto?: string; fornecedor?: { razao_social?: string; cpf_cnpj?: string } };
       requisicao?: { usuario_solicitante_nome?: string; setor_solicitante?: string; prioridade?: string };
       usuario_emitente_nome?: string;
     },
@@ -354,11 +366,23 @@ export class GeradorPdfService {
         campo('Órgão:', (orgao.nome || '-').toUpperCase(), marginL, rowY, contentW - labelW);
         rowY += 16;
 
+        const tipoInstrumentoLabelsOF: Record<string, string> = {
+          CONTRATO: 'Contrato', NOTA_EMPENHO: 'Nota de Empenho', ORDEM_SERVICO: 'Ordem de Serviço',
+          ORDEM_FORNECIMENTO: 'Ordem de Fornecimento', CARTA_CONTRATO: 'Carta Contrato',
+          TERMO_ADESAO: 'Termo de Adesão', ATA_REGISTRO_PRECO: 'Ata de Reg. de Preço',
+        };
+        const tipoInstrumentoOF = tipoInstrumentoLabelsOF[ordem.contrato?.tipo] || 'Contrato';
+
         if (ordem.contrato?.numero_contrato) {
-          campo('Contrato:', ordem.contrato.numero_contrato, marginL, rowY, valueW);
+          campo(`${tipoInstrumentoOF}:`, ordem.contrato.numero_contrato, marginL, rowY, valueW);
           if (ordem.contrato?.fornecedor?.cpf_cnpj) {
             campo('CNPJ/CPF:', ordem.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
           }
+          rowY += 16;
+        }
+
+        if (ordem.contrato?.numero_processo) {
+          campo('Proc. Administrativo:', ordem.contrato.numero_processo, marginL, rowY, contentW - labelW);
           rowY += 16;
         }
 

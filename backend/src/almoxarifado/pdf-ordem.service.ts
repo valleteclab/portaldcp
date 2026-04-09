@@ -68,6 +68,7 @@ export class PdfOrdemService {
       contrato: ordem.contrato ? {
         numero_contrato: ordem.contrato.numero_contrato,
         numero_processo: ordem.contrato.numero_processo,
+        tipo: ordem.contrato.tipo,
         objeto: ordem.contrato.objeto,
         fornecedor: ordem.contrato.fornecedor ? {
           razao_social: ordem.contrato.fornecedor.razao_social,
