@@ -458,4 +458,38 @@ export class FornecedoresController {
     }
     return await this.fornecedoresService.atualizarContatoOrgao(id, body);
   }
+
+  // === API KEY (acesso externo / MCP) ===
+
+  /**
+   * Retorna se o fornecedor possui API Key ativa (sem expor o valor).
+   * GET /api/fornecedores/:id/api-key
+   */
+  @Get(':id/api-key')
+  async statusApiKey(@Param('id') id: string, @Req() req: any) {
+    this.validarOwnership(req.user, id, req);
+    return await this.fornecedoresService.statusApiKey(id);
+  }
+
+  /**
+   * Gera uma nova API Key para o fornecedor.
+   * Retorna o plaintext APENAS UMA VEZ.
+   * POST /api/fornecedores/:id/api-key
+   */
+  @Post(':id/api-key')
+  async gerarApiKey(@Param('id') id: string, @Req() req: any) {
+    this.validarOwnership(req.user, id, req);
+    return await this.fornecedoresService.gerarApiKey(id);
+  }
+
+  /**
+   * Revoga a API Key do fornecedor.
+   * DELETE /api/fornecedores/:id/api-key
+   */
+  @Delete(':id/api-key')
+  async revogarApiKey(@Param('id') id: string, @Req() req: any) {
+    this.validarOwnership(req.user, id, req);
+    await this.fornecedoresService.revogarApiKey(id);
+    return { message: 'API Key revogada com sucesso' };
+  }
 }

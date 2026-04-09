@@ -1592,4 +1592,44 @@ export class FornecedoresService {
 
     return { fornecedor: this.removerSenha(saved), resetLink };
   }
+
+  // === API KEY ===
+
+  /**
+   * Gera uma nova API Key para o fornecedor.
+   * Retorna o plaintext APENAS UMA VEZ — armazena apenas o hash SHA-256.
+   */
+  async gerarApiKey(fornecedorId: string): Promise<{ api_key: string; prefixo: string }> {
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+
+    // Gerar chave de 64 hex chars (32 random bytes)
+    const plaintext = crypto.randomBytes(32).toString('hex');
+    const hash = crypto.createHash('sha256').update(plaintext).digest('hex');
+
+    await this.fornecedorRepository.update(fornecedorId, { api_key_hash: hash });
+
+    return { api_key: plaintext, prefixo: plaintext.slice(0, 8) };
+  }
+
+  /**
+   * Revoga a API Key do fornecedor (limpa o hash).
+   */
+  async revogarApiKey(fornecedorId: string): Promise<void> {
+    const fornecedor = await this.fornecedorRepository.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+    await this.fornecedorRepository.update(fornecedorId, { api_key_hash: null as any });
+  }
+
+  /**
+   * Verifica se o fornecedor possui uma API Key ativa.
+   */
+  async statusApiKey(fornecedorId: string): Promise<{ ativa: boolean }> {
+    const fornecedor = await this.fornecedorRepository.findOne({
+      where: { id: fornecedorId },
+      select: ['id', 'api_key_hash'],
+    });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+    return { ativa: !!fornecedor.api_key_hash };
+  }
 }

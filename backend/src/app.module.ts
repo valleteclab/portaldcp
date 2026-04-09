@@ -53,6 +53,7 @@ import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
 import { PatrimonioModule } from './patrimonio/patrimonio.module';
 import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
 import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
+import { ExtModule } from './ext/ext.module';
 
 @Module({
   imports: [
@@ -150,6 +151,7 @@ import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
     PatrimonioModule,
     MedicaoIaModule,
     NfseSpedyModule,
+    ExtModule,
   ],
   controllers: [HealthController],
   providers: [
