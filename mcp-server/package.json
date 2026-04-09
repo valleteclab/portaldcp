@@ -8,8 +8,9 @@
   },
   "scripts": {
     "build": "tsc",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/portaldcp-mcp.cjs",
     "dev": "ts-node src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/portaldcp-mcp.cjs",
     "config": "node generate-config.js"
   },
   "keywords": ["mcp", "portaldcp", "medicao", "contratos"],
