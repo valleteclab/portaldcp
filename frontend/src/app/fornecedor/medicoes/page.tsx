@@ -1,10 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   AlertTriangle,
   ArrowRight,
@@ -12,10 +21,14 @@ import {
   CheckCircle,
   ClipboardCheck,
   Clock,
+  ExternalLink,
   FileText,
+  Loader2,
   RotateCcw,
   Send,
+  ShoppingCart,
 } from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
 import {
   calcularDiasRestantes,
   carregarOverviewMedicoesFornecedor,
@@ -26,8 +39,11 @@ import {
 } from '@/lib/fornecedor-medicoes'
 
 export default function FornecedorMedicoesPage() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [overviews, setOverviews] = useState<ContratoMedicaoOverview[]>([])
+  const [modalCompras, setModalCompras] = useState<ContratoMedicaoOverview | null>(null)
+  const [buscandoOrdem, setBuscandoOrdem] = useState(false)
 
   useEffect(() => {
     const carregar = async () => {
@@ -64,6 +80,36 @@ export default function FornecedorMedicoesPage() {
       { emAnalise: 0, devolvidas: 0, rascunhos: 0, aprovadas: 0 },
     )
   }, [overviews])
+
+  const handleFazerMedicao = (item: ContratoMedicaoOverview) => {
+    if (item.contrato.categoria === 'COMPRAS') {
+      setModalCompras(item)
+    } else {
+      router.push(item.acaoPrincipal.href)
+    }
+  }
+
+  const irParaOrdem = async () => {
+    if (!modalCompras) return
+    setBuscandoOrdem(true)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fornecedor/ordens?contratoId=${modalCompras.contrato.id}`
+      )
+      if (res.ok) {
+        const ordens = await res.json()
+        if (ordens.length > 0) {
+          router.push(`/fornecedor/ordens/${ordens[0].id}`)
+          return
+        }
+      }
+    } catch {
+      // fallback below
+    } finally {
+      setBuscandoOrdem(false)
+    }
+    router.push('/fornecedor/ordens')
+  }
 
   if (loading) {
     return (
@@ -178,11 +224,9 @@ export default function FornecedorMedicoesPage() {
                       )}
                     </div>
                   </div>
-                  <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700">
-                    <Link href={item.acaoPrincipal.href}>
-                      {item.acaoPrincipal.label}
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
+                  <Button onClick={() => handleFazerMedicao(item)} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                    {item.acaoPrincipal.label}
+                    <ArrowRight className="w-4 h-4" />
                   </Button>
                 </div>
               )
@@ -231,8 +275,8 @@ export default function FornecedorMedicoesPage() {
                         <Send className="w-4 h-4 mr-1" />Abrir histórico
                       </Link>
                     </Button>
-                    <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700">
-                      <Link href={item.acaoPrincipal.href}>{item.acaoPrincipal.label}</Link>
+                    <Button onClick={() => handleFazerMedicao(item)} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                      {item.acaoPrincipal.label}
                     </Button>
                   </div>
                 </div>
@@ -241,6 +285,38 @@ export default function FornecedorMedicoesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal: contrato de Compras não usa medição */}
+      <Dialog open={!!modalCompras} onOpenChange={(open) => { if (!open) setModalCompras(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="p-2 bg-amber-100 rounded-lg">
+                <ShoppingCart className="w-5 h-5 text-amber-600" />
+              </div>
+              <DialogTitle>Contrato de Compras</DialogTitle>
+            </div>
+            <DialogDescription className="text-sm text-gray-600 leading-relaxed">
+              O contrato <strong className="text-gray-800">{modalCompras?.contrato.numero_contrato}</strong> é de
+              categoria <strong className="text-gray-800">Compras</strong>. Para este tipo de contrato, o
+              atendimento é realizado pela <strong className="text-gray-800">Ordem de Fornecimento</strong> —
+              envie o XML da NF-e e a nota fiscal diretamente pela ordem correspondente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setModalCompras(null)}>
+              Fechar
+            </Button>
+            <Button onClick={irParaOrdem} disabled={buscandoOrdem} className="gap-2 bg-blue-600 hover:bg-blue-700">
+              {buscandoOrdem ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Buscando...</>
+              ) : (
+                <><ExternalLink className="w-4 h-4" />Ir para a Ordem de Fornecimento</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

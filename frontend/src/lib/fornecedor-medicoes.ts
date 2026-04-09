@@ -5,6 +5,7 @@ export interface FornecedorContratoBase {
   numero_contrato: string
   ano?: number
   status: string
+  categoria?: string
   objeto: string
   valor_global: number
   data_vigencia_inicio?: string

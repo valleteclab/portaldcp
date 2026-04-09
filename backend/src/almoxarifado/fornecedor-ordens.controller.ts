@@ -42,9 +42,10 @@ export class FornecedorOrdensController {
   async listarOrdens(
     @Req() request: { user: JwtPayload },
     @Query('status') status?: StatusOrdemFornecimento,
+    @Query('contratoId') contratoId?: string,
   ) {
     const fornecedorId = this.getFornecedorId(request.user);
-    return this.ordemService.findByFornecedor(fornecedorId, status);
+    return this.ordemService.findByFornecedor(fornecedorId, status, contratoId);
   }
 
   @Get(':id')
