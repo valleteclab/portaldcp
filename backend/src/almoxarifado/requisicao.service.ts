@@ -768,6 +768,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
             requisicao.usuario_solicitante_nome,
             Number(requisicao.valor_total_estimado),
             aprovadores,
+            requisicao.tipo,
           );
           this.logger.log(`[NOTIFICAÇÃO] Notificações criadas com sucesso para ${aprovadores.length} aprovadores da requisição ${requisicao.numero}`);
         } else {

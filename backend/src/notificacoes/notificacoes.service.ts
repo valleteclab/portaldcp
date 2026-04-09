@@ -418,14 +418,21 @@ export class NotificacoesService {
     requisicaoId: string,
     solicitanteNome: string,
     valorTotal: number,
-    aprovadores: { id: string; email?: string }[],
+    aprovadores: { id: string; email?: string; telefone?: string }[],
+    tipoRequisicao?: string,
   ): Promise<void> {
     this.logger.log(`Notificando ${aprovadores.length} aprovadores sobre requisição ${requisicaoNumero}`);
-    
+
     const valorFormatado = new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL',
     }).format(valorTotal);
+
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+    const linkRelativo = '/orgao/almoxarifado/aprovacoes';
+    const tituloWpp = tipoRequisicao === 'ORDEM_SERVICO'
+      ? `*Ordem de Serviço ${requisicaoNumero} aguardando aprovação*`
+      : `*Requisição ${requisicaoNumero} aguardando aprovação*`;
 
     try {
       const notificacoes = await this.criarParaMultiplos(aprovadores, {
@@ -436,12 +443,18 @@ export class NotificacoesService {
         prioridade: PrioridadeNotificacao.ALTA,
         entidade_tipo: 'requisicao',
         entidade_id: requisicaoId,
-        link: `/orgao/almoxarifado/aprovacoes`,
+        link: linkRelativo,
         enviar_email: true,
         metadata: {
           requisicao_numero: requisicaoNumero,
           solicitante: solicitanteNome,
           valor: valorTotal,
+          whatsapp_text:
+            `${tituloWpp}\n` +
+            `Solicitante: ${solicitanteNome}\n` +
+            `Valor: ${valorFormatado}\n\n` +
+            'Acesse a Central de Aprovações para analisar.',
+          whatsapp_url: `${appUrl}${linkRelativo}`,
         },
       });
       
