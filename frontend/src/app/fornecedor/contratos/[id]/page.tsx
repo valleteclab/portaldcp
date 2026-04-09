@@ -54,6 +54,8 @@ import {
   FileDown,
   Edit,
   Copy,
+  ShoppingCart,
+  ExternalLink,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 
@@ -414,6 +416,7 @@ export default function FornecedorContratoDetalhePage() {
 
   // Modal Detalhe
   const [modalDetalhe, setModalDetalhe] = useState(false);
+  const [modalComprasAviso, setModalComprasAviso] = useState(false);
   const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
   const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([]);
   const [editandoItensDetalhe, setEditandoItensDetalhe] = useState(false);
@@ -577,6 +580,10 @@ export default function FornecedorContratoDetalhePage() {
 
     const executarAcao = async () => {
       if (acao === 'nova') {
+        if (contrato?.categoria === 'COMPRAS') {
+          setModalComprasAviso(true);
+          return;
+        }
         await abrirModalNovaMedicao();
       } else if (acao === 'continuar') {
         const rascunho = medicaoId ? medicoes.find((medicao) => medicao.id === medicaoId) : medicoes.find((medicao) => medicao.status === 'RASCUNHO');
@@ -1613,7 +1620,7 @@ export default function FornecedorContratoDetalhePage() {
               <h3 className="text-lg font-semibold">Boletins de Medição</h3>
               <p className="text-sm text-gray-500">Crie e submeta medições para análise do fiscal do contrato</p>
             </div>
-            <Button onClick={abrirModalNovaMedicao} className="gap-2 bg-blue-600 hover:bg-blue-700" disabled={!isServicoContinuado && !temCronograma}>
+            <Button onClick={() => contrato?.categoria === 'COMPRAS' ? setModalComprasAviso(true) : abrirModalNovaMedicao()} className="gap-2 bg-blue-600 hover:bg-blue-700" disabled={!isServicoContinuado && !temCronograma && contrato?.categoria !== 'COMPRAS'}>
               <Plus className="w-4 h-4" />Abrir Medição do Mês
             </Button>
           </div>
@@ -3206,6 +3213,36 @@ export default function FornecedorContratoDetalhePage() {
                 Fechar
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: contrato de Compras não usa medição */}
+      <Dialog open={modalComprasAviso} onOpenChange={setModalComprasAviso}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="p-2 bg-amber-100 rounded-lg">
+                <ShoppingCart className="w-5 h-5 text-amber-600" />
+              </div>
+              <DialogTitle>Contrato de Compras</DialogTitle>
+            </div>
+            <DialogDescription className="text-sm text-gray-600 leading-relaxed">
+              O contrato <strong className="text-gray-800">{contrato?.numero_contrato}</strong> é de
+              categoria <strong className="text-gray-800">Compras</strong>. Para este tipo de contrato, o
+              atendimento é realizado pela <strong className="text-gray-800">Ordem de Fornecimento</strong> —
+              envie o XML da NF-e e a nota fiscal diretamente pela ordem correspondente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setModalComprasAviso(false)}>
+              Fechar
+            </Button>
+            <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700">
+              <Link href="/fornecedor/ordens">
+                <ExternalLink className="w-4 h-4" />Ir para Ordens de Fornecimento
+              </Link>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -754,6 +754,32 @@ export class ContratosService {
   }
 
   private async reverterEfeitosTermo(contrato: Contrato, termo: TermoAditivo): Promise<void> {
+    // Renovação de ciclo: restaura a data de renovação do ciclo anterior (se houver)
+    if (termo.renovacao_ciclo) {
+      const termosRenovacao = await this.termoAditivoRepository.find({
+        where: { contrato_id: contrato.id, renovacao_ciclo: true },
+        order: { sequencial: 'DESC' },
+      });
+      const anterior = termosRenovacao.find(
+        (t) => t.sequencial < termo.sequencial && t.status !== StatusTermoAditivo.CANCELADO && t.id !== termo.id,
+      );
+      contrato.data_renovacao_ciclo = anterior ? (anterior.data_assinatura as any) : null;
+      if (termo.nova_data_vigencia_fim) {
+        const termosAnteriores = await this.termoAditivoRepository.find({
+          where: { contrato_id: contrato.id },
+          order: { sequencial: 'DESC' },
+        });
+        const anteriorComVigencia = termosAnteriores.find(
+          (t) => t.sequencial < termo.sequencial && t.status !== StatusTermoAditivo.CANCELADO && t.id !== termo.id && t.nova_data_vigencia_fim,
+        );
+        if (anteriorComVigencia) {
+          contrato.data_vigencia_fim = anteriorComVigencia.nova_data_vigencia_fim as any;
+        }
+      }
+      await this.contratoRepository.save(contrato);
+      return;
+    }
+
     if (termo.valor_acrescimo) {
       contrato.valor_acrescimos = Math.max(0, Number(contrato.valor_acrescimos) - Number(termo.valor_acrescimo));
       contrato.valor_global = Math.max(0, Number(contrato.valor_global) - Number(termo.valor_acrescimo));
@@ -852,6 +878,16 @@ export class ContratosService {
   }
 
   private async atualizarValoresContrato(contrato: Contrato, termo: TermoAditivo): Promise<void> {
+    // Renovação de ciclo: apenas registra a data de referência; não altera valor_global nem valor_acrescimos
+    if (termo.renovacao_ciclo) {
+      contrato.data_renovacao_ciclo = termo.data_assinatura as any;
+      if (termo.nova_data_vigencia_fim) {
+        contrato.data_vigencia_fim = termo.nova_data_vigencia_fim;
+      }
+      await this.contratoRepository.save(contrato);
+      return;
+    }
+
     if (termo.valor_acrescimo) {
       contrato.valor_acrescimos = Number(contrato.valor_acrescimos) + Number(termo.valor_acrescimo);
       contrato.valor_global = Number(contrato.valor_global) + Number(termo.valor_acrescimo);

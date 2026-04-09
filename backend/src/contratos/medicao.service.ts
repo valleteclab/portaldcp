@@ -2167,12 +2167,26 @@ export class MedicaoService {
     const etapas = await this.listarEtapas(contratoId);
     const medicoes = await this.listarMedicoes(contratoId);
 
-    const medicoesAprovadas = medicoes.filter(m => m.status === StatusMedicao.APROVADA);
+    // Se o contrato tem renovação de ciclo, filtrar apenas medições do ciclo atual
+    const dataRenovacao = contrato.data_renovacao_ciclo
+      ? new Date(contrato.data_renovacao_ciclo)
+      : null;
+    const medicoesDoCiclo = dataRenovacao
+      ? medicoes.filter((m) => m.periodo_inicio && new Date(m.periodo_inicio) >= dataRenovacao)
+      : medicoes;
+
+    const statusComprometidos = ['SUBMETIDA', 'AGUARDANDO_ATESTE', 'PARCIALMENTE_ATESTADA', 'AGUARDANDO_APROVACAO', 'APROVADA'];
+
+    const medicoesAprovadas = medicoesDoCiclo.filter(m => m.status === StatusMedicao.APROVADA);
     const valorMedidoTotal = medicoesAprovadas.reduce((sum, m) => sum + Number(m.valor_medido), 0);
     const percentualFisicoTotal = medicoesAprovadas.reduce((sum, m) => sum + Number(m.percentual_fisico_medido), 0);
 
-    // Valor comprometido = aprovadas + em trânsito (submetidas, aguardando ateste/aprovação)
-    const valorComprometido = await this.somarValorMedicoesComprometidas(contratoId);
+    // Comprometido do ciclo atual (para renovação) ou total histórico
+    const valorComprometido = dataRenovacao
+      ? medicoesDoCiclo
+          .filter((m) => statusComprometidos.includes(m.status))
+          .reduce((sum, m) => sum + Number(m.valor_medido), 0)
+      : await this.somarValorMedicoesComprometidas(contratoId);
     const valorEmAnalise = Math.max(0, valorComprometido - valorMedidoTotal);
 
     // Percentuais comprometidos POR ETAPA (em trânsito, para validação no frontend)
@@ -2182,8 +2196,8 @@ export class MedicaoService {
       etapasComprometidas[etapaId] = perc;
     }
 
-    const pendentesAteste = medicoes.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
-    const pendentesAprovacao = medicoes.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
+    const pendentesAteste = medicoesDoCiclo.filter(m => m.status === StatusMedicao.SUBMETIDA).length;
+    const pendentesAprovacao = medicoesDoCiclo.filter(m => m.status === StatusMedicao.AGUARDANDO_APROVACAO).length;
 
     const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
     const osAtiva = await this.getOSAtiva(contratoId);
@@ -2199,10 +2213,9 @@ export class MedicaoService {
       mapa.forEach((qtd, itemId) => { itensComprometidos[itemId] = qtd; });
     }
 
-    // Migração por item: valor já consumido registrado diretamente em cada ItemCronograma
-    // (ic.quantidade_medida × valor_unitario), mas apenas o excesso não coberto por valorMedidoTotal
+    // Migração por item: irrelevante no ciclo renovado (slate limpa); usado apenas sem renovação
     let valorMigracaoPorItem = 0;
-    if (usarItens) {
+    if (usarItens && !dataRenovacao) {
       const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
       const somaIcMigracao = itensCronograma.reduce(
         (sum, ic) => sum + Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0),
@@ -2212,6 +2225,11 @@ export class MedicaoService {
       valorMigracaoPorItem = Math.max(0, somaIcMigracao - valorMedidoTotal);
     }
 
+    // Saldo: ciclo renovado ignora exec_anterior e migração (pizarra limpa)
+    const saldoDisponivel = dataRenovacao
+      ? Math.max(0, valorGlobal - valorComprometido)
+      : Math.max(0, valorGlobal - valorExecAnterior - valorComprometido - valorMigracaoPorItem);
+
     return {
       contrato_id: contratoId,
       fluxo_os: fluxoOs,
@@ -2220,7 +2238,7 @@ export class MedicaoService {
       valor_medido_total: valorMedidoTotal,
       valor_comprometido_total: valorComprometido,
       valor_em_analise: valorEmAnalise,
-      saldo_disponivel: Math.max(0, valorGlobal - valorExecAnterior - valorComprometido - valorMigracaoPorItem),
+      saldo_disponivel: saldoDisponivel,
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       etapas_comprometidas: etapasComprometidas,
       itens_comprometidos: itensComprometidos,

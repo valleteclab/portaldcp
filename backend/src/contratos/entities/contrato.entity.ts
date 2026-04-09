@@ -141,6 +141,9 @@ export class Contrato {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valor_executado_anterior: number;
 
+  @Column({ type: 'date', nullable: true })
+  data_renovacao_ciclo: Date; // data do ciclo mais recente; null = sem renovação de ciclo
+
   @Column({ type: 'text', nullable: true })
   observacao_ajuste: string;
 

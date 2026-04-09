@@ -1002,11 +1002,15 @@ ${usuarioNome || 'Gestão de Contratos'}</p>`,
   async findByFornecedor(
     fornecedorId: string,
     status?: StatusOrdemFornecimento,
+    contratoId?: string,
   ): Promise<OrdemFornecimento[]> {
     try {
       const where: any = { fornecedor_id: fornecedorId };
       if (status) {
         where.status = status;
+      }
+      if (contratoId) {
+        where.contrato_id = contratoId;
       }
       return await this.ordemRepository.find({
         where,

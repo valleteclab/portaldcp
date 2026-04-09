@@ -109,6 +109,13 @@ export class TermoAditivo {
   @Column({ type: 'timestamp', nullable: true })
   data_envio_pncp: Date;
 
+  // Renovação de Ciclo
+  @Column({ default: false })
+  renovacao_ciclo: boolean;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  valor_ciclo: number; // valor informativo do ciclo; não altera valor_global do contrato
+
   // Observações
   @Column({ type: 'text', nullable: true })
   observacoes: string;
