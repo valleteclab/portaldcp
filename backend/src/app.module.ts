@@ -54,6 +54,7 @@ import { PatrimonioModule } from './patrimonio/patrimonio.module';
 import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
 import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
 import { ExtModule } from './ext/ext.module';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -152,6 +153,7 @@ import { ExtModule } from './ext/ext.module';
     MedicaoIaModule,
     NfseSpedyModule,
     ExtModule,
+    McpModule,
   ],
   controllers: [HealthController],
   providers: [
