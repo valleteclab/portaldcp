@@ -49,7 +49,8 @@ import {
   Lock,
   Unlock,
   X,
-  Settings
+  Settings,
+  RefreshCw,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
@@ -65,6 +66,8 @@ interface TermoAditivo {
   tipo: string
   objeto: string
   justificativa?: string | null
+  renovacao_ciclo?: boolean
+  valor_ciclo?: number | null
   valor_acrescimo?: number | null
   valor_supressao?: number | null
   nova_data_vigencia_fim?: string | null
@@ -420,14 +423,15 @@ export default function DetalheContratoOrgaoPage() {
       } else if (novoTermo.modo_supressao === 'percentual' && novoTermo.percentual_supressao) {
         valorSupressao = valorGlobalAtual * (parseFloat(novoTermo.percentual_supressao) / 100)
       }
+      const ehRenovacaoCiclo = novoTermo.tipo === 'ADITIVO_PRAZO' && novoTermo.renovacao_ciclo
       const payload = {
-        tipo: novoTermo.tipo === 'ADITIVO_PRAZO' && novoTermo.renovacao_ciclo
-          ? 'ADITIVO_PRAZO_VALOR'
-          : novoTermo.tipo,
+        tipo: novoTermo.tipo,
+        renovacao_ciclo: ehRenovacaoCiclo,
+        valor_ciclo: ehRenovacaoCiclo ? (parseFloat(novoTermo.valor_acrescimo) || null) : null,
         objeto: novoTermo.objeto,
         justificativa: novoTermo.justificativa || novoTermo.objeto,
-        valor_acrescimo: valorAcrescimo,
-        valor_supressao: valorSupressao,
+        valor_acrescimo: ehRenovacaoCiclo ? null : valorAcrescimo,
+        valor_supressao: ehRenovacaoCiclo ? null : valorSupressao,
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
         data_assinatura: novoTermo.data_assinatura,
       }
@@ -1578,8 +1582,13 @@ export default function DetalheContratoOrgaoPage() {
                         <p className="text-gray-600 mb-4">{termo.objeto}</p>
                         <div className="flex gap-6 text-sm">
                           <div><span className="text-gray-500">Data de Assinatura:</span> <span className="font-medium">{formatarData(termo.data_assinatura)}</span></div>
-                          {termo.valor_acrescimo != null && Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
-                          {termo.valor_supressao != null && Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
+                          {termo.renovacao_ciclo
+                            ? <div className="text-blue-700"><RefreshCw className="w-4 h-4 inline mr-1" />Ciclo: {formatarMoeda(termo.valor_ciclo || 0)}</div>
+                            : (<>
+                                {termo.valor_acrescimo != null && Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
+                                {termo.valor_supressao != null && Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
+                              </>)
+                          }
                           {termo.nova_data_vigencia_fim && <div><span className="text-gray-500">Nova Vigência:</span> <span className="font-medium">{formatarData(termo.nova_data_vigencia_fim)}</span></div>}
                         </div>
                         {documentos.filter(d => d.termo_aditivo_id === termo.id).length > 0 && (
@@ -1801,13 +1810,13 @@ export default function DetalheContratoOrgaoPage() {
                   <div>
                     <span className="font-medium text-blue-900">Renovação de ciclo</span>
                     <p className="text-xs text-blue-700 mt-0.5">
-                      O período prorrogado executará um novo valor além do já executado. O valor global do contrato será acrescido para acomodar o novo ciclo.
+                      O saldo de medições será reiniciado para o novo ciclo. Medições anteriores não contarão contra o novo saldo. O valor global do contrato <strong>não</strong> é alterado.
                     </p>
                   </div>
                 </label>
                 {novoTermo.renovacao_ciclo && (
                   <div className="space-y-1">
-                    <Label>Valor do novo ciclo (acréscimo ao contrato)</Label>
+                    <Label>Valor do ciclo (informativo)</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -1817,7 +1826,7 @@ export default function DetalheContratoOrgaoPage() {
                       onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})}
                     />
                     <p className="text-xs text-blue-600">
-                      Sugestão: {formatarMoeda(Number(contrato?.valor_global) || 0)} (valor global atual do contrato)
+                      Sugestão: {formatarMoeda(Number(contrato?.valor_global) || 0)} (valor global atual do contrato). Este valor é apenas informativo e não altera o total do contrato.
                     </p>
                   </div>
                 )}
