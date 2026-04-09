@@ -556,7 +556,7 @@ export default function EditarContratoPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>Número do Processo</Label>
+                <Label>Processo Administrativo</Label>
                 <Input placeholder="Ex: 001/2024" value={formData.numero_processo} onChange={(e) => handleInputChange('numero_processo', e.target.value)} />
               </div>
               <div className="space-y-2">
