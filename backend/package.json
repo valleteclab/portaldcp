@@ -21,6 +21,7 @@
     "reparo:quantidade-entregue": "ts-node scripts/reparo-quantidade-entregue.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
