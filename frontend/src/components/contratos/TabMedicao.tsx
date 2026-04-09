@@ -19,7 +19,7 @@ import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
   ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
-  Camera, Paperclip, Upload, Wrench, RefreshCw, Download,
+  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -254,6 +254,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [editandoItemCronograma, setEditandoItemCronograma] = useState<ItemCronograma | null>(null)
   const [modalTipoCronograma, setModalTipoCronograma] = useState(false)
   const [modalMedicao, setModalMedicao] = useState(false)
+  const [carregandoReplicar, setCarregandoReplicar] = useState(false)
   const [modalAteste, setModalAteste] = useState<Medicao | null>(null)
   const [modalDevolver, setModalDevolver] = useState<Medicao | null>(null)
   const [modalDetalhe, setModalDetalhe] = useState<Medicao | null>(null)
@@ -843,6 +844,52 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     setDiscriminacoes([])
     setArquivosPendentes([])
     setModalMedicao(true)
+  }
+
+  const replicarMedicaoAnterior = async () => {
+    const ultimaMedicao = [...medicoes].sort((a, b) => b.numero_medicao - a.numero_medicao)[0]
+    if (!ultimaMedicao) return
+    setCarregandoReplicar(true)
+    try {
+      const [detRes, discRes] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/${ultimaMedicao.id}`),
+        authFetch(`${API_URL}/api/contratos/medicoes/${ultimaMedicao.id}/discriminacoes`),
+      ])
+      const det = detRes.ok ? await detRes.json() : null
+      const discs = discRes.ok ? await discRes.json() : []
+
+      let novosItens = formMedicao.itens
+      if (det?.itens?.length) {
+        if (usarItensCronograma) {
+          novosItens = itensCronograma.map(ic => {
+            const prev = det.itens.find((i: any) => i.item_cronograma_id === ic.id)
+            const qtd = prev?.quantidade_medida || 0
+            return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+          })
+        } else if (!isServicoContinuado) {
+          novosItens = etapas.filter(e => e.status !== 'CONCLUIDA').map(e => {
+            const prev = det.itens.find((i: any) => i.etapa_id === e.id)
+            return { etapa_id: e.id, percentual_executado_atual: prev?.percentual_executado_atual || 0, valor_executado_atual: prev?.valor_executado_atual, modo_input: 'percentual' as const }
+          })
+        }
+      }
+
+      setFormMedicao(prev => ({
+        ...prev,
+        observacoes: det?.fornecedor_observacoes || ultimaMedicao.fornecedor_observacoes || '',
+        valor_medido: isServicoContinuado ? String(ultimaMedicao.valor_medido ?? '') : prev.valor_medido,
+        nota_fiscal_valor: String(ultimaMedicao.nota_fiscal_valor ?? ''),
+        itens: novosItens,
+      }))
+
+      if (discs?.length) {
+        setDiscriminacoes(discs.map((d: any) => ({ descricao: d.descricao, valor: Number(d.valor), percentual: Number(d.percentual) })))
+      }
+    } catch (e) {
+      console.error('Erro ao replicar medição anterior', e)
+    } finally {
+      setCarregandoReplicar(false)
+    }
   }
 
   const carregarExecucaoFinanceiraModal = useCallback(async (medicaoId?: string, periodoInicio?: string, periodoFim?: string) => {
@@ -2044,6 +2091,22 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           </DialogHeader>
 
           <div className="space-y-4">
+            {medicoes.length > 0 && (() => {
+              const ultima = [...medicoes].sort((a, b) => b.numero_medicao - a.numero_medicao)[0]
+              return (
+                <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <Copy className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-indigo-900">Replicar medição #{ultima.numero_medicao}</p>
+                    <p className="text-xs text-indigo-700">Copia itens, valores e discriminações do boletim anterior. Preencha apenas o período e a nota fiscal.</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={replicarMedicaoAnterior} disabled={carregandoReplicar}
+                    className="border-indigo-300 text-indigo-700 hover:bg-indigo-100 whitespace-nowrap flex-shrink-0">
+                    {carregandoReplicar ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Copiando...</> : 'Copiar valores'}
+                  </Button>
+                </div>
+              )
+            })()}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-lg border bg-orange-50 p-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-orange-700">Vigência do contrato</p>
