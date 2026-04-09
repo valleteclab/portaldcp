@@ -206,6 +206,10 @@ export class Fornecedor {
   @Column({ nullable: true })
   spedy_api_key: string;
 
+  // === API KEY (acesso externo / MCP) ===
+  @Column({ nullable: true, length: 64 })
+  api_key_hash: string;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -1,0 +1,29 @@
+{
+  "name": "portaldcp-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server para integração com o Portal DCP — permite que agentes de IA submetam medições automaticamente",
+  "main": "dist/index.js",
+  "bin": {
+    "portaldcp-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["mcp", "portaldcp", "medicao", "contratos"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "form-data": "^4.0.1",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
