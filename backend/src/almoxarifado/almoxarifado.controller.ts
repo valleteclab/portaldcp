@@ -253,6 +253,15 @@ export class AlmoxarifadoController {
     return resultados;
   }
 
+  @Delete('contratos/:contratoId/itens')
+  async removerTodosItensContrato(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.itemContratoService.removerTodosDoContrato(contratoId, orgaoId);
+  }
+
   // ============================================================================
   // REQUISIÇÕES
   // ============================================================================

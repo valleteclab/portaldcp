@@ -27,6 +27,7 @@ import { DossieOrdem } from './entities/dossie-ordem.entity';
 import { DossieAnexo } from './entities/dossie-anexo.entity';
 import { DossieService } from './dossie.service';
 import { Contrato } from '../contratos/entities/contrato.entity';
+import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
@@ -63,6 +64,7 @@ import { IaModule } from '../ia/ia.module';
       Fornecedor,
       Usuario,
       AssinaturaDigital,
+      FrotaContrato,
     ]),
     NotificacoesModule,
     forwardRef(() => ContratosModule),

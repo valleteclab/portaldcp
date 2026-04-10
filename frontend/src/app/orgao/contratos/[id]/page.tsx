@@ -277,6 +277,8 @@ export default function DetalheContratoOrgaoPage() {
   const [csvItens, setCsvItens] = useState<any[]>([])
   const [importandoCSV, setImportandoCSV] = useState(false)
   const [resultadoImportacao, setResultadoImportacao] = useState<{ importados: number; erros: string[] } | null>(null)
+  const [modalExcluirTodosItens, setModalExcluirTodosItens] = useState(false)
+  const [excluindoTodosItens, setExcluindoTodosItens] = useState(false)
   const [buscaCatalogo, setBuscaCatalogo] = useState('')
   const [resultadosCatalogo, setResultadosCatalogo] = useState<any[]>([])
   const [buscandoCatalogo, setBuscandoCatalogo] = useState(false)
@@ -984,6 +986,25 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  const handleExcluirTodosItens = async () => {
+    setExcluindoTodosItens(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/contratos/${id}/itens`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(body.message || 'Erro ao excluir itens')
+        return
+      }
+      setModalExcluirTodosItens(false)
+      setPaginaItens(1)
+      carregarDados()
+    } catch {
+      alert('Erro ao excluir itens')
+    } finally {
+      setExcluindoTodosItens(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-8 text-center">
@@ -1423,6 +1444,16 @@ export default function DetalheContratoOrgaoPage() {
               <Button variant="outline" onClick={() => { setCsvItens([]); setResultadoImportacao(null); setModalImportarCSV(true) }}>
                 <Upload className="w-4 h-4 mr-2" />Importar CSV
               </Button>
+              {contrato.itens && contrato.itens.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => setModalExcluirTodosItens(true)}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />Excluir todos os itens
+                </Button>
+              )}
               <Button onClick={abrirModalNovoItem}><Plus className="w-4 h-4 mr-2" />Adicionar Item</Button>
             </div>
           </div>
@@ -2322,6 +2353,37 @@ export default function DetalheContratoOrgaoPage() {
                 {importandoCSV ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</> : `Importar ${csvItens.length} Itens`}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modalExcluirTodosItens} onOpenChange={(open) => !excluindoTodosItens && setModalExcluirTodosItens(open)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <Trash2 className="w-5 h-5" />
+              Excluir todos os itens do contrato
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="text-sm text-gray-600 space-y-2 pt-1">
+                <p>
+                  Serão removidos <strong>todos os {contrato.itens?.length ?? 0} itens</strong>, inclusive os que já têm quantidade empenhada ou entregue.
+                </p>
+                <p>
+                  Itens de requisições vinculados a estes registros serão <strong>desvinculados</strong> (a requisição permanece; o vínculo com o contrato some).
+                </p>
+                <p className="text-red-700 font-medium">Esta ação não pode ser desfeita.</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setModalExcluirTodosItens(false)} disabled={excluindoTodosItens}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleExcluirTodosItens} disabled={excluindoTodosItens}>
+              {excluindoTodosItens ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Excluir todos
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

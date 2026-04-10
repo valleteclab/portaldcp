@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { ItemContrato } from './entities/item-contrato.entity';
+import { ItemRequisicao } from './entities/item-requisicao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
+import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
 
 @Injectable()
@@ -127,6 +129,56 @@ export class ItemContratoService {
     }
 
     await this.itemContratoRepository.remove(item);
+  }
+
+  /**
+   * Remove todos os itens do contrato, inclusive com empenho/entrega.
+   * Desvincula itens de requisições e referências em frota (JSON); não apaga OF/recebimentos.
+   */
+  async removerTodosDoContrato(contratoId: string, orgaoId: string): Promise<{ removidos: number }> {
+    await this.validarPropriedadeContrato(contratoId, orgaoId);
+    const itens = await this.findByContrato(contratoId);
+    if (itens.length === 0) {
+      return { removidos: 0 };
+    }
+
+    const ids = itens.map((i) => i.id);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      await queryRunner.manager.update(
+        ItemRequisicao,
+        { item_contrato_id: In(ids) },
+        { item_contrato_id: null },
+      );
+
+      const frota = await queryRunner.manager.findOne(FrotaContrato, {
+        where: { contrato_id: contratoId },
+      });
+      if (frota?.itens?.length) {
+        frota.itens = frota.itens.map((it) => {
+          const copy = { ...it };
+          delete copy.item_contrato_id;
+          return copy;
+        });
+        await queryRunner.manager.save(FrotaContrato, frota);
+      }
+
+      await queryRunner.manager.delete(ItemContrato, { contrato_id: contratoId });
+
+      await queryRunner.commitTransaction();
+      this.logger.warn(
+        `Todos os itens do contrato ${contratoId} foram excluídos (${ids.length}) por solicitação do órgão ${orgaoId}`,
+      );
+      return { removidos: ids.length };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   // ============================================================================
