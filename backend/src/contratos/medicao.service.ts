@@ -159,6 +159,13 @@ export class MedicaoService {
   async criarEtapa(contratoId: string, dados: Partial<EtapaCronograma>): Promise<EtapaCronograma> {
     const contrato = await this.validarContratoMedicao(contratoId);
 
+    const itensNoCronograma = await this.itemCronogramaRepository.count({ where: { contrato_id: contratoId } });
+    if (itensNoCronograma > 0) {
+      throw new BadRequestException(
+        'Contrato já possui itens no cronograma (medição por quantidade). Exclua os itens antes de cadastrar etapas.',
+      );
+    }
+
     // Validar que a soma dos valores das etapas não ultrapassa o valor global do contrato
     const etapasExistentes = await this.etapaRepository.find({ where: { contrato_id: contratoId } });
     const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;

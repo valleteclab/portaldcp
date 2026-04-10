@@ -1482,10 +1482,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 {usarItensCronograma ? 'Itens do cronograma com quantidade e valor unitário' : 'Etapas da obra/serviço com percentual e valor previsto'}
               </CardDescription>
             </div>
-            {etapas.length > 0 ? (
-              <Button onClick={() => abrirModalEtapa()} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
-            ) : itensCronograma.length > 0 ? (
+            {itensCronograma.length > 0 ? (
               <Button onClick={() => abrirModalItemCronograma()} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Item</Button>
+            ) : etapas.length > 0 ? (
+              <Button onClick={() => abrirModalEtapa()} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
             ) : (
               <Button onClick={() => setModalTipoCronograma(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Adicionar</Button>
             )}
@@ -1501,57 +1501,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <Plus className="w-4 h-4 mr-1" />Adicionar
               </Button>
             </div>
-          ) : etapas.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">#</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead className="text-center">% Físico</TableHead>
-                  <TableHead className="text-right">Valor Previsto</TableHead>
-                  <TableHead className="text-center">Executado</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="w-20"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {etapas.map(e => (
-                  <TableRow key={e.id}>
-                    <TableCell className="font-medium">{e.numero_etapa}</TableCell>
-                    <TableCell>
-                      <p className="font-medium">{e.descricao}</p>
-                      <p className="text-xs text-gray-400">
-                        {formatarData(e.data_inicio_prevista)} → {formatarData(e.data_fim_prevista)}
-                      </p>
-                    </TableCell>
-                    <TableCell className="text-center">{Number(e.percentual_fisico).toFixed(1)}%</TableCell>
-                    <TableCell className="text-right">{formatarMoeda(e.valor_previsto)}</TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="font-medium">{Number(e.percentual_executado).toFixed(1)}%</span>
-                        <Progress value={Number(e.percentual_executado)} className="w-16 h-1.5" />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge className={STATUS_ETAPA[e.status]?.cor || 'bg-gray-100'}>
-                        {STATUS_ETAPA[e.status]?.label || e.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => abrirModalEtapa(e)} disabled={e.status === 'CONCLUIDA'}>
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => excluirEtapa(e.id)} disabled={e.status !== 'PENDENTE'}>
-                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
+          ) : itensCronograma.length > 0 ? (
+            <>
+              {etapas.length > 0 && (
+                <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Este contrato possui <strong>etapas</strong> e <strong>itens do cronograma</strong>. A tabela abaixo mostra os <strong>itens</strong> (medição por quantidade / cláusula de preço).
+                  Exclua as etapas no cadastro se o contrato for só por itens.
+                </div>
+              )}
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1568,7 +1525,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {itensCronograma.map(i => (
+                {[...itensCronograma].sort((a, b) => a.numero_item - b.numero_item).map(i => (
                   <TableRow key={i.id}>
                     <TableCell className="font-medium">{i.numero_item}</TableCell>
                     <TableCell className="whitespace-normal break-words min-w-[200px] max-w-[400px]">{i.descricao}</TableCell>
@@ -1615,6 +1572,57 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => excluirItemCronograma(i.id)} disabled={Number(i.quantidade_medida) > 0}>
+                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            </>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead className="text-center">% Físico</TableHead>
+                  <TableHead className="text-right">Valor Previsto</TableHead>
+                  <TableHead className="text-center">Executado</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="w-20"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {etapas.map(e => (
+                  <TableRow key={e.id}>
+                    <TableCell className="font-medium">{e.numero_etapa}</TableCell>
+                    <TableCell>
+                      <p className="font-medium">{e.descricao}</p>
+                      <p className="text-xs text-gray-400">
+                        {formatarData(e.data_inicio_prevista)} → {formatarData(e.data_fim_prevista)}
+                      </p>
+                    </TableCell>
+                    <TableCell className="text-center">{Number(e.percentual_fisico).toFixed(1)}%</TableCell>
+                    <TableCell className="text-right">{formatarMoeda(e.valor_previsto)}</TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="font-medium">{Number(e.percentual_executado).toFixed(1)}%</span>
+                        <Progress value={Number(e.percentual_executado)} className="w-16 h-1.5" />
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge className={STATUS_ETAPA[e.status]?.cor || 'bg-gray-100'}>
+                        {STATUS_ETAPA[e.status]?.label || e.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => abrirModalEtapa(e)} disabled={e.status === 'CONCLUIDA'}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => excluirEtapa(e.id)} disabled={e.status !== 'PENDENTE'}>
                           <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </Button>
                       </div>
