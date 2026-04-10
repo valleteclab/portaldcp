@@ -18,7 +18,13 @@ import * as QRCode from 'qrcode';
 // ---- Helpers (idênticos ao frontend) ----
 
 function fmt(v: number): string {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const truncado = truncarMoedaReais2Casas(v);
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(truncado);
 }
 
 function truncarMoedaReais2Casas(v: number): number {

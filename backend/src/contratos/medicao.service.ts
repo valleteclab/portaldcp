@@ -2861,23 +2861,26 @@ export class MedicaoService {
     const totalAtePeriodo = Number(execucaoFinanceira?.totais?.ate_periodo);
     const totalAExecutar = Number(execucaoFinanceira?.totais?.a_executar);
 
+    // Somar em centavos para evitar drift de ponto flutuante
+    const somaCentavos = (arr: any[], campo: string) =>
+      arr.reduce((s: number, item: any) => s + Math.round((Number(item[campo]) || 0) * 100), 0);
     return {
       itens,
       totais: {
         valor_previsto: Number.isFinite(totalPrevisto)
-          ? Math.round(totalPrevisto * 100) / 100
-          : Math.round(itens.reduce((s: number, item) => s + (Number(item.valor_previsto) || 0), 0) * 100) / 100,
+          ? truncarMoedaReais2Casas(totalPrevisto)
+          : centavosParaReaisTrunc2(somaCentavos(itens, 'valor_previsto')),
         no_periodo: Number.isFinite(totalNoPeriodo)
-          ? Math.round(totalNoPeriodo * 100) / 100
-          : Math.round(itens.reduce((s: number, item) => s + (Number(item.no_periodo) || 0), 0) * 100) / 100,
+          ? truncarMoedaReais2Casas(totalNoPeriodo)
+          : centavosParaReaisTrunc2(somaCentavos(itens, 'no_periodo')),
         ate_periodo: Number.isFinite(totalAtePeriodo)
-          ? Math.round(totalAtePeriodo * 100) / 100
-          : Math.round(itens.reduce((s: number, item) => s + (Number(item.ate_periodo) || 0), 0) * 100) / 100,
+          ? truncarMoedaReais2Casas(totalAtePeriodo)
+          : centavosParaReaisTrunc2(somaCentavos(itens, 'ate_periodo')),
         a_executar: Number.isFinite(totalAExecutar)
-          ? Math.round(totalAExecutar * 100) / 100
-          : Math.round(itens.reduce((s: number, item) => s + (Number(item.a_executar) || 0), 0) * 100) / 100,
+          ? truncarMoedaReais2Casas(totalAExecutar)
+          : centavosParaReaisTrunc2(somaCentavos(itens, 'a_executar')),
       },
-      ajuste_migracao: Math.round((Number(execucaoFinanceira?.ajuste_migracao) || 0) * 100) / 100,
+      ajuste_migracao: truncarMoedaReais2Casas(Number(execucaoFinanceira?.ajuste_migracao) || 0),
     };
   }
 
@@ -3548,22 +3551,24 @@ export class MedicaoService {
             const quantidadeMedida = Number(itemMedicao?.quantidade_medida) || 0;
             const valorUnitario = Number(itemMedicao?.itemCronograma?.valor_unitario ?? item.valor_unitario) || 0;
             if (quantidadeMedida > 0 && valorUnitario > 0) {
-              return quantidadeMedida * valorUnitario;
+              // Usar aritmética de centavos para truncar em 2 casas (evita ex.: 6,82×2831,40 = 19.310,148)
+              return centavosParaReaisTrunc2(produtoQuantidadeValorUnitarioCentavos(quantidadeMedida, valorUnitario));
             }
             return Number(itemMedicao?.valor_medido) || 0;
           };
 
-          let valorAnterior = 0;
+          // Acumular em centavos para evitar drift de ponto flutuante ao somar medições
+          let centAnterior = 0;
           for (const m of medicoesAprovadas) {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
             const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
             if (itemMedicao) {
-              valorAnterior += obterValorBrutoItemMedicao(itemMedicao);
+              centAnterior += Math.round(obterValorBrutoItemMedicao(itemMedicao) * 100);
             }
           }
 
-          let noPeriodo = 0;
+          let centNoPeriodo = 0;
           let quantidadeNoPeriodo = 0;
           if (medicaoAtual) {
             const itensFonte = medicaoAtual.status === StatusMedicao.APROVADA
@@ -3571,13 +3576,15 @@ export class MedicaoService {
               : itensMedicaoAtual;
             const itemMedicao = itensFonte.find((i: any) => i.item_cronograma_id === item.id);
             if (itemMedicao) {
-              noPeriodo = obterValorBrutoItemMedicao(itemMedicao);
+              centNoPeriodo = Math.round(obterValorBrutoItemMedicao(itemMedicao) * 100);
               quantidadeNoPeriodo = obterQuantidadeItemMedicao(itemMedicao);
             }
           }
 
-          const atePeriodo = valorAnterior + noPeriodo;
-          const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
+          const centAtePeriodo = centAnterior + centNoPeriodo;
+          const noPeriodo = centavosParaReaisTrunc2(centNoPeriodo);
+          const atePeriodo = centavosParaReaisTrunc2(centAtePeriodo);
+          const aExecutar = truncarMoedaReais2Casas(Math.max(0, valorPrevisto - atePeriodo));
           const quantidadeMedidaItem = Number(item.quantidade_medida) || 0;
           const quantidadeAtePeriodo = quantidadeMedidaItem + quantidadeNoPeriodo;
           const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
@@ -3586,9 +3593,8 @@ export class MedicaoService {
             etapa_id: item.id,
             numero_etapa: item.numero_item,
             descricao: item.descricao,
-            valor_previsto: valorPrevisto,
+            valor_previsto: truncarMoedaReais2Casas(valorPrevisto),
             percentual_fisico: 0,
-            // Sem arredondar em centavos: alinha à regra q×vu do cronograma (Vl./freq.)
             no_periodo: noPeriodo,
             ate_periodo: atePeriodo,
             a_executar: aExecutar,
@@ -3637,11 +3643,11 @@ export class MedicaoService {
             etapa_id: etapa.id,
             numero_etapa: etapa.numero_etapa,
             descricao: etapa.descricao,
-            valor_previsto: valorPrevisto,
+            valor_previsto: truncarMoedaReais2Casas(valorPrevisto),
             percentual_fisico: Number(etapa.percentual_fisico) || 0,
-            no_periodo: Math.round(noPeriodo * 100) / 100,
-            ate_periodo: Math.round(atePeriodo * 100) / 100,
-            a_executar: Math.round(aExecutar * 100) / 100,
+            no_periodo: truncarMoedaReais2Casas(noPeriodo),
+            ate_periodo: truncarMoedaReais2Casas(atePeriodo),
+            a_executar: truncarMoedaReais2Casas(aExecutar),
           };
         });
 
@@ -3866,12 +3872,12 @@ export class MedicaoService {
         etapa_id: etapa.id,
         numero_etapa: etapa.numero_etapa,
         descricao: etapa.descricao,
-        valor_previsto: valorPrevisto,
+        valor_previsto: truncarMoedaReais2Casas(valorPrevisto),
         percentual_fisico: Number(etapa.percentual_fisico) || 0,
-        // Execução financeira
-        no_periodo: Math.round(noPeriodo * 100) / 100,
-        ate_periodo: Math.round(atePeríodo * 100) / 100,
-        a_executar: Math.round(aExecutar * 100) / 100,
+        // Execução financeira — truncar em 2 casas (não arredondar)
+        no_periodo: truncarMoedaReais2Casas(noPeriodo),
+        ate_periodo: truncarMoedaReais2Casas(atePeríodo),
+        a_executar: truncarMoedaReais2Casas(aExecutar),
       };
     });
 

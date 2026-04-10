@@ -187,8 +187,25 @@ const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> 
   DEVOLVIDA: { label: 'Devolvida', cor: 'bg-amber-100 text-amber-800', icon: RotateCcw },
 }
 
+function truncar2Casas(v: number): number {
+  const x = Number(v)
+  if (!Number.isFinite(x)) return 0
+  const s = Math.abs(x).toFixed(14)
+  const dot = s.indexOf('.')
+  const intPart = dot < 0 ? s : s.slice(0, dot)
+  const fracRaw = dot < 0 ? '' : s.slice(dot + 1)
+  const frac2 = (fracRaw + '00').slice(0, 2)
+  const n = Number(`${intPart}.${frac2}`)
+  return x < 0 ? -n : n
+}
+
 function formatarMoeda(v: number | string) {
-  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(truncar2Casas(Number(v)))
 }
 
 function formatarData(d: string | null | undefined) {
@@ -2630,35 +2647,37 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
                 // Para itens MENSAL: usar dados reais do backend para atePeriodo (evita erro de arredondamento por qtd × vm)
                 if (tipoMedicaoAtual === 'mensal') {
-                  let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
+                  // Acumular em centavos para evitar drift de ponto flutuante (ex.: 6,82×2831,40=19310,148)
+                  let centNoP = 0, centAteP = 0, centAExec = 0
                   const itensMens = itensCronograma.filter(ic => ic.unidade_medida === 'MENSAL')
                   for (const ic of itensMens) {
                     const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
                     const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
                     if (qtdNoPeriodo <= 0) continue
                     const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0
-                    const valorNoPeriodo = qtdNoPeriodo * vm
+                    const centItem = Math.floor(Math.round(qtdNoPeriodo * 100) * Math.round(vm * 100) / 100)
                     // Usa o valor financeiro aprovado do backend quando disponível para evitar acúmulo de arredondamento
                     // Também considera ic.quantidade_medida (migração por item) que o backend não computa
                     const backendItem = execucaoFinanceiraModal?.itens?.find((i: any) => i.etapa_id === ic.id)
                     const fromBackend = backendItem
                       ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0)
                       : 0
-                    const fromMigracao = Number(ic.quantidade_medida ?? 0) * vm
-                    const valorAprovadoAnterior = Math.max(fromBackend, fromMigracao)
-                    const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo
-                    const valorTotal = Number(ic.valor_total) || 0
-                    noPeriodo += valorNoPeriodo
-                    atePeriodo += valorAtePeriodo
-                    aExecutar += Math.max(0, valorTotal - valorAtePeriodo)
+                    const centMigracao = Math.floor(Math.round(Number(ic.quantidade_medida ?? 0) * 100) * Math.round(vm * 100) / 100)
+                    const centAprovadoAnterior = Math.round(Math.max(fromBackend, centMigracao / 100) * 100)
+                    const centAte = centAprovadoAnterior + centItem
+                    const centTotal = Math.round((Number(ic.valor_total) || 0) * 100)
+                    centNoP += centItem
+                    centAteP += centAte
+                    centAExec += Math.max(0, centTotal - centAte)
                   }
-                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                  return { noPeriodoExibicao: centNoP / 100, atePeriodoExibicao: centAteP / 100, aExecutarExibicao: centAExec / 100 }
                 }
 
                 // Para quantidade: espelha exatamente o fiscal (qtd × valor_unitario)
                 // Isso garante que ajustes manuais de quantidade sejam respeitados
                 if (tipoMedicaoAtual === 'quantidade') {
-                  let noPeriodo = 0, atePeriodo = 0, aExecutar = 0
+                  // Acumular em centavos para evitar drift de ponto flutuante (ex.: 6,82×2831,40=19310,148)
+                  let centNoP = 0, centAteP = 0, centAExec = 0
                   const itensQtd = itensCronograma.filter(ic => ic.unidade_medida !== 'MENSAL')
                   for (const ic of itensQtd) {
                     const itemState = formMedicao.itens.find(i => 'item_cronograma_id' in i && (i as any).item_cronograma_id === ic.id) as any
@@ -2669,11 +2688,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
                     const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
                     const vu = Number(ic.valor_unitario)
-                    noPeriodo += qtdNoPeriodo * vu
-                    atePeriodo += qtdAtePeriodo * vu
-                    aExecutar += qtdAExecutar * vu
+                    centNoP += Math.floor(Math.round(qtdNoPeriodo * 100) * Math.round(vu * 100) / 100)
+                    centAteP += Math.floor(Math.round(qtdAtePeriodo * 100) * Math.round(vu * 100) / 100)
+                    centAExec += Math.floor(Math.round(qtdAExecutar * 100) * Math.round(vu * 100) / 100)
                   }
-                  return { noPeriodoExibicao: noPeriodo, atePeriodoExibicao: atePeriodo, aExecutarExibicao: aExecutar }
+                  return { noPeriodoExibicao: centNoP / 100, atePeriodoExibicao: centAteP / 100, aExecutarExibicao: centAExec / 100 }
                 }
 
                 // Demais tipos: usar dados do backend ou fallback por valor global
