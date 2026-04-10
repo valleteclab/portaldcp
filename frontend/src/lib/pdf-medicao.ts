@@ -609,9 +609,10 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       theme: 'grid',
       styles: { fontSize: 6, cellPadding: 0.9, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      // Larguras somam 196 mm (= A4 − 2×mX), alinhado ao bloco EXECUÇÃO FISCAL / FINANCEIRA
       columnStyles: {
         0: { cellWidth: 8 },
-        1: { cellWidth: 52 },
+        1: { cellWidth: 62 },
         2: { cellWidth: 22 },
         3: { cellWidth: 16 },
         4: { cellWidth: 16 },
