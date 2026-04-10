@@ -29,6 +29,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import QRCode from 'qrcode';
+import {
+  quantidadeFisicaTotalContratada,
+  textoUnidadeCronogramaPdf,
+  textoFrequenciaCronogramaPdf,
+  valorPorFrequenciaItemCronograma,
+} from './cronograma-medicao-pdf.util';
 
 @Injectable()
 export class MedicaoService {
@@ -1680,7 +1686,10 @@ export class MedicaoService {
       .map((item: any) => {
         const vlrUnitario  = Number(item.item_valor_unitario || 0);
         const qtdMedida    = Number(item.quantidade_medida || 0);
-        const qtdTotal     = Number(item.item_quantidade_total || 0);
+        const icPdf = icMigracaoMap.get(item.item_cronograma_id || '');
+        const qtdTotal     = icPdf
+          ? quantidadeFisicaTotalContratada(icPdf)
+          : Number(item.item_quantidade_total || 0);
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
         const vlrNoPeriodo = efItem ? Number(efItem.no_periodo || 0) : qtdMedida * vlrUnitario;
@@ -1743,14 +1752,18 @@ export class MedicaoService {
       valor_previsto: itensParaPdf.reduce((s, i) => s + (i.valor_total_item || 0), 0),
     } : (medicao.execucao_financeira as any)?.totais || undefined;
 
-    // Itens contratados (para bloco ITENS CONTRATADOS) — reutiliza icMigracao
+    // Itens contratados (para bloco ITENS CONTRATADOS) — espelho do cronograma na UI
     const itensContratados = icMigracao.map((ic, idx) => ({
-      numero:         ic.numero_item || idx + 1,
-      descricao:      ic.descricao || '',
-      unidade:        ic.unidade_medida || '',
-      quantidade:     Number(ic.quantidade || 0),
-      valor_unitario: Number(ic.valor_unitario || 0),
-      valor_total:    Number(ic.valor_total || 0),
+      numero:                 ic.numero_item || idx + 1,
+      descricao:              ic.descricao || '',
+      unidade:                ic.unidade_medida || '',
+      unidade_exibicao:       textoUnidadeCronogramaPdf(ic.unidade_medida),
+      frequencia_exibicao:    textoFrequenciaCronogramaPdf(ic.frequencia_execucao),
+      numero_execucoes:       ic.quantidade_meses != null ? Number(ic.quantidade_meses) : null,
+      quantidade:             Number(ic.quantidade || 0),
+      valor_unitario:         Number(ic.valor_unitario || 0),
+      valor_por_frequencia:   valorPorFrequenciaItemCronograma(ic),
+      valor_total:            Number(ic.valor_total || 0),
     }));
 
     return {
@@ -2779,7 +2792,9 @@ export class MedicaoService {
       item_numero: item.itemCronograma?.numero_item || 0,
       item_unidade: item.itemCronograma?.unidade_medida || '',
       item_valor_unitario: item.itemCronograma ? Number(item.itemCronograma.valor_unitario) : 0,
-      item_quantidade_total: item.itemCronograma ? Number(item.itemCronograma.quantidade) : 0,
+      item_quantidade_total: item.itemCronograma
+        ? quantidadeFisicaTotalContratada(item.itemCronograma)
+        : 0,
       item_quantidade_acumulada: item.itemCronograma ? Number(item.itemCronograma.quantidade_medida) : 0,
     }));
 
@@ -3486,7 +3501,7 @@ export class MedicaoService {
     const resultado = usarItensCronograma
       ? itensCronograma.map((item) => {
           const valorPrevisto = Number(item.valor_total) || (Number(item.valor_unitario) * Number(item.quantidade)) || 0;
-          const quantidadeTotal = Number(item.quantidade) || 0;
+          const quantidadeTotal = quantidadeFisicaTotalContratada(item);
           const unidadeMedida = (item as any).unidade_medida || 'UNIDADE';
 
           const obterValorBrutoItemMedicao = (itemMedicao: any): number => {

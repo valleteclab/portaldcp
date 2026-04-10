@@ -38,8 +38,14 @@ export interface ItemContratadoPdf {
   numero: number
   descricao: string
   unidade: string
+  /** Texto como no cronograma (ex.: Serviço preço por m²); fallback: unidade */
+  unidade_exibicao?: string
+  frequencia_exibicao?: string
+  numero_execucoes?: number | null
   quantidade: number
   valor_unitario: number
+  /** Valor de uma execução (q × vl unit ou valor_mensal) */
+  valor_por_frequencia?: number
   valor_total: number
 }
 
@@ -563,34 +569,57 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
 
     const totalItens = dados.itens_contratados.reduce((s, ic) => s + ic.valor_total, 0)
 
+    const fmtNExec = (ic: ItemContratadoPdf) =>
+      ic.numero_execucoes != null && ic.numero_execucoes !== undefined ? String(ic.numero_execucoes) : '—'
+    const vlFreq = (ic: ItemContratadoPdf) =>
+      ic.valor_por_frequencia != null && Number.isFinite(ic.valor_por_frequencia)
+        ? fmt(ic.valor_por_frequencia)
+        : fmt(ic.quantidade * ic.valor_unitario)
+
     autoTable(doc, {
       startY: y,
       head: [[
         { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
         { content: 'Unidade', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Freq.', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Qtd.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: 'Vl. Unit. (R$)', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: 'Vl. Total (R$)', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Unit.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Nº exec.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl./freq.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
       body: [
         ...dados.itens_contratados.map(ic => [
           { content: ic.numero, styles: { halign: 'center' as const } },
           ic.descricao,
-          { content: ic.unidade, styles: { halign: 'center' as const } },
+          { content: ic.unidade_exibicao || ic.unidade, styles: { halign: 'center' as const, fontSize: 5.5 } },
+          { content: ic.frequencia_exibicao ?? '—', styles: { halign: 'center' as const, fontSize: 5.5 } },
           { content: ic.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), styles: { halign: 'right' as const } },
           { content: fmt(ic.valor_unitario), styles: { halign: 'right' as const } },
+          { content: fmtNExec(ic), styles: { halign: 'right' as const } },
+          { content: vlFreq(ic), styles: { halign: 'right' as const } },
           { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
         ]),
         [
-          { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: 'TOTAL', colSpan: 8, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmt(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
       theme: 'grid',
-      styles: { fontSize: 6.5, cellPadding: 1.1, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' },
+      styles: { fontSize: 6, cellPadding: 0.9, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 86 }, 2: { cellWidth: 21 }, 3: { cellWidth: 18 }, 4: { cellWidth: 30 }, 5: { cellWidth: 31 } },
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 52 },
+        2: { cellWidth: 22 },
+        3: { cellWidth: 16 },
+        4: { cellWidth: 16 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 12 },
+        7: { cellWidth: 20 },
+        8: { cellWidth: 22 },
+      },
       margin: { left: mX, right: mX },
     })
     y = (doc as any).lastAutoTable.finalY + 4
