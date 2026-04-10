@@ -270,34 +270,30 @@ export default function ApiKeyPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Terminal className="w-5 h-5 text-gray-500" />
-            <CardTitle className="text-base">Como configurar o Claude Desktop</CardTitle>
+            <CardTitle className="text-base">Como configurar o Claude Desktop ou Cursor</CardTitle>
           </div>
           <CardDescription>
-            Configure o agente de IA para usar sua API Key automaticamente.
+            Não é necessário instalar nada — basta adicionar a URL com sua API Key.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <ol className="space-y-4 text-sm text-gray-700">
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-semibold text-xs">1</span>
-              <span>
-                Abra o <strong>Claude Desktop</strong> e acesse{' '}
-                <code className="bg-gray-100 px-1 rounded">Configurações → Developer → Edit Config</code>
-              </span>
+              <div>
+                <p>No <strong>Claude Desktop</strong>, acesse{' '}
+                <code className="bg-gray-100 px-1 rounded">Configurações → Developer → Edit Config</code>.</p>
+                <p className="mt-1 text-gray-500">No <strong>Cursor</strong>, abra <code className="bg-gray-100 px-1 rounded">Settings → MCP</code> e clique em <em>Add new MCP server</em>.</p>
+              </div>
             </li>
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-semibold text-xs">2</span>
               <div className="flex-1">
-                <p className="mb-2">Adicione o seguinte ao arquivo <code className="bg-gray-100 px-1 rounded">claude_desktop_config.json</code>:</p>
+                <p className="mb-2">Adicione o bloco abaixo, substituindo <code className="bg-gray-100 px-1 rounded">SUA_API_KEY_AQUI</code> pela chave gerada acima:</p>
                 <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 text-xs overflow-x-auto leading-relaxed">{`{
   "mcpServers": {
     "portaldcp": {
-      "command": "npx",
-      "args": ["-y", "portaldcp-mcp"],
-      "env": {
-        "PORTALDCP_URL": "https://portaldcp.com.br",
-        "PORTALDCP_API_KEY": "SUA_API_KEY_AQUI"
-      }
+      "serverUrl": "https://compras.cmlem.ba.gov.br/api/mcp/sse?api_key=SUA_API_KEY_AQUI"
     }
   }
 }`}</pre>
@@ -305,7 +301,7 @@ export default function ApiKeyPage() {
             </li>
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-semibold text-xs">3</span>
-              <span>Reinicie o Claude Desktop. O agente terá acesso às ferramentas do Portal DCP.</span>
+              <span>Salve e reinicie o aplicativo. O agente já terá acesso às ferramentas do Portal DCP.</span>
             </li>
           </ol>
         </CardContent>
