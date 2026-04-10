@@ -903,6 +903,18 @@ export default function DetalheContratoOrgaoPage() {
     URL.revokeObjectURL(link.href)
   }
 
+  const normalizarHeader = (h: string): string => {
+    const base = h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    const map: Record<string, string> = {
+      'item':           'numero_item',
+      'descricao':      'descricao',
+      'unidade':        'unidade_medida',
+      'preco_unitario': 'valor_unitario',
+      'quantidade':     'quantidade_contratada',
+    }
+    return map[base] ?? base
+  }
+
   const handleUploadCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -917,7 +929,7 @@ export default function DetalheContratoOrgaoPage() {
       if (linhas.length < 2) { alert('Arquivo vazio ou sem dados'); return }
 
       const separador = linhas[0].includes(';') ? ';' : ','
-      const headers = linhas[0].split(separador).map(h => h.trim().toLowerCase().replace(/"/g, ''))
+      const headers = linhas[0].split(separador).map(h => normalizarHeader(h.trim().replace(/"/g, '')))
       const itens: any[] = []
 
       for (let i = 1; i < linhas.length; i++) {
@@ -2238,13 +2250,14 @@ export default function DetalheContratoOrgaoPage() {
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-              <p className="font-medium mb-1">Formato do arquivo:</p>
+              <p className="font-medium mb-1">Formatos aceitos:</p>
               <ul className="list-disc list-inside space-y-0.5 text-xs">
                 <li>Separador: <strong>ponto e vírgula (;)</strong> ou vírgula (,)</li>
-                <li>Primeira linha deve conter os cabeçalhos</li>
-                <li>Campos obrigatórios: <strong>descricao, quantidade_contratada, valor_unitario</strong></li>
-                <li>Unidades: UNIDADE, PECA, CAIXA, METRO, LITRO, QUILOGRAMA, HORA, MES, SERVICO, GLOBAL</li>
-                <li>Tipo do item (contratos COMPRAS): CONSUMO ou PERMANENTE</li>
+                <li>Campos obrigatórios: <strong>descricao</strong> (ou <strong>Descrição</strong>), <strong>quantidade</strong> e <strong>preco_unitario</strong></li>
+                <li><strong>Formato de migração:</strong> Item, Descrição, Marca, Unidade, Preco_Unitario, Quantidade, Saida, Valor_R$, Estoque_Atual</li>
+                <li><strong>Saida:</strong> quantidade já consumida/entregue — registrada como saldo utilizado</li>
+                <li>Colunas <em>Valor_R$</em> e <em>Estoque_Atual</em> são ignoradas (calculadas automaticamente)</li>
+                <li>Unidades: UNIDADE, PECA, CAIXA, PACOTE, METRO, LITRO, QUILOGRAMA, HORA, MES, SERVICO, GLOBAL</li>
               </ul>
             </div>
 
@@ -2259,24 +2272,24 @@ export default function DetalheContratoOrgaoPage() {
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
                           <th className="text-left py-2 px-3">#</th>
-                          <th className="text-left py-2 px-3">Lote</th>
                           <th className="text-left py-2 px-3">Descrição</th>
+                          <th className="text-left py-2 px-3">Marca</th>
                           <th className="text-center py-2 px-3">Unid.</th>
                           <th className="text-right py-2 px-3">Qtd.</th>
+                          <th className="text-right py-2 px-3">Saída</th>
                           <th className="text-right py-2 px-3">Valor Unit.</th>
-                          <th className="text-left py-2 px-3">Cód. Próprio</th>
                         </tr>
                       </thead>
                       <tbody>
                         {csvItens.map((item, i) => (
                           <tr key={i} className="border-b hover:bg-gray-50">
                             <td className="py-2 px-3">{item.numero_item || i + 1}</td>
-                            <td className="py-2 px-3">{item.lote_numero || '-'}</td>
                             <td className="py-2 px-3 max-w-[200px] truncate">{item.descricao}</td>
+                            <td className="py-2 px-3">{item.marca || '-'}</td>
                             <td className="py-2 px-3 text-center">{item.unidade_medida || 'UN'}</td>
                             <td className="py-2 px-3 text-right">{item.quantidade_contratada}</td>
+                            <td className="py-2 px-3 text-right">{item.saida || '0'}</td>
                             <td className="py-2 px-3 text-right">{item.valor_unitario}</td>
-                            <td className="py-2 px-3">{item.codigo_catalogo_proprio || '-'}</td>
                           </tr>
                         ))}
                       </tbody>

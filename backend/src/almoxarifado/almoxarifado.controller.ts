@@ -193,22 +193,40 @@ export class AlmoxarifadoController {
           continue;
         }
 
-        const unidade = (row.unidade_medida || 'UNIDADE').toUpperCase().trim();
+        const unidadeRaw = (row.unidade_medida || 'UNIDADE').toUpperCase().trim();
+        const unidadesValidas = ['UNIDADE','PECA','CAIXA','PACOTE','METRO','METRO_QUADRADO',
+          'METRO_CUBICO','LITRO','QUILOGRAMA','TONELADA','HORA','DIARIA','MES','ANO','SERVICO','GLOBAL'];
+        const unidadeBase = unidadeRaw.split(/\s+/)[0]; // "CAIXA" de "CAIXA COM 50"
+        const unidade = unidadesValidas.includes(unidadeRaw)
+          ? unidadeRaw
+          : unidadesValidas.includes(unidadeBase) ? unidadeBase : 'UNIDADE';
+
         const valor_unitario = parseFloat(String(row.valor_unitario || '0').replace(',', '.'));
         const quantidade = parseFloat(String(row.quantidade_contratada || '0').replace(',', '.'));
 
         const tipoItemRaw = (row.tipo_item || 'CONSUMO').toUpperCase().trim();
         const tipo_item = ['CONSUMO', 'PERMANENTE'].includes(tipoItemRaw) ? tipoItemRaw : undefined;
 
+        // Saída de migração: quantidade já consumida/entregue no sistema anterior
+        const saida = parseFloat(String(row.saida || '0').replace(',', '.')) || 0;
+
         if (valor_unitario <= 0 || quantidade <= 0) {
           resultados.erros.push(`Linha ${i + 1} (${descricao}): Valor unitário e quantidade devem ser maiores que zero`);
           continue;
         }
 
-        await this.itemContratoService.criar({
+        if (saida < 0 || saida > quantidade) {
+          resultados.erros.push(`Linha ${i + 1} (${descricao}): Saída (${saida}) não pode ser negativa ou maior que Quantidade (${quantidade})`);
+          continue;
+        }
+
+        const marca = (row.marca || '').trim() || undefined;
+
+        const itemCriado = await this.itemContratoService.criar({
           contrato_id: contratoId,
           numero_item,
           descricao,
+          marca,
           descricao_detalhada: (row.descricao_detalhada || '').trim() || undefined,
           unidade_medida: unidade as any,
           valor_unitario,
@@ -220,6 +238,11 @@ export class AlmoxarifadoController {
           lote_descricao: (row.lote_descricao || '').trim() || undefined,
           observacoes: (row.observacoes || '').trim() || undefined,
         });
+
+        // Se houver saída de migração, atualiza quantidade_entregue e saldo
+        if (saida > 0) {
+          await this.itemContratoService.atualizar(itemCriado.id, { quantidade_ja_utilizada: saida });
+        }
 
         resultados.importados++;
       } catch (err) {
