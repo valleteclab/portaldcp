@@ -21,10 +21,22 @@ function fmt(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-/** EXECUÇÃO FINANCEIRA: 2 casas; trunc em centavos (sem arredondar). */
+function truncarMoedaReais2Casas(v: number): number {
+  const x = Number(v);
+  if (!Number.isFinite(x)) return 0;
+  const neg = x < 0;
+  const s = Math.abs(x).toFixed(14);
+  const dot = s.indexOf('.');
+  const intPart = dot < 0 ? s : s.slice(0, dot);
+  const fracRaw = dot < 0 ? '' : s.slice(dot + 1);
+  const frac2 = (fracRaw + '00').slice(0, 2);
+  const n = Number(`${intPart}.${frac2}`);
+  return neg ? -n : n;
+}
+
+/** EXECUÇÃO FINANCEIRA: 2 casas; trunc (sem arredondar). */
 function fmtExecFinanceira(v: number): string {
-  const n = Number(v) || 0;
-  const truncado = Math.trunc(n * 100) / 100;
+  const truncado = truncarMoedaReais2Casas(v);
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
@@ -583,7 +595,10 @@ export async function gerarBoletimMedicaoPdf(
         : item.quantidade_total_contrato * item.valor_unitario;
       const vlrNoPeriodo = item.valor_no_periodo;
       const vlrAtePeriodo = vlrAcumAnterior + vlrNoPeriodo;
-      const vlrAExecutar = Math.max(0, vlrTotal - vlrAtePeriodo);
+      const vlrAExecutar =
+        item.valor_a_executar !== undefined && item.valor_a_executar !== null
+          ? Number(item.valor_a_executar)
+          : Math.max(0, vlrTotal - vlrAtePeriodo);
 
       totalNoPeriodo += vlrNoPeriodo;
       totalAteoPeriodo += vlrAtePeriodo;
