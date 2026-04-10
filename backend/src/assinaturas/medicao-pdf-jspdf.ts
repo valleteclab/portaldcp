@@ -21,6 +21,15 @@ function fmt(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+function fmtExecFinanceira(v: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  }).format(v);
+}
+
 function fmtData(d: string): string {
   if (!d) return '-';
   const p = d.split('T')[0].split('-');
@@ -101,6 +110,18 @@ function fmtQuantidade(valor: number, unidade: string): string {
     : u === 'UN' || u === 'UNIDADE' ? ' un'
     : ` ${(unidade || 'un').toLowerCase()}`;
   return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}${suf}`;
+}
+
+/** Colunas EXECUÇÃO FISCAL (por quantidade): no máx. 2 decimais */
+function fmtQuantidadeExecucaoFiscal(valor: number, unidade: string): string {
+  const u = (unidade || 'UN').toUpperCase();
+  const suf = u === 'HORA' || u === 'H' ? ' h'
+    : u === 'METROS' || u === 'M' ? ' m'
+    : u === 'LITROS' || u === 'L' ? ' l'
+    : u === 'MENSAL' ? (valor === 1 ? ' mês' : ' meses')
+    : u === 'UN' || u === 'UNIDADE' ? ' un'
+    : ` ${(unidade || 'un').toLowerCase()}`;
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}${suf}`;
 }
 
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
@@ -566,9 +587,9 @@ export async function gerarBoletimMedicaoPdf(
       totalAExecutar += vlrAExecutar;
 
       const un = item.unidade || 'UNIDADE';
-      const fiscalNo = porQuantidade ? fmtQuantidade(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo;
-      const fiscalAte = porQuantidade ? fmtQuantidade(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo;
-      const fiscalExec = porQuantidade ? fmtQuantidade(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar;
+      const fiscalNo = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo;
+      const fiscalAte = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo;
+      const fiscalExec = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar;
 
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
@@ -576,9 +597,9 @@ export async function gerarBoletimMedicaoPdf(
         { content: fiscalNo, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fiscalAte, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fiscalExec, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: fmt(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
-        { content: fmt(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
-        { content: fmt(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },
+        { content: fmtExecFinanceira(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
+        { content: fmtExecFinanceira(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
+        { content: fmtExecFinanceira(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },
       ];
     });
 
@@ -588,9 +609,9 @@ export async function gerarBoletimMedicaoPdf(
 
     body.push([
       { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalNoPeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalAtePeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
-      { content: fmt(totalAExecutarExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmtExecFinanceira(totalNoPeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmtExecFinanceira(totalAtePeriodoExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
+      { content: fmtExecFinanceira(totalAExecutarExibicao), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
     ]);
 
     autoTable(doc, {
