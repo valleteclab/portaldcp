@@ -33,7 +33,6 @@ import {
   quantidadeFisicaTotalContratada,
   textoUnidadeCronogramaPdf,
   textoFrequenciaCronogramaPdf,
-  truncarMoedaReais2Casas,
   valorPorFrequenciaItemCronograma,
 } from './cronograma-medicao-pdf.util';
 
@@ -1693,22 +1692,19 @@ export class MedicaoService {
           : Number(item.item_quantidade_total || 0);
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
-        const ic = icMigracaoMap.get(item.item_cronograma_id || '');
-        const vlrNoPeriodoBruto = qtdMedida * vlrUnitario;
+        // Mesma regra monetária do bloco ITENS (Vl./freq. = q×vu): não usar snapshot
+        // arredondado em centavos, que diverge do produto exibido na planilha.
+        const vlrNoPeriodo = qtdMedida * vlrUnitario;
 
         // ate_periodo_global do snapshot pode não incluir ic.quantidade_medida (migração por item).
-        // Trunca snapshot/migração (sem arredondar) antes do max — evita centavo a mais na coluna ATÉ O PERÍODO.
-        const fromSnapshot = efItem
-          ? truncarMoedaReais2Casas(Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0))
-          : truncarMoedaReais2Casas(vlrNoPeriodoBruto);
-        const fromMigracao = ic
-          ? truncarMoedaReais2Casas(Number(ic.quantidade_medida || 0) * vlrUnitario + vlrNoPeriodoBruto)
-          : truncarMoedaReais2Casas(vlrNoPeriodoBruto);
-        const vlrAtePeriodo = truncarMoedaReais2Casas(Math.max(fromSnapshot, fromMigracao));
+        // Usa Math.max entre snapshot e migração — mesma lógica do frontend.
+        const ic = icMigracaoMap.get(item.item_cronograma_id || '');
+        const fromSnapshot = efItem ? Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0) : vlrNoPeriodo;
+        const fromMigracao = ic ? Number(ic.quantidade_medida || 0) * vlrUnitario + vlrNoPeriodo : vlrNoPeriodo;
+        const vlrAtePeriodo = Math.max(fromSnapshot, fromMigracao);
 
-        const vlrNoPeriodo = truncarMoedaReais2Casas(vlrNoPeriodoBruto);
-        const vlrAcumAnterior = truncarMoedaReais2Casas(vlrAtePeriodo - vlrNoPeriodo);
-        const vlrTotal = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
+        const vlrAcumAnterior  = vlrAtePeriodo - vlrNoPeriodo;
+        const vlrTotal         = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
         // Para MENSAL com boletim_por_quantidade: cada mês = 1 unidade inteira (arredonda imprecisão de migração)
         const isMensalComFlag = (item.item_unidade || '') === 'MENSAL' && !!(contrato as any).boletim_por_quantidade;
@@ -1718,8 +1714,6 @@ export class MedicaoService {
           : Math.round(Number(qtdAcumuladaRaw) * 100) / 100;
         const qtdAtePeriodo = qtdAcumulada + qtdMedida;
         const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
-        const vlrAExecutar = truncarMoedaReais2Casas(Math.max(0, vlrTotal - vlrAtePeriodo));
-
         const base: any = {
           numero:                        Number(item.etapa_numero || item.item_numero || 0),
           descricao:                     item.item_descricao || item.etapa_descricao || '',
@@ -1731,8 +1725,6 @@ export class MedicaoService {
           valor_unitario:                vlrUnitario,
           valor_acumulado_anterior:      vlrAcumAnterior,
           valor_total_item:              vlrTotal,
-          /** Valor a executar já truncado (PDF / consistência com coluna A EXECUTAR) */
-          valor_a_executar:              vlrAExecutar,
         };
         // Execução física no PDF: até 2 casas (evita lixo de ponto flutuante na coluna fiscal)
         base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 100) / 100;
@@ -1753,15 +1745,9 @@ export class MedicaoService {
       });
 
     // Recalcular totais com base nos itens corrigidos (inclui migração por item)
-    const totalNoPeriodoPdf = truncarMoedaReais2Casas(
-      itensParaPdf.reduce((s, i) => s + (Number(i.valor_no_periodo) || 0), 0),
-    );
-    const totalAtePeriodoPdf = truncarMoedaReais2Casas(
-      itensParaPdf.reduce((s, i) => s + (Number(i.valor_acumulado_anterior) || 0) + (Number(i.valor_no_periodo) || 0), 0),
-    );
-    const totalAExecutarPdf = truncarMoedaReais2Casas(
-      itensParaPdf.reduce((s, i) => s + (Number(i.valor_a_executar) || 0), 0),
-    );
+    const totalNoPeriodoPdf = itensParaPdf.reduce((s, i) => s + (i.valor_no_periodo || 0), 0);
+    const totalAtePeriodoPdf = itensParaPdf.reduce((s, i) => s + ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0)), 0);
+    const totalAExecutarPdf = itensParaPdf.reduce((s, i) => s + Math.max(0, (i.valor_total_item || 0) - ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0))), 0);
     const execucaoFinanceiraTotaisCorrigidos = itensParaPdf.length > 0 ? {
       no_periodo: totalNoPeriodoPdf,
       ate_periodo: totalAtePeriodoPdf,
