@@ -91,6 +91,7 @@ export class ContratosController {
     @Query('tipo') tipo?: TipoContrato,
     @Query('ano') ano?: string,
     @Query('vigentes') vigentes?: string,
+    @Query('busca') busca?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ) {
@@ -103,6 +104,7 @@ export class ContratosController {
         tipo,
         ano: ano ? parseInt(ano) : undefined,
         vigentes: vigentes === 'true',
+        busca: busca?.trim() || undefined,
         page: page ? parseInt(page) : undefined,
         limit: limit ? parseInt(limit) : undefined
       });
@@ -115,6 +117,7 @@ export class ContratosController {
       tipo,
       ano: ano ? parseInt(ano) : undefined,
       vigentes: vigentes === 'true',
+      busca: busca?.trim() || undefined,
       page: page ? parseInt(page) : undefined,
       limit: limit ? parseInt(limit) : undefined
     });
@@ -174,6 +177,24 @@ export class ContratosController {
   async getFornecedoresDoOrgao(@Req() request: { user: JwtPayload }) {
     const orgaoId = this.getOrgaoId(request.user);
     return this.contratosService.getFornecedoresDoOrgao(orgaoId);
+  }
+
+  /** Anos com contratos no escopo do usuário (todos do órgão / do fornecedor) */
+  @Get('filtros/anos')
+  async filtrosAnos(
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    if (request.user.type === UserType.FORNECEDOR) {
+      const anos = await this.contratosService.findAnosDistintos({
+        fornecedorId: request.user.sub,
+      });
+      return { anos };
+    }
+    const orgaoId =
+      request.user.type === UserType.ADMIN ? (orgaoIdParam || '') : this.getOrgaoId(request.user);
+    const anos = await this.contratosService.findAnosDistintos({ orgaoId });
+    return { anos };
   }
 
   @Get(':id')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -154,6 +154,10 @@ function ContratosOrgaoPageContent() {
     total: 0,
     totalPages: 0
   })
+  /** Termo enviado à API após debounce — busca em todo o banco, não só na página atual */
+  const [buscaDebounced, setBuscaDebounced] = useState('')
+  const ultimaBuscaApiRef = useRef<string | null>(null)
+  const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([])
 
   // Estados para modal Solicitar medição
   const [solicitarContrato, setSolicitarContrato] = useState<Contrato | null>(null)
@@ -319,17 +323,25 @@ window._extraindoContratos = true;
   })
 
   useEffect(() => {
-    carregarDados()
     verificarWhatsapp()
     verificarPermissaoExclusao()
   }, [])
 
   useEffect(() => {
-    carregarDados()
-  }, [paginacao.page, filtros.status, filtros.ano])
+    const t = setTimeout(() => setBuscaDebounced(filtros.busca.trim()), 350)
+    return () => clearTimeout(t)
+  }, [filtros.busca])
 
   useEffect(() => {
-    // Resetar para página 1 quando filtros mudarem (não quando página mudar)
+    const buscaMudou = ultimaBuscaApiRef.current !== buscaDebounced
+    if (buscaMudou) {
+      ultimaBuscaApiRef.current = buscaDebounced
+    }
+    const pageContratos = buscaMudou ? 1 : paginacao.page
+    carregarDados(pageContratos)
+  }, [paginacao.page, filtros.status, filtros.ano, buscaDebounced])
+
+  useEffect(() => {
     if (paginacao.page !== 1) {
       setPaginacao(prev => ({ ...prev, page: 1 }))
     }
@@ -371,28 +383,31 @@ window._extraindoContratos = true;
     }
   }
 
-  const carregarDados = async () => {
+  const carregarDados = async (pageContratos?: number) => {
     setLoading(true)
     try {
       const orgaoData = localStorage.getItem('orgao')
       if (!orgaoData) return
 
       const orgao = JSON.parse(orgaoData)
+      const page = pageContratos ?? paginacao.page
 
       // Construir URL com filtros
       const params = new URLSearchParams({
         orgaoId: orgao.id,
-        page: paginacao.page.toString(),
+        page: page.toString(),
         limit: paginacao.limit.toString()
       })
       
       if (filtros.status) params.append('status', filtros.status)
       if (filtros.ano) params.append('ano', filtros.ano)
+      if (buscaDebounced) params.append('busca', buscaDebounced)
 
-      const [contratosRes, aVencerRes, statsRes] = await Promise.all([
+      const [contratosRes, aVencerRes, statsRes, anosRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos?${params.toString()}`),
         authFetch(`${API_URL}/api/contratos/estatisticas/a-vencer?orgaoId=${orgao.id}&dias=30`),
-        authFetch(`${API_URL}/api/contratos/estatisticas/status?orgaoId=${orgao.id}`)
+        authFetch(`${API_URL}/api/contratos/estatisticas/status?orgaoId=${orgao.id}`),
+        authFetch(`${API_URL}/api/contratos/filtros/anos?orgaoId=${orgao.id}`),
       ])
 
       if (contratosRes.ok) {
@@ -400,6 +415,7 @@ window._extraindoContratos = true;
         setContratos(resultado.data || [])
         setPaginacao(prev => ({
           ...prev,
+          page,
           total: resultado.total || 0,
           totalPages: resultado.totalPages || 0
         }))
@@ -415,6 +431,11 @@ window._extraindoContratos = true;
           valorTotal: 0,
           aVencer30Dias: contratosAVencer.length
         })
+      }
+      if (anosRes.ok) {
+        const body = await anosRes.json()
+        const lista = Array.isArray(body.anos) ? body.anos.map((n: unknown) => Number(n)).filter((n: number) => Number.isFinite(n)) : []
+        setAnosDisponiveis(lista.sort((a: number, b: number) => b - a))
       }
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
@@ -500,20 +521,14 @@ window._extraindoContratos = true;
     }
   }
 
-  // Filtro local apenas para busca por texto (status e ano são filtrados no backend)
-  const contratosFiltrados = contratos.filter(contrato => {
-    if (filtros.busca) {
-      const busca = filtros.busca.toLowerCase()
-      if (!contrato.objeto.toLowerCase().includes(busca) && 
-          !contrato.numero_contrato.toLowerCase().includes(busca) &&
-          !contrato.fornecedor_razao_social.toLowerCase().includes(busca)) {
-        return false
-      }
+  const anosParaSelect = useMemo(() => {
+    const set = new Set(anosDisponiveis)
+    if (filtros.ano) {
+      const n = parseInt(filtros.ano, 10)
+      if (Number.isFinite(n)) set.add(n)
     }
-    return true
-  })
-
-  const anos = [...new Set(contratos.map(c => c.ano))].sort((a, b) => b - a)
+    return [...set].sort((a, b) => b - a)
+  }, [anosDisponiveis, filtros.ano])
 
   if (loading) {
     return (
@@ -617,7 +632,7 @@ window._extraindoContratos = true;
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Total de Contratos</p>
-                <p className="text-2xl font-bold">{contratos.length}</p>
+                <p className="text-2xl font-bold">{paginacao.total}</p>
               </div>
               <FileText className="w-8 h-8 text-blue-500" />
             </div>
@@ -724,7 +739,7 @@ window._extraindoContratos = true;
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  {anos.map(ano => (
+                  {anosParaSelect.map((ano) => (
                     <SelectItem key={ano} value={ano.toString()}>{ano}</SelectItem>
                   ))}
                 </SelectContent>
@@ -733,7 +748,7 @@ window._extraindoContratos = true;
           </div>
         </CardHeader>
         <CardContent>
-          {contratosFiltrados.length === 0 ? (
+          {contratos.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
               <p>Nenhum contrato encontrado.</p>
@@ -755,7 +770,7 @@ window._extraindoContratos = true;
                   </tr>
                 </thead>
                 <tbody>
-                  {contratosFiltrados.map((contrato) => {
+                  {contratos.map((contrato) => {
                     const StatusIcon = STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.icon || Clock
                     const diasRestantes = calcularDiasRestantes(contrato.data_vigencia_fim)
                     const temItens = (contrato.total_itens ?? contrato.itens?.length ?? 0) > 0

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { Repository, Between, LessThan, LessThanOrEqual, MoreThanOrEqual, In, Brackets } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Contrato, StatusContrato, TipoContrato, CategoriaContrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -142,6 +142,7 @@ export class ContratosService {
     tipo?: TipoContrato;
     ano?: number;
     vigentes?: boolean;
+    busca?: string;
     page?: number;
     limit?: number;
   }): Promise<{ data: Contrato[]; total: number; page: number; limit: number; totalPages: number }> {
@@ -174,6 +175,20 @@ export class ContratosService {
       const hoje = new Date();
       query.andWhere('contrato.status = :statusVigente', { statusVigente: StatusContrato.VIGENTE })
         .andWhere('contrato.data_vigencia_fim >= :hoje', { hoje });
+    }
+
+    const buscaLimpa = filtros?.busca?.trim().replace(/[%_\\]/g, '') ?? '';
+    if (buscaLimpa.length > 0) {
+      const busca = `%${buscaLimpa}%`;
+      query.andWhere(
+        new Brackets((qb) => {
+          qb.where('contrato.numero_contrato ILIKE :busca', { busca })
+            .orWhere('contrato.objeto ILIKE :busca', { busca })
+            .orWhere('contrato.numero_processo ILIKE :busca', { busca })
+            .orWhere('fornecedor.razao_social ILIKE :busca', { busca })
+            .orWhere('fornecedor.cpf_cnpj ILIKE :busca', { busca });
+        }),
+      );
     }
 
     // Ordenação: se filtrar por vigentes, ordena por data de vencimento (próximos primeiro)
@@ -250,6 +265,33 @@ export class ContratosService {
       limit,
       totalPages
     };
+  }
+
+  /** Anos distintos com contratos (órgão ou fornecedor), para filtros da lista */
+  async findAnosDistintos(filtros: {
+    orgaoId?: string;
+    fornecedorId?: string;
+  }): Promise<number[]> {
+    const qb = this.contratoRepository
+      .createQueryBuilder('contrato')
+      .select('DISTINCT contrato.ano', 'ano')
+      .where('contrato.ano IS NOT NULL');
+
+    if (filtros.orgaoId) {
+      qb.andWhere('contrato.orgao_id = :orgaoId', { orgaoId: filtros.orgaoId });
+    }
+    if (filtros.fornecedorId) {
+      qb.andWhere('contrato.fornecedor_id = :fornecedorId', { fornecedorId: filtros.fornecedorId });
+    }
+
+    if (!filtros.orgaoId && !filtros.fornecedorId) {
+      return [];
+    }
+
+    const rows = await qb.orderBy('contrato.ano', 'DESC').getRawMany();
+    return rows
+      .map((r) => Number(r.ano))
+      .filter((n) => Number.isFinite(n));
   }
 
   async findOne(id: string): Promise<Contrato> {
