@@ -769,6 +769,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
   const somaValorItensCronograma = itensCronograma.reduce((sum, i) => sum + Number(i.valor_total), 0)
   const saldoValorItens = valorGlobal - somaValorItensCronograma
+  const proximoNumeroItemCronograma =
+    itensCronograma.length > 0
+      ? Math.max(...itensCronograma.map((i) => i.numero_item)) + 1
+      : 1
 
   const mesesVigenciaModal = mesesVigenciaContrato(
     contratoProp?.data_vigencia_inicio,
@@ -1889,11 +1893,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
       {/* Modal Nova/Editar Item do Cronograma */}
       <Dialog open={modalItemCronograma} onOpenChange={setModalItemCronograma}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editandoItemCronograma ? 'Editar Item' : 'Novo Item do Cronograma'}</DialogTitle>
+            <DialogTitle>{editandoItemCronograma ? 'Editar item do cronograma' : 'Novo item do cronograma'}</DialogTitle>
             <DialogDescription>
-              Descrição, valores e periodicidade. Use &quot;Como no contrato&quot; para itens em m² ou litros com frequência (cláusula de preço).
+              No modo &quot;igual ao contrato&quot;, os campos repetem a tabela da Cláusula Sexta (preço por metragem/volume e frequência). No modo genérico, use unidades como HORA ou UNIDADE.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1911,7 +1915,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <span className="font-bold text-blue-700">{formatarMoeda(editandoItemCronograma ? saldoValorItens + Number(editandoItemCronograma.valor_total) : saldoValorItens)}</span>
               </div>
             </div>
-            {editandoItemCronograma && (
+            {editandoItemCronograma && !modoClausulaContrato && (
               <div className="space-y-2">
                 <Label>Nº Item</Label>
                 <Input
@@ -1922,16 +1926,18 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 />
               </div>
             )}
-            <div className="space-y-2">
-              <Label>Descrição *</Label>
-              <Input placeholder="Ex: Serviço de gravações, Manutenção mensal..." value={formItemCronograma.descricao} onChange={e => setFormItemCronograma({ ...formItemCronograma, descricao: e.target.value })} />
-            </div>
+            {!modoClausulaContrato && (
+              <div className="space-y-2">
+                <Label>Descrição *</Label>
+                <Input placeholder="Ex: Serviço de gravações, Manutenção mensal..." value={formItemCronograma.descricao} onChange={e => setFormItemCronograma({ ...formItemCronograma, descricao: e.target.value })} />
+              </div>
+            )}
             {(!editandoItemCronograma || editandoItemCronograma.unidade_medida !== 'MENSAL') && (
               <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-3 bg-gray-50/80">
                 <div className="flex-1 min-w-0">
-                  <Label htmlFor="modo-clausula-cronograma" className="text-sm font-medium cursor-pointer">Como no contrato (cláusula de preço)</Label>
+                  <Label htmlFor="modo-clausula-cronograma" className="text-sm font-medium cursor-pointer">Igual à tabela de preços do contrato (Cláusula Sexta)</Label>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Quantidade em m² ou litros, valor unitário por {unidadeClausulaBase === 'LITROS' ? 'litro' : 'm²'}, frequência e execuções na vigência.
+                    Mesma ordem e nomes da cláusula: descrição, unidade Serviço, quantidade/metragem, frequência, valor por m² ou litro, valor por frequência e valor total.
                   </p>
                 </div>
                 <Switch
@@ -1958,16 +1964,51 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               </div>
             )}
             {modoClausulaContrato ? (
-              <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
-                <p className="text-xs text-gray-600">
-                  Vigência para sugestão de execuções: ~{mesesVigenciaModal} meses
-                  {contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim
-                    ? ` (${formatarData(contratoProp.data_vigencia_inicio)} a ${formatarData(contratoProp.data_vigencia_fim)})`
-                    : ' (defina início e fim no cadastro do contrato para melhor sugestão)'}
-                </p>
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4 rounded-lg border-2 border-slate-300 bg-slate-50/90 p-4 shadow-sm">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-800 border-b border-slate-300 pb-2">
+                    Cláusula Sexta – Do preço e da revisão
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-2">
+                    Vigência para sugerir execuções: ~{mesesVigenciaModal} meses
+                    {contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim
+                      ? ` (${formatarData(contratoProp.data_vigencia_inicio)} a ${formatarData(contratoProp.data_vigencia_fim)})`
+                      : ' — cadastre início e fim da vigência no contrato para o cálculo automático.'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4 items-end border-b border-slate-200 pb-4">
                   <div className="space-y-2">
-                    <Label>Base da quantidade</Label>
+                    <Label className="text-xs font-semibold uppercase text-slate-700">Item</Label>
+                    {editandoItemCronograma ? (
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        className="w-28 font-semibold tabular-nums"
+                        value={formItemCronograma.numero_item}
+                        onChange={e => setFormItemCronograma({ ...formItemCronograma, numero_item: e.target.value })}
+                      />
+                    ) : (
+                      <p className="text-lg font-semibold tabular-nums text-slate-900 py-2">{proximoNumeroItemCronograma}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold uppercase text-slate-700">Descrição detalhada do objeto *</Label>
+                  <Textarea
+                    placeholder="Texto conforme o contrato (objeto do serviço)…"
+                    rows={4}
+                    className="min-h-[100px] resize-y bg-white text-sm leading-relaxed"
+                    value={formItemCronograma.descricao}
+                    onChange={e => setFormItemCronograma({ ...formItemCronograma, descricao: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase text-slate-700">Unidade</Label>
                     <Select
                       value={unidadeClausulaBase}
                       onValueChange={(v: 'METROS' | 'LITROS') => {
@@ -1975,22 +2016,24 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         setFormItemCronograma((prev) => ({ ...prev, unidade_medida: v }))
                       }}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="METROS">m² (METROS)</SelectItem>
-                        <SelectItem value="LITROS">Litros (LITROS)</SelectItem>
+                        <SelectItem value="METROS">Serviço (preço por m²)</SelectItem>
+                        <SelectItem value="LITROS">Serviço (preço por litro)</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="text-[11px] text-slate-500">No contrato costuma constar &quot;Serviço&quot;; aqui define se a base é metragem ou litros.</p>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Quantidade ({unidadeClausulaBase === 'LITROS' ? 'litros' : 'm²'}) *</Label>
+                    <Label className="text-xs font-semibold uppercase text-slate-700">
+                      Quantidade / Metragem{unidadeClausulaBase === 'LITROS' ? ' (litros)' : ' (m²)'} *
+                    </Label>
                     <Input
                       type="number"
                       step="0.0001"
                       min="0"
-                      placeholder="0"
+                      placeholder={unidadeClausulaBase === 'LITROS' ? 'Ex.: 1000' : 'Ex.: 2831,40'}
+                      className="bg-white font-medium tabular-nums"
                       value={formItemCronograma.quantidade}
                       onChange={(e) => {
                         const q = e.target.value
@@ -2002,28 +2045,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       }}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Valor unitário (R$ / {unidadeClausulaBase === 'LITROS' ? 'litro' : 'm²'}) *</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0,00"
-                      value={formItemCronograma.valor_unitario}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setFormItemCronograma((prev) => ({
-                          ...prev,
-                          valor_unitario: v,
-                          ...totaisFormItemCronograma(prev.quantidade, v, frequenciaContrato === 'UNICA' ? '' : prev.quantidade_meses, false),
-                        }))
-                      }}
-                    />
-                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Frequência</Label>
+                    <Label className="text-xs font-semibold uppercase text-slate-700">Frequência</Label>
                     <Select
                       value={frequenciaContrato}
                       onValueChange={(f: FrequenciaExecucaoContrato) => {
@@ -2038,7 +2064,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         }))
                       }}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {FREQUENCIAS_CRONOGRAMA_CONTRATO.map((o) => (
                           <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -2047,11 +2073,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Nº de execuções na vigência</Label>
+                    <Label className="text-xs font-semibold uppercase text-slate-700">Execuções na vigência</Label>
                     {frequenciaContrato === 'UNICA' ? (
-                      <p className="text-sm text-gray-700 py-2 border rounded-md px-3 bg-white">
-                        Execução única: valor total = quantidade × valor unitário.
-                      </p>
+                      <div className="rounded-md border bg-white px-3 py-2.5 text-sm text-slate-700">
+                        Única — valor total igual a quantidade × valor unitário por {unidadeClausulaBase === 'LITROS' ? 'litro' : 'm²'}.
+                      </div>
                     ) : (
                       <>
                         <Input
@@ -2059,6 +2085,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                           step="1"
                           min="1"
                           placeholder={String(execucoesSugeridasModal)}
+                          className="bg-white tabular-nums"
                           value={formItemCronograma.quantidade_meses}
                           onChange={(e) => {
                             const m = e.target.value
@@ -2069,19 +2096,56 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                             }))
                           }}
                         />
-                        <p className="text-xs text-blue-700">Sugestão pela vigência e frequência: {execucoesSugeridasModal}</p>
+                        <p className="text-[11px] text-blue-800">Sugestão pela vigência: {execucoesSugeridasModal} (altere se o contrato cortar no meio do período)</p>
                       </>
                     )}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold uppercase text-slate-700">
+                    {unidadeClausulaBase === 'LITROS'
+                      ? 'Valor unitário por litro (R$) *'
+                      : 'Valor unitário por m² (R$) *'}
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0,00"
+                    className="bg-white max-w-xs tabular-nums"
+                    value={formItemCronograma.valor_unitario}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setFormItemCronograma((prev) => ({
+                        ...prev,
+                        valor_unitario: v,
+                        ...totaisFormItemCronograma(prev.quantidade, v, frequenciaContrato === 'UNICA' ? '' : prev.quantidade_meses, false),
+                      }))
+                    }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
                   <div className="space-y-2">
-                    <Label>Valor por execução (R$)</Label>
-                    <Input type="text" readOnly className="bg-white font-medium" value={formItemCronograma.valor_mensal ? formatarMoeda(parseFloat(formItemCronograma.valor_mensal)) : '0,00'} />
+                    <Label className="text-xs font-semibold uppercase text-slate-700">Valor unitário por frequência (R$)</Label>
+                    <Input
+                      type="text"
+                      readOnly
+                      className="bg-white font-semibold tabular-nums border-slate-300"
+                      value={formItemCronograma.valor_mensal ? formatarMoeda(parseFloat(formItemCronograma.valor_mensal)) : '0,00'}
+                    />
+                    <p className="text-[11px] text-slate-500">Metragem (ou litros) × valor unitário — uma execução.</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Valor total (R$)</Label>
-                    <Input type="text" readOnly className="bg-white font-medium text-blue-700" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
+                    <Label className="text-xs font-semibold uppercase text-slate-700">Valor total (R$)</Label>
+                    <Input
+                      type="text"
+                      readOnly
+                      className="bg-white font-bold tabular-nums text-blue-900 border-blue-200"
+                      value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'}
+                    />
+                    <p className="text-[11px] text-slate-500">Valor por frequência × número de execuções na vigência.</p>
                   </div>
                 </div>
               </div>
