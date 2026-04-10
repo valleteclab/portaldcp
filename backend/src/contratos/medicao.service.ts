@@ -30,8 +30,6 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import QRCode from 'qrcode';
 import {
-  centavosParaReaisTrunc2,
-  produtoQuantidadeValorUnitarioCentavos,
   quantidadeFisicaTotalContratada,
   textoUnidadeCronogramaPdf,
   textoFrequenciaCronogramaPdf,
@@ -1696,28 +1694,21 @@ export class MedicaoService {
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
         const ic = icMigracaoMap.get(item.item_cronograma_id || '');
-        // NO PERÍODO e demais q×vu: centavos inteiros (ex.: 2831,40×6,94 → 19.649,91; float dava ,90).
-        const centNo = produtoQuantidadeValorUnitarioCentavos(qtdMedida, vlrUnitario);
+        const vlrNoPeriodoBruto = qtdMedida * vlrUnitario;
 
-        const centSnap = efItem
-          ? Math.round(truncarMoedaReais2Casas(Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0)) * 100)
-          : centNo;
-        const centMigracao = ic
-          ? produtoQuantidadeValorUnitarioCentavos(Number(ic.quantidade_medida || 0), vlrUnitario) + centNo
-          : centNo;
-        const centAte = Math.max(centSnap, centMigracao);
-        const centAcum = centAte - centNo;
+        // ate_periodo_global do snapshot pode não incluir ic.quantidade_medida (migração por item).
+        // Trunca snapshot/migração (sem arredondar) antes do max — evita centavo a mais na coluna ATÉ O PERÍODO.
+        const fromSnapshot = efItem
+          ? truncarMoedaReais2Casas(Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0))
+          : truncarMoedaReais2Casas(vlrNoPeriodoBruto);
+        const fromMigracao = ic
+          ? truncarMoedaReais2Casas(Number(ic.quantidade_medida || 0) * vlrUnitario + vlrNoPeriodoBruto)
+          : truncarMoedaReais2Casas(vlrNoPeriodoBruto);
+        const vlrAtePeriodo = truncarMoedaReais2Casas(Math.max(fromSnapshot, fromMigracao));
 
-        const centTotal = efItem
-          ? Math.round(truncarMoedaReais2Casas(Number(efItem.valor_previsto || 0)) * 100)
-          : produtoQuantidadeValorUnitarioCentavos(qtdTotal, vlrUnitario);
-        const centAExecutar = Math.max(0, centTotal - centAte);
-
-        const vlrNoPeriodo = centavosParaReaisTrunc2(centNo);
-        const vlrAcumAnterior = centavosParaReaisTrunc2(centAcum);
-        const vlrAtePeriodo = centavosParaReaisTrunc2(centAte);
-        const vlrTotal = centavosParaReaisTrunc2(centTotal);
-        const vlrAExecutar = centavosParaReaisTrunc2(centAExecutar);
+        const vlrNoPeriodo = truncarMoedaReais2Casas(vlrNoPeriodoBruto);
+        const vlrAcumAnterior = truncarMoedaReais2Casas(vlrAtePeriodo - vlrNoPeriodo);
+        const vlrTotal = efItem ? Number(efItem.valor_previsto || 0) : qtdTotal * vlrUnitario;
 
         // Para MENSAL com boletim_por_quantidade: cada mês = 1 unidade inteira (arredonda imprecisão de migração)
         const isMensalComFlag = (item.item_unidade || '') === 'MENSAL' && !!(contrato as any).boletim_por_quantidade;
@@ -1727,6 +1718,8 @@ export class MedicaoService {
           : Math.round(Number(qtdAcumuladaRaw) * 100) / 100;
         const qtdAtePeriodo = qtdAcumulada + qtdMedida;
         const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+        const vlrAExecutar = truncarMoedaReais2Casas(Math.max(0, vlrTotal - vlrAtePeriodo));
+
         const base: any = {
           numero:                        Number(item.etapa_numero || item.item_numero || 0),
           descricao:                     item.item_descricao || item.etapa_descricao || '',
@@ -1760,36 +1753,20 @@ export class MedicaoService {
       });
 
     // Recalcular totais com base nos itens corrigidos (inclui migração por item)
-    const totalNoCent = itensParaPdf.reduce(
-      (s, i) => s + produtoQuantidadeValorUnitarioCentavos(i.quantidade_no_periodo, i.valor_unitario),
-      0,
+    const totalNoPeriodoPdf = truncarMoedaReais2Casas(
+      itensParaPdf.reduce((s, i) => s + (Number(i.valor_no_periodo) || 0), 0),
     );
-    const totalAteCent = itensParaPdf.reduce((s, i) => {
-      const cNo = produtoQuantidadeValorUnitarioCentavos(i.quantidade_no_periodo, i.valor_unitario);
-      const cAcum = Math.round((Number(i.valor_acumulado_anterior) || 0) * 100);
-      return s + cNo + cAcum;
-    }, 0);
-    const totalAExecCent = itensParaPdf.reduce(
-      (s, i) => s + Math.round((Number(i.valor_a_executar) || 0) * 100),
-      0,
+    const totalAtePeriodoPdf = truncarMoedaReais2Casas(
+      itensParaPdf.reduce((s, i) => s + (Number(i.valor_acumulado_anterior) || 0) + (Number(i.valor_no_periodo) || 0), 0),
     );
-    const totalNoPeriodoPdf = centavosParaReaisTrunc2(totalNoCent);
-    const totalAtePeriodoPdf = centavosParaReaisTrunc2(totalAteCent);
-    const totalAExecutarPdf = centavosParaReaisTrunc2(totalAExecCent);
-    const totalPrevistoCent = itensParaPdf.reduce((s, i) => {
-      const vu = Number(i.valor_unitario) || 0;
-      const ct =
-        i.valor_total_item != null && i.valor_total_item !== undefined
-          ? Math.round(truncarMoedaReais2Casas(Number(i.valor_total_item)) * 100)
-          : produtoQuantidadeValorUnitarioCentavos(i.quantidade_total_contrato, vu);
-      return s + ct;
-    }, 0);
-
+    const totalAExecutarPdf = truncarMoedaReais2Casas(
+      itensParaPdf.reduce((s, i) => s + (Number(i.valor_a_executar) || 0), 0),
+    );
     const execucaoFinanceiraTotaisCorrigidos = itensParaPdf.length > 0 ? {
       no_periodo: totalNoPeriodoPdf,
       ate_periodo: totalAtePeriodoPdf,
       a_executar: totalAExecutarPdf,
-      valor_previsto: centavosParaReaisTrunc2(totalPrevistoCent),
+      valor_previsto: itensParaPdf.reduce((s, i) => s + (i.valor_total_item || 0), 0),
     } : (medicao.execucao_financeira as any)?.totais || undefined;
 
     // Itens contratados (para bloco ITENS CONTRATADOS) — espelho do cronograma na UI

@@ -49,22 +49,20 @@ export function textoFrequenciaCronogramaPdf(codigo: string | null | undefined):
   return FREQUENCIA_LABELS[codigo] || codigo;
 }
 
-/**
- * q e vu com até 2 casas (ex.: 2831,40 e 6,94): produto truncado em 2 casas em reais, em centavos inteiros.
- * 283140×694 → floor(196499160/100)=1964991 centavos = 19.649,91 (não 19.649,90 por float).
- */
-export function produtoQuantidadeValorUnitarioCentavos(quantidade: number, valorUnitario: number): number {
-  const qC = Math.round((Number(quantidade) || 0) * 100);
-  const vuC = Math.round((Number(valorUnitario) || 0) * 100);
-  return Math.floor((qC * vuC) / 100);
-}
-
-export function centavosParaReaisTrunc2(centavos: number): number {
-  return Number((centavos / 100).toFixed(2));
+export function valorPorFrequenciaItemCronograma(ic: Pick<ItemCronograma, 'quantidade' | 'valor_unitario' | 'valor_mensal' | 'unidade_medida'>): number {
+  const vm = Number(ic.valor_mensal);
+  if (Number.isFinite(vm) && vm > 0) return vm;
+  const q = Number(ic.quantidade) || 0;
+  const vu = Number(ic.valor_unitario) || 0;
+  if (ic.unidade_medida === 'MENSAL') {
+    return vu;
+  }
+  return q * vu;
 }
 
 /**
- * Corta valor em reais em 2 casas (sem arredondar). Para q×vu preferir produtoQuantidadeValorUnitarioCentavos.
+ * Corta valor em reais em 2 casas decimais (sem arredondar).
+ * Ex.: 15318,489 → 15318,48. Evita float (Math.trunc(n*100) pode errar o centavo).
  */
 export function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v);
@@ -77,15 +75,4 @@ export function truncarMoedaReais2Casas(v: number): number {
   const frac2 = (fracRaw + '00').slice(0, 2);
   const n = Number(`${intPart}.${frac2}`);
   return neg ? -n : n;
-}
-
-export function valorPorFrequenciaItemCronograma(ic: Pick<ItemCronograma, 'quantidade' | 'valor_unitario' | 'valor_mensal' | 'unidade_medida'>): number {
-  const vm = Number(ic.valor_mensal);
-  if (Number.isFinite(vm) && vm > 0) return truncarMoedaReais2Casas(vm);
-  const q = Number(ic.quantidade) || 0;
-  const vu = Number(ic.valor_unitario) || 0;
-  if (ic.unidade_medida === 'MENSAL') {
-    return truncarMoedaReais2Casas(vu);
-  }
-  return centavosParaReaisTrunc2(produtoQuantidadeValorUnitarioCentavos(q, vu));
 }
