@@ -1,19 +1,20 @@
 import {
   Controller,
-  Get,
-  Post,
+  All,
   Query,
   Req,
   Res,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Public } from '../auth/public.decorator';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
@@ -24,14 +25,14 @@ import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
 import { AnexoMedicao } from '../contratos/entities/anexo-medicao.entity';
 import { AssinaturaDigital, EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
 import { MedicaoService } from '../contratos/medicao.service';
-import { UploadService } from '../upload/upload.service';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 
 @Public()
+@SkipThrottle()
 @Controller('mcp')
 export class McpController {
-  // Map sessionId → transport (para roteamento das mensagens POST)
-  private readonly sessions = new Map<string, SSEServerTransport>();
+  // sessionId → transport (StreamableHTTP manages its own session lifecycle)
+  private readonly sessions = new Map<string, StreamableHTTPServerTransport>();
 
   constructor(
     @InjectRepository(Fornecedor)
@@ -49,58 +50,69 @@ export class McpController {
     @InjectRepository(AssinaturaDigital)
     private readonly assinaturaRepo: Repository<AssinaturaDigital>,
     private readonly medicaoService: MedicaoService,
-    private readonly uploadService: UploadService,
   ) {}
 
   // ===========================================================
-  // GET /api/mcp/sse?api_key=CHAVE
-  // Abre a conexão SSE e registra o servidor MCP para a sessão
+  // /api/mcp/sse  — trata GET, POST e DELETE (protocolo Streamable HTTP)
   // ===========================================================
-  @Get('sse')
-  async handleSse(
+  @All('sse')
+  async handleMcp(
     @Query('api_key') apiKey: string,
     @Req() req: ExpressRequest,
     @Res() res: ExpressResponse,
   ) {
-    // CORS — Cursor conecta de localhost
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id');
 
-    const fornecedor = await this.autenticar(apiKey);
-    if (!fornecedor) {
-      res.status(401).json({ error: 'API key inválida ou revogada' });
+    // OPTIONS preflight (browser / Cursor via webview)
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.status(204).end();
       return;
     }
 
-    const transport = new SSEServerTransport('/api/mcp/messages', res as any);
-    this.sessions.set(transport.sessionId, transport);
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    let transport = sessionId ? this.sessions.get(sessionId) : undefined;
 
-    req.on('close', () => {
-      this.sessions.delete(transport.sessionId);
+    if (transport) {
+      // Sessão existente — encaminha a requisição ao transporte correto
+      await transport.handleRequest(req as any, res as any, req.body);
+      return;
+    }
+
+    // Sem sessão: deve ser uma requisição de inicialização (POST com initialize)
+    if (req.method !== 'POST') {
+      res.status(400).json({ error: 'Sessão não encontrada. Inicie uma nova conexão.' });
+      return;
+    }
+
+    if (!isInitializeRequest(req.body)) {
+      res.status(400).json({ error: 'Requisição de inicialização inválida.' });
+      return;
+    }
+
+    // Autentica via api_key na query
+    const fornecedor = await this.autenticar(apiKey);
+    if (!fornecedor) {
+      res.status(401).json({ error: 'API key inválida ou revogada.' });
+      return;
+    }
+
+    // Cria transporte com gerenciamento de sessão
+    transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => {
+        this.sessions.set(sid, transport!);
+      },
+      onsessionclosed: (sid) => {
+        this.sessions.delete(sid);
+      },
     });
 
     const server = this.criarServidorMcp(fornecedor, apiKey);
     await server.connect(transport);
-  }
 
-  // ===========================================================
-  // POST /api/mcp/messages?sessionId=X
-  // Recebe mensagens JSON-RPC do cliente e as encaminha ao transporte
-  // ===========================================================
-  @Post('messages')
-  async handleMessages(
-    @Query('sessionId') sessionId: string,
-    @Req() req: ExpressRequest,
-    @Res() res: ExpressResponse,
-  ) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    const transport = this.sessions.get(sessionId);
-    if (!transport) {
-      res.status(404).json({ error: 'Sessão não encontrada ou expirada' });
-      return;
-    }
-    await transport.handlePostMessage(req as any, res as any);
+    await transport.handleRequest(req as any, res as any, req.body);
   }
 
   // ===========================================================
@@ -116,7 +128,7 @@ export class McpController {
   }
 
   // ===========================================================
-  // Criação do servidor MCP com as 6 ferramentas
+  // Criação do servidor MCP com as ferramentas
   // ===========================================================
   private criarServidorMcp(fornecedor: Fornecedor, apiKey: string): Server {
     const server = new Server(
@@ -239,8 +251,12 @@ export class McpController {
 
             const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
             const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
-            const valorAprovado = medicoes.filter((m) => String(m.status) === 'APROVADA').reduce((s, m) => s + Number(m.valor_medido), 0);
-            const valorEmAnalise = medicoes.filter((m) => !['APROVADA', 'REJEITADA', 'RASCUNHO'].includes(String(m.status))).reduce((s, m) => s + Number(m.valor_medido), 0);
+            const valorAprovado = medicoes
+              .filter((m) => String(m.status) === 'APROVADA')
+              .reduce((s, m) => s + Number(m.valor_medido), 0);
+            const valorEmAnalise = medicoes
+              .filter((m) => !['APROVADA', 'REJEITADA', 'RASCUNHO'].includes(String(m.status)))
+              .reduce((s, m) => s + Number(m.valor_medido), 0);
 
             const resultado = {
               id: contrato.id,
