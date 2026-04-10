@@ -29,6 +29,8 @@ import {
   execucoesSugeridasPorFrequencia,
   FREQUENCIAS_CRONOGRAMA_CONTRATO,
   parseFrequenciaSalva,
+  textoFrequenciaNaTela,
+  textoUnidadeCronogramaNaTela,
   type FrequenciaExecucaoContrato,
 } from '@/lib/cronograma-contrato'
 import { Switch } from '@/components/ui/switch'
@@ -1514,11 +1516,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
                   <TableHead className="min-w-[200px] max-w-[400px]">Descrição</TableHead>
-                  <TableHead className="text-center">Unidade</TableHead>
+                  <TableHead className="text-center min-w-[140px]">Unidade</TableHead>
+                  <TableHead className="text-center min-w-[100px]">Frequência</TableHead>
                   <TableHead className="text-right">Quantidade</TableHead>
                   <TableHead className="text-right">Valor Unit.</TableHead>
-                  <TableHead className="text-right">Per./exec.</TableHead>
-                  <TableHead className="text-right">Vl. período</TableHead>
+                  <TableHead className="text-right">Nº exec.</TableHead>
+                  <TableHead className="text-right">Vl. por frequência</TableHead>
                   <TableHead className="text-right">Valor Total</TableHead>
                   <TableHead className="text-center">Medido</TableHead>
                   <TableHead className="w-20"></TableHead>
@@ -1529,7 +1532,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   <TableRow key={i.id}>
                     <TableCell className="font-medium">{i.numero_item}</TableCell>
                     <TableCell className="whitespace-normal break-words min-w-[200px] max-w-[400px]">{i.descricao}</TableCell>
-                    <TableCell className="text-center whitespace-nowrap">{i.unidade_medida}</TableCell>
+                    <TableCell className="text-center text-sm whitespace-normal max-w-[200px]">{textoUnidadeCronogramaNaTela(i.unidade_medida)}</TableCell>
+                    <TableCell className="text-center text-sm whitespace-nowrap">{textoFrequenciaNaTela(i.frequencia_execucao)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_unitario)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
@@ -2495,7 +2499,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   <TableHeader><TableRow className="bg-gray-50">
                     <TableHead className="w-12 text-center font-bold text-xs uppercase">Item</TableHead>
                     <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
-                    <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28">Unidade</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24">Frequência</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
@@ -2525,7 +2530,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                             <p className="text-sm font-medium">{ic.descricao}</p>
                             {bloqueado && <p className="text-xs text-amber-600 mt-0.5">Inclua em medição separada (tipo: {isMensal ? 'mensal' : 'por quantidade'})</p>}
                           </TableCell>
-                          <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
+                          <TableCell className="text-center text-xs leading-tight max-w-[120px]">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
+                          <TableCell className="text-center text-xs whitespace-nowrap">{textoFrequenciaNaTela(ic.frequencia_execucao)}</TableCell>
                           <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
                           <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
                           <TableCell className="bg-blue-50/50">

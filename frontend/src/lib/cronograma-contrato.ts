@@ -42,6 +42,31 @@ export const FREQUENCIAS_CRONOGRAMA_CONTRATO: {
   { value: 'ANUAL', label: 'Anual' },
 ]
 
+/** Texto da unidade na grade (igual ao cadastro “como no contrato” / modal). */
+export function textoUnidadeCronogramaNaTela(unidade: string): string {
+  switch (unidade) {
+    case 'METROS':
+      return 'Serviço (preço por m²)'
+    case 'LITROS':
+      return 'Serviço (preço por litro)'
+    case 'MENSAL':
+      return 'Mensal (R$/mês)'
+    case 'HORA':
+      return 'Hora'
+    case 'UNIDADE':
+      return 'Unidade'
+    default:
+      return unidade || '—'
+  }
+}
+
+/** Rótulo da frequência persistida (Cláusula Sexta) ou traço. */
+export function textoFrequenciaNaTela(codigo: string | null | undefined): string {
+  if (!codigo) return '—'
+  const f = FREQUENCIAS_CRONOGRAMA_CONTRATO.find((o) => o.value === codigo)
+  return f?.label ?? codigo
+}
+
 const MESES_POR_FREQUENCIA: Record<
   Exclude<FrequenciaExecucaoContrato, 'UNICA' | 'MENSAL'>,
   number

@@ -58,6 +58,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
+import { textoFrequenciaNaTela, textoUnidadeCronogramaNaTela } from '@/lib/cronograma-contrato';
 
 // ============ INTERFACES ============
 
@@ -100,6 +101,8 @@ interface ItemCronograma {
   unidade_medida: string;
   quantidade: number;
   valor_unitario: number;
+  quantidade_meses?: number | null;
+  frequencia_execucao?: string | null;
   valor_mensal?: number;
   valor_total: number;
   quantidade_medida: number;
@@ -1870,21 +1873,27 @@ export default function FornecedorContratoDetalhePage() {
                       <TableRow>
                         <TableHead className="w-12">#</TableHead>
                         <TableHead>Descrição</TableHead>
-                        <TableHead className="text-center">Unidade</TableHead>
+                        <TableHead className="text-center min-w-[140px]">Unidade</TableHead>
+                        <TableHead className="text-center min-w-[100px]">Frequência</TableHead>
                         <TableHead className="text-right">Quantidade</TableHead>
                         <TableHead className="text-right">Valor Unit.</TableHead>
+                        <TableHead className="text-right">Nº exec.</TableHead>
+                        <TableHead className="text-right">Vl. por frequência</TableHead>
                         <TableHead className="text-right">Valor Total</TableHead>
                         <TableHead className="text-center">Medido</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {itensCronograma.map((ic) => (
+                      {[...itensCronograma].sort((a, b) => a.numero_item - b.numero_item).map((ic) => (
                         <TableRow key={ic.id}>
                           <TableCell className="font-medium">{ic.numero_item}</TableCell>
                           <TableCell>{ic.descricao}</TableCell>
-                          <TableCell className="text-center">{ic.unidade_medida}</TableCell>
+                          <TableCell className="text-center text-sm max-w-[200px]">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
+                          <TableCell className="text-center text-sm whitespace-nowrap">{textoFrequenciaNaTela(ic.frequencia_execucao)}</TableCell>
                           <TableCell className="text-right">{Number(ic.quantidade).toLocaleString('pt-BR')}</TableCell>
                           <TableCell className="text-right">{formatarMoeda(ic.valor_unitario)}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{ic.quantidade_meses != null ? ic.quantidade_meses : '—'}</TableCell>
+                          <TableCell className="text-right">{formatarMoeda(ic.valor_mensal ?? (Number(ic.quantidade) * Number(ic.valor_unitario)))}</TableCell>
                           <TableCell className="text-right">{formatarMoeda(ic.valor_total)}</TableCell>
                           <TableCell className="text-center text-blue-600 font-medium">{Number(ic.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
                         </TableRow>
@@ -2192,7 +2201,8 @@ export default function FornecedorContratoDetalhePage() {
                   <TableRow className="bg-gray-50">
                     <TableHead className="w-12 text-center font-bold text-xs uppercase">Item</TableHead>
                     <TableHead className="font-bold text-xs uppercase">Descrição</TableHead>
-                    <TableHead className="text-center font-bold text-xs uppercase w-20">Unidade</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-28">Unidade</TableHead>
+                    <TableHead className="text-center font-bold text-xs uppercase w-24">Frequência</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-20">Qtd. Total</TableHead>
                     <TableHead className="text-right font-bold text-xs uppercase w-24">Valor Unit.</TableHead>
                     <TableHead className="text-center font-bold text-xs uppercase w-24 bg-blue-50">Qtd. Mês/Dias</TableHead>
@@ -2229,7 +2239,8 @@ export default function FornecedorContratoDetalhePage() {
                             </p>
                           )}
                         </TableCell>
-                        <TableCell className="text-center text-sm">{ic.unidade_medida}</TableCell>
+                        <TableCell className="text-center text-xs leading-tight max-w-[120px]">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
+                        <TableCell className="text-center text-xs whitespace-nowrap">{textoFrequenciaNaTela(ic.frequencia_execucao)}</TableCell>
                         <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
                         {/* Qtd. Mês */}
