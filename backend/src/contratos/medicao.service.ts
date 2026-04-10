@@ -1692,9 +1692,7 @@ export class MedicaoService {
           : Number(item.item_quantidade_total || 0);
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
-        // Mesma regra monetária do bloco ITENS (Vl./freq. = q×vu): não usar snapshot
-        // arredondado em centavos, que diverge do produto exibido na planilha.
-        const vlrNoPeriodo = qtdMedida * vlrUnitario;
+        const vlrNoPeriodo = efItem ? Number(efItem.no_periodo || 0) : qtdMedida * vlrUnitario;
 
         // ate_periodo_global do snapshot pode não incluir ic.quantidade_medida (migração por item).
         // Usa Math.max entre snapshot e migração — mesma lógica do frontend.
@@ -1748,9 +1746,9 @@ export class MedicaoService {
     const totalAtePeriodoPdf = itensParaPdf.reduce((s, i) => s + ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0)), 0);
     const totalAExecutarPdf = itensParaPdf.reduce((s, i) => s + Math.max(0, (i.valor_total_item || 0) - ((i.valor_acumulado_anterior || 0) + (i.valor_no_periodo || 0))), 0);
     const execucaoFinanceiraTotaisCorrigidos = itensParaPdf.length > 0 ? {
-      no_periodo: totalNoPeriodoPdf,
-      ate_periodo: totalAtePeriodoPdf,
-      a_executar: totalAExecutarPdf,
+      no_periodo: Math.round(totalNoPeriodoPdf * 100) / 100,
+      ate_periodo: Math.round(totalAtePeriodoPdf * 100) / 100,
+      a_executar: Math.round(totalAExecutarPdf * 100) / 100,
       valor_previsto: itensParaPdf.reduce((s, i) => s + (i.valor_total_item || 0), 0),
     } : (medicao.execucao_financeira as any)?.totais || undefined;
 
@@ -3550,10 +3548,9 @@ export class MedicaoService {
             descricao: item.descricao,
             valor_previsto: valorPrevisto,
             percentual_fisico: 0,
-            // Sem arredondar em centavos: alinha à regra q×vu do cronograma (Vl./freq.)
-            no_periodo: noPeriodo,
-            ate_periodo: atePeriodo,
-            a_executar: aExecutar,
+            no_periodo: Math.round(noPeriodo * 100) / 100,
+            ate_periodo: Math.round(atePeriodo * 100) / 100,
+            a_executar: Math.round(aExecutar * 100) / 100,
           };
           if (boletimPorQuantidade) {
             base.unidade_medida = unidadeMedida;
@@ -3705,11 +3702,12 @@ export class MedicaoService {
         : Math.round((ajusteGlobalParaDistribuir * proporcao) * 100) / 100;
       ajusteRateadoAcumulado += ajusteRateado;
 
+      // Usar valores já arredondados do item (não arredondar novamente)
       const noPeriodoItem = Number(item.no_periodo) || 0;
       const atePeriodoItem = Number(item.ate_periodo) || 0;
       const aExecutarItem = Number(item.a_executar) || 0;
-      const atePeriodoGlobal = atePeriodoItem + ajusteRateado;
-      const aExecutarGlobal = Math.max(0, valorPrevistoItem - atePeriodoGlobal);
+      const atePeriodoGlobal = Math.round((atePeriodoItem + ajusteRateado) * 100) / 100;
+      const aExecutarGlobal = Math.round(Math.max(0, valorPrevistoItem - atePeriodoGlobal) * 100) / 100;
 
       return {
         ...item,
@@ -3729,10 +3727,10 @@ export class MedicaoService {
       contrato_id: contratoId,
       itens: resultadoComVisoes,
       totais: {
-        valor_previsto: totalPrevisto,
-        no_periodo: totalNoPeriodo,
-        ate_periodo: totalAtePeriodoGlobalExibicao,
-        a_executar: Math.max(0, totalPrevisto - totalAtePeriodoGlobalExibicao),
+        valor_previsto: Math.round(totalPrevisto * 100) / 100,
+        no_periodo: Math.round(totalNoPeriodo * 100) / 100,
+        ate_periodo: Math.round(totalAtePeriodoGlobalExibicao * 100) / 100,
+        a_executar: Math.round(Math.max(0, totalPrevisto - totalAtePeriodoGlobalExibicao) * 100) / 100,
       },
       ajuste_migracao: Math.round(ajusteMigracao * 100) / 100,
       execucao_fiscal: execucaoFiscal,

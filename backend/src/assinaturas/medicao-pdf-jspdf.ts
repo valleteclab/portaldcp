@@ -479,7 +479,7 @@ export async function gerarBoletimMedicaoPdf(
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 8 },
-        1: { cellWidth: 62 },
+        1: { cellWidth: 52 },
         2: { cellWidth: 22 },
         3: { cellWidth: 16 },
         4: { cellWidth: 16 },
