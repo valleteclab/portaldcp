@@ -19,7 +19,7 @@ import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
   ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
-  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy, FileSpreadsheet, DownloadCloud,
+  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -252,10 +252,6 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [editandoEtapa, setEditandoEtapa] = useState<Etapa | null>(null)
   const [modalItemCronograma, setModalItemCronograma] = useState(false)
   const [editandoItemCronograma, setEditandoItemCronograma] = useState<ItemCronograma | null>(null)
-  const [modalImportarCSVCronograma, setModalImportarCSVCronograma] = useState(false)
-  const [csvItensCronograma, setCsvItensCronograma] = useState<any[]>([])
-  const [importandoCSVCronograma, setImportandoCSVCronograma] = useState(false)
-  const [resultadoImportacaoCronograma, setResultadoImportacaoCronograma] = useState<{ importados: number; erros: string[] } | null>(null)
   const [modalTipoCronograma, setModalTipoCronograma] = useState(false)
   const [modalMedicao, setModalMedicao] = useState(false)
   const [carregandoReplicar, setCarregandoReplicar] = useState(false)
@@ -749,147 +745,6 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
   const somaValorItensCronograma = itensCronograma.reduce((sum, i) => sum + Number(i.valor_total), 0)
   const saldoValorItens = valorGlobal - somaValorItensCronograma
-
-  // ============ IMPORTAR CSV — ITENS DO CRONOGRAMA ============
-
-  const normalizarHeaderCronograma = (h: string): string => {
-    const base = h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_')
-    const map: Record<string, string> = {
-      'item':                      'numero_item',
-      'descricao':                 'descricao',
-      'descricao_do_objeto':       'descricao',
-      'objeto':                    'descricao',
-      'unidade':                   'unidade_medida',
-      'unidade_de_medida':         'unidade_medida',
-      'quantidade':                'quantidade',
-      'frequencia':                'frequencia',
-      'valor_unitario':            'valor_unitario',
-      'valor_unitario_por_m_':     'valor_unitario',
-      'preco_unitario':            'valor_unitario',
-      'meses':                     'quantidade_meses',
-      'quantidade_meses':          'quantidade_meses',
-      'observacoes':               'observacoes',
-    }
-    return map[base] ?? base
-  }
-
-  const frequenciaParaMeses = (f: string): number | null => {
-    const base = f.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-    const map: Record<string, number | null> = {
-      'unica': null, 'unico': null, 'avulso': null,
-      'mensal': 1,
-      'bimestral': 2,
-      'trimestral': 3,
-      'quadrimestral': 4,
-      'semestral': 6,
-      'anual': 12,
-    }
-    return base in map ? map[base] : (parseInt(base) || null)
-  }
-
-  const normalizarUnidadeCronograma = (u: string): string => {
-    const base = u.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-    const map: Record<string, string> = {
-      'm2': 'METROS', 'm_': 'METROS', 'metro': 'METROS', 'metros': 'METROS',
-      'hora': 'HORA', 'horas': 'HORA', 'h': 'HORA',
-      'mensal': 'MENSAL', 'mes': 'MENSAL',
-      'litro': 'LITROS', 'litros': 'LITROS', 'l': 'LITROS',
-      'servico': 'UNIDADE', 'servicos': 'UNIDADE',
-      'unidade': 'UNIDADE', 'un': 'UNIDADE', 'und': 'UNIDADE',
-    }
-    const normalizado = base.replace(/[^a-z0-9]/g, '')
-    return map[normalizado] || map[base] || 'UNIDADE'
-  }
-
-  const gerarModeloCSVCronograma = () => {
-    const header = 'numero_item;descricao;unidade_medida;quantidade;valor_unitario;quantidade_meses;observacoes'
-    const ex1 = '1;Limpeza de fachada;METROS;2831,40;6,82;3;Trimestral — valor por m²'
-    const ex2 = '2;Manutenção de bombas;METROS;2831,40;6,94;6;Semestral'
-    const ex3 = '3;Retirada de silicone;METROS;15;230,58;;Única — sem recorrência'
-    const csv = [header, ex1, ex2, ex3].join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = 'modelo_itens_cronograma.csv'
-    link.click()
-    URL.revokeObjectURL(link.href)
-  }
-
-  const handleUploadCSVCronograma = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setResultadoImportacaoCronograma(null)
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string
-      if (!text) return
-      const linhas = text.split('\n').map(l => l.trim()).filter(l => l)
-      if (linhas.length < 2) { alert('Arquivo vazio ou sem dados'); return }
-      const sep = linhas[0].includes(';') ? ';' : ','
-      const headers = linhas[0].split(sep).map(h => normalizarHeaderCronograma(h.trim().replace(/"/g, '')))
-      const itens: any[] = []
-      for (let i = 1; i < linhas.length; i++) {
-        const vals = linhas[i].split(sep).map(v => v.trim().replace(/"/g, ''))
-        const obj: any = {}
-        headers.forEach((h, idx) => { obj[h] = vals[idx] || '' })
-        if (!obj.descricao) continue
-        // Normalizar unidade
-        if (obj.unidade_medida) obj.unidade_medida = normalizarUnidadeCronograma(obj.unidade_medida)
-        // Converter frequência em meses
-        if (obj.frequencia && !obj.quantidade_meses) {
-          const m = frequenciaParaMeses(obj.frequencia)
-          obj.quantidade_meses = m !== null ? String(m) : ''
-          obj._frequencia_original = obj.frequencia
-        }
-        itens.push(obj)
-      }
-      setCsvItensCronograma(itens)
-    }
-    reader.readAsText(file, 'UTF-8')
-    e.target.value = ''
-  }
-
-  const handleImportarCSVCronograma = async () => {
-    if (csvItensCronograma.length === 0) return
-    setImportandoCSVCronograma(true)
-    const resultados = { importados: 0, erros: [] as string[] }
-    for (let i = 0; i < csvItensCronograma.length; i++) {
-      const row = csvItensCronograma[i]
-      const descricao = (row.descricao || '').trim()
-      if (!descricao) { resultados.erros.push(`Linha ${i + 1}: Descrição obrigatória`); continue }
-      const quantidade = parseFloat(String(row.quantidade || '0').replace(',', '.'))
-      const valor_unitario = parseFloat(String(row.valor_unitario || '0').replace(',', '.'))
-      if (quantidade <= 0 || valor_unitario <= 0) {
-        resultados.erros.push(`Linha ${i + 1} (${descricao}): Quantidade e valor unitário devem ser maiores que zero`)
-        continue
-      }
-      const meses = row.quantidade_meses ? parseInt(row.quantidade_meses) : null
-      try {
-        const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma`, {
-          method: 'POST',
-          body: JSON.stringify({
-            descricao,
-            unidade_medida: row.unidade_medida || 'UNIDADE',
-            quantidade,
-            valor_unitario,
-            quantidade_meses: meses,
-            observacoes: (row.observacoes || '').trim() || null,
-          }),
-        })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          resultados.erros.push(`Linha ${i + 1} (${descricao}): ${err.message || 'Erro ao criar'}`)
-        } else {
-          resultados.importados++
-        }
-      } catch {
-        resultados.erros.push(`Linha ${i + 1}: Erro de conexão`)
-      }
-    }
-    setResultadoImportacaoCronograma(resultados)
-    setImportandoCSVCronograma(false)
-    if (resultados.importados > 0) carregarDados()
-  }
 
   const salvarItemCronograma = async () => {
     const qtd = parseFloat(formItemCronograma.quantidade) || 0
@@ -1564,12 +1419,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             {etapas.length > 0 ? (
               <Button onClick={() => abrirModalEtapa()} size="sm"><Plus className="w-4 h-4 mr-1" />Nova Etapa</Button>
             ) : itensCronograma.length > 0 ? (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setCsvItensCronograma([]); setResultadoImportacaoCronograma(null); setModalImportarCSVCronograma(true) }}>
-                  <FileSpreadsheet className="w-4 h-4 mr-1" />Importar CSV
-                </Button>
-                <Button onClick={() => abrirModalItemCronograma()} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Item</Button>
-              </div>
+              <Button onClick={() => abrirModalItemCronograma()} size="sm"><Plus className="w-4 h-4 mr-1" />Novo Item</Button>
             ) : (
               <Button onClick={() => setModalTipoCronograma(true)} size="sm"><Plus className="w-4 h-4 mr-1" />Adicionar</Button>
             )}
@@ -2183,109 +2033,6 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editandoItemCronograma ? 'Salvar' : 'Criar Item'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Importar CSV — Itens do Cronograma */}
-      <Dialog open={modalImportarCSVCronograma} onOpenChange={setModalImportarCSVCronograma}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />Importar Itens do Cronograma via CSV</DialogTitle>
-            <DialogDescription>Importe itens em lote. Aceita o formato interno e o formato exportado de outros sistemas.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={gerarModeloCSVCronograma} className="flex-1">
-                <DownloadCloud className="w-4 h-4 mr-2" />Baixar Modelo CSV
-              </Button>
-              <div className="flex-1">
-                <label className="flex items-center justify-center gap-2 px-4 py-2 border rounded-md cursor-pointer hover:bg-gray-50 h-10 text-sm font-medium">
-                  <Upload className="w-4 h-4" />Selecionar Arquivo CSV
-                  <input type="file" accept=".csv,.txt" className="hidden" onChange={handleUploadCSVCronograma} />
-                </label>
-              </div>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-              <p className="font-medium mb-1">Colunas aceitas (separador ; ou ,):</p>
-              <ul className="list-disc list-inside space-y-0.5 text-xs">
-                <li><strong>Obrigatórios:</strong> descricao (ou "Descrição do Objeto"), quantidade, valor_unitario</li>
-                <li><strong>Frequência:</strong> Mensal, Bimestral, Trimestral, Semestral, Anual, Única → convertida em quantidade de meses</li>
-                <li><strong>Unidades:</strong> METROS (m²), HORA, MENSAL, LITROS, UNIDADE</li>
-                <li><strong>Opcional:</strong> numero_item, quantidade_meses, observacoes</li>
-              </ul>
-            </div>
-
-            {csvItensCronograma.length > 0 && (
-              <>
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2 border-b font-medium text-sm">
-                    Preview: {csvItensCronograma.length} itens encontrados
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="text-left py-2 px-3">#</th>
-                          <th className="text-left py-2 px-3">Descrição</th>
-                          <th className="text-center py-2 px-3">Unid.</th>
-                          <th className="text-right py-2 px-3">Qtd.</th>
-                          <th className="text-right py-2 px-3">Valor Unit.</th>
-                          <th className="text-right py-2 px-3">Meses</th>
-                          <th className="text-right py-2 px-3">Valor Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {csvItensCronograma.map((item, i) => {
-                          const qtd = parseFloat(String(item.quantidade || '0').replace(',', '.')) || 0
-                          const vl = parseFloat(String(item.valor_unitario || '0').replace(',', '.')) || 0
-                          const meses = item.quantidade_meses ? parseInt(item.quantidade_meses) : null
-                          const total = meses ? qtd * vl * meses : qtd * vl
-                          return (
-                            <tr key={i} className="border-b hover:bg-gray-50">
-                              <td className="py-2 px-3">{item.numero_item || i + 1}</td>
-                              <td className="py-2 px-3 max-w-[220px] truncate">{item.descricao}</td>
-                              <td className="py-2 px-3 text-center">{item.unidade_medida || 'UNIDADE'}</td>
-                              <td className="py-2 px-3 text-right">{item.quantidade}</td>
-                              <td className="py-2 px-3 text-right">{item.valor_unitario}</td>
-                              <td className="py-2 px-3 text-right">{meses ?? (item._frequencia_original || '-')}</td>
-                              <td className="py-2 px-3 text-right">{total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {resultadoImportacaoCronograma && (
-                  <div className={`border rounded-lg p-4 ${resultadoImportacaoCronograma.erros.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
-                    <p className="font-medium text-green-700">{resultadoImportacaoCronograma.importados} itens importados com sucesso</p>
-                    {resultadoImportacaoCronograma.erros.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-sm font-medium text-red-600">{resultadoImportacaoCronograma.erros.length} erros:</p>
-                        <ul className="text-xs text-red-500 mt-1 max-h-24 overflow-y-auto">
-                          {resultadoImportacaoCronograma.erros.map((e, i) => <li key={i}>{e}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalImportarCSVCronograma(false)}>
-              {resultadoImportacaoCronograma ? 'Fechar' : 'Cancelar'}
-            </Button>
-            {csvItensCronograma.length > 0 && !resultadoImportacaoCronograma && (
-              <Button onClick={handleImportarCSVCronograma} disabled={importandoCSVCronograma}>
-                {importandoCSVCronograma
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</>
-                  : `Importar ${csvItensCronograma.length} Itens`}
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
