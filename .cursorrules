@@ -1,5 +1,11 @@
 # Scratchpad
 
+## Tarefa concluída: Cronograma físico-financeiro alinhado ao contrato (2026-04-10)
+
+- [X] `frontend/src/lib/cronograma-contrato.ts` — vigência, execuções por frequência, `parseFrequenciaSalva`
+- [X] `TabMedicao.tsx` — modo “Como no contrato”, payload + saldo com unidade MENSAL corrigido, rótulos e colunas Per./exec. / Vl. período
+- [X] `item-cronograma.entity.ts` + `medicao.service.ts` — `frequencia_execucao`, `numero_execucoes` (TypeORM sync)
+
 ## Tarefa Atual: Sala de Disputa V3 - PR1 Fundação Backend (2026-03-20)
 
 - [X] Definir contrato V3 com semântica jurídica correta (modo, etapa, cronometria)
@@ -467,4 +473,7 @@ Implementar sistema completo de autenticação JWT para proteger todas as APIs d
 - Boletim de medição do fornecedor deve sempre usar PDF oficial gerado no backend; evitar geração/upload de PDF no frontend para não divergir nos totais de execução financeira
 - Para scripts de integração que sobem `AppModule` fora do `main.ts` (ex.: `node -r ts-node/register ...`), definir explicitamente `DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_DATABASE` e `JWT_SECRET`; sem isso o TypeORM/JWT podem falhar com credenciais padrão.
 - Em testes manuais no frontend do órgão, limpar `localStorage` pode ser necessário para remover sessão/token stale que mascara dados atualizados (ex.: cards aparecendo zerados apesar da API retornar itens).
+- Lista de contratos do órgão (`/orgao/contratos`): busca por texto deve usar query string no `GET /api/contratos` (ex.: `busca`) com filtro no banco (ILIKE); filtrar só o array já paginado no cliente só enxerga a página atual.
+- Em React/JSX, o falso ramo de `cond ? … : …` com mais de um elemento no topo precisa de um único pai (`<>…</>` ou `<div>…</div>`); caso contrário o parser quebra.
+- `TabMedicao` / salvar item cronograma: para `unidade_medida === 'MENSAL'`, validação de saldo deve usar valor total = quantidade × valor_unitário (mensal = valor unitário), não `quantidade × valor_unitário` como “valor mensal” no sentido de período.
 

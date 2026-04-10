@@ -24,6 +24,14 @@ import {
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
 import { derivarCompetencia } from '@/lib/pdf-medicao'
+import {
+  mesesVigenciaContrato,
+  execucoesSugeridasPorFrequencia,
+  FREQUENCIAS_CRONOGRAMA_CONTRATO,
+  parseFrequenciaSalva,
+  type FrequenciaExecucaoContrato,
+} from '@/lib/cronograma-contrato'
+import { Switch } from '@/components/ui/switch'
 
 interface OSRequisicao {
   id: string
@@ -72,6 +80,8 @@ interface ItemCronograma {
   quantidade: number
   valor_unitario: number
   quantidade_meses?: number | null
+  frequencia_execucao?: string | null
+  numero_execucoes?: number | null
   valor_mensal?: number
   valor_total: number
   quantidade_medida: number
@@ -290,6 +300,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     quantidade_medida: '', // Apenas para admin (ajuste migração)
     valor_medida_reais: '', // Para itens MENSAL: entrada alternativa em R$
   })
+  /** Layout espelhando cláusula de preço (m² × R$/m² × execuções por frequência) */
+  const [modoClausulaContrato, setModoClausulaContrato] = useState(false)
+  const [frequenciaContrato, setFrequenciaContrato] = useState<FrequenciaExecucaoContrato>('TRIMESTRAL')
+  const [unidadeClausulaBase, setUnidadeClausulaBase] = useState<'METROS' | 'LITROS'>('METROS')
   const [editandoMedidoItemId, setEditandoMedidoItemId] = useState<string | null>(null)
   const [editandoMedidoValor, setEditandoMedidoValor] = useState<string>('')
   const [formMedicao, setFormMedicao] = useState({
@@ -720,7 +734,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
   const abrirModalItemCronograma = (item?: ItemCronograma) => {
     if (item) {
+      const freqSalva = parseFrequenciaSalva(item.frequencia_execucao)
+      setFrequenciaContrato(freqSalva ?? 'TRIMESTRAL')
       setEditandoItemCronograma(item)
+      const metroLike =
+        item.unidade_medida === 'METROS' ||
+        item.unidade_medida === 'LITROS'
+      setModoClausulaContrato(metroLike && item.unidade_medida !== 'MENSAL')
+      setUnidadeClausulaBase(item.unidade_medida === 'LITROS' ? 'LITROS' : 'METROS')
       setFormItemCronograma({
         numero_item: String(item.numero_item),
         descricao: item.descricao,
@@ -738,6 +759,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       })
     } else {
       setEditandoItemCronograma(null)
+      setFrequenciaContrato('TRIMESTRAL')
+      setModoClausulaContrato(false)
+      setUnidadeClausulaBase('METROS')
       setFormItemCronograma({ numero_item: '', descricao: '', unidade_medida: 'UNIDADE', quantidade: '', valor_unitario: '', quantidade_meses: '', valor_mensal: '', valor_total: '', observacoes: '', quantidade_medida: '', valor_medida_reais: '' })
     }
     setModalItemCronograma(true)
@@ -746,14 +770,50 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const somaValorItensCronograma = itensCronograma.reduce((sum, i) => sum + Number(i.valor_total), 0)
   const saldoValorItens = valorGlobal - somaValorItensCronograma
 
+  const mesesVigenciaModal = mesesVigenciaContrato(
+    contratoProp?.data_vigencia_inicio,
+    contratoProp?.data_vigencia_fim,
+  )
+  const execucoesSugeridasModal = execucoesSugeridasPorFrequencia(mesesVigenciaModal, frequenciaContrato)
+
+  const totaisFormItemCronograma = (
+    qStr: string,
+    vlStr: string,
+    mesesStr: string,
+    isMensal: boolean,
+  ) => {
+    const q = parseFloat(qStr) || 0
+    const vl = parseFloat(vlStr) || 0
+    const meses = mesesStr ? parseInt(mesesStr, 10) : null
+    const arredondar = contratoProp?.arredondar_calculo ?? true
+    const ap = (v: number) => (arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100)
+    if (isMensal) {
+      const mensal = vl ? vl.toFixed(2) : ''
+      const total = q && vl ? (q * vl).toFixed(2) : ''
+      return { valor_mensal: mensal, valor_total: total }
+    }
+    const vlMensal = ap(q * vl)
+    const novoTotal = meses != null && meses > 0 ? ap(q * vl * meses) : vlMensal
+    return {
+      valor_mensal: q && vl ? String(vlMensal) : '',
+      valor_total: q && vl ? String(novoTotal) : '',
+    }
+  }
+
   const salvarItemCronograma = async () => {
     const qtd = parseFloat(formItemCronograma.quantidade) || 0
     const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
-    const meses = formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null
+    const unidadePayload = modoClausulaContrato ? unidadeClausulaBase : formItemCronograma.unidade_medida
+    const isMensalUnit = unidadePayload === 'MENSAL'
+    const meses = isMensalUnit
+      ? null
+      : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses, 10) : null)
     const arredondar = contratoProp?.arredondar_calculo ?? true;
     const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
-    const vlMensal = ap(qtd * vlUnit);
-    const novoValorTotal = meses ? ap(qtd * vlUnit * meses) : vlMensal;
+    const vlMensal = isMensalUnit ? vlUnit : ap(qtd * vlUnit);
+    const novoValorTotal = isMensalUnit
+      ? ap(qtd * vlUnit)
+      : (meses ? ap(qtd * vlUnit * meses) : vlMensal);
 
     const somaOutras = editandoItemCronograma
       ? itensCronograma.filter(i => i.id !== editandoItemCronograma.id).reduce((a, b) => a + Number(b.valor_total), 0)
@@ -771,10 +831,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           numero_item: parseInt(formItemCronograma.numero_item) || editandoItemCronograma.numero_item,
         }),
         descricao: formItemCronograma.descricao,
-        unidade_medida: formItemCronograma.unidade_medida,
+        unidade_medida: unidadePayload,
         quantidade: qtd,
         valor_unitario: vlUnit,
         quantidade_meses: meses,
+        frequencia_execucao: modoClausulaContrato ? frequenciaContrato : null,
+        numero_execucoes: !isMensalUnit ? meses : null,
         observacoes: formItemCronograma.observacoes || null,
       }
       if (editandoItemCronograma) {
@@ -1494,8 +1556,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   <TableHead className="text-center">Unidade</TableHead>
                   <TableHead className="text-right">Quantidade</TableHead>
                   <TableHead className="text-right">Valor Unit.</TableHead>
-                  <TableHead className="text-right">Meses</TableHead>
-                  <TableHead className="text-right">Val. Mensal</TableHead>
+                  <TableHead className="text-right">Per./exec.</TableHead>
+                  <TableHead className="text-right">Vl. período</TableHead>
                   <TableHead className="text-right">Valor Total</TableHead>
                   <TableHead className="text-center">Medido</TableHead>
                   <TableHead className="w-20"></TableHead>
@@ -1830,7 +1892,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editandoItemCronograma ? 'Editar Item' : 'Novo Item do Cronograma'}</DialogTitle>
-            <DialogDescription>Descrição, unidade, quantidade, meses e valor unitário</DialogDescription>
+            <DialogDescription>
+              Descrição, valores e periodicidade. Use &quot;Como no contrato&quot; para itens em m² ou litros com frequência (cláusula de preço).
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
@@ -1862,6 +1926,167 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               <Label>Descrição *</Label>
               <Input placeholder="Ex: Serviço de gravações, Manutenção mensal..." value={formItemCronograma.descricao} onChange={e => setFormItemCronograma({ ...formItemCronograma, descricao: e.target.value })} />
             </div>
+            {(!editandoItemCronograma || editandoItemCronograma.unidade_medida !== 'MENSAL') && (
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-3 bg-gray-50/80">
+                <div className="flex-1 min-w-0">
+                  <Label htmlFor="modo-clausula-cronograma" className="text-sm font-medium cursor-pointer">Como no contrato (cláusula de preço)</Label>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Quantidade em m² ou litros, valor unitário por {unidadeClausulaBase === 'LITROS' ? 'litro' : 'm²'}, frequência e execuções na vigência.
+                  </p>
+                </div>
+                <Switch
+                  id="modo-clausula-cronograma"
+                  checked={modoClausulaContrato}
+                  onCheckedChange={(c) => {
+                    setModoClausulaContrato(c)
+                    if (c) {
+                      const mv = mesesVigenciaContrato(contratoProp?.data_vigencia_inicio, contratoProp?.data_vigencia_fim)
+                      const sug = execucoesSugeridasPorFrequencia(mv, frequenciaContrato)
+                      const mesesStr = frequenciaContrato === 'UNICA' ? '' : String(sug)
+                      setFormItemCronograma((prev) => {
+                        const ut = totaisFormItemCronograma(prev.quantidade, prev.valor_unitario, mesesStr, false)
+                        return {
+                          ...prev,
+                          unidade_medida: unidadeClausulaBase,
+                          quantidade_meses: mesesStr,
+                          ...ut,
+                        }
+                      })
+                    }
+                  }}
+                />
+              </div>
+            )}
+            {modoClausulaContrato ? (
+              <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+                <p className="text-xs text-gray-600">
+                  Vigência para sugestão de execuções: ~{mesesVigenciaModal} meses
+                  {contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim
+                    ? ` (${formatarData(contratoProp.data_vigencia_inicio)} a ${formatarData(contratoProp.data_vigencia_fim)})`
+                    : ' (defina início e fim no cadastro do contrato para melhor sugestão)'}
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Base da quantidade</Label>
+                    <Select
+                      value={unidadeClausulaBase}
+                      onValueChange={(v: 'METROS' | 'LITROS') => {
+                        setUnidadeClausulaBase(v)
+                        setFormItemCronograma((prev) => ({ ...prev, unidade_medida: v }))
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="METROS">m² (METROS)</SelectItem>
+                        <SelectItem value="LITROS">Litros (LITROS)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Quantidade ({unidadeClausulaBase === 'LITROS' ? 'litros' : 'm²'}) *</Label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      placeholder="0"
+                      value={formItemCronograma.quantidade}
+                      onChange={(e) => {
+                        const q = e.target.value
+                        setFormItemCronograma((prev) => ({
+                          ...prev,
+                          quantidade: q,
+                          ...totaisFormItemCronograma(q, prev.valor_unitario, frequenciaContrato === 'UNICA' ? '' : prev.quantidade_meses, false),
+                        }))
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Valor unitário (R$ / {unidadeClausulaBase === 'LITROS' ? 'litro' : 'm²'}) *</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0,00"
+                      value={formItemCronograma.valor_unitario}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setFormItemCronograma((prev) => ({
+                          ...prev,
+                          valor_unitario: v,
+                          ...totaisFormItemCronograma(prev.quantidade, v, frequenciaContrato === 'UNICA' ? '' : prev.quantidade_meses, false),
+                        }))
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Frequência</Label>
+                    <Select
+                      value={frequenciaContrato}
+                      onValueChange={(f: FrequenciaExecucaoContrato) => {
+                        setFrequenciaContrato(f)
+                        const mv = mesesVigenciaContrato(contratoProp?.data_vigencia_inicio, contratoProp?.data_vigencia_fim)
+                        const sug = execucoesSugeridasPorFrequencia(mv, f)
+                        const mesesStr = f === 'UNICA' ? '' : String(sug)
+                        setFormItemCronograma((prev) => ({
+                          ...prev,
+                          quantidade_meses: mesesStr,
+                          ...totaisFormItemCronograma(prev.quantidade, prev.valor_unitario, mesesStr, false),
+                        }))
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {FREQUENCIAS_CRONOGRAMA_CONTRATO.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Nº de execuções na vigência</Label>
+                    {frequenciaContrato === 'UNICA' ? (
+                      <p className="text-sm text-gray-700 py-2 border rounded-md px-3 bg-white">
+                        Execução única: valor total = quantidade × valor unitário.
+                      </p>
+                    ) : (
+                      <>
+                        <Input
+                          type="number"
+                          step="1"
+                          min="1"
+                          placeholder={String(execucoesSugeridasModal)}
+                          value={formItemCronograma.quantidade_meses}
+                          onChange={(e) => {
+                            const m = e.target.value
+                            setFormItemCronograma((prev) => ({
+                              ...prev,
+                              quantidade_meses: m,
+                              ...totaisFormItemCronograma(prev.quantidade, prev.valor_unitario, m, false),
+                            }))
+                          }}
+                        />
+                        <p className="text-xs text-blue-700">Sugestão pela vigência e frequência: {execucoesSugeridasModal}</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Valor por execução (R$)</Label>
+                    <Input type="text" readOnly className="bg-white font-medium" value={formItemCronograma.valor_mensal ? formatarMoeda(parseFloat(formItemCronograma.valor_mensal)) : '0,00'} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Valor total (R$)</Label>
+                    <Input type="text" readOnly className="bg-white font-medium text-blue-700" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
+                  </div>
+                </div>
+              </div>
+            ) : (
+            <>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Unidade de Medida</Label>
@@ -1933,12 +2158,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   }}
                 />
               </div>
-              {/* Qtd. Meses: oculto para unidade MENSAL (quantidade já representa os meses) */}
+              {/* Nº períodos/execuções: oculto para unidade MENSAL (quantidade já representa os meses) */}
               {formItemCronograma.unidade_medida !== 'MENSAL' && (
                 <div className="space-y-2">
-                  <Label>Qtd. Meses</Label>
+                  <Label>Nº períodos / execuções</Label>
                   <Input
-                    type="number" step="1" min="1" placeholder="Ex: 12"
+                    type="number" step="1" min="1" placeholder="Ex: 4 (trimestral em 12 meses)"
                     value={formItemCronograma.quantidade_meses}
                     onChange={e => {
                       const m = e.target.value
@@ -1947,12 +2172,13 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
                     }}
                   />
+                  <p className="text-xs text-gray-500">Quantas vezes o valor por período se repete na vigência (ex.: 4 trimestres).</p>
                 </div>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Valor Mensal (R$)</Label>
+                <Label>{formItemCronograma.unidade_medida === 'MENSAL' ? 'Valor Mensal (R$)' : 'Valor por período (R$)'}</Label>
                 <Input type="text" readOnly className="bg-gray-50 font-medium" value={formItemCronograma.valor_mensal ? formatarMoeda(parseFloat(formItemCronograma.valor_mensal)) : '0,00'} />
               </div>
               <div className="space-y-2">
@@ -1960,12 +2186,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 <Input type="text" readOnly className="bg-gray-50 font-medium text-blue-700" value={formItemCronograma.valor_total ? formatarMoeda(parseFloat(formItemCronograma.valor_total)) : '0,00'} />
               </div>
             </div>
+            </>
+            )}
             {isAdmin && editandoItemCronograma && (
               <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <Label className="text-amber-800 font-medium">
-                  {formItemCronograma.unidade_medida === 'MENSAL' ? 'Valor já consumido (ajuste migração)' : 'Quantidade já utilizada (ajuste migração)'}
+                  {(modoClausulaContrato ? unidadeClausulaBase : formItemCronograma.unidade_medida) === 'MENSAL' ? 'Valor já consumido (ajuste migração)' : 'Quantidade já utilizada (ajuste migração)'}
                 </Label>
-                {formItemCronograma.unidade_medida === 'MENSAL' ? (
+                {(modoClausulaContrato ? unidadeClausulaBase : formItemCronograma.unidade_medida) === 'MENSAL' ? (
                   <div className="space-y-2">
                     <div>
                       <Label className="text-xs text-amber-700 mb-1 block">Valor em R$ (recomendado para medições parciais)</Label>

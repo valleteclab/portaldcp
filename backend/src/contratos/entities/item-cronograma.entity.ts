@@ -52,6 +52,14 @@ export class ItemCronograma {
   @Column({ type: 'int', nullable: true, default: null })
   quantidade_meses: number | null; // null = não aplicável; preenchido para serviços mensais
 
+  /** Texto da periodicidade na cláusula (ex.: TRIMESTRAL); rastro legal / relatórios */
+  @Column({ type: 'varchar', length: 20, nullable: true, default: null })
+  frequencia_execucao: string | null;
+
+  /** Nº de execuções na vigência (espelha o multiplicador quando informado no cadastro “como contrato”) */
+  @Column({ type: 'int', nullable: true, default: null })
+  numero_execucoes: number | null;
+
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valor_mensal: number; // quantidade * valor_unitario (valor por mês)
 

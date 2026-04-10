@@ -329,6 +329,16 @@ export class MedicaoService {
       : 1;
     const numeroItem = (dados as any).numero_item > 0 ? (dados as any).numero_item : proximoNumero;
 
+    const freq = (dados as any).frequencia_execucao as string | null | undefined;
+    const numRaw = (dados as any).numero_execucoes;
+    let numExec: number | null = null;
+    if (numRaw !== undefined && numRaw !== null && numRaw !== '') {
+      const n = Number(numRaw);
+      numExec = Number.isFinite(n) ? n : null;
+    } else if (!isMensal && quantidadeMeses != null) {
+      numExec = quantidadeMeses;
+    }
+
     const item = this.itemCronogramaRepository.create({
       contrato_id: contratoId,
       numero_item: numeroItem,
@@ -337,6 +347,8 @@ export class MedicaoService {
       quantidade,
       valor_unitario: valorUnitario,
       quantidade_meses: quantidadeMeses,
+      frequencia_execucao: freq != null && freq !== '' ? String(freq).slice(0, 20) : null,
+      numero_execucoes: numExec,
       valor_mensal: valorMensal,
       valor_total: valorTotal,
       observacoes: dados.observacoes,
@@ -372,14 +384,30 @@ export class MedicaoService {
     const rawTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? quantidade * valorUnitario * quantidadeMeses : rawMensal);
     const valorMensal = isMensal ? valorUnitario : ap(rawMensal);
     const valorTotal = ap(rawTotal);
+    const raw = dados as Record<string, unknown>;
+    const { frequencia_execucao: feRaw, numero_execucoes: neRaw, ...dadosSemFreq } = raw as any;
     Object.assign(item, {
-      ...dados,
+      ...dadosSemFreq,
       quantidade,
       valor_unitario: valorUnitario,
       quantidade_meses: quantidadeMeses,
       valor_mensal: valorMensal,
       valor_total: valorTotal,
     });
+    if (Object.prototype.hasOwnProperty.call(raw, 'frequencia_execucao')) {
+      item.frequencia_execucao =
+        feRaw != null && feRaw !== ''
+          ? String(feRaw).slice(0, 20)
+          : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'numero_execucoes')) {
+      item.numero_execucoes =
+        neRaw !== null && neRaw !== '' && Number.isFinite(Number(neRaw))
+          ? Number(neRaw)
+          : null;
+    } else if (!isMensal) {
+      item.numero_execucoes = quantidadeMeses;
+    }
     return this.itemCronogramaRepository.save(item);
   }
 
