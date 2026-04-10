@@ -1709,7 +1709,9 @@ export class MedicaoService {
         // Para MENSAL com boletim_por_quantidade: cada mês = 1 unidade inteira (arredonda imprecisão de migração)
         const isMensalComFlag = (item.item_unidade || '') === 'MENSAL' && !!(contrato as any).boletim_por_quantidade;
         const qtdAcumuladaRaw = vlrUnitario > 0 ? vlrAcumAnterior / vlrUnitario : Number(item.item_quantidade_acumulada || 0);
-        const qtdAcumulada = isMensalComFlag ? Math.round(qtdAcumuladaRaw) : qtdAcumuladaRaw;
+        const qtdAcumulada = isMensalComFlag
+          ? Math.round(qtdAcumuladaRaw)
+          : Math.round(Number(qtdAcumuladaRaw) * 100) / 100;
         const qtdAtePeriodo = qtdAcumulada + qtdMedida;
         const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
         const base: any = {
@@ -1724,10 +1726,9 @@ export class MedicaoService {
           valor_acumulado_anterior:      vlrAcumAnterior,
           valor_total_item:              vlrTotal,
         };
-        // Sempre incluir campos de quantidade para o PDF poder mostrar corretamente
-        // para itens não-MENSAL, independente da flag boletim_por_quantidade
-        base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 10000) / 10000;
-        base.quantidade_a_executar = Math.round(qtdAExecutar * 10000) / 10000;
+        // Execução física no PDF: até 2 casas (evita lixo de ponto flutuante na coluna fiscal)
+        base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 100) / 100;
+        base.quantidade_a_executar = Math.round(qtdAExecutar * 100) / 100;
 
         // Aplicar overrides manuais de execução fiscal (corrigirExecucaoFiscal)
         const efOverrides: any[] = (medicao.execucao_fiscal as any)?.item_overrides || [];
@@ -3557,9 +3558,9 @@ export class MedicaoService {
           };
           if (boletimPorQuantidade) {
             base.unidade_medida = unidadeMedida;
-            base.quantidade_no_periodo = Math.round(quantidadeNoPeriodo * 10000) / 10000;
-            base.quantidade_ate_periodo = Math.round(quantidadeAtePeriodo * 10000) / 10000;
-            base.quantidade_a_executar = Math.round(quantidadeAExecutar * 10000) / 10000;
+            base.quantidade_no_periodo = Math.round(quantidadeNoPeriodo * 100) / 100;
+            base.quantidade_ate_periodo = Math.round(quantidadeAtePeriodo * 100) / 100;
+            base.quantidade_a_executar = Math.round(quantidadeAExecutar * 100) / 100;
           }
           return base;
         })
