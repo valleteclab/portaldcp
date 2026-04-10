@@ -21,16 +21,13 @@ function fmt(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-/** EXECUÇÃO FINANCEIRA: 2 casas; trunc em centavos (sem arredondar). */
 function fmtExecFinanceira(v: number): string {
-  const n = Number(v) || 0;
-  const truncado = Math.trunc(n * 100) / 100;
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(truncado);
+    maximumFractionDigits: 6,
+  }).format(v);
 }
 
 function fmtData(d: string): string {

@@ -139,16 +139,14 @@ function fmt(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-/** EXECUÇÃO FINANCEIRA: sempre 2 casas decimais; centavos extras são cortados (trunc), sem arredondar. */
+/** Moeda no bloco EXECUÇÃO FINANCEIRA: mais casas que o padrão BRL, alinhado a q×vu sem “pular” centavo */
 function fmtExecFinanceira(v: number): string {
-  const n = Number(v) || 0
-  const truncado = Math.trunc(n * 100) / 100
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(truncado)
+    maximumFractionDigits: 6,
+  }).format(v)
 }
 
 function fmtData(d: string): string {
