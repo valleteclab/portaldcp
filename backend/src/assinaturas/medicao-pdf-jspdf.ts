@@ -34,6 +34,16 @@ function truncarMoedaReais2Casas(v: number): number {
   return neg ? -n : n;
 }
 
+function produtoQuantidadeValorUnitarioCentavos(quantidade: number, valorUnitario: number): number {
+  const qC = Math.round((Number(quantidade) || 0) * 100);
+  const vuC = Math.round((Number(valorUnitario) || 0) * 100);
+  return Math.floor((qC * vuC) / 100);
+}
+
+function centavosParaReaisTrunc2(centavos: number): number {
+  return Number((centavos / 100).toFixed(2));
+}
+
 /** EXECUÇÃO FINANCEIRA: 2 casas; trunc (sem arredondar). */
 function fmtExecFinanceira(v: number): string {
   const truncado = truncarMoedaReais2Casas(v);
@@ -584,25 +594,34 @@ export async function gerarBoletimMedicaoPdf(
       }
     }
 
-    let totalNoPeriodo = 0, totalAteoPeriodo = 0, totalAExecutar = 0;
+    let totalNoCent = 0;
+    let totalAteCent = 0;
+    let totalAExecCent = 0;
 
     const body: any[][] = dados.itens.map((item: any) => {
-      const vlrAcumAnterior = item.valor_acumulado_anterior !== undefined
-        ? item.valor_acumulado_anterior
-        : item.quantidade_acumulada_aprovada * item.valor_unitario;
-      const vlrTotal = item.valor_total_item !== undefined
-        ? item.valor_total_item
-        : item.quantidade_total_contrato * item.valor_unitario;
-      const vlrNoPeriodo = item.valor_no_periodo;
-      const vlrAtePeriodo = vlrAcumAnterior + vlrNoPeriodo;
-      const vlrAExecutar =
+      const vu = Number(item.valor_unitario) || 0;
+      const cNo = produtoQuantidadeValorUnitarioCentavos(item.quantidade_no_periodo, vu);
+      const cAcum =
+        item.valor_acumulado_anterior !== undefined && item.valor_acumulado_anterior !== null
+          ? Math.round(truncarMoedaReais2Casas(Number(item.valor_acumulado_anterior)) * 100)
+          : produtoQuantidadeValorUnitarioCentavos(item.quantidade_acumulada_aprovada, vu);
+      const cAte = cNo + cAcum;
+      const cTotal =
+        item.valor_total_item !== undefined && item.valor_total_item !== null
+          ? Math.round(truncarMoedaReais2Casas(Number(item.valor_total_item)) * 100)
+          : produtoQuantidadeValorUnitarioCentavos(item.quantidade_total_contrato, vu);
+      const cAExec =
         item.valor_a_executar !== undefined && item.valor_a_executar !== null
-          ? Number(item.valor_a_executar)
-          : Math.max(0, vlrTotal - vlrAtePeriodo);
+          ? Math.round(truncarMoedaReais2Casas(Number(item.valor_a_executar)) * 100)
+          : Math.max(0, cTotal - cAte);
 
-      totalNoPeriodo += vlrNoPeriodo;
-      totalAteoPeriodo += vlrAtePeriodo;
-      totalAExecutar += vlrAExecutar;
+      const vlrNoPeriodo = centavosParaReaisTrunc2(cNo);
+      const vlrAtePeriodo = centavosParaReaisTrunc2(cAte);
+      const vlrAExecutar = centavosParaReaisTrunc2(cAExec);
+
+      totalNoCent += cNo;
+      totalAteCent += cAte;
+      totalAExecCent += cAExec;
 
       const un = item.unidade || 'UNIDADE';
       const fiscalNo = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo;
@@ -621,9 +640,12 @@ export async function gerarBoletimMedicaoPdf(
       ];
     });
 
-    const totalNoPeriodoExibicao = dados.valor_medido ?? dados.execucao_financeira_totais?.no_periodo ?? totalNoPeriodo;
-    const totalAtePeriodoExibicao = dados.execucao_financeira_totais?.ate_periodo ?? totalAteoPeriodo;
-    const totalAExecutarExibicao = dados.execucao_financeira_totais?.a_executar ?? totalAExecutar;
+    const totalNoPeriodoExibicao =
+      dados.valor_medido ?? dados.execucao_financeira_totais?.no_periodo ?? centavosParaReaisTrunc2(totalNoCent);
+    const totalAtePeriodoExibicao =
+      dados.execucao_financeira_totais?.ate_periodo ?? centavosParaReaisTrunc2(totalAteCent);
+    const totalAExecutarExibicao =
+      dados.execucao_financeira_totais?.a_executar ?? centavosParaReaisTrunc2(totalAExecCent);
 
     body.push([
       { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
