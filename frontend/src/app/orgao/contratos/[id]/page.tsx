@@ -984,6 +984,32 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  const handleRemoverTodosItens = async () => {
+    if (!contrato.itens || contrato.itens.length === 0) return
+    const total = contrato.itens.length
+    if (!confirm(`Remover todos os ${total} itens deste contrato? Esta ação não pode ser desfeita.`)) return
+    setLoadingAction(true)
+    try {
+      const erros: string[] = []
+      for (const item of contrato.itens) {
+        const res = await authFetch(`${API_URL}/api/almoxarifado/itens-contrato/${item.id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          erros.push(`Item "${item.descricao}": ${err.message || 'Erro ao remover'}`)
+        }
+      }
+      if (erros.length > 0) {
+        alert(`Alguns itens não puderam ser removidos:\n\n${erros.join('\n')}`)
+      }
+      carregarDados()
+    } catch (error) {
+      console.error('Erro ao remover itens:', error)
+      alert('Erro ao remover itens')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-8 text-center">
@@ -1418,6 +1444,11 @@ export default function DetalheContratoOrgaoPage() {
               {isAdmin && contrato.itens && contrato.itens.length > 1 && (
                 <Button variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50" onClick={verificarDuplicados}>
                   <Search className="w-4 h-4 mr-2" />Remover Duplicados
+                </Button>
+              )}
+              {contrato.itens && contrato.itens.length > 0 && (
+                <Button variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={handleRemoverTodosItens} disabled={loadingAction}>
+                  <Trash2 className="w-4 h-4 mr-2" />Deletar Todos
                 </Button>
               )}
               <Button variant="outline" onClick={() => { setCsvItens([]); setResultadoImportacao(null); setModalImportarCSV(true) }}>
