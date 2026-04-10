@@ -138,7 +138,13 @@ export interface DadosMedicaoPdf {
 // ---- Helpers ----
 
 function fmt(v: number): string {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const truncado = truncarMoedaReais2Casas(v)
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(truncado)
 }
 
 /** Corta em 2 casas (sem arredondar); evita erro de centavo com float (Math.trunc(n*100)). */
