@@ -59,3 +59,20 @@ export function valorPorFrequenciaItemCronograma(ic: Pick<ItemCronograma, 'quant
   }
   return q * vu;
 }
+
+/**
+ * Corta valor em reais em 2 casas decimais (sem arredondar).
+ * Ex.: 15318,489 → 15318,48. Evita float (Math.trunc(n*100) pode errar o centavo).
+ */
+export function truncarMoedaReais2Casas(v: number): number {
+  const x = Number(v);
+  if (!Number.isFinite(x)) return 0;
+  const neg = x < 0;
+  const s = Math.abs(x).toFixed(14);
+  const dot = s.indexOf('.');
+  const intPart = dot < 0 ? s : s.slice(0, dot);
+  const fracRaw = dot < 0 ? '' : s.slice(dot + 1);
+  const frac2 = (fracRaw + '00').slice(0, 2);
+  const n = Number(`${intPart}.${frac2}`);
+  return neg ? -n : n;
+}
