@@ -644,7 +644,7 @@ export class MedicaoService {
         }
 
         const valorUnitario = Number(itemCron.valor_unitario);
-        const valorItem = qtdMedida * valorUnitario;
+        const valorItem = truncarMoedaReais2Casas(qtdMedida * valorUnitario);
         valorMedido += valorItem;
 
         const valorTotalItem = Number(itemCron.valor_total) || 1;
@@ -1816,7 +1816,9 @@ export class MedicaoService {
       periodo_inicio:       medicao.periodo_inicio || '',
       periodo_fim:          medicao.periodo_fim || '',
       competencia:          (medicao as any).competencia || undefined,
-      valor_medido:         Number(medicao.valor_medido || 0),
+      // Usa o total recomputado dos itens (produtoQuantidadeValorUnitarioCentavos) quando há itens,
+      // evitando que o DECIMAL(15,2) do banco (que arredonda) apareça errado no PDF.
+      valor_medido:         itensParaPdf.length > 0 ? totalNoPeriodoPdf : Number(medicao.valor_medido || 0),
       execucao_financeira_totais: execucaoFinanceiraTotaisCorrigidos,
       nota_fiscal_numero:   medicao.nota_fiscal_numero || undefined,
       nota_fiscal_valor:    medicao.nota_fiscal_valor ? Number(medicao.nota_fiscal_valor) : undefined,
@@ -1827,12 +1829,19 @@ export class MedicaoService {
         itensParaPdf.some(i => i.unidade && i.unidade !== 'MENSAL'),
       itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
       itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
-      discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
-        numero:     d.numero_item || idx + 1,
-        descricao:  d.descricao || d.tipo_despesa || '',
-        valor:      Number(d.valor || 0),
-        percentual: Number(d.percentual || 0),
-      })) || undefined,
+      discriminacoes: discriminacoes?.map((d: any, idx: number) => {
+        // Recomputar valor a partir do percentual × totalNoPeriodoPdf (evita valor errado
+        // armazenado quando o banco arredondou em vez de truncar o valor_medido original).
+        const vmPdf = itensParaPdf.length > 0 ? totalNoPeriodoPdf : Number(medicao.valor_medido || 0);
+        const perc  = Number(d.percentual || 0);
+        const valorDisc = perc > 0 ? truncarMoedaReais2Casas(perc / 100 * vmPdf) : Number(d.valor || 0);
+        return {
+          numero:     d.numero_item || idx + 1,
+          descricao:  d.descricao || d.tipo_despesa || '',
+          valor:      valorDisc,
+          percentual: perc,
+        };
+      }) || undefined,
       assinatura_fornecedor: asFornecedor ? {
         nome:             asFornecedor.usuario_nome,
         cnpj:             asFornecedor.usuario_cpf_cnpj,
