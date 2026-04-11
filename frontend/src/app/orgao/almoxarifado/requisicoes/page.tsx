@@ -25,7 +25,8 @@ import {
   ExternalLink,
   Send,
   Pencil,
-  History
+  History,
+  ShoppingCart,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -879,14 +880,22 @@ function RequisicoesList() {
             </p>
           </div>
         </div>
-        <Button asChild>
-          <Link href={filtroContrato 
-            ? `/orgao/almoxarifado/requisicoes/nova?contrato=${filtroContrato}` 
-            : "/orgao/almoxarifado/requisicoes/nova"}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nova Requisição
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/orgao/almoxarifado/requisicoes/pedido">
+              <ShoppingCart className="h-4 w-4 mr-2" />
+              Pedido de Compras
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href={filtroContrato
+              ? `/orgao/almoxarifado/requisicoes/nova?contrato=${filtroContrato}`
+              : "/orgao/almoxarifado/requisicoes/nova"}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nova Requisição
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Banner de filtro por contrato */}
