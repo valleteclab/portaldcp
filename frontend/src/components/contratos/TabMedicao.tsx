@@ -1561,8 +1561,18 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     <TableCell className="text-right whitespace-nowrap">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_unitario)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? prodTrunc(Number(i.quantidade), Number(i.valor_unitario)))}</TableCell>
-                    <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{formatarMoeda(
+                      i.unidade_medida === 'MENSAL'
+                        ? Number(i.valor_unitario)
+                        : Number(i.quantidade) * Number(i.valor_unitario)
+                    )}</TableCell>
+                    <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(
+                      i.unidade_medida === 'MENSAL'
+                        ? Number(i.quantidade) * Number(i.valor_unitario)
+                        : i.quantidade_meses
+                          ? Number(i.quantidade) * Number(i.valor_unitario) * Number(i.quantidade_meses)
+                          : Number(i.quantidade) * Number(i.valor_unitario)
+                    )}</TableCell>
                     <TableCell className="text-center whitespace-nowrap">
                       {isAdmin ? (
                         editandoMedidoItemId === i.id ? (
