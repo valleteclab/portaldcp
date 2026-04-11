@@ -187,16 +187,11 @@ const STATUS_MEDICAO: Record<string, { label: string; cor: string; icon: any }> 
   DEVOLVIDA: { label: 'Devolvida', cor: 'bg-amber-100 text-amber-800', icon: RotateCcw },
 }
 
+/** Corta em 2 casas sem arredondar. +1e-9 neutraliza ruído IEEE 754 de floats já truncados. */
 function truncar2Casas(v: number): number {
   const x = Number(v)
   if (!Number.isFinite(x)) return 0
-  const s = Math.abs(x).toFixed(14)
-  const dot = s.indexOf('.')
-  const intPart = dot < 0 ? s : s.slice(0, dot)
-  const fracRaw = dot < 0 ? '' : s.slice(dot + 1)
-  const frac2 = (fracRaw + '00').slice(0, 2)
-  const n = Number(`${intPart}.${frac2}`)
-  return x < 0 ? -n : n
+  return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9) / 100
 }
 
 /** Produto q × vl truncado em 2 casas decimais (centavos inteiros, sem float drift). */
