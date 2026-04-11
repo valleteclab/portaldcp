@@ -199,6 +199,11 @@ function truncar2Casas(v: number): number {
   return x < 0 ? -n : n
 }
 
+/** Produto q × vl truncado em 2 casas decimais (centavos inteiros, sem float drift). */
+function prodTrunc(q: number, vl: number): number {
+  return Math.floor(Math.round(q * 100) * Math.round(vl * 100) / 100) / 100
+}
+
 function formatarMoeda(v: number | string) {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -773,7 +778,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         observacoes: item.observacoes || '',
         quantidade_medida: String(Number(item.quantidade_medida) || 0),
         valor_medida_reais: item.unidade_medida === 'MENSAL' && Number(item.quantidade_medida) > 0
-          ? String(Math.round(Number(item.quantidade_medida) * Number(item.valor_unitario) * 100) / 100)
+          ? String(prodTrunc(Number(item.quantidade_medida), Number(item.valor_unitario)))
           : '',
       })
     } else {
@@ -808,15 +813,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     const q = parseFloat(qStr) || 0
     const vl = parseFloat(vlStr) || 0
     const meses = mesesStr ? parseInt(mesesStr, 10) : null
-    const arredondar = contratoProp?.arredondar_calculo ?? true
-    const ap = (v: number) => (arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100)
     if (isMensal) {
       const mensal = vl ? vl.toFixed(2) : ''
-      const total = q && vl ? (q * vl).toFixed(2) : ''
+      const total = q && vl ? prodTrunc(q, vl).toFixed(2) : ''
       return { valor_mensal: mensal, valor_total: total }
     }
-    const vlMensal = ap(q * vl)
-    const novoTotal = meses != null && meses > 0 ? ap(q * vl * meses) : vlMensal
+    const centsFreq = Math.floor(Math.round(q * 100) * Math.round(vl * 100) / 100)
+    const vlMensal = centsFreq / 100
+    const novoTotal = meses != null && meses > 0 ? centsFreq * meses / 100 : vlMensal
     return {
       valor_mensal: q && vl ? String(vlMensal) : '',
       valor_total: q && vl ? String(novoTotal) : '',
@@ -831,12 +835,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     const meses = isMensalUnit
       ? null
       : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses, 10) : null)
-    const arredondar = contratoProp?.arredondar_calculo ?? true;
-    const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
-    const vlMensal = isMensalUnit ? vlUnit : ap(qtd * vlUnit);
+    const vlMensal = isMensalUnit ? vlUnit : prodTrunc(qtd, vlUnit);
     const novoValorTotal = isMensalUnit
-      ? ap(qtd * vlUnit)
-      : (meses ? ap(qtd * vlUnit * meses) : vlMensal);
+      ? prodTrunc(qtd, vlUnit)
+      : (meses ? Math.floor(Math.round(qtd * 100) * Math.round(vlUnit * 100) / 100) * meses / 100 : vlMensal);
 
     const somaOutras = editandoItemCronograma
       ? itensCronograma.filter(i => i.id !== editandoItemCronograma.id).reduce((a, b) => a + Number(b.valor_total), 0)
@@ -949,7 +951,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           novosItens = itensCronograma.map(ic => {
             const prev = det.itens.find((i: any) => i.item_cronograma_id === ic.id)
             const qtd = prev?.quantidade_medida || 0
-            return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+            return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: prodTrunc(qtd, Number(ic.valor_unitario)) }
           })
         } else if (!isServicoContinuado) {
           novosItens = etapas.filter(e => e.status !== 'CONCLUIDA').map(e => {
@@ -1554,7 +1556,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     <TableCell className="text-right whitespace-nowrap">{Number(i.quantidade).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_unitario)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">{i.quantidade_meses != null ? i.quantidade_meses : '-'}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? (Number(i.quantidade) * Number(i.valor_unitario)))}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">{formatarMoeda(i.valor_mensal ?? prodTrunc(Number(i.quantidade), Number(i.valor_unitario)))}</TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap">{formatarMoeda(i.valor_total)}</TableCell>
                     <TableCell className="text-center whitespace-nowrap">
                       {isAdmin ? (
@@ -2188,8 +2190,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   const q = parseFloat(formItemCronograma.quantidade) || 0
                   const vl = parseFloat(formItemCronograma.valor_unitario) || 0
                   const isMensal = v === 'MENSAL'
-                  const mensal = isMensal ? (vl ? vl.toFixed(2) : '') : (q && vl ? (q * vl).toFixed(2) : '')
-                  const total = isMensal ? (q && vl ? (q * vl).toFixed(2) : '') : mensal
+                  const mensal = isMensal ? (vl ? vl.toFixed(2) : '') : (q && vl ? prodTrunc(q, vl).toFixed(2) : '')
+                  const total = isMensal ? (q && vl ? prodTrunc(q, vl).toFixed(2) : '') : mensal
                   setFormItemCronograma({
                     ...formItemCronograma,
                     unidade_medida: v,
@@ -2221,10 +2223,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     // OUTROS: Valor Mensal = Qtd × Valor Unitário; Valor Total = Valor Mensal × Qtd.Meses
                     const mensal = isMensal
                       ? (vl ? vl.toFixed(2) : '')
-                      : (q && vl ? (parseFloat(q) * vl).toFixed(2) : '')
+                      : (q && vl ? prodTrunc(parseFloat(q), vl).toFixed(2) : '')
                     const total = isMensal
-                      ? (q && vl ? (parseFloat(q) * vl).toFixed(2) : '')
-                      : (mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal)
+                      ? (q && vl ? prodTrunc(parseFloat(q), vl).toFixed(2) : '')
+                      : (mensal && meses ? (Math.round(parseFloat(mensal) * 100) * meses / 100).toFixed(2) : mensal)
                     setFormItemCronograma({ ...formItemCronograma, quantidade: q, valor_mensal: mensal, valor_total: total })
                   }}
                 />
@@ -2243,10 +2245,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const meses = isMensal ? null : (formItemCronograma.quantidade_meses ? parseInt(formItemCronograma.quantidade_meses) : null)
                     const mensal = isMensal
                       ? (v ? parseFloat(v).toFixed(2) : '')
-                      : (v && q ? (parseFloat(v) * q).toFixed(2) : '')
+                      : (v && q ? prodTrunc(parseFloat(v), q).toFixed(2) : '')
                     const total = isMensal
-                      ? (q && v ? (q * parseFloat(v)).toFixed(2) : '')
-                      : (mensal && meses ? (parseFloat(mensal) * meses).toFixed(2) : mensal)
+                      ? (q && v ? prodTrunc(q, parseFloat(v)).toFixed(2) : '')
+                      : (mensal && meses ? (Math.round(parseFloat(mensal) * 100) * meses / 100).toFixed(2) : mensal)
                     setFormItemCronograma({ ...formItemCronograma, valor_unitario: v, valor_mensal: mensal, valor_total: total })
                   }}
                 />
@@ -2261,7 +2263,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     onChange={e => {
                       const m = e.target.value
                       const mensal = parseFloat(formItemCronograma.valor_mensal) || 0
-                      const total = m && mensal ? (parseInt(m) * mensal).toFixed(2) : formItemCronograma.valor_mensal
+                      const total = m && mensal ? (Math.round(mensal * 100) * parseInt(m) / 100).toFixed(2) : formItemCronograma.valor_mensal
                       setFormItemCronograma({ ...formItemCronograma, quantidade_meses: m, valor_total: total })
                     }}
                   />
@@ -2316,7 +2318,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         onChange={e => {
                           const meses = parseFloat(e.target.value) || 0
                           const vlUnit = parseFloat(formItemCronograma.valor_unitario) || 0
-                          const reais = Math.round(meses * vlUnit * 100) / 100
+                          const reais = prodTrunc(meses, vlUnit)
                           setFormItemCronograma({ ...formItemCronograma, quantidade_medida: e.target.value, valor_medida_reais: reais > 0 ? String(reais) : '' })
                         }}
                         placeholder="Ex: 0.5 (meio mês)"

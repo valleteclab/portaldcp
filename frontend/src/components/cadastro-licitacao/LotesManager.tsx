@@ -31,9 +31,13 @@ import { LoteLicitacao, ItemLicitacao, ItemPCA, UNIDADES } from './types'
 
 import { API_URL, authFetch } from '@/lib/api'
 
+// Produto q × vl truncado em 2 casas decimais (centavos inteiros, sem float drift)
+const prodTrunc = (q: number, vl: number): number =>
+  Math.floor(Math.round(q * 100) * Math.round(vl * 100) / 100) / 100
+
 // Formatador de valor (fora do componente para evitar recriação)
-const formatador = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-const formatarValorGlobal = (valor: number) => formatador.format(valor)
+const formatador = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const formatarValorGlobal = (valor: number) => formatador.format(Math.floor(valor * 100) / 100)
 
 // Input de valor com seleção automática ao focar
 const InputValor = memo(function InputValor({ 
@@ -394,7 +398,7 @@ const ModalAdicionarItem = memo(function ModalAdicionarItem({
                   <div>
                     <Label className="text-xs">Total</Label>
                     <div className="h-10 flex items-center px-3 bg-slate-100 rounded-md font-medium text-green-600">
-                      {formatarValorGlobal(quantidade * valorUnitario)}
+                      {formatarValorGlobal(prodTrunc(quantidade, valorUnitario))}
                     </div>
                   </div>
                 </div>
@@ -461,7 +465,7 @@ const ModalAdicionarItem = memo(function ModalAdicionarItem({
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-sm">
                 <span className="font-medium">Valor Total: </span>
-                {formatarValorGlobal(quantidade * valorUnitario)}
+                {formatarValorGlobal(prodTrunc(quantidade, valorUnitario))}
               </p>
             </div>
           </div>
@@ -659,7 +663,7 @@ export function LotesManager({
 
   const recalcularTotaisLote = (numeroLote: number, itensAtuais: ItemLicitacao[]) => {
     const itensDoLote = itensAtuais.filter(i => i.lote_numero === numeroLote)
-    const valorTotal = itensDoLote.reduce((sum, i) => sum + (i.quantidade * i.valor_unitario), 0)
+    const valorTotal = itensDoLote.reduce((sum, i) => sum + prodTrunc(i.quantidade, i.valor_unitario), 0)
     onLotesChange(lotes.map(l => l.numero === numeroLote ? {
       ...l, valor_total_estimado: valorTotal, quantidade_itens: itensDoLote.length, itens: itensDoLote
     } : l))
@@ -680,8 +684,8 @@ export function LotesManager({
   }
 
   // Memoizar formatadores
-  const formatarValor = useCallback((valor: number) => 
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor), [])
+  const formatarValor = useCallback((valor: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.floor(valor * 100) / 100), [])
   const getIconeCategoria = useCallback((cat?: string) => 
     ({ MATERIAL: '📦', SERVICO: '🔧', OBRA: '🏗️', SOLUCAO_TIC: '💻' }[cat || ''] || '📋'), [])
 
@@ -843,7 +847,7 @@ export function LotesManager({
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 <div className="text-right mr-2">
                                   <div className="text-sm text-muted-foreground">{item.quantidade} {item.unidade} x {formatarValor(item.valor_unitario)}</div>
-                                  <div className="font-medium text-green-600">{formatarValor(item.quantidade * item.valor_unitario)}</div>
+                                  <div className="font-medium text-green-600">{formatarValor(prodTrunc(item.quantidade, item.valor_unitario))}</div>
                                 </div>
                                 <Button 
                                   variant="ghost" 
@@ -1030,7 +1034,7 @@ export function LotesManager({
             if (!loteAtual) return
             const novosItens = [...itens, item]
             const itensDoLote = novosItens.filter(i => i.lote_numero === loteAtual.numero)
-            const valorTotal = itensDoLote.reduce((sum, i) => sum + (i.quantidade * i.valor_unitario), 0)
+            const valorTotal = itensDoLote.reduce((sum, i) => sum + prodTrunc(i.quantidade, i.valor_unitario), 0)
             const novosLotes = lotes.map(l => l.numero === loteAtual.numero ? {
               ...l, valor_total_estimado: valorTotal, quantidade_itens: itensDoLote.length, itens: itensDoLote
             } : l)
@@ -1203,7 +1207,7 @@ export function LotesManager({
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Valor Total:</span>
                   <span className="font-medium text-green-600">
-                    {formatarValorGlobal(itemEmEdicao.quantidade * itemEmEdicao.valor_unitario)}
+                    {formatarValorGlobal(prodTrunc(itemEmEdicao.quantidade, itemEmEdicao.valor_unitario))}
                   </span>
                 </div>
               </div>
