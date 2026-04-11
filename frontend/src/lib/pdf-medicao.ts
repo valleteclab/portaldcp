@@ -147,18 +147,11 @@ function fmt(v: number): string {
   }).format(truncado)
 }
 
-/** Corta em 2 casas (sem arredondar); evita erro de centavo com float (Math.trunc(n*100)). */
+/** Corta em 2 casas sem arredondar. +1e-9 neutraliza ruído IEEE 754 de floats já truncados. */
 function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v)
   if (!Number.isFinite(x)) return 0
-  const neg = x < 0
-  const s = Math.abs(x).toFixed(14)
-  const dot = s.indexOf('.')
-  const intPart = dot < 0 ? s : s.slice(0, dot)
-  const fracRaw = dot < 0 ? '' : s.slice(dot + 1)
-  const frac2 = (fracRaw + '00').slice(0, 2)
-  const n = Number(`${intPart}.${frac2}`)
-  return neg ? -n : n
+  return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9) / 100
 }
 
 /** q×vu com até 2 casas cada → trunc em 2 casas reais (ex.: 2831,40×6,94 → 19.649,91). */

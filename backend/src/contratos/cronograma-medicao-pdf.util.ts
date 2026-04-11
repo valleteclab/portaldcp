@@ -64,19 +64,14 @@ export function centavosParaReaisTrunc2(centavos: number): number {
 }
 
 /**
- * Corta valor em reais em 2 casas (sem arredondar). Para q×vu preferir produtoQuantidadeValorUnitarioCentavos.
+ * Corta valor em reais em 2 casas sem arredondar.
+ * Usa +1e-9 para neutralizar o ruído IEEE 754 de floats já truncados
+ * (ex.: 19310.14 é armazenado como 19310.13999... → sem epsilon o floor daria 19310.13).
  */
 export function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v);
   if (!Number.isFinite(x)) return 0;
-  const neg = x < 0;
-  const s = Math.abs(x).toFixed(14);
-  const dot = s.indexOf('.');
-  const intPart = dot < 0 ? s : s.slice(0, dot);
-  const fracRaw = dot < 0 ? '' : s.slice(dot + 1);
-  const frac2 = (fracRaw + '00').slice(0, 2);
-  const n = Number(`${intPart}.${frac2}`);
-  return neg ? -n : n;
+  return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9) / 100;
 }
 
 export function valorPorFrequenciaItemCronograma(ic: Pick<ItemCronograma, 'quantidade' | 'valor_unitario' | 'valor_mensal' | 'unidade_medida'>): number {
