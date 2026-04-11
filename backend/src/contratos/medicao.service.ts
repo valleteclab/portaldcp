@@ -324,12 +324,10 @@ export class MedicaoService {
     // Qtd. Meses é ignorado para MENSAL (seria redundante / causaria dupla contagem).
     const isMensal = unidade === 'MENSAL';
     const quantidadeMeses = isMensal ? null : (dados.quantidade_meses ? Number(dados.quantidade_meses) : null);
-    const arredondar = contrato.arredondar_calculo ?? true;
-    const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
     const rawMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
     const rawTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? quantidade * valorUnitario * quantidadeMeses : rawMensal);
-    const valorMensal = isMensal ? valorUnitario : ap(rawMensal);
-    const valorTotal = ap(rawTotal);
+    const valorMensal = isMensal ? valorUnitario : truncarMoedaReais2Casas(rawMensal);
+    const valorTotal = truncarMoedaReais2Casas(rawTotal);
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
@@ -394,12 +392,10 @@ export class MedicaoService {
       : item.quantidade_meses);
     // MENSAL: Valor Mensal = preço/mês (Valor Unitário), Valor Total = Qtd(meses) × Valor Unitário
     // OUTROS: Valor Mensal = Qtd × Valor Unitário, Valor Total = Valor Mensal × Qtd. Meses
-    const arredondar = (item.contrato as any)?.arredondar_calculo ?? true;
-    const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
     const rawMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
     const rawTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? quantidade * valorUnitario * quantidadeMeses : rawMensal);
-    const valorMensal = isMensal ? valorUnitario : ap(rawMensal);
-    const valorTotal = ap(rawTotal);
+    const valorMensal = isMensal ? valorUnitario : truncarMoedaReais2Casas(rawMensal);
+    const valorTotal = truncarMoedaReais2Casas(rawTotal);
     const raw = dados as Record<string, unknown>;
     const { frequencia_execucao: feRaw, numero_execucoes: neRaw, ...dadosSemFreq } = raw as any;
     Object.assign(item, {
