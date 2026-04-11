@@ -773,8 +773,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         quantidade: String(item.quantidade),
         valor_unitario: String(item.valor_unitario),
         quantidade_meses: item.quantidade_meses != null ? String(item.quantidade_meses) : '',
-        valor_mensal: String(item.valor_mensal ?? (Number(item.quantidade) * Number(item.valor_unitario))),
-        valor_total: String(item.valor_total),
+        valor_mensal: item.unidade_medida === 'MENSAL'
+          ? String(Number(item.valor_unitario))
+          : String(prodTrunc(Number(item.quantidade), Number(item.valor_unitario))),
+        valor_total: item.unidade_medida === 'MENSAL'
+          ? String(prodTrunc(Number(item.quantidade), Number(item.valor_unitario)))
+          : item.quantidade_meses
+            ? String(Math.floor(Math.round(Number(item.quantidade) * 100) * Math.round(Number(item.valor_unitario) * 100) / 100) * item.quantidade_meses / 100)
+            : String(prodTrunc(Number(item.quantidade), Number(item.valor_unitario))),
         observacoes: item.observacoes || '',
         quantidade_medida: String(Number(item.quantidade_medida) || 0),
         valor_medida_reais: item.unidade_medida === 'MENSAL' && Number(item.quantidade_medida) > 0
