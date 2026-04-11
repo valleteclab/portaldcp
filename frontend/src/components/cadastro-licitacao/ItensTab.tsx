@@ -78,8 +78,11 @@ export function ItensTab({
     return parseFloat(str.replace(',', '.')) || 0
   }
 
+  const prodTrunc = (q: number, vl: number): number =>
+    Math.floor(Math.round(q * 100) * Math.round(vl * 100) / 100) / 100
+
   const formatarMoeda = (valor: number) => {
-    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.floor(valor * 100) / 100)
   }
 
   const calcularValorTotal = () => {
@@ -594,7 +597,7 @@ export function ItensTab({
                         <div>
                           <Label className="text-xs text-muted-foreground">Subtotal</Label>
                           <div className="h-10 flex items-center px-3 bg-slate-100 rounded-md font-medium text-green-600">
-                            {formatarMoeda(item.quantidade * item.valor_unitario)}
+                            {formatarMoeda(prodTrunc(item.quantidade, item.valor_unitario))}
                           </div>
                         </div>
                       </div>
@@ -831,7 +834,7 @@ export function ItensTab({
                 <div>
                   <Label className="text-xs">Total</Label>
                   <div className="h-10 flex items-center px-3 bg-slate-100 rounded-md font-medium text-green-600">
-                    {formatarMoeda(quantidadeItem * parseValor(valorUnitarioStr))}
+                    {formatarMoeda(prodTrunc(quantidadeItem, parseValor(valorUnitarioStr)))}
                   </div>
                 </div>
               </div>

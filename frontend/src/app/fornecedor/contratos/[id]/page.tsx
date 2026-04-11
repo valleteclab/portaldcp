@@ -875,7 +875,7 @@ export default function FornecedorContratoDetalhePage() {
           novosItens = itensCronograma.map(ic => {
             const prev = det.itens.find((i: any) => i.item_cronograma_id === ic.id);
             const qtd = prev?.quantidade_medida || 0;
-            return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 };
+            return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.floor(Math.round(qtd * 100) * Math.round(Number(ic.valor_unitario) * 100) / 100) / 100 };
           });
         } else if (!isServicoContinuado) {
           novosItens = etapas.filter((e: Etapa) => e.status !== 'CONCLUIDA').map((e: Etapa) => {
@@ -2253,7 +2253,7 @@ export default function FornecedorContratoDetalhePage() {
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
                               const itens = [...novaMedicao.itens];
-                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.round(val * valorUnit * 100) / 100 };
+                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.floor(Math.round(val * 100) * Math.round(valorUnit * 100) / 100) / 100 };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
                             className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
