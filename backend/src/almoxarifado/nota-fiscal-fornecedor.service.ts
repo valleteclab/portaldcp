@@ -286,7 +286,7 @@ export class NotaFiscalFornecedorService {
     if (destinatarios.length === 0) return;
 
     await this.notificacoesService.criarParaMultiplos(
-      destinatarios.map(u => ({ id: u.id, email: (u as any).email })),
+      destinatarios.map(u => ({ id: u.id, email: (u as any).email, telefone: (u as any).telefone })),
       {
         orgao_id: orgaoId,
         tipo: TipoNotificacao.NF_DISPONIVEL,
