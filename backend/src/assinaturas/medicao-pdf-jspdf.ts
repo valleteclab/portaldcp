@@ -391,13 +391,13 @@ export async function gerarBoletimMedicaoPdf(
   };
 
   linhaInfo('ÓRGÃO', textoSeguro(dados.orgao_nome));
-  linhaInfo('CONTRATO', textoSeguro(dados.numero_contrato));
+  linhaInfo('CONTRATO', textoSeguro(dados.numero_contrato ?? dados.contrato_numero));
 
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold');
   doc.text('OBJETO:', mX, y);
   doc.setFont('helvetica', 'normal');
-  const linhasObj = doc.splitTextToSize(textoSeguro(dados.objeto_contrato), W - mX - infoX2 - 2);
+  const linhasObj = doc.splitTextToSize(textoSeguro(dados.objeto_contrato ?? dados.contrato_objeto), W - mX - infoX2 - 2);
   doc.text(linhasObj, infoX2, y);
   y += linhasObj.length * 4.5 + 1;
 
@@ -790,7 +790,7 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(55, 65, 81);
   if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' });
-  doc.text(`Contrato: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' });
+  doc.text(`Contrato: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}`, W / 2, yPA + 11, { align: 'center' });
   yPA += 20;
   desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, qrDataUrl);
 
@@ -804,7 +804,7 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(160, 160, 160);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${dados.numero_contrato}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
+      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
       W / 2, H - 5, { align: 'center' },
     );
   }
