@@ -316,6 +316,11 @@ export class NotaFiscalFornecedorService {
       (u as any).pode_receber_patrimonio || (u as any).pode_aprovar_requisicoes
     );
 
+    const fornecedorNome = (ordem as any)?.fornecedor?.razao_social
+      || (ordem as any)?.fornecedor?.nome
+      || nf.razao_social_emitente
+      || 'Fornecedor';
+
     if (destinatarios.length === 0) return;
 
     await this.notificacoesService.criarParaMultiplos(
@@ -324,13 +329,13 @@ export class NotaFiscalFornecedorService {
         orgao_id: orgaoId,
         tipo: TipoNotificacao.NF_DISPONIVEL,
         titulo: `NF disponível - OF ${ordem.numero}`,
-        mensagem: `O fornecedor enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''} para a Ordem de Fornecimento ${ordem.numero}. Acesse a tela de recebimentos para processar.`,
+        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''} para a Ordem de Fornecimento ${ordem.numero}. Acesse a tela de recebimentos para processar.`,
         entidade_tipo: 'ordem_fornecimento',
         entidade_id: ordem.id,
         link: `/orgao/almoxarifado/recebimentos/${ordem.id}`,
         enviar_email: true,
         metadata: {
-          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''}.\nAcesse a tela de recebimentos para processar.`,
+          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''}.\nAcesse a tela de recebimentos para processar.`,
           whatsapp_url: `${process.env.APP_URL || 'https://portaldcp.com.br'}/orgao/almoxarifado/recebimentos/${ordem.id}`,
         },
       },
