@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye, ListOrdered } from 'lucide-react'
+import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye, ListOrdered, BellRing } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 const getFileUrl = (caminho: string | null) => {
@@ -28,6 +28,7 @@ interface EtapaNFProps {
 export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [], aguardarProximaNf = false, onImportarXml, onNfEnviada, onSelecionarNf, loading }: EtapaNFProps) {
   const [uploading, setUploading] = useState(false)
   const [erroUpload, setErroUpload] = useState<string | null>(null)
+  const [reenviandoNotificacao, setReenviandoNotificacao] = useState(false)
   const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   const handleUploadManual = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -59,6 +60,28 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
     } finally {
       setUploading(false)
       e.target.value = ''
+    }
+  }
+
+  const handleReenviarNotificacao = async () => {
+    if (!notaFiscal?.id) return
+
+    setReenviandoNotificacao(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/notas-fiscais-fornecedor/${notaFiscal.id}/reenviar-notificacao`, {
+        method: 'POST',
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        alert(`Notificação reenviada com sucesso para ${data.destinatarios ?? 0} usuário(s).`)
+      } else {
+        alert(data.message || 'Erro ao reenviar notificação da NF')
+      }
+    } catch {
+      alert('Erro ao reenviar notificação da NF')
+    } finally {
+      setReenviandoNotificacao(false)
     }
   }
 
@@ -323,6 +346,22 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
             {notaFiscal.produtos_xml?.length > 0 && (
               <span className="text-xs text-gray-500 ml-2">{notaFiscal.produtos_xml.length} produtos no XML</span>
             )}
+          </div>
+          <div className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleReenviarNotificacao}
+              disabled={reenviandoNotificacao}
+            >
+              {reenviandoNotificacao ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <BellRing className="h-4 w-4 mr-2" />
+              )}
+              {reenviandoNotificacao ? 'Reenviando notificação...' : 'Reenviar notificação ao almoxarifado'}
+            </Button>
           </div>
         </CardContent>
       </Card>

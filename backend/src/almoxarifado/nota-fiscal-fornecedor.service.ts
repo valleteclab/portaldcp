@@ -270,6 +270,39 @@ export class NotaFiscalFornecedorService {
     return this.nfRepository.save(nf);
   }
 
+  async reenviarNotificacaoNfDisponivel(nfId: string, orgaoId: string): Promise<{ success: boolean; destinatarios: number }> {
+    const nf = await this.nfRepository.findOne({
+      where: { id: nfId, orgao_id: orgaoId },
+    });
+
+    if (!nf) {
+      throw new NotFoundException('Nota fiscal não encontrada');
+    }
+
+    const ordem = await this.ordemRepository.findOne({
+      where: { id: nf.ordem_fornecimento_id, orgao_id: orgaoId },
+    });
+
+    if (!ordem) {
+      throw new NotFoundException('Ordem de fornecimento não encontrada para esta nota fiscal');
+    }
+
+    const usuarios = await this.usuarioRepository.find({
+      where: { orgao_id: orgaoId },
+    });
+
+    const destinatarios = usuarios.filter(u =>
+      (u as any).pode_receber_patrimonio || (u as any).pode_aprovar_requisicoes
+    );
+
+    if (destinatarios.length === 0) {
+      return { success: true, destinatarios: 0 };
+    }
+
+    await this.notificarUsuariosOrgao(orgaoId, ordem, nf);
+    return { success: true, destinatarios: destinatarios.length };
+  }
+
   private async notificarUsuariosOrgao(
     orgaoId: string,
     ordem: OrdemFornecimento,

@@ -1251,6 +1251,15 @@ export class AlmoxarifadoController {
     return this.nfFornecedorService.delete(id);
   }
 
+  @Post('notas-fiscais-fornecedor/:id/reenviar-notificacao')
+  async reenviarNotificacaoNotaFiscal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.nfFornecedorService.reenviarNotificacaoNfDisponivel(id, orgaoId);
+  }
+
   @Post('notas-fiscais-fornecedor/:id/recusar')
   async recusarNotaFiscal(
     @Param('id', ParseUUIDPipe) id: string,
