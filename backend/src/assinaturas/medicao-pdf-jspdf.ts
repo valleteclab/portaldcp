@@ -62,9 +62,16 @@ function fmtData(d: string): string {
 }
 
 function fmtCnpj(cnpj: string): string {
+  if (!cnpj) return '-';
   const c = cnpj.replace(/\D/g, '');
   if (c.length !== 14) return cnpj;
   return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
+}
+
+function textoSeguro(valor: unknown, fallback = '-'): string {
+  if (valor === null || valor === undefined) return fallback;
+  const texto = String(valor);
+  return texto.trim() ? texto : fallback;
 }
 
 /** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias) */
@@ -379,22 +386,22 @@ export async function gerarBoletimMedicaoPdf(
     doc.setFont('helvetica', 'bold');
     doc.text(`${label}:`, mX, y);
     doc.setFont('helvetica', 'normal');
-    doc.text(valor, infoX2, y);
+    doc.text(textoSeguro(valor), infoX2, y);
     y += 5;
   };
 
-  linhaInfo('ÓRGÃO', dados.orgao_nome);
-  linhaInfo('CONTRATO', dados.numero_contrato);
+  linhaInfo('ÓRGÃO', textoSeguro(dados.orgao_nome));
+  linhaInfo('CONTRATO', textoSeguro(dados.numero_contrato));
 
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold');
   doc.text('OBJETO:', mX, y);
   doc.setFont('helvetica', 'normal');
-  const linhasObj = doc.splitTextToSize(dados.objeto_contrato, W - mX - infoX2 - 2);
+  const linhasObj = doc.splitTextToSize(textoSeguro(dados.objeto_contrato), W - mX - infoX2 - 2);
   doc.text(linhasObj, infoX2, y);
   y += linhasObj.length * 4.5 + 1;
 
-  linhaInfo('FORNECEDOR', `${dados.fornecedor_nome}  —  CNPJ: ${fmtCnpj(dados.fornecedor_cnpj)}`);
+  linhaInfo('FORNECEDOR', `${textoSeguro(dados.fornecedor_nome)}  —  CNPJ: ${fmtCnpj(dados.fornecedor_cnpj)}`);
 
   // Período + NF na mesma linha
   doc.setFont('helvetica', 'bold');
@@ -405,7 +412,7 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'bold');
   doc.text('Nº NF:', nfX, y);
   doc.setFont('helvetica', 'normal');
-  doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}` : '-', nfX + 12, y);
+  doc.text(dados.nota_fiscal_numero ? `${textoSeguro(dados.nota_fiscal_numero)}${dados.nota_fiscal_valor ? `  —  ${fmt(Number(dados.nota_fiscal_valor) || 0)}` : ''}` : '-', nfX + 12, y);
   y += 5;
 
   // Valor Bruto (= valor da medição)
