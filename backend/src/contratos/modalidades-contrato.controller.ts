@@ -580,6 +580,7 @@ export class ModalidadesContratoController {
       competencia?: string;
       periodo_inicio?: string;
       periodo_fim?: string;
+      valor_medido?: number | null;
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number | null;
       nota_fiscal_data?: string | null;

@@ -297,6 +297,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [abaCorrigir, setAbaCorrigir] = useState<'cabecalho' | 'itens_cronograma' | 'execucao_fiscal' | 'discriminacoes'>('cabecalho')
   const [cabecalhoForm, setCabecalhoForm] = useState({ competencia: '', periodo_inicio: '', periodo_fim: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', objeto_contrato: '' })
   const [discCorrigir, setDiscCorrigir] = useState<{ descricao: string; valor: string; percentual: string }[]>([])
+  const [discValorTotalCorrigir, setDiscValorTotalCorrigir] = useState('')
   const [motivoDiscCorrigir, setMotivoDiscCorrigir] = useState('')
   const [salvandoCorrecao, setSalvandoCorrecao] = useState(false)
   const [pdfRegeneradoUrl, setPdfRegeneradoUrl] = useState<string | null>(null)
@@ -487,6 +488,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         setDiscCorrigir(disc.map((d: any) => ({ descricao: d.descricao, valor: String(d.valor), percentual: String(d.percentual) })))
       }
     } catch { }
+    setDiscValorTotalCorrigir(m.valor_medido != null ? String(m.valor_medido) : '')
     setMotivoDiscCorrigir('')
   }
 
@@ -524,11 +526,31 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     if (!motivoDiscCorrigir.trim()) { alert('Informe o motivo da correção'); return }
     setSalvandoCorrecao(true)
     try {
+      const valorTotal = discValorTotalCorrigir.trim() !== ''
+        ? Number(discValorTotalCorrigir.replace(',', '.'))
+        : null
+
+      if (valorTotal == null || Number.isNaN(valorTotal)) {
+        alert('Informe um valor total válido')
+        return
+      }
+
       const itens = discCorrigir.map(d => ({
         descricao: d.descricao,
         valor: Number(d.valor.replace(',', '.')),
         percentual: Number(d.percentual.replace(',', '.')),
       }))
+
+      const resCabecalho = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/corrigir`, {
+        method: 'PATCH', body: JSON.stringify({ valor_medido: valorTotal }),
+      })
+
+      if (!resCabecalho.ok) {
+        const err = await resCabecalho.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar valor total da medição')
+        return
+      }
+
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/discriminacoes`, {
         method: 'PUT', body: JSON.stringify({ itens, motivo_correcao: motivoDiscCorrigir }),
       })
@@ -3928,6 +3950,16 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             {/* Aba Discriminações */}
             {abaCorrigir === 'discriminacoes' && (
               <div className="space-y-3 px-1">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1 md:col-span-1">
+                    <Label>Valor total (R$)</Label>
+                    <Input
+                      className="text-sm"
+                      value={discValorTotalCorrigir}
+                      onChange={e => setDiscValorTotalCorrigir(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 text-xs text-gray-500 uppercase">

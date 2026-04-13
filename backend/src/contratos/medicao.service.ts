@@ -3301,6 +3301,7 @@ export class MedicaoService {
       competencia?: string;
       periodo_inicio?: string;
       periodo_fim?: string;
+      valor_medido?: number | null;
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number | null;
       nota_fiscal_data?: string | null;
@@ -3323,6 +3324,7 @@ export class MedicaoService {
     if (dados.competencia !== undefined) updates.competencia = dados.competencia.trim() || null;
     if (dados.periodo_inicio !== undefined) updates.periodo_inicio = new Date(dados.periodo_inicio) as any;
     if (dados.periodo_fim !== undefined) updates.periodo_fim = new Date(dados.periodo_fim) as any;
+    if (dados.valor_medido !== undefined) updates.valor_medido = dados.valor_medido as any;
     if (dados.nota_fiscal_numero !== undefined) updates.nota_fiscal_numero = dados.nota_fiscal_numero || null;
     if (dados.nota_fiscal_valor !== undefined) updates.nota_fiscal_valor = dados.nota_fiscal_valor as any;
     if (dados.nota_fiscal_data !== undefined) updates.nota_fiscal_data = dados.nota_fiscal_data ? new Date(dados.nota_fiscal_data) as any : null;
