@@ -295,6 +295,11 @@ export class NotaFiscalFornecedorService {
         entidade_tipo: 'ordem_fornecimento',
         entidade_id: ordem.id,
         link: `/orgao/almoxarifado/recebimentos/${ordem.id}`,
+        enviar_email: true,
+        metadata: {
+          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''}.\nAcesse a tela de recebimentos para processar.`,
+          whatsapp_url: `${process.env.APP_URL || 'https://portaldcp.com.br'}/orgao/almoxarifado/recebimentos/${ordem.id}`,
+        },
       },
     );
 
