@@ -16,6 +16,7 @@ import {
   UseInterceptors,
   UploadedFile,
   StreamableFile,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -620,7 +621,12 @@ export class ModalidadesContratoController {
     @Req() request: { user: JwtPayload },
   ) {
     const orgaoId = this.getOrgaoId(request.user);
-    return this.medicaoService.regenerarBoletim(medicaoId, orgaoId);
+    try {
+      return await this.medicaoService.regenerarBoletim(medicaoId, orgaoId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao regenerar boletim';
+      throw new InternalServerErrorException(message);
+    }
   }
 
   @Patch('medicoes/:medicaoId/marcar-enviado-contabilidade')
