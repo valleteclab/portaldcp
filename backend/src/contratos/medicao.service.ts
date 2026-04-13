@@ -1829,25 +1829,12 @@ export class MedicaoService {
         itensParaPdf.some(i => i.unidade && i.unidade !== 'MENSAL'),
       itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
       itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
-      discriminacoes: (() => {
-        const vmPdf = itensParaPdf.length > 0 ? totalNoPeriodoPdf : Number(medicao.valor_medido || 0);
-        const discriminacoesBrutas = (discriminacoes || []).map((d: any) => ({
-          descricao: d.descricao || d.tipo_despesa || '',
-          valor: Number(d.valor || 0),
-          percentual: Number(d.percentual || 0),
-          numero_item: d.numero_item,
-        }));
-        const valoresNormalizados = this.normalizarValoresDiscriminacoes(discriminacoesBrutas, vmPdf);
-
-        return discriminacoesBrutas.map((d: any, idx: number) => {
-        return {
-            numero:     d.numero_item || idx + 1,
-            descricao:  d.descricao,
-            valor:      valoresNormalizados[idx] ?? d.valor,
-            percentual: d.percentual,
-          };
-        });
-      })() || undefined,
+      discriminacoes: discriminacoes?.map((d: any, idx: number) => ({
+        numero:     d.numero_item || idx + 1,
+        descricao:  d.descricao || d.tipo_despesa || '',
+        valor:      Number(d.valor || 0),
+        percentual: Number(d.percentual || 0),
+      })) || undefined,
       assinatura_fornecedor: asFornecedor ? {
         nome:             asFornecedor.usuario_nome,
         cnpj:             asFornecedor.usuario_cpf_cnpj,
