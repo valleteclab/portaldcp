@@ -1805,8 +1805,8 @@ export class MedicaoService {
     return {
       orgao:                contrato.orgao || null,
       orgao_nome:           contrato.orgao?.nome || '',
-      numero_contrato:      contrato.numero_contrato || '',
-      objeto_contrato:      contrato.objeto || '',
+      contrato_numero:      contrato.numero_contrato || '',
+      contrato_objeto:      (medicao as any).objeto_contrato || contrato.objeto || undefined,
       fornecedor_nome:      medicao.fornecedor_nome || fornecedor?.razao_social || '',
       fornecedor_cnpj:      fornecedor?.cpf_cnpj || '',
       valor_total_contrato: Number(contrato.valor_global || 0) || undefined,
@@ -1829,19 +1829,25 @@ export class MedicaoService {
         itensParaPdf.some(i => i.unidade && i.unidade !== 'MENSAL'),
       itens:             itensParaPdf.length > 0 ? itensParaPdf : undefined,
       itens_contratados: itensContratados.length > 0 ? itensContratados : undefined,
-      discriminacoes: discriminacoes?.map((d: any, idx: number) => {
-        // Recomputar valor a partir do percentual × totalNoPeriodoPdf (evita valor errado
-        // armazenado quando o banco arredondou em vez de truncar o valor_medido original).
+      discriminacoes: (() => {
         const vmPdf = itensParaPdf.length > 0 ? totalNoPeriodoPdf : Number(medicao.valor_medido || 0);
-        const perc  = Number(d.percentual || 0);
-        const valorDisc = perc > 0 ? truncarMoedaReais2Casas(perc / 100 * vmPdf) : Number(d.valor || 0);
+        const discriminacoesBrutas = (discriminacoes || []).map((d: any) => ({
+          descricao: d.descricao || d.tipo_despesa || '',
+          valor: Number(d.valor || 0),
+          percentual: Number(d.percentual || 0),
+          numero_item: d.numero_item,
+        }));
+        const valoresNormalizados = this.normalizarValoresDiscriminacoes(discriminacoesBrutas, vmPdf);
+
+        return discriminacoesBrutas.map((d: any, idx: number) => {
         return {
-          numero:     d.numero_item || idx + 1,
-          descricao:  d.descricao || d.tipo_despesa || '',
-          valor:      valorDisc,
-          percentual: perc,
-        };
-      }) || undefined,
+            numero:     d.numero_item || idx + 1,
+            descricao:  d.descricao,
+            valor:      valoresNormalizados[idx] ?? d.valor,
+            percentual: d.percentual,
+          };
+        });
+      })() || undefined,
       assinatura_fornecedor: asFornecedor ? {
         nome:             asFornecedor.usuario_nome,
         cnpj:             asFornecedor.usuario_cpf_cnpj,
@@ -3089,35 +3095,7 @@ export class MedicaoService {
 
     // Filtrar itens válidos
     const itensValidos = itens.filter(i => i.descricao && i.descricao.trim() !== '');
-
-    // Ajuste de arredondamento: quando os percentuais somam ~100%, a soma dos valores
-    // arredondados individualmente pode diferir do valor da medição em 1 centavo.
-    // Recalcula os valores usando o método "maior resto" para garantir que a soma
-    // seja exatamente igual ao valor bruto da medição.
-    const valorBruto = Number(medicao.valor_medido) || 0;
-    const somaPercentuais = itensValidos.reduce((s, i) => s + (Number(i.percentual) || 0), 0);
-    const somaValores = itensValidos.reduce((s, i) => s + (Number(i.valor) || 0), 0);
-    const percentuaisSomam100 = Math.abs(somaPercentuais - 100) < 0.05;
-    const valorAlvo = percentuaisSomam100 && valorBruto > 0 ? valorBruto : Math.round(somaValores * 100) / 100;
-
-    // Recalcula valores com arredondamento correto: floor em todos, depois distribui
-    // os centavos restantes aos itens com maior parte fracionária (largest remainder method)
-    const exatos = itensValidos.map(i => {
-      const perc = Number(i.percentual) || 0;
-      return percentuaisSomam100 && valorBruto > 0
-        ? (perc / 100) * valorAlvo
-        : Number(i.valor) || 0;
-    });
-    const floors = exatos.map(v => Math.floor(v * 100) / 100);
-    const restos = exatos.map((v, i) => ({ idx: i, resto: v * 100 - Math.floor(v * 100) }));
-    const somaFloors = Math.round(floors.reduce((s, v) => s + v, 0) * 100);
-    const alvocentavos = Math.round(valorAlvo * 100);
-    const centavosExtra = alvocentavos - somaFloors;
-    restos.sort((a, b) => b.resto - a.resto);
-    const valoresFinais = [...floors];
-    for (let k = 0; k < centavosExtra; k++) {
-      valoresFinais[restos[k].idx] = Math.round((valoresFinais[restos[k].idx] + 0.01) * 100) / 100;
-    }
+    const valoresFinais = this.normalizarValoresDiscriminacoes(itensValidos, Number(medicao.valor_medido) || 0);
 
     // Inserir novas
     const novas: DiscriminacaoDespesaMedicao[] = [];
@@ -3263,16 +3241,18 @@ export class MedicaoService {
     // Deletar anteriores
     await this.discriminacaoRepository.delete({ medicao_id: medicaoId });
 
+    const itensValidos = itens.filter(i => i.descricao && i.descricao.trim() !== '');
+    const valoresFinais = this.normalizarValoresDiscriminacoes(itensValidos, Number(medicao.valor_medido) || 0);
+
     // Inserir novas com registro de correção
     const novas: DiscriminacaoDespesaMedicao[] = [];
-    for (let i = 0; i < itens.length; i++) {
-      const item = itens[i];
-      if (!item.descricao || item.descricao.trim() === '') continue;
+    for (let i = 0; i < itensValidos.length; i++) {
+      const item = itensValidos[i];
       const disc = this.discriminacaoRepository.create({
         medicao_id: medicaoId,
         numero_item: i + 1,
         descricao: item.descricao.trim(),
-        valor: Number(item.valor) || 0,
+        valor: valoresFinais[i],
         percentual: Number(item.percentual) || 0,
         corrigido_por_id: fiscalId,
         corrigido_por_nome: fiscalNome,
@@ -3289,6 +3269,37 @@ export class MedicaoService {
 
     this.logger.log(`Todas discriminações corrigidas por ${fiscalNome} na medição ${medicaoId}: ${novas.length} itens`);
     return novas;
+  }
+
+  private normalizarValoresDiscriminacoes(
+    itens: { descricao: string; valor: number; percentual: number }[],
+    valorBruto: number,
+  ): number[] {
+    const somaPercentuais = itens.reduce((s, i) => s + (Number(i.percentual) || 0), 0);
+    const somaValores = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
+    const percentuaisSomam100 = Math.abs(somaPercentuais - 100) < 0.05;
+    const valorAlvo = percentuaisSomam100 && valorBruto > 0 ? valorBruto : Math.round(somaValores * 100) / 100;
+
+    const exatos = itens.map(i => {
+      const perc = Number(i.percentual) || 0;
+      return percentuaisSomam100 && valorBruto > 0
+        ? (perc / 100) * valorAlvo
+        : Number(i.valor) || 0;
+    });
+
+    const floorsCentavos = exatos.map(v => Math.floor(v * 100));
+    const restos = exatos.map((v, i) => ({ idx: i, resto: (v * 100) - Math.floor(v * 100) }));
+    const somaFloorsCentavos = floorsCentavos.reduce((s, v) => s + v, 0);
+    const alvoCentavos = Math.round(valorAlvo * 100);
+    const centavosExtra = Math.max(0, alvoCentavos - somaFloorsCentavos);
+
+    restos.sort((a, b) => b.resto - a.resto);
+    const valoresCentavos = [...floorsCentavos];
+    for (let k = 0; k < centavosExtra && k < restos.length; k++) {
+      valoresCentavos[restos[k].idx] += 1;
+    }
+
+    return valoresCentavos.map(v => v / 100);
   }
 
   /**
