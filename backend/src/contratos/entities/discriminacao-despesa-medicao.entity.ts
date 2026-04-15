@@ -6,11 +6,11 @@
  * Registra a composição/discriminação das despesas de cada medição.
  * Ex: Tributação 10,83%, Materiais 3,47%, Serviços 48,62%
  *
- * O percentual e o valor são calculados sobre o valor_medido da medição
- * (NÃO sobre o valor_global do contrato).
+ * O percentual e o valor são calculados sobre o nota_fiscal_valor da medição
+ * (quando disponível), com fallback para valor_medido.
  *
- * Se o fornecedor informa %, o front calcula R$ = (% / 100) * valor_medido.
- * Se informa R$, calcula % = (valor / valor_medido) * 100.
+ * Se o fornecedor informa %, o front calcula R$ = (% / 100) * nota_fiscal_valor.
+ * Se informa R$, calcula % = (valor / nota_fiscal_valor) * 100.
  *
  * O fiscal pode corrigir itens diretamente; o fornecedor é notificado.
  *

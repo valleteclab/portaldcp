@@ -418,6 +418,11 @@ export async function gerarBoletimMedicaoPdf(
   // Valor Bruto (= valor da medição)
   linhaInfo('VALOR BRUTO', fmt(dados.valor_medido));
 
+  // Valor da Nota Fiscal (base da discriminação de despesas)
+  if (dados.nota_fiscal_valor && Number(dados.nota_fiscal_valor) > 0) {
+    linhaInfo('VALOR DA NOTA FISCAL', fmt(Number(dados.nota_fiscal_valor)));
+  }
+
   // Competência
   if (competencia) {
     doc.setFont('helvetica', 'bold');

@@ -2865,10 +2865,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       if (!etapa || !('etapa_id' in item)) return acc
                       return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto)
                     }, 0)
+              // Base da discriminação: valor da NF quando disponível, senão valor medido
+              const valorBaseDiscriminacao = (parseFloat(formMedicao.nota_fiscal_valor) || 0) || valorMedidoAtual
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0)
               const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0)
-              const arredondamentoApenas = valorMedidoAtual > 0 && Math.abs(totalDiscPerc - 100) < 0.05 && Math.abs(totalDiscValorBruto - valorMedidoAtual) <= 0.02
-              const totalDiscValor = arredondamentoApenas ? valorMedidoAtual : totalDiscValorBruto
+              const arredondamentoApenas = valorBaseDiscriminacao > 0 && Math.abs(totalDiscPerc - 100) < 0.05 && Math.abs(totalDiscValorBruto - valorBaseDiscriminacao) <= 0.02
+              const totalDiscValor = arredondamentoApenas ? valorBaseDiscriminacao : totalDiscValorBruto
               return (
                 <div className="border rounded-lg p-4 bg-amber-50/30">
                   <div className="flex items-center justify-between mb-3">
@@ -2880,8 +2882,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     <div className="flex gap-2">
                       {medicoes.length > 0 && (
                         <Button type="button" variant="outline" size="sm" onClick={async () => {
-                          if (valorMedidoAtual <= 0) {
-                            alert(isServicoContinuado ? 'Informe o valor medido antes de reaproveitar.' : 'Preencha os itens da planilha antes de reaproveitar.')
+                          if (valorBaseDiscriminacao <= 0) {
+                            alert(isServicoContinuado ? 'Informe o valor medido ou da nota fiscal antes de reaproveitar.' : 'Preencha os itens da planilha ou valor da NF antes de reaproveitar.')
                             return
                           }
                           try {
@@ -2895,7 +2897,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                             }
                             setDiscriminacoes(sugestoes.map((s: any) => {
                               const perc = Number(s.percentual) || 0
-                              const valor = (perc / 100) * valorMedidoAtual
+                              const valor = (perc / 100) * valorBaseDiscriminacao
                               return { descricao: s.descricao || '', percentual: perc, valor: Math.round(valor * 100) / 100 }
                             }))
                           } catch {
@@ -2919,8 +2921,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         <div key={idx} className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center">
                           <span className="text-sm text-center font-mono text-gray-500">{idx + 1}</span>
                           <Input value={disc.descricao} onChange={e => { const u = [...discriminacoes]; u[idx] = { ...u[idx], descricao: e.target.value }; setDiscriminacoes(u) }} placeholder="Ex: Tributação, Serviços..." className="h-8 text-sm" />
-                          <Input type="number" step="0.01" min="0" value={disc.valor || ''} onChange={e => { const val = e.target.value === '' ? 0 : Number(e.target.value); const perc = valorMedidoAtual > 0 ? (val / valorMedidoAtual) * 100 : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], valor: val, percentual: Math.round(perc * 10000) / 10000 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
-                          <Input type="number" step="0.01" min="0" max="100" value={disc.percentual || ''} onChange={e => { const perc = e.target.value === '' ? 0 : Number(e.target.value); const val = valorMedidoAtual > 0 ? (perc / 100) * valorMedidoAtual : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], percentual: perc, valor: Math.round(val * 100) / 100 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
+                          <Input type="number" step="0.01" min="0" value={disc.valor || ''} onChange={e => { const val = e.target.value === '' ? 0 : Number(e.target.value); const perc = valorBaseDiscriminacao > 0 ? (val / valorBaseDiscriminacao) * 100 : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], valor: val, percentual: Math.round(perc * 10000) / 10000 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
+                          <Input type="number" step="0.01" min="0" max="100" value={disc.percentual || ''} onChange={e => { const perc = e.target.value === '' ? 0 : Number(e.target.value); const val = valorBaseDiscriminacao > 0 ? (perc / 100) * valorBaseDiscriminacao : 0; const u = [...discriminacoes]; u[idx] = { ...u[idx], percentual: perc, valor: Math.round(val * 100) / 100 }; setDiscriminacoes(u) }} placeholder="0,00" className="h-8 text-sm text-right" />
                           <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-400 hover:text-red-600" onClick={() => setDiscriminacoes(discriminacoes.filter((_, i) => i !== idx))}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -2928,11 +2930,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       ))}
                       <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center border-t pt-2 mt-2">
                         <span></span><span className="text-sm font-bold text-gray-700">Total</span>
-                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorMedidoAtual) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{formatarMoeda(totalDiscValor)}</span>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorBaseDiscriminacao) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{formatarMoeda(totalDiscValor)}</span>
                         <span className={`text-sm font-bold text-right ${Math.abs(totalDiscPerc - 100) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>{totalDiscPerc.toFixed(2)}%</span><span></span>
                       </div>
-                      {valorMedidoAtual > 0 && Math.abs(totalDiscValor - valorMedidoAtual) > 0.02 && (
-                        <p className="text-xs text-amber-600 mt-1">Valor da medição: {formatarMoeda(valorMedidoAtual)}. Diferença: {formatarMoeda(totalDiscValor - valorMedidoAtual)}</p>
+                      {valorBaseDiscriminacao > 0 && Math.abs(totalDiscValor - valorBaseDiscriminacao) > 0.02 && (
+                        <p className="text-xs text-amber-600 mt-1">Valor base: {formatarMoeda(valorBaseDiscriminacao)}. Diferença: {formatarMoeda(totalDiscValor - valorBaseDiscriminacao)}</p>
                       )}
                     </div>
                   ) : (

@@ -1313,9 +1313,11 @@ export default function FornecedorContratoDetalhePage() {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
             return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
           }, 0);
+    // Base da discriminação: valor da NF quando disponível, senão valor medido
+    const valorBaseDiscriminacao = (parseFloat(novaMedicao.nota_fiscal_valor) || 0) || valorMedidoAtual;
 
-    if (valorMedidoAtual <= 0) {
-      alert(isServicoContinuado ? 'Informe o valor medido antes de reaproveitar.' : 'Preencha os itens da planilha de medição do serviço antes de reaproveitar.');
+    if (valorBaseDiscriminacao <= 0) {
+      alert(isServicoContinuado ? 'Informe o valor medido ou da nota fiscal antes de reaproveitar.' : 'Preencha os itens da planilha ou valor da NF antes de reaproveitar.');
       return;
     }
     if (medicoes.length === 0) {
@@ -1336,7 +1338,7 @@ export default function FornecedorContratoDetalhePage() {
       // Usa apenas descricao e % da última medição; recalcula valor pela medição atual
       setDiscriminacoes(sugestoes.map((s: any) => {
         const perc = Number(s.percentual) || 0;
-        const valor = (perc / 100) * valorMedidoAtual;
+        const valor = (perc / 100) * valorBaseDiscriminacao;
         return {
           descricao: s.descricao || '',
           percentual: perc,
@@ -2588,14 +2590,16 @@ export default function FornecedorContratoDetalhePage() {
                       const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
                       return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
                     }, 0);
+              // Base da discriminação: valor da NF quando disponível, senão valor medido
+              const valorBaseDiscriminacao = (parseFloat(novaMedicao.nota_fiscal_valor) || 0) || valorMedidoAtual;
 
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);
               const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
-              // Quando % somam ~100% e diferença é só arredondamento (≤ 1 cent), exibe o valor exato da medição
-              const arredondamentoApenas = valorMedidoAtual > 0
+              // Quando % somam ~100% e diferença é só arredondamento (≤ 1 cent), exibe o valor exato da base
+              const arredondamentoApenas = valorBaseDiscriminacao > 0
                 && Math.abs(totalDiscPerc - 100) < 0.05
-                && Math.abs(totalDiscValorBruto - valorMedidoAtual) <= 0.02;
-              const totalDiscValor = arredondamentoApenas ? valorMedidoAtual : totalDiscValorBruto;
+                && Math.abs(totalDiscValorBruto - valorBaseDiscriminacao) <= 0.02;
+              const totalDiscValor = arredondamentoApenas ? valorBaseDiscriminacao : totalDiscValorBruto;
 
               return (
                 <div className="border rounded-lg p-4 bg-amber-50/30">
@@ -2657,7 +2661,7 @@ export default function FornecedorContratoDetalhePage() {
                             value={disc.valor || ''}
                             onChange={(e) => {
                               const val = e.target.value === '' ? 0 : Number(e.target.value);
-                              const perc = valorMedidoAtual > 0 ? (val / valorMedidoAtual) * 100 : 0;
+                              const perc = valorBaseDiscriminacao > 0 ? (val / valorBaseDiscriminacao) * 100 : 0;
                               const updated = [...discriminacoes];
                               updated[idx] = { ...updated[idx], valor: val, percentual: Math.round(perc * 10000) / 10000 };
                               setDiscriminacoes(updated);
@@ -2673,7 +2677,7 @@ export default function FornecedorContratoDetalhePage() {
                             value={disc.percentual || ''}
                             onChange={(e) => {
                               const perc = e.target.value === '' ? 0 : Number(e.target.value);
-                              const val = valorMedidoAtual > 0 ? (perc / 100) * valorMedidoAtual : 0;
+                              const val = valorBaseDiscriminacao > 0 ? (perc / 100) * valorBaseDiscriminacao : 0;
                               const updated = [...discriminacoes];
                               updated[idx] = { ...updated[idx], percentual: perc, valor: Math.round(val * 100) / 100 };
                               setDiscriminacoes(updated);
@@ -2698,7 +2702,7 @@ export default function FornecedorContratoDetalhePage() {
                       <div className="grid grid-cols-[40px_1fr_130px_100px_36px] gap-2 items-center border-t pt-2 mt-2">
                         <span></span>
                         <span className="text-sm font-bold text-gray-700">Total</span>
-                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorMedidoAtual) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>
+                        <span className={`text-sm font-bold text-right ${Math.abs(totalDiscValor - valorBaseDiscriminacao) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>
                           {formatarMoeda(totalDiscValor)}
                         </span>
                         <span className={`text-sm font-bold text-right ${Math.abs(totalDiscPerc - 100) < 0.02 ? 'text-green-600' : 'text-amber-600'}`}>
@@ -2706,9 +2710,9 @@ export default function FornecedorContratoDetalhePage() {
                         </span>
                         <span></span>
                       </div>
-                      {valorMedidoAtual > 0 && Math.abs(totalDiscValor - valorMedidoAtual) > 0.02 && (
+                      {valorBaseDiscriminacao > 0 && Math.abs(totalDiscValor - valorBaseDiscriminacao) > 0.02 && (
                         <p className="text-xs text-amber-600 mt-1">
-                          Valor da medicao: {formatarMoeda(valorMedidoAtual)}. Diferenca: {formatarMoeda(totalDiscValor - valorMedidoAtual)}
+                          Valor base: {formatarMoeda(valorBaseDiscriminacao)}. Diferenca: {formatarMoeda(totalDiscValor - valorBaseDiscriminacao)}
                         </p>
                       )}
                     </div>

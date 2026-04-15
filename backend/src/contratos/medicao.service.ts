@@ -3082,7 +3082,9 @@ export class MedicaoService {
 
     // Filtrar itens válidos
     const itensValidos = itens.filter(i => i.descricao && i.descricao.trim() !== '');
-    const valoresFinais = this.normalizarValoresDiscriminacoes(itensValidos, Number(medicao.valor_medido) || 0);
+    // Base da discriminação: valor da NF quando disponível, senão valor medido
+    const valorBaseDiscriminacao = Number(medicao.nota_fiscal_valor) || Number(medicao.valor_medido) || 0;
+    const valoresFinais = this.normalizarValoresDiscriminacoes(itensValidos, valorBaseDiscriminacao);
 
     // Inserir novas
     const novas: DiscriminacaoDespesaMedicao[] = [];
@@ -3229,7 +3231,9 @@ export class MedicaoService {
     await this.discriminacaoRepository.delete({ medicao_id: medicaoId });
 
     const itensValidos = itens.filter(i => i.descricao && i.descricao.trim() !== '');
-    const valoresFinais = this.normalizarValoresDiscriminacoes(itensValidos, Number(medicao.valor_medido) || 0);
+    // Base da discriminação: valor da NF quando disponível, senão valor medido
+    const valorBaseDiscriminacao = Number(medicao.nota_fiscal_valor) || Number(medicao.valor_medido) || 0;
+    const valoresFinais = this.normalizarValoresDiscriminacoes(itensValidos, valorBaseDiscriminacao);
 
     // Inserir novas com registro de correção
     const novas: DiscriminacaoDespesaMedicao[] = [];
