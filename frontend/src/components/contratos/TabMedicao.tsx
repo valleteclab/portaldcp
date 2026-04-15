@@ -2534,7 +2534,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         const valorOverride = isMensal
                           ? Math.floor(Math.min(dias, 30) * vuCentavos / 30) / 100
                           : Math.round(qtd * Number(ic.valor_unitario) * 100) / 100
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: valorOverride, ...(isMensal ? { valor_medido_override: valorOverride } : {}) }
+                        // MENSAL usa modo 'valor' para que a coluna Valor R$ exiba o valor exato (não qtd × vu)
+                        const modo = isMensal ? 'valor' as const : 'quantidade' as const
+                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: modo, valor_override: valorOverride, ...(isMensal ? { valor_medido_override: valorOverride } : {}) }
                       })
                       setFormMedicao({ ...formMedicao, itens })
                     }}
@@ -2671,7 +2673,12 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   ? formMedicao.itens.reduce((acc, item) => {
                       if (!('item_cronograma_id' in item)) return acc
                       const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
-                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                      if (!ic) return acc
+                      // Usa valor_override quando modo='valor' (ex.: proporcional MENSAL com valor exato)
+                      const subtotal = (item.modo_input === 'valor' && (item as any).valor_override != null)
+                        ? (item as any).valor_override
+                        : item.quantidade_medida * Number(ic.valor_unitario)
+                      return acc + subtotal
                     }, 0)
                   : formMedicao.itens.reduce((acc, item, idx) => {
                       const etapa = etapas[idx]
@@ -2748,7 +2755,10 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   const itensBack = (execucaoFinanceiraModal.itens as any[]).filter((i: any) => idsBase.has(i.etapa_id))
                   const noPeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.no_periodo || 0), 0)
                   const atePeriodoBk = itensBack.reduce((s: number, i: any) => s + Number(i.ate_periodo_global ?? i.ate_periodo ?? 0), 0)
-                  const noPeriodo = Math.max(noPeriodoBk, valorMedicaoAtual || 0)
+                  // Prioriza o valor do formulário (local) quando há itens preenchidos, para refletir
+                  // o valor exato do proporcional antes de salvar (inclui valor_override de itens MENSAL)
+                  const temItensPreenchidos = formMedicao.itens.some(i => 'item_cronograma_id' in i && Number(i.quantidade_medida) > 0)
+                  const noPeriodo = (temItensPreenchidos && valorMedicaoAtual > 0) ? valorMedicaoAtual : Math.max(noPeriodoBk, 0)
                   const localExtra = Math.max(0, noPeriodo - noPeriodoBk)
                   const atePeriodo = atePeriodoBk + localExtra
                   const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0)
