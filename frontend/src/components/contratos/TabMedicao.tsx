@@ -2706,7 +2706,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
                     if (qtdNoPeriodo <= 0) continue
                     const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0
-                    const centItem = Math.floor(Math.round(qtdNoPeriodo * 100) * Math.round(vm * 100) / 100)
+                    const centItem = (itemState?.modo_input === 'valor' && itemState?.valor_override != null)
+                      ? Math.round(itemState.valor_override * 100)
+                      : Math.floor(Math.round(qtdNoPeriodo * 100) * Math.round(vm * 100) / 100)
                     // Usa o valor financeiro aprovado do backend quando disponível para evitar acúmulo de arredondamento
                     // Também considera ic.quantidade_medida (migração por item) que o backend não computa
                     const backendItem = execucaoFinanceiraModal?.itens?.find((i: any) => i.etapa_id === ic.id)
