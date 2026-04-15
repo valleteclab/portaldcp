@@ -219,23 +219,23 @@ function formatarData(d: string | null | undefined) {
   return new Date(d).toLocaleDateString('pt-BR')
 }
 
-/** Dias entre datas usando ano comercial (30 dias/mês, máx 360) */
-function calcularDiasMesComercial(data1: string, data2: string, dataFimContrato?: string): number {
+/** Dias entre datas usando ano comercial (30 dias/mês, máx 360).
+ *  Regra: dia 31 (ou 29/28 de fev) = dia 30 no calendário comercial.
+ *  Clip em dia2 ANTES de subtrair — garante 20/03→31/03 = 11, não 12. */
+function calcularDiasMesComercial(data1: string, data2: string, _dataFimContrato?: string): number {
   const d1 = new Date(data1); const d2 = new Date(data2)
-  const df = dataFimContrato ? new Date(dataFimContrato) : null
   const ano1 = d1.getUTCFullYear(); const mes1 = d1.getUTCMonth(); const dia1 = d1.getUTCDate()
   const ano2 = d2.getUTCFullYear(); const mes2 = d2.getUTCMonth(); const dia2 = d2.getUTCDate()
+  // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
+  const dia2Com = Math.min(dia2, 30)
   let dias = 0
   if (ano1 === ano2 && mes1 === mes2) {
-    const ehUltimo = df && ano2 === df.getUTCFullYear() && mes2 === df.getUTCMonth() && dia2 === df.getUTCDate()
-    dias = Math.min(dia2 - dia1 + (ehUltimo ? 0 : 1), 30)
+    dias = dia2Com - dia1 + 1
   } else {
     const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30)
     let mesesCompletos = 0
     if (ano2 > ano1 || mes2 > mes1 + 1) mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1)
-    let diasUltimoMes = Math.min(dia2, 30)
-    if (df && ano2 === df.getUTCFullYear() && mes2 === df.getUTCMonth() && dia2 === df.getUTCDate()) diasUltimoMes = dia2 - 1
-    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + dia2Com
   }
   return Math.max(0, Math.min(dias, 360))
 }
@@ -2527,8 +2527,14 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       const itens = itensCronograma.map(ic => {
                         const saldo = Number(ic.quantidade) - Number(ic.quantidade_medida) - (resumo?.itens_comprometidos?.[ic.id] || 0)
                         const isMensal = ic.unidade_medida === 'MENSAL'
-                        const qtd = isMensal ? Math.min(Math.round(fator * 1000) / 1000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
-                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: Math.round(qtd * Number(ic.valor_unitario) * 100) / 100 }
+                        const qtd = isMensal ? Math.min(Math.round(fator * 10000) / 10000, saldo) : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo)
+                        // Para itens MENSAL: calcula o valor proporcional exato em aritmética inteira (dias × vu_centavos / 30)
+                        // evitando o erro de arredondamento do fator (ex.: 11/30 = 0,3667 → 0,3667 × 36598,50 ≠ 11/30 × 36598,50)
+                        const vuCentavos = Math.round(Number(ic.valor_unitario) * 100)
+                        const valorOverride = isMensal
+                          ? Math.floor(Math.min(dias, 30) * vuCentavos / 30) / 100
+                          : Math.round(qtd * Number(ic.valor_unitario) * 100) / 100
+                        return { item_cronograma_id: ic.id, quantidade_medida: qtd, modo_input: 'quantidade' as const, valor_override: valorOverride, ...(isMensal ? { valor_medido_override: valorOverride } : {}) }
                       })
                       setFormMedicao({ ...formMedicao, itens })
                     }}

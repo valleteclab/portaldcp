@@ -74,11 +74,12 @@ function textoSeguro(valor: unknown, fallback = '-'): string {
   return texto.trim() ? texto : fallback;
 }
 
-/** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias) */
-function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?: string): number {
+/** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias).
+ *  Regra: dia 31 (e fev 29/28) = dia 30 no calendário comercial.
+ *  Clip em dia2 ANTES de subtrair — garante 20/03→31/03 = 11, não 12. */
+function diasEntreDatasComercial(data1: string, data2: string, _dataFimContrato?: string): number {
   const d1 = new Date(data1);
   const d2 = new Date(data2);
-  const dataFimContratoDate = dataFimContrato ? new Date(dataFimContrato) : null;
 
   const ano1 = d1.getUTCFullYear();
   const mes1 = d1.getUTCMonth();
@@ -88,15 +89,13 @@ function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?:
   const mes2 = d2.getUTCMonth();
   const dia2 = d2.getUTCDate();
 
+  // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
+  const dia2Com = Math.min(dia2, 30);
+
   let dias = 0;
 
   if (ano1 === ano2 && mes1 === mes2) {
-    const ehUltimoDiaDoContrato = dataFimContratoDate
-      ? ano2 === dataFimContratoDate.getUTCFullYear() &&
-        mes2 === dataFimContratoDate.getUTCMonth() &&
-        dia2 === dataFimContratoDate.getUTCDate()
-      : false;
-    dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30);
+    dias = dia2Com - dia1 + 1;
   } else {
     const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
 
@@ -105,17 +104,7 @@ function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?:
       mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
     }
 
-    let diasUltimoMes = Math.min(dia2, 30);
-    const ehUltimoDiaDoContrato = dataFimContratoDate
-      ? ano2 === dataFimContratoDate.getUTCFullYear() &&
-        mes2 === dataFimContratoDate.getUTCMonth() &&
-        dia2 === dataFimContratoDate.getUTCDate()
-      : false;
-    if (ehUltimoDiaDoContrato) {
-      diasUltimoMes = dia2 - 1;
-    }
-
-    dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+    dias = diasPrimeiroMes + (mesesCompletos * 30) + dia2Com;
   }
 
   return Math.max(0, Math.min(dias, 360));

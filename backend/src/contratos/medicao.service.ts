@@ -644,7 +644,12 @@ export class MedicaoService {
         }
 
         const valorUnitario = Number(itemCron.valor_unitario);
-        const valorItem = truncarMoedaReais2Casas(qtdMedida * valorUnitario);
+        // Para itens MENSAL com proporcional: o frontend pode enviar valor_medido_override
+        // calculado via aritmética inteira (dias × vu_centavos / 30), mais preciso que qtd × vu.
+        const overrideRaw = Number((item as any).valor_medido_override);
+        const valorItem = (Number.isFinite(overrideRaw) && overrideRaw > 0)
+          ? truncarMoedaReais2Casas(overrideRaw)
+          : truncarMoedaReais2Casas(qtdMedida * valorUnitario);
         valorMedido += valorItem;
 
         const valorTotalItem = Number(itemCron.valor_total) || 1;
@@ -3557,13 +3562,20 @@ export class MedicaoService {
           const unidadeMedida = (item as any).unidade_medida || 'UNIDADE';
 
           const obterValorBrutoItemMedicao = (itemMedicao: any): number => {
+            // Prioriza o valor_medido armazenado no item (calculado na criação com precisão correta).
+            // Isso garante que execucao_financeira.no_periodo seja idêntico ao valor_medido da medição,
+            // independente de arredondamentos de quantidade_medida (ex.: itens MENSAL com fator 11/30).
+            const valorArmazenado = Number(itemMedicao?.valor_medido);
+            if (Number.isFinite(valorArmazenado) && valorArmazenado > 0) {
+              return valorArmazenado;
+            }
+            // Fallback para itens sem valor_medido: usa truncarMoedaReais2Casas (igual à criação)
             const quantidadeMedida = Number(itemMedicao?.quantidade_medida) || 0;
             const valorUnitario = Number(itemMedicao?.itemCronograma?.valor_unitario ?? item.valor_unitario) || 0;
             if (quantidadeMedida > 0 && valorUnitario > 0) {
-              // Usar aritmética de centavos para truncar em 2 casas (evita ex.: 6,82×2831,40 = 19.310,148)
-              return centavosParaReaisTrunc2(produtoQuantidadeValorUnitarioCentavos(quantidadeMedida, valorUnitario));
+              return truncarMoedaReais2Casas(quantidadeMedida * valorUnitario);
             }
-            return Number(itemMedicao?.valor_medido) || 0;
+            return 0;
           };
 
           // Acumular em centavos para evitar drift de ponto flutuante ao somar medições
@@ -3685,34 +3697,35 @@ export class MedicaoService {
       // Para ano comercial: total sempre 360 dias para contratos anuais
       const totalDias = 360;
       
-      // Calcular dias executados usando ano comercial (360 dias)
-      // Função inline para calcular dias comerciais
+      // Calcular dias executados usando ano comercial (360 dias).
+      // Regra: dia 31 (e fev 29/28) = dia 30 — clipa dia2 ANTES de subtrair.
       const calcularDiasComercial = (inicio: Date, fim: Date): number => {
-        const ano1 = inicio.getFullYear();
-        const mes1 = inicio.getMonth();
-        const dia1 = inicio.getDate();
-        
-        const ano2 = fim.getFullYear();
-        const mes2 = fim.getMonth();
-        const dia2 = fim.getDate();
-        
+        const ano1 = inicio.getUTCFullYear();
+        const mes1 = inicio.getUTCMonth();
+        const dia1 = inicio.getUTCDate();
+
+        const ano2 = fim.getUTCFullYear();
+        const mes2 = fim.getUTCMonth();
+        const dia2 = fim.getUTCDate();
+
+        // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
+        const dia2Com = Math.min(dia2, 30);
+
         let dias = 0;
-        
+
         if (ano1 === ano2 && mes1 === mes2) {
-          dias = Math.min(dia2 - dia1 + 1, 30);
+          dias = dia2Com - dia1 + 1;
         } else {
           const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
-          
+
           let mesesCompletos = 0;
           if (ano2 > ano1 || mes2 > mes1 + 1) {
             mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
           }
-          
-          const diasUltimoMes = Math.min(dia2, 30);
-          
-          dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
+
+          dias = diasPrimeiroMes + (mesesCompletos * 30) + dia2Com;
         }
-        
+
         return Math.min(dias, 360);
       };
       
