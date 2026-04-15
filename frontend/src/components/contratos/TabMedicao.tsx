@@ -2421,7 +2421,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       ? formMedicao.itens.reduce((acc, item) => {
                           if (!('item_cronograma_id' in item)) return acc
                           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
-                          return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                          if (!ic) return acc
+                          const subtotal = (item.modo_input === 'valor' && (item as any).valor_override != null)
+                            ? (item as any).valor_override
+                            : item.quantidade_medida * Number(ic.valor_unitario)
+                          return acc + subtotal
                         }, 0)
                       : formMedicao.itens.reduce((acc, item, idx) => {
                           const etapa = etapas[idx]
@@ -2874,7 +2878,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                   ? formMedicao.itens.reduce((acc, item) => {
                       if (!('item_cronograma_id' in item)) return acc
                       const ic = itensCronograma.find(i => i.id === item.item_cronograma_id)
-                      return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0)
+                      if (!ic) return acc
+                      const subtotal = (item.modo_input === 'valor' && (item as any).valor_override != null)
+                        ? (item as any).valor_override
+                        : item.quantidade_medida * Number(ic.valor_unitario)
+                      return acc + subtotal
                     }, 0)
                   : formMedicao.itens.reduce((acc, item, idx) => {
                       const etapa = etapas[idx]
