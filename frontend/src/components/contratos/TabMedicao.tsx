@@ -2737,7 +2737,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0)
                     if (qtdNoPeriodo <= 0) continue
                     const qtdAprovada = Number(ic.quantidade_medida ?? 0)
-                    const qtdTotal = Number(ic.quantidade ?? 0)
+                    // quantidade × quantidade_meses = total físico contratado (ic.quantidade é por execução)
+                    const qtdTotal = Number(ic.quantidade ?? 0) * (Number(ic.quantidade_meses) || 1)
                     const qtdAtePeriodo = qtdAprovada + qtdNoPeriodo
                     const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo)
                     const vu = Number(ic.valor_unitario)

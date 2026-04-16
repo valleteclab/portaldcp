@@ -1712,7 +1712,13 @@ export class MedicaoService {
         const centTotal = efItem
           ? Math.round(truncarMoedaReais2Casas(Number(efItem.valor_previsto || 0)) * 100)
           : produtoQuantidadeValorUnitarioCentavos(qtdTotal, vlrUnitario);
-        const centAExecutar = Math.max(0, centTotal - centAte);
+        // Para não-MENSAL: usa qtd_restante×vu (evita floor(total)-floor(ate) ≠ floor(total-ate))
+        const centAExecutar = (item.item_unidade || '') === 'MENSAL'
+          ? Math.max(0, centTotal - centAte)
+          : produtoQuantidadeValorUnitarioCentavos(
+              Math.max(0, qtdTotal - (Number(ic?.quantidade_medida ?? 0) + qtdMedida)),
+              vlrUnitario,
+            );
 
         const vlrNoPeriodo = centavosParaReaisTrunc2(centNo);
         const vlrAcumAnterior = centavosParaReaisTrunc2(centAcum);
@@ -3605,10 +3611,14 @@ export class MedicaoService {
           const centAtePeriodo = centAnterior + centNoPeriodo;
           const noPeriodo = centavosParaReaisTrunc2(centNoPeriodo);
           const atePeriodo = centavosParaReaisTrunc2(centAtePeriodo);
-          const aExecutar = truncarMoedaReais2Casas(Math.max(0, valorPrevisto - atePeriodo));
           const quantidadeMedidaItem = Number(item.quantidade_medida) || 0;
           const quantidadeAtePeriodo = quantidadeMedidaItem + quantidadeNoPeriodo;
           const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
+          // Para não-MENSAL: computa via qtd×vu (evita floor(total)-floor(ate) ≠ floor(total-ate))
+          // Para MENSAL: usa aritmética monetária pois qtd é fracionária (meses proporcionais)
+          const aExecutar = unidadeMedida === 'MENSAL'
+            ? truncarMoedaReais2Casas(Math.max(0, valorPrevisto - atePeriodo))
+            : centavosParaReaisTrunc2(produtoQuantidadeValorUnitarioCentavos(quantidadeAExecutar, Number(item.valor_unitario)));
 
           const base: any = {
             etapa_id: item.id,
