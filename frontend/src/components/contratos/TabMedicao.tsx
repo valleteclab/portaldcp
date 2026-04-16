@@ -2450,7 +2450,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {medicoes.length > 0 && (() => {
               const ultima = [...medicoes].sort((a, b) => b.numero_medicao - a.numero_medicao)[0]
@@ -3086,7 +3086,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               </p>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {modalAteste?.fornecedor_nome && (
               <div className="p-3 bg-blue-50 rounded-lg text-sm">
@@ -3765,7 +3765,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           </div>
 
           {/* Conteúdo das abas — rola verticalmente */}
-          <div className="flex-1 overflow-y-auto py-2">
+          <div className="flex-1 min-h-0 overflow-y-auto py-2">
 
             {/* Aba Cabeçalho */}
             {abaCorrigir === 'cabecalho' && (
