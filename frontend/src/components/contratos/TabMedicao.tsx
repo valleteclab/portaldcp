@@ -19,7 +19,7 @@ import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
   ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
-  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy,
+  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy, ArrowLeft,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -2392,25 +2392,26 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         </DialogContent>
       </Dialog>
 
-      {/* Modal Nova Medição — 100% igual ao fornecedor */}
-      <Dialog open={modalMedicao} onOpenChange={(open) => {
-        setModalMedicao(open)
-        if (!open) {
-          setExecucaoFinanceiraModal(null)
-          setDiscriminacoes([])
-          setArquivosPendentes([])
-        }
-      }}>
-        <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center justify-between">
+      {/* Página Nova Medição */}
+      {modalMedicao && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="border-b bg-white px-6 py-3 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setModalMedicao(false); setExecucaoFinanceiraModal(null); setDiscriminacoes([]); setArquivosPendentes([]) }}
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
+            </Button>
+            <div className="h-6 w-px bg-gray-200" />
+            <div className="flex items-center justify-between flex-1">
               <div>
-                <DialogTitle className="text-xl">Boletim de Medição #{medicoes.length + 1}</DialogTitle>
-                <DialogDescription>
+                <h2 className="text-xl font-semibold">Boletim de Medição #{medicoes.length + 1}</h2>
+                <p className="text-sm text-muted-foreground">
                   {formMedicao.periodo_inicio && formMedicao.periodo_fim
                     ? `Período: ${formatarData(formMedicao.periodo_inicio)} a ${formatarData(formMedicao.periodo_fim)}`
                     : 'Informe o período e preencha a execução de cada item'}
-                </DialogDescription>
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
@@ -2447,8 +2448,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 })()}
               </div>
             </div>
-          </DialogHeader>
+          </div>
 
+          <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {medicoes.length > 0 && (() => {
               const ultima = [...medicoes].sort((a, b) => b.numero_medicao - a.numero_medicao)[0]
@@ -3036,8 +3038,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               )}
             </div>
           </div>
-          <DialogFooter className="flex items-center justify-between sm:justify-between">
-            <Button variant="outline" onClick={() => setModalMedicao(false)}>Cancelar Lançamento</Button>
+          </div>
+          <div className="border-t bg-white px-6 py-4 flex items-center justify-between flex-shrink-0 shadow-[0_-1px_4px_rgba(0,0,0,0.06)]">
+            <Button variant="outline" onClick={() => { setModalMedicao(false); setExecucaoFinanceiraModal(null); setDiscriminacoes([]); setArquivosPendentes([]) }}>Cancelar Lançamento</Button>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => salvarMedicao(true)} disabled={
                 actionLoading || !formMedicao.periodo_inicio || !formMedicao.periodo_fim ||
@@ -3058,25 +3061,32 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 Enviar para Ateste
               </Button>
             </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      )}
 
-      {/* Modal Ateste do Fiscal (com seleção por item) */}
-      <Dialog open={!!modalAteste} onOpenChange={() => setModalAteste(null)}>
-        <DialogContent className="w-[95vw] max-w-6xl max-h-[95vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardCheck className="w-5 h-5 text-yellow-600" />
-              Atestar {modalAteste?.numero_medicao}ª Medição
-            </DialogTitle>
-            <DialogDescription>
-              Valor medido: {modalAteste && formatarMoeda(modalAteste.valor_medido)} — {modalAteste && Number(modalAteste.percentual_fisico_medido).toFixed(1)}% físico
-              {modalAteste?.status === 'PARCIALMENTE_ATESTADA' && (
-                <span className="ml-2 text-yellow-600 font-medium">— Ateste parcial em andamento</span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
+      {/* Página Ateste do Fiscal */}
+      {!!modalAteste && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="border-b bg-white px-6 py-3 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setModalAteste(null)}>
+              <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
+            </Button>
+            <div className="h-6 w-px bg-gray-200" />
+            <div>
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-yellow-600" />
+                Atestar {modalAteste?.numero_medicao}ª Medição
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Valor medido: {modalAteste && formatarMoeda(modalAteste.valor_medido)} — {modalAteste && Number(modalAteste.percentual_fisico_medido).toFixed(1)}% físico
+                {modalAteste?.status === 'PARCIALMENTE_ATESTADA' && (
+                  <span className="ml-2 text-yellow-600 font-medium">— Ateste parcial em andamento</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {modalAteste?.fornecedor_nome && (
               <div className="p-3 bg-blue-50 rounded-lg text-sm">
@@ -3298,7 +3308,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
               )
             })()}
           </div>
-          <DialogFooter>
+          </div>
+          <div className="border-t bg-white px-6 py-4 flex items-center justify-between flex-shrink-0 shadow-[0_-1px_4px_rgba(0,0,0,0.06)]">
             <Button variant="outline" onClick={() => setModalAteste(null)}>Cancelar</Button>
             {(() => {
               const itens = ((modalAteste as any)?.itens || []) as any[]
@@ -3322,9 +3333,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 </Button>
               )
             })()}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      )}
 
       {/* Modal Devolver ao Fornecedor */}
       <Dialog open={!!modalDevolver} onOpenChange={() => setModalDevolver(null)}>
