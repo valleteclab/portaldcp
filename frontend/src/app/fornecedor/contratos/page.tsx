@@ -105,7 +105,9 @@ export default function ContratosFornecedorPage() {
 
       if (contratosRes.ok) {
         const json = await contratosRes.json()
-        const contratosData = Array.isArray(json) ? json : (json.data || [])
+        const statusVisiveis = Object.keys(STATUS_CONTRATO)
+        const contratosData = (Array.isArray(json) ? json : (json.data || []))
+          .filter((c: Contrato) => statusVisiveis.includes(c.status))
         setContratos(contratosData)
 
         const overviews = await Promise.all(contratosData.map(async (contrato: Contrato) => {
