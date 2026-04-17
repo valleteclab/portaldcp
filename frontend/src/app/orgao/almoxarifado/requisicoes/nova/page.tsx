@@ -835,7 +835,7 @@ function NovaRequisicaoForm() {
 
   // Carregar empenhos do Portal Fator quando um contrato OS for selecionado
   useEffect(() => {
-    if (!isOS || !contratoSelecionado?.id) {
+    if (!contratoSelecionado?.id) {
       setEmpenhosOS([]);
       setEmpenhoOS('');
       return;
@@ -850,7 +850,7 @@ function NovaRequisicaoForm() {
       setLoadingEmpenhosOS(false);
     };
     carregar();
-  }, [contratoSelecionado?.id, isOS]);
+  }, [contratoSelecionado?.id]);
 
   // Aplicar contrato do rascunho após carregar contratos
   useEffect(() => {
@@ -1207,7 +1207,6 @@ function NovaRequisicaoForm() {
           dados.responsavel_tecnico = responsavelTecnico || undefined;
           dados.fiscal_contrato_nome = fiscalNome || undefined;
         }
-        dados.numero_empenho = empenhoOS || undefined;
       } else {
         // Itens da requisição normal
         dados.itens = itensRequisicao.map((item, index) => ({
@@ -1219,6 +1218,8 @@ function NovaRequisicaoForm() {
           valor_unitario: Number(item.valor_unitario),
         }));
       }
+      // Empenho disponível para todos os tipos (OS, MATERIAL, SERVICO, etc.)
+      dados.numero_empenho = empenhoOS || undefined;
 
       const isEdicao = !!editarId;
       const url = isEdicao
@@ -1866,6 +1867,41 @@ function NovaRequisicaoForm() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Empenho — Portal Fator Transparência */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Empenho</CardTitle>
+          <CardDescription>Vincule um empenho do Portal de Transparência (opcional)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingEmpenhosOS ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
+            </div>
+          ) : empenhosOS.length > 0 ? (
+            <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecionar empenho (opcional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__nenhum__">Nenhum</SelectItem>
+                {empenhosOS.map((e, i) => (
+                  <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
+                    {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              placeholder="Número do empenho (opcional)"
+              value={empenhoOS}
+              onChange={e => setEmpenhoOS(e.target.value)}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 
@@ -2389,7 +2425,7 @@ function NovaRequisicaoForm() {
                   {fiscalNome && <span><span className="text-gray-500">Fiscal:</span> <strong>{fiscalNome}</strong></span>}
                 </div>
               )}
-              {isOS && empenhoOS && (
+              {empenhoOS && (
                 <div className="col-span-2">
                   <span className="text-gray-500">Empenho:</span>{' '}
                   <strong>{empenhoOS}</strong>
