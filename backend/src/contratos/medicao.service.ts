@@ -1700,13 +1700,19 @@ export class MedicaoService {
         // NO PERÍODO e demais q×vu: centavos inteiros (ex.: 2831,40×6,94 → 19.649,91; float dava ,90).
         const centNo = produtoQuantidadeValorUnitarioCentavos(qtdMedida, vlrUnitario);
 
+        // centSnap: valor snapshot salvo na submissão (ate_periodo_global já inclui a medição atual).
+        // null quando não há snapshot para este item (fallback para centMigracao).
         const centSnap = efItem
           ? Math.round(truncarMoedaReais2Casas(Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0)) * 100)
-          : centNo;
+          : null;
+        // centMigracao: fallback para itens sem snapshot, usando ic.quantidade_medida (dados de
+        // migração por admin + medições aprovadas acumuladas). Apenas usado quando centSnap é null,
+        // pois após a aprovação ic.quantidade_medida já inclui a medição atual e somar centNo
+        // causaria dupla contagem.
         const centMigracao = ic
           ? produtoQuantidadeValorUnitarioCentavos(Number(ic.quantidade_medida || 0), vlrUnitario) + centNo
           : centNo;
-        const centAte = Math.max(centSnap, centMigracao);
+        const centAte = centSnap !== null ? centSnap : Math.max(centNo, centMigracao);
         const centAcum = centAte - centNo;
 
         const centTotal = efItem
