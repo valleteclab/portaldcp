@@ -1499,7 +1499,7 @@ export default function FornecedorContratoDetalhePage() {
   }
 
   return (
-    <div className="px-4 py-4 space-y-4">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href="/fornecedor/contratos">
@@ -1890,8 +1890,8 @@ export default function FornecedorContratoDetalhePage() {
                       {[...itensCronograma].sort((a, b) => a.numero_item - b.numero_item).map((ic) => (
                         <TableRow key={ic.id}>
                           <TableCell className="font-medium">{ic.numero_item}</TableCell>
-                          <TableCell className="max-w-[260px]">
-                            <p className="truncate text-sm" title={ic.descricao}>{ic.descricao}</p>
+                          <TableCell className="min-w-[180px] max-w-[320px]">
+                            <p className="text-sm whitespace-normal break-words">{ic.descricao}</p>
                           </TableCell>
                           <TableCell className="text-center text-sm">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
                           <TableCell className="text-center text-sm whitespace-nowrap">{textoFrequenciaNaTela(ic.frequencia_execucao)}</TableCell>
