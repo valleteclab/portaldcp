@@ -28,6 +28,7 @@ export class FatorTransparenciaService {
   async buscarEmpenhos(params: {
     nContrato?: string;
     cpfcnpj?: string;
+    /** Ano do contrato. Busca este ano + ano atual quando forem diferentes. */
     ano?: number;
     fornecedor?: string;
   }): Promise<EmpenhoFator[]> {
@@ -39,7 +40,36 @@ export class FatorTransparenciaService {
       return [];
     }
 
-    const ano = params.ano ?? new Date().getFullYear();
+    const anoContrato = params.ano ?? new Date().getFullYear();
+    const anoAtual = new Date().getFullYear();
+
+    // Busca o ano do contrato E o ano atual quando forem diferentes
+    // (ex: contrato de 2025 pode ter empenhos emitidos em 2026)
+    const anos =
+      anoContrato !== anoAtual
+        ? [anoContrato, anoAtual]
+        : [anoContrato];
+
+    const resultadosPorAno = await Promise.all(
+      anos.map((ano) => this.buscarPorAno(orgId, params, ano)),
+    );
+
+    // Mescla e deduplica por numero_liquidacao (ou pela posição quando vazio)
+    const todos = resultadosPorAno.flat();
+    const vistos = new Set<string>();
+    return todos.filter((e, idx) => {
+      const chave = e.numero_liquidacao || `idx-${idx}`;
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
+  }
+
+  private async buscarPorAno(
+    orgId: string,
+    params: { nContrato?: string; cpfcnpj?: string; fornecedor?: string },
+    ano: number,
+  ): Promise<EmpenhoFator[]> {
     const dataInicio = `01/01/${ano}`;
     const dataFim = `31/12/${ano}`;
 
@@ -83,7 +113,7 @@ export class FatorTransparenciaService {
       return this.parsearHtml(response.data);
     } catch (err) {
       this.logger.error(
-        `Erro ao consultar Portal Fator Transparência: ${err.message}`,
+        `Erro ao consultar Portal Fator (ano ${ano}): ${err.message}`,
       );
       return [];
     }
@@ -135,8 +165,8 @@ export class FatorTransparenciaService {
   ): Map<string, Partial<EmpenhoFator> & Record<string, string>> {
     const map = new Map<string, Partial<EmpenhoFator> & Record<string, string>>();
 
-    // Cada dialog está em <div id='dialog_N' title='Detalhe da Despesa'>...</div>
-    const dialogPattern = /<div id='(dialog_\d+)'\s+title='Detalhe da Despesa'[^>]*>([\s\S]*?)(?=<div id='dialog_\d+'|$)/g;
+    const dialogPattern =
+      /<div id='(dialog_\d+)'\s+title='Detalhe da Despesa'[^>]*>([\s\S]*?)(?=<div id='dialog_\d+'|$)/g;
 
     let m: RegExpExecArray | null;
     while ((m = dialogPattern.exec(html)) !== null) {
