@@ -68,7 +68,8 @@ export class FatorTransparenciaService {
           Modalidade_Aplicacao: -1,
           Elemento: -1,
           Subelemento: -1,
-          nContrato: params.nContrato ?? '',
+          // O portal usa hífen (036-2025), o sistema armazena barra (036/2025)
+          nContrato: (params.nContrato ?? '').replace(/\//g, '-'),
           ano,
         },
         timeout: 20000,

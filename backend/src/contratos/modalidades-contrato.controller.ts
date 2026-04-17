@@ -1175,16 +1175,19 @@ export class ModalidadesContratoController {
   ) {
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
-      select: ['id', 'numero_contrato', 'fornecedor_cnpj'],
+      select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano'],
     });
     if (!contrato) {
       throw new NotFoundException('Contrato não encontrado');
     }
 
+    // Usa o ano do contrato como padrão quando não informado pelo frontend
+    const anoConsulta = ano ? parseInt(ano, 10) : (contrato.ano ?? new Date().getFullYear());
+
     return this.fatorTransparencia.buscarEmpenhos({
       nContrato: contrato.numero_contrato,
       cpfcnpj: contrato.fornecedor_cnpj,
-      ano: ano ? parseInt(ano, 10) : undefined,
+      ano: anoConsulta,
     });
   }
 }

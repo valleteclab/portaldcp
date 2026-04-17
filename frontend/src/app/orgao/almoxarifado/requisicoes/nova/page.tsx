@@ -843,8 +843,7 @@ function NovaRequisicaoForm() {
     const carregar = async () => {
       setLoadingEmpenhosOS(true);
       try {
-        const ano = new Date().getFullYear();
-        const res = await authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/empenhos?ano=${ano}`);
+        const res = await authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/empenhos`);
         if (res.ok) setEmpenhosOS(await res.json());
         else setEmpenhosOS([]);
       } catch { setEmpenhosOS([]); }

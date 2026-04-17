@@ -206,8 +206,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
     setModalOS(true)
     setLoadingEmpenhos(true)
     try {
-      const ano = new Date().getFullYear()
-      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos?ano=${ano}`)
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos`)
       if (res.ok) setEmpenhos(await res.json())
       else setEmpenhos([])
     } catch { setEmpenhos([]) }
