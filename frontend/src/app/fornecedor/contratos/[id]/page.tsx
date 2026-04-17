@@ -1499,7 +1499,7 @@ export default function FornecedorContratoDetalhePage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="px-4 py-4 space-y-4">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href="/fornecedor/contratos">
@@ -1870,38 +1870,42 @@ export default function FornecedorContratoDetalhePage() {
                 itensCronograma.length === 0 ? (
                   <p className="text-center text-gray-500 py-8">Nenhum item cadastrado pelo órgão</p>
                 ) : (
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-12">#</TableHead>
-                        <TableHead>Descrição</TableHead>
-                        <TableHead className="text-center min-w-[140px]">Unidade</TableHead>
+                        <TableHead className="w-10">#</TableHead>
+                        <TableHead className="min-w-[180px] max-w-[260px]">Descrição</TableHead>
+                        <TableHead className="text-center min-w-[120px]">Unidade</TableHead>
                         <TableHead className="text-center min-w-[100px]">Frequência</TableHead>
-                        <TableHead className="text-right">Quantidade</TableHead>
-                        <TableHead className="text-right">Valor Unit.</TableHead>
-                        <TableHead className="text-right">Nº exec.</TableHead>
-                        <TableHead className="text-right">Vl. por frequência</TableHead>
-                        <TableHead className="text-right">Valor Total</TableHead>
-                        <TableHead className="text-center">Medido</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Qtd.</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Vl. Unit.</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Nº exec.</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Vl./freq.</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Vl. Total</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">Medido</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {[...itensCronograma].sort((a, b) => a.numero_item - b.numero_item).map((ic) => (
                         <TableRow key={ic.id}>
                           <TableCell className="font-medium">{ic.numero_item}</TableCell>
-                          <TableCell>{ic.descricao}</TableCell>
-                          <TableCell className="text-center text-sm max-w-[200px]">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
+                          <TableCell className="max-w-[260px]">
+                            <p className="truncate text-sm" title={ic.descricao}>{ic.descricao}</p>
+                          </TableCell>
+                          <TableCell className="text-center text-sm">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
                           <TableCell className="text-center text-sm whitespace-nowrap">{textoFrequenciaNaTela(ic.frequencia_execucao)}</TableCell>
-                          <TableCell className="text-right">{Number(ic.quantidade).toLocaleString('pt-BR')}</TableCell>
-                          <TableCell className="text-right">{formatarMoeda(ic.valor_unitario)}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{Number(ic.quantidade).toLocaleString('pt-BR')}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{formatarMoeda(ic.valor_unitario)}</TableCell>
                           <TableCell className="text-right whitespace-nowrap">{ic.quantidade_meses != null ? ic.quantidade_meses : '—'}</TableCell>
-                          <TableCell className="text-right">{formatarMoeda(ic.valor_mensal ?? (Number(ic.quantidade) * Number(ic.valor_unitario)))}</TableCell>
-                          <TableCell className="text-right">{formatarMoeda(ic.valor_total)}</TableCell>
-                          <TableCell className="text-center text-blue-600 font-medium">{Number(ic.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{formatarMoeda(ic.valor_mensal ?? (Number(ic.quantidade) * Number(ic.valor_unitario)))}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{formatarMoeda(ic.valor_total)}</TableCell>
+                          <TableCell className="text-center text-blue-600 font-medium whitespace-nowrap">{Number(ic.quantidade_medida).toLocaleString('pt-BR')}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 )
               ) : etapas.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">Nenhuma etapa cadastrada pelo órgão</p>
