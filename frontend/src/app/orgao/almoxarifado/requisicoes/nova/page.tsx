@@ -141,6 +141,21 @@ interface Setor {
   nome: string;
 }
 
+interface EmpenhoFator {
+  numero_liquidacao: string;
+  data: string;
+  fase: string;
+  credor: string;
+  cnpj: string;
+  valor: number;
+  valor_formatado: string;
+  bem_servico: string;
+  numero_contrato: string;
+  numero_processo: string;
+  modalidade: string;
+  elemento_despesa: string;
+}
+
 interface RascunhoRequisicao {
   etapa: number;
   contratoId: string | null;
@@ -392,6 +407,11 @@ function NovaRequisicaoForm() {
   const [prazoExecucaoDias, setPrazoExecucaoDias] = useState('');
   const [responsavelTecnico, setResponsavelTecnico] = useState('');
   const [fiscalNome, setFiscalNome] = useState('');
+
+  // Empenho vinculado à OS (Portal Fator Transparência)
+  const [empenhoOS, setEmpenhoOS] = useState('');
+  const [empenhosOS, setEmpenhosOS] = useState<EmpenhoFator[]>([]);
+  const [loadingEmpenhosOS, setLoadingEmpenhosOS] = useState(false);
 
   // OS com ItemCronograma (medição por itens): Ordem Global vs Ordem por Demanda
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
@@ -813,6 +833,26 @@ function NovaRequisicaoForm() {
     }
   }, [isOS, contratoSelecionado?.objeto]);
 
+  // Carregar empenhos do Portal Fator quando um contrato OS for selecionado
+  useEffect(() => {
+    if (!isOS || !contratoSelecionado?.id) {
+      setEmpenhosOS([]);
+      setEmpenhoOS('');
+      return;
+    }
+    const carregar = async () => {
+      setLoadingEmpenhosOS(true);
+      try {
+        const ano = new Date().getFullYear();
+        const res = await authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/empenhos?ano=${ano}`);
+        if (res.ok) setEmpenhosOS(await res.json());
+        else setEmpenhosOS([]);
+      } catch { setEmpenhosOS([]); }
+      setLoadingEmpenhosOS(false);
+    };
+    carregar();
+  }, [contratoSelecionado?.id, isOS]);
+
   // Aplicar contrato do rascunho após carregar contratos
   useEffect(() => {
     if (rascunhoSalvo?.contratoId && contratos.length > 0 && !showRecuperarRascunho) {
@@ -1168,6 +1208,7 @@ function NovaRequisicaoForm() {
           dados.responsavel_tecnico = responsavelTecnico || undefined;
           dados.fiscal_contrato_nome = fiscalNome || undefined;
         }
+        dados.numero_empenho = empenhoOS || undefined;
       } else {
         // Itens da requisição normal
         dados.itens = itensRequisicao.map((item, index) => ({
@@ -2219,6 +2260,41 @@ function NovaRequisicaoForm() {
           </CardContent>
         </Card>
       )}
+
+      {/* Empenho — Portal Fator Transparência */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Empenho</CardTitle>
+          <CardDescription>Vincule um empenho do Portal de Transparência (opcional)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingEmpenhosOS ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
+            </div>
+          ) : empenhosOS.length > 0 ? (
+            <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecionar empenho (opcional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__nenhum__">Nenhum</SelectItem>
+                {empenhosOS.map((e, i) => (
+                  <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
+                    {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              placeholder="Número do empenho (opcional)"
+              value={empenhoOS}
+              onChange={e => setEmpenhoOS(e.target.value)}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 
@@ -2312,6 +2388,12 @@ function NovaRequisicaoForm() {
                 <div className="col-span-2 flex gap-4">
                   {responsavelTecnico && <span><span className="text-gray-500">Resp. Técnico:</span> <strong>{responsavelTecnico}</strong></span>}
                   {fiscalNome && <span><span className="text-gray-500">Fiscal:</span> <strong>{fiscalNome}</strong></span>}
+                </div>
+              )}
+              {isOS && empenhoOS && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">Empenho:</span>{' '}
+                  <strong>{empenhoOS}</strong>
                 </div>
               )}
               {!isOS && localEntrega && (
