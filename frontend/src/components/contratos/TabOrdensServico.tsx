@@ -54,6 +54,22 @@ interface OrdemServico {
   sla_excedido: boolean
   status: string
   observacoes: string
+  numero_empenho?: string
+}
+
+interface EmpenhoFator {
+  numero_liquidacao: string
+  data: string
+  fase: string
+  credor: string
+  cnpj: string
+  valor: number
+  valor_formatado: string
+  bem_servico: string
+  numero_contrato: string
+  numero_processo: string
+  modalidade: string
+  elemento_despesa: string
 }
 
 interface ResumoOS {
@@ -114,7 +130,10 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
     quantidade_metrica: '', valor_unitario_metrica: '',
     data_abertura: '', data_prazo: '', sla_dias: '',
     responsavel_tecnico: '', criterios_aceite: '', observacoes: '',
+    numero_empenho: '',
   })
+  const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
+  const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [formAceite, setFormAceite] = useState({ nota_qualidade: '', parecer_aceite: '' })
   const [observacaoCancelar, setObservacaoCancelar] = useState('')
   const [parecerRejeicao, setParecerRejeicao] = useState('')
@@ -175,15 +194,24 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
 
   // ============ ORDENS DE SERVIÇO ============
 
-  const abrirModalOS = () => {
+  const abrirModalOS = async () => {
     const hoje = new Date().toISOString().split('T')[0]
     setFormOS({
       descricao: '', escopo_detalhado: '', metrica: bancos.length > 0 ? bancos[0].metrica : 'UST',
       quantidade_metrica: '', valor_unitario_metrica: bancos.length > 0 ? bancos[0].valor_unitario.toString() : '',
       data_abertura: hoje, data_prazo: '', sla_dias: '',
       responsavel_tecnico: '', criterios_aceite: '', observacoes: '',
+      numero_empenho: '',
     })
     setModalOS(true)
+    setLoadingEmpenhos(true)
+    try {
+      const ano = new Date().getFullYear()
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos?ano=${ano}`)
+      if (res.ok) setEmpenhos(await res.json())
+      else setEmpenhos([])
+    } catch { setEmpenhos([]) }
+    setLoadingEmpenhos(false)
   }
 
   const criarOS = async () => {
@@ -201,6 +229,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
         responsavel_tecnico: formOS.responsavel_tecnico || null,
         criterios_aceite: formOS.criterios_aceite || null,
         observacoes: formOS.observacoes || null,
+        numero_empenho: formOS.numero_empenho || null,
       }
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/ordens-servico`, {
         method: 'POST', body: JSON.stringify(payload),
@@ -416,6 +445,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
                     <TableCell>
                       <p className="font-medium text-sm">{os.descricao}</p>
                       {os.responsavel_tecnico && <p className="text-xs text-gray-400">Resp: {os.responsavel_tecnico}</p>}
+                      {os.numero_empenho && <p className="text-xs text-blue-600">Emp.: {os.numero_empenho}</p>}
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="text-sm">{Number(os.quantidade_metrica).toLocaleString()} {os.metrica}</span>
@@ -577,6 +607,34 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
                 <Label>Critérios de Aceite</Label>
                 <Input placeholder="Critérios para aceite da OS" value={formOS.criterios_aceite} onChange={e => setFormOS({ ...formOS, criterios_aceite: e.target.value })} />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Empenho</Label>
+              {loadingEmpenhos ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
+                </div>
+              ) : empenhos.length > 0 ? (
+                <Select value={formOS.numero_empenho} onValueChange={v => setFormOS({ ...formOS, numero_empenho: v === '__nenhum__' ? '' : v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecionar empenho (opcional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__nenhum__">Nenhum</SelectItem>
+                    {empenhos.map((e, i) => (
+                      <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
+                        {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  placeholder="Número do empenho (opcional)"
+                  value={formOS.numero_empenho}
+                  onChange={e => setFormOS({ ...formOS, numero_empenho: e.target.value })}
+                />
+              )}
             </div>
             <div className="space-y-2">
               <Label>Observações</Label>

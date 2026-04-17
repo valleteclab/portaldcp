@@ -48,6 +48,8 @@ import { ImportarContratoIaService } from './importar-contrato-ia.service';
 import { ImportarMedicaoIaController } from './importar-medicao-ia.controller';
 import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
 import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
+import { SystemConfigModule } from '../system-config/system-config.module';
+import { FatorTransparenciaService } from './fator-transparencia.service';
 
 @Module({
   imports: [
@@ -64,9 +66,10 @@ import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
     AssinaturasModule,
     HttpModule,
     FornecedoresModule,
+    SystemConfigModule,
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController],
-  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService],
-  exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService]
+  providers: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService],
+  exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}

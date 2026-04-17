@@ -31,6 +31,7 @@ import { MedicaoService } from './medicao.service';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
+import { FatorTransparenciaService } from './fator-transparencia.service';
 import { StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -44,6 +45,7 @@ export class ModalidadesContratoController {
     private readonly atestacaoService: AtestacaoService,
     private readonly licencaService: LicencaControleService,
     private readonly osService: OrdemServicoContratoService,
+    private readonly fatorTransparencia: FatorTransparenciaService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(Contrato)
@@ -1159,6 +1161,30 @@ export class ModalidadesContratoController {
       usuario_nome: body.usuario_nome || usuario?.nome || '',
       usuario_cpf_cnpj: body.usuario_cpf_cnpj || usuario?.cpf || '',
       usuario_cargo: body.usuario_cargo || usuario?.cargo || '',
+    });
+  }
+
+  // ============================================================
+  // EMPENHOS — Portal Fator Transparência
+  // ============================================================
+
+  @Get(':contratoId/empenhos')
+  async buscarEmpenhos(
+    @Param('contratoId') contratoId: string,
+    @Query('ano') ano?: string,
+  ) {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      select: ['id', 'numero_contrato', 'fornecedor_cnpj'],
+    });
+    if (!contrato) {
+      throw new NotFoundException('Contrato não encontrado');
+    }
+
+    return this.fatorTransparencia.buscarEmpenhos({
+      nContrato: contrato.numero_contrato,
+      cpfcnpj: contrato.fornecedor_cnpj,
+      ano: ano ? parseInt(ano, 10) : undefined,
     });
   }
 }

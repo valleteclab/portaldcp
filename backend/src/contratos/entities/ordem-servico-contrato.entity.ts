@@ -166,6 +166,10 @@ export class OrdemServicoContrato {
   @Column({ type: 'text', nullable: true })
   observacao_aprovador: string;
 
+  // Empenho vinculado (Portal Fator Transparência)
+  @Column({ nullable: true, length: 100 })
+  numero_empenho: string;
+
   // Auditoria
   @Column({ nullable: true })
   usuario_cadastro_id: string;
