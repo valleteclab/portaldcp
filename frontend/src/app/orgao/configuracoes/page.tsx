@@ -57,7 +57,7 @@ export default function ConfiguracoesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "seguranca"]
+  const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "transparencia", "seguranca"]
   const [activeTab, setActiveTab] = useState(validTabs.includes(tabParam || "") ? tabParam! : "orgao")
 
   // Restringe acesso a usuários com role ADMIN.
@@ -221,6 +221,38 @@ export default function ConfiguracoesPage() {
   })
   const [loadingPncp, setLoadingPncp] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
+
+  // Fator Transparência
+  const [fatorId, setFatorId] = useState('')
+  const [loadingFator, setLoadingFator] = useState(false)
+
+  const carregarFatorId = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/system-config/FATOR_TRANSPARENCIA_ID`)
+      if (res.ok) {
+        const data = await res.json()
+        setFatorId(data.value || '')
+      }
+    } catch { /* não configurado ainda */ }
+  }
+
+  const salvarFatorId = async () => {
+    if (!fatorId.trim()) { toast.error('Informe o ID do órgão'); return }
+    setLoadingFator(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/system-config/FATOR_TRANSPARENCIA_ID`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          key: 'FATOR_TRANSPARENCIA_ID',
+          value: fatorId.trim(),
+          description: 'ID do órgão no Portal Fator Transparência (ex: cmlem)',
+        }),
+      })
+      if (res.ok) toast.success('ID do Portal Fator salvo com sucesso!')
+      else toast.error('Erro ao salvar')
+    } catch { toast.error('Erro ao salvar') }
+    setLoadingFator(false)
+  }
 
   // Setores
   const [setores, setSetores] = useState<Setor[]>([])
@@ -422,6 +454,7 @@ export default function ConfiguracoesPage() {
 
   useEffect(() => {
     carregarStatusPNCP()
+    carregarFatorId()
   }, [])
 
   return (
@@ -447,6 +480,9 @@ export default function ConfiguracoesPage() {
           </TabsTrigger>
           <TabsTrigger value="pncp">
             <Globe className="h-4 w-4 mr-2" /> PNCP
+          </TabsTrigger>
+          <TabsTrigger value="transparencia">
+            <Globe className="h-4 w-4 mr-2" /> Transparência
           </TabsTrigger>
           <TabsTrigger value="seguranca">
             <Shield className="h-4 w-4 mr-2" /> Seguranca
@@ -898,6 +934,38 @@ export default function ConfiguracoesPage() {
                     <li>• PNCP_CNPJ_ORGAO - CNPJ do órgão no PNCP</li>
                   </ul>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="transparencia" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Portal Fator Transparência</CardTitle>
+              <CardDescription>
+                ID do órgão usado para buscar empenhos ao criar OS/OF. Encontre em
+                transparencia.fatorsistemas.com.br/dados/despesa.php?id=<strong>cmlem</strong>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>ID do Órgão (FATOR_TRANSPARENCIA_ID)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Ex: cmlem"
+                    value={fatorId}
+                    onChange={e => setFatorId(e.target.value)}
+                    className="max-w-xs"
+                  />
+                  <Button onClick={salvarFatorId} disabled={loadingFator}>
+                    {loadingFator ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                    Salvar
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Para o município de Luís Eduardo Magalhães o ID é <code className="bg-gray-100 px-1 rounded">cmlem</code>.
+                </p>
               </div>
             </CardContent>
           </Card>
