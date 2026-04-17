@@ -1980,23 +1980,29 @@ export default function FornecedorContratoDetalhePage() {
         </TabsContent>
       </Tabs>
 
-      {/* ============ MODAL: Nova Medição (Planilha Orçamentária) ============ */}
-      <Dialog open={modalNovaMedicao} onOpenChange={(open) => {
-        setModalNovaMedicao(open);
-        if (!open) {
-          setMedicaoParaEditar(null);
-          setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-          setDiscriminacoes([]);
-          setArquivosPendentes([]);
-          setAnexosReaproveitados([]);
-          setTimeout(() => { document.body.style.pointerEvents = ''; }, 0);
-        }
-      }}>
-        <DialogContent className="w-[96vw] max-w-[96vw] max-h-[95vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center justify-between">
+      {/* ============ PÁGINA: Nova Medição (Planilha Orçamentária) ============ */}
+      {modalNovaMedicao && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="border-b bg-white px-6 py-3 flex items-center gap-3 shadow-sm flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setModalNovaMedicao(false);
+                setMedicaoParaEditar(null);
+                setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+                setDiscriminacoes([]);
+                setArquivosPendentes([]);
+                setAnexosReaproveitados([]);
+                setTimeout(() => { document.body.style.pointerEvents = ''; }, 0);
+              }}
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
+            </Button>
+            <div className="h-6 w-px bg-gray-200" />
+            <div className="flex items-center justify-between flex-1">
               <div>
-                <DialogTitle className="text-xl">
+                <h2 className="text-xl font-semibold">
                   {medicaoParaEditar ? (
                     <>
                       Editar Medição #{medicaoParaEditar.numero_medicao}
@@ -2005,12 +2011,12 @@ export default function FornecedorContratoDetalhePage() {
                   ) : (
                     <>Boletim de Medição #{(medicoes.length || 0) + 1}</>
                   )}
-                </DialogTitle>
-                <DialogDescription>
+                </h2>
+                <p className="text-sm text-muted-foreground">
                   {novaMedicao.periodo_inicio && novaMedicao.periodo_fim
                     ? `Período: ${formatarData(novaMedicao.periodo_inicio)} a ${formatarData(novaMedicao.periodo_fim)}`
                     : 'Informe o período e preencha a execução de cada item'}
-                </DialogDescription>
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Valor da Medição</p>
@@ -2044,8 +2050,9 @@ export default function FornecedorContratoDetalhePage() {
                 })()}
               </div>
             </div>
-          </DialogHeader>
+          </div>
 
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {!medicaoParaEditar && medicoes.length > 0 && (() => {
               const ultima = [...medicoes].sort((a, b) => b.numero_medicao - a.numero_medicao)[0];
@@ -2814,9 +2821,17 @@ export default function FornecedorContratoDetalhePage() {
               )}
             </div>
           </div>
-
-          <DialogFooter className="flex items-center justify-between sm:justify-between">
-            <Button variant="outline" onClick={() => setModalNovaMedicao(false)}>Cancelar Lançamento</Button>
+          </div>
+          <div className="border-t bg-white px-6 py-4 flex items-center justify-between flex-shrink-0 shadow-[0_-1px_4px_rgba(0,0,0,0.06)]">
+            <Button variant="outline" onClick={() => {
+              setModalNovaMedicao(false);
+              setMedicaoParaEditar(null);
+              setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+              setDiscriminacoes([]);
+              setArquivosPendentes([]);
+              setAnexosReaproveitados([]);
+              setTimeout(() => { document.body.style.pointerEvents = ''; }, 0);
+            }}>Cancelar Lançamento</Button>
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCriarMedicao} disabled={submitting}>
                 {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
@@ -2827,9 +2842,9 @@ export default function FornecedorContratoDetalhePage() {
                 Enviar para Ateste
               </Button>
             </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      )}
 
       {/* ============ MODAL: Submeter Medição ============ */}
       <Dialog open={modalSubmeter} onOpenChange={setModalSubmeter}>
