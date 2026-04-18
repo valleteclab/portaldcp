@@ -176,10 +176,13 @@ interface HistoricoContrato {
   created_at: string
 }
 
+type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO'
+
 interface EmpenhoFator {
   numero_liquidacao: string
   data: string
   fase: string
+  fase_tipo: FaseDespesa
   credor: string
   cnpj: string
   valor: number
@@ -189,6 +192,19 @@ interface EmpenhoFator {
   numero_processo: string
   modalidade: string
   elemento_despesa: string
+}
+
+interface ResumoEmpenhos {
+  empenhos: EmpenhoFator[]
+  resumo: {
+    total_empenhado: number
+    total_liquidado: number
+    total_pago: number
+    saldo_empenhado: number
+    quantidade_empenhos: number
+    quantidade_liquidacoes: number
+    quantidade_pagamentos: number
+  }
 }
 
 const TIPO_ACAO_LABELS: Record<string, { label: string, cor: string, icon: string }> = {
@@ -251,6 +267,7 @@ export default function DetalheContratoOrgaoPage() {
   const [documentos, setDocumentos] = useState<DocumentoContrato[]>([])
   const [historico, setHistorico] = useState<HistoricoContrato[]>([])
   const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
+  const [resumoEmpenhos, setResumoEmpenhos] = useState<ResumoEmpenhos['resumo'] | null>(null)
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -370,10 +387,17 @@ export default function DetalheContratoOrgaoPage() {
     setEmpenhosBuscados(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${id}/empenhos`)
-      if (res.ok) setEmpenhos(await res.json())
-      else setEmpenhos([])
+      if (res.ok) {
+        const data: ResumoEmpenhos = await res.json()
+        setEmpenhos(data.empenhos)
+        setResumoEmpenhos(data.resumo)
+      } else {
+        setEmpenhos([])
+        setResumoEmpenhos(null)
+      }
     } catch {
       setEmpenhos([])
+      setResumoEmpenhos(null)
     } finally {
       setLoadingEmpenhos(false)
     }
@@ -1856,7 +1880,7 @@ export default function DetalheContratoOrgaoPage() {
                     Empenhos — Portal de Transparência
                   </CardTitle>
                   <CardDescription>
-                    Empenhos registrados no portal municipal para o contrato {contrato.numero_contrato}
+                    Despesas registradas no portal municipal para o contrato {contrato.numero_contrato}
                   </CardDescription>
                 </div>
                 <Button
@@ -1881,40 +1905,48 @@ export default function DetalheContratoOrgaoPage() {
               ) : empenhos.length === 0 ? (
                 <div className="text-center py-12">
                   <Receipt className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 font-medium">Nenhum empenho encontrado</p>
+                  <p className="text-gray-500 font-medium">Nenhuma despesa encontrada</p>
                   <p className="text-sm text-gray-400 mt-1">
                     Verifique se o ID do órgão está configurado em Configurações → Transparência
                   </p>
                 </div>
               ) : (
                 <>
-                  {/* Totalizador */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-blue-50 rounded-lg p-3">
-                      <p className="text-xs text-blue-600 uppercase font-medium">Total de Empenhos</p>
-                      <p className="text-2xl font-bold text-blue-700">{empenhos.length}</p>
+                  {/* Resumo por fase */}
+                  {resumoEmpenhos && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-blue-50 rounded-lg p-3">
+                        <p className="text-xs text-blue-600 uppercase font-medium">Empenhado</p>
+                        <p className="text-lg font-bold text-blue-700">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.total_empenhado)}
+                        </p>
+                        <p className="text-xs text-blue-500">{resumoEmpenhos.quantidade_empenhos} empenho(s)</p>
+                      </div>
+                      <div className="bg-purple-50 rounded-lg p-3">
+                        <p className="text-xs text-purple-600 uppercase font-medium">Liquidado</p>
+                        <p className="text-lg font-bold text-purple-700">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.total_liquidado)}
+                        </p>
+                        <p className="text-xs text-purple-500">{resumoEmpenhos.quantidade_liquidacoes} liquidação(ões)</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-3">
+                        <p className="text-xs text-green-600 uppercase font-medium">Pago</p>
+                        <p className="text-lg font-bold text-green-700">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.total_pago)}
+                        </p>
+                        <p className="text-xs text-green-500">{resumoEmpenhos.quantidade_pagamentos} pagamento(s)</p>
+                      </div>
+                      <div className={`rounded-lg p-3 ${resumoEmpenhos.saldo_empenhado >= 0 ? 'bg-amber-50' : 'bg-red-50'}`}>
+                        <p className={`text-xs uppercase font-medium ${resumoEmpenhos.saldo_empenhado >= 0 ? 'text-amber-600' : 'text-red-600'}`}>Saldo Empenhado</p>
+                        <p className={`text-lg font-bold ${resumoEmpenhos.saldo_empenhado >= 0 ? 'text-amber-700' : 'text-red-700'}`}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.saldo_empenhado)}
+                        </p>
+                        <p className={`text-xs ${resumoEmpenhos.saldo_empenhado >= 0 ? 'text-amber-500' : 'text-red-500'}`}>
+                          {resumoEmpenhos.saldo_empenhado >= 0 ? 'disponível' : 'excedido'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="bg-green-50 rounded-lg p-3">
-                      <p className="text-xs text-green-600 uppercase font-medium">Valor Total</p>
-                      <p className="text-lg font-bold text-green-700">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
-                          empenhos.reduce((s, e) => s + e.valor, 0)
-                        )}
-                      </p>
-                    </div>
-                    <div className="bg-purple-50 rounded-lg p-3">
-                      <p className="text-xs text-purple-600 uppercase font-medium">Liquidados</p>
-                      <p className="text-2xl font-bold text-purple-700">
-                        {empenhos.filter(e => e.fase?.toLowerCase().includes('liquid')).length}
-                      </p>
-                    </div>
-                    <div className="bg-amber-50 rounded-lg p-3">
-                      <p className="text-xs text-amber-600 uppercase font-medium">Pagos</p>
-                      <p className="text-2xl font-bold text-amber-700">
-                        {empenhos.filter(e => e.fase?.toLowerCase().includes('pago') || e.fase?.toLowerCase().includes('pagamento')).length}
-                      </p>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Tabela */}
                   <div className="overflow-x-auto rounded-md border">
@@ -1931,24 +1963,40 @@ export default function DetalheContratoOrgaoPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {empenhos.map((e, i) => (
-                          <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
-                            <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.data}</td>
-                            <td className="px-3 py-2 font-mono text-xs">
-                              {e.numero_liquidacao || <span className="text-gray-400">—</span>}
-                            </td>
-                            <td className="px-3 py-2">
-                              <Badge variant="outline" className="text-xs whitespace-nowrap">{e.fase || '—'}</Badge>
-                            </td>
-                            <td className="px-3 py-2">
-                              <p className="font-medium text-gray-800 truncate max-w-[180px]">{e.credor}</p>
-                              {e.cnpj && <p className="text-xs text-gray-400 font-mono">{e.cnpj}</p>}
-                            </td>
-                            <td className="px-3 py-2 text-gray-600 text-xs hidden md:table-cell">{e.numero_processo || '—'}</td>
-                            <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell truncate max-w-[160px]">{e.elemento_despesa || '—'}</td>
-                            <td className="px-3 py-2 text-right font-medium text-gray-800 whitespace-nowrap">{e.valor_formatado}</td>
-                          </tr>
-                        ))}
+                        {empenhos.map((e, i) => {
+                          const faseColors: Record<string, string> = {
+                            EMPENHO: 'bg-blue-100 text-blue-800 border-blue-200',
+                            LIQUIDACAO: 'bg-purple-100 text-purple-800 border-purple-200',
+                            PAGAMENTO: 'bg-green-100 text-green-800 border-green-200',
+                            OUTRO: 'bg-gray-100 text-gray-800 border-gray-200',
+                          }
+                          const faseLabel: Record<string, string> = {
+                            EMPENHO: 'Empenho',
+                            LIQUIDACAO: 'Liquidação',
+                            PAGAMENTO: 'Pagamento',
+                            OUTRO: e.fase,
+                          }
+                          return (
+                            <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.data}</td>
+                              <td className="px-3 py-2 font-mono text-xs">
+                                {e.numero_liquidacao || <span className="text-gray-400">—</span>}
+                              </td>
+                              <td className="px-3 py-2">
+                                <Badge variant="outline" className={`text-xs whitespace-nowrap ${faseColors[e.fase_tipo] || faseColors.OUTRO}`}>
+                                  {faseLabel[e.fase_tipo] || e.fase}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2">
+                                <p className="font-medium text-gray-800 truncate max-w-[180px]">{e.credor}</p>
+                                {e.cnpj && <p className="text-xs text-gray-400 font-mono">{e.cnpj}</p>}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600 text-xs hidden md:table-cell">{e.numero_processo || '—'}</td>
+                              <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell truncate max-w-[160px]">{e.elemento_despesa || '—'}</td>
+                              <td className="px-3 py-2 text-right font-medium text-gray-800 whitespace-nowrap">{e.valor_formatado}</td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

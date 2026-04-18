@@ -1184,10 +1184,12 @@ export class ModalidadesContratoController {
     // Usa o ano do contrato como padrão quando não informado pelo frontend
     const anoConsulta = ano ? parseInt(ano, 10) : (contrato.ano ?? new Date().getFullYear());
 
-    return this.fatorTransparencia.buscarEmpenhos({
+    const empenhos = await this.fatorTransparencia.buscarEmpenhos({
       nContrato: contrato.numero_contrato,
       cpfcnpj: contrato.fornecedor_cnpj,
       ano: anoConsulta,
     });
+
+    return this.fatorTransparencia.calcularResumo(empenhos);
   }
 }

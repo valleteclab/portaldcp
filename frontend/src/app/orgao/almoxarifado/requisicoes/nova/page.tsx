@@ -145,6 +145,7 @@ interface EmpenhoFator {
   numero_liquidacao: string;
   data: string;
   fase: string;
+  fase_tipo: 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO';
   credor: string;
   cnpj: string;
   valor: number;
@@ -844,7 +845,10 @@ function NovaRequisicaoForm() {
       setLoadingEmpenhosOS(true);
       try {
         const res = await authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/empenhos`);
-        if (res.ok) setEmpenhosOS(await res.json());
+        if (res.ok) {
+          const data = await res.json();
+          setEmpenhosOS(data.empenhos ?? data);
+        }
         else setEmpenhosOS([]);
       } catch { setEmpenhosOS([]); }
       setLoadingEmpenhosOS(false);
@@ -1772,16 +1776,16 @@ function NovaRequisicaoForm() {
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
             </div>
-          ) : empenhosOS.length > 0 ? (
+          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
             <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecionar empenho (opcional)" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                {empenhosOS.map((e, i) => (
+                {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
                   <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                    {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                    {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1914,16 +1918,16 @@ function NovaRequisicaoForm() {
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
             </div>
-          ) : empenhosOS.length > 0 ? (
+          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
             <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecionar empenho (opcional)" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                {empenhosOS.map((e, i) => (
+                {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
                   <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                    {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                    {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -2342,16 +2346,16 @@ function NovaRequisicaoForm() {
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
             </div>
-          ) : empenhosOS.length > 0 ? (
+          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
             <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecionar empenho (opcional)" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                {empenhosOS.map((e, i) => (
+                {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
                   <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                    {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                    {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -2,10 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { SystemConfigService } from '../system-config/system-config.service';
 
+export type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO';
+
 export interface EmpenhoFator {
   numero_liquidacao: string;
   data: string;
   fase: string;
+  fase_tipo: FaseDespesa;
   credor: string;
   cnpj: string;
   valor: number;
@@ -15,6 +18,19 @@ export interface EmpenhoFator {
   numero_processo: string;
   modalidade: string;
   elemento_despesa: string;
+}
+
+export interface ResumoEmpenhos {
+  empenhos: EmpenhoFator[];
+  resumo: {
+    total_empenhado: number;
+    total_liquidado: number;
+    total_pago: number;
+    saldo_empenhado: number;
+    quantidade_empenhos: number;
+    quantidade_liquidacoes: number;
+    quantidade_pagamentos: number;
+  };
 }
 
 @Injectable()
@@ -80,7 +96,8 @@ export class FatorTransparenciaService {
           unidade_gestora: 1,
           tipo: -1,
           fornecedor: params.fornecedor ?? '',
-          cpfcnpj: params.cpfcnpj ?? '',
+          // Portal espera CNPJ sem formatação (apenas números)
+          cpfcnpj: (params.cpfcnpj ?? '').replace(/\D/g, ''),
           data_publicacao: dataInicio,
           data_publicacao_fim: dataFim,
           Numero: '',
@@ -140,10 +157,14 @@ export class FatorTransparenciaService {
         .replace(',', '.');
       const valor = parseFloat(valorLimpo) || 0;
 
+      const faseTrim = fase.trim();
+      const faseTipo = this.classificarFase(faseTrim);
+
       resultados.push({
         numero_liquidacao: detalhe.numero_liquidacao ?? '',
         data: data.trim(),
-        fase: fase.trim(),
+        fase: faseTrim,
+        fase_tipo: faseTipo,
         credor: this.limparHtml(credor.trim()),
         cnpj: detalhe.cnpj ?? '',
         valor,
@@ -209,6 +230,28 @@ export class FatorTransparenciaService {
         ),
       ),
     };
+  }
+
+  private classificarFase(fase: string): FaseDespesa {
+    const f = fase.toUpperCase().replace(/\s+/g, '');
+    if (f.startsWith('EMPENHO')) return 'EMPENHO';
+    if (f.startsWith('LIQUIDACAO') || f.startsWith('LIQUIDAÇÃO')) return 'LIQUIDACAO';
+    if (f.startsWith('PAGAMENTO')) return 'PAGAMENTO';
+    return 'OUTRO';
+  }
+
+  calcularResumo(empenhos: EmpenhoFator[]): ResumoEmpenhos {
+    const resumo = {
+      total_empenhado: empenhos.filter(e => e.fase_tipo === 'EMPENHO').reduce((s, e) => s + e.valor, 0),
+      total_liquidado: empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').reduce((s, e) => s + e.valor, 0),
+      total_pago: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').reduce((s, e) => s + e.valor, 0),
+      saldo_empenhado: 0,
+      quantidade_empenhos: empenhos.filter(e => e.fase_tipo === 'EMPENHO').length,
+      quantidade_liquidacoes: empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').length,
+      quantidade_pagamentos: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').length,
+    };
+    resumo.saldo_empenhado = resumo.total_empenhado - resumo.total_pago;
+    return { empenhos, resumo };
   }
 
   private extrairCampo(texto: string, regex: RegExp): string {
