@@ -6,6 +6,8 @@ export type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO';
 
 export interface EmpenhoFator {
   numero_liquidacao: string;
+  /** Nº Empenho extraído do dialog (só preenchido quando fase_tipo === 'EMPENHO') */
+  numero_empenho: string;
   data: string;
   fase: string;
   fase_tipo: FaseDespesa;
@@ -18,6 +20,25 @@ export interface EmpenhoFator {
   numero_processo: string;
   modalidade: string;
   elemento_despesa: string;
+}
+
+export interface GrupoEmpenho {
+  /** Dados do empenho "pai" */
+  empenho: EmpenhoFator;
+  /** Liquidações vinculadas (inferido por FIFO cronológico) */
+  liquidacoes: EmpenhoFator[];
+  /** Pagamentos vinculados (inferido por FIFO cronológico) */
+  pagamentos: EmpenhoFator[];
+  /** Soma das liquidações vinculadas */
+  total_liquidado: number;
+  /** Soma dos pagamentos vinculados */
+  total_pago: number;
+  /** Saldo do empenho: valor − liquidado */
+  saldo_a_liquidar: number;
+  /** Saldo financeiro: liquidado − pago */
+  saldo_a_pagar: number;
+  /** Status do empenho: ATIVO, QUITADO, PARCIAL */
+  status: 'ATIVO' | 'QUITADO' | 'PARCIAL';
 }
 
 export interface ResumoAnoEmpenhos {
@@ -54,6 +75,8 @@ export interface ResumoEmpenhos {
     quantidade_pagamentos: number;
   };
   por_ano: ResumoAnoEmpenhos[];
+  /** Empenhos agrupados com suas liquidações/pagamentos inferidos por FIFO cronológico */
+  grupos_empenho: GrupoEmpenho[];
 }
 
 @Injectable()
@@ -221,6 +244,7 @@ export class FatorTransparenciaService {
 
       resultados.push({
         numero_liquidacao: detalhe.numero_liquidacao ?? '',
+        numero_empenho: detalhe.numero_empenho ?? '',
         data: data.trim(),
         fase: faseTrim,
         fase_tipo: faseTipo,
@@ -264,6 +288,10 @@ export class FatorTransparenciaService {
       numero_liquidacao: this.extrairCampo(
         conteudo,
         /Nº Liquidação:&nbsp;<\/strong>(\d+)/,
+      ),
+      numero_empenho: this.extrairCampo(
+        conteudo,
+        /Nº Empenho:&nbsp;<\/strong>(\d+)/,
       ),
       cnpj: this.extrairCampo(
         conteudo,
@@ -368,6 +396,8 @@ export class FatorTransparenciaService {
     }
     const por_ano = Array.from(porAnoMap.values()).sort((a, b) => a.ano - b.ano);
 
+    const grupos_empenho = this.agruparPorEmpenho(empenhos);
+
     return {
       empenhos,
       resumo: {
@@ -387,7 +417,97 @@ export class FatorTransparenciaService {
         quantidade_pagamentos: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').length,
       },
       por_ano,
+      grupos_empenho,
     };
+  }
+
+  /**
+   * Agrupa empenhos com suas liquidações/pagamentos inferindo vínculo por FIFO cronológico.
+   *
+   * Regra: o portal Fator não informa explicitamente a qual empenho cada liquidação/pagamento pertence.
+   * Inferimos pela ordem cronológica — cada liquidação consome saldo do primeiro empenho
+   * ativo (data ≤ data_liquidacao) com saldo_a_liquidar > 0. Idem para pagamentos consumindo saldo
+   * das liquidações.
+   */
+  private agruparPorEmpenho(empenhos: EmpenhoFator[]): GrupoEmpenho[] {
+    // Converte "dd/mm/aaaa" para timestamp para ordenação
+    const toTimestamp = (dataBr: string): number => {
+      const [d, m, y] = (dataBr || '').split('/');
+      if (!d || !m || !y) return 0;
+      return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
+    };
+
+    const empenhosOrdenados = empenhos
+      .filter(e => e.fase_tipo === 'EMPENHO')
+      .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+
+    const liquidacoesOrdenadas = empenhos
+      .filter(e => e.fase_tipo === 'LIQUIDACAO')
+      .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+
+    const pagamentosOrdenados = empenhos
+      .filter(e => e.fase_tipo === 'PAGAMENTO')
+      .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+
+    // Inicializa grupos
+    const grupos: Array<GrupoEmpenho & { _saldo_disponivel: number; _ts: number }> =
+      empenhosOrdenados.map(e => ({
+        empenho: e,
+        liquidacoes: [],
+        pagamentos: [],
+        total_liquidado: 0,
+        total_pago: 0,
+        saldo_a_liquidar: e.valor,
+        saldo_a_pagar: 0,
+        status: 'ATIVO' as const,
+        _saldo_disponivel: e.valor,
+        _ts: toTimestamp(e.data),
+      }));
+
+    // Distribui liquidações — FIFO: primeiro empenho elegível (data ≤ liq.data) com saldo
+    for (const liq of liquidacoesOrdenadas) {
+      const tsLiq = toTimestamp(liq.data);
+      const grupo = grupos.find(g => g._ts <= tsLiq && g._saldo_disponivel > 0.001);
+      if (grupo) {
+        grupo.liquidacoes.push(liq);
+        grupo.total_liquidado += liq.valor;
+        grupo._saldo_disponivel -= liq.valor;
+      } else {
+        // Não há empenho compatível — vincula ao último por falta de alternativa (caso raro)
+        if (grupos.length > 0) {
+          grupos[grupos.length - 1].liquidacoes.push(liq);
+          grupos[grupos.length - 1].total_liquidado += liq.valor;
+        }
+      }
+    }
+
+    // Distribui pagamentos — mesma lógica, consumindo "saldo a pagar" do grupo
+    // (liquidado − já_pago_no_grupo)
+    const saldosPagarPorGrupo = grupos.map(g => g.total_liquidado);
+    for (const pag of pagamentosOrdenados) {
+      const tsPag = toTimestamp(pag.data);
+      const idx = grupos.findIndex(
+        (g, i) => g._ts <= tsPag && saldosPagarPorGrupo[i] > 0.001,
+      );
+      if (idx >= 0) {
+        grupos[idx].pagamentos.push(pag);
+        grupos[idx].total_pago += pag.valor;
+        saldosPagarPorGrupo[idx] -= pag.valor;
+      } else if (grupos.length > 0) {
+        grupos[grupos.length - 1].pagamentos.push(pag);
+        grupos[grupos.length - 1].total_pago += pag.valor;
+      }
+    }
+
+    // Finaliza saldos e status
+    return grupos.map(({ _saldo_disponivel: _s, _ts: _t, ...g }) => {
+      const saldo_a_liquidar = Math.max(0, g.empenho.valor - g.total_liquidado);
+      const saldo_a_pagar = Math.max(0, g.total_liquidado - g.total_pago);
+      let status: GrupoEmpenho['status'] = 'ATIVO';
+      if (saldo_a_liquidar < 0.01 && saldo_a_pagar < 0.01) status = 'QUITADO';
+      else if (g.total_liquidado > 0 || g.total_pago > 0) status = 'PARCIAL';
+      return { ...g, saldo_a_liquidar, saldo_a_pagar, status };
+    });
   }
 
   private extrairCampo(texto: string, regex: RegExp): string {

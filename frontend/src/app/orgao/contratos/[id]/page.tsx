@@ -180,6 +180,7 @@ type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO'
 
 interface EmpenhoFator {
   numero_liquidacao: string
+  numero_empenho: string
   data: string
   fase: string
   fase_tipo: FaseDespesa
@@ -192,6 +193,17 @@ interface EmpenhoFator {
   numero_processo: string
   modalidade: string
   elemento_despesa: string
+}
+
+interface GrupoEmpenho {
+  empenho: EmpenhoFator
+  liquidacoes: EmpenhoFator[]
+  pagamentos: EmpenhoFator[]
+  total_liquidado: number
+  total_pago: number
+  saldo_a_liquidar: number
+  saldo_a_pagar: number
+  status: 'ATIVO' | 'QUITADO' | 'PARCIAL'
 }
 
 interface ResumoAnoEmpenhos {
@@ -223,6 +235,7 @@ interface ResumoEmpenhos {
     quantidade_pagamentos: number
   }
   por_ano: ResumoAnoEmpenhos[]
+  grupos_empenho: GrupoEmpenho[]
 }
 
 const TIPO_ACAO_LABELS: Record<string, { label: string, cor: string, icon: string }> = {
@@ -287,6 +300,7 @@ export default function DetalheContratoOrgaoPage() {
   const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
   const [resumoEmpenhos, setResumoEmpenhos] = useState<ResumoEmpenhos['resumo'] | null>(null)
   const [empenhosPorAno, setEmpenhosPorAno] = useState<ResumoAnoEmpenhos[]>([])
+  const [gruposEmpenho, setGruposEmpenho] = useState<GrupoEmpenho[]>([])
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -411,15 +425,18 @@ export default function DetalheContratoOrgaoPage() {
         setEmpenhos(data.empenhos)
         setResumoEmpenhos(data.resumo)
         setEmpenhosPorAno(data.por_ano || [])
+        setGruposEmpenho(data.grupos_empenho || [])
       } else {
         setEmpenhos([])
         setResumoEmpenhos(null)
         setEmpenhosPorAno([])
+        setGruposEmpenho([])
       }
     } catch {
       setEmpenhos([])
       setResumoEmpenhos(null)
       setEmpenhosPorAno([])
+      setGruposEmpenho([])
     } finally {
       setLoadingEmpenhos(false)
     }
@@ -2063,6 +2080,159 @@ export default function DetalheContratoOrgaoPage() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {/* Empenhos agrupados com suas liquidações/pagamentos (FIFO) */}
+                  {gruposEmpenho.length > 0 && (
+                    <div className="mb-6 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-gray-700">
+                          Execução por Empenho
+                        </h3>
+                        <span className="text-xs text-gray-500">
+                          Vínculo inferido por ordem cronológica (FIFO)
+                        </span>
+                      </div>
+                      {gruposEmpenho.map((grupo, gi) => {
+                        const statusCores = {
+                          ATIVO: 'border-blue-200 bg-blue-50',
+                          PARCIAL: 'border-amber-200 bg-amber-50',
+                          QUITADO: 'border-green-200 bg-green-50',
+                        }
+                        const statusBadge = {
+                          ATIVO: 'bg-blue-100 text-blue-800',
+                          PARCIAL: 'bg-amber-100 text-amber-800',
+                          QUITADO: 'bg-green-100 text-green-800',
+                        }
+                        const statusLabel = {
+                          ATIVO: 'Aguardando execução',
+                          PARCIAL: 'Execução parcial',
+                          QUITADO: 'Quitado',
+                        }
+                        const perc = grupo.empenho.valor > 0
+                          ? (grupo.total_pago / grupo.empenho.valor) * 100
+                          : 0
+                        return (
+                          <details key={gi} className={`rounded-lg border ${statusCores[grupo.status]} group`}>
+                            <summary className="cursor-pointer list-none p-4 flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <Receipt className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-gray-800">
+                                      Empenho {grupo.empenho.numero_empenho ? `#${grupo.empenho.numero_empenho}` : `(${grupo.empenho.data})`}
+                                    </span>
+                                    <Badge variant="outline" className={`text-xs ${statusBadge[grupo.status]}`}>
+                                      {statusLabel[grupo.status]}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {grupo.empenho.data} · {grupo.empenho.elemento_despesa}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4 text-right">
+                                <div>
+                                  <p className="text-xs text-gray-500">Empenhado</p>
+                                  <p className="font-bold text-gray-800">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.empenho.valor)}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Pago</p>
+                                  <p className="font-bold text-green-700">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.total_pago)}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Saldo</p>
+                                  <p className={`font-bold ${grupo.saldo_a_liquidar + grupo.saldo_a_pagar > 0.01 ? 'text-amber-700' : 'text-green-700'}`}>
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.saldo_a_liquidar + grupo.saldo_a_pagar)}
+                                  </p>
+                                </div>
+                              </div>
+                            </summary>
+                            <div className="border-t bg-white/60 p-4 space-y-3">
+                              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className="h-2 bg-gradient-to-r from-green-500 to-emerald-500"
+                                  style={{ width: `${Math.min(100, perc)}%` }}
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                <div>
+                                  <span className="text-gray-500">Liquidado:</span>{' '}
+                                  <span className="font-medium text-purple-700">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.total_liquidado)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Saldo a liquidar:</span>{' '}
+                                  <span className="font-medium text-amber-700">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.saldo_a_liquidar)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Saldo a pagar:</span>{' '}
+                                  <span className="font-medium text-amber-700">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.saldo_a_pagar)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">% Pago:</span>{' '}
+                                  <span className="font-medium text-gray-800">{perc.toFixed(1)}%</span>
+                                </div>
+                              </div>
+
+                              {grupo.empenho.bem_servico && (
+                                <p className="text-xs text-gray-600 italic border-l-2 border-gray-300 pl-2">
+                                  {grupo.empenho.bem_servico}
+                                </p>
+                              )}
+
+                              {(grupo.liquidacoes.length > 0 || grupo.pagamentos.length > 0) && (
+                                <div className="overflow-x-auto rounded border">
+                                  <table className="w-full text-xs">
+                                    <thead className="bg-gray-50 border-b">
+                                      <tr>
+                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Data</th>
+                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Fase</th>
+                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Nº</th>
+                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Processo</th>
+                                        <th className="text-right px-2 py-1 font-medium text-gray-600">Valor</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {[...grupo.liquidacoes, ...grupo.pagamentos]
+                                        .sort((a, b) => {
+                                          const [da, ma, ya] = a.data.split('/').map(Number)
+                                          const [db, mb, yb] = b.data.split('/').map(Number)
+                                          return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime()
+                                        })
+                                        .map((e, ei) => (
+                                          <tr key={ei} className="border-b last:border-0">
+                                            <td className="px-2 py-1 text-gray-600">{e.data}</td>
+                                            <td className="px-2 py-1">
+                                              <Badge variant="outline" className={`text-[10px] ${
+                                                e.fase_tipo === 'LIQUIDACAO' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+                                              }`}>
+                                                {e.fase_tipo === 'LIQUIDACAO' ? 'Liquidação' : 'Pagamento'}
+                                              </Badge>
+                                            </td>
+                                            <td className="px-2 py-1 font-mono text-gray-700">{e.numero_liquidacao || '—'}</td>
+                                            <td className="px-2 py-1 text-gray-600">{e.numero_processo || '—'}</td>
+                                            <td className="px-2 py-1 text-right font-medium">{e.valor_formatado}</td>
+                                          </tr>
+                                        ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          </details>
+                        )
+                      })}
                     </div>
                   )}
 
