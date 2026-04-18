@@ -1,7 +1,7 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { DataSource, Repository, MoreThan } from 'typeorm';
 import { Fornecedor, NivelCadastro, StatusCadastro, PorteEmpresa, TipoPessoa } from './entities/fornecedor.entity';
 import { FornecedorDocumento, StatusDocumento } from './entities/fornecedor-documento.entity';
 import { FornecedorSocio } from './entities/fornecedor-socio.entity';
@@ -28,6 +28,7 @@ export class FornecedoresService {
     private readonly atividadeRepository: Repository<FornecedorAtividade>,
     @InjectRepository(PasswordResetToken)
     private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
+    private readonly dataSource: DataSource,
     private readonly cnpjService: CnpjService,
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
@@ -98,11 +99,74 @@ export class FornecedoresService {
 
   async delete(id: string): Promise<void> {
     const fornecedor = await this.findOne(id);
-    // Deleta relacionamentos primeiro
-    await this.socioRepository.delete({ fornecedor_id: id });
-    await this.atividadeRepository.delete({ fornecedor_id: id });
-    await this.documentoRepository.delete({ fornecedor_id: id });
-    // Deleta o fornecedor
+
+    // 1) Verifica vínculos bloqueantes em tabelas críticas
+    // Se o fornecedor tem contratos, propostas, lances, atas etc, não pode ser excluído
+    const tabelasBloqueantes: Array<{ tabela: string; descricao: string }> = [
+      { tabela: 'contratos', descricao: 'contratos' },
+      { tabela: 'propostas', descricao: 'propostas em licitações' },
+      { tabela: 'lances', descricao: 'lances em sessões' },
+      { tabela: 'atas_registro_preco', descricao: 'atas de registro de preço' },
+      { tabela: 'ordens_fornecimento', descricao: 'ordens de fornecimento' },
+      { tabela: 'credenciamentos', descricao: 'credenciamentos' },
+      { tabela: 'impugnacoes', descricao: 'impugnações' },
+      { tabela: 'esclarecimentos', descricao: 'esclarecimentos' },
+      { tabela: 'contratacoes_direta', descricao: 'contratações diretas' },
+    ];
+
+    const vinculos: string[] = [];
+    for (const { tabela, descricao } of tabelasBloqueantes) {
+      try {
+        const [{ count }] = await this.dataSource.query(
+          `SELECT COUNT(*)::int AS count FROM ${tabela} WHERE fornecedor_id = $1`,
+          [id],
+        );
+        if (count > 0) {
+          vinculos.push(`${count} ${descricao}`);
+        }
+      } catch {
+        // Se a tabela não existir, ignora silenciosamente
+      }
+    }
+
+    if (vinculos.length > 0) {
+      throw new ConflictException(
+        `Não é possível excluir este fornecedor porque existem registros vinculados: ${vinculos.join(', ')}. Considere suspender o fornecedor em vez de excluir.`,
+      );
+    }
+
+    // 2) Limpa tabelas secundárias (histórico, tokens, configs) via raw SQL
+    // Ignora erros individuais — se a tabela não existir, segue em frente
+    const tabelasSecundarias = [
+      'fornecedor_documentos',
+      'fornecedor_socios',
+      'fornecedor_atividades',
+      'password_reset_tokens',
+      'nfse_config_fornecedor',
+      'nfse',
+      'nota_fiscal_fornecedor',
+      'recebimentos',
+      'mapeamentos_anonimos',
+      'evento_sessao',
+      'mensagens_solicitacao_medicao',
+      'medicoes',
+      'agente_log',
+      'whatsapp_agent_sessions',
+      'item_licitacao',
+    ];
+
+    for (const tabela of tabelasSecundarias) {
+      try {
+        await this.dataSource.query(
+          `DELETE FROM ${tabela} WHERE fornecedor_id = $1`,
+          [id],
+        );
+      } catch {
+        // Tabela pode não existir ou ter nome diferente — ignora
+      }
+    }
+
+    // 3) Remove o fornecedor
     await this.fornecedorRepository.remove(fornecedor);
   }
 

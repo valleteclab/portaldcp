@@ -309,8 +309,14 @@ export default function AdminFornecedoresPage() {
         setModalExcluir(false)
         setFornecedorSelecionado(null)
       } else {
-        const data = await res.json()
-        alert(`Erro: ${data.message || 'Erro ao excluir fornecedor'}`)
+        let msg = 'Erro ao excluir fornecedor'
+        try {
+          const data = await res.json()
+          msg = data.message || data.error || msg
+        } catch {
+          msg = `${msg} (HTTP ${res.status})`
+        }
+        alert(msg)
       }
     } catch (error) {
       console.error('Erro ao excluir:', error)
