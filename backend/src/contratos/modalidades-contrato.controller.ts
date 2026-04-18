@@ -1175,7 +1175,7 @@ export class ModalidadesContratoController {
   ) {
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
-      select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano'],
+      select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano', 'valor_global'],
     });
     if (!contrato) {
       throw new NotFoundException('Contrato não encontrado');
@@ -1190,6 +1190,9 @@ export class ModalidadesContratoController {
       ano: anoConsulta,
     });
 
-    return this.fatorTransparencia.calcularResumo(empenhos);
+    return this.fatorTransparencia.calcularResumo(empenhos, {
+      valor_global: Number(contrato.valor_global ?? 0),
+      ano_contrato: contrato.ano ?? anoConsulta,
+    });
   }
 }

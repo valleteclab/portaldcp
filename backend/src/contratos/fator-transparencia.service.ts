@@ -20,17 +20,40 @@ export interface EmpenhoFator {
   elemento_despesa: string;
 }
 
+export interface ResumoAnoEmpenhos {
+  ano: number;
+  total_empenhado: number;
+  total_liquidado: number;
+  total_pago: number;
+  quantidade_empenhos: number;
+  quantidade_liquidacoes: number;
+  quantidade_pagamentos: number;
+}
+
 export interface ResumoEmpenhos {
   empenhos: EmpenhoFator[];
   resumo: {
+    valor_global_contrato: number;
+    ano_contrato: number;
+    ano_atual: number;
     total_empenhado: number;
     total_liquidado: number;
     total_pago: number;
+    /** Empenhado − Pago (saldo financeiro a pagar dentro do empenho) */
     saldo_empenhado: number;
+    /** Valor Global − Empenhado (saldo orçamentário a empenhar em exercícios futuros) */
+    saldo_a_empenhar: number;
+    /** Percentual do valor global já empenhado (0..100) */
+    percentual_execucao_orcamentaria: number;
+    /** Percentual do empenhado já pago (0..100) */
+    percentual_execucao_financeira: number;
+    /** True quando ano_contrato < ano_atual e ainda há saldo_a_empenhar > 0 */
+    requer_novo_empenho_anual: boolean;
     quantidade_empenhos: number;
     quantidade_liquidacoes: number;
     quantidade_pagamentos: number;
   };
+  por_ano: ResumoAnoEmpenhos[];
 }
 
 @Injectable()
@@ -289,18 +312,80 @@ export class FatorTransparenciaService {
     return 'OUTRO';
   }
 
-  calcularResumo(empenhos: EmpenhoFator[]): ResumoEmpenhos {
-    const resumo = {
-      total_empenhado: empenhos.filter(e => e.fase_tipo === 'EMPENHO').reduce((s, e) => s + e.valor, 0),
-      total_liquidado: empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').reduce((s, e) => s + e.valor, 0),
-      total_pago: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').reduce((s, e) => s + e.valor, 0),
-      saldo_empenhado: 0,
-      quantidade_empenhos: empenhos.filter(e => e.fase_tipo === 'EMPENHO').length,
-      quantidade_liquidacoes: empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').length,
-      quantidade_pagamentos: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').length,
+  calcularResumo(
+    empenhos: EmpenhoFator[],
+    opts: { valor_global?: number; ano_contrato?: number } = {},
+  ): ResumoEmpenhos {
+    const anoAtual = new Date().getFullYear();
+    const valorGlobal = Number(opts.valor_global ?? 0);
+    const anoContrato = opts.ano_contrato ?? anoAtual;
+
+    const total_empenhado = empenhos.filter(e => e.fase_tipo === 'EMPENHO').reduce((s, e) => s + e.valor, 0);
+    const total_liquidado = empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').reduce((s, e) => s + e.valor, 0);
+    const total_pago = empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').reduce((s, e) => s + e.valor, 0);
+
+    const saldo_empenhado = total_empenhado - total_pago;
+    const saldo_a_empenhar = Math.max(0, valorGlobal - total_empenhado);
+    const percentual_execucao_orcamentaria =
+      valorGlobal > 0 ? Math.min(100, (total_empenhado / valorGlobal) * 100) : 0;
+    const percentual_execucao_financeira =
+      total_empenhado > 0 ? Math.min(100, (total_pago / total_empenhado) * 100) : 0;
+
+    const requer_novo_empenho_anual =
+      valorGlobal > 0 && saldo_a_empenhar > 0.01 && anoContrato <= anoAtual;
+
+    // Agrupa por ano de exercício (extrai do campo "data" no formato dd/mm/aaaa)
+    const porAnoMap = new Map<number, ResumoAnoEmpenhos>();
+    for (const e of empenhos) {
+      const anoMatch = e.data?.match(/(\d{4})\s*$/);
+      if (!anoMatch) continue;
+      const ano = parseInt(anoMatch[1], 10);
+      let bucket = porAnoMap.get(ano);
+      if (!bucket) {
+        bucket = {
+          ano,
+          total_empenhado: 0,
+          total_liquidado: 0,
+          total_pago: 0,
+          quantidade_empenhos: 0,
+          quantidade_liquidacoes: 0,
+          quantidade_pagamentos: 0,
+        };
+        porAnoMap.set(ano, bucket);
+      }
+      if (e.fase_tipo === 'EMPENHO') {
+        bucket.total_empenhado += e.valor;
+        bucket.quantidade_empenhos++;
+      } else if (e.fase_tipo === 'LIQUIDACAO') {
+        bucket.total_liquidado += e.valor;
+        bucket.quantidade_liquidacoes++;
+      } else if (e.fase_tipo === 'PAGAMENTO') {
+        bucket.total_pago += e.valor;
+        bucket.quantidade_pagamentos++;
+      }
+    }
+    const por_ano = Array.from(porAnoMap.values()).sort((a, b) => a.ano - b.ano);
+
+    return {
+      empenhos,
+      resumo: {
+        valor_global_contrato: valorGlobal,
+        ano_contrato: anoContrato,
+        ano_atual: anoAtual,
+        total_empenhado,
+        total_liquidado,
+        total_pago,
+        saldo_empenhado,
+        saldo_a_empenhar,
+        percentual_execucao_orcamentaria,
+        percentual_execucao_financeira,
+        requer_novo_empenho_anual,
+        quantidade_empenhos: empenhos.filter(e => e.fase_tipo === 'EMPENHO').length,
+        quantidade_liquidacoes: empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').length,
+        quantidade_pagamentos: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').length,
+      },
+      por_ano,
     };
-    resumo.saldo_empenhado = resumo.total_empenhado - resumo.total_pago;
-    return { empenhos, resumo };
   }
 
   private extrairCampo(texto: string, regex: RegExp): string {

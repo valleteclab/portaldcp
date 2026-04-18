@@ -194,17 +194,35 @@ interface EmpenhoFator {
   elemento_despesa: string
 }
 
+interface ResumoAnoEmpenhos {
+  ano: number
+  total_empenhado: number
+  total_liquidado: number
+  total_pago: number
+  quantidade_empenhos: number
+  quantidade_liquidacoes: number
+  quantidade_pagamentos: number
+}
+
 interface ResumoEmpenhos {
   empenhos: EmpenhoFator[]
   resumo: {
+    valor_global_contrato: number
+    ano_contrato: number
+    ano_atual: number
     total_empenhado: number
     total_liquidado: number
     total_pago: number
     saldo_empenhado: number
+    saldo_a_empenhar: number
+    percentual_execucao_orcamentaria: number
+    percentual_execucao_financeira: number
+    requer_novo_empenho_anual: boolean
     quantidade_empenhos: number
     quantidade_liquidacoes: number
     quantidade_pagamentos: number
   }
+  por_ano: ResumoAnoEmpenhos[]
 }
 
 const TIPO_ACAO_LABELS: Record<string, { label: string, cor: string, icon: string }> = {
@@ -268,6 +286,7 @@ export default function DetalheContratoOrgaoPage() {
   const [historico, setHistorico] = useState<HistoricoContrato[]>([])
   const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
   const [resumoEmpenhos, setResumoEmpenhos] = useState<ResumoEmpenhos['resumo'] | null>(null)
+  const [empenhosPorAno, setEmpenhosPorAno] = useState<ResumoAnoEmpenhos[]>([])
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -391,13 +410,16 @@ export default function DetalheContratoOrgaoPage() {
         const data: ResumoEmpenhos = await res.json()
         setEmpenhos(data.empenhos)
         setResumoEmpenhos(data.resumo)
+        setEmpenhosPorAno(data.por_ano || [])
       } else {
         setEmpenhos([])
         setResumoEmpenhos(null)
+        setEmpenhosPorAno([])
       }
     } catch {
       setEmpenhos([])
       setResumoEmpenhos(null)
+      setEmpenhosPorAno([])
     } finally {
       setLoadingEmpenhos(false)
     }
@@ -1912,6 +1934,66 @@ export default function DetalheContratoOrgaoPage() {
                 </div>
               ) : (
                 <>
+                  {/* Execução orçamentária (valor global × empenhado) */}
+                  {resumoEmpenhos && resumoEmpenhos.valor_global_contrato > 0 && (
+                    <div className="mb-6 space-y-4">
+                      <div className="rounded-lg border bg-gradient-to-br from-slate-50 to-white p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-xs uppercase font-medium text-slate-500">Execução Orçamentária</p>
+                            <p className="text-xs text-slate-400">Valor global × total empenhado em todos os exercícios</p>
+                          </div>
+                          <p className="text-sm font-semibold text-slate-700">
+                            {resumoEmpenhos.percentual_execucao_orcamentaria.toFixed(1)}%
+                          </p>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                          <div
+                            className="h-3 bg-gradient-to-r from-indigo-500 to-blue-500 transition-all"
+                            style={{ width: `${Math.min(100, resumoEmpenhos.percentual_execucao_orcamentaria)}%` }}
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3 mt-3 text-xs">
+                          <div>
+                            <p className="text-slate-500">Valor Global</p>
+                            <p className="font-semibold text-slate-800">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.valor_global_contrato)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-slate-500">Empenhado</p>
+                            <p className="font-semibold text-blue-700">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.total_empenhado)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-slate-500">Saldo a Empenhar</p>
+                            <p className={`font-semibold ${resumoEmpenhos.saldo_a_empenhar > 0.01 ? 'text-amber-700' : 'text-green-700'}`}>
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.saldo_a_empenhar)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {resumoEmpenhos.requer_novo_empenho_anual && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+                          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="text-sm">
+                            <p className="font-medium text-amber-900">Empenho do exercício seguinte pendente</p>
+                            <p className="text-amber-800 mt-0.5">
+                              Este contrato plurianual ainda tem{' '}
+                              <strong>
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoEmpenhos.saldo_a_empenhar)}
+                              </strong>{' '}
+                              a empenhar. Conforme Lei 4.320/64, o órgão deve realizar <strong>apostilamento</strong> e novo empenho no próximo exercício
+                              orçamentário até cobrir o valor global.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Resumo por fase */}
                   {resumoEmpenhos && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -1945,6 +2027,42 @@ export default function DetalheContratoOrgaoPage() {
                           {resumoEmpenhos.saldo_empenhado >= 0 ? 'disponível' : 'excedido'}
                         </p>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Agrupamento por ano de exercício */}
+                  {empenhosPorAno.length > 1 && (
+                    <div className="mb-6 overflow-x-auto rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b">
+                            <th className="text-left px-3 py-2 font-medium text-slate-600">Exercício</th>
+                            <th className="text-right px-3 py-2 font-medium text-slate-600">Empenhado</th>
+                            <th className="text-right px-3 py-2 font-medium text-slate-600">Liquidado</th>
+                            <th className="text-right px-3 py-2 font-medium text-slate-600">Pago</th>
+                            <th className="text-right px-3 py-2 font-medium text-slate-600">Qtd.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {empenhosPorAno.map((a) => (
+                            <tr key={a.ano} className="border-b last:border-0 hover:bg-slate-50">
+                              <td className="px-3 py-2 font-semibold text-slate-800">{a.ano}</td>
+                              <td className="px-3 py-2 text-right text-blue-700 font-medium">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(a.total_empenhado)}
+                              </td>
+                              <td className="px-3 py-2 text-right text-purple-700">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(a.total_liquidado)}
+                              </td>
+                              <td className="px-3 py-2 text-right text-green-700">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(a.total_pago)}
+                              </td>
+                              <td className="px-3 py-2 text-right text-slate-500 text-xs">
+                                {a.quantidade_empenhos}E / {a.quantidade_liquidacoes}L / {a.quantidade_pagamentos}P
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
 
