@@ -66,24 +66,53 @@ export class FatorTransparenciaService {
     const anos: number[] = [];
     for (let a = anoInicio; a <= anoFim; a++) anos.push(a);
 
-    // Normaliza o número de contrato: remove sufixos como "3ªAD", "2º TA", "ADITIVO" etc.
-    // Mantém apenas o padrão NNN/AAAA ou NNN-AAAA no início
+    // Normaliza o número de contrato para NNN/AAAA (remove sufixos "3ªAD", "TA", etc.)
     const nContratoNormalizado = this.normalizarNumeroContrato(params.nContrato);
-    const paramsNormalizados = { ...params, nContrato: nContratoNormalizado };
+
+    // Estratégia: NÃO enviar nContrato ao portal (match exato falha com variações tipo
+    // "028/2023 3ºAD", "028-2023-ADITIVO" etc). Busca por CNPJ apenas e filtra localmente
+    // comparando o numero_contrato extraído de cada dialog.
+    const paramsSemContrato = { ...params, nContrato: '' };
 
     const resultadosPorAno = await Promise.all(
-      anos.map((ano) => this.buscarPorAno(orgId, paramsNormalizados, ano)),
+      anos.map((ano) => this.buscarPorAno(orgId, paramsSemContrato, ano)),
     );
 
-    // Mescla e deduplica por numero_liquidacao (ou pela posição quando vazio)
+    // Mescla, deduplica e filtra pelo número de contrato normalizado
     const todos = resultadosPorAno.flat();
+    const chaveContratoAlvo = this.chaveContrato(nContratoNormalizado);
+
     const vistos = new Set<string>();
     return todos.filter((e, idx) => {
-      const chave = e.numero_liquidacao || `idx-${idx}`;
+      // Filtra por número de contrato quando disponível no dialog
+      if (chaveContratoAlvo) {
+        const chaveEmpenho = this.chaveContrato(e.numero_contrato);
+        // Aceita: (a) match exato, (b) numero_contrato do empenho começa com o alvo
+        //         (ex: "028/2023-3ADITIVO" bate com "028/2023"),
+        //         (c) dialog não informou contrato (chaveEmpenho vazia) → descarta
+        if (!chaveEmpenho) return false;
+        if (!chaveEmpenho.startsWith(chaveContratoAlvo)) return false;
+      }
+
+      const chave = e.numero_liquidacao || `idx-${idx}-${e.data}`;
       if (vistos.has(chave)) return false;
       vistos.add(chave);
       return true;
     });
+  }
+
+  /**
+   * Chave comparável de número de contrato: apenas dígitos.
+   * "028/2023" → "0282023", "028-2023 3ºAD" → "02820233"
+   * Retorna apenas os primeiros 7 dígitos (NNNAAAA) para comparação estável.
+   */
+  private chaveContrato(numero?: string): string {
+    if (!numero) return '';
+    const digitos = numero.replace(/\D/g, '');
+    if (digitos.length < 7) return digitos;
+    // Pega os primeiros NNNAAAA (número + 4 dígitos do ano)
+    // Assume que os primeiros 3-4 dígitos são o número e os 4 seguintes o ano
+    return digitos.slice(0, 7);
   }
 
   private async buscarPorAno(
@@ -221,10 +250,12 @@ export class FatorTransparenciaService {
           /<strong>Bem \/Serviço prestado:<\/strong>\s*([\s\S]*?)<\/p>/,
         ),
       ),
-      numero_contrato: this.extrairCampo(
-        conteudo,
-        /<strong>Nº Contrato:<\/strong>\s*([^<\-&]+)/,
-      ).trim(),
+      numero_contrato: this.limparHtml(
+        this.extrairCampo(
+          conteudo,
+          /<strong>Nº Contrato:<\/strong>\s*([^<]+?)(?:<|&nbsp;|$)/,
+        ),
+      ),
       modalidade: this.limparHtml(
         this.extrairCampo(conteudo, /<strong>Modalidade:<\/strong>\s*(.*?)\s*&/),
       ),
