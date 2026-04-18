@@ -2096,7 +2096,7 @@ export default function DetalheContratoOrgaoPage() {
                           Execução por Exercício
                         </h3>
                         <span className="text-xs text-gray-500">
-                          Jan/Fev do ano N → exercício N-1 · contratos com início em Março
+                          Empenho: mês &lt; início → N-1 · Pagto: mês ≤ início → N-1
                         </span>
                       </div>
                       {gruposExercicio.map((grupo) => {
