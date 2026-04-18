@@ -379,12 +379,16 @@ export class FatorTransparenciaService {
     const requer_novo_empenho_anual =
       valorGlobal > 0 && saldo_a_empenhar > 0.01 && anoContrato <= anoAtual;
 
-    // Agrupa por ano de exercício (extrai do campo "data" no formato dd/mm/aaaa)
+    // Agrupa por exercício (ciclo): Jan/Fev do ano N → exercício N-1
+    // Motivo: contratos com início em Março têm apostilamento em Jan que fecha o ciclo anterior.
     const porAnoMap = new Map<number, ResumoAnoEmpenhos>();
     for (const e of empenhos) {
-      const anoMatch = e.data?.match(/(\d{4})\s*$/);
-      if (!anoMatch) continue;
-      const ano = parseInt(anoMatch[1], 10);
+      const dataPartes = (e.data || '').split('/');
+      if (dataPartes.length !== 3) continue;
+      const mes = parseInt(dataPartes[1], 10) || 0;
+      const anoCal = parseInt(dataPartes[2], 10) || 0;
+      // Jan/Fev → exercício do ano anterior; Mar+ → exercício do próprio ano
+      const ano = mes <= 2 ? anoCal - 1 : anoCal;
       let bucket = porAnoMap.get(ano);
       if (!bucket) {
         bucket = {
@@ -437,56 +441,34 @@ export class FatorTransparenciaService {
   }
 
   /**
-   * Agrupa registros por ciclo de aditivo/exercício.
+   * Agrupa registros por exercício (ciclo de aditivo).
    *
-   * REGRA DE CICLO: Apostilamentos (empenhos/liquidações/pagamentos com texto contendo
-   * "APOSTILAMENTO") dados no início do ano N pertencem ao CICLO do ano N-1 — pois o
-   * apostilamento de janeiro "fecha" o ciclo do contrato/aditivo do ano anterior (costuma
-   * cobrir as últimas 3 parcelas: Jan, Fev e Mar do ano N, que são serviços rendidos sob
-   * o aditivo do ano N-1).
+   * REGRA: Contratos com início em Março (mês 3) seguem o padrão:
+   * - O apostilamento de Janeiro (02/01/N) "fecha" o ciclo do ano N-1,
+   *   cobrindo as parcelas de Jan, Fev e Mar do ano N que ainda pertencem
+   *   ao exercício N-1.
+   * - Os pagamentos de Jan/Fev do ano N também pertencem ao exercício N-1.
+   * - A partir de Março do ano N, tudo pertence ao exercício N.
    *
-   * Como liquidações no portal Fator geralmente NÃO trazem o texto "APOSTILAMENTO"
-   * (apenas o pagamento correspondente), propaga-se o ciclo da liquidação a partir do
-   * pagamento pareado via `numero_liquidacao + ano`.
+   * Portanto: registros com mês ≤ 2 (Jan/Fev) do ano N → exercício N-1.
+   *           registros com mês ≥ 3 (Mar+) do ano N → exercício N.
+   *
+   * Exemplo (contrato 028/2023, valor global 124.800/ano):
+   * - Exercício 2023: empenho 97.413 (Mar) + apostilamento 31.200 (Jan/2024)
+   *   − anulação 3.813 (Dez/2023) = 124.800 empenhado, 9+2=11 pagamentos
+   * - Exercício 2024: empenho 97.066 (Mar) + apostilamento 31.200 (Jan/2025)
+   *   − anulação 3.466 (Abr/2024) = 124.800 empenhado, 10+2=12 pagamentos
    *
    * Status:
-   * - ENCERRADO: ciclo anterior ao atual e saldos zerados
-   * - EXECUCAO:  ciclo em andamento
-   * - ABERTO:    ciclo anterior com saldo residual (anomalia)
+   * - ENCERRADO: ano anterior com saldos zerados
+   * - EXECUCAO:  ano corrente (ou futuro)
+   * - ABERTO:    ano anterior com saldo residual (anomalia a investigar)
    */
   private agruparPorExercicio(empenhos: EmpenhoFator[], anoAtual: number): GrupoExercicio[] {
-    const anoDe = (dataBr: string): number => {
-      const partes = (dataBr || '').split('/');
-      return partes.length === 3 ? parseInt(partes[2], 10) || 0 : 0;
-    };
     const toTimestamp = (dataBr: string): number => {
       const [d, m, y] = (dataBr || '').split('/');
       if (!d || !m || !y) return 0;
       return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
-    };
-    const ehApostilamento = (e: EmpenhoFator): boolean =>
-      /APOSTILAMENTO/i.test(e.bem_servico || '');
-
-    // Passo 1: pré-calcula o ciclo dos pagamentos (via texto); propaga depois para liquidações pareadas
-    const cicloPorLiqKey = new Map<string, number>();
-    for (const p of empenhos) {
-      if (p.fase_tipo !== 'PAGAMENTO') continue;
-      const ano = anoDe(p.data);
-      if (!ano) continue;
-      const ciclo = ehApostilamento(p) ? ano - 1 : ano;
-      if (p.numero_liquidacao) {
-        cicloPorLiqKey.set(`${p.numero_liquidacao}|${ano}`, ciclo);
-      }
-    }
-
-    const cicloDe = (e: EmpenhoFator): number => {
-      const ano = anoDe(e.data);
-      if (!ano) return 0;
-      if (e.fase_tipo === 'LIQUIDACAO' && e.numero_liquidacao) {
-        const viaPag = cicloPorLiqKey.get(`${e.numero_liquidacao}|${ano}`);
-        if (viaPag !== undefined) return viaPag;
-      }
-      return ehApostilamento(e) ? ano - 1 : ano;
     };
 
     const mapa = new Map<number, GrupoExercicio>();
@@ -514,7 +496,12 @@ export class FatorTransparenciaService {
     };
 
     for (const e of empenhos) {
-      const ciclo = cicloDe(e);
+      const dataPartes = (e.data || '').split('/');
+      if (dataPartes.length !== 3) continue;
+      const mes = parseInt(dataPartes[1], 10) || 0;
+      const anoCal = parseInt(dataPartes[2], 10) || 0;
+      // Jan/Fev → exercício do ano anterior; Mar+ → exercício do próprio ano
+      const ciclo = mes <= 2 ? anoCal - 1 : anoCal;
       if (!ciclo) continue;
       const g = obter(ciclo);
       if (e.fase_tipo === 'EMPENHO') {

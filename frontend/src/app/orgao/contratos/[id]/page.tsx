@@ -2096,7 +2096,7 @@ export default function DetalheContratoOrgaoPage() {
                           Execução por Exercício
                         </h3>
                         <span className="text-xs text-gray-500">
-                          Ciclo de aditivo · apostilamentos de Janeiro fecham o ciclo anterior
+                          Jan/Fev do ano N → exercício N-1 · contratos com início em Março
                         </span>
                       </div>
                       {gruposExercicio.map((grupo) => {
