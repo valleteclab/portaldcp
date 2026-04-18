@@ -59,15 +59,20 @@ export class FatorTransparenciaService {
     const anoContrato = params.ano ?? new Date().getFullYear();
     const anoAtual = new Date().getFullYear();
 
-    // Busca o ano do contrato E o ano atual quando forem diferentes
-    // (ex: contrato de 2025 pode ter empenhos emitidos em 2026)
-    const anos =
-      anoContrato !== anoAtual
-        ? [anoContrato, anoAtual]
-        : [anoContrato];
+    // Busca todos os anos do intervalo [anoContrato … anoAtual]
+    // Contratos de longa duração (aditivos) podem ter empenhos em qualquer ano do período
+    const anoInicio = Math.min(anoContrato, anoAtual);
+    const anoFim = Math.max(anoContrato, anoAtual);
+    const anos: number[] = [];
+    for (let a = anoInicio; a <= anoFim; a++) anos.push(a);
+
+    // Normaliza o número de contrato: remove sufixos como "3ªAD", "2º TA", "ADITIVO" etc.
+    // Mantém apenas o padrão NNN/AAAA ou NNN-AAAA no início
+    const nContratoNormalizado = this.normalizarNumeroContrato(params.nContrato);
+    const paramsNormalizados = { ...params, nContrato: nContratoNormalizado };
 
     const resultadosPorAno = await Promise.all(
-      anos.map((ano) => this.buscarPorAno(orgId, params, ano)),
+      anos.map((ano) => this.buscarPorAno(orgId, paramsNormalizados, ano)),
     );
 
     // Mescla e deduplica por numero_liquidacao (ou pela posição quando vazio)
@@ -230,6 +235,19 @@ export class FatorTransparenciaService {
         ),
       ),
     };
+  }
+
+  /**
+   * Normaliza número de contrato removendo sufixos de aditivos/adendos.
+   * Ex: "028/2023 3ªAD" → "028/2023"
+   *     "011-2024 2º TA" → "011-2024"
+   *     "045/2024 ADITIVO 01" → "045/2024"
+   * Mantém apenas o primeiro padrão NNN/AAAA ou NNN-AAAA encontrado.
+   */
+  private normalizarNumeroContrato(numero?: string): string {
+    if (!numero) return '';
+    const match = numero.trim().match(/^(\d+[\/-]\d{4})/);
+    return match ? match[1] : numero.trim();
   }
 
   private classificarFase(fase: string): FaseDespesa {
