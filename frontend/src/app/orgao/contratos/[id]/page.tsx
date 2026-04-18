@@ -195,16 +195,20 @@ interface EmpenhoFator {
   elemento_despesa: string
 }
 
-interface GrupoEmpenho {
-  empenho: EmpenhoFator
-  reforcos: EmpenhoFator[]
+interface GrupoExercicio {
+  ano: number
+  empenhos_positivos: EmpenhoFator[]
+  anulacoes: EmpenhoFator[]
   liquidacoes: EmpenhoFator[]
   pagamentos: EmpenhoFator[]
+  total_empenhado_bruto: number
+  total_anulado: number
+  total_empenhado_liquido: number
   total_liquidado: number
   total_pago: number
   saldo_a_liquidar: number
   saldo_a_pagar: number
-  status: 'ATIVO' | 'QUITADO' | 'PARCIAL'
+  status: 'ENCERRADO' | 'EXECUCAO' | 'ABERTO'
 }
 
 interface ResumoAnoEmpenhos {
@@ -236,7 +240,7 @@ interface ResumoEmpenhos {
     quantidade_pagamentos: number
   }
   por_ano: ResumoAnoEmpenhos[]
-  grupos_empenho: GrupoEmpenho[]
+  grupos_exercicio: GrupoExercicio[]
 }
 
 const TIPO_ACAO_LABELS: Record<string, { label: string, cor: string, icon: string }> = {
@@ -301,7 +305,7 @@ export default function DetalheContratoOrgaoPage() {
   const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
   const [resumoEmpenhos, setResumoEmpenhos] = useState<ResumoEmpenhos['resumo'] | null>(null)
   const [empenhosPorAno, setEmpenhosPorAno] = useState<ResumoAnoEmpenhos[]>([])
-  const [gruposEmpenho, setGruposEmpenho] = useState<GrupoEmpenho[]>([])
+  const [gruposExercicio, setGruposExercicio] = useState<GrupoExercicio[]>([])
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -426,18 +430,18 @@ export default function DetalheContratoOrgaoPage() {
         setEmpenhos(data.empenhos)
         setResumoEmpenhos(data.resumo)
         setEmpenhosPorAno(data.por_ano || [])
-        setGruposEmpenho(data.grupos_empenho || [])
+        setGruposExercicio(data.grupos_exercicio || [])
       } else {
         setEmpenhos([])
         setResumoEmpenhos(null)
         setEmpenhosPorAno([])
-        setGruposEmpenho([])
+        setGruposExercicio([])
       }
     } catch {
       setEmpenhos([])
       setResumoEmpenhos(null)
       setEmpenhosPorAno([])
-      setGruposEmpenho([])
+      setGruposExercicio([])
     } finally {
       setLoadingEmpenhos(false)
     }
@@ -2084,72 +2088,78 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                   )}
 
-                  {/* Empenhos agrupados com suas liquidações/pagamentos (FIFO) */}
-                  {gruposEmpenho.length > 0 && (
+                  {/* Execução por Exercício (ano fiscal) */}
+                  {gruposExercicio.length > 0 && (
                     <div className="mb-6 space-y-3">
                       <div className="flex items-center justify-between">
                         <h3 className="text-sm font-semibold text-gray-700">
-                          Execução por Empenho
+                          Execução por Exercício
                         </h3>
                         <span className="text-xs text-gray-500">
-                          Vínculo inferido por ordem cronológica (FIFO)
+                          Ciclo anual: empenhos, anulações, liquidações e pagamentos
                         </span>
                       </div>
-                      {gruposEmpenho.map((grupo, gi) => {
-                        const statusCores = {
-                          ATIVO: 'border-blue-200 bg-blue-50',
-                          PARCIAL: 'border-amber-200 bg-amber-50',
-                          QUITADO: 'border-green-200 bg-green-50',
+                      {gruposExercicio.map((grupo) => {
+                        const statusCores: Record<string, string> = {
+                          EXECUCAO: 'border-blue-200 bg-blue-50',
+                          ENCERRADO: 'border-green-200 bg-green-50',
+                          ABERTO: 'border-amber-200 bg-amber-50',
                         }
-                        const statusBadge = {
-                          ATIVO: 'bg-blue-100 text-blue-800',
-                          PARCIAL: 'bg-amber-100 text-amber-800',
-                          QUITADO: 'bg-green-100 text-green-800',
+                        const statusBadge: Record<string, string> = {
+                          EXECUCAO: 'bg-blue-100 text-blue-800',
+                          ENCERRADO: 'bg-green-100 text-green-800',
+                          ABERTO: 'bg-amber-100 text-amber-800',
                         }
-                        const statusLabel = {
-                          ATIVO: 'Aguardando execução',
-                          PARCIAL: 'Execução parcial',
-                          QUITADO: 'Quitado',
+                        const statusLabel: Record<string, string> = {
+                          EXECUCAO: 'Em execução',
+                          ENCERRADO: 'Encerrado',
+                          ABERTO: 'Saldo aberto',
                         }
-                        const perc = grupo.empenho.valor > 0
-                          ? (grupo.total_pago / grupo.empenho.valor) * 100
+                        const fmt = (v: number) =>
+                          new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+                        const perc = grupo.total_empenhado_liquido > 0
+                          ? (grupo.total_pago / grupo.total_empenhado_liquido) * 100
                           : 0
+                        const classificaEmpenho = (e: EmpenhoFator, idx: number): string => {
+                          const bs = (e.bem_servico || '').toUpperCase()
+                          if (/APOSTILAMENTO/.test(bs) && /SALDO/.test(bs)) return 'Apostilamento (saldo ano anterior)'
+                          if (/ACR[ÉE]SCIMO\s+DE\s+VALOR\s+AO\s+EMPENHO/.test(bs)) return 'Acréscimo / Reforço'
+                          if (/REFOR[ÇC]O/.test(bs)) return 'Reforço'
+                          if (/ADITIVO/.test(bs)) return 'Empenho de termo aditivo'
+                          return idx === 0 ? 'Empenho do exercício' : 'Empenho complementar'
+                        }
                         return (
-                          <details key={gi} className={`rounded-lg border ${statusCores[grupo.status]} group`}>
+                          <details key={grupo.ano} className={`rounded-lg border ${statusCores[grupo.status]}`} open={grupo.status === 'EXECUCAO'}>
                             <summary className="cursor-pointer list-none p-4 flex flex-wrap items-center justify-between gap-3">
                               <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <Receipt className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                                <Calendar className="w-5 h-5 text-gray-600 flex-shrink-0" />
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-semibold text-gray-800">
-                                      Empenho {grupo.empenho.numero_empenho ? `#${grupo.empenho.numero_empenho}` : `(${grupo.empenho.data})`}
+                                    <span className="font-semibold text-gray-800 text-base">
+                                      Exercício {grupo.ano}
                                     </span>
                                     <Badge variant="outline" className={`text-xs ${statusBadge[grupo.status]}`}>
                                       {statusLabel[grupo.status]}
                                     </Badge>
                                   </div>
                                   <p className="text-xs text-gray-500 mt-0.5">
-                                    {grupo.empenho.data} · {grupo.empenho.elemento_despesa}
+                                    {grupo.empenhos_positivos.length} empenho(s) · {grupo.anulacoes.length} anulação(ões) · {grupo.pagamentos.length} pagamento(s)
                                   </p>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-4 text-right">
+                              <div className="flex items-center gap-4 text-right flex-wrap">
                                 <div>
-                                  <p className="text-xs text-gray-500">Empenhado</p>
-                                  <p className="font-bold text-gray-800">
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.empenho.valor)}
-                                  </p>
+                                  <p className="text-xs text-gray-500">Empenhado líq.</p>
+                                  <p className="font-bold text-gray-800">{fmt(grupo.total_empenhado_liquido)}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs text-gray-500">Pago</p>
-                                  <p className="font-bold text-green-700">
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.total_pago)}
-                                  </p>
+                                  <p className="font-bold text-green-700">{fmt(grupo.total_pago)}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs text-gray-500">Saldo</p>
                                   <p className={`font-bold ${grupo.saldo_a_liquidar + grupo.saldo_a_pagar > 0.01 ? 'text-amber-700' : 'text-green-700'}`}>
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.saldo_a_liquidar + grupo.saldo_a_pagar)}
+                                    {fmt(grupo.saldo_a_liquidar + grupo.saldo_a_pagar)}
                                   </p>
                                 </div>
                               </div>
@@ -2161,24 +2171,19 @@ export default function DetalheContratoOrgaoPage() {
                                   style={{ width: `${Math.min(100, perc)}%` }}
                                 />
                               </div>
+
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                 <div>
+                                  <span className="text-gray-500">Bruto empenhado:</span>{' '}
+                                  <span className="font-medium text-blue-700">{fmt(grupo.total_empenhado_bruto)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Anulado:</span>{' '}
+                                  <span className="font-medium text-red-700">−{fmt(grupo.total_anulado)}</span>
+                                </div>
+                                <div>
                                   <span className="text-gray-500">Liquidado:</span>{' '}
-                                  <span className="font-medium text-purple-700">
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.total_liquidado)}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-gray-500">Saldo a liquidar:</span>{' '}
-                                  <span className="font-medium text-amber-700">
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.saldo_a_liquidar)}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-gray-500">Saldo a pagar:</span>{' '}
-                                  <span className="font-medium text-amber-700">
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.saldo_a_pagar)}
-                                  </span>
+                                  <span className="font-medium text-purple-700">{fmt(grupo.total_liquidado)}</span>
                                 </div>
                                 <div>
                                   <span className="text-gray-500">% Pago:</span>{' '}
@@ -2186,36 +2191,58 @@ export default function DetalheContratoOrgaoPage() {
                                 </div>
                               </div>
 
-                              {grupo.reforcos.length > 0 && (
-                                <div className="rounded border border-indigo-200 bg-indigo-50 p-3">
-                                  <p className="text-xs font-medium text-indigo-800 mb-2">
-                                    📎 Composição do empenho (acréscimos / reforços)
-                                  </p>
-                                  <div className="space-y-1 text-xs">
-                                    {grupo.reforcos.map((r, ri) => (
-                                      <div key={ri} className="flex justify-between gap-2 text-indigo-900">
-                                        <span>{r.data} — {r.bem_servico.slice(0, 80)}{r.bem_servico.length > 80 ? '...' : ''}</span>
-                                        <span className="font-medium whitespace-nowrap">{r.valor_formatado}</span>
-                                      </div>
-                                    ))}
-                                    <div className="border-t border-indigo-200 pt-1 flex justify-between font-semibold text-indigo-900">
-                                      <span>Total consolidado</span>
-                                      <span>
-                                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.empenho.valor)}
-                                      </span>
-                                    </div>
-                                  </div>
+                              {/* Composição: empenhos positivos + anulações */}
+                              <div className="rounded border">
+                                <div className="bg-gray-50 px-3 py-1.5 border-b">
+                                  <p className="text-xs font-semibold text-gray-700">Composição do exercício</p>
                                 </div>
-                              )}
+                                <table className="w-full text-xs">
+                                  <tbody>
+                                    {grupo.empenhos_positivos.map((e, ei) => (
+                                      <tr key={`e-${ei}`} className="border-b last:border-0">
+                                        <td className="px-3 py-1.5 text-gray-600 w-24">{e.data}</td>
+                                        <td className="px-3 py-1.5">
+                                          <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-800 border-blue-200">
+                                            {classificaEmpenho(e, ei)}
+                                          </Badge>
+                                          {e.numero_empenho && (
+                                            <span className="ml-2 text-gray-400 font-mono">#{e.numero_empenho}</span>
+                                          )}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-right font-medium text-blue-700">
+                                          +{e.valor_formatado}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    {grupo.anulacoes.map((a, ai) => (
+                                      <tr key={`a-${ai}`} className="border-b last:border-0 bg-red-50/40">
+                                        <td className="px-3 py-1.5 text-gray-600 w-24">{a.data}</td>
+                                        <td className="px-3 py-1.5">
+                                          <Badge variant="outline" className="text-[10px] bg-red-100 text-red-800 border-red-200">
+                                            Anulação de saldo
+                                          </Badge>
+                                        </td>
+                                        <td className="px-3 py-1.5 text-right font-medium text-red-700">
+                                          {a.valor_formatado}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    <tr className="bg-gray-100 font-semibold">
+                                      <td colSpan={2} className="px-3 py-1.5 text-gray-700">Empenhado líquido</td>
+                                      <td className="px-3 py-1.5 text-right text-gray-800">{fmt(grupo.total_empenhado_liquido)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
 
-                              {grupo.empenho.bem_servico && (
-                                <p className="text-xs text-gray-600 italic border-l-2 border-gray-300 pl-2">
-                                  {grupo.empenho.bem_servico}
-                                </p>
-                              )}
-
+                              {/* Liquidações + pagamentos do exercício */}
                               {(grupo.liquidacoes.length > 0 || grupo.pagamentos.length > 0) && (
                                 <div className="overflow-x-auto rounded border">
+                                  <div className="bg-gray-50 px-3 py-1.5 border-b">
+                                    <p className="text-xs font-semibold text-gray-700">
+                                      Execução financeira do exercício
+                                    </p>
+                                  </div>
                                   <table className="w-full text-xs">
                                     <thead className="bg-gray-50 border-b">
                                       <tr>

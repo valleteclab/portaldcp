@@ -22,25 +22,38 @@ export interface EmpenhoFator {
   elemento_despesa: string;
 }
 
-export interface GrupoEmpenho {
-  /** Dados do empenho "pai" (com valor já consolidado, incluindo reforços) */
-  empenho: EmpenhoFator;
-  /** Reforços/acréscimos de valor ao empenho original (ex: "ACRÉSCIMO DE VALOR AO EMPENHO Nº X") */
-  reforcos: EmpenhoFator[];
-  /** Liquidações vinculadas (inferido por FIFO cronológico) */
+export interface GrupoExercicio {
+  /** Ano do exercício (extraído da data dos registros) */
+  ano: number;
+  /** Empenhos de valor positivo do exercício (original + apostilamento + reforços) */
+  empenhos_positivos: EmpenhoFator[];
+  /** Empenhos de valor negativo — anulações de saldo não executado */
+  anulacoes: EmpenhoFator[];
+  /** Liquidações do exercício */
   liquidacoes: EmpenhoFator[];
-  /** Pagamentos vinculados (inferido por FIFO cronológico) */
+  /** Pagamentos do exercício */
   pagamentos: EmpenhoFator[];
-  /** Soma das liquidações vinculadas */
+  /** Soma dos empenhos positivos (bruto empenhado) */
+  total_empenhado_bruto: number;
+  /** Soma |anulações| (valor absoluto das anulações) */
+  total_anulado: number;
+  /** Empenhado líquido: bruto − anulado */
+  total_empenhado_liquido: number;
+  /** Soma das liquidações */
   total_liquidado: number;
-  /** Soma dos pagamentos vinculados */
+  /** Soma dos pagamentos */
   total_pago: number;
-  /** Saldo do empenho: valor − liquidado */
+  /** Líquido empenhado − liquidado */
   saldo_a_liquidar: number;
-  /** Saldo financeiro: liquidado − pago */
+  /** Liquidado − pago */
   saldo_a_pagar: number;
-  /** Status do empenho: ATIVO, QUITADO, PARCIAL */
-  status: 'ATIVO' | 'QUITADO' | 'PARCIAL';
+  /**
+   * Status do exercício:
+   * - ENCERRADO: ano passado, saldos zerados (execução completa ou anulada)
+   * - EXECUCAO: ano atual em andamento
+   * - ABERTO: ano passado com saldo residual (anomalia — sinalizar ao gestor)
+   */
+  status: 'ENCERRADO' | 'EXECUCAO' | 'ABERTO';
 }
 
 export interface ResumoAnoEmpenhos {
@@ -77,8 +90,8 @@ export interface ResumoEmpenhos {
     quantidade_pagamentos: number;
   };
   por_ano: ResumoAnoEmpenhos[];
-  /** Empenhos agrupados com suas liquidações/pagamentos inferidos por FIFO cronológico */
-  grupos_empenho: GrupoEmpenho[];
+  /** Exercícios (anos) agrupados com seus empenhos, anulações, liquidações e pagamentos */
+  grupos_exercicio: GrupoExercicio[];
 }
 
 @Injectable()
@@ -398,7 +411,7 @@ export class FatorTransparenciaService {
     }
     const por_ano = Array.from(porAnoMap.values()).sort((a, b) => a.ano - b.ano);
 
-    const grupos_empenho = this.agruparPorEmpenho(empenhos);
+    const grupos_exercicio = this.agruparPorExercicio(empenhos, anoAtual);
 
     return {
       empenhos,
@@ -419,115 +432,99 @@ export class FatorTransparenciaService {
         quantidade_pagamentos: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').length,
       },
       por_ano,
-      grupos_empenho,
+      grupos_exercicio,
     };
   }
 
   /**
-   * Agrupa empenhos com suas liquidações/pagamentos.
+   * Agrupa registros por exercício (ano fiscal). Cada grupo reflete o ciclo anual:
+   * empenhos positivos (original + apostilamento + reforços), anulações (valores negativos),
+   * liquidações e pagamentos ocorridos no ano.
    *
-   * Consolidação por Nº Empenho: "acréscimos" e "reforços" (ex: "ACRÉSCIMO DE VALOR AO EMPENHO
-   * Nº 60/2026") compartilham o mesmo numero_empenho do original, então são somados ao mesmo
-   * grupo em vez de criar um grupo separado.
-   *
-   * Liquidações/pagamentos não têm vínculo explícito ao empenho no portal Fator. Quando só há
-   * um empenho no grupo consolidado, todos vão para ele. Quando há múltiplos empenhos distintos,
-   * usamos FIFO cronológico como fallback.
+   * Status derivado:
+   * - ENCERRADO: ano passado e saldos zerados (bruto − anulado − liquidado ≈ 0)
+   * - EXECUCAO:  ano atual (em andamento, saldo pode existir)
+   * - ABERTO:    ano passado com saldo residual (anomalia — sinalizar ao gestor)
    */
-  private agruparPorEmpenho(empenhos: EmpenhoFator[]): GrupoEmpenho[] {
+  private agruparPorExercicio(empenhos: EmpenhoFator[], anoAtual: number): GrupoExercicio[] {
+    const anoDe = (dataBr: string): number => {
+      const partes = (dataBr || '').split('/');
+      return partes.length === 3 ? parseInt(partes[2], 10) || 0 : 0;
+    };
     const toTimestamp = (dataBr: string): number => {
       const [d, m, y] = (dataBr || '').split('/');
       if (!d || !m || !y) return 0;
       return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
     };
 
-    const empenhosList = empenhos
-      .filter(e => e.fase_tipo === 'EMPENHO')
-      .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
-
-    // Detecta reforços pelo texto do bem_servico: "ACRÉSCIMO DE VALOR AO EMPENHO" ou "REFORÇO"
-    const ehReforco = (e: EmpenhoFator): boolean =>
-      /ACR[ÉE]SCIMO\s+DE\s+VALOR\s+AO\s+EMPENHO|REFOR[ÇC]O\s+DE\s+EMPENHO|REFOR[ÇC]O\s+AO\s+EMPENHO/i.test(
-        e.bem_servico || '',
-      );
-
-    // Consolida por numero_empenho: o reforço/acréscimo é somado ao empenho original
-    type Bucket = GrupoEmpenho & { _saldo_disponivel: number; _ts: number };
-    const gruposMap = new Map<string, Bucket>();
-
-    for (const e of empenhosList) {
-      // Chave: numero_empenho se existir, senão usa data+valor (fallback)
-      const chave = e.numero_empenho || `sem-num-${e.data}-${e.valor}`;
-      const existente = gruposMap.get(chave);
-
-      if (existente) {
-        // Já existe empenho com mesmo número → é reforço/acréscimo
-        existente.empenho.valor += e.valor;
-        existente._saldo_disponivel += e.valor;
-        existente.reforcos.push(e);
-      } else {
-        gruposMap.set(chave, {
-          empenho: { ...e },
-          reforcos: ehReforco(e) ? [e] : [],
+    const mapa = new Map<number, GrupoExercicio>();
+    const obter = (ano: number): GrupoExercicio => {
+      let g = mapa.get(ano);
+      if (!g) {
+        g = {
+          ano,
+          empenhos_positivos: [],
+          anulacoes: [],
           liquidacoes: [],
           pagamentos: [],
+          total_empenhado_bruto: 0,
+          total_anulado: 0,
+          total_empenhado_liquido: 0,
           total_liquidado: 0,
           total_pago: 0,
-          saldo_a_liquidar: e.valor,
+          saldo_a_liquidar: 0,
           saldo_a_pagar: 0,
-          status: 'ATIVO',
-          _saldo_disponivel: e.valor,
-          _ts: toTimestamp(e.data),
-        });
+          status: 'ENCERRADO',
+        };
+        mapa.set(ano, g);
+      }
+      return g;
+    };
+
+    for (const e of empenhos) {
+      const ano = anoDe(e.data);
+      if (!ano) continue;
+      const g = obter(ano);
+      if (e.fase_tipo === 'EMPENHO') {
+        if (e.valor < 0) {
+          g.anulacoes.push(e);
+          g.total_anulado += Math.abs(e.valor);
+        } else {
+          g.empenhos_positivos.push(e);
+          g.total_empenhado_bruto += e.valor;
+        }
+      } else if (e.fase_tipo === 'LIQUIDACAO') {
+        g.liquidacoes.push(e);
+        g.total_liquidado += e.valor;
+      } else if (e.fase_tipo === 'PAGAMENTO') {
+        g.pagamentos.push(e);
+        g.total_pago += e.valor;
       }
     }
 
-    const grupos = Array.from(gruposMap.values()).sort((a, b) => a._ts - b._ts);
+    const ordenarPorData = <T extends { data: string }>(arr: T[]): T[] =>
+      arr.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
 
-    const liquidacoesOrdenadas = empenhos
-      .filter(e => e.fase_tipo === 'LIQUIDACAO')
-      .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+    const grupos = Array.from(mapa.values()).sort((a, b) => a.ano - b.ano);
+    for (const g of grupos) {
+      ordenarPorData(g.empenhos_positivos);
+      ordenarPorData(g.anulacoes);
+      ordenarPorData(g.liquidacoes);
+      ordenarPorData(g.pagamentos);
+      g.total_empenhado_liquido = g.total_empenhado_bruto - g.total_anulado;
+      g.saldo_a_liquidar = Math.max(0, g.total_empenhado_liquido - g.total_liquidado);
+      g.saldo_a_pagar = Math.max(0, g.total_liquidado - g.total_pago);
 
-    const pagamentosOrdenados = empenhos
-      .filter(e => e.fase_tipo === 'PAGAMENTO')
-      .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
-
-    // Quando há apenas 1 grupo consolidado, tudo pertence a ele (caso mais comum).
-    // Quando há múltiplos empenhos distintos, aplica FIFO cronológico.
-    for (const liq of liquidacoesOrdenadas) {
-      const tsLiq = toTimestamp(liq.data);
-      const grupo = grupos.find(g => g._ts <= tsLiq && g._saldo_disponivel > 0.001)
-        ?? grupos[grupos.length - 1];
-      if (grupo) {
-        grupo.liquidacoes.push(liq);
-        grupo.total_liquidado += liq.valor;
-        grupo._saldo_disponivel -= liq.valor;
+      if (g.ano === anoAtual) {
+        g.status = 'EXECUCAO';
+      } else if (g.ano < anoAtual) {
+        g.status = (g.saldo_a_liquidar < 0.01 && g.saldo_a_pagar < 0.01) ? 'ENCERRADO' : 'ABERTO';
+      } else {
+        g.status = 'EXECUCAO';
       }
     }
 
-    const saldosPagarPorGrupo = grupos.map(g => g.total_liquidado);
-    for (const pag of pagamentosOrdenados) {
-      const tsPag = toTimestamp(pag.data);
-      let idx = grupos.findIndex((g, i) => g._ts <= tsPag && saldosPagarPorGrupo[i] > 0.001);
-      if (idx < 0) idx = grupos.length - 1;
-      if (idx >= 0) {
-        grupos[idx].pagamentos.push(pag);
-        grupos[idx].total_pago += pag.valor;
-        saldosPagarPorGrupo[idx] -= pag.valor;
-      }
-    }
-
-    return grupos.map(({ _saldo_disponivel: _s, _ts: _t, ...g }) => {
-      const saldo_a_liquidar = Math.max(0, g.empenho.valor - g.total_liquidado);
-      const saldo_a_pagar = Math.max(0, g.total_liquidado - g.total_pago);
-      let status: GrupoEmpenho['status'] = 'ATIVO';
-      if (saldo_a_liquidar < 0.01 && saldo_a_pagar < 0.01 && g.total_liquidado > 0) {
-        status = 'QUITADO';
-      } else if (g.total_liquidado > 0 || g.total_pago > 0) {
-        status = 'PARCIAL';
-      }
-      return { ...g, saldo_a_liquidar, saldo_a_pagar, status };
-    });
+    return grupos;
   }
 
   private extrairCampo(texto: string, regex: RegExp): string {
