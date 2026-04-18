@@ -197,6 +197,7 @@ interface EmpenhoFator {
 
 interface GrupoEmpenho {
   empenho: EmpenhoFator
+  reforcos: EmpenhoFator[]
   liquidacoes: EmpenhoFator[]
   pagamentos: EmpenhoFator[]
   total_liquidado: number
@@ -2184,6 +2185,28 @@ export default function DetalheContratoOrgaoPage() {
                                   <span className="font-medium text-gray-800">{perc.toFixed(1)}%</span>
                                 </div>
                               </div>
+
+                              {grupo.reforcos.length > 0 && (
+                                <div className="rounded border border-indigo-200 bg-indigo-50 p-3">
+                                  <p className="text-xs font-medium text-indigo-800 mb-2">
+                                    📎 Composição do empenho (acréscimos / reforços)
+                                  </p>
+                                  <div className="space-y-1 text-xs">
+                                    {grupo.reforcos.map((r, ri) => (
+                                      <div key={ri} className="flex justify-between gap-2 text-indigo-900">
+                                        <span>{r.data} — {r.bem_servico.slice(0, 80)}{r.bem_servico.length > 80 ? '...' : ''}</span>
+                                        <span className="font-medium whitespace-nowrap">{r.valor_formatado}</span>
+                                      </div>
+                                    ))}
+                                    <div className="border-t border-indigo-200 pt-1 flex justify-between font-semibold text-indigo-900">
+                                      <span>Total consolidado</span>
+                                      <span>
+                                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.empenho.valor)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
 
                               {grupo.empenho.bem_servico && (
                                 <p className="text-xs text-gray-600 italic border-l-2 border-gray-300 pl-2">

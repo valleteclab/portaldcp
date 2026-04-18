@@ -23,8 +23,10 @@ export interface EmpenhoFator {
 }
 
 export interface GrupoEmpenho {
-  /** Dados do empenho "pai" */
+  /** Dados do empenho "pai" (com valor já consolidado, incluindo reforços) */
   empenho: EmpenhoFator;
+  /** Reforços/acréscimos de valor ao empenho original (ex: "ACRÉSCIMO DE VALOR AO EMPENHO Nº X") */
+  reforcos: EmpenhoFator[];
   /** Liquidações vinculadas (inferido por FIFO cronológico) */
   liquidacoes: EmpenhoFator[];
   /** Pagamentos vinculados (inferido por FIFO cronológico) */
@@ -422,24 +424,65 @@ export class FatorTransparenciaService {
   }
 
   /**
-   * Agrupa empenhos com suas liquidações/pagamentos inferindo vínculo por FIFO cronológico.
+   * Agrupa empenhos com suas liquidações/pagamentos.
    *
-   * Regra: o portal Fator não informa explicitamente a qual empenho cada liquidação/pagamento pertence.
-   * Inferimos pela ordem cronológica — cada liquidação consome saldo do primeiro empenho
-   * ativo (data ≤ data_liquidacao) com saldo_a_liquidar > 0. Idem para pagamentos consumindo saldo
-   * das liquidações.
+   * Consolidação por Nº Empenho: "acréscimos" e "reforços" (ex: "ACRÉSCIMO DE VALOR AO EMPENHO
+   * Nº 60/2026") compartilham o mesmo numero_empenho do original, então são somados ao mesmo
+   * grupo em vez de criar um grupo separado.
+   *
+   * Liquidações/pagamentos não têm vínculo explícito ao empenho no portal Fator. Quando só há
+   * um empenho no grupo consolidado, todos vão para ele. Quando há múltiplos empenhos distintos,
+   * usamos FIFO cronológico como fallback.
    */
   private agruparPorEmpenho(empenhos: EmpenhoFator[]): GrupoEmpenho[] {
-    // Converte "dd/mm/aaaa" para timestamp para ordenação
     const toTimestamp = (dataBr: string): number => {
       const [d, m, y] = (dataBr || '').split('/');
       if (!d || !m || !y) return 0;
       return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
     };
 
-    const empenhosOrdenados = empenhos
+    const empenhosList = empenhos
       .filter(e => e.fase_tipo === 'EMPENHO')
       .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+
+    // Detecta reforços pelo texto do bem_servico: "ACRÉSCIMO DE VALOR AO EMPENHO" ou "REFORÇO"
+    const ehReforco = (e: EmpenhoFator): boolean =>
+      /ACR[ÉE]SCIMO\s+DE\s+VALOR\s+AO\s+EMPENHO|REFOR[ÇC]O\s+DE\s+EMPENHO|REFOR[ÇC]O\s+AO\s+EMPENHO/i.test(
+        e.bem_servico || '',
+      );
+
+    // Consolida por numero_empenho: o reforço/acréscimo é somado ao empenho original
+    type Bucket = GrupoEmpenho & { _saldo_disponivel: number; _ts: number };
+    const gruposMap = new Map<string, Bucket>();
+
+    for (const e of empenhosList) {
+      // Chave: numero_empenho se existir, senão usa data+valor (fallback)
+      const chave = e.numero_empenho || `sem-num-${e.data}-${e.valor}`;
+      const existente = gruposMap.get(chave);
+
+      if (existente) {
+        // Já existe empenho com mesmo número → é reforço/acréscimo
+        existente.empenho.valor += e.valor;
+        existente._saldo_disponivel += e.valor;
+        existente.reforcos.push(e);
+      } else {
+        gruposMap.set(chave, {
+          empenho: { ...e },
+          reforcos: ehReforco(e) ? [e] : [],
+          liquidacoes: [],
+          pagamentos: [],
+          total_liquidado: 0,
+          total_pago: 0,
+          saldo_a_liquidar: e.valor,
+          saldo_a_pagar: 0,
+          status: 'ATIVO',
+          _saldo_disponivel: e.valor,
+          _ts: toTimestamp(e.data),
+        });
+      }
+    }
+
+    const grupos = Array.from(gruposMap.values()).sort((a, b) => a._ts - b._ts);
 
     const liquidacoesOrdenadas = empenhos
       .filter(e => e.fase_tipo === 'LIQUIDACAO')
@@ -449,63 +492,40 @@ export class FatorTransparenciaService {
       .filter(e => e.fase_tipo === 'PAGAMENTO')
       .sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
 
-    // Inicializa grupos
-    const grupos: Array<GrupoEmpenho & { _saldo_disponivel: number; _ts: number }> =
-      empenhosOrdenados.map(e => ({
-        empenho: e,
-        liquidacoes: [],
-        pagamentos: [],
-        total_liquidado: 0,
-        total_pago: 0,
-        saldo_a_liquidar: e.valor,
-        saldo_a_pagar: 0,
-        status: 'ATIVO' as const,
-        _saldo_disponivel: e.valor,
-        _ts: toTimestamp(e.data),
-      }));
-
-    // Distribui liquidações — FIFO: primeiro empenho elegível (data ≤ liq.data) com saldo
+    // Quando há apenas 1 grupo consolidado, tudo pertence a ele (caso mais comum).
+    // Quando há múltiplos empenhos distintos, aplica FIFO cronológico.
     for (const liq of liquidacoesOrdenadas) {
       const tsLiq = toTimestamp(liq.data);
-      const grupo = grupos.find(g => g._ts <= tsLiq && g._saldo_disponivel > 0.001);
+      const grupo = grupos.find(g => g._ts <= tsLiq && g._saldo_disponivel > 0.001)
+        ?? grupos[grupos.length - 1];
       if (grupo) {
         grupo.liquidacoes.push(liq);
         grupo.total_liquidado += liq.valor;
         grupo._saldo_disponivel -= liq.valor;
-      } else {
-        // Não há empenho compatível — vincula ao último por falta de alternativa (caso raro)
-        if (grupos.length > 0) {
-          grupos[grupos.length - 1].liquidacoes.push(liq);
-          grupos[grupos.length - 1].total_liquidado += liq.valor;
-        }
       }
     }
 
-    // Distribui pagamentos — mesma lógica, consumindo "saldo a pagar" do grupo
-    // (liquidado − já_pago_no_grupo)
     const saldosPagarPorGrupo = grupos.map(g => g.total_liquidado);
     for (const pag of pagamentosOrdenados) {
       const tsPag = toTimestamp(pag.data);
-      const idx = grupos.findIndex(
-        (g, i) => g._ts <= tsPag && saldosPagarPorGrupo[i] > 0.001,
-      );
+      let idx = grupos.findIndex((g, i) => g._ts <= tsPag && saldosPagarPorGrupo[i] > 0.001);
+      if (idx < 0) idx = grupos.length - 1;
       if (idx >= 0) {
         grupos[idx].pagamentos.push(pag);
         grupos[idx].total_pago += pag.valor;
         saldosPagarPorGrupo[idx] -= pag.valor;
-      } else if (grupos.length > 0) {
-        grupos[grupos.length - 1].pagamentos.push(pag);
-        grupos[grupos.length - 1].total_pago += pag.valor;
       }
     }
 
-    // Finaliza saldos e status
     return grupos.map(({ _saldo_disponivel: _s, _ts: _t, ...g }) => {
       const saldo_a_liquidar = Math.max(0, g.empenho.valor - g.total_liquidado);
       const saldo_a_pagar = Math.max(0, g.total_liquidado - g.total_pago);
       let status: GrupoEmpenho['status'] = 'ATIVO';
-      if (saldo_a_liquidar < 0.01 && saldo_a_pagar < 0.01) status = 'QUITADO';
-      else if (g.total_liquidado > 0 || g.total_pago > 0) status = 'PARCIAL';
+      if (saldo_a_liquidar < 0.01 && saldo_a_pagar < 0.01 && g.total_liquidado > 0) {
+        status = 'QUITADO';
+      } else if (g.total_liquidado > 0 || g.total_pago > 0) {
+        status = 'PARCIAL';
+      }
       return { ...g, saldo_a_liquidar, saldo_a_pagar, status };
     });
   }
