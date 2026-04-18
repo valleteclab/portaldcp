@@ -117,7 +117,9 @@ export class FatorTransparenciaService {
         if (!chaveEmpenho.startsWith(chaveContratoAlvo)) return false;
       }
 
-      const chave = e.numero_liquidacao || `idx-${idx}-${e.data}`;
+      // Chave composta: numero_liquidacao se repete entre anos (reseta a cada exercício),
+      // então usamos data + fase + valor + nº para diferenciar
+      const chave = `${e.data}|${e.fase_tipo}|${e.numero_liquidacao || idx}|${e.valor}`;
       if (vistos.has(chave)) return false;
       vistos.add(chave);
       return true;
