@@ -112,7 +112,10 @@ export class FornecedoresController {
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string): Promise<{ message: string }> {
+  async delete(@Param('id') id: string, @Req() req: { user: JwtPayload }): Promise<{ message: string }> {
+    if (req.user.type !== UserType.ADMIN) {
+      throw new ForbiddenException('Apenas administradores podem excluir fornecedores');
+    }
     await this.fornecedoresService.delete(id);
     return { message: 'Fornecedor excluído com sucesso' };
   }

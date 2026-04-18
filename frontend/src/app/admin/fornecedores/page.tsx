@@ -51,7 +51,8 @@ import {
   Pencil,
   Key,
   Copy,
-  Save
+  Save,
+  Trash2
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -94,6 +95,7 @@ export default function AdminFornecedoresPage() {
   const [modalSuspender, setModalSuspender] = useState(false)
   const [modalEditar, setModalEditar] = useState(false)
   const [modalResetSenha, setModalResetSenha] = useState(false)
+  const [modalExcluir, setModalExcluir] = useState(false)
   const [motivoSuspensao, setMotivoSuspensao] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [senhaTemporaria, setSenhaTemporaria] = useState<string | null>(null)
@@ -285,6 +287,36 @@ export default function AdminFornecedoresPage() {
     if (senhaTemporaria) {
       navigator.clipboard.writeText(senhaTemporaria)
       alert('Senha copiada para a área de transferência!')
+    }
+  }
+
+  const handleAbrirExcluir = (fornecedor: Fornecedor) => {
+    setFornecedorSelecionado(fornecedor)
+    setModalExcluir(true)
+  }
+
+  const handleExcluir = async () => {
+    if (!fornecedorSelecionado) return
+
+    setActionLoading(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedorSelecionado.id}`, {
+        method: 'DELETE'
+      })
+
+      if (res.ok) {
+        await fetchFornecedores()
+        setModalExcluir(false)
+        setFornecedorSelecionado(null)
+      } else {
+        const data = await res.json()
+        alert(`Erro: ${data.message || 'Erro ao excluir fornecedor'}`)
+      }
+    } catch (error) {
+      console.error('Erro ao excluir:', error)
+      alert('Erro ao excluir fornecedor')
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -570,6 +602,16 @@ export default function AdminFornecedoresPage() {
                             <RotateCcw className="h-4 w-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Excluir fornecedor"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => handleAbrirExcluir(fornecedor)}
+                          disabled={actionLoading}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -978,6 +1020,59 @@ export default function AdminFornecedoresPage() {
                 )}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Exclusão */}
+      <Dialog open={modalExcluir} onOpenChange={setModalExcluir}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Excluir Fornecedor
+            </DialogTitle>
+            <DialogDescription>
+              Esta ação é irreversível. Todos os dados do fornecedor serão removidos permanentemente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-slate-50 p-3 rounded">
+              <p className="font-medium">{fornecedorSelecionado?.razao_social}</p>
+              <p className="text-sm text-muted-foreground font-mono">
+                {fornecedorSelecionado && formatarCpfCnpj(fornecedorSelecionado.cnpj || fornecedorSelecionado.cpf_cnpj)}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {fornecedorSelecionado?.email}
+              </p>
+            </div>
+            <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
+              <p className="text-sm text-red-800">
+                ⚠️ Ao confirmar, o fornecedor será excluído permanentemente junto com seus documentos, sócios e atividades cadastradas.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalExcluir(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleExcluir}
+              disabled={actionLoading}
+            >
+              {actionLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Excluir Fornecedor
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
