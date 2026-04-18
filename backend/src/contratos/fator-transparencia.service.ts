@@ -437,14 +437,22 @@ export class FatorTransparenciaService {
   }
 
   /**
-   * Agrupa registros por exercício (ano fiscal). Cada grupo reflete o ciclo anual:
-   * empenhos positivos (original + apostilamento + reforços), anulações (valores negativos),
-   * liquidações e pagamentos ocorridos no ano.
+   * Agrupa registros por ciclo de aditivo/exercício.
    *
-   * Status derivado:
-   * - ENCERRADO: ano passado e saldos zerados (bruto − anulado − liquidado ≈ 0)
-   * - EXECUCAO:  ano atual (em andamento, saldo pode existir)
-   * - ABERTO:    ano passado com saldo residual (anomalia — sinalizar ao gestor)
+   * REGRA DE CICLO: Apostilamentos (empenhos/liquidações/pagamentos com texto contendo
+   * "APOSTILAMENTO") dados no início do ano N pertencem ao CICLO do ano N-1 — pois o
+   * apostilamento de janeiro "fecha" o ciclo do contrato/aditivo do ano anterior (costuma
+   * cobrir as últimas 3 parcelas: Jan, Fev e Mar do ano N, que são serviços rendidos sob
+   * o aditivo do ano N-1).
+   *
+   * Como liquidações no portal Fator geralmente NÃO trazem o texto "APOSTILAMENTO"
+   * (apenas o pagamento correspondente), propaga-se o ciclo da liquidação a partir do
+   * pagamento pareado via `numero_liquidacao + ano`.
+   *
+   * Status:
+   * - ENCERRADO: ciclo anterior ao atual e saldos zerados
+   * - EXECUCAO:  ciclo em andamento
+   * - ABERTO:    ciclo anterior com saldo residual (anomalia)
    */
   private agruparPorExercicio(empenhos: EmpenhoFator[], anoAtual: number): GrupoExercicio[] {
     const anoDe = (dataBr: string): number => {
@@ -455,6 +463,30 @@ export class FatorTransparenciaService {
       const [d, m, y] = (dataBr || '').split('/');
       if (!d || !m || !y) return 0;
       return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
+    };
+    const ehApostilamento = (e: EmpenhoFator): boolean =>
+      /APOSTILAMENTO/i.test(e.bem_servico || '');
+
+    // Passo 1: pré-calcula o ciclo dos pagamentos (via texto); propaga depois para liquidações pareadas
+    const cicloPorLiqKey = new Map<string, number>();
+    for (const p of empenhos) {
+      if (p.fase_tipo !== 'PAGAMENTO') continue;
+      const ano = anoDe(p.data);
+      if (!ano) continue;
+      const ciclo = ehApostilamento(p) ? ano - 1 : ano;
+      if (p.numero_liquidacao) {
+        cicloPorLiqKey.set(`${p.numero_liquidacao}|${ano}`, ciclo);
+      }
+    }
+
+    const cicloDe = (e: EmpenhoFator): number => {
+      const ano = anoDe(e.data);
+      if (!ano) return 0;
+      if (e.fase_tipo === 'LIQUIDACAO' && e.numero_liquidacao) {
+        const viaPag = cicloPorLiqKey.get(`${e.numero_liquidacao}|${ano}`);
+        if (viaPag !== undefined) return viaPag;
+      }
+      return ehApostilamento(e) ? ano - 1 : ano;
     };
 
     const mapa = new Map<number, GrupoExercicio>();
@@ -482,9 +514,9 @@ export class FatorTransparenciaService {
     };
 
     for (const e of empenhos) {
-      const ano = anoDe(e.data);
-      if (!ano) continue;
-      const g = obter(ano);
+      const ciclo = cicloDe(e);
+      if (!ciclo) continue;
+      const g = obter(ciclo);
       if (e.fase_tipo === 'EMPENHO') {
         if (e.valor < 0) {
           g.anulacoes.push(e);

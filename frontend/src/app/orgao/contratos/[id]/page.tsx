@@ -2096,7 +2096,7 @@ export default function DetalheContratoOrgaoPage() {
                           Execução por Exercício
                         </h3>
                         <span className="text-xs text-gray-500">
-                          Ciclo anual: empenhos, anulações, liquidações e pagamentos
+                          Ciclo de aditivo · apostilamentos de Janeiro fecham o ciclo anterior
                         </span>
                       </div>
                       {gruposExercicio.map((grupo) => {
@@ -2122,7 +2122,7 @@ export default function DetalheContratoOrgaoPage() {
                           : 0
                         const classificaEmpenho = (e: EmpenhoFator, idx: number): string => {
                           const bs = (e.bem_servico || '').toUpperCase()
-                          if (/APOSTILAMENTO/.test(bs) && /SALDO/.test(bs)) return 'Apostilamento (saldo ano anterior)'
+                          if (/APOSTILAMENTO/.test(bs)) return 'Apostilamento (fecha o ciclo)'
                           if (/ACR[ÉE]SCIMO\s+DE\s+VALOR\s+AO\s+EMPENHO/.test(bs)) return 'Acréscimo / Reforço'
                           if (/REFOR[ÇC]O/.test(bs)) return 'Reforço'
                           if (/ADITIVO/.test(bs)) return 'Empenho de termo aditivo'
