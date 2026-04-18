@@ -52,7 +52,8 @@ import {
   Key,
   Copy,
   Save,
-  Trash2
+  Trash2,
+  GitMerge
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
 
@@ -293,6 +294,64 @@ export default function AdminFornecedoresPage() {
   const handleAbrirExcluir = (fornecedor: Fornecedor) => {
     setFornecedorSelecionado(fornecedor)
     setModalExcluir(true)
+  }
+
+  const handleMigrarVinculos = async (fornecedor: Fornecedor) => {
+    const cnpj = fornecedor.cnpj || fornecedor.cpf_cnpj || ''
+    if (!cnpj.startsWith('TEMP_')) {
+      alert('Migração só está disponível para fornecedores com CNPJ temporário (TEMP_)')
+      return
+    }
+    if (!confirm(
+      `Migrar vínculos do cadastro pendente "${fornecedor.razao_social}"?\n\n` +
+      `O sistema vai procurar o fornecedor real com base no CNPJ armazenado em cada contrato ` +
+      `e re-vincular os registros ao fornecedor correto.`
+    )) return
+
+    setActionLoading(true)
+    try {
+      const res = await adminFetch(`${API_URL}/api/fornecedores/${fornecedor.id}/migrar-vinculos`, {
+        method: 'POST'
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const totalMigrado = (data.migrados || []).reduce((s: number, m: any) => s + m.total, 0)
+        const totalSem = (data.semMigracao || []).length
+
+        let msg = `Migração concluída!\n\n`
+        if (totalMigrado > 0) {
+          msg += `✅ ${totalMigrado} registro(s) migrado(s):\n`
+          for (const m of data.migrados) {
+            msg += `\n${m.tabela}:\n${m.detalhes.map((d: string) => '  • ' + d).join('\n')}\n`
+          }
+        } else {
+          msg += `Nenhum registro foi migrado.\n`
+        }
+        if (totalSem > 0) {
+          msg += `\n⚠️ ${totalSem} registro(s) não migrados:\n`
+          for (const s of data.semMigracao) {
+            msg += `  • ${s.motivo}\n`
+          }
+        }
+        alert(msg)
+        await fetchFornecedores()
+      } else {
+        let msg = 'Erro ao migrar vínculos'
+        try {
+          const data = await res.json()
+          msg = data.message || msg
+        } catch {
+          msg = `${msg} (HTTP ${res.status})`
+        }
+        alert(msg)
+      }
+    } catch (error) {
+      console.error('Erro ao migrar vínculos:', error)
+      alert('Erro ao migrar vínculos')
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const handleExcluir = async () => {
@@ -606,6 +665,18 @@ export default function AdminFornecedoresPage() {
                             disabled={actionLoading}
                           >
                             <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {(fornecedor.cnpj || fornecedor.cpf_cnpj || '').startsWith('TEMP_') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Migrar vínculos para fornecedor real (pelo CNPJ)"
+                            className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                            onClick={() => handleMigrarVinculos(fornecedor)}
+                            disabled={actionLoading}
+                          >
+                            <GitMerge className="h-4 w-4" />
                           </Button>
                         )}
                         <Button

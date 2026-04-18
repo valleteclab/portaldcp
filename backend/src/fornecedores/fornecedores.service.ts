@@ -170,6 +170,90 @@ export class FornecedoresService {
     await this.fornecedorRepository.remove(fornecedor);
   }
 
+  /**
+   * Migra vínculos de um fornecedor TEMP_ para o fornecedor real baseado em fornecedor_cnpj.
+   * Usado quando o contrato foi criado com fornecedor_id apontando para cadastro pendente
+   * mas o fornecedor_cnpj (snapshot) tem o CNPJ correto de um fornecedor já existente.
+   */
+  async migrarVinculos(tempId: string): Promise<{
+    migrados: Array<{ tabela: string; total: number; detalhes: string[] }>;
+    semMigracao: Array<{ tabela: string; total: number; motivo: string }>;
+  }> {
+    const fornecedor = await this.findOne(tempId);
+
+    if (!fornecedor.cpf_cnpj?.startsWith('TEMP_')) {
+      throw new BadRequestException(
+        'Migração de vínculos só é permitida para fornecedores com CNPJ temporário (TEMP_)',
+      );
+    }
+
+    const migrados: Array<{ tabela: string; total: number; detalhes: string[] }> = [];
+    const semMigracao: Array<{ tabela: string; total: number; motivo: string }> = [];
+
+    // Migração para contratos: usa fornecedor_cnpj (snapshot) para achar o fornecedor real
+    try {
+      const contratos: Array<{ id: string; numero_contrato: string; fornecedor_cnpj: string }> =
+        await this.dataSource.query(
+          `SELECT id, numero_contrato, fornecedor_cnpj FROM contratos WHERE fornecedor_id = $1`,
+          [tempId],
+        );
+
+      const detalhesMigrados: string[] = [];
+      for (const contrato of contratos) {
+        const cnpjLimpo = (contrato.fornecedor_cnpj || '').replace(/\D/g, '');
+        if (!cnpjLimpo || cnpjLimpo.length < 11) {
+          semMigracao.push({
+            tabela: 'contratos',
+            total: 1,
+            motivo: `Contrato ${contrato.numero_contrato}: fornecedor_cnpj inválido`,
+          });
+          continue;
+        }
+
+        // Busca fornecedor real pelo CNPJ (com ou sem formatação)
+        const [realFornecedor] = await this.dataSource.query(
+          `SELECT id, razao_social FROM fornecedores
+           WHERE REGEXP_REPLACE(cpf_cnpj, '\\D', '', 'g') = $1
+             AND id != $2
+             AND cpf_cnpj NOT LIKE 'TEMP_%'
+           LIMIT 1`,
+          [cnpjLimpo, tempId],
+        );
+
+        if (!realFornecedor) {
+          semMigracao.push({
+            tabela: 'contratos',
+            total: 1,
+            motivo: `Contrato ${contrato.numero_contrato}: nenhum fornecedor real encontrado com CNPJ ${cnpjLimpo}`,
+          });
+          continue;
+        }
+
+        await this.dataSource.query(
+          `UPDATE contratos SET fornecedor_id = $1 WHERE id = $2`,
+          [realFornecedor.id, contrato.id],
+        );
+
+        detalhesMigrados.push(
+          `${contrato.numero_contrato} → ${realFornecedor.razao_social}`,
+        );
+      }
+
+      if (detalhesMigrados.length > 0) {
+        migrados.push({
+          tabela: 'contratos',
+          total: detalhesMigrados.length,
+          detalhes: detalhesMigrados,
+        });
+      }
+    } catch (err) {
+      // Log mas não quebra
+      console.error('[migrarVinculos] Erro ao migrar contratos:', err);
+    }
+
+    return { migrados, semMigracao };
+  }
+
   // === REGISTRO INICIAL (Landing Page) ===
   async registroInicial(email: string, senha: string): Promise<Fornecedor> {
     // Verifica se já existe fornecedor com este email

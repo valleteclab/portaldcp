@@ -120,6 +120,19 @@ export class FornecedoresController {
     return { message: 'Fornecedor excluído com sucesso' };
   }
 
+  /**
+   * Migra vínculos (contratos etc.) de um fornecedor TEMP_ para o fornecedor real
+   * baseado no fornecedor_cnpj (snapshot) armazenado em cada registro.
+   * Útil quando o cadastro foi criado como pendente mas o CNPJ real já existe.
+   */
+  @Post(':id/migrar-vinculos')
+  async migrarVinculos(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    if (req.user.type !== UserType.ADMIN) {
+      throw new ForbiddenException('Apenas administradores podem migrar vínculos de fornecedores');
+    }
+    return this.fornecedoresService.migrarVinculos(id);
+  }
+
   // === DOCUMENTOS ===
   @Post(':id/documentos')
   async addDocumento(
