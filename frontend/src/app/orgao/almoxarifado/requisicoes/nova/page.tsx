@@ -1760,6 +1760,41 @@ function NovaRequisicaoForm() {
           )}
         </CardContent>
       </Card>
+
+      {/* Empenho — Portal Fator Transparência */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Empenho</CardTitle>
+          <CardDescription>Vincule um empenho do Portal de Transparência (opcional)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingEmpenhosOS ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
+            </div>
+          ) : empenhosOS.length > 0 ? (
+            <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecionar empenho (opcional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__nenhum__">Nenhum</SelectItem>
+                {empenhosOS.map((e, i) => (
+                  <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
+                    {e.numero_liquidacao ? `Liq. ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              placeholder="Número do empenho (opcional)"
+              value={empenhoOS}
+              onChange={e => setEmpenhoOS(e.target.value)}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
   };

@@ -19,12 +19,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { 
-  ArrowLeft, 
-  Edit, 
-  FileText, 
-  Calendar, 
-  Building2, 
+import {
+  ArrowLeft,
+  Edit,
+  FileText,
+  Calendar,
+  Building2,
   DollarSign,
   Download,
   User,
@@ -51,6 +51,7 @@ import {
   X,
   Settings,
   RefreshCw,
+  Receipt,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
@@ -175,6 +176,21 @@ interface HistoricoContrato {
   created_at: string
 }
 
+interface EmpenhoFator {
+  numero_liquidacao: string
+  data: string
+  fase: string
+  credor: string
+  cnpj: string
+  valor: number
+  valor_formatado: string
+  bem_servico: string
+  numero_contrato: string
+  numero_processo: string
+  modalidade: string
+  elemento_despesa: string
+}
+
 const TIPO_ACAO_LABELS: Record<string, { label: string, cor: string, icon: string }> = {
   'CRIADO': { label: 'Criação', cor: 'bg-blue-100 text-blue-800', icon: '📄' },
   'EDITADO': { label: 'Edição', cor: 'bg-gray-100 text-gray-800', icon: '✏️' },
@@ -213,7 +229,7 @@ const TIPOS_TERMO = [
   { value: 'SUSPENSAO', label: 'Suspensão' },
 ]
 
-const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'historico']
+const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'historico', 'empenhos']
 
 export default function DetalheContratoOrgaoPage() {
   const params = useParams()
@@ -234,6 +250,9 @@ export default function DetalheContratoOrgaoPage() {
   const [termos, setTermos] = useState<TermoAditivo[]>([])
   const [documentos, setDocumentos] = useState<DocumentoContrato[]>([])
   const [historico, setHistorico] = useState<HistoricoContrato[]>([])
+  const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
+  const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
+  const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingAction, setLoadingAction] = useState(false)
   
@@ -339,6 +358,26 @@ export default function DetalheContratoOrgaoPage() {
   useEffect(() => {
     if (id) carregarDados()
   }, [id])
+
+  useEffect(() => {
+    if (tabAtivo === 'empenhos' && !empenhosBuscados && id) {
+      buscarEmpenhos()
+    }
+  }, [tabAtivo, id])
+
+  const buscarEmpenhos = async () => {
+    setLoadingEmpenhos(true)
+    setEmpenhosBuscados(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}/empenhos`)
+      if (res.ok) setEmpenhos(await res.json())
+      else setEmpenhos([])
+    } catch {
+      setEmpenhos([])
+    } finally {
+      setLoadingEmpenhos(false)
+    }
+  }
 
   const carregarDados = async () => {
     setLoading(true)
@@ -1129,6 +1168,7 @@ export default function DetalheContratoOrgaoPage() {
           <TabsTrigger value="termos">Termos Aditivos ({termos.length})</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
+          <TabsTrigger value="empenhos">Empenhos</TabsTrigger>
         </TabsList>
 
         {contrato.status === 'AGUARDANDO_LIBERACAO' && (
@@ -1805,6 +1845,118 @@ export default function DetalheContratoOrgaoPage() {
             <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
           </TabsContent>
         )}
+
+        <TabsContent value="empenhos" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Receipt className="w-5 h-5" />
+                    Empenhos — Portal de Transparência
+                  </CardTitle>
+                  <CardDescription>
+                    Empenhos registrados no portal municipal para o contrato {contrato.numero_contrato}
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setEmpenhosBuscados(false); buscarEmpenhos() }}
+                  disabled={loadingEmpenhos}
+                >
+                  {loadingEmpenhos
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <RefreshCw className="w-4 h-4" />}
+                  <span className="ml-2">Atualizar</span>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingEmpenhos ? (
+                <div className="flex items-center justify-center py-12 gap-2 text-gray-500">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span>Consultando portal de transparência...</span>
+                </div>
+              ) : empenhos.length === 0 ? (
+                <div className="text-center py-12">
+                  <Receipt className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+                  <p className="text-gray-500 font-medium">Nenhum empenho encontrado</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Verifique se o ID do órgão está configurado em Configurações → Transparência
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Totalizador */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-blue-50 rounded-lg p-3">
+                      <p className="text-xs text-blue-600 uppercase font-medium">Total de Empenhos</p>
+                      <p className="text-2xl font-bold text-blue-700">{empenhos.length}</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3">
+                      <p className="text-xs text-green-600 uppercase font-medium">Valor Total</p>
+                      <p className="text-lg font-bold text-green-700">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                          empenhos.reduce((s, e) => s + e.valor, 0)
+                        )}
+                      </p>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-3">
+                      <p className="text-xs text-purple-600 uppercase font-medium">Liquidados</p>
+                      <p className="text-2xl font-bold text-purple-700">
+                        {empenhos.filter(e => e.fase?.toLowerCase().includes('liquid')).length}
+                      </p>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-3">
+                      <p className="text-xs text-amber-600 uppercase font-medium">Pagos</p>
+                      <p className="text-2xl font-bold text-amber-700">
+                        {empenhos.filter(e => e.fase?.toLowerCase().includes('pago') || e.fase?.toLowerCase().includes('pagamento')).length}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tabela */}
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b">
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Data</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Nº Liquidação</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Fase</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Credor</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600 hidden md:table-cell">Nº Processo</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600 hidden lg:table-cell">Elemento</th>
+                          <th className="text-right px-3 py-2 font-medium text-gray-600">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {empenhos.map((e, i) => (
+                          <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                            <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.data}</td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {e.numero_liquidacao || <span className="text-gray-400">—</span>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge variant="outline" className="text-xs whitespace-nowrap">{e.fase || '—'}</Badge>
+                            </td>
+                            <td className="px-3 py-2">
+                              <p className="font-medium text-gray-800 truncate max-w-[180px]">{e.credor}</p>
+                              {e.cnpj && <p className="text-xs text-gray-400 font-mono">{e.cnpj}</p>}
+                            </td>
+                            <td className="px-3 py-2 text-gray-600 text-xs hidden md:table-cell">{e.numero_processo || '—'}</td>
+                            <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell truncate max-w-[160px]">{e.elemento_despesa || '—'}</td>
+                            <td className="px-3 py-2 text-right font-medium text-gray-800 whitespace-nowrap">{e.valor_formatado}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       <Dialog open={modalTermo} onOpenChange={setModalTermo}>
