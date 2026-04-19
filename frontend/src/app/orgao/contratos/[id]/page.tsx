@@ -200,10 +200,12 @@ interface EmpenhoFator {
 interface EmpenhoComposto {
   numero_empenho: string
   empenho: EmpenhoFator | null
+  acrescimos: EmpenhoFator[]
   anulacoes: EmpenhoFator[]
   liquidacoes: EmpenhoFator[]
   pagamentos: EmpenhoFator[]
   total_empenhado_bruto: number
+  total_acrescimos: number
   total_anulado: number
   total_empenhado_liquido: number
   total_liquidado: number
@@ -2300,6 +2302,20 @@ export default function DetalheContratoOrgaoPage() {
                                           </td>
                                         </tr>
                                       )}
+                                      {/* Acréscimos / Reforços absorvidos */}
+                                      {comp.acrescimos?.map((ac, aci) => (
+                                        <tr key={`ac-${aci}`} className="border-b bg-blue-50/50">
+                                          <td className="px-3 py-1.5 text-gray-600 w-24">{ac.data}</td>
+                                          <td className="px-3 py-1.5">
+                                            <Badge variant="outline" className="text-[10px] bg-blue-100 text-blue-800 border-blue-200">
+                                              Acréscimo / Reforço
+                                            </Badge>
+                                          </td>
+                                          <td className="px-3 py-1.5 text-right font-medium text-blue-700">
+                                            +{ac.valor_formatado}
+                                          </td>
+                                        </tr>
+                                      ))}
                                       {/* Anulações */}
                                       {comp.anulacoes.map((a, ai) => (
                                         <tr key={`a-${ai}`} className="border-b last:border-0 bg-red-50/40">

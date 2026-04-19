@@ -28,6 +28,8 @@ export interface EmpenhoComposto {
   numero_empenho: string;
   /** Registro do empenho (positivo) */
   empenho: EmpenhoFator | null;
+  /** Acréscimos/reforços (s/n) absorvidos por este empenho */
+  acrescimos: EmpenhoFator[];
   /** Anulações vinculadas a este empenho */
   anulacoes: EmpenhoFator[];
   /** Liquidações (incluindo estornos de liquidação com valor negativo) */
@@ -36,6 +38,7 @@ export interface EmpenhoComposto {
   pagamentos: EmpenhoFator[];
   /** Totais calculados */
   total_empenhado_bruto: number;
+  total_acrescimos: number;
   total_anulado: number;
   total_empenhado_liquido: number;
   total_liquidado: number;
@@ -377,6 +380,11 @@ export class FatorTransparenciaService {
     const f = fase.toUpperCase().replace(/\s+/g, '');
     // ESTORNO EMPENHO → EMPENHO; EMPENHO DO EXERCÍCIO → EMPENHO
     if (f.includes('EMPENHO')) return 'EMPENHO';
+    // ACRÉSCIMO / REFORÇO = adição ao saldo do empenho existente → tratado como EMPENHO positivo
+    if (
+      f.includes('ACRÉSCIMO') || f.includes('ACRESCIMO') ||
+      f.includes('REFORÇO') || f.includes('REFORCO')
+    ) return 'EMPENHO';
     // ESTORNO LIQUIDAÇÃO → LIQUIDACAO (valor já vem negativo do portal)
     if (f.includes('LIQUIDACAO') || f.includes('LIQUIDAÇÃO')) return 'LIQUIDACAO';
     // ESTORNO PAGAMENTO → PAGAMENTO (valor já vem negativo do portal)
@@ -582,23 +590,40 @@ export class FatorTransparenciaService {
       (a, b) => toTimestamp(a.data) - toTimestamp(b.data),
     );
 
+    // Referência ao último empenho nomeado: acréscimos s/n serão absorvidos por ele
+    let ultimoCompostoNomeado: EmpenhoComposto | null = null;
+
     for (const emp of empenhosOrdenados) {
-      const chave = emp.numero_empenho || `SEM_NUM_${emp.data}`;
+      // Acréscimo / Reforço sem número de empenho: absorver no empenho nomeado mais recente
+      if (!emp.numero_empenho) {
+        if (ultimoCompostoNomeado) {
+          ultimoCompostoNomeado.acrescimos.push(emp);
+          ultimoCompostoNomeado.total_acrescimos += emp.valor;
+        }
+        // Se não há empenho nomeado ainda, será tratado no bucket genérico abaixo
+        continue;
+      }
+
+      const chave = emp.numero_empenho;
       if (!mapa.has(chave)) {
-        mapa.set(chave, {
-          numero_empenho: emp.numero_empenho || '',
+        const novoComp: EmpenhoComposto = {
+          numero_empenho: emp.numero_empenho,
           empenho: emp,
+          acrescimos: [],
           anulacoes: [],
           liquidacoes: [],
           pagamentos: [],
           total_empenhado_bruto: 0,
+          total_acrescimos: 0,
           total_anulado: 0,
           total_empenhado_liquido: 0,
           total_liquidado: 0,
           total_pago: 0,
           saldo_a_liquidar: 0,
           saldo_a_pagar: 0,
-        });
+        };
+        mapa.set(chave, novoComp);
+        ultimoCompostoNomeado = novoComp;
       }
     }
 
@@ -607,10 +632,12 @@ export class FatorTransparenciaService {
       mapa.set('SEM_EMPENHO', {
         numero_empenho: '',
         empenho: null,
+        acrescimos: [],
         anulacoes: [],
         liquidacoes: [],
         pagamentos: [],
         total_empenhado_bruto: 0,
+        total_acrescimos: 0,
         total_anulado: 0,
         total_empenhado_liquido: 0,
         total_liquidado: 0,
@@ -620,16 +647,18 @@ export class FatorTransparenciaService {
       });
     }
 
-    // Lista ordenada de compostos para busca FIFO
-    const compostosOrdenados = empenhosOrdenados
-      .map((emp) => mapa.get(emp.numero_empenho || `SEM_NUM_${emp.data}`))
-      .filter((c): c is EmpenhoComposto => !!c);
+    // Lista ordenada de compostos para busca FIFO (somente empenhos nomeados)
+    const compostosOrdenados = Array.from(mapa.values()).sort(
+      (a, b) => toTimestamp(a.empenho?.data ?? '') - toTimestamp(b.empenho?.data ?? ''),
+    );
 
     // FIFO para liquidações/anulações: primeiro empenho com saldo a liquidar
+    // Saldo = empenho original + acréscimos - anulado - liquidado
     const encontrarFIFOLiquidacao = (): EmpenhoComposto | null => {
       for (const c of compostosOrdenados) {
         if (!c.empenho) continue;
-        const saldoALiquidar = c.empenho.valor - c.total_anulado - c.total_liquidado;
+        const saldoALiquidar =
+          c.empenho.valor + c.total_acrescimos - c.total_anulado - c.total_liquidado;
         if (saldoALiquidar > 0.01) return c;
       }
       return compostosOrdenados[compostosOrdenados.length - 1] || null;
@@ -679,12 +708,14 @@ export class FatorTransparenciaService {
     // Calcular totais e ordenar
     const compostos = Array.from(mapa.values());
     for (const c of compostos) {
-      c.total_empenhado_bruto = c.empenho?.valor ?? 0;
+      // Empenhado bruto = empenho original + acréscimos/reforços absorvidos
+      c.total_empenhado_bruto = (c.empenho?.valor ?? 0) + c.total_acrescimos;
       c.total_empenhado_liquido = c.total_empenhado_bruto - c.total_anulado;
       c.saldo_a_liquidar = Math.max(0, c.total_empenhado_liquido - c.total_liquidado);
       c.saldo_a_pagar = Math.max(0, c.total_liquidado - c.total_pago);
 
       // Ordenar sub-registros por data
+      c.acrescimos.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
       c.anulacoes.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
       c.liquidacoes.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
       c.pagamentos.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));

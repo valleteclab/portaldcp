@@ -163,10 +163,12 @@ interface EmpenhoFator {
 interface EmpenhoComposto {
   numero_empenho: string;
   empenho: EmpenhoFator | null;
+  acrescimos: EmpenhoFator[];
   anulacoes: EmpenhoFator[];
   liquidacoes: EmpenhoFator[];
   pagamentos: EmpenhoFator[];
   total_empenhado_bruto: number;
+  total_acrescimos: number;
   total_anulado: number;
   total_empenhado_liquido: number;
   total_liquidado: number;
