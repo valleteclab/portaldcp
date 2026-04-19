@@ -25,6 +25,7 @@ import {
   Filter,
   Clock,
   Wallet,
+  ChevronDown,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1318,13 +1319,48 @@ function NovaRequisicaoForm() {
   // =========================================================================
 
   const renderEmpenhoSelector = () => {
-    // Empenhos com saldo a liquidar (disponíveis para débito)
-    const empenhosDisponiveis = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
-    // Empenho selecionado atualmente (para mostrar detalhes)
-    const empenhoSelecionado = empenhosCompostos.find(c =>
-      (c.numero_empenho && c.numero_empenho === empenhoOS) ||
-      (c.empenho?.numero_liquidacao && c.empenho.numero_liquidacao === empenhoOS)
-    );
+    if (loadingEmpenhosOS) {
+      return (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              Empenho
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Sem empenhos compostos — fallback para input manual
+    if (empenhosCompostos.length === 0 && empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length === 0) {
+      return (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              Empenho
+            </CardTitle>
+            <CardDescription>Número do empenho (opcional)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Input
+              placeholder="Número do empenho (opcional)"
+              value={empenhoOS}
+              onChange={e => setEmpenhoOS(e.target.value)}
+            />
+          </CardContent>
+        </Card>
+      );
+    }
+
+    const empenhosComSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
+    const empenhosSemSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar <= 0.01);
 
     return (
       <Card>
@@ -1334,94 +1370,151 @@ function NovaRequisicaoForm() {
             Empenho
           </CardTitle>
           <CardDescription>
-            Vincule um empenho do Portal de Transparência para débito desta requisição
+            Selecione o empenho para débito desta requisição
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {loadingEmpenhosOS ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
-            </div>
-          ) : empenhosDisponiveis.length > 0 ? (
-            <>
-              <Select value={empenhoOS || '__nenhum__'} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecionar empenho com saldo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                  {empenhosDisponiveis.map((c, i) => {
-                    const num = c.numero_empenho || c.empenho?.numero_liquidacao || `empenho_${i}`;
-                    const label = c.numero_empenho
-                      ? `#${c.numero_empenho}`
-                      : c.empenho?.data
-                        ? `s/n ${c.empenho.data}`
-                        : `Empenho ${i + 1}`;
-                    return (
-                      <SelectItem key={i} value={num}>
-                        {label} — Saldo: {formatarMoeda(c.saldo_a_liquidar)}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              {empenhoSelecionado && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Empenhado líq.:</span>
-                    <span className="font-medium">{formatarMoeda(empenhoSelecionado.total_empenhado_liquido)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Liquidado:</span>
-                    <span className="font-medium">{formatarMoeda(empenhoSelecionado.total_liquidado)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Pago:</span>
-                    <span className="font-medium">{formatarMoeda(empenhoSelecionado.total_pago)}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-green-300 pt-1">
-                    <span className="text-green-800 font-medium">Saldo a liquidar:</span>
-                    <span className="font-bold text-green-700">{formatarMoeda(empenhoSelecionado.saldo_a_liquidar)}</span>
-                  </div>
-                  {empenhoSelecionado.saldo_a_pagar > 0.01 && (
-                    <div className="flex justify-between">
-                      <span className="text-amber-800 font-medium">Saldo a pagar:</span>
-                      <span className="font-bold text-amber-700">{formatarMoeda(empenhoSelecionado.saldo_a_pagar)}</span>
+          {/* Empenhos com saldo — clicáveis para selecionar */}
+          {empenhosComSaldo.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-green-700 uppercase tracking-wide">Disponíveis</p>
+              {empenhosComSaldo.map((c, i) => {
+                const num = c.numero_empenho || c.empenho?.numero_liquidacao || `empenho_${i}`;
+                const isSelected = empenhoOS === num;
+                const saldoTotal = c.saldo_a_liquidar + c.saldo_a_pagar;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setEmpenhoOS(isSelected ? '' : num)}
+                    className={`w-full text-left rounded-lg border-2 transition-all ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-50 shadow-sm'
+                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
+                    }`}
+                  >
+                    {/* Header do card */}
+                    <div className={`px-3 py-2 flex items-center justify-between rounded-t-md ${
+                      isSelected ? 'bg-blue-100' : 'bg-gray-50'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                          isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-400'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <span className="text-sm font-semibold text-gray-800">
+                          Empenho #{c.numero_empenho || 's/n'}
+                        </span>
+                        {c.empenho && (
+                          <span className="text-xs text-gray-500">
+                            {c.empenho.data} — {c.empenho.credor}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="text-blue-700">Emp. líq. {formatarMoeda(c.total_empenhado_liquido)}</span>
+                        <span className="text-green-700">Pago {formatarMoeda(c.total_pago)}</span>
+                        <span className={`font-bold ${saldoTotal > 0.01 ? 'text-amber-700' : 'text-green-700'}`}>
+                          Saldo {formatarMoeda(saldoTotal)}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
-              {empenhosCompostos.length > empenhosDisponiveis.length && (
-                <p className="text-xs text-gray-500">
-                  {empenhosCompostos.length - empenhosDisponiveis.length} empenho(s) sem saldo não exibido(s)
-                </p>
-              )}
-            </>
-          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-              <p className="text-amber-800 font-medium">Todos os empenhos estão totalmente liquidados</p>
-              <p className="text-amber-700 text-xs mt-1">Não há saldo disponível para vincular</p>
-              <Select value={empenhoOS || '__nenhum__'} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Selecionar mesmo assim (opcional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                  {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
-                    <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                      {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {/* Detalhes quando selecionado */}
+                    {isSelected && (
+                      <div className="px-3 py-2 text-xs space-y-1 border-t border-blue-200">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Bruto:</span>
+                            <span>{formatarMoeda(c.total_empenhado_bruto)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Anulado:</span>
+                            <span className="text-red-600">-{formatarMoeda(c.total_anulado)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Liquidado:</span>
+                            <span>{formatarMoeda(c.total_liquidado)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Pago:</span>
+                            <span>{formatarMoeda(c.total_pago)}</span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between border-t border-blue-200 pt-1 mt-1">
+                          <span className="font-medium text-green-800">Saldo a liquidar:</span>
+                          <span className="font-bold text-green-700">{formatarMoeda(c.saldo_a_liquidar)}</span>
+                        </div>
+                        {c.saldo_a_pagar > 0.01 && (
+                          <div className="flex justify-between">
+                            <span className="font-medium text-amber-800">Saldo a pagar:</span>
+                            <span className="font-bold text-amber-700">{formatarMoeda(c.saldo_a_pagar)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-          ) : (
-            <Input
-              placeholder="Número do empenho (opcional)"
-              value={empenhoOS}
-              onChange={e => setEmpenhoOS(e.target.value)}
-            />
           )}
+
+          {/* Empenhos sem saldo — histórico */}
+          {empenhosSemSaldo.length > 0 && (
+            <details className="group">
+              <summary className="text-xs font-medium text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 flex items-center gap-1">
+                <RotateCcw className="w-3 h-3" />
+                Histórico ({empenhosSemSaldo.length} empenho{empenhosSemSaldo.length > 1 ? 's' : ''} sem saldo)
+                <ChevronDown className="w-3 h-3 ml-1 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="mt-2 space-y-1">
+                {empenhosSemSaldo.map((c, i) => (
+                  <div key={i} className="rounded border bg-gray-50 opacity-70">
+                    <div className="px-3 py-1.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
+                          Encerrado
+                        </Badge>
+                        <span className="text-xs font-semibold text-gray-600">
+                          Empenho #{c.numero_empenho || 's/n'}
+                        </span>
+                        {c.empenho && (
+                          <span className="text-[10px] text-gray-400">
+                            {c.empenho.data} — {c.empenho.credor}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px]">
+                        <span className="text-gray-500">Emp. líq. {formatarMoeda(c.total_empenhado_liquido)}</span>
+                        <span className="text-gray-500">Pago {formatarMoeda(c.total_pago)}</span>
+                        <span className="text-green-600 font-medium">Saldo R$ 0,00</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Opção "Nenhum" */}
+          <button
+            type="button"
+            onClick={() => setEmpenhoOS('')}
+            className={`w-full text-left rounded-lg border-2 px-3 py-2 transition-all ${
+              !empenhoOS
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                !empenhoOS ? 'border-blue-500 bg-blue-500' : 'border-gray-400'
+              }`}>
+                {!empenhoOS && <Check className="w-3 h-3 text-white" />}
+              </div>
+              <span className="text-sm text-gray-600">Não vincular empenho</span>
+            </div>
+          </button>
         </CardContent>
       </Card>
     );
