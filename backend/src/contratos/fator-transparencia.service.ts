@@ -381,6 +381,10 @@ export class FatorTransparenciaService {
 
     // Detecta mês de início do contrato a partir do primeiro empenho positivo
     const mesInicio = this.detectarMesInicio(empenhos);
+    // Debug: listar registros de 2024 que chegam ao calcularResumo
+    const regs2024 = empenhos.filter(e => (e.data || '').endsWith('/2024'));
+    console.log(`[calcularResumo] mesInicio=${mesInicio}, total=${empenhos.length}, regs2024=${regs2024.length}`);
+    regs2024.forEach(e => console.log(`  [2024] ${e.fase_tipo} ${e.data} valor=${e.valor}`));
 
     // Agrupa por exercício (ciclo) com regra fase-dependente:
     // EMPENHO: mês < mesInicio → N-1; mês >= mesInicio → N
@@ -516,9 +520,9 @@ export class FatorTransparenciaService {
       const mes = parseInt(dataPartes[1], 10) || 0;
       const anoCal = parseInt(dataPartes[2], 10) || 0;
       const ciclo = this.exercicioDe(mes, anoCal, e.fase_tipo, mesInicio);
-      // Debug: log pagamentos em Jan-Mar para verificar ciclo
-      if (e.fase_tipo === 'PAGAMENTO' && mes <= mesInicio) {
-        console.log(`[ciclo] PAGAMENTO ${e.data} valor=${e.valor} → exercício ${ciclo} (mes=${mes}, mesInicio=${mesInicio})`);
+      // Debug: log todos os registros de Jan-Mar para verificar ciclo
+      if (mes <= mesInicio + 1) {
+        console.log(`[ciclo] ${e.fase_tipo} ${e.data} valor=${e.valor} → exercício ${ciclo} (mes=${mes}, mesInicio=${mesInicio})`);
       }
       if (!ciclo) continue;
       const g = obter(ciclo);
