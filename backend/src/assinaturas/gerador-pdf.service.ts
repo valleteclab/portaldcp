@@ -158,6 +158,19 @@ export class GeradorPdfService {
           rowY += 16;
         }
 
+        // ── EMPENHOS VINCULADOS ──────────────────────────────────────────────
+        if (dadosOS.numeros_empenhos) {
+          let numsEmpenho: string[] = [];
+          try {
+            const parsed = JSON.parse(dadosOS.numeros_empenhos);
+            if (Array.isArray(parsed)) numsEmpenho = parsed;
+          } catch {}
+          if (numsEmpenho.length > 0) {
+            campo('Empenho(s):', numsEmpenho.join(', '), marginL, rowY, contentW - labelW);
+            rowY += 16;
+          }
+        }
+
         doc.y = rowY + 4;
         doc.moveTo(marginL, doc.y).lineTo(pageW - marginL, doc.y).lineWidth(0.5).stroke('#9ca3af');
         doc.moveDown(0.6);
@@ -407,6 +420,19 @@ export class GeradorPdfService {
         if (ordem.requisicao?.usuario_solicitante_nome) {
           campo('Solicitante:', ordem.requisicao.usuario_solicitante_nome, marginL, rowY, contentW - labelW);
           rowY += 16;
+        }
+
+        // ── EMPENHOS VINCULADOS ──────────────────────────────────────────────
+        if ((ordem.requisicao as any)?.numeros_empenhos) {
+          let numsEmpenho: string[] = [];
+          try {
+            const parsed = JSON.parse((ordem.requisicao as any).numeros_empenhos);
+            if (Array.isArray(parsed)) numsEmpenho = parsed;
+          } catch {}
+          if (numsEmpenho.length > 0) {
+            campo('Empenho(s):', numsEmpenho.join(', '), marginL, rowY, contentW - labelW);
+            rowY += 16;
+          }
         }
 
         doc.y = rowY + 4;

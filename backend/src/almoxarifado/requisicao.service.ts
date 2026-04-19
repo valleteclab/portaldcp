@@ -522,11 +522,15 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         this.logger.log(`OS ${numero}: ${etapasOS.length} etapas do cronograma vinculadas`);
       }
 
+      const detalhesEmpenhoOS = dto.numeros_empenhos?.length
+        ? `Empenho(s) vinculado(s): ${dto.numeros_empenhos.join(', ')}`
+        : null;
       await this.historicoRequisicaoRepository.save(
         this.historicoRequisicaoRepository.create({
           requisicao_id: osSalva.id,
           tipo_acao: 'PEDIDO_CRIADO',
           descricao: `Movimentação feita por: ${usuarioNome}`,
+          detalhes: detalhesEmpenhoOS,
           usuario_id: usuarioId,
           usuario_nome: usuarioNome,
           data_evento: new Date(),
@@ -684,11 +688,15 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       await queryRunner.commitTransaction();
 
       // Histórico: PEDIDO CRIADO (requisição é o pedido desde o início)
+      const detalhesEmpenhoReq = dto.numeros_empenhos?.length
+        ? `Empenho(s) vinculado(s): ${dto.numeros_empenhos.join(', ')}`
+        : null;
       await this.historicoRequisicaoRepository.save(
         this.historicoRequisicaoRepository.create({
           requisicao_id: requisicaoSalva.id,
           tipo_acao: 'PEDIDO_CRIADO',
           descricao: `Movimentação feita por: ${usuarioNome}`,
+          detalhes: detalhesEmpenhoReq,
           usuario_id: usuarioId,
           usuario_nome: usuarioNome,
           data_evento: new Date(),

@@ -120,6 +120,7 @@ interface Requisicao {
   responsavel_tecnico?: string | null;
   fiscal_contrato_nome?: string | null;
   modo_os?: string | null;
+  numeros_empenhos?: string | null;
   itensOS?: Array<{
     id: string;
     quantidade_solicitada: number;
@@ -1339,6 +1340,31 @@ function RequisicoesList() {
                     </p>
                   </div>
                 )}
+                {(() => {
+                  let numsEmpenho: string[] = [];
+                  try {
+                    const raw = requisicaoSelecionada.numeros_empenhos;
+                    if (raw) {
+                      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                      if (Array.isArray(parsed)) numsEmpenho = parsed;
+                    }
+                  } catch {}
+                  if (numsEmpenho.length > 0) {
+                    return (
+                      <div className="col-span-2">
+                        <label className="text-sm font-medium text-gray-500">Empenho(s) Vinculado(s)</label>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {numsEmpenho.map((num, i) => (
+                            <Badge key={i} variant="outline" className="bg-blue-50 text-blue-800 border-blue-200">
+                              {num}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               <div>
@@ -1903,6 +1929,9 @@ function RequisicoesList() {
                             )}
                             <p><span className="font-medium text-gray-500">Tipo de Movimento:</span> {labels[item.tipo_acao] || item.tipo_acao}</p>
                             <p><span className="font-medium text-gray-500">Descrição:</span> {item.descricao}</p>
+                            {(item as any).detalhes && (
+                              <p><span className="font-medium text-gray-500">Detalhes:</span> <span className="text-blue-700">{(item as any).detalhes}</span></p>
+                            )}
                           </div>
                         </div>
                       </div>

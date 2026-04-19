@@ -173,6 +173,8 @@ interface EmpenhoComposto {
   total_pago: number;
   saldo_a_liquidar: number;
   saldo_a_pagar: number;
+  comprometido?: number;
+  saldo_virtual?: number;
 }
 
 interface RascunhoRequisicao {
@@ -1240,8 +1242,8 @@ function NovaRequisicaoForm() {
     // Verificar alertas de empenho antes de salvar (pula se confirmado)
     if (!pularVerificacaoEmpenho.current && contratoSelecionado?.id && !loadingEmpenhosOS) {
       const mensagens: string[] = [];
-      const empenhosComSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
-      const empenhosSemSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar <= 0.01);
+      const empenhosComSaldo = empenhosCompostos.filter(c => (c.saldo_virtual ?? c.saldo_a_liquidar) > 0.01);
+      const empenhosSemSaldo = empenhosCompostos.filter(c => (c.saldo_virtual ?? c.saldo_a_liquidar) <= 0.01);
 
       if (empenhosCompostos.length === 0) {
         mensagens.push('Nenhum empenho encontrado para este contrato no Portal da Transparência.');
@@ -1265,7 +1267,7 @@ function NovaRequisicaoForm() {
         const valorRequisicao = calcularValorTotalRequisicao();
         const saldoEmpenhos = empenhosCompostos
           .filter(c => empenhosSelecionados.has(c.numero_empenho || c.empenho?.numero_liquidacao || ''))
-          .reduce((s, c) => s + c.saldo_a_liquidar, 0);
+          .reduce((s, c) => s + (c.saldo_virtual ?? c.saldo_a_liquidar), 0);
         if (valorRequisicao > 0 && saldoEmpenhos < valorRequisicao) {
           mensagens.push(
             `O valor da requisição (${formatarMoeda(valorRequisicao)}) excede o saldo total dos empenhos selecionados (${formatarMoeda(saldoEmpenhos)}). Faltam ${formatarMoeda(valorRequisicao - saldoEmpenhos)}.`
@@ -1443,8 +1445,8 @@ function NovaRequisicaoForm() {
       );
     }
 
-    const empenhosComSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
-    const empenhosSemSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar <= 0.01);
+    const empenhosComSaldo = empenhosCompostos.filter(c => (c.saldo_virtual ?? c.saldo_a_liquidar) > 0.01);
+    const empenhosSemSaldo = empenhosCompostos.filter(c => (c.saldo_virtual ?? c.saldo_a_liquidar) <= 0.01);
     const algumSemSaldoSelecionado = empenhosSelecionados.size > 0 && Array.from(empenhosSelecionados).some(num =>
       empenhosSemSaldo.some(c => (c.numero_empenho || c.empenho?.numero_liquidacao) === num)
     );
@@ -1525,7 +1527,8 @@ function NovaRequisicaoForm() {
               {empenhosComSaldo.map((c, i) => {
                 const num = c.numero_empenho || c.empenho?.numero_liquidacao || `empenho_${i}`;
                 const isSelected = empenhosSelecionados.has(num);
-                const saldoTotal = c.saldo_a_liquidar + c.saldo_a_pagar;
+                const saldoVirtual = c.saldo_virtual ?? c.saldo_a_liquidar;
+                const comprometido = c.comprometido ?? 0;
                 return (
                   <button
                     key={i}
@@ -1560,8 +1563,11 @@ function NovaRequisicaoForm() {
                       <div className="flex items-center gap-3 text-xs">
                         <span className="text-blue-700">Emp. líq. {formatarMoeda(c.total_empenhado_liquido)}</span>
                         <span className="text-green-700">Pago {formatarMoeda(c.total_pago)}</span>
-                        <span className={`font-bold ${saldoTotal > 0.01 ? 'text-amber-700' : 'text-green-700'}`}>
-                          Saldo {formatarMoeda(saldoTotal)}
+                        {comprometido > 0.01 && (
+                          <span className="text-orange-600">Comprometido {formatarMoeda(comprometido)}</span>
+                        )}
+                        <span className={`font-bold ${saldoVirtual > 0.01 ? 'text-amber-700' : 'text-green-700'}`}>
+                          Disponível {formatarMoeda(saldoVirtual)}
                         </span>
                       </div>
                     </div>
@@ -1587,8 +1593,18 @@ function NovaRequisicaoForm() {
                           </div>
                         </div>
                         <div className="flex justify-between border-t border-blue-200 pt-1 mt-1">
-                          <span className="font-medium text-green-800">Saldo a liquidar:</span>
+                          <span className="font-medium text-green-800">Saldo a liquidar (portal):</span>
                           <span className="font-bold text-green-700">{formatarMoeda(c.saldo_a_liquidar)}</span>
+                        </div>
+                        {comprometido > 0.01 && (
+                          <div className="flex justify-between">
+                            <span className="font-medium text-orange-800">Comprometido (requisições):</span>
+                            <span className="font-bold text-orange-600">-{formatarMoeda(comprometido)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between border-t border-blue-200 pt-1 mt-1">
+                          <span className="font-medium text-blue-800">Saldo disponível (virtual):</span>
+                          <span className={`font-bold ${saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>{formatarMoeda(saldoVirtual)}</span>
                         </div>
                         {c.saldo_a_pagar > 0.01 && (
                           <div className="flex justify-between">

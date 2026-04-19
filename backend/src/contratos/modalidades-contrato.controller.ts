@@ -28,6 +28,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { MedicaoService } from './medicao.service';
+import { Requisicao, StatusRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
@@ -52,6 +53,8 @@ export class ModalidadesContratoController {
     private readonly contratoRepository: Repository<Contrato>,
     @InjectRepository(Medicao)
     private readonly medicaoRepository: Repository<Medicao>,
+    @InjectRepository(Requisicao)
+    private readonly requisicaoRepository: Repository<Requisicao>,
   ) {}
 
   /**
@@ -1190,9 +1193,50 @@ export class ModalidadesContratoController {
       ano: anoConsulta,
     });
 
-    return this.fatorTransparencia.calcularResumo(empenhos, {
+    const resumo = this.fatorTransparencia.calcularResumo(empenhos, {
       valor_global: Number(contrato.valor_global ?? 0),
       ano_contrato: contrato.ano ?? anoConsulta,
     });
+
+    // Calcular comprometido por empenho (valor das requisições ativas vinculadas)
+    const statusAtivos = [
+      StatusRequisicao.RASCUNHO,
+      StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+      StatusRequisicao.AUTORIZADA,
+      StatusRequisicao.ORDEM_GERADA,
+      StatusRequisicao.ATENDIDA_PARCIAL,
+      StatusRequisicao.ATENDIDA,
+    ];
+    const requisicoes = await this.requisicaoRepository.find({
+      where: { contrato_id: contratoId, status: statusAtivos as any },
+      select: ['id', 'numeros_empenhos', 'valor_total_estimado', 'status'],
+    });
+
+    // Mapa: numero_empenho → soma dos valores comprometidos
+    const comprometidoMap = new Map<string, number>();
+    for (const req of requisicoes) {
+      if (!req.numeros_empenhos) continue;
+      let nums: string[];
+      try {
+        nums = JSON.parse(req.numeros_empenhos);
+      } catch { continue; }
+      if (!Array.isArray(nums) || nums.length === 0) continue;
+      // Distribui valor_total_estimado igualmente entre os empenhos selecionados
+      const valorPorEmpenho = Number(req.valor_total_estimado ?? 0) / nums.length;
+      for (const num of nums) {
+        comprometidoMap.set(num, (comprometidoMap.get(num) ?? 0) + valorPorEmpenho);
+      }
+    }
+
+    // Adicionar comprometido e saldo_virtual em cada empenho_composto
+    for (const grupo of resumo.grupos_exercicio) {
+      for (const comp of grupo.empenhos_compostos) {
+        const comprometido = comprometidoMap.get(comp.numero_empenho) ?? 0;
+        (comp as any).comprometido = Math.round(comprometido * 100) / 100;
+        (comp as any).saldo_virtual = Math.round((comp.saldo_a_liquidar - comprometido) * 100) / 100;
+      }
+    }
+
+    return resumo;
   }
 }
