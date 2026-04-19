@@ -1,0 +1,19 @@
+Pedido duplicado: 69d9bc39e7352.csv
+Soma linhas (sistema): R$ 13556.15
+Valor contabilidade (alvo): R$ 12473.65
+Gap: R$ 1082.50
+
+Uma decomposição EXATA do gap como soma de valores de linhas inteiras:
+  Lotes: [4, 27, 30, 34, 39]
+  Soma: R$ 1082.50
+
+Detalhe:
+  Lote 4: R$ 745.00  (100 un × R$ 7.45)
+  Lote 27: R$ 74.00  (10 un × R$ 7.40)
+  Lote 30: R$ 110.00  (50 un × R$ 2.20)
+  Lote 34: R$ 150.00  (10 un × R$ 15.00)
+  Lote 39: R$ 3.50  (50 un × R$ 0.07)
+
+Interpretação: se a contabilidade NÃO reconheceu exatamente essas linhas,
+o total reconhecido seria R$ 12.473,65. Outras combinações de linhas
+podem somar o mesmo gap — a NF é quem define qual cenário é o real.

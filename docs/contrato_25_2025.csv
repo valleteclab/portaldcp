@@ -1,0 +1,95 @@
+Item;Descrição;Marca;Unidade;Preco_Unitario;Quantidade;Saida;Valor_R$;Estoque_Atual
+1;Alfinete mapa cabeça redonda caixa c/50 unidades;JOCAR;CAIXA COM 50 UNID;4,90;5;5;0,00;0
+2;Aplicador tipo pistola para cola quente 220V 7MMx300MM;GATTE;UNIDADE;14,20;6;0;85,20;6
+3;Apontador lápis plástico tipo escolar com depósito;LEONORA;UNIDADE;1,06;40;40;0,00;0
+4;Balões (bexiga) em látex nº7 pacote com 50 unidades;FESTBALL;PACOTE COM 50 UNID;7,45;100;50;372,50;50
+5;Bandeja documentos acrílica tipo tripla 350x250x60mm;WALEU;UNIDADE;44,90;13;0;583,70;13
+6;Barbante de algodão nº8 cor cru rolo 1kg;IMPERADOR;UNIDADE;24,20;100;50;1.210,00;50
+7;Barbante de sisal cor natural rolo 1kg;EUROROMA;UNIDADE;22,40;50;0;1.120,00;50
+8;Bastão de silicone para cola quente 7mm 1kg;RENDICOLA;UNIDADE;45,40;10;3;317,80;7
+9;Binder clips 15mm caixa com 12 unidades;BAZZE;CAIXA COM 12 UNID;2,70;50;30;54,00;20
+10;Binder clips 25mm caixa com 12 unidades;BAZZE;CAIXA COM 12 UNID;9,70;65;30;339,50;35
+11;Binder clips 41mm caixa com 12 unidades;BAZZE;CAIXA COM 12 UNID;14,40;50;30;288,00;20
+12;Binder clips 51mm caixa com 12 unidades;BAZZE;CAIXA COM 12 UNID;19,70;50;25;492,50;25
+13;Bloco adesivo 38x50mm pacote com 4 unidades de 100 folhas (Post-it pequeno);JOCAR;PACOTE COM 4 UNID;4,50;200;0;900,00;200
+14;Bloco adesivo 76x76mm com 100 folhas (Post-it grande);JOCAR;UNIDADE;3,65;250;0;912,50;250
+15;Borracha de apagar branca com capa protetora;LEONORA;UNIDADE;1,20;60;60;0,00;0
+16;Caderno grande capa dura espiral 15 matérias 240 folhas;ASTRAL;UNIDADE;19,70;20;0;394,00;20
+17;Caderno grande capa dura espiral 96 folhas;ASTRAL;UNIDADE;9,55;65;40;238,75;25
+18;Caderno pequeno capa dura espiral 96 folhas;ASTRAL;UNIDADE;5,30;65;40;132,50;25
+19;Caixa arquivo morto desmontável plástico 350x250x130mm;POLIBRAS;UNIDADE;4,70;50;0;235,00;50
+20;Caixa correspondência acrílico incolor tipo tripla 370x255x180mm;WALEU;UNIDADE;38,00;25;0;950,00;25
+21;Caixa organizadora desmontável com tampa plástico grande 30 litros;POLIBRAS;UNIDADE;31,20;40;0;1.248,00;40
+22;Caixa organizadora desmontável com tampa plástico média 16,5 litros;POLIBRAS;UNIDADE;27,60;40;0;1.104,00;40
+23;Calculadora eletrônica 12 dígitos tipo mesa solar/bateria;HM;UNIDADE;18,00;20;0;360,00;20
+24;Caneta esferográfica tinta azul caixa com 50 unidades;BIC;CAIXA COM 50 UNID;39,00;60;30;1.170,00;30
+25;Caneta esferográfica tinta preta caixa com 50 unidades;BIC;CAIXA COM 50 UNID;39,00;10;10;0,00;0
+26;Caneta esferográfica tinta vermelha caixa com 50 unidades;BIC;CAIXA COM 50 UNID;39,00;10;0;390,00;10
+27;Caneta marcadora para CD/DVD 1,0mm preta;BRW;UNIDADE;7,40;26;26;0,00;0
+28;Caneta marca-texto ponta chanfrada cores fluorescentes;MASTERPRINT;UNIDADE;1,70;200;100;170,00;100
+29;Clips para papéis tamanho 2/0 niquelado caixa com 100 unidades;CHAPARRAU;CAIXA COM 100 UNID;2,50;200;0;500,00;200
+30;Clips para papéis tamanho 3/0 niquelado caixa com 100 unidades;CHAPARRAU;CAIXA COM 100 UNID;2,20;200;0;440,00;200
+31;Clips para papéis tamanho 6/0 niquelado caixa com 50 unidades;CHAPARRAU;CAIXA COM 50 UNID;2,80;200;0;560,00;200
+32;Clips para papéis tamanho 8/0 niquelado caixa com 25 unidades;CHAPARRAU;CAIXA COM 25 UNID;2,80;200;0;560,00;200
+33;Cola bastão PVP 40g;ACRILEX;UNIDADE;8,00;50;25;200,00;25
+34;Cola adesiva instantânea líquida 50g;LEONORA;UNIDADE;15,00;26;26;0,00;0
+35;Cola incolor 100g (couro metal vidro cortiça plástico madeira);LEONORA;UNIDADE;5,00;65;0;325,00;65
+36;Cola branca PVA para madeira 1kg;IRIS;UNIDADE;9,90;10;10;0,00;0
+37;Corretivo fita 6mx5mm;JOCAR;UNIDADE;3,90;150;100;195,00;50
+38;Display de parede em acrílico tipo A4 com fita dupla face;WALEU;UNIDADE;18,90;20;0;378,00;20
+39;Envelope branco 114mmx229mm;VIA BRASIL;UNIDADE;0,07;130;50;5,60;80
+40;Envelope pardo 240mmx340mm;VIA BRASIL;UNIDADE;0,28;65;65;0,00;0
+41;Estilete retrátil espessura 18mm;BAZZE;UNIDADE;2,40;26;26;0,00;0
+42;Extrator de grampo aço tipo espátula cromado 15x2cm;BAZZE;UNIDADE;1,80;20;20;0,00;0
+43;Fita adesiva polipropileno transparente mono face 50mmx50m;KORETECH;UNIDADE;3,30;100;100;0,00;0
+44;Fita adesiva polipropileno transparente mono face 12mmx50m;KORETECH;UNIDADE;1,10;150;50;110,00;100
+45;Grampeador metal tipo mesa 25 folhas grampo 26/6 pintura epoxi;BAZZE;UNIDADE;11,99;50;0;599,50;50
+46;Grampeador metal tipo mesa até 100 folhas grampo 23/6 23/8 23/10 23/13;JOCAR;UNIDADE;71,00;6;0;426,00;6
+47;Grampo grampeador latonado tamanho 23/13 caixa com 5000 unidades;CHAPARRAU;CAIXA COM 5000 UNID;28,40;13;0;369,20;13
+48;Grampo grampeador niquelado tamanho 26/6 caixa com 5000 unidades;BAZZE;CAIXA COM 5000 UNID;3,70;130;0;481,00;130
+49;Grampo trilho encadernador plástico 80mm pacote com 50 unidades;DELO;PACOTE COM 50 UNID;10,90;26;0;283,40;26
+50;Lápis preto redondo grafite 2-B corpo sextavado;LEONORA;UNIDADE;0,29;260;200;17,40;60
+51;Lapiseira plástico 0,5mm c/prendedor ponta e acionador de metal c/borracha;LEONORA;UNIDADE;4,90;50;50;0,00;0
+52;Livro ata capa dura 100 folhas 75g/m2 297x210mm;TILIBRA;UNIDADE;14,95;100;0;1.495,00;100
+53;Livro protocolo de correspondência capa dura 100 folhas;BAHIA ARTES GRAFICA;UNIDADE;11,90;65;0;773,50;65
+54;Marcador de página auto adesivo transparente pacote com 8 cores 25 unidades cada;JOCAR;PACOTE COM 8 UNID;6,70;200;100;670,00;100
+55;Papel A4 branco alcalino 75g/m2 resma com 500 folhas;REPORT;RESMA COM 500 FOLHAS;26,90;650;150;13.450,00;500
+56;Papel emborrachado borracha EVA 60x40cm espessura 2mm;IBEL;UNIDADE;2,90;65;35;87,00;30
+57;Papel fotográfico brilhante tamanho A4 resma com 50 folhas;BAHIA ARTES GRAFICA;RESMA COM 50 FOLHAS;15,00;50;50;0,00;0
+58;Pasta arquivo tipo AZ plastificada tamanho ofício lombo largo 34,5x28,5x7cm;FARMA;UNIDADE;13,40;390;200;2.546,00;190
+59;Pasta catálogo com 100 envelopes plásticos;DAC;UNIDADE;17,00;50;0;850,00;50
+60;Pasta classificador transparente plástico com elástico tamanho A4;DAC;UNIDADE;1,38;260;100;220,80;160
+61;Pasta plástica em L incolor tamanho A4;DAC;UNIDADE;0,71;50;50;0,00;0
+62;Pasta sanfonada transparente A4 com 12 divisórias;DAC;UNIDADE;14,95;50;50;0,00;0
+63;Pasta suspensa marmorizada plastificada com prendedor visor 235x360mm;DELO;UNIDADE;3,06;250;0;765,00;250
+64;Perfurador papel metal e plástico tipo grande 100 folhas manual;LIKE;UNIDADE;146,00;6;3;438,00;3
+65;Perfurador papel metal tipo mesa 30 folhas 2 furos manual;JOCAR;UNIDADE;43,40;40;40;0,00;0
+66;Pilha AAA pacote com 2 unidades;ELGIN;UNIDADE;4,20;260;260;0,00;0
+67;Pilha AA alcalina pacote com 2 unidades;ELGIN;PACOTE COM 2 UNID;4,00;200;200;0,00;0
+68;Pincel atômico plástico ponta feltro carga descartável cores sortidas;JOCAR;UNIDADE;2,70;80;40;108,00;40
+69;Prancheta portátil acrílico transparente A4 com prendedor de metal;WALEU;UNIDADE;12,90;26;26;0,00;0
+70;Régua escritório plástico flexível 30cm;WALEU;UNIDADE;3,40;60;0;204,00;60
+71;Tesoura lâmina aço inox 7 polegadas (aprox. 18cm) cabo plástico preto;JOCAR;UNIDADE;6,50;50;30;130,00;20
+72;Tinta para carimbo cor azul 40ml;REDEX;UNIDADE;3,00;65;5;180,00;60
+73;Mouse pad borracha antiderrapante apoio de punho em gel ergonômico;MULTILASER;UNIDADE;25,50;100;100;0,00;0
+74;Suporte para monitor e notebook 4 níveis desmontáveis;WALEU;UNIDADE;42,00;65;0;2.730,00;65
+75;Apoio ergonômico para os pés;WALEU;UNIDADE;56,70;65;0;3.685,50;65
+76;Visor plástico para pasta suspensa com etiqueta caixa com 50 unidades;DELO;CAIXA COM 50 UNID;8,50;15;15;0,00;0
+77;Tinta para artesanato 100ml cores diversas chalk paint;DAC;UNIDADE;5,50;70;0;385,00;70
+78;Tinta preta para carimbos numeradores automáticos 30ml base óleo;TRODAT;UNIDADE;18,60;50;5;837,00;45
+79;Papel fotográfico brilhante auto adesivo tamanho A4 resma com 50 folhas;MASTERPRINT;RESMA COM 50 FOLHAS;22,90;50;50;0,00;0
+80;Fita de cetim nº1 10 metros cores diversas;PROGRESSO;UNIDADE;2,55;50;0;127,50;50
+81;Fita de cetim nº3 10 metros cores diversas;PROGRESSO;UNIDADE;4,23;50;0;211,50;50
+82;Fita de cetim nº5 10 metros cores diversas;PROGRESSO;UNIDADE;9,90;50;0;495,00;50
+83;Fita de juta 30mm rolo com aprox. 10 metros cores diversas;PROGRESSO;ROLO COM 10 METROS;23,70;30;0;711,00;30
+84;Fio de juta natural 1mm a 3mm rolo mínimo 50 metros;KIT ROLO;ROLO;10,20;30;0;306,00;30
+85;Cola colorida tipo glitter 23g caixa com 6 unidades;GATTE;CAIXA COM 6 UNID;12,90;20;0;258,00;20
+86;Lápis de cor 12 cores tamanho grande caixa com 12 unidades;BAZZE;CAIXA COM 12 UNID;2,45;24;24;0,00;0
+87;Caneta hidrográfica 12 cores tamanho grande escrita fina caixa com 12 unidades;BAZZE;CAIXA COM 12 UNID;3,90;24;0;93,60;24
+88;Giz de cera cores sortidas formato anatômico não tóxico 48g caixa com 12 unidades;LEONORA;CAIXA COM 12 UNID;4,90;24;24;0,00;0
+89;Fita banana dupla face esponjosa 16 a 19mm rolo mín. 10 metros;KORETECH;ROLO COM 10 METROS;6,80;100;30;476,00;70
+90;Molha dedo glicerinado sem álcool pote 12 gramas;WALEU;UNIDADE;2,77;100;30;193,90;70
+91;Grafite para lapiseira ponta 0,7 estojo com 12 grafites;LEONORA;UNIDADE;1,00;52;25;27,00;27
+92;Papel vergê branco 120g/m2 formato A4 resma com 50 folhas;BAHIA ARTES GRAFICA;RESMA COM 50 FOLHAS;9,90;100;15;841,50;85
+93;Porta-lápis/clipe/lembrete acrílico cristal;WALEU;UNIDADE;9,80;40;15;245,00;25
+94;Fita dupla face fixa forte transparente 24mmx2m suporta até 5kg;KORETECH;UNIDADE;12,07;100;10;1.086,30;90

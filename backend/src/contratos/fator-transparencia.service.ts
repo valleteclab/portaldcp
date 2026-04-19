@@ -287,6 +287,8 @@ export class FatorTransparenciaService {
         data: data.trim(),
         fase: faseTrim,
         fase_tipo: faseTipo,
+        // DEBUG: log when numero_empenho is empty for EMPENHO phase
+        ...(faseTipo === 'EMPENHO' && !detalhe.numero_empenho ? { _debug_sem_numero: true } : {}),
         credor: this.limparHtml(credor.trim()),
         cnpj: detalhe.cnpj ?? '',
         valor,
