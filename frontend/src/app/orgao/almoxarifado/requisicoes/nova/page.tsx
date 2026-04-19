@@ -162,6 +162,7 @@ interface EmpenhoFator {
 interface EmpenhoComposto {
   numero_empenho: string;
   empenho: EmpenhoFator | null;
+  empenhos_acrescimos?: EmpenhoFator[];
   anulacoes: EmpenhoFator[];
   liquidacoes: EmpenhoFator[];
   pagamentos: EmpenhoFator[];

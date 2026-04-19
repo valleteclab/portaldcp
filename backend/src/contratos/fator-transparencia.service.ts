@@ -26,8 +26,10 @@ export interface EmpenhoFator {
 export interface EmpenhoComposto {
   /** Nº do empenho (chave de agrupamento) */
   numero_empenho: string;
-  /** Registro do empenho (positivo) */
+  /** Registro do empenho original (positivo) */
   empenho: EmpenhoFator | null;
+  /** Todos os empenhos positivos (original + acréscimos) que compartilham este número */
+  empenhos_acrescimos?: EmpenhoFator[];
   /** Anulações vinculadas a este empenho */
   anulacoes: EmpenhoFator[];
   /** Liquidações (incluindo estornos de liquidação com valor negativo) */
@@ -597,6 +599,7 @@ export class FatorTransparenciaService {
         mapa.set(chave, {
           numero_empenho: emp.numero_empenho || '',
           empenho: emp,
+          empenhos_acrescimos: [emp],
           anulacoes: [],
           liquidacoes: [],
           pagamentos: [],
@@ -608,6 +611,11 @@ export class FatorTransparenciaService {
           saldo_a_liquidar: 0,
           saldo_a_pagar: 0,
         });
+      } else {
+        // Acréscimo de valor ao mesmo empenho — acumula
+        const existente = mapa.get(chave)!;
+        existente.empenhos_acrescimos = existente.empenhos_acrescimos || [existente.empenho!];
+        existente.empenhos_acrescimos.push(emp);
       }
     }
 
@@ -688,7 +696,9 @@ export class FatorTransparenciaService {
     // Calcular totais e ordenar
     const compostos = Array.from(mapa.values());
     for (const c of compostos) {
-      c.total_empenhado_bruto = c.empenho?.valor ?? 0;
+      c.total_empenhado_bruto = (c.empenhos_acrescimos ?? [c.empenho!])
+        .filter(Boolean)
+        .reduce((s, e) => s + e.valor, 0);
       c.total_empenhado_liquido = c.total_empenhado_bruto - c.total_anulado;
       c.saldo_a_liquidar = Math.max(0, c.total_empenhado_liquido - c.total_liquidado);
       c.saldo_a_pagar = Math.max(0, c.total_liquidado - c.total_pago);
