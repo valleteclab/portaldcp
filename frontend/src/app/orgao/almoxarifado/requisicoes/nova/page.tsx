@@ -1350,7 +1350,19 @@ function NovaRequisicaoForm() {
         }));
       }
       // Empenho disponível para todos os tipos (OS, MATERIAL, SERVICO, etc.)
-      dados.numeros_empenhos = empenhosSelecionados.size > 0 ? Array.from(empenhosSelecionados) : undefined;
+      // Salva empenhos no formato "numero/ano" (ex: "303/2025") extraindo o ano do empenho composto
+      dados.numeros_empenhos = empenhosSelecionados.size > 0
+        ? Array.from(empenhosSelecionados).map(num => {
+            const comp = empenhosCompostos.find(c =>
+              (c.numero_empenho || c.empenho?.numero_liquidacao || '') === num
+            );
+            if (comp?.empenho?.data) {
+              const partes = comp.empenho.data.split('/');
+              if (partes.length === 3 && partes[2]) return `${num}/${partes[2]}`;
+            }
+            return num;
+          })
+        : undefined;
 
       const isEdicao = !!editarId;
       const url = isEdicao

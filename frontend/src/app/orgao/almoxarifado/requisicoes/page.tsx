@@ -1355,8 +1355,8 @@ function RequisicoesList() {
                         <label className="text-sm font-medium text-gray-500">Empenho(s) Vinculado(s)</label>
                         <div className="flex flex-wrap gap-2 mt-1">
                           {numsEmpenho.map((num, i) => (
-                            <Badge key={i} variant="outline" className="bg-blue-50 text-blue-800 border-blue-200">
-                              {num}
+                            <Badge key={i} variant="outline" className="bg-blue-50 text-blue-800 border-blue-200 font-mono text-xs">
+                              Emp. #{num}
                             </Badge>
                           ))}
                         </div>
@@ -1524,23 +1524,25 @@ function RequisicoesList() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>#</TableHead>
+                        <TableHead className="w-10 whitespace-nowrap">#</TableHead>
                         <TableHead>Descrição</TableHead>
-                        <TableHead>Qtd. Solicitada</TableHead>
-                        <TableHead>Qtd. Autorizada</TableHead>
-                        <TableHead>Valor Unit.</TableHead>
-                        <TableHead>Total</TableHead>
+                        <TableHead className="whitespace-nowrap w-28">Qtd. Sol.</TableHead>
+                        <TableHead className="whitespace-nowrap w-28">Qtd. Aut.</TableHead>
+                        <TableHead className="whitespace-nowrap w-28 text-right">Valor Unit.</TableHead>
+                        <TableHead className="whitespace-nowrap w-28 text-right">Total</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {requisicaoSelecionada.itens?.map((item) => (
                         <TableRow key={item.id}>
-                          <TableCell>{item.numero_item}</TableCell>
-                          <TableCell>{item.descricao}</TableCell>
-                          <TableCell>{item.quantidade_solicitada} {item.unidade_medida}</TableCell>
-                          <TableCell>{item.quantidade_autorizada || '-'}</TableCell>
-                          <TableCell>{item.valor_unitario ? formatarMoeda(item.valor_unitario) : '-'}</TableCell>
-                          <TableCell>{item.valor_total_estimado ? formatarMoeda(item.valor_total_estimado) : '-'}</TableCell>
+                          <TableCell className="font-mono text-sm align-top">{item.numero_item}</TableCell>
+                          <TableCell className="align-top">
+                            <span className="whitespace-normal break-words text-sm leading-relaxed">{item.descricao}</span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap align-top">{item.quantidade_solicitada} {item.unidade_medida}</TableCell>
+                          <TableCell className="whitespace-nowrap align-top">{item.quantidade_autorizada || '-'}</TableCell>
+                          <TableCell className="whitespace-nowrap text-right align-top">{item.valor_unitario ? formatarMoeda(item.valor_unitario) : '-'}</TableCell>
+                          <TableCell className="whitespace-nowrap text-right align-top font-medium">{item.valor_total_estimado ? formatarMoeda(item.valor_total_estimado) : '-'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
