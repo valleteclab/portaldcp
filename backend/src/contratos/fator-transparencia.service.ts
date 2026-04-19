@@ -625,7 +625,7 @@ export class FatorTransparenciaService {
       .map((emp) => mapa.get(emp.numero_empenho || `SEM_NUM_${emp.data}`))
       .filter((c): c is EmpenhoComposto => !!c);
 
-    // FIFO para liquidações: primeiro empenho com saldo a liquidar
+    // FIFO para liquidações/anulações: primeiro empenho com saldo a liquidar
     const encontrarFIFOLiquidacao = (): EmpenhoComposto | null => {
       for (const c of compostosOrdenados) {
         if (!c.empenho) continue;
@@ -644,33 +644,35 @@ export class FatorTransparenciaService {
       return compostosOrdenados[compostosOrdenados.length - 1] || null;
     };
 
-    // Distribuir anulações pelo numero_empenho ou FIFO (usa mesmo critério de liquidação)
-    for (const a of grupo.anulacoes) {
-      const chave = a.numero_empenho || '';
-      const comp = mapa.get(chave) || encontrarFIFOLiquidacao();
-      if (comp) {
-        comp.anulacoes.push(a);
-        comp.total_anulado += Math.abs(a.valor);
-      }
-    }
+    // Processar todos os registros em ordem cronológica para FIFO correto
+    type Registro = { data: string; tipo: 'ANULACAO' | 'LIQUIDACAO' | 'PAGAMENTO'; reg: EmpenhoFator };
+    const todos: Registro[] = [
+      ...grupo.anulacoes.map(r => ({ data: r.data, tipo: 'ANULACAO' as const, reg: r })),
+      ...grupo.liquidacoes.map(r => ({ data: r.data, tipo: 'LIQUIDACAO' as const, reg: r })),
+      ...grupo.pagamentos.map(r => ({ data: r.data, tipo: 'PAGAMENTO' as const, reg: r })),
+    ];
+    todos.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
 
-    // Distribuir liquidações pelo numero_empenho ou FIFO (saldo a liquidar)
-    for (const l of grupo.liquidacoes) {
-      const chave = l.numero_empenho || '';
-      const comp = mapa.get(chave) || encontrarFIFOLiquidacao();
-      if (comp) {
-        comp.liquidacoes.push(l);
-        comp.total_liquidado += l.valor;
-      }
-    }
-
-    // Distribuir pagamentos pelo numero_empenho ou FIFO (saldo a pagar)
-    for (const p of grupo.pagamentos) {
-      const chave = p.numero_empenho || '';
-      const comp = mapa.get(chave) || encontrarFIFOPagamento();
-      if (comp) {
-        comp.pagamentos.push(p);
-        comp.total_pago += p.valor;
+    for (const { tipo, reg } of todos) {
+      const chave = reg.numero_empenho || '';
+      if (tipo === 'ANULACAO') {
+        const comp = mapa.get(chave) || encontrarFIFOLiquidacao();
+        if (comp) {
+          comp.anulacoes.push(reg);
+          comp.total_anulado += Math.abs(reg.valor);
+        }
+      } else if (tipo === 'LIQUIDACAO') {
+        const comp = mapa.get(chave) || encontrarFIFOLiquidacao();
+        if (comp) {
+          comp.liquidacoes.push(reg);
+          comp.total_liquidado += reg.valor;
+        }
+      } else {
+        const comp = mapa.get(chave) || encontrarFIFOPagamento();
+        if (comp) {
+          comp.pagamentos.push(reg);
+          comp.total_pago += reg.valor;
+        }
       }
     }
 
