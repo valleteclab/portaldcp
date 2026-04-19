@@ -433,6 +433,14 @@ function NovaRequisicaoForm() {
   const [empenhosCompostos, setEmpenhosCompostos] = useState<EmpenhoComposto[]>([]);
   const [loadingEmpenhosOS, setLoadingEmpenhosOS] = useState(false);
 
+  // Confirmação de empenho ao salvar/enviar
+  const [confirmacaoEmpenho, setConfirmacaoEmpenho] = useState<{
+    aberto: boolean;
+    mensagens: string[];
+    enviarParaAutorizacao: boolean;
+  }>({ aberto: false, mensagens: [], enviarParaAutorizacao: false });
+  const pularVerificacaoEmpenho = useRef(false);
+
   // OS com ItemCronograma (medição por itens): Ordem Global vs Ordem por Demanda
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
   const [etapasOS, setEtapasOS] = useState<any[]>([]);
@@ -1208,6 +1216,36 @@ function NovaRequisicaoForm() {
   };
 
   const handleSalvar = async (enviarParaAutorizacao: boolean = false) => {
+    // Verificar alertas de empenho antes de salvar (pula se confirmado)
+    if (!pularVerificacaoEmpenho.current && contratoSelecionado?.id && !loadingEmpenhosOS) {
+      const mensagens: string[] = [];
+      const empenhosComSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
+      const empenhosSemSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar <= 0.01);
+
+      if (empenhosCompostos.length === 0) {
+        mensagens.push('Nenhum empenho encontrado para este contrato no Portal da Transparência.');
+      } else if (empenhosComSaldo.length === 0) {
+        mensagens.push('Todos os empenhos deste contrato estão com saldo insuficiente (saldo a liquidar = R$ 0,00).');
+      }
+
+      if (empenhosSelecionados.size === 0 && empenhosCompostos.length > 0) {
+        mensagens.push('Nenhum empenho foi selecionado para vincular à requisição.');
+      }
+
+      const algumSemSaldo = Array.from(empenhosSelecionados).some(num =>
+        empenhosSemSaldo.some(c => (c.numero_empenho || c.empenho?.numero_liquidacao) === num)
+      );
+      if (algumSemSaldo) {
+        mensagens.push('Um ou mais empenhos selecionados estão com saldo insuficiente.');
+      }
+
+      if (mensagens.length > 0) {
+        setConfirmacaoEmpenho({ aberto: true, mensagens, enviarParaAutorizacao });
+        return;
+      }
+    }
+
+    pularVerificacaoEmpenho.current = false;
     setSalvando(true);
     try {
       const dados: any = {
@@ -3050,6 +3088,52 @@ function NovaRequisicaoForm() {
           )}
         </div>
       </div>
+
+      {/* Diálogo de confirmação de alertas de empenho */}
+      <Dialog open={confirmacaoEmpenho.aberto} onOpenChange={(open) => {
+        if (!open) setConfirmacaoEmpenho({ aberto: false, mensagens: [], enviarParaAutorizacao: false });
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Atenção — Empenho(s)
+            </DialogTitle>
+            <DialogDescription>
+              Verifique os alertas abaixo antes de prosseguir:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {confirmacaoEmpenho.mensagens.map((msg, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{msg}</span>
+              </div>
+            ))}
+            <p className="text-xs text-gray-500 mt-2">
+              A requisição pode ser criada mesmo sem empenho vinculado, mas isso pode impactar a liquidação futura.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmacaoEmpenho({ aberto: false, mensagens: [], enviarParaAutorizacao: false })}
+            >
+              Voltar
+            </Button>
+            <Button
+              onClick={() => {
+                const enviar = confirmacaoEmpenho.enviarParaAutorizacao;
+                setConfirmacaoEmpenho({ aberto: false, mensagens: [], enviarParaAutorizacao: false });
+                pularVerificacaoEmpenho.current = true;
+                handleSalvar(enviar);
+              }}
+            >
+              {confirmacaoEmpenho.enviarParaAutorizacao ? 'Prosseguir e Enviar' : 'Prosseguir e Salvar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
