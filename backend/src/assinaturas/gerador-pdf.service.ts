@@ -166,7 +166,8 @@ export class GeradorPdfService {
             if (Array.isArray(parsed)) numsEmpenho = parsed;
           } catch {}
           if (numsEmpenho.length > 0) {
-            campo('Empenho(s):', numsEmpenho.join(', '), marginL, rowY, contentW - labelW);
+            const empenhoStr = numsEmpenho.map(n => `#${n}`).join(', ');
+            campo('Nota de Empenho:', empenhoStr, marginL, rowY, contentW - labelW);
             rowY += 16;
           }
         }
@@ -430,7 +431,8 @@ export class GeradorPdfService {
             if (Array.isArray(parsed)) numsEmpenho = parsed;
           } catch {}
           if (numsEmpenho.length > 0) {
-            campo('Empenho(s):', numsEmpenho.join(', '), marginL, rowY, contentW - labelW);
+            const empenhoStr = numsEmpenho.map(n => `#${n}`).join(', ');
+            campo('Nota de Empenho:', empenhoStr, marginL, rowY, contentW - labelW);
             rowY += 16;
           }
         }
