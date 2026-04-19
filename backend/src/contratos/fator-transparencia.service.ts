@@ -143,16 +143,34 @@ export class FatorTransparenciaService {
     const todos = resultadosPorAno.flat();
     const chaveContratoAlvo = this.chaveContrato(nContratoNormalizado);
 
+    // Debug: contar registros antes e depois do filtro
+    console.log(`[buscarEmpenhos] totalBruto=${todos.length}, chaveAlvo=${chaveContratoAlvo}, nContrato=${nContratoNormalizado}`);
+    const descartados: string[] = [];
+
     const vistos = new Set<string>();
-    return todos.filter((e, idx) => {
+    const filtrados = todos.filter((e, idx) => {
       // Filtra por número de contrato quando disponível no dialog
       if (chaveContratoAlvo) {
         const chaveEmpenho = this.chaveContrato(e.numero_contrato);
         // Aceita: (a) match exato, (b) numero_contrato do empenho começa com o alvo
         //         (ex: "028/2023-3ADITIVO" bate com "028/2023"),
         //         (c) dialog não informou contrato (chaveEmpenho vazia) → descarta
-        if (!chaveEmpenho) return false;
-        if (!chaveEmpenho.startsWith(chaveContratoAlvo)) return false;
+        if (!chaveEmpenho) {
+          // Debug: log registros sem contrato que são PAGAMENTO/LIQUIDACAO em Jan-Mar
+          const mes = parseInt((e.data || '').split('/')[1], 10) || 0;
+          if (e.fase_tipo !== 'EMPENHO' && mes <= 3) {
+            descartados.push(`SEM_CONTRATO ${e.fase_tipo} ${e.data} valor=${e.valor} numContrato="${e.numero_contrato}"`);
+          }
+          return false;
+        }
+        if (!chaveEmpenho.startsWith(chaveContratoAlvo)) {
+          // Debug: log registros com contrato diferente em Jan-Mar
+          const mes = parseInt((e.data || '').split('/')[1], 10) || 0;
+          if (mes <= 3) {
+            descartados.push(`OUTRO_CONTRATO ${e.fase_tipo} ${e.data} valor=${e.valor} chaveEmpenho=${chaveEmpenho} chaveAlvo=${chaveContratoAlvo}`);
+          }
+          return false;
+        }
       }
 
       // Chave composta: numero_liquidacao se repete entre anos (reseta a cada exercício),
@@ -162,6 +180,14 @@ export class FatorTransparenciaService {
       vistos.add(chave);
       return true;
     });
+
+    if (descartados.length > 0) {
+      console.log(`[buscarEmpenhos] DESCARTADOS (${descartados.length}):`);
+      descartados.forEach(d => console.log(`  ${d}`));
+    }
+    console.log(`[buscarEmpenhos] totalFiltrado=${filtrados.length}`);
+
+    return filtrados;
   }
 
   /**
