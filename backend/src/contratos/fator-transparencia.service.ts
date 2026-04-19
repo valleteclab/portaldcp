@@ -143,34 +143,16 @@ export class FatorTransparenciaService {
     const todos = resultadosPorAno.flat();
     const chaveContratoAlvo = this.chaveContrato(nContratoNormalizado);
 
-    // Debug: contar registros antes e depois do filtro
-    console.log(`[buscarEmpenhos] totalBruto=${todos.length}, chaveAlvo=${chaveContratoAlvo}, nContrato=${nContratoNormalizado}`);
-    const descartados: string[] = [];
-
     const vistos = new Set<string>();
-    const filtrados = todos.filter((e, idx) => {
+    return todos.filter((e, idx) => {
       // Filtra por número de contrato quando disponível no dialog
       if (chaveContratoAlvo) {
         const chaveEmpenho = this.chaveContrato(e.numero_contrato);
         // Aceita: (a) match exato, (b) numero_contrato do empenho começa com o alvo
         //         (ex: "028/2023-3ADITIVO" bate com "028/2023"),
         //         (c) dialog não informou contrato (chaveEmpenho vazia) → descarta
-        if (!chaveEmpenho) {
-          // Debug: log registros sem contrato que são PAGAMENTO/LIQUIDACAO em Jan-Mar
-          const mes = parseInt((e.data || '').split('/')[1], 10) || 0;
-          if (e.fase_tipo !== 'EMPENHO' && mes <= 3) {
-            descartados.push(`SEM_CONTRATO ${e.fase_tipo} ${e.data} valor=${e.valor} numContrato="${e.numero_contrato}"`);
-          }
-          return false;
-        }
-        if (!chaveEmpenho.startsWith(chaveContratoAlvo)) {
-          // Debug: log registros com contrato diferente em Jan-Mar
-          const mes = parseInt((e.data || '').split('/')[1], 10) || 0;
-          if (mes <= 3) {
-            descartados.push(`OUTRO_CONTRATO ${e.fase_tipo} ${e.data} valor=${e.valor} chaveEmpenho=${chaveEmpenho} chaveAlvo=${chaveContratoAlvo}`);
-          }
-          return false;
-        }
+        if (!chaveEmpenho) return false;
+        if (!chaveEmpenho.startsWith(chaveContratoAlvo)) return false;
       }
 
       // Chave composta: numero_liquidacao se repete entre anos (reseta a cada exercício),
@@ -180,14 +162,6 @@ export class FatorTransparenciaService {
       vistos.add(chave);
       return true;
     });
-
-    if (descartados.length > 0) {
-      console.log(`[buscarEmpenhos] DESCARTADOS (${descartados.length}):`);
-      descartados.forEach(d => console.log(`  ${d}`));
-    }
-    console.log(`[buscarEmpenhos] totalFiltrado=${filtrados.length}`);
-
-    return filtrados;
   }
 
   /**
@@ -405,23 +379,14 @@ export class FatorTransparenciaService {
     const requer_novo_empenho_anual =
       valorGlobal > 0 && saldo_a_empenhar > 0.01 && anoContrato <= anoAtual;
 
-    // Detecta mês de início do contrato a partir do primeiro empenho positivo
-    const mesInicio = this.detectarMesInicio(empenhos);
-    // Debug: listar registros de 2024 que chegam ao calcularResumo
-    const regs2024 = empenhos.filter(e => (e.data || '').endsWith('/2024'));
-    console.log(`[calcularResumo] mesInicio=${mesInicio}, total=${empenhos.length}, regs2024=${regs2024.length}`);
-    regs2024.forEach(e => console.log(`  [2024] ${e.fase_tipo} ${e.data} valor=${e.valor}`));
-
-    // Agrupa por exercício (ciclo) com regra fase-dependente:
-    // EMPENHO: mês < mesInicio → N-1; mês >= mesInicio → N
-    // LIQUIDAÇÃO/PAGAMENTO: mês <= mesInicio → N-1; mês > mesInicio → N
+    // Agrupa por ano calendário (cada registro fica no seu ano)
     const porAnoMap = new Map<number, ResumoAnoEmpenhos>();
     for (const e of empenhos) {
       const dataPartes = (e.data || '').split('/');
       if (dataPartes.length !== 3) continue;
       const mes = parseInt(dataPartes[1], 10) || 0;
       const anoCal = parseInt(dataPartes[2], 10) || 0;
-      const ano = this.exercicioDe(mes, anoCal, e.fase_tipo, mesInicio);
+      const ano = anoCal;
       let bucket = porAnoMap.get(ano);
       if (!bucket) {
         bucket = {
@@ -474,37 +439,14 @@ export class FatorTransparenciaService {
   }
 
   /**
-   * Agrupa registros por exercício (ciclo fiscal).
+   * Agrupa registros por ano calendário.
    *
-   * REGRA FASE-DEPENDENTE (para contratos com início após Janeiro):
-   *
-   * O ciclo fiscal de um contrato não coincide com o ano calendário quando
-   * o contrato inicia em mês > 1. Ex: contrato que inicia em Março (mês 3)
-   * tem seu ciclo fiscal correndo de Março a Fevereiro do ano seguinte.
-   *
-   * EMPENHO:    mês < mesInicio → exercício N-1  (apostilamento Jan fecha ciclo anterior)
-   *             mês >= mesInicio → exercício N    (empenho Mar abre novo ciclo)
-   *
-   * LIQUIDAÇÃO/PAGAMENTO: mês <= mesInicio → exercício N-1  (pagamentos até Mar consomem ciclo anterior)
-   *                       mês > mesInicio → exercício N    (pagamentos a partir de Abr consomem ciclo atual)
-   *
-   * Diferença crucial: o empenho de Março ABRE o novo ciclo, mas o pagamento
-   * de Março ainda FECHA o ciclo anterior (é a última parcela do exercício N-1).
-   *
-   * Se mesInicio = 1 (Janeiro), não há deslocamento — tudo fica no ano calendário.
-   *
-   * Exemplo (contrato 028/2023, início Março, valor global 124.800/ano):
-   * - Exercício 2023: empenho 97.413 (Mar) + apost. 31.200 (Jan/2024)
-   *   − anulação 3.813 (Dez) = 124.800 empenhado
-   *   Pagamentos: Abr-Dez/2023 (9) + Jan-Mar/2024 (3) = 12 × 10.400 = 124.800
-   * - Exercício 2024: empenho 97.066 (Mar) + apost. 31.200 (Jan/2025)
-   *   − anulação 3.466 (Abr) = 124.800 empenhado
-   *   Pagamentos: Abr-Dez/2024 (10) + Jan-Mar/2025 (2+1) = 12 × 10.400 = 124.800
+   * Cada registro (empenho, liquidação, pagamento) fica no ano da sua data.
    *
    * Status:
    * - ENCERRADO: ano anterior com saldos zerados
    * - EXECUCAO:  ano corrente (ou futuro)
-   * - ABERTO:    ano anterior com saldo residual (anomalia a investigar)
+   * - ABERTO:    ano anterior com saldo residual
    */
   private agruparPorExercicio(empenhos: EmpenhoFator[], anoAtual: number): GrupoExercicio[] {
     const toTimestamp = (dataBr: string): number => {
@@ -512,9 +454,6 @@ export class FatorTransparenciaService {
       if (!d || !m || !y) return 0;
       return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
     };
-
-    const mesInicio = this.detectarMesInicio(empenhos);
-    console.log(`[agruparPorExercicio] mesInicio=${mesInicio}, totalRegistros=${empenhos.length}`);
 
     const mapa = new Map<number, GrupoExercicio>();
     const obter = (ano: number): GrupoExercicio => {
@@ -545,13 +484,8 @@ export class FatorTransparenciaService {
       if (dataPartes.length !== 3) continue;
       const mes = parseInt(dataPartes[1], 10) || 0;
       const anoCal = parseInt(dataPartes[2], 10) || 0;
-      const ciclo = this.exercicioDe(mes, anoCal, e.fase_tipo, mesInicio);
-      // Debug: log todos os registros de Jan-Mar para verificar ciclo
-      if (mes <= mesInicio + 1) {
-        console.log(`[ciclo] ${e.fase_tipo} ${e.data} valor=${e.valor} → exercício ${ciclo} (mes=${mes}, mesInicio=${mesInicio})`);
-      }
-      if (!ciclo) continue;
-      const g = obter(ciclo);
+      if (!anoCal) continue;
+      const g = obter(anoCal);
       if (e.fase_tipo === 'EMPENHO') {
         if (e.valor < 0) {
           g.anulacoes.push(e);
@@ -592,42 +526,6 @@ export class FatorTransparenciaService {
     }
 
     return grupos;
-  }
-
-  /**
-   * Detecta o mês de início do contrato a partir do primeiro empenho positivo.
-   * Se o contrato inicia em Janeiro (mês 1), não há deslocamento de ciclo.
-   */
-  private detectarMesInicio(empenhos: EmpenhoFator[]): number {
-    const primeiro = empenhos
-      .filter(e => e.fase_tipo === 'EMPENHO' && e.valor > 0)
-      .sort((a, b) => {
-        const [da, ma, ya] = (a.data || '').split('/');
-        const [db, mb, yb] = (b.data || '').split('/');
-        const ta = ya && ma && da ? new Date(+ya, +ma - 1, +da).getTime() : 0;
-        const tb = yb && mb && db ? new Date(+yb, +mb - 1, +db).getTime() : 0;
-        return ta - tb;
-      })[0];
-    if (!primeiro) return 1;
-    const partes = (primeiro.data || '').split('/');
-    return partes.length === 3 ? (parseInt(partes[1], 10) || 1) : 1;
-  }
-
-  /**
-   * Determina o exercício (ano do ciclo fiscal) para um registro.
-   *
-   * EMPENHO: mês < mesInicio → N-1; mês >= mesInicio → N
-   * LIQUIDAÇÃO/PAGAMENTO: mês <= mesInicio → N-1; mês > mesInicio → N
-   *
-   * Se mesInicio = 1, retorna anoCal sem deslocamento.
-   */
-  private exercicioDe(mes: number, anoCal: number, faseTipo: string, mesInicio: number): number {
-    if (mesInicio <= 1) return anoCal;
-    if (faseTipo === 'EMPENHO') {
-      return mes < mesInicio ? anoCal - 1 : anoCal;
-    }
-    // LIQUIDAÇÃO, PAGAMENTO, ESTORNO etc.
-    return mes <= mesInicio ? anoCal - 1 : anoCal;
   }
 
   private extrairCampo(texto: string, regex: RegExp): string {

@@ -2096,7 +2096,7 @@ export default function DetalheContratoOrgaoPage() {
                           Execução por Exercício
                         </h3>
                         <span className="text-xs text-gray-500">
-                          Empenho: mês &lt; início → N-1 · Pagto: mês ≤ início → N-1
+                          Agrupamento por ano calendário
                         </span>
                       </div>
                       {gruposExercicio.map((grupo) => {
