@@ -625,41 +625,49 @@ export class FatorTransparenciaService {
       .map((emp) => mapa.get(emp.numero_empenho || `SEM_NUM_${emp.data}`))
       .filter((c): c is EmpenhoComposto => !!c);
 
-    // FIFO com capacidade: primeiro empenho (por data) que ainda tem saldo
-    const encontrarFIFO = (valor: number): EmpenhoComposto | null => {
+    // FIFO para liquidações: primeiro empenho com saldo a liquidar
+    const encontrarFIFOLiquidacao = (): EmpenhoComposto | null => {
       for (const c of compostosOrdenados) {
         if (!c.empenho) continue;
-        const saldoDisponivel = c.empenho.valor - c.total_anulado - c.total_liquidado;
-        if (saldoDisponivel > 0.01) return c;
+        const saldoALiquidar = c.empenho.valor - c.total_anulado - c.total_liquidado;
+        if (saldoALiquidar > 0.01) return c;
       }
-      // Se todos estão cheios, vai para o último (empenho mais recente)
       return compostosOrdenados[compostosOrdenados.length - 1] || null;
     };
 
-    // Distribuir anulações pelo numero_empenho ou FIFO
+    // FIFO para pagamentos: primeiro empenho com saldo a pagar (liquidado mas não pago)
+    const encontrarFIFOPagamento = (): EmpenhoComposto | null => {
+      for (const c of compostosOrdenados) {
+        const saldoAPagar = c.total_liquidado - c.total_pago;
+        if (saldoAPagar > 0.01) return c;
+      }
+      return compostosOrdenados[compostosOrdenados.length - 1] || null;
+    };
+
+    // Distribuir anulações pelo numero_empenho ou FIFO (usa mesmo critério de liquidação)
     for (const a of grupo.anulacoes) {
       const chave = a.numero_empenho || '';
-      const comp = mapa.get(chave) || encontrarFIFO(Math.abs(a.valor));
+      const comp = mapa.get(chave) || encontrarFIFOLiquidacao();
       if (comp) {
         comp.anulacoes.push(a);
         comp.total_anulado += Math.abs(a.valor);
       }
     }
 
-    // Distribuir liquidações pelo numero_empenho ou FIFO
+    // Distribuir liquidações pelo numero_empenho ou FIFO (saldo a liquidar)
     for (const l of grupo.liquidacoes) {
       const chave = l.numero_empenho || '';
-      const comp = mapa.get(chave) || encontrarFIFO(l.valor);
+      const comp = mapa.get(chave) || encontrarFIFOLiquidacao();
       if (comp) {
         comp.liquidacoes.push(l);
         comp.total_liquidado += l.valor;
       }
     }
 
-    // Distribuir pagamentos pelo numero_empenho ou FIFO
+    // Distribuir pagamentos pelo numero_empenho ou FIFO (saldo a pagar)
     for (const p of grupo.pagamentos) {
       const chave = p.numero_empenho || '';
-      const comp = mapa.get(chave) || encontrarFIFO(p.valor);
+      const comp = mapa.get(chave) || encontrarFIFOPagamento();
       if (comp) {
         comp.pagamentos.push(p);
         comp.total_pago += p.valor;
