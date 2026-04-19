@@ -351,9 +351,12 @@ export class FatorTransparenciaService {
 
   private classificarFase(fase: string): FaseDespesa {
     const f = fase.toUpperCase().replace(/\s+/g, '');
-    if (f.startsWith('EMPENHO')) return 'EMPENHO';
-    if (f.startsWith('LIQUIDACAO') || f.startsWith('LIQUIDAÇÃO')) return 'LIQUIDACAO';
-    if (f.startsWith('PAGAMENTO')) return 'PAGAMENTO';
+    // ESTORNO EMPENHO → EMPENHO; EMPENHO DO EXERCÍCIO → EMPENHO
+    if (f.includes('EMPENHO')) return 'EMPENHO';
+    // ESTORNO LIQUIDAÇÃO → LIQUIDACAO (valor já vem negativo do portal)
+    if (f.includes('LIQUIDACAO') || f.includes('LIQUIDAÇÃO')) return 'LIQUIDACAO';
+    // ESTORNO PAGAMENTO → PAGAMENTO (valor já vem negativo do portal)
+    if (f.includes('PAGAMENTO')) return 'PAGAMENTO';
     return 'OUTRO';
   }
 
