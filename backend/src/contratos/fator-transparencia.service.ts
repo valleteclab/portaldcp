@@ -281,14 +281,21 @@ export class FatorTransparenciaService {
       const faseTrim = fase.trim();
       const faseTipo = this.classificarFase(faseTrim);
 
+      // Fallback: extrai numero_empenho do texto Bem/Serviço quando não vem no dialog
+      // Ex: "ACRÉSCIMO DE VALOR AO EMPENHO Nº 60/2026" → "60"
+      let numeroEmpenho = detalhe.numero_empenho ?? '';
+      if (!numeroEmpenho && faseTipo === 'EMPENHO') {
+        const bemServ = detalhe.bem_servico ?? '';
+        const mEmp = bemServ.match(/EMPENHO\s*N[º°]\s*(\d+)/i);
+        if (mEmp) numeroEmpenho = mEmp[1];
+      }
+
       resultados.push({
         numero_liquidacao: detalhe.numero_liquidacao ?? '',
-        numero_empenho: detalhe.numero_empenho ?? '',
+        numero_empenho: numeroEmpenho,
         data: data.trim(),
         fase: faseTrim,
         fase_tipo: faseTipo,
-        // DEBUG: log when numero_empenho is empty for EMPENHO phase
-        ...(faseTipo === 'EMPENHO' && !detalhe.numero_empenho ? { _debug_sem_numero: true } : {}),
         credor: this.limparHtml(credor.trim()),
         cnpj: detalhe.cnpj ?? '',
         valor,
@@ -325,25 +332,15 @@ export class FatorTransparenciaService {
   private extrairCamposDialog(
     conteudo: string,
   ): Partial<EmpenhoFator> & Record<string, string> {
-    const numero_liquidacao = this.extrairCampo(
-      conteudo,
-      /Nº Liquidação:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
-    );
-    const numero_empenho = this.extrairCampo(
-      conteudo,
-      /Nº Empenho:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
-    );
-    // DEBUG: log when numero_empenho is empty
-    if (!numero_empenho) {
-      const empIdx = conteudo.indexOf('Empenho');
-      const raw = empIdx >= 0 ? conteudo.substring(empIdx, empIdx + 80).replace(/\n/g, ' ') : 'NOT_FOUND';
-      this.logger.warn(`[DEBUG] numero_empenho VAZIO | liq=${numero_liquidacao} | raw: ${raw}`);
-    } else {
-      this.logger.log(`[DEBUG] numero_empenho='${numero_empenho}' | liq=${numero_liquidacao}`);
-    }
     return {
-      numero_liquidacao,
-      numero_empenho,
+      numero_liquidacao: this.extrairCampo(
+        conteudo,
+        /Nº Liquidação:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
+      ),
+      numero_empenho: this.extrairCampo(
+        conteudo,
+        /Nº Empenho:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
+      ),
       cnpj: this.extrairCampo(
         conteudo,
         /<strong>CNPJ:<\/strong>\s*([\d.\/\-]+)/,
