@@ -623,6 +623,13 @@ export class FatorTransparenciaService {
       if (comp) {
         comp.anulacoes.push(a);
         comp.total_anulado += Math.abs(a.valor);
+      } else {
+        // Anulação sem empenho correspondente — atribuir ao primeiro empenho
+        const primeiro = mapa.values().next().value;
+        if (primeiro) {
+          primeiro.anulacoes.push(a);
+          primeiro.total_anulado += Math.abs(a.valor);
+        }
       }
     }
 
