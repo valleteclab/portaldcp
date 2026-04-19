@@ -143,6 +143,7 @@ interface Setor {
 
 interface EmpenhoFator {
   numero_liquidacao: string;
+  numero_empenho: string;
   data: string;
   fase: string;
   fase_tipo: 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO';
@@ -155,6 +156,21 @@ interface EmpenhoFator {
   numero_processo: string;
   modalidade: string;
   elemento_despesa: string;
+}
+
+interface EmpenhoComposto {
+  numero_empenho: string;
+  empenho: EmpenhoFator | null;
+  anulacoes: EmpenhoFator[];
+  liquidacoes: EmpenhoFator[];
+  pagamentos: EmpenhoFator[];
+  total_empenhado_bruto: number;
+  total_anulado: number;
+  total_empenhado_liquido: number;
+  total_liquidado: number;
+  total_pago: number;
+  saldo_a_liquidar: number;
+  saldo_a_pagar: number;
 }
 
 interface RascunhoRequisicao {
@@ -412,6 +428,7 @@ function NovaRequisicaoForm() {
   // Empenho vinculado à OS (Portal Fator Transparência)
   const [empenhoOS, setEmpenhoOS] = useState('');
   const [empenhosOS, setEmpenhosOS] = useState<EmpenhoFator[]>([]);
+  const [empenhosCompostos, setEmpenhosCompostos] = useState<EmpenhoComposto[]>([]);
   const [loadingEmpenhosOS, setLoadingEmpenhosOS] = useState(false);
 
   // OS com ItemCronograma (medição por itens): Ordem Global vs Ordem por Demanda
@@ -834,10 +851,11 @@ function NovaRequisicaoForm() {
     }
   }, [isOS, contratoSelecionado?.objeto]);
 
-  // Carregar empenhos do Portal Fator quando um contrato OS for selecionado
+  // Carregar empenhos do Portal Fator quando um contrato for selecionado
   useEffect(() => {
     if (!contratoSelecionado?.id) {
       setEmpenhosOS([]);
+      setEmpenhosCompostos([]);
       setEmpenhoOS('');
       return;
     }
@@ -848,9 +866,31 @@ function NovaRequisicaoForm() {
         if (res.ok) {
           const data = await res.json();
           setEmpenhosOS(data.empenhos ?? data);
+          // Extrair empenhos_compostos dos grupos_exercicio
+          const grupos: any[] = data.grupos_exercicio ?? [];
+          const compostos: EmpenhoComposto[] = [];
+          for (const g of grupos) {
+            if (g.empenhos_compostos?.length) {
+              compostos.push(...g.empenhos_compostos);
+            }
+          }
+          setEmpenhosCompostos(compostos);
+          // Auto-sugerir primeiro empenho com saldo
+          if (!empenhoOS && compostos.length > 0) {
+            const comSaldo = compostos.filter(c => c.saldo_a_liquidar > 0.01);
+            if (comSaldo.length > 0) {
+              setEmpenhoOS(comSaldo[0].numero_empenho || comSaldo[0].empenho?.numero_liquidacao || '');
+            }
+          }
         }
-        else setEmpenhosOS([]);
-      } catch { setEmpenhosOS([]); }
+        else {
+          setEmpenhosOS([]);
+          setEmpenhosCompostos([]);
+        }
+      } catch {
+        setEmpenhosOS([]);
+        setEmpenhosCompostos([]);
+      }
       setLoadingEmpenhosOS(false);
     };
     carregar();
@@ -1271,6 +1311,120 @@ function NovaRequisicaoForm() {
     } finally {
       setSalvando(false);
     }
+  };
+
+  // =========================================================================
+  // SELETOR DE EMPENHO COM SALDO
+  // =========================================================================
+
+  const renderEmpenhoSelector = () => {
+    // Empenhos com saldo a liquidar (disponíveis para débito)
+    const empenhosDisponiveis = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
+    // Empenho selecionado atualmente (para mostrar detalhes)
+    const empenhoSelecionado = empenhosCompostos.find(c =>
+      (c.numero_empenho && c.numero_empenho === empenhoOS) ||
+      (c.empenho?.numero_liquidacao && c.empenho.numero_liquidacao === empenhoOS)
+    );
+
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Wallet className="h-4 w-4" />
+            Empenho
+          </CardTitle>
+          <CardDescription>
+            Vincule um empenho do Portal de Transparência para débito desta requisição
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loadingEmpenhosOS ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
+            </div>
+          ) : empenhosDisponiveis.length > 0 ? (
+            <>
+              <Select value={empenhoOS || '__nenhum__'} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar empenho com saldo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__nenhum__">Nenhum</SelectItem>
+                  {empenhosDisponiveis.map((c, i) => {
+                    const num = c.numero_empenho || c.empenho?.numero_liquidacao || `empenho_${i}`;
+                    const label = c.numero_empenho
+                      ? `#${c.numero_empenho}`
+                      : c.empenho?.data
+                        ? `s/n ${c.empenho.data}`
+                        : `Empenho ${i + 1}`;
+                    return (
+                      <SelectItem key={i} value={num}>
+                        {label} — Saldo: {formatarMoeda(c.saldo_a_liquidar)}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              {empenhoSelecionado && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Empenhado líq.:</span>
+                    <span className="font-medium">{formatarMoeda(empenhoSelecionado.total_empenhado_liquido)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Liquidado:</span>
+                    <span className="font-medium">{formatarMoeda(empenhoSelecionado.total_liquidado)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Pago:</span>
+                    <span className="font-medium">{formatarMoeda(empenhoSelecionado.total_pago)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-green-300 pt-1">
+                    <span className="text-green-800 font-medium">Saldo a liquidar:</span>
+                    <span className="font-bold text-green-700">{formatarMoeda(empenhoSelecionado.saldo_a_liquidar)}</span>
+                  </div>
+                  {empenhoSelecionado.saldo_a_pagar > 0.01 && (
+                    <div className="flex justify-between">
+                      <span className="text-amber-800 font-medium">Saldo a pagar:</span>
+                      <span className="font-bold text-amber-700">{formatarMoeda(empenhoSelecionado.saldo_a_pagar)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {empenhosCompostos.length > empenhosDisponiveis.length && (
+                <p className="text-xs text-gray-500">
+                  {empenhosCompostos.length - empenhosDisponiveis.length} empenho(s) sem saldo não exibido(s)
+                </p>
+              )}
+            </>
+          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+              <p className="text-amber-800 font-medium">Todos os empenhos estão totalmente liquidados</p>
+              <p className="text-amber-700 text-xs mt-1">Não há saldo disponível para vincular</p>
+              <Select value={empenhoOS || '__nenhum__'} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Selecionar mesmo assim (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__nenhum__">Nenhum</SelectItem>
+                  {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
+                    <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
+                      {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <Input
+              placeholder="Número do empenho (opcional)"
+              value={empenhoOS}
+              onChange={e => setEmpenhoOS(e.target.value)}
+            />
+          )}
+        </CardContent>
+      </Card>
+    );
   };
 
   // =========================================================================
@@ -1765,40 +1919,7 @@ function NovaRequisicaoForm() {
         </CardContent>
       </Card>
 
-      {/* Empenho — Portal Fator Transparência */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Empenho</CardTitle>
-          <CardDescription>Vincule um empenho do Portal de Transparência (opcional)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loadingEmpenhosOS ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
-            </div>
-          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
-            <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecionar empenho (opcional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
-                  <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                    {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              placeholder="Número do empenho (opcional)"
-              value={empenhoOS}
-              onChange={e => setEmpenhoOS(e.target.value)}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {renderEmpenhoSelector()}
     </div>
   );
   };
@@ -1907,40 +2028,7 @@ function NovaRequisicaoForm() {
         </CardContent>
       </Card>
 
-      {/* Empenho — Portal Fator Transparência */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Empenho</CardTitle>
-          <CardDescription>Vincule um empenho do Portal de Transparência (opcional)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loadingEmpenhosOS ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
-            </div>
-          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
-            <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecionar empenho (opcional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
-                  <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                    {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              placeholder="Número do empenho (opcional)"
-              value={empenhoOS}
-              onChange={e => setEmpenhoOS(e.target.value)}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {renderEmpenhoSelector()}
     </div>
   );
 
@@ -2335,40 +2423,7 @@ function NovaRequisicaoForm() {
         </Card>
       )}
 
-      {/* Empenho — Portal Fator Transparência */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Empenho</CardTitle>
-          <CardDescription>Vincule um empenho do Portal de Transparência (opcional)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loadingEmpenhosOS ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin" />Buscando empenhos...
-            </div>
-          ) : empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').length > 0 ? (
-            <Select value={empenhoOS} onValueChange={v => setEmpenhoOS(v === '__nenhum__' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecionar empenho (opcional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__nenhum__">Nenhum</SelectItem>
-                {empenhosOS.filter(e => e.fase_tipo === 'EMPENHO').map((e, i) => (
-                  <SelectItem key={i} value={e.numero_liquidacao || String(i)}>
-                    {e.numero_liquidacao ? `Empenho ${e.numero_liquidacao} — ` : ''}{e.credor} — {e.valor_formatado}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              placeholder="Número do empenho (opcional)"
-              value={empenhoOS}
-              onChange={e => setEmpenhoOS(e.target.value)}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {renderEmpenhoSelector()}
     </div>
   );
 
