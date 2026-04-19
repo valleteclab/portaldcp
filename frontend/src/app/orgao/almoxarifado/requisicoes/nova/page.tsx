@@ -60,6 +60,7 @@ import {
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 // Chave para localStorage
 const RASCUNHO_KEY = 'requisicao_rascunho';
@@ -200,28 +201,29 @@ function StepProgress({ currentStep, steps }: { currentStep: number; steps: stri
     <div className="flex items-center justify-center mb-8">
       {steps.map((step, index) => (
         <div key={index} className="flex items-center">
-          <div className={`
-            flex items-center justify-center w-10 h-10 rounded-full font-semibold text-sm
-            ${index < currentStep 
-              ? 'bg-green-500 text-white' 
-              : index === currentStep 
-                ? 'bg-blue-600 text-white ring-4 ring-blue-200' 
-                : 'bg-gray-200 text-gray-500'
-            }
-          `}>
-            {index < currentStep ? <Check className="h-5 w-5" /> : index + 1}
+          <div className="flex flex-col items-center gap-1">
+            <div className={cn(
+              'flex items-center justify-center w-9 h-9 rounded-full font-semibold text-sm transition-all',
+              index < currentStep
+                ? 'bg-green-500 text-white shadow-sm'
+                : index === currentStep
+                  ? 'bg-blue-600 text-white ring-4 ring-blue-200 shadow-md'
+                  : 'bg-muted text-muted-foreground',
+            )}>
+              {index < currentStep ? <Check className="h-4 w-4" /> : index + 1}
+            </div>
+            <span className={cn(
+              'text-[10px] font-medium hidden sm:block whitespace-nowrap',
+              index === currentStep ? 'text-blue-600' : 'text-muted-foreground',
+            )}>
+              {step}
+            </span>
           </div>
-          <span className={`
-            ml-2 text-sm font-medium hidden sm:inline
-            ${index === currentStep ? 'text-blue-600' : 'text-gray-500'}
-          `}>
-            {step}
-          </span>
           {index < steps.length - 1 && (
-            <div className={`
-              w-12 sm:w-24 h-1 mx-2 sm:mx-4 rounded
-              ${index < currentStep ? 'bg-green-500' : 'bg-gray-200'}
-            `} />
+            <div className={cn(
+              'h-0.5 w-12 sm:w-16 mx-2 rounded-full mb-4',
+              index < currentStep ? 'bg-green-500' : 'bg-border',
+            )} />
           )}
         </div>
       ))}
@@ -1575,45 +1577,36 @@ function NovaRequisicaoForm() {
                     </div>
                     {/* Detalhes quando selecionado */}
                     {isSelected && (
-                      <div className="px-3 py-2 text-xs space-y-1 border-t border-blue-200">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Bruto:</span>
-                            <span>{formatarMoeda(c.total_empenhado_bruto)}</span>
+                      <div className="px-3 py-3 border-t border-blue-200 bg-blue-50/30">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                          {[
+                            { label: 'Bruto', value: formatarMoeda(c.total_empenhado_bruto), color: 'text-foreground' },
+                            { label: 'Anulado', value: `−${formatarMoeda(c.total_anulado)}`, color: 'text-red-600' },
+                            { label: 'Liquidado', value: formatarMoeda(c.total_liquidado), color: 'text-foreground' },
+                            { label: 'Pago', value: formatarMoeda(c.total_pago), color: 'text-foreground' },
+                          ].map(m => (
+                            <div key={m.label} className="bg-muted/50 rounded-md p-2">
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{m.label}</p>
+                              <p className={cn('text-xs font-semibold mt-0.5', m.color)}>{m.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="bg-green-50 rounded-md p-2">
+                            <p className="text-[10px] text-green-700 uppercase tracking-wide">Saldo portal</p>
+                            <p className="text-xs font-bold text-green-700 mt-0.5">{formatarMoeda(c.saldo_a_liquidar)}</p>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Anulado:</span>
-                            <span className="text-red-600">-{formatarMoeda(c.total_anulado)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Liquidado:</span>
-                            <span>{formatarMoeda(c.total_liquidado)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Pago:</span>
-                            <span>{formatarMoeda(c.total_pago)}</span>
+                          {comprometido > 0.01 && (
+                            <div className="bg-orange-50 rounded-md p-2">
+                              <p className="text-[10px] text-orange-700 uppercase tracking-wide">Comprometido</p>
+                              <p className="text-xs font-bold text-orange-600 mt-0.5">−{formatarMoeda(comprometido)}</p>
+                            </div>
+                          )}
+                          <div className={cn('rounded-md p-2', saldoVirtual > 0.01 ? 'bg-blue-50' : 'bg-red-50')}>
+                            <p className={cn('text-[10px] uppercase tracking-wide', saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-700')}>Disponível</p>
+                            <p className={cn('text-xs font-bold mt-0.5', saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-600')}>{formatarMoeda(saldoVirtual)}</p>
                           </div>
                         </div>
-                        <div className="flex justify-between border-t border-blue-200 pt-1 mt-1">
-                          <span className="font-medium text-green-800">Saldo a liquidar (portal):</span>
-                          <span className="font-bold text-green-700">{formatarMoeda(c.saldo_a_liquidar)}</span>
-                        </div>
-                        {comprometido > 0.01 && (
-                          <div className="flex justify-between">
-                            <span className="font-medium text-orange-800">Comprometido (requisições):</span>
-                            <span className="font-bold text-orange-600">-{formatarMoeda(comprometido)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between border-t border-blue-200 pt-1 mt-1">
-                          <span className="font-medium text-blue-800">Saldo disponível (virtual):</span>
-                          <span className={`font-bold ${saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>{formatarMoeda(saldoVirtual)}</span>
-                        </div>
-                        {c.saldo_a_pagar > 0.01 && (
-                          <div className="flex justify-between">
-                            <span className="font-medium text-amber-800">Saldo a pagar:</span>
-                            <span className="font-bold text-amber-700">{formatarMoeda(c.saldo_a_pagar)}</span>
-                          </div>
-                        )}
                       </div>
                     )}
                   </button>
@@ -1779,13 +1772,12 @@ function NovaRequisicaoForm() {
                 return (
                   <Card
                     key={contrato.id}
-                    className={`
-                      cursor-pointer transition-all hover:shadow-md
-                      ${contratoSelecionado?.id === contrato.id 
-                        ? 'ring-2 ring-blue-500 bg-blue-50/50' 
-                        : 'hover:bg-gray-50'
-                      }
-                    `}
+                    className={cn(
+                      'cursor-pointer transition-shadow shadow-sm hover:shadow-md',
+                      contratoSelecionado?.id === contrato.id
+                        ? 'ring-2 ring-blue-500 bg-blue-50/50'
+                        : 'hover:bg-muted/30',
+                    )}
                     onClick={() => handleSelecionarContrato(contrato)}
                   >
                     <CardContent className="p-4">
@@ -1856,11 +1848,12 @@ function NovaRequisicaoForm() {
                         {diasRestantes !== null && (
                           <Badge
                             variant="outline"
-                            className={`text-[10px] ${
+                            className={cn('text-[10px]',
+                              diasRestantes <= 0 ? 'border-red-300 text-red-600 bg-red-50' :
                               diasRestantes <= 30 ? 'border-red-300 text-red-600' :
-                              diasRestantes <= 90 ? 'border-yellow-300 text-yellow-700' :
-                              'border-green-300 text-green-600'
-                            }`}
+                              diasRestantes <= 60 ? 'border-amber-300 text-amber-700' :
+                              'border-green-300 text-green-700',
+                            )}
                           >
                             <Clock className="h-2.5 w-2.5 mr-0.5" />
                             {diasRestantes > 0 ? `${diasRestantes}d restantes` : 'Vencido'}
@@ -1963,211 +1956,222 @@ function NovaRequisicaoForm() {
 
     return (
     <div className="space-y-6">
-      {/* Card do contrato selecionado - expandido */}
-      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-        <CardContent className="p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="outline" className="font-mono text-xs">
-                {contratoSelecionado?.numero_contrato}
-              </Badge>
-              {contratoSelecionado?.categoria && (
-                <Badge className={`${(CATEGORIA_LABELS[contratoSelecionado.categoria] || CATEGORIA_LABELS.OUTROS).cor} text-xs`}>
-                  {(CATEGORIA_LABELS[contratoSelecionado.categoria] || CATEGORIA_LABELS.OUTROS).label}
-                </Badge>
-              )}
+      {/* Card do contrato selecionado */}
+      <Card className="overflow-hidden shadow-sm">
+        {/* Header escuro */}
+        <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+              <Building2 className="h-5 w-5 text-white/80" />
             </div>
-            <Button variant="outline" size="sm" onClick={() => setEtapa(0)}>
-              Trocar Contrato
-            </Button>
+            <div className="min-w-0">
+              <p className="text-white font-semibold text-sm truncate">
+                {contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : '-'}
+              </p>
+              <p className="text-white/50 text-xs">
+                {contratoSelecionado?.fornecedor_cnpj && `CNPJ ${contratoSelecionado.fornecedor_cnpj} · `}
+                Contrato nº {contratoSelecionado?.numero_contrato}
+                {contratoSelecionado?.categoria && (
+                  <span className="ml-2 opacity-70">
+                    · {(CATEGORIA_LABELS[contratoSelecionado.categoria] || CATEGORIA_LABELS.OUTROS).label}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
+          <Button variant="outline" size="sm" onClick={() => setEtapa(0)}
+            className="shrink-0 ml-3 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white">
+            Trocar
+          </Button>
+        </div>
 
-          <div className="flex items-center gap-2 text-sm text-gray-700 mb-3">
-            <Building2 className="h-4 w-4 text-gray-500 shrink-0" />
-            <span className="font-medium">{contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : '-'}</span>
-          </div>
+        {/* Métricas em grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border border-b">
+          {[
+            { label: 'Valor Global', value: formatarMoeda(contratoSelecionado?.valor_global || contratoSelecionado?.valor_inicial || 0) },
+            { label: 'Saldo Disponível', value: formatarMoeda(saldoContrato), highlight: 'text-green-600' },
+            { label: 'Vigência', value: `${formatarData(vigenciaContrato.inicio)} – ${formatarData(vigenciaContrato.fim)}`, small: true },
+            {
+              label: 'Prazo',
+              value: diasRestantesContrato !== null ? (diasRestantesContrato > 0 ? `${diasRestantesContrato} dias` : 'Vencido') : '—',
+              highlight: diasRestantesContrato !== null && diasRestantesContrato <= 30 ? 'text-red-600' : diasRestantesContrato !== null && diasRestantesContrato <= 90 ? 'text-amber-600' : undefined,
+            },
+          ].map(f => (
+            <div key={f.label} className="px-4 py-3">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">{f.label}</p>
+              <p className={cn('font-bold mt-0.5', f.small ? 'text-xs' : 'text-sm', f.highlight ?? 'text-foreground')}>{f.value}</p>
+            </div>
+          ))}
+        </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-white/70 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p>
-              <p className="text-sm font-bold text-gray-800">
-                {formatarMoeda(contratoSelecionado?.valor_global || contratoSelecionado?.valor_inicial || 0)}
-              </p>
+        {/* Barra de consumo */}
+        {contratoSelecionado && (() => {
+          const pct = getPercentualConsumido(contratoSelecionado);
+          return (
+            <div className="px-5 py-2.5 flex items-center gap-3 bg-muted/30">
+              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all', pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-orange-500' : 'bg-blue-500')}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{pct.toFixed(1)}% consumido</span>
             </div>
-            <div className="bg-white/70 rounded-lg p-2.5">
-              <p className="text-[10px] text-green-600 uppercase tracking-wide">Saldo Disponível</p>
-              <p className="text-sm font-bold text-green-700">{formatarMoeda(saldoContrato)}</p>
-            </div>
-            <div className="bg-white/70 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Vigência</p>
-              <p className="text-xs font-medium text-gray-700">
-                {formatarData(vigenciaContrato.inicio)} a {formatarData(vigenciaContrato.fim)}
-              </p>
-            </div>
-            <div className="bg-white/70 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Prazo</p>
-              <p className={`text-sm font-bold ${
-                diasRestantesContrato !== null && diasRestantesContrato <= 30 ? 'text-red-600' :
-                diasRestantesContrato !== null && diasRestantesContrato <= 90 ? 'text-yellow-600' :
-                'text-gray-700'
-              }`}>
-                {diasRestantesContrato !== null
-                  ? diasRestantesContrato > 0 ? `${diasRestantesContrato} dias` : 'Vencido'
-                  : '-'}
-              </p>
-            </div>
-          </div>
-        </CardContent>
+          );
+        })()}
       </Card>
 
       {/* Seleção de Itens */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Package className="h-5 w-5 text-green-600" />
-            Selecione os Itens
-          </CardTitle>
-          <CardDescription>
-            Marque os itens que deseja solicitar e informe as quantidades
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <Card className="overflow-hidden shadow-sm">
+        {/* Header compacto */}
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <span className="font-semibold text-sm">Selecionar Itens</span>
+            {itensRequisicao.length > 0 && (
+              <Badge variant="secondary">
+                {itensRequisicao.length} selecionado{itensRequisicao.length > 1 ? 's' : ''}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 placeholder="Buscar item..."
                 value={buscaItem}
                 onChange={(e) => setBuscaItem(e.target.value)}
-                className="pl-10"
+                className="pl-9 h-8 text-sm w-48"
               />
             </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleLimparSelecaoItens}
-                disabled={itensRequisicao.length === 0}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Limpar seleção
-              </Button>
-              <Button
-                type="button"
-                onClick={handleSolicitarTodosItens}
-                disabled={itensFiltrados.filter(item => Number(item.saldo_disponivel) > 0).length === 0}
-              >
-                <Package className="h-4 w-4 mr-2" />
-                Pedir tudo de vez
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleLimparSelecaoItens}
+              disabled={itensRequisicao.length === 0}
+              className="h-8 px-2"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSolicitarTodosItens}
+              disabled={itensFiltrados.filter(item => Number(item.saldo_disponivel) > 0).length === 0}
+              className="h-8"
+            >
+              <Package className="h-3.5 w-3.5 mr-1.5" />
+              Pedir tudo
+            </Button>
           </div>
+        </div>
 
-          {carregandoItens ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
-          ) : itensFiltrados.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>Nenhum item encontrado neste contrato</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12"></TableHead>
-                    <TableHead className="w-16">#</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead className="w-20">Unid.</TableHead>
-                    <TableHead className="w-28 text-right">Saldo</TableHead>
-                    <TableHead className="w-28 text-right">Valor Unit.</TableHead>
-                    <TableHead className="w-32">Quantidade</TableHead>
-                    <TableHead className="w-28 text-right">Subtotal</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {itensFiltrados.map((item) => {
-                    const itemReq = itensRequisicao.find(i => i.item_contrato_id === item.id);
-                    const selecionado = !!itemReq;
-                    const semSaldo = Number(item.saldo_disponivel) <= 0;
+        {carregandoItens ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          </div>
+        ) : itensFiltrados.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Package className="h-10 w-10 mx-auto mb-3 opacity-40" />
+            <p className="text-sm">Nenhum item encontrado neste contrato</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/20">
+                  <TableHead className="w-12"></TableHead>
+                  <TableHead className="w-14">#</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead className="w-20">Unid.</TableHead>
+                  <TableHead className="w-28 text-right">Saldo</TableHead>
+                  <TableHead className="w-28 text-right">Valor Unit.</TableHead>
+                  <TableHead className="w-32">Quantidade</TableHead>
+                  <TableHead className="w-28 text-right">Subtotal</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {itensFiltrados.map((item) => {
+                  const itemReq = itensRequisicao.find(i => i.item_contrato_id === item.id);
+                  const selecionado = !!itemReq;
+                  const semSaldo = Number(item.saldo_disponivel) <= 0;
+                  const saldoBaixo = !semSaldo && Number(item.saldo_disponivel) <= 5;
 
-                    return (
-                      <TableRow 
-                        key={item.id}
-                        className={`
-                          ${selecionado ? 'bg-green-50' : ''}
-                          ${semSaldo ? 'opacity-50' : 'cursor-pointer hover:bg-gray-50'}
-                        `}
-                        onClick={() => !semSaldo && handleToggleItem(item)}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selecionado}
-                            disabled={semSaldo}
-                            onChange={() => handleToggleItem(item)}
-                            className="h-4 w-4 rounded"
-                          />
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {item.numero_item}
-                        </TableCell>
-                        <TableCell className="max-w-[300px]">
-                          <span className="whitespace-normal break-words text-sm">{item.descricao}</span>
-                        </TableCell>
-                        <TableCell>{item.unidade_medida}</TableCell>
-                        <TableCell className="text-right">
-                          <Badge 
-                            variant={semSaldo ? 'destructive' : 'outline'} 
-                            className={semSaldo ? '' : 'text-green-600 border-green-300'}
-                          >
-                            {Number(item.saldo_disponivel).toFixed(2)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatarMoeda(item.valor_unitario)}
-                        </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          {selecionado ? (
-                            <QuantidadeInput
-                              value={itemReq?.quantidade_solicitada || 1}
-                              max={Number(item.saldo_disponivel)}
-                              onChange={(val) => handleAlterarQuantidade(item.id, val)}
-                            />
-                          ) : (
-                            <span className="text-gray-400">-</span>
+                  return (
+                    <TableRow
+                      key={item.id}
+                      className={cn(
+                        'transition-colors',
+                        selecionado ? 'bg-blue-50 hover:bg-blue-50/80' : semSaldo ? 'opacity-50' : 'hover:bg-muted/50',
+                        !semSaldo && 'cursor-pointer',
+                      )}
+                      onClick={() => !semSaldo && handleToggleItem(item)}
+                    >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selecionado}
+                          disabled={semSaldo}
+                          onChange={() => handleToggleItem(item)}
+                          className="h-4 w-4 rounded"
+                        />
+                      </TableCell>
+                      <TableCell className="font-mono text-sm text-muted-foreground">
+                        {item.numero_item}
+                      </TableCell>
+                      <TableCell className="max-w-[300px]">
+                        <span className="whitespace-normal break-words text-sm">{item.descricao}</span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{item.unidade_medida}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={semSaldo ? 'destructive' : 'outline'}
+                          className={cn(
+                            !semSaldo && (saldoBaixo
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-secondary text-secondary-foreground'),
                           )}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {selecionado 
-                            ? formatarMoeda(itemReq?.valor_total || 0)
-                            : '-'
-                          }
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {itensRequisicao.length > 0 && (
-            <div className="mt-4 p-4 bg-green-50 rounded-lg flex items-center justify-between">
-              <div>
-                <span className="text-green-800 font-medium">
-                  {itensRequisicao.length} item(ns) selecionado(s)
-                </span>
-              </div>
-              <div className="text-lg font-bold text-green-700">
-                Total: {formatarMoeda(calcularTotal())}
-              </div>
-            </div>
-          )}
-        </CardContent>
+                        >
+                          {Number(item.saldo_disponivel).toFixed(2)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatarMoeda(item.valor_unitario)}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        {selecionado ? (
+                          <QuantidadeInput
+                            value={itemReq?.quantidade_solicitada || 1}
+                            max={Number(item.saldo_disponivel)}
+                            onChange={(val) => handleAlterarQuantidade(item.id, val)}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {selecionado ? formatarMoeda(itemReq?.valor_total || 0) : <span className="text-muted-foreground/50">—</span>}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+              {itensRequisicao.length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/20">
+                    <td colSpan={7} className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Total da Requisição
+                    </td>
+                    <td className="px-4 py-3 text-right text-base font-bold text-blue-600">
+                      {formatarMoeda(calcularTotal())}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </Table>
+          </div>
+        )}
       </Card>
 
       {renderEmpenhoSelector()}
@@ -3100,14 +3104,30 @@ function NovaRequisicaoForm() {
           variant="outline"
           onClick={handleEtapaAnterior}
           disabled={etapa === 0}
+          className="transition-all"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar
         </Button>
 
-        <div className="flex gap-2">
+        <div className="flex items-center gap-4">
+          {/* Totais rápidos quando há itens selecionados */}
+          {!isOS && itensRequisicao.length > 0 && (
+            <div className="flex items-center gap-4 mr-2">
+              <div className="text-right">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Itens</p>
+                <p className="text-base font-bold leading-none">{itensRequisicao.length}</p>
+              </div>
+              <div className="w-px h-8 bg-border" />
+              <div className="text-right">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Total</p>
+                <p className="text-base font-bold text-orange-600 leading-none">{formatarMoeda(calcularTotal())}</p>
+              </div>
+            </div>
+          )}
+
           {etapa < STEPS.length - 1 ? (
-            <Button onClick={handleProximaEtapa}>
+            <Button size="lg" onClick={handleProximaEtapa} className="transition-all">
               Próximo
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
@@ -3140,6 +3160,7 @@ function NovaRequisicaoForm() {
           )}
         </div>
       </div>
+
 
       {/* Diálogo de confirmação de alertas de empenho */}
       <Dialog open={confirmacaoEmpenho.aberto} onOpenChange={(open) => {
