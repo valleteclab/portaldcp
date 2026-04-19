@@ -484,6 +484,7 @@ export class FatorTransparenciaService {
     };
 
     const mesInicio = this.detectarMesInicio(empenhos);
+    console.log(`[agruparPorExercicio] mesInicio=${mesInicio}, totalRegistros=${empenhos.length}`);
 
     const mapa = new Map<number, GrupoExercicio>();
     const obter = (ano: number): GrupoExercicio => {
@@ -515,6 +516,10 @@ export class FatorTransparenciaService {
       const mes = parseInt(dataPartes[1], 10) || 0;
       const anoCal = parseInt(dataPartes[2], 10) || 0;
       const ciclo = this.exercicioDe(mes, anoCal, e.fase_tipo, mesInicio);
+      // Debug: log pagamentos em Jan-Mar para verificar ciclo
+      if (e.fase_tipo === 'PAGAMENTO' && mes <= mesInicio) {
+        console.log(`[ciclo] PAGAMENTO ${e.data} valor=${e.valor} → exercício ${ciclo} (mes=${mes}, mesInicio=${mesInicio})`);
+      }
       if (!ciclo) continue;
       const g = obter(ciclo);
       if (e.fase_tipo === 'EMPENHO') {
