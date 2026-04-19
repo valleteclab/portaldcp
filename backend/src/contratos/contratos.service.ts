@@ -942,6 +942,10 @@ export class ContratosService {
 
     if (termo.nova_data_vigencia_fim) {
       contrato.data_vigencia_fim = termo.nova_data_vigencia_fim;
+      // Se o contrato estava vencido e o aditivo prorroga a vigência para o futuro, reativar
+      if (contrato.status === StatusContrato.VENCIDO && new Date(termo.nova_data_vigencia_fim) > new Date()) {
+        contrato.status = StatusContrato.VIGENTE;
+      }
     }
 
     if (termo.tipo === TipoTermoAditivo.RESCISAO) {
