@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -52,6 +53,7 @@ import {
   Settings,
   RefreshCw,
   Receipt,
+  ExternalLink,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
@@ -343,11 +345,12 @@ export default function DetalheContratoOrgaoPage() {
   const [modalAditivosPortal, setModalAditivosPortal] = useState<{
     open: boolean
     aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }>
+    selecionados: Set<number>
     loading: boolean
     importando: boolean
     resultado: any | null
     erro: string | null
-  }>({ open: false, aditivos: [], loading: false, importando: false, resultado: null, erro: null })
+  }>({ open: false, aditivos: [], selecionados: new Set(), loading: false, importando: false, resultado: null, erro: null })
   const [novoTermo, setNovoTermo] = useState({
     tipo: 'ADITIVO_PRAZO',
     renovacao_ciclo: false,
@@ -590,12 +593,13 @@ export default function DetalheContratoOrgaoPage() {
 
   const buscarAditivosPortal = async () => {
     if (!contrato) return
-    setModalAditivosPortal({ open: true, aditivos: [], loading: true, importando: false, resultado: null, erro: null })
+    setModalAditivosPortal({ open: true, aditivos: [], selecionados: new Set(), loading: true, importando: false, resultado: null, erro: null })
     try {
       const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/buscar-aditivos-por-contrato/${contrato.id}`)
       if (res.ok) {
         const data = await res.json()
-        setModalAditivosPortal(prev => prev ? { ...prev, aditivos: data.aditivos || [], loading: false } : prev)
+        const aditivos = data.aditivos || []
+        setModalAditivosPortal(prev => prev ? { ...prev, aditivos, selecionados: new Set(aditivos.map((_: any, i: number) => i)), loading: false } : prev)
       } else {
         setModalAditivosPortal(prev => prev ? { ...prev, loading: false, erro: 'Erro ao buscar aditivos no portal' } : prev)
       }
@@ -605,13 +609,14 @@ export default function DetalheContratoOrgaoPage() {
   }
 
   const importarAditivosPortal = async () => {
-    if (!contrato || !modalAditivosPortal.aditivos.length) return
+    if (!contrato || !modalAditivosPortal.selecionados.size) return
+    const aditivosSelecionados = modalAditivosPortal.aditivos.filter((_, i) => modalAditivosPortal.selecionados.has(i))
     setModalAditivosPortal(prev => prev ? { ...prev, importando: true } : prev)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-aditivos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contrato_id: contrato.id, aditivos: modalAditivosPortal.aditivos }),
+        body: JSON.stringify({ contrato_id: contrato.id, aditivos: aditivosSelecionados }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -2630,21 +2635,50 @@ export default function DetalheContratoOrgaoPage() {
             </div>
           ) : (
             <div className="space-y-3 py-2">
-              <p className="text-sm text-gray-600">{modalAditivosPortal.aditivos.length} aditivo(s) encontrado(s):</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">{modalAditivosPortal.aditivos.length} aditivo(s) encontrado(s):</p>
+                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                  <Checkbox
+                    checked={modalAditivosPortal.selecionados.size === modalAditivosPortal.aditivos.length && modalAditivosPortal.aditivos.length > 0}
+                    onCheckedChange={(checked) => {
+                      setModalAditivosPortal(prev => prev ? {
+                        ...prev,
+                        selecionados: checked ? new Set(prev.aditivos.map((_, i) => i)) : new Set()
+                      } : prev)
+                    }}
+                  />
+                  Selecionar todos
+                </label>
+              </div>
               <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b">
+                      <th className="w-10 px-3 py-2"></th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Nº / Nome</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Tipo</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Valor</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Vigência</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Fiscal</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-600">PDF</th>
                     </tr>
                   </thead>
                   <tbody>
                     {modalAditivosPortal.aditivos.map((a, i) => (
-                      <tr key={i} className="border-b last:border-0">
+                      <tr key={i} className={`border-b last:border-0 ${modalAditivosPortal.selecionados.has(i) ? 'bg-blue-50/50' : ''}`}>
+                        <td className="px-3 py-2 text-center">
+                          <Checkbox
+                            checked={modalAditivosPortal.selecionados.has(i)}
+                            onCheckedChange={(checked) => {
+                              setModalAditivosPortal(prev => {
+                                if (!prev) return prev
+                                const novos = new Set(prev.selecionados)
+                                if (checked) novos.add(i); else novos.delete(i)
+                                return { ...prev, selecionados: novos }
+                              })
+                            }}
+                          />
+                        </td>
                         <td className="px-3 py-2 font-medium">{a.nome}</td>
                         <td className="px-3 py-2">
                           <Badge variant="outline" className={a.tipo === 'Prazo' ? 'bg-blue-50 text-blue-800 border-blue-200' : a.tipo === 'Valor' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-purple-50 text-purple-800 border-purple-200'}>
@@ -2654,6 +2688,15 @@ export default function DetalheContratoOrgaoPage() {
                         <td className="px-3 py-2 text-right font-medium text-green-700">{a.valor}</td>
                         <td className="px-3 py-2 text-gray-600">{a.vigencia}</td>
                         <td className="px-3 py-2 text-gray-600">{a.fiscal}</td>
+                        <td className="px-3 py-2 text-center">
+                          {a.pdf_url ? (
+                            <a href={a.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs">
+                              <ExternalLink className="w-3.5 h-3.5" />PDF
+                            </a>
+                          ) : (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2664,11 +2707,11 @@ export default function DetalheContratoOrgaoPage() {
 
           <DialogFooter>
             {!modalAditivosPortal.resultado && modalAditivosPortal.aditivos.length > 0 && !modalAditivosPortal.loading && (
-              <Button onClick={importarAditivosPortal} disabled={modalAditivosPortal.importando}>
-                {modalAditivosPortal.importando ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</> : <><DownloadCloud className="w-4 h-4 mr-2" />Importar Todos</>}
+              <Button onClick={importarAditivosPortal} disabled={modalAditivosPortal.importando || modalAditivosPortal.selecionados.size === 0}>
+                {modalAditivosPortal.importando ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</> : <><DownloadCloud className="w-4 h-4 mr-2" />Importar {modalAditivosPortal.selecionados.size} selecionado(s)</>}
               </Button>
             )}
-            <Button variant="outline" onClick={() => setModalAditivosPortal({ open: false, aditivos: [], loading: false, importando: false, resultado: null, erro: null })}>
+            <Button variant="outline" onClick={() => setModalAditivosPortal({ open: false, aditivos: [], selecionados: new Set(), loading: false, importando: false, resultado: null, erro: null })}>
               {modalAditivosPortal.resultado ? 'Fechar' : 'Cancelar'}
             </Button>
           </DialogFooter>
