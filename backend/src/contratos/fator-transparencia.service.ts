@@ -577,8 +577,12 @@ export class FatorTransparenciaService {
 
     const mapa = new Map<string, EmpenhoComposto>();
 
-    // Primeiro: criar entradas para cada empenho positivo
-    for (const emp of grupo.empenhos_positivos) {
+    // Primeiro: criar entradas para cada empenho positivo (ordenados por data)
+    const empenhosOrdenados = [...grupo.empenhos_positivos].sort(
+      (a, b) => toTimestamp(a.data) - toTimestamp(b.data),
+    );
+
+    for (const emp of empenhosOrdenados) {
       const chave = emp.numero_empenho || `SEM_NUM_${emp.data}`;
       if (!mapa.has(chave)) {
         mapa.set(chave, {
@@ -616,54 +620,54 @@ export class FatorTransparenciaService {
       });
     }
 
-    // Distribuir anulações pelo numero_empenho
+    // Lista ordenada de compostos para busca temporal
+    const compostosOrdenados = empenhosOrdenados
+      .map((emp) => mapa.get(emp.numero_empenho || `SEM_NUM_${emp.data}`))
+      .filter((c): c is EmpenhoComposto => !!c);
+
+    // Busca o empenho composto cujo empenho tem a data mais próxima antes do registro
+    const encontrarPorData = (dataBr: string): EmpenhoComposto | null => {
+      const ts = toTimestamp(dataBr);
+      let melhor: EmpenhoComposto | null = null;
+      let melhorTs = 0;
+      for (const c of compostosOrdenados) {
+        if (!c.empenho) continue;
+        const empTs = toTimestamp(c.empenho.data);
+        if (empTs <= ts && empTs > melhorTs) {
+          melhor = c;
+          melhorTs = empTs;
+        }
+      }
+      return melhor;
+    };
+
+    // Distribuir anulações pelo numero_empenho ou por data
     for (const a of grupo.anulacoes) {
       const chave = a.numero_empenho || '';
-      const comp = mapa.get(chave);
+      const comp = mapa.get(chave) || encontrarPorData(a.data);
       if (comp) {
         comp.anulacoes.push(a);
         comp.total_anulado += Math.abs(a.valor);
-      } else {
-        // Anulação sem empenho correspondente — atribuir ao primeiro empenho
-        const primeiro = mapa.values().next().value;
-        if (primeiro) {
-          primeiro.anulacoes.push(a);
-          primeiro.total_anulado += Math.abs(a.valor);
-        }
       }
     }
 
-    // Distribuir liquidações pelo numero_empenho
+    // Distribuir liquidações pelo numero_empenho ou por data
     for (const l of grupo.liquidacoes) {
       const chave = l.numero_empenho || '';
-      const comp = mapa.get(chave);
+      const comp = mapa.get(chave) || encontrarPorData(l.data);
       if (comp) {
         comp.liquidacoes.push(l);
         comp.total_liquidado += l.valor;
-      } else {
-        // Liquidação sem empenho correspondente — atribuir ao primeiro empenho
-        const primeiro = mapa.values().next().value;
-        if (primeiro) {
-          primeiro.liquidacoes.push(l);
-          primeiro.total_liquidado += l.valor;
-        }
       }
     }
 
-    // Distribuir pagamentos pelo numero_empenho
+    // Distribuir pagamentos pelo numero_empenho ou por data
     for (const p of grupo.pagamentos) {
       const chave = p.numero_empenho || '';
-      const comp = mapa.get(chave);
+      const comp = mapa.get(chave) || encontrarPorData(p.data);
       if (comp) {
         comp.pagamentos.push(p);
         comp.total_pago += p.valor;
-      } else {
-        // Pagamento sem empenho correspondente — atribuir ao primeiro empenho
-        const primeiro = mapa.values().next().value;
-        if (primeiro) {
-          primeiro.pagamentos.push(p);
-          primeiro.total_pago += p.valor;
-        }
       }
     }
 
