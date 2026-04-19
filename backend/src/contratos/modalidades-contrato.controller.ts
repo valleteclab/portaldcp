@@ -1199,6 +1199,7 @@ export class ModalidadesContratoController {
     });
 
     // Calcular comprometido por empenho (valor das requisições ativas vinculadas)
+    // Regra FIFO: debitar do empenho mais antigo primeiro; se faltar saldo, passar ao próximo
     const statusAtivos = [
       StatusRequisicao.RASCUNHO,
       StatusRequisicao.AGUARDANDO_AUTORIZACAO,
@@ -1209,11 +1210,23 @@ export class ModalidadesContratoController {
     ];
     const requisicoes = await this.requisicaoRepository.find({
       where: { contrato_id: contratoId, status: statusAtivos as any },
-      select: ['id', 'numeros_empenhos', 'valor_total_estimado', 'status'],
+      select: ['id', 'numeros_empenhos', 'valor_total_estimado', 'status', 'created_at'],
+      order: { created_at: 'ASC' },
     });
 
-    // Mapa: numero_empenho → soma dos valores comprometidos
-    const comprometidoMap = new Map<string, number>();
+    // Mapa: numero_empenho → { saldo_base (portal), comprometido acumulado }
+    // Comprometido é calculado por alocação FIFO (empenho mais antigo primeiro)
+    const alocacaoMap = new Map<string, { saldo_base: number; comprometido: number }>();
+    for (const grupo of resumo.grupos_exercicio) {
+      for (const comp of grupo.empenhos_compostos) {
+        alocacaoMap.set(comp.numero_empenho, {
+          saldo_base: comp.saldo_a_liquidar,
+          comprometido: 0,
+        });
+      }
+    }
+
+    // Processar requisições em ordem cronológica (mais antiga primeiro)
     for (const req of requisicoes) {
       if (!req.numeros_empenhos) continue;
       let nums: string[];
@@ -1221,17 +1234,47 @@ export class ModalidadesContratoController {
         nums = JSON.parse(req.numeros_empenhos);
       } catch { continue; }
       if (!Array.isArray(nums) || nums.length === 0) continue;
-      // Distribui valor_total_estimado igualmente entre os empenhos selecionados
-      const valorPorEmpenho = Number(req.valor_total_estimado ?? 0) / nums.length;
-      for (const num of nums) {
-        comprometidoMap.set(num, (comprometidoMap.get(num) ?? 0) + valorPorEmpenho);
+
+      // Ordenar numeros_empenhos por data do empenho (mais antigo primeiro)
+      // Usa a ordem dos empenhos_compostos que já vêm ordenados por data
+      const numsOrdenados = nums.slice().sort((a, b) => {
+        const idxA = resumo.grupos_exercicio.flatMap(g => g.empenhos_compostos).findIndex(c => c.numero_empenho === a);
+        const idxB = resumo.grupos_exercicio.flatMap(g => g.empenhos_compostos).findIndex(c => c.numero_empenho === b);
+        return idxA - idxB;
+      });
+
+      // Débito FIFO: descontar do empenho mais antigo primeiro
+      let restante = Number(req.valor_total_estimado ?? 0);
+      for (const num of numsOrdenados) {
+        if (restante <= 0.01) break;
+        const alloc = alocacaoMap.get(num);
+        if (!alloc) continue;
+        const saldoDisponivel = alloc.saldo_base - alloc.comprometido;
+        if (saldoDisponivel > 0.01) {
+          const debito = Math.min(saldoDisponivel, restante);
+          alloc.comprometido += debito;
+          restante -= debito;
+        }
+      }
+      // Se ainda sobrou valor (todos os empenhos sem saldo), distribuir proporcionalmente
+      // para que o comprometido reflita o valor total da requisição
+      if (restante > 0.01) {
+        const comprometidoTotal = numsOrdenados.reduce((s, n) => s + (alocacaoMap.get(n)?.comprometido ?? 0), 0);
+        const jaAlocado = Number(req.valor_total_estimado ?? 0) - restante;
+        // Distribuir o excedente igualmente entre os empenhos vinculados
+        const excedentePorEmpenho = restante / numsOrdenados.length;
+        for (const num of numsOrdenados) {
+          const alloc = alocacaoMap.get(num);
+          if (alloc) alloc.comprometido += excedentePorEmpenho;
+        }
       }
     }
 
     // Adicionar comprometido e saldo_virtual em cada empenho_composto
     for (const grupo of resumo.grupos_exercicio) {
       for (const comp of grupo.empenhos_compostos) {
-        const comprometido = comprometidoMap.get(comp.numero_empenho) ?? 0;
+        const alloc = alocacaoMap.get(comp.numero_empenho);
+        const comprometido = alloc?.comprometido ?? 0;
         (comp as any).comprometido = Math.round(comprometido * 100) / 100;
         (comp as any).saldo_virtual = Math.round((comp.saldo_a_liquidar - comprometido) * 100) / 100;
       }
