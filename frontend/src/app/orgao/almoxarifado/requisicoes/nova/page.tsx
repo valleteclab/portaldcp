@@ -26,6 +26,7 @@ import {
   Clock,
   Wallet,
   ChevronDown,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -426,8 +427,8 @@ function NovaRequisicaoForm() {
   const [responsavelTecnico, setResponsavelTecnico] = useState('');
   const [fiscalNome, setFiscalNome] = useState('');
 
-  // Empenho vinculado à OS (Portal Fator Transparência)
-  const [empenhoOS, setEmpenhoOS] = useState('');
+  // Empenho vinculado à OS (Portal Fator Transparência) — múltiplos
+  const [empenhosSelecionados, setEmpenhosSelecionados] = useState<Set<string>>(new Set());
   const [empenhosOS, setEmpenhosOS] = useState<EmpenhoFator[]>([]);
   const [empenhosCompostos, setEmpenhosCompostos] = useState<EmpenhoComposto[]>([]);
   const [loadingEmpenhosOS, setLoadingEmpenhosOS] = useState(false);
@@ -711,6 +712,13 @@ function NovaRequisicaoForm() {
         setResponsavelTecnico(req.responsavel_tecnico || '');
         setFiscalNome(req.fiscal_contrato_nome || '');
         setModoOS(req.modo_os || 'ORDEM_GLOBAL');
+        // Restaurar empenhos selecionados
+        if (req.numeros_empenhos) {
+          try {
+            const nums = typeof req.numeros_empenhos === 'string' ? JSON.parse(req.numeros_empenhos) : req.numeros_empenhos;
+            if (Array.isArray(nums)) setEmpenhosSelecionados(new Set(nums));
+          } catch {}
+        }
         if (req.itensOS?.length) {
           setRequisicaoEdicao({
             itensOS: req.itensOS.map((io: any) => ({
@@ -857,7 +865,7 @@ function NovaRequisicaoForm() {
     if (!contratoSelecionado?.id) {
       setEmpenhosOS([]);
       setEmpenhosCompostos([]);
-      setEmpenhoOS('');
+      setEmpenhosSelecionados(new Set());
       return;
     }
     const carregar = async () => {
@@ -876,11 +884,11 @@ function NovaRequisicaoForm() {
             }
           }
           setEmpenhosCompostos(compostos);
-          // Auto-sugerir primeiro empenho com saldo
-          if (!empenhoOS && compostos.length > 0) {
+          // Auto-sugerir empenhos com saldo
+          if (compostos.length > 0) {
             const comSaldo = compostos.filter(c => c.saldo_a_liquidar > 0.01);
             if (comSaldo.length > 0) {
-              setEmpenhoOS(comSaldo[0].numero_empenho || comSaldo[0].empenho?.numero_liquidacao || '');
+              setEmpenhosSelecionados(new Set(comSaldo.map(c => c.numero_empenho || c.empenho?.numero_liquidacao || '')));
             }
           }
         }
@@ -1264,7 +1272,7 @@ function NovaRequisicaoForm() {
         }));
       }
       // Empenho disponível para todos os tipos (OS, MATERIAL, SERVICO, etc.)
-      dados.numero_empenho = empenhoOS || undefined;
+      dados.numeros_empenhos = empenhosSelecionados.size > 0 ? Array.from(empenhosSelecionados) : undefined;
 
       const isEdicao = !!editarId;
       const url = isEdicao
@@ -1325,7 +1333,7 @@ function NovaRequisicaoForm() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Wallet className="h-4 w-4" />
-              Empenho
+              Empenhos
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1344,15 +1352,19 @@ function NovaRequisicaoForm() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Wallet className="h-4 w-4" />
-              Empenho
+              Empenhos
             </CardTitle>
-            <CardDescription>Número do empenho (opcional)</CardDescription>
+            <CardDescription>Nenhum empenho encontrado no portal</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Nenhum empenho encontrado para este contrato no Portal da Transparência. Você pode informar o número manualmente ou prosseguir sem empenho.</span>
+            </div>
             <Input
               placeholder="Número do empenho (opcional)"
-              value={empenhoOS}
-              onChange={e => setEmpenhoOS(e.target.value)}
+              value={empenhosSelecionados.size === 1 ? Array.from(empenhosSelecionados)[0] : ''}
+              onChange={e => setEmpenhosSelecionados(e.target.value ? new Set([e.target.value]) : new Set())}
             />
           </CardContent>
         </Card>
@@ -1361,32 +1373,92 @@ function NovaRequisicaoForm() {
 
     const empenhosComSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar > 0.01);
     const empenhosSemSaldo = empenhosCompostos.filter(c => c.saldo_a_liquidar <= 0.01);
+    const algumSemSaldoSelecionado = empenhosSelecionados.size > 0 && Array.from(empenhosSelecionados).some(num =>
+      empenhosSemSaldo.some(c => (c.numero_empenho || c.empenho?.numero_liquidacao) === num)
+    );
+
+    const toggleEmpenho = (num: string) => {
+      setEmpenhosSelecionados(prev => {
+        const novos = new Set(prev);
+        if (novos.has(num)) novos.delete(num); else novos.add(num);
+        return novos;
+      });
+    };
 
     return (
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Wallet className="h-4 w-4" />
-            Empenho
+            Empenhos
           </CardTitle>
           <CardDescription>
-            Selecione o empenho para débito desta requisição
+            Selecione os empenhos para débito desta requisição (permite múltiplos)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Empenhos com saldo — clicáveis para selecionar */}
+          {/* Aviso: todos sem saldo */}
+          {empenhosComSaldo.length === 0 && empenhosSemSaldo.length > 0 && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Todos os empenhos deste contrato estão com saldo insuficiente (saldo a liquidar = R$ 0,00). A requisição pode ser criada, mas pode haver impedimento na liquidação.</span>
+            </div>
+          )}
+
+          {/* Aviso: empenho sem saldo selecionado */}
+          {algumSemSaldoSelecionado && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Um ou mais empenhos selecionados estão com saldo insuficiente. A requisição pode ser criada, mas pode haver impedimento na liquidação.</span>
+            </div>
+          )}
+
+          {/* Aviso: nenhum empenho selecionado */}
+          {empenhosSelecionados.size === 0 && empenhosComSaldo.length > 0 && (
+            <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Nenhum empenho selecionado. Recomenda-se vincular pelo menos um empenho com saldo disponível.</span>
+            </div>
+          )}
+
+          {/* Selecionar todos / limpar */}
+          {empenhosComSaldo.length > 0 && (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setEmpenhosSelecionados(new Set(empenhosComSaldo.map(c => c.numero_empenho || c.empenho?.numero_liquidacao || '')))}
+                className="text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                Selecionar todos com saldo
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmpenhosSelecionados(new Set())}
+                className="text-xs text-gray-500 hover:text-gray-700 underline"
+              >
+                Limpar seleção
+              </button>
+              {empenhosSelecionados.size > 0 && (
+                <span className="text-xs text-gray-500 ml-auto">
+                  {empenhosSelecionados.size} selecionado{empenhosSelecionados.size > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Empenhos com saldo — checkboxes para selecionar múltiplos */}
           {empenhosComSaldo.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-green-700 uppercase tracking-wide">Disponíveis</p>
               {empenhosComSaldo.map((c, i) => {
                 const num = c.numero_empenho || c.empenho?.numero_liquidacao || `empenho_${i}`;
-                const isSelected = empenhoOS === num;
+                const isSelected = empenhosSelecionados.has(num);
                 const saldoTotal = c.saldo_a_liquidar + c.saldo_a_pagar;
                 return (
                   <button
                     key={i}
                     type="button"
-                    onClick={() => setEmpenhoOS(isSelected ? '' : num)}
+                    onClick={() => toggleEmpenho(num)}
                     className={`w-full text-left rounded-lg border-2 transition-all ${
                       isSelected
                         ? 'border-blue-500 bg-blue-50 shadow-sm'
@@ -1398,11 +1470,12 @@ function NovaRequisicaoForm() {
                       isSelected ? 'bg-blue-100' : 'bg-gray-50'
                     }`}>
                       <div className="flex items-center gap-2">
-                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-400'
-                        }`}>
-                          {isSelected && <Check className="w-3 h-3 text-white" />}
-                        </div>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
                         <span className="text-sm font-semibold text-gray-800">
                           Empenho #{c.numero_empenho || 's/n'}
                         </span>
@@ -1459,7 +1532,7 @@ function NovaRequisicaoForm() {
             </div>
           )}
 
-          {/* Empenhos sem saldo — histórico */}
+          {/* Empenhos sem saldo — histórico com checkbox opcional */}
           {empenhosSemSaldo.length > 0 && (
             <details className="group">
               <summary className="text-xs font-medium text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 flex items-center gap-1">
@@ -1468,53 +1541,48 @@ function NovaRequisicaoForm() {
                 <ChevronDown className="w-3 h-3 ml-1 transition-transform group-open:rotate-180" />
               </summary>
               <div className="mt-2 space-y-1">
-                {empenhosSemSaldo.map((c, i) => (
-                  <div key={i} className="rounded border bg-gray-50 opacity-70">
-                    <div className="px-3 py-1.5 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
-                          Encerrado
-                        </Badge>
-                        <span className="text-xs font-semibold text-gray-600">
-                          Empenho #{c.numero_empenho || 's/n'}
-                        </span>
-                        {c.empenho && (
-                          <span className="text-[10px] text-gray-400">
-                            {c.empenho.data} — {c.empenho.credor}
+                {empenhosSemSaldo.map((c, i) => {
+                  const num = c.numero_empenho || c.empenho?.numero_liquidacao || `empenho_hist_${i}`;
+                  const isSelected = empenhosSelecionados.has(num);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => toggleEmpenho(num)}
+                      className={`w-full text-left rounded border transition-all ${isSelected ? 'border-amber-300 bg-amber-50' : 'bg-gray-50 opacity-70 hover:opacity-100'}`}
+                    >
+                      <div className="px-3 py-1.5 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="h-3.5 w-3.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                          />
+                          <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
+                            Encerrado
+                          </Badge>
+                          <span className="text-xs font-semibold text-gray-600">
+                            Empenho #{c.numero_empenho || 's/n'}
                           </span>
-                        )}
+                          {c.empenho && (
+                            <span className="text-[10px] text-gray-400">
+                              {c.empenho.data} — {c.empenho.credor}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px]">
+                          <span className="text-gray-500">Emp. líq. {formatarMoeda(c.total_empenhado_liquido)}</span>
+                          <span className="text-gray-500">Pago {formatarMoeda(c.total_pago)}</span>
+                          <span className="text-green-600 font-medium">Saldo R$ 0,00</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-[10px]">
-                        <span className="text-gray-500">Emp. líq. {formatarMoeda(c.total_empenhado_liquido)}</span>
-                        <span className="text-gray-500">Pago {formatarMoeda(c.total_pago)}</span>
-                        <span className="text-green-600 font-medium">Saldo R$ 0,00</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </details>
           )}
-
-          {/* Opção "Nenhum" */}
-          <button
-            type="button"
-            onClick={() => setEmpenhoOS('')}
-            className={`w-full text-left rounded-lg border-2 px-3 py-2 transition-all ${
-              !empenhoOS
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                !empenhoOS ? 'border-blue-500 bg-blue-500' : 'border-gray-400'
-              }`}>
-                {!empenhoOS && <Check className="w-3 h-3 text-white" />}
-              </div>
-              <span className="text-sm text-gray-600">Não vincular empenho</span>
-            </div>
-          </button>
         </CardContent>
       </Card>
     );
@@ -2612,10 +2680,10 @@ function NovaRequisicaoForm() {
                   {fiscalNome && <span><span className="text-gray-500">Fiscal:</span> <strong>{fiscalNome}</strong></span>}
                 </div>
               )}
-              {empenhoOS && (
+              {empenhosSelecionados.size > 0 && (
                 <div className="col-span-2">
-                  <span className="text-gray-500">Empenho:</span>{' '}
-                  <strong>{empenhoOS}</strong>
+                  <span className="text-gray-500">Empenho{empenhosSelecionados.size > 1 ? 's' : ''}:</span>{' '}
+                  <strong>{Array.from(empenhosSelecionados).join(', ')}</strong>
                 </div>
               )}
               {!isOS && localEntrega && (

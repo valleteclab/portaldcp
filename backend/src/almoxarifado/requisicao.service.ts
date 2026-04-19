@@ -492,6 +492,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       novaOS.fiscal_contrato_id = dto.fiscal_contrato_id || null;
       novaOS.fiscal_contrato_nome = dto.fiscal_contrato_nome || null;
       novaOS.modo_os = dto.modo_os || null;
+      novaOS.numeros_empenhos = dto.numeros_empenhos?.length ? JSON.stringify(dto.numeros_empenhos) : null;
 
       const osSalva = await this.requisicaoRepository.save(novaOS);
 
@@ -641,6 +642,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       // Saldo já reservado na criação!
       novaRequisicao.saldo_reservado = itensContratoParaReservar.length > 0;
       novaRequisicao.observacoes = dto.observacoes || null;
+      novaRequisicao.numeros_empenhos = dto.numeros_empenhos?.length ? JSON.stringify(dto.numeros_empenhos) : null;
 
       const requisicaoSalva = await queryRunner.manager.save(novaRequisicao);
 
@@ -1969,8 +1971,11 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       );
     }
 
-    const { itens_os, etapas_os, ...dtoRest } = dto as any;
+    const { itens_os, etapas_os, numeros_empenhos, ...dtoRest } = dto as any;
     Object.assign(requisicao, dtoRest);
+    if (numeros_empenhos !== undefined) {
+      requisicao.numeros_empenhos = numeros_empenhos?.length ? JSON.stringify(numeros_empenhos) : null;
+    }
     const salva = await this.requisicaoRepository.save(requisicao);
     if (requisicao.tipo === TipoRequisicao.ORDEM_SERVICO && requisicao.contrato_id) {
       if (itens_os !== undefined) {

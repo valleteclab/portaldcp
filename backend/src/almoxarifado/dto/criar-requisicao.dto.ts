@@ -167,6 +167,12 @@ export class CriarRequisicaoDto {
   @ValidateNested({ each: true })
   @Type(() => EtapaOSDto)
   etapas_os?: EtapaOSDto[];
+
+  /** Números dos empenhos vinculados (Portal Fator) */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  numeros_empenhos?: string[];
 }
 
 export class AtualizarRequisicaoDto {
@@ -243,6 +249,12 @@ export class AtualizarRequisicaoDto {
   @ValidateNested({ each: true })
   @Type(() => EtapaOSDto)
   etapas_os?: EtapaOSDto[];
+
+  /** Números dos empenhos vinculados (Portal Fator) */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  numeros_empenhos?: string[];
 }
 
 export class AutorizarRequisicaoDto {

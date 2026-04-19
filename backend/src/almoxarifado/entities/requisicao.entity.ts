@@ -257,6 +257,10 @@ export class Requisicao {
   @Column({ type: 'varchar', nullable: true })
   fiscal_contrato_nome: string | null;
 
+  /** Números dos empenhos vinculados (Portal Fator Transparência) — JSON array de strings */
+  @Column({ type: 'text', nullable: true })
+  numeros_empenhos: string | null;
+
   // ============================================================================
   // ASSINATURA DIGITAL
   // ============================================================================
