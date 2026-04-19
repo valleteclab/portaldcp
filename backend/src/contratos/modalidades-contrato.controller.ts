@@ -1199,7 +1199,7 @@ export class ModalidadesContratoController {
 
   // DEBUG: inspect raw parsed empenhos with numero_empenho
   @Public()
-  @Get(':contratoId/empenhos-debug')
+  @Get('debug/empenhos/:contratoId')
   async debugEmpenhos(
     @Param('contratoId') contratoId: string,
     @Query('ano') ano?: string,
