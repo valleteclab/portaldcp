@@ -2193,10 +2193,10 @@ export default function DetalheContratoOrgaoPage() {
                           : 0
                         const classificaEmpenho = (e: EmpenhoFator, idx: number): string => {
                           const bs = (e.bem_servico || '').toUpperCase()
-                          if (/APOSTILAMENTO/.test(bs)) return 'Apostilamento (fecha o ciclo)'
-                          if (/ACR[ÉE]SCIMO\s+DE\s+VALOR\s+AO\s+EMPENHO/.test(bs)) return 'Acréscimo / Reforço'
-                          if (/REFOR[ÇC]O/.test(bs)) return 'Reforço'
-                          if (/ADITIVO/.test(bs)) return 'Empenho de termo aditivo'
+                          if (/APOSTILAMENTO/.test(bs)) return 'Empenho do exercício (Apostilamento)'
+                          if (/ACR[ÉE]SCIMO\s+DE\s+VALOR\s+AO\s+EMPENHO/.test(bs)) return 'Empenho do exercício (Acréscimo)'
+                          if (/REFOR[ÇC]O/.test(bs)) return 'Empenho do exercício (Reforço)'
+                          if (/ADITIVO/.test(bs)) return 'Empenho do exercício (Aditivo)'
                           return idx === 0 ? 'Empenho do exercício' : 'Empenho complementar'
                         }
                         return (
