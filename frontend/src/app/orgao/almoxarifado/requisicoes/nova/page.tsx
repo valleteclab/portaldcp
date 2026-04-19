@@ -1152,6 +1152,27 @@ function NovaRequisicaoForm() {
     return itensRequisicao.reduce((total, item) => total + item.valor_total, 0);
   };
 
+  // Calcula valor total da requisição para qualquer tipo (OS com itens/etapas ou normal)
+  const calcularValorTotalRequisicao = (): number => {
+    if (isOS) {
+      if (usarItensCronograma && modoOS) {
+        if (modoOS === 'ORDEM_GLOBAL') {
+          return itensCronograma.reduce((s, i) => s + (Number(i.quantidade) * (Number(i.quantidade_meses) || 1) - Number(i.quantidade_medida || 0)) * Number(i.valor_unitario || 0), 0);
+        }
+        return itensOSDemanda.reduce((s, d) => s + d.quantidade_solicitada * Number(itensCronograma.find(i => i.id === d.item_cronograma_id)?.valor_unitario || 0), 0);
+      }
+      if (usarEtapasCronograma && modoOS) {
+        return etapasOS.reduce((s, etapa) => {
+          const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
+          const perc = modoOS === 'ORDEM_GLOBAL' ? 100 : (demanda?.percentual_solicitado ?? 0);
+          return s + Number(etapa.valor_previsto ?? 0) * perc / 100;
+        }, 0);
+      }
+      return 0;
+    }
+    return calcularTotal();
+  };
+
   const validarEtapa = (): string | null => {
     if (isOS) {
       // Fluxo OS: Etapa 0 = Contrato, Etapa 1 = Dados OS, Etapa 2 = Resumo
@@ -1237,6 +1258,19 @@ function NovaRequisicaoForm() {
       );
       if (algumSemSaldo) {
         mensagens.push('Um ou mais empenhos selecionados estão com saldo insuficiente.');
+      }
+
+      // Verificar se saldo dos empenhos selecionados cobre o valor da requisição
+      if (empenhosSelecionados.size > 0) {
+        const valorRequisicao = calcularValorTotalRequisicao();
+        const saldoEmpenhos = empenhosCompostos
+          .filter(c => empenhosSelecionados.has(c.numero_empenho || c.empenho?.numero_liquidacao || ''))
+          .reduce((s, c) => s + c.saldo_a_liquidar, 0);
+        if (valorRequisicao > 0 && saldoEmpenhos < valorRequisicao) {
+          mensagens.push(
+            `O valor da requisição (${formatarMoeda(valorRequisicao)}) excede o saldo total dos empenhos selecionados (${formatarMoeda(saldoEmpenhos)}). Faltam ${formatarMoeda(valorRequisicao - saldoEmpenhos)}.`
+          );
+        }
       }
 
       if (mensagens.length > 0) {
