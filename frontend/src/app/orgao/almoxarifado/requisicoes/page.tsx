@@ -27,6 +27,8 @@ import {
   Pencil,
   History,
   ShoppingCart,
+  Receipt,
+  Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -213,6 +215,14 @@ function RequisicoesList() {
   } | null>(null);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null); // ID da ordem sendo processada
   const [gerandoOrdem, setGerandoOrdem] = useState(false);
+
+  // Vincular empenho (OS)
+  const [showVincularEmpenhoOS, setShowVincularEmpenhoOS] = useState(false);
+  const [empenhosDisponiveisOS, setEmpenhosDisponiveisOS] = useState<any[]>([]);
+  const [empenhosSelecionadosOS, setEmpenhosSelecionadosOS] = useState<Set<string>>(new Set());
+  const [loadingEmpenhosOS, setLoadingEmpenhosOS] = useState(false);
+  const [salvandoEmpenhosOS, setSalvandoEmpenhosOS] = useState(false);
+  const [anoEmpenhoOS, setAnoEmpenhoOS] = useState(new Date().getFullYear().toString());
   
   // Formulário de gerar ordem
   const [formGerarOrdem, setFormGerarOrdem] = useState({
@@ -293,6 +303,58 @@ function RequisicoesList() {
   useEffect(() => {
     carregarRequisicoes();
   }, [filtroStatus, filtroContrato]);
+
+  const abrirVincularEmpenhoOS = async (req: typeof requisicaoSelecionada) => {
+    if (!req) return;
+    const numsAtuais = (() => {
+      try {
+        const parsed = typeof req.numeros_empenhos === 'string' ? JSON.parse(req.numeros_empenhos) : req.numeros_empenhos;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    })();
+    setEmpenhosSelecionadosOS(new Set(numsAtuais));
+    setEmpenhosDisponiveisOS([]);
+    setShowVincularEmpenhoOS(true);
+    const contratoId = req.contrato_id;
+    if (!contratoId) return;
+    setLoadingEmpenhosOS(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos?ano=${anoEmpenhoOS}`);
+      if (res.ok) {
+        const data = await res.json();
+        setEmpenhosDisponiveisOS(data?.compostos ?? data ?? []);
+      }
+    } catch (e) { console.error(e); }
+    setLoadingEmpenhosOS(false);
+  };
+
+  const salvarEmpenhosOS = async () => {
+    if (!requisicaoSelecionada) return;
+    setSalvandoEmpenhosOS(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/empenhos`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empenhos: Array.from(empenhosSelecionadosOS) }),
+      });
+      if (res.ok) {
+        setShowVincularEmpenhoOS(false);
+        await carregarRequisicoes();
+        alert('Empenhos vinculados e PDF atualizado com sucesso!');
+      } else {
+        alert('Erro ao vincular empenhos');
+      }
+    } catch { alert('Erro ao vincular empenhos'); }
+    setSalvandoEmpenhosOS(false);
+  };
+
+  const toggleEmpenhoOS = (num: string) => {
+    setEmpenhosSelecionadosOS(prev => {
+      const next = new Set(prev);
+      if (next.has(num)) next.delete(num); else next.add(num);
+      return next;
+    });
+  };
 
   const carregarRequisicoes = async () => {
     try {
@@ -1349,21 +1411,35 @@ function RequisicoesList() {
                       if (Array.isArray(parsed)) numsEmpenho = parsed;
                     }
                   } catch {}
-                  if (numsEmpenho.length > 0) {
-                    return (
-                      <div className="col-span-2">
-                        <label className="text-sm font-medium text-gray-500">Empenho(s) Vinculado(s)</label>
-                        <div className="flex flex-wrap gap-2 mt-1">
+                  return (
+                    <div className="col-span-2 border rounded-lg p-3 bg-blue-50/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-blue-800">Notas de Empenho</label>
+                        {requisicaoSelecionada.tipo === 'ORDEM_SERVICO' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => abrirVincularEmpenhoOS(requisicaoSelecionada)}
+                          >
+                            <Link2 className="h-3 w-3 mr-1" />
+                            Vincular Empenho
+                          </Button>
+                        )}
+                      </div>
+                      {numsEmpenho.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
                           {numsEmpenho.map((num, i) => (
-                            <Badge key={i} variant="outline" className="bg-blue-50 text-blue-800 border-blue-200 font-mono text-xs">
-                              Emp. #{num}
+                            <Badge key={i} variant="outline" className="bg-blue-100 text-blue-800 border-blue-300 font-mono text-xs">
+                              #{num}
                             </Badge>
                           ))}
                         </div>
-                      </div>
-                    );
-                  }
-                  return null;
+                      ) : (
+                        <p className="text-xs text-gray-500 italic">Nenhum empenho vinculado</p>
+                      )}
+                    </div>
+                  );
                 })()}
               </div>
 
@@ -2251,6 +2327,117 @@ function RequisicoesList() {
               {gerandoOrdem && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <FilePlus className="h-4 w-4 mr-2" />
               Gerar Ordem
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Vincular Empenho (OS) */}
+      <Dialog open={showVincularEmpenhoOS} onOpenChange={setShowVincularEmpenhoOS}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-blue-600" />
+              Vincular Empenho — {requisicaoSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Selecione os empenhos do Portal Fator Transparência. O PDF será regerado com os dados atualizados.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">Ano:</label>
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={anoEmpenhoOS}
+                onChange={e => setAnoEmpenhoOS(e.target.value)}
+              >
+                {[0, 1, 2].map(d => {
+                  const y = (new Date().getFullYear() - d).toString();
+                  return <option key={y} value={y}>{y}</option>;
+                })}
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => requisicaoSelecionada && abrirVincularEmpenhoOS(requisicaoSelecionada)}
+                disabled={loadingEmpenhosOS}
+              >
+                {loadingEmpenhosOS ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Buscar'}
+              </Button>
+            </div>
+
+            {loadingEmpenhosOS && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                <span className="ml-2 text-sm text-gray-500">Buscando empenhos...</span>
+              </div>
+            )}
+
+            {!loadingEmpenhosOS && empenhosDisponiveisOS.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4 italic">Nenhum empenho encontrado para este contrato.</p>
+            )}
+
+            {!loadingEmpenhosOS && empenhosDisponiveisOS.length > 0 && (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {empenhosDisponiveisOS.map((comp: any) => {
+                  const num = comp.numero_empenho || comp.empenho?.numero_liquidacao || '';
+                  const data = comp.empenho?.data || '';
+                  const valor = comp.total_empenhado_bruto ?? comp.empenho?.valor ?? 0;
+                  const credor = comp.empenho?.credor || '';
+                  const key = num || `sem-${data}`;
+                  const selecionado = empenhosSelecionadosOS.has(num);
+                  return (
+                    <div
+                      key={key}
+                      onClick={() => num && toggleEmpenhoOS(num)}
+                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selecionado ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      } ${!num ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        readOnly
+                        checked={selecionado}
+                        disabled={!num}
+                        className="mt-0.5 accent-blue-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm font-semibold">
+                            {num ? `#${num}` : 's/n'}
+                          </span>
+                          <span className="text-xs text-gray-500">{data}</span>
+                          <span className="text-xs font-medium text-green-700">
+                            {Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 truncate mt-0.5">{credor}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {empenhosSelecionadosOS.size > 0 && (
+              <div className="bg-blue-50 rounded-lg p-2 flex flex-wrap gap-1">
+                <span className="text-xs text-blue-700 font-medium mr-1">Selecionados:</span>
+                {Array.from(empenhosSelecionadosOS).map(n => (
+                  <Badge key={n} variant="outline" className="font-mono text-xs bg-blue-100 border-blue-300 text-blue-800">
+                    #{n}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVincularEmpenhoOS(false)}>Cancelar</Button>
+            <Button onClick={salvarEmpenhosOS} disabled={salvandoEmpenhosOS} className="bg-blue-600 hover:bg-blue-700">
+              {salvandoEmpenhosOS ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
+              Salvar e Regerar PDF
             </Button>
           </DialogFooter>
         </DialogContent>

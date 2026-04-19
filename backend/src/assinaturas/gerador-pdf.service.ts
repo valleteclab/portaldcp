@@ -424,10 +424,11 @@ export class GeradorPdfService {
         }
 
         // ── EMPENHOS VINCULADOS ──────────────────────────────────────────────
-        if ((ordem.requisicao as any)?.numeros_empenhos) {
+        const empenhosFontOF = (ordem as any).numeros_empenhos ?? (ordem.requisicao as any)?.numeros_empenhos;
+        if (empenhosFontOF) {
           let numsEmpenho: string[] = [];
           try {
-            const parsed = JSON.parse((ordem.requisicao as any).numeros_empenhos);
+            const parsed = typeof empenhosFontOF === 'string' ? JSON.parse(empenhosFontOF) : empenhosFontOF;
             if (Array.isArray(parsed)) numsEmpenho = parsed;
           } catch {}
           if (numsEmpenho.length > 0) {

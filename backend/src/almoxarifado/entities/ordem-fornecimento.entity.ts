@@ -247,6 +247,10 @@ export class OrdemFornecimento {
   @Column({ type: 'text', nullable: true })
   observacoes: string | null;
 
+  // Lista de empenhos vinculados (JSON array: ["31/2026", "32/2026"])
+  @Column({ type: 'jsonb', nullable: true })
+  numeros_empenhos: string[] | null;
+
   // ============================================================================
   // AUDITORIA
   // ============================================================================

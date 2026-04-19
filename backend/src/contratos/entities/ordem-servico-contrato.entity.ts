@@ -170,6 +170,10 @@ export class OrdemServicoContrato {
   @Column({ nullable: true, length: 100 })
   numero_empenho: string;
 
+  // Lista de empenhos vinculados (JSON array: ["31/2026", "32/2026"])
+  @Column({ type: 'jsonb', nullable: true })
+  numeros_empenhos: string[] | null;
+
   // Auditoria
   @Column({ nullable: true })
   usuario_cadastro_id: string;

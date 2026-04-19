@@ -1949,6 +1949,40 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     return { pdf_url: pdfPath };
   }
 
+  async vincularEmpenhos(id: string, empenhos: string[]): Promise<{ pdf_regenerado: boolean }> {
+    const requisicao = await this.requisicaoRepository.findOne({
+      where: { id },
+      relations: [
+        'itens', 'itens.item_contrato',
+        'itensOS', 'itensOS.itemCronograma',
+        'etapasOS', 'etapasOS.etapa',
+        'contrato', 'contrato.fornecedor',
+        'orgao',
+      ],
+    });
+    if (!requisicao) throw new BadRequestException('OS não encontrada');
+
+    requisicao.numeros_empenhos = JSON.stringify(empenhos);
+    await this.requisicaoRepository.save(requisicao);
+
+    if (!requisicao.pdf_assinado_url) {
+      return { pdf_regenerado: false };
+    }
+
+    const assinaturas = await this.assinaturasService.buscarPorEntidade(id, EntidadeTipo.ORDEM_SERVICO);
+    const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+    const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+      requisicao,
+      assinaturas,
+      `${urlBase}/validar-documento`,
+    );
+    requisicao.pdf_assinado_url = pdfPath;
+    await this.requisicaoRepository.save(requisicao);
+
+    this.logger.log(`Empenhos vinculados e PDF regenerado para OS ${requisicao.numero}`);
+    return { pdf_regenerado: true };
+  }
+
   async findPendentesAutorizacao(orgaoId: string): Promise<Requisicao[]> {
     return this.requisicaoRepository.find({
       where: { 

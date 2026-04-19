@@ -825,6 +825,29 @@ export class AlmoxarifadoController {
     }
   }
 
+  @Patch('ordens/:id/empenhos')
+  async vincularEmpenhosOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('empenhos') empenhos: string[],
+  ) {
+    if (!Array.isArray(empenhos)) {
+      throw new BadRequestException('empenhos deve ser um array de strings');
+    }
+    const caminhoPdf = await this.pdfOrdemService.vincularEmpenhos(id, empenhos);
+    return { ok: true, pdf_regenerado: !!caminhoPdf };
+  }
+
+  @Patch('requisicoes/:id/empenhos')
+  async vincularEmpenhosRequisicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('empenhos') empenhos: string[],
+  ) {
+    if (!Array.isArray(empenhos)) {
+      throw new BadRequestException('empenhos deve ser um array de strings');
+    }
+    return this.requisicaoService.vincularEmpenhos(id, empenhos);
+  }
+
   // ============================================================================
   // RECEBIMENTOS
   // ============================================================================

@@ -80,6 +80,9 @@ export class PdfOrdemService {
         setor_solicitante: ordem.requisicao.setor_solicitante,
         prioridade: ordem.requisicao.prioridade,
       } : undefined,
+      numeros_empenhos: ordem.numeros_empenhos?.length
+        ? JSON.stringify(ordem.numeros_empenhos)
+        : (ordem.requisicao as any)?.numeros_empenhos ?? null,
       usuario_emitente_nome: ordem.usuario_emitente_nome,
     };
 
@@ -94,5 +97,16 @@ export class PdfOrdemService {
 
     this.logger.log(`PDF gerado: ${caminhoCompleto}`);
     return caminhoCompleto;
+  }
+
+  async vincularEmpenhos(ordemId: string, empenhos: string[]): Promise<string | null> {
+    await this.ordemRepository.update(ordemId, { numeros_empenhos: empenhos });
+
+    const ordem = await this.ordemRepository.findOne({ where: { id: ordemId } });
+    if (!ordem?.caminho_pdf) return null;
+
+    const novoCaminho = await this.gerarPdf(ordemId);
+    await this.ordemRepository.update(ordemId, { caminho_pdf: novoCaminho });
+    return novoCaminho;
   }
 }

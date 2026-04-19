@@ -236,6 +236,13 @@ export class AssinaturasService {
     };
   }
 
+  async buscarPorEntidade(entidadeId: string, entidadeTipo: EntidadeTipo): Promise<AssinaturaDigital[]> {
+    return this.assinaturaRepository.find({
+      where: { entidade_id: entidadeId, entidade_tipo: entidadeTipo },
+      order: { data_assinatura: 'ASC' },
+    });
+  }
+
   private mascararDocumento(doc: string): string {
     if (!doc) return '';
     const limpo = doc.replace(/\D/g, '');
