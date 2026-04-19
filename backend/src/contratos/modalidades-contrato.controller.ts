@@ -25,7 +25,7 @@ import * as path from 'path';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { MedicaoService } from './medicao.service';
 import { Requisicao, StatusRequisicao } from '../almoxarifado/entities/requisicao.entity';
@@ -1209,7 +1209,7 @@ export class ModalidadesContratoController {
       StatusRequisicao.ATENDIDA,
     ];
     const requisicoes = await this.requisicaoRepository.find({
-      where: { contrato_id: contratoId, status: statusAtivos as any },
+      where: { contrato_id: contratoId, status: In(statusAtivos) },
       select: ['id', 'numeros_empenhos', 'valor_total_estimado', 'status', 'created_at'],
       order: { created_at: 'ASC' },
     });
