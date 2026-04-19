@@ -325,15 +325,25 @@ export class FatorTransparenciaService {
   private extrairCamposDialog(
     conteudo: string,
   ): Partial<EmpenhoFator> & Record<string, string> {
+    const numero_liquidacao = this.extrairCampo(
+      conteudo,
+      /Nº Liquidação:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
+    );
+    const numero_empenho = this.extrairCampo(
+      conteudo,
+      /Nº Empenho:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
+    );
+    // DEBUG: log when numero_empenho is empty
+    if (!numero_empenho) {
+      const empIdx = conteudo.indexOf('Empenho');
+      const raw = empIdx >= 0 ? conteudo.substring(empIdx, empIdx + 80).replace(/\n/g, ' ') : 'NOT_FOUND';
+      this.logger.warn(`[DEBUG] numero_empenho VAZIO | liq=${numero_liquidacao} | raw: ${raw}`);
+    } else {
+      this.logger.log(`[DEBUG] numero_empenho='${numero_empenho}' | liq=${numero_liquidacao}`);
+    }
     return {
-      numero_liquidacao: this.extrairCampo(
-        conteudo,
-        /Nº Liquidação:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
-      ),
-      numero_empenho: this.extrairCampo(
-        conteudo,
-        /Nº Empenho:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
-      ),
+      numero_liquidacao,
+      numero_empenho,
       cnpj: this.extrairCampo(
         conteudo,
         /<strong>CNPJ:<\/strong>\s*([\d.\/\-]+)/,

@@ -18,7 +18,6 @@ import {
   StreamableFile,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Public } from '../auth/public.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
@@ -1197,49 +1196,4 @@ export class ModalidadesContratoController {
     });
   }
 
-  // DEBUG: inspect raw parsed empenhos with numero_empenho
-  @Public()
-  @Get('debug/empenhos/:contratoId')
-  async debugEmpenhos(
-    @Param('contratoId') contratoId: string,
-    @Query('ano') ano?: string,
-  ) {
-    const contrato = await this.contratoRepository.findOne({
-      where: { id: contratoId },
-      select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano', 'valor_global'],
-    });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
-
-    const anoConsulta = ano ? parseInt(ano, 10) : (contrato.ano ?? new Date().getFullYear());
-    const empenhos = await this.fatorTransparencia.buscarEmpenhos({
-      nContrato: contrato.numero_contrato,
-      cpfcnpj: contrato.fornecedor_cnpj,
-      ano: anoConsulta,
-    });
-
-    // Return raw empenhos with focus on numero_empenho
-    return {
-      contrato: contrato.numero_contrato,
-      ano: anoConsulta,
-      total: empenhos.length,
-      sem_numero_empenho: empenhos
-        .filter(e => !e.numero_empenho)
-        .map(e => ({
-          fase_tipo: e.fase_tipo,
-          data: e.data,
-          numero_liquidacao: e.numero_liquidacao,
-          valor: e.valor,
-          credor: e.credor,
-        })),
-      com_numero_empenho: empenhos
-        .filter(e => e.numero_empenho)
-        .map(e => ({
-          fase_tipo: e.fase_tipo,
-          data: e.data,
-          numero_empenho: e.numero_empenho,
-          numero_liquidacao: e.numero_liquidacao,
-          valor: e.valor,
-        })),
-    };
-  }
 }
