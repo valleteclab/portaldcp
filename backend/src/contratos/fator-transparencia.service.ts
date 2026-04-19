@@ -328,11 +328,11 @@ export class FatorTransparenciaService {
     return {
       numero_liquidacao: this.extrairCampo(
         conteudo,
-        /Nº Liquidação:&nbsp;<\/strong>(\d+)/,
+        /Nº Liquidação:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
       ),
       numero_empenho: this.extrairCampo(
         conteudo,
-        /Nº Empenho:&nbsp;<\/strong>(\d+)/,
+        /Nº Empenho:\s*<\/strong>\s*([\d\/]+(?:\s*\/\s*\d+)*)/,
       ),
       cnpj: this.extrairCampo(
         conteudo,

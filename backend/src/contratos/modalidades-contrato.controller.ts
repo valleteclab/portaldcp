@@ -18,6 +18,7 @@ import {
   StreamableFile,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
@@ -1197,6 +1198,7 @@ export class ModalidadesContratoController {
   }
 
   // DEBUG: inspect raw parsed empenhos with numero_empenho
+  @Public()
   @Get(':contratoId/empenhos-debug')
   async debugEmpenhos(
     @Param('contratoId') contratoId: string,
