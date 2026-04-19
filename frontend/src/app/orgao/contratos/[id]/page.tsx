@@ -195,12 +195,28 @@ interface EmpenhoFator {
   elemento_despesa: string
 }
 
+interface EmpenhoComposto {
+  numero_empenho: string
+  empenho: EmpenhoFator | null
+  anulacoes: EmpenhoFator[]
+  liquidacoes: EmpenhoFator[]
+  pagamentos: EmpenhoFator[]
+  total_empenhado_bruto: number
+  total_anulado: number
+  total_empenhado_liquido: number
+  total_liquidado: number
+  total_pago: number
+  saldo_a_liquidar: number
+  saldo_a_pagar: number
+}
+
 interface GrupoExercicio {
   ano: number
   empenhos_positivos: EmpenhoFator[]
   anulacoes: EmpenhoFator[]
   liquidacoes: EmpenhoFator[]
   pagamentos: EmpenhoFator[]
+  empenhos_compostos: EmpenhoComposto[]
   total_empenhado_bruto: number
   total_anulado: number
   total_empenhado_liquido: number
@@ -2191,94 +2207,99 @@ export default function DetalheContratoOrgaoPage() {
                                 </div>
                               </div>
 
-                              {/* Composição: empenhos positivos + anulações */}
-                              <div className="rounded border">
-                                <div className="bg-gray-50 px-3 py-1.5 border-b">
-                                  <p className="text-xs font-semibold text-gray-700">Composição do exercício</p>
-                                </div>
-                                <table className="w-full text-xs">
-                                  <tbody>
-                                    {grupo.empenhos_positivos.map((e, ei) => (
-                                      <tr key={`e-${ei}`} className="border-b last:border-0">
-                                        <td className="px-3 py-1.5 text-gray-600 w-24">{e.data}</td>
-                                        <td className="px-3 py-1.5">
-                                          <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-800 border-blue-200">
-                                            {classificaEmpenho(e, ei)}
-                                          </Badge>
-                                          {e.numero_empenho && (
-                                            <span className="ml-2 text-gray-400 font-mono">#{e.numero_empenho}</span>
-                                          )}
-                                        </td>
-                                        <td className="px-3 py-1.5 text-right font-medium text-blue-700">
-                                          +{e.valor_formatado}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                    {grupo.anulacoes.map((a, ai) => (
-                                      <tr key={`a-${ai}`} className="border-b last:border-0 bg-red-50/40">
-                                        <td className="px-3 py-1.5 text-gray-600 w-24">{a.data}</td>
-                                        <td className="px-3 py-1.5">
-                                          <Badge variant="outline" className="text-[10px] bg-red-100 text-red-800 border-red-200">
-                                            Anulação de saldo
-                                          </Badge>
-                                        </td>
-                                        <td className="px-3 py-1.5 text-right font-medium text-red-700">
-                                          {a.valor_formatado}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                    <tr className="bg-gray-100 font-semibold">
-                                      <td colSpan={2} className="px-3 py-1.5 text-gray-700">Empenhado líquido</td>
-                                      <td className="px-3 py-1.5 text-right text-gray-800">{fmt(grupo.total_empenhado_liquido)}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-
-                              {/* Liquidações + pagamentos do exercício */}
-                              {(grupo.liquidacoes.length > 0 || grupo.pagamentos.length > 0) && (
-                                <div className="overflow-x-auto rounded border">
-                                  <div className="bg-gray-50 px-3 py-1.5 border-b">
-                                    <p className="text-xs font-semibold text-gray-700">
-                                      Execução financeira do exercício
+                              {/* Empenhos compostos (agrupados por nº empenho) */}
+                              {grupo.empenhos_compostos?.length > 0 && grupo.empenhos_compostos.map((comp, ci) => (
+                                <div key={ci} className="rounded border">
+                                  <div className="bg-blue-50 px-3 py-1.5 border-b flex items-center justify-between">
+                                    <p className="text-xs font-semibold text-blue-800">
+                                      Empenho #{comp.numero_empenho || 's/n'}
+                                      {comp.empenho && (
+                                        <span className="ml-2 font-normal text-blue-600">
+                                          {comp.empenho.data} — {comp.empenho.credor}
+                                        </span>
+                                      )}
                                     </p>
+                                    <div className="flex items-center gap-3 text-xs">
+                                      <span className="text-blue-700">
+                                        Emp. líq. {fmt(comp.total_empenhado_liquido)}
+                                      </span>
+                                      <span className="text-green-700">
+                                        Pago {fmt(comp.total_pago)}
+                                      </span>
+                                      <span className={comp.saldo_a_pagar > 0.01 ? 'text-amber-700' : 'text-green-700'}>
+                                        Saldo {fmt(comp.saldo_a_liquidar + comp.saldo_a_pagar)}
+                                      </span>
+                                    </div>
                                   </div>
                                   <table className="w-full text-xs">
-                                    <thead className="bg-gray-50 border-b">
-                                      <tr>
-                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Data</th>
-                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Fase</th>
-                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Nº</th>
-                                        <th className="text-left px-2 py-1 font-medium text-gray-600">Processo</th>
-                                        <th className="text-right px-2 py-1 font-medium text-gray-600">Valor</th>
-                                      </tr>
-                                    </thead>
                                     <tbody>
-                                      {[...grupo.liquidacoes, ...grupo.pagamentos]
+                                      {/* Empenho original */}
+                                      {comp.empenho && (
+                                        <tr className="border-b bg-blue-50/30">
+                                          <td className="px-3 py-1.5 text-gray-600 w-24">{comp.empenho.data}</td>
+                                          <td className="px-3 py-1.5">
+                                            <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-800 border-blue-200">
+                                              {classificaEmpenho(comp.empenho, ci)}
+                                            </Badge>
+                                          </td>
+                                          <td className="px-3 py-1.5 text-right font-medium text-blue-700">
+                                            +{comp.empenho.valor_formatado}
+                                          </td>
+                                        </tr>
+                                      )}
+                                      {/* Anulações */}
+                                      {comp.anulacoes.map((a, ai) => (
+                                        <tr key={`a-${ai}`} className="border-b last:border-0 bg-red-50/40">
+                                          <td className="px-3 py-1.5 text-gray-600 w-24">{a.data}</td>
+                                          <td className="px-3 py-1.5">
+                                            <Badge variant="outline" className="text-[10px] bg-red-100 text-red-800 border-red-200">
+                                              Anulação
+                                            </Badge>
+                                          </td>
+                                          <td className="px-3 py-1.5 text-right font-medium text-red-700">
+                                            {a.valor_formatado}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      {/* Liquidações e pagamentos */}
+                                      {[...comp.liquidacoes, ...comp.pagamentos]
                                         .sort((a, b) => {
                                           const [da, ma, ya] = a.data.split('/').map(Number)
                                           const [db, mb, yb] = b.data.split('/').map(Number)
                                           return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime()
                                         })
                                         .map((e, ei) => (
-                                          <tr key={ei} className="border-b last:border-0">
-                                            <td className="px-2 py-1 text-gray-600">{e.data}</td>
-                                            <td className="px-2 py-1">
+                                          <tr key={`lp-${ei}`} className="border-b last:border-0">
+                                            <td className="px-3 py-1.5 text-gray-600 w-24">{e.data}</td>
+                                            <td className="px-3 py-1.5">
                                               <Badge variant="outline" className={`text-[10px] ${
-                                                e.fase_tipo === 'LIQUIDACAO' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+                                                e.fase_tipo === 'LIQUIDACAO'
+                                                  ? (e.valor < 0 ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-purple-100 text-purple-800 border-purple-200')
+                                                  : (e.valor < 0 ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200')
                                               }`}>
-                                                {e.fase_tipo === 'LIQUIDACAO' ? 'Liquidação' : 'Pagamento'}
+                                                {e.fase_tipo === 'LIQUIDACAO'
+                                                  ? (e.valor < 0 ? 'Estorno Liq.' : 'Liquidação')
+                                                  : (e.valor < 0 ? 'Estorno Pagto' : 'Pagamento')}
                                               </Badge>
                                             </td>
-                                            <td className="px-2 py-1 font-mono text-gray-700">{e.numero_liquidacao || '—'}</td>
-                                            <td className="px-2 py-1 text-gray-600">{e.numero_processo || '—'}</td>
-                                            <td className="px-2 py-1 text-right font-medium">{e.valor_formatado}</td>
+                                            <td className="px-3 py-1.5 text-right font-medium">
+                                              {e.valor_formatado}
+                                            </td>
                                           </tr>
                                         ))}
+                                      {/* Rodapé do empenho composto */}
+                                      <tr className="bg-gray-100 font-semibold">
+                                        <td colSpan={2} className="px-3 py-1.5 text-gray-700">
+                                          Saldo do empenho #{comp.numero_empenho || 's/n'}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-right text-gray-800">
+                                          {fmt(comp.saldo_a_liquidar + comp.saldo_a_pagar)}
+                                        </td>
+                                      </tr>
                                     </tbody>
                                   </table>
                                 </div>
-                              )}
+                              ))}
                             </div>
                           </details>
                         )

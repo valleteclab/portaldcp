@@ -22,6 +22,28 @@ export interface EmpenhoFator {
   elemento_despesa: string;
 }
 
+/** Empenho composto: agrupa o empenho original com suas liquidações, pagamentos e estornos */
+export interface EmpenhoComposto {
+  /** Nº do empenho (chave de agrupamento) */
+  numero_empenho: string;
+  /** Registro do empenho (positivo) */
+  empenho: EmpenhoFator | null;
+  /** Anulações vinculadas a este empenho */
+  anulacoes: EmpenhoFator[];
+  /** Liquidações (incluindo estornos de liquidação com valor negativo) */
+  liquidacoes: EmpenhoFator[];
+  /** Pagamentos (incluindo estornos de pagamento com valor negativo) */
+  pagamentos: EmpenhoFator[];
+  /** Totais calculados */
+  total_empenhado_bruto: number;
+  total_anulado: number;
+  total_empenhado_liquido: number;
+  total_liquidado: number;
+  total_pago: number;
+  saldo_a_liquidar: number;
+  saldo_a_pagar: number;
+}
+
 export interface GrupoExercicio {
   /** Ano do exercício (extraído da data dos registros) */
   ano: number;
@@ -33,6 +55,8 @@ export interface GrupoExercicio {
   liquidacoes: EmpenhoFator[];
   /** Pagamentos do exercício */
   pagamentos: EmpenhoFator[];
+  /** Empenhos compostos (agrupados por numero_empenho com suas liquidações/pagamentos) */
+  empenhos_compostos: EmpenhoComposto[];
   /** Soma dos empenhos positivos (bruto empenhado) */
   total_empenhado_bruto: number;
   /** Soma |anulações| (valor absoluto das anulações) */
@@ -468,6 +492,7 @@ export class FatorTransparenciaService {
           anulacoes: [],
           liquidacoes: [],
           pagamentos: [],
+          empenhos_compostos: [],
           total_empenhado_bruto: 0,
           total_anulado: 0,
           total_empenhado_liquido: 0,
@@ -519,6 +544,9 @@ export class FatorTransparenciaService {
       g.saldo_a_liquidar = Math.max(0, g.total_empenhado_liquido - g.total_liquidado);
       g.saldo_a_pagar = Math.max(0, g.total_liquidado - g.total_pago);
 
+      // Agrupa por numero_empenho dentro do exercício
+      g.empenhos_compostos = this.agruparPorEmpenho(g);
+
       if (g.ano === anoAtual) {
         g.status = 'EXECUCAO';
       } else if (g.ano < anoAtual) {
@@ -529,6 +557,131 @@ export class FatorTransparenciaService {
     }
 
     return grupos;
+  }
+
+  /**
+   * Agrupa os registros de um exercício por numero_empenho.
+   *
+   * Cada empenho (positivo) vira um EmpenhoComposto com suas anulações,
+   * liquidações e pagamentos vinculados pelo numero_empenho.
+   *
+   * Registros sem numero_empenho (campo vazio) são distribuídos
+   * proporcionalmente ou atribuídos ao primeiro empenho do exercício.
+   */
+  private agruparPorEmpenho(grupo: GrupoExercicio): EmpenhoComposto[] {
+    const toTimestamp = (dataBr: string): number => {
+      const [d, m, y] = (dataBr || '').split('/');
+      if (!d || !m || !y) return 0;
+      return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)).getTime();
+    };
+
+    const mapa = new Map<string, EmpenhoComposto>();
+
+    // Primeiro: criar entradas para cada empenho positivo
+    for (const emp of grupo.empenhos_positivos) {
+      const chave = emp.numero_empenho || `SEM_NUM_${emp.data}`;
+      if (!mapa.has(chave)) {
+        mapa.set(chave, {
+          numero_empenho: emp.numero_empenho || '',
+          empenho: emp,
+          anulacoes: [],
+          liquidacoes: [],
+          pagamentos: [],
+          total_empenhado_bruto: 0,
+          total_anulado: 0,
+          total_empenhado_liquido: 0,
+          total_liquidado: 0,
+          total_pago: 0,
+          saldo_a_liquidar: 0,
+          saldo_a_pagar: 0,
+        });
+      }
+    }
+
+    // Se não há empenhos positivos mas há liquidações/pagamentos, cria bucket genérico
+    if (mapa.size === 0 && (grupo.liquidacoes.length > 0 || grupo.pagamentos.length > 0)) {
+      mapa.set('SEM_EMPENHO', {
+        numero_empenho: '',
+        empenho: null,
+        anulacoes: [],
+        liquidacoes: [],
+        pagamentos: [],
+        total_empenhado_bruto: 0,
+        total_anulado: 0,
+        total_empenhado_liquido: 0,
+        total_liquidado: 0,
+        total_pago: 0,
+        saldo_a_liquidar: 0,
+        saldo_a_pagar: 0,
+      });
+    }
+
+    // Distribuir anulações pelo numero_empenho
+    for (const a of grupo.anulacoes) {
+      const chave = a.numero_empenho || '';
+      const comp = mapa.get(chave);
+      if (comp) {
+        comp.anulacoes.push(a);
+        comp.total_anulado += Math.abs(a.valor);
+      }
+    }
+
+    // Distribuir liquidações pelo numero_empenho
+    for (const l of grupo.liquidacoes) {
+      const chave = l.numero_empenho || '';
+      const comp = mapa.get(chave);
+      if (comp) {
+        comp.liquidacoes.push(l);
+        comp.total_liquidado += l.valor;
+      } else {
+        // Liquidação sem empenho correspondente — atribuir ao primeiro empenho
+        const primeiro = mapa.values().next().value;
+        if (primeiro) {
+          primeiro.liquidacoes.push(l);
+          primeiro.total_liquidado += l.valor;
+        }
+      }
+    }
+
+    // Distribuir pagamentos pelo numero_empenho
+    for (const p of grupo.pagamentos) {
+      const chave = p.numero_empenho || '';
+      const comp = mapa.get(chave);
+      if (comp) {
+        comp.pagamentos.push(p);
+        comp.total_pago += p.valor;
+      } else {
+        // Pagamento sem empenho correspondente — atribuir ao primeiro empenho
+        const primeiro = mapa.values().next().value;
+        if (primeiro) {
+          primeiro.pagamentos.push(p);
+          primeiro.total_pago += p.valor;
+        }
+      }
+    }
+
+    // Calcular totais e ordenar
+    const compostos = Array.from(mapa.values());
+    for (const c of compostos) {
+      c.total_empenhado_bruto = c.empenho?.valor ?? 0;
+      c.total_empenhado_liquido = c.total_empenhado_bruto - c.total_anulado;
+      c.saldo_a_liquidar = Math.max(0, c.total_empenhado_liquido - c.total_liquidado);
+      c.saldo_a_pagar = Math.max(0, c.total_liquidado - c.total_pago);
+
+      // Ordenar sub-registros por data
+      c.anulacoes.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+      c.liquidacoes.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+      c.pagamentos.sort((a, b) => toTimestamp(a.data) - toTimestamp(b.data));
+    }
+
+    // Ordenar empenhos compostos por data do empenho
+    compostos.sort((a, b) => {
+      const ta = a.empenho ? toTimestamp(a.empenho.data) : 0;
+      const tb = b.empenho ? toTimestamp(b.empenho.data) : 0;
+      return ta - tb;
+    });
+
+    return compostos;
   }
 
   private extrairCampo(texto: string, regex: RegExp): string {
