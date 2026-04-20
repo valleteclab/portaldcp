@@ -358,7 +358,8 @@ export class ContratosService {
           ? (Number(termoAtual.valor_ciclo) || Number(termoAtual.valor_acrescimo) || valorGlobal)
           : valorGlobal;
 
-        // Acréscimos/supressões do ciclo atual (termos após o ciclo atual)
+        // Acréscimos/supressões do ciclo atual: apenas de termos APÓS o termo de renovação
+        // valor_ciclo já representa o valor total do ciclo (inclui o próprio acrescimo/supressao do termo)
         let acrescimosCiclo = 0;
         let supressoesCiclo = 0;
         if (termoAtual) {
@@ -368,16 +369,10 @@ export class ContratosService {
           });
           for (const t of termosPosCiclo) {
             if (t.status === 'CANCELADO') continue;
-            if (t.sequencial > termoAtual.sequencial || t.id === termoAtual.id) {
-              // Incluir valor_acrescimo/supressao do próprio termo de ciclo se for aditivo de valor
-              if (t.id === termoAtual.id) {
-                if (Number(t.valor_acrescimo) > 0) acrescimosCiclo += Number(t.valor_acrescimo);
-                if (Number(t.valor_supressao) > 0) supressoesCiclo += Number(t.valor_supressao);
-              }
-              if (t.sequencial > termoAtual.sequencial && !t.renovacao_ciclo) {
-                if (Number(t.valor_acrescimo) > 0) acrescimosCiclo += Number(t.valor_acrescimo);
-                if (Number(t.valor_supressao) > 0) supressoesCiclo += Number(t.valor_supressao);
-              }
+            // Apenas termos com sequencial MAIOR que o termo de renovação (e que não sejam renovação de ciclo)
+            if (t.sequencial > termoAtual.sequencial && !t.renovacao_ciclo) {
+              if (Number(t.valor_acrescimo) > 0) acrescimosCiclo += Number(t.valor_acrescimo);
+              if (Number(t.valor_supressao) > 0) supressoesCiclo += Number(t.valor_supressao);
             }
           }
         }
