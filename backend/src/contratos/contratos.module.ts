@@ -25,6 +25,7 @@ import { LicencaControle } from './entities/licenca-controle.entity';
 import { OrdemServicoContrato } from './entities/ordem-servico-contrato.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
 import { Requisicao } from '../almoxarifado/entities/requisicao.entity';
+import { OrdemFornecimento } from '../almoxarifado/entities/ordem-fornecimento.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { MedicaoService } from './medicao.service';
 import { AtestacaoService } from './atestacao.service';
@@ -58,7 +59,7 @@ import { FatorTransparenciaService } from './fator-transparencia.service';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
+      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
     ]),
     NotificacoesModule,
     UploadModule,

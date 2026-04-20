@@ -29,6 +29,7 @@ import { In, Repository } from 'typeorm';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { MedicaoService } from './medicao.service';
 import { Requisicao, StatusRequisicao } from '../almoxarifado/entities/requisicao.entity';
+import { OrdemFornecimento, StatusOrdemFornecimento } from '../almoxarifado/entities/ordem-fornecimento.entity';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
@@ -55,6 +56,8 @@ export class ModalidadesContratoController {
     private readonly medicaoRepository: Repository<Medicao>,
     @InjectRepository(Requisicao)
     private readonly requisicaoRepository: Repository<Requisicao>,
+    @InjectRepository(OrdemFornecimento)
+    private readonly ordemFornecimentoRepository: Repository<OrdemFornecimento>,
   ) {}
 
   /**
@@ -1214,6 +1217,45 @@ export class ModalidadesContratoController {
       order: { created_at: 'ASC' },
     });
 
+    // Buscar também ordens de fornecimento com empenhos vinculados
+    const statusAtivosOrdem = [
+      StatusOrdemFornecimento.EMITIDA,
+      StatusOrdemFornecimento.ENVIADA,
+      StatusOrdemFornecimento.EM_ATENDIMENTO,
+      StatusOrdemFornecimento.ATENDIDA_PARCIAL,
+      StatusOrdemFornecimento.ATENDIDA,
+    ];
+    const ordens = await this.ordemFornecimentoRepository.find({
+      where: { contrato_id: contratoId, status: In(statusAtivosOrdem) },
+      select: ['id', 'numero', 'tipo', 'numeros_empenhos', 'valor_total', 'status', 'created_at'],
+      order: { created_at: 'ASC' },
+    });
+
+    // Combinar requisições e ordens em lista unificada para cálculo FIFO e vinculadas
+    type ItemVinculado = { id: string; numero: string; tipo: string; numeros_empenhos: string[] | null; valor: number; status: string; created_at: Date; origem: 'requisicao' | 'ordem' };
+    const todosItens: ItemVinculado[] = [
+      ...requisicoes.map(r => ({
+        id: r.id,
+        numero: r.numero || '',
+        tipo: r.tipo || 'MATERIAL',
+        numeros_empenhos: (() => { try { const p = JSON.parse(r.numeros_empenhos || '[]'); return Array.isArray(p) ? p : null; } catch { return null; } })(),
+        valor: Number(r.valor_total_estimado ?? 0),
+        status: r.status,
+        created_at: r.created_at,
+        origem: 'requisicao' as const,
+      })),
+      ...ordens.map(o => ({
+        id: o.id,
+        numero: o.numero || '',
+        tipo: o.tipo === 'SERVICO' ? 'ORDEM_SERVICO' : (o.tipo || 'FORNECIMENTO'),
+        numeros_empenhos: Array.isArray(o.numeros_empenhos) ? o.numeros_empenhos : null,
+        valor: Number(o.valor_total ?? 0),
+        status: o.status,
+        created_at: o.created_at,
+        origem: 'ordem' as const,
+      })),
+    ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
     // Mapa: numero_empenho → { saldo_base (portal), comprometido acumulado }
     // Comprometido é calculado por alocação FIFO (empenho mais antigo primeiro)
     const alocacaoMap = new Map<string, { saldo_base: number; comprometido: number }>();
@@ -1226,25 +1268,23 @@ export class ModalidadesContratoController {
       }
     }
 
-    // Processar requisições em ordem cronológica (mais antiga primeiro)
-    for (const req of requisicoes) {
-      if (!req.numeros_empenhos) continue;
-      let nums: string[];
-      try {
-        nums = JSON.parse(req.numeros_empenhos);
-      } catch { continue; }
-      if (!Array.isArray(nums) || nums.length === 0) continue;
+    // Processar itens (requisições + ordens) em ordem cronológica (mais antiga primeiro)
+    for (const item of todosItens) {
+      if (!item.numeros_empenhos || item.numeros_empenhos.length === 0) continue;
+      const nums = item.numeros_empenhos;
+
+      // Normalizar: "534-2026" → "534" para matching com numero_empenho do portal
+      const numsBase = nums.map(n => n.replace(/[-/]\d{4}$/, ''));
 
       // Ordenar numeros_empenhos por data do empenho (mais antigo primeiro)
-      // Usa a ordem dos empenhos_compostos que já vêm ordenados por data
-      const numsOrdenados = nums.slice().sort((a, b) => {
+      const numsOrdenados = numsBase.slice().sort((a, b) => {
         const idxA = resumo.grupos_exercicio.flatMap(g => g.empenhos_compostos).findIndex(c => c.numero_empenho === a);
         const idxB = resumo.grupos_exercicio.flatMap(g => g.empenhos_compostos).findIndex(c => c.numero_empenho === b);
         return idxA - idxB;
       });
 
       // Débito FIFO: descontar do empenho mais antigo primeiro
-      let restante = Number(req.valor_total_estimado ?? 0);
+      let restante = item.valor;
       for (const num of numsOrdenados) {
         if (restante <= 0.01) break;
         const alloc = alocacaoMap.get(num);
@@ -1257,11 +1297,7 @@ export class ModalidadesContratoController {
         }
       }
       // Se ainda sobrou valor (todos os empenhos sem saldo), distribuir proporcionalmente
-      // para que o comprometido reflita o valor total da requisição
       if (restante > 0.01) {
-        const comprometidoTotal = numsOrdenados.reduce((s, n) => s + (alocacaoMap.get(n)?.comprometido ?? 0), 0);
-        const jaAlocado = Number(req.valor_total_estimado ?? 0) - restante;
-        // Distribuir o excedente igualmente entre os empenhos vinculados
         const excedentePorEmpenho = restante / numsOrdenados.length;
         for (const num of numsOrdenados) {
           const alloc = alocacaoMap.get(num);
@@ -1270,24 +1306,20 @@ export class ModalidadesContratoController {
       }
     }
 
-    // Mapa: numero_empenho → lista de requisições vinculadas
-    const requisicoesPorEmpenho = new Map<string, Array<{ id: string; numero: string; tipo: string; status: string; valor_total_estimado: number; created_at: string }>>();
-    for (const req of requisicoes) {
-      if (!req.numeros_empenhos) continue;
-      let nums: string[];
-      try { nums = JSON.parse(req.numeros_empenhos); } catch { continue; }
-      if (!Array.isArray(nums)) continue;
-      // Normalizar: "534-2026" → "534" para matching com numero_empenho do portal
-      const numsBase = nums.map(n => n.replace(/[-/]\d{4}$/, ''));
+    // Mapa: numero_empenho → lista de itens vinculados (requisições + ordens)
+    const vinculadasPorEmpenho = new Map<string, Array<{ id: string; numero: string; tipo: string; status: string; valor_total_estimado: number; created_at: string }>>();
+    for (const item of todosItens) {
+      if (!item.numeros_empenhos || item.numeros_empenhos.length === 0) continue;
+      const numsBase = item.numeros_empenhos.map(n => n.replace(/[-/]\d{4}$/, ''));
       for (const num of numsBase) {
-        if (!requisicoesPorEmpenho.has(num)) requisicoesPorEmpenho.set(num, []);
-        requisicoesPorEmpenho.get(num)!.push({
-          id: req.id,
-          numero: req.numero || '',
-          tipo: req.tipo || 'MATERIAL',
-          status: req.status,
-          valor_total_estimado: Number(req.valor_total_estimado ?? 0),
-          created_at: req.created_at?.toISOString?.() ?? String(req.created_at),
+        if (!vinculadasPorEmpenho.has(num)) vinculadasPorEmpenho.set(num, []);
+        vinculadasPorEmpenho.get(num)!.push({
+          id: item.id,
+          numero: item.numero,
+          tipo: item.tipo,
+          status: item.status,
+          valor_total_estimado: item.valor,
+          created_at: item.created_at?.toISOString?.() ?? String(item.created_at),
         });
       }
     }
@@ -1299,7 +1331,7 @@ export class ModalidadesContratoController {
         const comprometido = alloc?.comprometido ?? 0;
         (comp as any).comprometido = Math.round(comprometido * 100) / 100;
         (comp as any).saldo_virtual = Math.round((comp.saldo_a_liquidar - comprometido) * 100) / 100;
-        (comp as any).requisicoes_vinculadas = requisicoesPorEmpenho.get(comp.numero_empenho) || [];
+        (comp as any).requisicoes_vinculadas = vinculadasPorEmpenho.get(comp.numero_empenho) || [];
       }
     }
 

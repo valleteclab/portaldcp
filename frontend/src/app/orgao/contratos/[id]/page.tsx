@@ -2400,6 +2400,11 @@ export default function DetalheContratoOrgaoPage() {
                                             ORDEM_GERADA: 'bg-indigo-100 text-indigo-800',
                                             ATENDIDA_PARCIAL: 'bg-orange-100 text-orange-800',
                                             ATENDIDA: 'bg-green-100 text-green-800',
+                                            EMITIDA: 'bg-blue-100 text-blue-800',
+                                            ENVIADA: 'bg-cyan-100 text-cyan-800',
+                                            EM_ATENDIMENTO: 'bg-amber-100 text-amber-800',
+                                            CANCELADA: 'bg-red-100 text-red-800',
+                                            FORNECIMENTO: 'bg-teal-100 text-teal-800',
                                           };
                                           const statusLabels: Record<string, string> = {
                                             RASCUNHO: 'Rascunho',
@@ -2408,12 +2413,16 @@ export default function DetalheContratoOrgaoPage() {
                                             ORDEM_GERADA: 'Ordem gerada',
                                             ATENDIDA_PARCIAL: 'Parcial',
                                             ATENDIDA: 'Atendida',
+                                            EMITIDA: 'Emitida',
+                                            ENVIADA: 'Enviada',
+                                            EM_ATENDIMENTO: 'Em atendimento',
+                                            CANCELADA: 'Cancelada',
                                           };
-                                          const tipoLabel = req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'SERVICO' ? 'Serv.' : 'Req.';
+                                          const tipoLabel = req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'FORNECIMENTO' ? 'OF' : req.tipo === 'SERVICO' ? 'Serv.' : 'Req.';
                                           return (
                                             <div key={req.id} className="flex items-center gap-2 text-[11px]">
                                               <a
-                                                href={req.tipo === 'ORDEM_SERVICO' ? `/orgao/almoxarifado/requisicoes?destaque=${req.id}` : `/orgao/almoxarifado/ordens?destaque=${req.id}`}
+                                                href={req.tipo === 'FORNECIMENTO' ? `/orgao/almoxarifado/ordens?destaque=${req.id}` : `/orgao/almoxarifado/requisicoes?destaque=${req.id}`}
                                                 className="font-mono font-medium text-blue-700 hover:underline"
                                               >
                                                 {req.numero || req.id.slice(0, 8)}
