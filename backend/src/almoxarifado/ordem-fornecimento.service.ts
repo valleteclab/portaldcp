@@ -176,6 +176,16 @@ export class OrdemFornecimentoService {
     ordem.valor_total = valorTotal;
     ordem.valor_entregue = 0;
     ordem.itens = itensOrdem;
+    if (requisicao.numeros_empenhos) {
+      try {
+        const empenhos = JSON.parse(requisicao.numeros_empenhos);
+        ordem.numeros_empenhos = Array.isArray(empenhos) ? empenhos : null;
+      } catch {
+        ordem.numeros_empenhos = null;
+      }
+    } else {
+      ordem.numeros_empenhos = null;
+    }
     ordem.usuario_emitente_id = usuarioId;
     ordem.usuario_emitente_nome = usuarioNome;
     ordem.observacoes = dto.observacoes || null;

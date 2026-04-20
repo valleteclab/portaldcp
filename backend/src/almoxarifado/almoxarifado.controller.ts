@@ -802,20 +802,11 @@ export class AlmoxarifadoController {
   ) {
     try {
       const ordem = await this.ordemService.findOne(id);
-      
-      // Se já tem PDF gerado, retorna ele
-      if (ordem.caminho_pdf && fs.existsSync(ordem.caminho_pdf)) {
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="ordem_${ordem.numero.replace(/\//g, '_')}.pdf"`);
-        return res.sendFile(path.resolve(ordem.caminho_pdf));
-      }
-      
-      // Gera novo PDF
+
+      // Sempre regenera para garantir que campos novos (ex: empenhos) apareçam
       const caminhoPdf = await this.pdfOrdemService.gerarPdf(id);
-      
-      // Atualiza ordem com caminho do PDF
       await this.ordemRepository.update(id, { caminho_pdf: caminhoPdf });
-      
+
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="ordem_${ordem.numero.replace(/\//g, '_')}.pdf"`);
       return res.sendFile(path.resolve(caminhoPdf));

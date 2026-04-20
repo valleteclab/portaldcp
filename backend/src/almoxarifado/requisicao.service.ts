@@ -1131,6 +1131,9 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
                 orgao: ordemParaPdf.orgao ? { nome: ordemParaPdf.orgao.nome, logo_url: ordemParaPdf.orgao.logo_url, logradouro: ordemParaPdf.orgao.logradouro, bairro: ordemParaPdf.orgao.bairro, cidade: ordemParaPdf.orgao.cidade, uf: ordemParaPdf.orgao.uf } : undefined,
                 contrato: ordemParaPdf.contrato ? { numero_contrato: ordemParaPdf.contrato.numero_contrato, numero_processo: ordemParaPdf.contrato.numero_processo, tipo: ordemParaPdf.contrato.tipo, objeto: ordemParaPdf.contrato.objeto, fornecedor: ordemParaPdf.contrato.fornecedor ? { razao_social: ordemParaPdf.contrato.fornecedor.razao_social, cpf_cnpj: ordemParaPdf.contrato.fornecedor.cpf_cnpj } : undefined } : undefined,
                 requisicao: ordemParaPdf.requisicao ? { usuario_solicitante_nome: ordemParaPdf.requisicao.usuario_solicitante_nome, setor_solicitante: ordemParaPdf.requisicao.setor_solicitante, prioridade: ordemParaPdf.requisicao.prioridade } : undefined,
+                numeros_empenhos: ordemParaPdf.numeros_empenhos?.length
+                  ? JSON.stringify(ordemParaPdf.numeros_empenhos)
+                  : (ordemParaPdf.requisicao as any)?.numeros_empenhos ?? null,
                 usuario_emitente_nome: ordemParaPdf.usuario_emitente_nome,
               };
 
