@@ -574,15 +574,16 @@ export default function DetalheContratoOrgaoPage() {
       } else if (novoTermo.modo_supressao === 'percentual' && novoTermo.percentual_supressao) {
         valorSupressao = valorGlobalAtual * (parseFloat(novoTermo.percentual_supressao) / 100)
       }
-      const ehRenovacaoCiclo = novoTermo.tipo === 'ADITIVO_PRAZO' && novoTermo.renovacao_ciclo
+      const ehRenovacaoCiclo = novoTermo.renovacao_ciclo
+      const ehAditivoPrazo = novoTermo.tipo === 'ADITIVO_PRAZO'
       const payload = {
         tipo: novoTermo.tipo,
         renovacao_ciclo: ehRenovacaoCiclo,
-        valor_ciclo: ehRenovacaoCiclo ? (parseFloat(novoTermo.valor_acrescimo) || null) : null,
+        valor_ciclo: ehRenovacaoCiclo && ehAditivoPrazo ? (parseFloat(novoTermo.valor_acrescimo) || null) : null,
         objeto: novoTermo.objeto,
         justificativa: novoTermo.justificativa || novoTermo.objeto,
-        valor_acrescimo: ehRenovacaoCiclo ? null : valorAcrescimo,
-        valor_supressao: ehRenovacaoCiclo ? null : valorSupressao,
+        valor_acrescimo: ehRenovacaoCiclo && ehAditivoPrazo ? null : valorAcrescimo,
+        valor_supressao: ehRenovacaoCiclo && ehAditivoPrazo ? null : valorSupressao,
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
         data_assinatura: novoTermo.data_assinatura,
       }
@@ -652,6 +653,7 @@ export default function DetalheContratoOrgaoPage() {
       const payload = {
         objeto: modalEditTermo.objeto,
         justificativa: modalEditTermo.justificativa || null,
+        renovacao_ciclo: modalEditTermo.renovacao_ciclo || false,
         valor_acrescimo: modalEditTermo.valor_acrescimo ? parseFloat(String(modalEditTermo.valor_acrescimo)) : null,
         valor_supressao: modalEditTermo.valor_supressao ? parseFloat(String(modalEditTermo.valor_supressao)) : null,
         nova_data_vigencia_fim: modalEditTermo.nova_data_vigencia_fim || null,
@@ -1817,13 +1819,9 @@ export default function DetalheContratoOrgaoPage() {
                         <p className="text-gray-600 mb-4">{termo.objeto}</p>
                         <div className="flex gap-6 text-sm">
                           <div><span className="text-gray-500">Data de Assinatura:</span> <span className="font-medium">{formatarData(termo.data_assinatura)}</span></div>
-                          {termo.renovacao_ciclo
-                            ? <div className="text-blue-700"><RefreshCw className="w-4 h-4 inline mr-1" />Ciclo: {formatarMoeda(termo.valor_ciclo || 0)}</div>
-                            : (<>
-                                {termo.valor_acrescimo != null && Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
-                                {termo.valor_supressao != null && Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
-                              </>)
-                          }
+                          {termo.renovacao_ciclo && <div className="text-blue-700"><RefreshCw className="w-4 h-4 inline mr-1" />Novo ciclo{termo.valor_ciclo ? `: ${formatarMoeda(termo.valor_ciclo)}` : ''}</div>}
+                          {termo.valor_acrescimo != null && Number(termo.valor_acrescimo) > 0 && <div className="text-green-600"><TrendingUp className="w-4 h-4 inline mr-1" />+ {formatarMoeda(termo.valor_acrescimo)}</div>}
+                          {termo.valor_supressao != null && Number(termo.valor_supressao) > 0 && <div className="text-red-600"><TrendingDown className="w-4 h-4 inline mr-1" />- {formatarMoeda(termo.valor_supressao)}</div>}
                           {termo.nova_data_vigencia_fim && <div><span className="text-gray-500">Nova Vigência:</span> <span className="font-medium">{formatarData(termo.nova_data_vigencia_fim)}</span></div>}
                         </div>
                         {documentos.filter(d => d.termo_aditivo_id === termo.id).length > 0 && (
@@ -2518,7 +2516,7 @@ export default function DetalheContratoOrgaoPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Tipo *</Label>
-                <Select value={novoTermo.tipo} onValueChange={(v) => setNovoTermo({...novoTermo, tipo: v, renovacao_ciclo: false})}>
+                <Select value={novoTermo.tipo} onValueChange={(v) => setNovoTermo({...novoTermo, tipo: v})}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TIPOS_TERMO.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
@@ -2538,44 +2536,43 @@ export default function DetalheContratoOrgaoPage() {
               <Label>Justificativa *</Label>
               <Textarea placeholder="Justifique a necessidade do termo aditivo (ex.: necessidade de prorrogação para conclusão dos serviços)" value={novoTermo.justificativa} onChange={(e) => setNovoTermo({...novoTermo, justificativa: e.target.value})} rows={2} />
             </div>
-            {novoTermo.tipo === 'ADITIVO_PRAZO' ? (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={novoTermo.renovacao_ciclo}
-                    onChange={(e) => setNovoTermo({
-                      ...novoTermo,
-                      renovacao_ciclo: e.target.checked,
-                      valor_acrescimo: e.target.checked ? String(Number(contrato?.valor_global) || '') : '',
-                    })}
-                    className="mt-0.5"
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={novoTermo.renovacao_ciclo}
+                  onChange={(e) => setNovoTermo({
+                    ...novoTermo,
+                    renovacao_ciclo: e.target.checked,
+                    valor_acrescimo: e.target.checked && novoTermo.tipo === 'ADITIVO_PRAZO' ? String(Number(contrato?.valor_global) || '') : novoTermo.valor_acrescimo,
+                  })}
+                  className="mt-0.5"
+                />
+                <div>
+                  <span className="font-medium text-blue-900">Renovação de ciclo</span>
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    O saldo de medições será reiniciado para o novo ciclo. Medições anteriores não contarão contra o novo saldo. Alterações de valor (acréscimo/supressão) ainda serão aplicadas ao valor global.
+                  </p>
+                </div>
+              </label>
+              {novoTermo.renovacao_ciclo && novoTermo.tipo === 'ADITIVO_PRAZO' && (
+                <div className="space-y-1">
+                  <Label>Valor do ciclo (informativo)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0,00"
+                    value={novoTermo.valor_acrescimo}
+                    onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})}
                   />
-                  <div>
-                    <span className="font-medium text-blue-900">Renovação de ciclo</span>
-                    <p className="text-xs text-blue-700 mt-0.5">
-                      O saldo de medições será reiniciado para o novo ciclo. Medições anteriores não contarão contra o novo saldo. O valor global do contrato <strong>não</strong> é alterado.
-                    </p>
-                  </div>
-                </label>
-                {novoTermo.renovacao_ciclo && (
-                  <div className="space-y-1">
-                    <Label>Valor do ciclo (informativo)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0,00"
-                      value={novoTermo.valor_acrescimo}
-                      onChange={(e) => setNovoTermo({...novoTermo, valor_acrescimo: e.target.value})}
-                    />
-                    <p className="text-xs text-blue-600">
-                      Sugestão: {formatarMoeda(Number(contrato?.valor_global) || 0)} (valor global atual do contrato). Este valor é apenas informativo e não altera o total do contrato.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
+                  <p className="text-xs text-blue-600">
+                    Sugestão: {formatarMoeda(Number(contrato?.valor_global) || 0)} (valor global atual do contrato). Este valor é apenas informativo e não altera o total do contrato.
+                  </p>
+                </div>
+              )}
+            </div>
+            {novoTermo.tipo !== 'ADITIVO_PRAZO' && (
               <div className="space-y-4">
                 <div>
                   <Label className="mb-2 block">Acréscimo</Label>
@@ -2631,6 +2628,22 @@ export default function DetalheContratoOrgaoPage() {
               <div className="space-y-2">
                 <Label>Justificativa</Label>
                 <Textarea placeholder="Justifique a necessidade do termo aditivo" value={modalEditTermo.justificativa || ''} onChange={(e) => setModalEditTermo({ ...modalEditTermo, justificativa: e.target.value })} rows={2} />
+              </div>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={modalEditTermo.renovacao_ciclo || false}
+                    onChange={(e) => setModalEditTermo({ ...modalEditTermo, renovacao_ciclo: e.target.checked })}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <span className="font-medium text-blue-900">Renovação de ciclo</span>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      O saldo de medições será reiniciado para o novo ciclo. Medições anteriores não contarão contra o novo saldo.
+                    </p>
+                  </div>
+                </label>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

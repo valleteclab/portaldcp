@@ -744,6 +744,7 @@ export class ContratosService {
     // Atualizar campos do termo
     if (dados.objeto != null) termo.objeto = dados.objeto;
     if (dados.justificativa !== undefined) termo.justificativa = dados.justificativa;
+    if (dados.renovacao_ciclo !== undefined) termo.renovacao_ciclo = dados.renovacao_ciclo;
     if (dados.valor_acrescimo !== undefined) termo.valor_acrescimo = dados.valor_acrescimo;
     if (dados.valor_supressao !== undefined) termo.valor_supressao = dados.valor_supressao;
     if (dados.percentual_acrescimo !== undefined) termo.percentual_acrescimo = dados.percentual_acrescimo;
@@ -806,22 +807,9 @@ export class ContratosService {
         (t) => t.sequencial < termo.sequencial && t.status !== StatusTermoAditivo.CANCELADO && t.id !== termo.id,
       );
       contrato.data_renovacao_ciclo = anterior ? (anterior.data_assinatura as any) : null;
-      if (termo.nova_data_vigencia_fim) {
-        const termosAnteriores = await this.termoAditivoRepository.find({
-          where: { contrato_id: contrato.id },
-          order: { sequencial: 'DESC' },
-        });
-        const anteriorComVigencia = termosAnteriores.find(
-          (t) => t.sequencial < termo.sequencial && t.status !== StatusTermoAditivo.CANCELADO && t.id !== termo.id && t.nova_data_vigencia_fim,
-        );
-        if (anteriorComVigencia) {
-          contrato.data_vigencia_fim = anteriorComVigencia.nova_data_vigencia_fim as any;
-        }
-      }
-      await this.contratoRepository.save(contrato);
-      return;
     }
 
+    // Reverter alterações de valor (mesmo com renovação de ciclo)
     if (termo.valor_acrescimo) {
       contrato.valor_acrescimos = Math.max(0, Number(contrato.valor_acrescimos) - Number(termo.valor_acrescimo));
       contrato.valor_global = Math.max(0, Number(contrato.valor_global) - Number(termo.valor_acrescimo));
@@ -920,16 +908,12 @@ export class ContratosService {
   }
 
   private async atualizarValoresContrato(contrato: Contrato, termo: TermoAditivo): Promise<void> {
-    // Renovação de ciclo: apenas registra a data de referência; não altera valor_global nem valor_acrescimos
+    // Renovação de ciclo: registra a data de referência para filtrar medições do ciclo atual
     if (termo.renovacao_ciclo) {
       contrato.data_renovacao_ciclo = termo.data_assinatura as any;
-      if (termo.nova_data_vigencia_fim) {
-        contrato.data_vigencia_fim = termo.nova_data_vigencia_fim;
-      }
-      await this.contratoRepository.save(contrato);
-      return;
     }
 
+    // Aplicar alterações de valor (mesmo com renovação de ciclo — o novo valor global reflete o novo ciclo)
     if (termo.valor_acrescimo) {
       contrato.valor_acrescimos = Number(contrato.valor_acrescimos) + Number(termo.valor_acrescimo);
       contrato.valor_global = Number(contrato.valor_global) + Number(termo.valor_acrescimo);
