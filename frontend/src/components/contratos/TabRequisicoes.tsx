@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  Loader2, ClipboardList, Package, FileText, RefreshCw, Link2, History, ChevronDown, ChevronUp, Receipt,
+  Loader2, ClipboardList, Package, FileText, RefreshCw, Link2, History, ChevronDown, ChevronUp, Receipt, AlertTriangle, RotateCcw,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -302,6 +302,22 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
       const parsed = JSON.parse(val)
       return Array.isArray(parsed) ? parsed : []
     } catch { return val ? [val] : [] }
+  }
+
+  const empenhosComSaldo = empenhosDisponiveis.filter((comp: any) => Number(comp.saldo_virtual ?? comp.saldo_a_liquidar ?? 0) > 0.01)
+  const empenhosSemSaldo = empenhosDisponiveis.filter((comp: any) => Number(comp.saldo_virtual ?? comp.saldo_a_liquidar ?? 0) <= 0.01)
+  const algumSemSaldoSelecionado = empenhosSelecionados.size > 0 && Array.from(empenhosSelecionados).some(num =>
+    empenhosSemSaldo.some((comp: any) => (comp.numero_empenho || comp.empenho?.numero_liquidacao || '') === num)
+  )
+
+  const selecionarTodosComSaldo = () => {
+    setEmpenhosSelecionados(
+      new Set(
+        empenhosComSaldo
+          .map((comp: any) => comp.numero_empenho || comp.empenho?.numero_liquidacao || '')
+          .filter(Boolean),
+      ),
+    )
   }
 
   // ============================================================================
@@ -762,55 +778,148 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
             )}
 
             {!loadingEmpenhosVincular && empenhosDisponiveis.length > 0 && (
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {empenhosDisponiveis.map((comp: any) => {
-                  const num = comp.numero_empenho || comp.empenho?.numero_liquidacao || ''
-                  const data = comp.empenho?.data || ''
-                  const valor = comp.total_empenhado_bruto ?? comp.empenho?.valor ?? 0
-                  const credor = comp.empenho?.credor || ''
-                  const key = num || `sem-${data}`
-                  const selecionado = empenhosSelecionados.has(num)
-                  const saldoVirtual = comp.saldo_virtual ?? comp.saldo_a_liquidar
-                  const comprometido = comp.comprometido ?? 0
-                  const ano = comp.ano_exercicio
-                  const fmt = (v: number) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                  return (
-                    <div
-                      key={key}
-                      onClick={() => num && toggleEmpenho(num)}
-                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                        selecionado ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                      } ${!num ? 'opacity-50 cursor-not-allowed' : ''}`}
+              <div className="space-y-3">
+                {empenhosComSaldo.length === 0 && empenhosSemSaldo.length > 0 && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Todos os empenhos deste contrato estão com saldo insuficiente. O vínculo ainda pode ser salvo, mas isso pode impactar a liquidação.</span>
+                  </div>
+                )}
+
+                {algumSemSaldoSelecionado && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Um ou mais empenhos selecionados estão com saldo insuficiente.</span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 text-xs">
+                  {empenhosComSaldo.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={selecionarTodosComSaldo}
+                      className="text-blue-600 hover:text-blue-800 underline"
                     >
-                      <input
-                        type="checkbox"
-                        readOnly
-                        checked={selecionado}
-                        disabled={!num}
-                        className="mt-0.5 accent-blue-600"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-sm font-semibold">
-                            {num ? `#${num}${ano ? `-${ano}` : ''}` : 's/n'}
-                          </span>
-                          <span className="text-xs text-gray-500">{data}</span>
-                          <span className="text-xs font-medium text-green-700">
-                            Emp. {fmt(valor)}
-                          </span>
-                          {comprometido > 0.01 && (
-                            <span className="text-xs text-orange-600">Comprometido {fmt(comprometido)}</span>
-                          )}
-                          <span className={`text-xs font-bold ${saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>
-                            Disponível {fmt(saldoVirtual)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-600 truncate mt-0.5">{credor}</p>
-                      </div>
-                    </div>
-                  )
-                })}
+                      Selecionar todos com saldo
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEmpenhosSelecionados(new Set())}
+                    className="text-gray-500 hover:text-gray-700 underline"
+                  >
+                    Limpar seleção
+                  </button>
+                  {empenhosSelecionados.size > 0 && (
+                    <span className="ml-auto text-gray-500">
+                      {empenhosSelecionados.size} selecionado{empenhosSelecionados.size > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
               </div>
+            )}
+
+            {!loadingEmpenhosVincular && empenhosComSaldo.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-green-700">Disponíveis</p>
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  {empenhosComSaldo.map((comp: any) => {
+                    const num = comp.numero_empenho || comp.empenho?.numero_liquidacao || ''
+                    const data = comp.empenho?.data || ''
+                    const valor = comp.total_empenhado_bruto ?? comp.empenho?.valor ?? 0
+                    const credor = comp.empenho?.credor || ''
+                    const key = num || `sem-${data}`
+                    const selecionado = empenhosSelecionados.has(num)
+                    const saldoVirtual = comp.saldo_virtual ?? comp.saldo_a_liquidar
+                    const comprometido = comp.comprometido ?? 0
+                    const ano = comp.ano_exercicio
+                    const fmt = (v: number) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                    return (
+                      <div
+                        key={key}
+                        onClick={() => num && toggleEmpenho(num)}
+                        className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selecionado ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        } ${!num ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          readOnly
+                          checked={selecionado}
+                          disabled={!num}
+                          className="mt-0.5 accent-blue-600"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm font-semibold">
+                              {num ? `#${num}${ano ? `-${ano}` : ''}` : 's/n'}
+                            </span>
+                            <span className="text-xs text-gray-500">{data}</span>
+                            <span className="text-xs font-medium text-green-700">
+                              Emp. {fmt(valor)}
+                            </span>
+                            {comprometido > 0.01 && (
+                              <span className="text-xs text-orange-600">Comprometido {fmt(comprometido)}</span>
+                            )}
+                            <span className="text-xs font-bold text-blue-700">
+                              Disponível {fmt(saldoVirtual)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 truncate mt-0.5">{credor}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {!loadingEmpenhosVincular && empenhosSemSaldo.length > 0 && (
+              <details className="group">
+                <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500 hover:text-gray-700">
+                  <RotateCcw className="h-3 w-3" />
+                  Histórico ({empenhosSemSaldo.length} empenho{empenhosSemSaldo.length > 1 ? 's' : ''} sem saldo)
+                  <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-2 space-y-1">
+                  {empenhosSemSaldo.map((comp: any) => {
+                    const num = comp.numero_empenho || comp.empenho?.numero_liquidacao || ''
+                    const data = comp.empenho?.data || ''
+                    const credor = comp.empenho?.credor || ''
+                    const key = `${num || 'sem'}-${data}`
+                    const selecionado = empenhosSelecionados.has(num)
+                    const ano = comp.ano_exercicio
+                    return (
+                      <div
+                        key={key}
+                        onClick={() => num && toggleEmpenho(num)}
+                        className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                          selecionado ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                        } ${!num ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          readOnly
+                          checked={selecionado}
+                          disabled={!num}
+                          className="mt-0.5 accent-amber-600"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-200">Encerrado</Badge>
+                            <span className="font-mono text-sm font-semibold text-gray-700">
+                              {num ? `#${num}${ano ? `-${ano}` : ''}` : 's/n'}
+                            </span>
+                            <span className="text-xs text-gray-500">{data}</span>
+                            <span className="text-xs font-medium text-gray-500">Saldo R$ 0,00</span>
+                          </div>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{credor}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </details>
             )}
 
             {empenhosSelecionados.size > 0 && (
