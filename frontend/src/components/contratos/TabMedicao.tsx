@@ -19,7 +19,7 @@ import {
   Plus, Loader2, TrendingUp, CheckCircle, XCircle, Send, Pencil, Trash2, BarChart3,
   FileText, AlertTriangle, Calendar, MapPin, ExternalLink, ClipboardCheck, RotateCcw,
   ChevronRight, Eye, Clock, Shield, ListOrdered, Layers, DollarSign,
-  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy, ArrowLeft,
+  Camera, Paperclip, Upload, Wrench, RefreshCw, Download, Copy, ArrowLeft, History,
 } from 'lucide-react'
 import Link from 'next/link'
 import { API_URL, authFetch } from '@/lib/api'
@@ -255,10 +255,11 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
 
 export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
   contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
-  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string; arredondar_calculo?: boolean; objeto?: string };
+  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string; arredondar_calculo?: boolean; objeto?: string; data_renovacao_ciclo?: string };
   isAdmin?: boolean;
 }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
+  const dataRenovacaoCiclo = contratoProp?.data_renovacao_ciclo ? new Date(contratoProp.data_renovacao_ciclo) : null;
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([])
   const [unidadesCronograma, setUnidadesCronograma] = useState<string[]>(['HORA', 'MENSAL', 'LITROS', 'METROS', 'UNIDADE'])
@@ -1716,10 +1717,22 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             </div>
           ) : (
             <div className="space-y-3">
-              {medicoes.map(m => {
-                const statusInfo = STATUS_MEDICAO[m.status] || STATUS_MEDICAO.RASCUNHO
-                const StatusIcon = statusInfo.icon
-                return (
+              {(() => {
+                // Agrupar medições por ciclo
+                const medicoesAnteriores: Medicao[] = []
+                const medicoesCicloAtual: Medicao[] = []
+                for (const m of medicoes) {
+                  if (dataRenovacaoCiclo && m.periodo_inicio && new Date(m.periodo_inicio) < dataRenovacaoCiclo) {
+                    medicoesAnteriores.push(m)
+                  } else {
+                    medicoesCicloAtual.push(m)
+                  }
+                }
+
+                const renderMedicao = (m: Medicao) => {
+                  const statusInfo = STATUS_MEDICAO[m.status] || STATUS_MEDICAO.RASCUNHO
+                  const StatusIcon = statusInfo.icon
+                  return (
                   <div key={m.id} className={`flex items-center gap-4 p-4 border rounded-lg hover:shadow-sm transition-shadow ${
                     m.status === 'DEVOLVIDA' ? 'border-amber-300 bg-amber-50/30' :
                     m.status === 'SUBMETIDA' ? 'border-yellow-200 bg-yellow-50/20' :
@@ -1818,8 +1831,43 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                       </Button>
                     </div>
                   </div>
+                  )
+                }
+
+                return (
+                  <>
+                    {/* Ciclo anterior (colapsado) */}
+                    {medicoesAnteriores.length > 0 && (
+                      <details className="group">
+                        <summary className="flex items-center gap-2 p-3 bg-gray-100 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-150 list-none">
+                          <ChevronRight className="w-4 h-4 text-gray-500 group-open:rotate-90 transition-transform" />
+                          <History className="w-4 h-4 text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">Ciclo anterior</span>
+                          <span className="text-xs text-gray-500">({medicoesAnteriores.length} medição{medicoesAnteriores.length !== 1 ? 'ões' : ''} — antes de {dataRenovacaoCiclo && new Date(dataRenovacaoCiclo).toLocaleDateString('pt-BR')})</span>
+                        </summary>
+                        <div className="mt-2 space-y-3 pl-2 border-l-2 border-gray-200">
+                          {medicoesAnteriores.map(m => renderMedicao(m))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Separador de ciclo */}
+                    {medicoesAnteriores.length > 0 && medicoesCicloAtual.length > 0 && (
+                      <div className="flex items-center gap-2 py-2">
+                        <div className="flex-1 h-px bg-blue-200" />
+                        <span className="text-xs font-medium text-blue-600 flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3" />
+                          Ciclo atual (desde {dataRenovacaoCiclo && new Date(dataRenovacaoCiclo).toLocaleDateString('pt-BR')})
+                        </span>
+                        <div className="flex-1 h-px bg-blue-200" />
+                      </div>
+                    )}
+
+                    {/* Medições do ciclo atual */}
+                    {medicoesCicloAtual.map(m => renderMedicao(m))}
+                  </>
                 )
-              })}
+              })()}
             </div>
           )}
         </CardContent>
