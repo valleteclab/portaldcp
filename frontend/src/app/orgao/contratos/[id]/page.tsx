@@ -62,6 +62,7 @@ import TabMedicao from '@/components/contratos/TabMedicao'
 import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
+import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 
 interface TermoAditivo {
   id: string
@@ -336,8 +337,6 @@ export default function DetalheContratoOrgaoPage() {
   const [termos, setTermos] = useState<TermoAditivo[]>([])
   const [documentos, setDocumentos] = useState<DocumentoContrato[]>([])
   const [historico, setHistorico] = useState<HistoricoContrato[]>([])
-  const [ordensContrato, setOrdensContrato] = useState<any[]>([])
-  const [loadingOrdens, setLoadingOrdens] = useState(false)
   const [empenhos, setEmpenhos] = useState<EmpenhoFator[]>([])
   const [resumoEmpenhos, setResumoEmpenhos] = useState<ResumoEmpenhos['resumo'] | null>(null)
   const [empenhosPorAno, setEmpenhosPorAno] = useState<ResumoAnoEmpenhos[]>([])
@@ -506,23 +505,6 @@ export default function DetalheContratoOrgaoPage() {
       if (historicoRes.ok) setHistorico(await historicoRes.json())
       if (documentosRes.ok) setDocumentos(await documentosRes.json())
       else setDocumentos([])
-
-      // Carregar ordens (OS + OF) do contrato
-      setLoadingOrdens(true)
-      try {
-        const [osRes, ofRes] = await Promise.all([
-          authFetch(`${API_URL}/api/contratos/${id}/ordens-servico`),
-          authFetch(`${API_URL}/api/almoxarifado/ordens?contratoId=${id}`),
-        ])
-        const osList: any[] = osRes.ok ? await osRes.json() : []
-        const ofList: any[] = ofRes.ok ? await ofRes.json() : []
-        const todas = [
-          ...osList.map((os: any) => ({ ...os, _tipo: 'OS' })),
-          ...ofList.map((of: any) => ({ ...of, _tipo: 'OF' })),
-        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        setOrdensContrato(todas)
-      } catch (e) { console.error('Erro ao carregar ordens:', e) }
-      finally { setLoadingOrdens(false) }
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -1338,6 +1320,7 @@ export default function DetalheContratoOrgaoPage() {
           )}
           <TabsTrigger value="termos">Termos Aditivos ({termos.length})</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
+          <TabsTrigger value="requisicoes">Requisições</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
           <TabsTrigger value="empenhos">Empenhos</TabsTrigger>
         </TabsList>
@@ -1611,76 +1594,6 @@ export default function DetalheContratoOrgaoPage() {
                     <p className="text-gray-700 whitespace-pre-wrap min-h-[2rem]">
                       {contrato.observacoes ? contrato.observacoes : <span className="text-gray-400 italic">Nenhuma observação. Clique no lápis para adicionar.</span>}
                     </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Ordens de Serviço e Fornecimento */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ClipboardList className="w-5 h-5" />
-                    Ordens de Serviço e Fornecimento
-                  </CardTitle>
-                  <CardDescription>Ordens vinculadas a este contrato</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {loadingOrdens ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                    </div>
-                  ) : ordensContrato.length === 0 ? (
-                    <div className="text-center py-8">
-                      <ClipboardList className="w-10 h-10 mx-auto text-gray-300 mb-3" />
-                      <p className="text-gray-500">Nenhuma ordem vinculada a este contrato.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {ordensContrato.map((ordem: any) => {
-                        const isOS = ordem._tipo === 'OS'
-                        const statusLabel = ordem.status?.replace(/_/g, ' ')
-                        const statusColor: Record<string, string> = {
-                          RASCUNHO: 'bg-gray-100 text-gray-600',
-                          AGUARDANDO_APROVACAO: 'bg-yellow-100 text-yellow-700',
-                          AUTORIZADA: 'bg-blue-100 text-blue-700',
-                          EM_EXECUCAO: 'bg-indigo-100 text-indigo-700',
-                          EM_ATENDIMENTO: 'bg-indigo-100 text-indigo-700',
-                          ENTREGUE: 'bg-purple-100 text-purple-700',
-                          EM_ACEITE: 'bg-purple-100 text-purple-700',
-                          ACEITA: 'bg-green-100 text-green-700',
-                          ATENDIDA: 'bg-green-100 text-green-700',
-                          CONCLUIDA: 'bg-green-100 text-green-700',
-                          REJEITADA: 'bg-red-100 text-red-700',
-                          CANCELADA: 'bg-red-100 text-red-700',
-                          EMITIDA: 'bg-blue-100 text-blue-700',
-                          ENVIADA: 'bg-cyan-100 text-cyan-700',
-                          ATENDIDA_PARCIAL: 'bg-amber-100 text-amber-700',
-                        }
-                        return (
-                          <div key={ordem.id} className="flex items-center gap-4 p-3 border rounded-lg hover:shadow-sm transition-shadow">
-                            <div className={`flex items-center justify-center w-10 h-10 rounded-full font-bold text-sm shrink-0 ${isOS ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
-                              {isOS ? 'OS' : 'OF'}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-sm">{ordem.numero_os || ordem.numero}</span>
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor[ordem.status] || 'bg-gray-100 text-gray-600'}`}>
-                                  {statusLabel}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-600 truncate">{ordem.descricao || ordem.escopo_detalhado || '-'}</p>
-                              <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                                <span>{formatarMoeda(ordem.valor_total)}</span>
-                                {(ordem.data_abertura || ordem.data_emissao) && (
-                                  <span>{formatarData(ordem.data_abertura || ordem.data_emissao)}</span>
-                                )}
-                                {ordem.fiscal_nome && <span>Fiscal: {ordem.fiscal_nome}</span>}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -2151,6 +2064,10 @@ export default function DetalheContratoOrgaoPage() {
             <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
           </TabsContent>
         )}
+
+        <TabsContent value="requisicoes">
+          <TabRequisicoes contratoId={contrato.id} contratoNumero={contrato.numero_contrato} />
+        </TabsContent>
 
         <TabsContent value="empenhos" className="space-y-4">
           <Card>
