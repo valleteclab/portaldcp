@@ -13,6 +13,7 @@ import { ItemMedicao } from './entities/item-medicao.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
+import { TermoAditivo } from './entities/termo-aditivo.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
@@ -81,6 +82,8 @@ export class MedicaoService {
     private linkAssinaturaRepository: Repository<LinkAssinaturaFiscal>,
     @InjectRepository(DocumentoContrato)
     private documentoContratoRepository: Repository<DocumentoContrato>,
+    @InjectRepository(TermoAditivo)
+    private termoAditivoRepository: Repository<TermoAditivo>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
     private geradorPdfService: GeradorPdfService,
@@ -595,9 +598,27 @@ export class MedicaoService {
       }
 
       // Validar saldo
-      const valorComprometido = await this.somarValorMedicoesComprometidas(contratoId);
-      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
-      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+      const dataRenovacao = contrato.data_renovacao_ciclo ? new Date(contrato.data_renovacao_ciclo) : null;
+      let valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      let valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+
+      // Se há renovação de ciclo, usar valor_ciclo como base e ignorar exec_anterior
+      if (dataRenovacao) {
+        const termosCiclo = await this.termoAditivoRepository.find({
+          where: { contrato_id: contratoId, renovacao_ciclo: true },
+          order: { sequencial: 'DESC' },
+        });
+        const termoCicloAtivo = termosCiclo.find(t => t.status !== 'CANCELADO');
+        if (termoCicloAtivo) {
+          const valorCiclo = Number(termoCicloAtivo.valor_ciclo) || Number(termoCicloAtivo.valor_acrescimo) || null;
+          if (valorCiclo) valorContrato = valorCiclo;
+        }
+        valorExecAnterior = 0;
+      }
+
+      const valorComprometido = dataRenovacao
+        ? await this.somarValorMedicoesComprometidasCiclo(contratoId, dataRenovacao)
+        : await this.somarValorMedicoesComprometidas(contratoId);
       const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
       if (valorMedido > saldoDisponivel + 0.01) {
         throw new BadRequestException(
@@ -607,7 +628,7 @@ export class MedicaoService {
       }
 
       // Calcular percentual proporcional ao valor global
-      const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 1;
+      const valorGlobal = valorContrato || 1;
       percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
     } else if (await this.usarItensCronograma(contratoId)) {
       // Fluxo por itens do cronograma (quantidade medida)
@@ -945,16 +966,33 @@ export class MedicaoService {
       }
 
       // Validação global de saldo (para todas as modalidades)
-      const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
-      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
-      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
-      const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
+      const dataRenovacaoSub = contrato.data_renovacao_ciclo ? new Date(contrato.data_renovacao_ciclo) : null;
+      let valorContratoSub = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      let valorExecAnteriorSub = Number(contrato.valor_executado_anterior) || 0;
+
+      if (dataRenovacaoSub) {
+        const termosCicloSub = await this.termoAditivoRepository.find({
+          where: { contrato_id: medicao.contrato_id, renovacao_ciclo: true },
+          order: { sequencial: 'DESC' },
+        });
+        const termoCicloAtivoSub = termosCicloSub.find(t => t.status !== 'CANCELADO');
+        if (termoCicloAtivoSub) {
+          const vcSub = Number(termoCicloAtivoSub.valor_ciclo) || Number(termoCicloAtivoSub.valor_acrescimo) || null;
+          if (vcSub) valorContratoSub = vcSub;
+        }
+        valorExecAnteriorSub = 0;
+      }
+
+      const valorComprometido = dataRenovacaoSub
+        ? await this.somarValorMedicoesComprometidasCiclo(medicao.contrato_id, dataRenovacaoSub, medicao.id)
+        : await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
+      const saldoDisponivel = valorContratoSub - valorExecAnteriorSub - valorComprometido;
       const valorMedicao = Number(medicao.valor_medido) || 0;
 
       if (valorMedicao > saldoDisponivel + 0.01) {
         throw new BadRequestException(
           `Não é possível submeter: o valor desta medição (R$ ${valorMedicao.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}). ` +
-          `Valor do contrato: R$ ${valorContrato.toFixed(2)}, já comprometido (aprovadas + em análise): R$ ${valorComprometido.toFixed(2)}${valorExecAnterior > 0 ? `, ajuste migração: R$ ${valorExecAnterior.toFixed(2)}` : ''}.`
+          `Valor do contrato: R$ ${valorContratoSub.toFixed(2)}, já comprometido (aprovadas + em análise): R$ ${valorComprometido.toFixed(2)}${valorExecAnteriorSub > 0 ? `, ajuste migração: R$ ${valorExecAnteriorSub.toFixed(2)}` : ''}.`
         );
       }
     }
@@ -1009,10 +1047,27 @@ export class MedicaoService {
 
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
     if (contrato) {
-      const valorComprometido = await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
-      const valorContrato = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
-      const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
-      const saldoDisponivel = valorContrato - valorExecAnterior - valorComprometido;
+      const dataRenovacaoFiscal = contrato.data_renovacao_ciclo ? new Date(contrato.data_renovacao_ciclo) : null;
+      let valorContratoFiscal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      let valorExecAnteriorFiscal = Number(contrato.valor_executado_anterior) || 0;
+
+      if (dataRenovacaoFiscal) {
+        const termosCicloFiscal = await this.termoAditivoRepository.find({
+          where: { contrato_id: medicao.contrato_id, renovacao_ciclo: true },
+          order: { sequencial: 'DESC' },
+        });
+        const termoCicloAtivoFiscal = termosCicloFiscal.find(t => t.status !== 'CANCELADO');
+        if (termoCicloAtivoFiscal) {
+          const vcf = Number(termoCicloAtivoFiscal.valor_ciclo) || Number(termoCicloAtivoFiscal.valor_acrescimo) || null;
+          if (vcf) valorContratoFiscal = vcf;
+        }
+        valorExecAnteriorFiscal = 0;
+      }
+
+      const valorComprometido = dataRenovacaoFiscal
+        ? await this.somarValorMedicoesComprometidasCiclo(medicao.contrato_id, dataRenovacaoFiscal, medicao.id)
+        : await this.somarValorMedicoesComprometidas(medicao.contrato_id, medicao.id);
+      const saldoDisponivel = valorContratoFiscal - valorExecAnteriorFiscal - valorComprometido;
       const valorMedicao = Number(medicao.valor_medido) || 0;
       if (valorMedicao > saldoDisponivel + 0.01) {
         throw new BadRequestException(
@@ -2309,6 +2364,20 @@ export class MedicaoService {
     const valorGlobal = Number(contrato.valor_global);
     const valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
 
+    // Se há renovação de ciclo, buscar o valor_ciclo do termo aditivo mais recente com renovacao_ciclo
+    let valorCiclo: number | null = null;
+    if (dataRenovacao) {
+      const termosCiclo = await this.termoAditivoRepository.find({
+        where: { contrato_id: contratoId, renovacao_ciclo: true },
+        order: { sequencial: 'DESC' },
+      });
+      const termoCicloAtivo = termosCiclo.find(t => t.status !== 'CANCELADO');
+      if (termoCicloAtivo) {
+        // valor_ciclo é informativo; se não definido, usar valor_acrescimo do termo
+        valorCiclo = Number(termoCicloAtivo.valor_ciclo) || Number(termoCicloAtivo.valor_acrescimo) || null;
+      }
+    }
+
     const usarItens = await this.usarItensCronograma(contratoId);
     let itensComprometidos: Record<string, number> = {};
     if (usarItens) {
@@ -2328,16 +2397,19 @@ export class MedicaoService {
       valorMigracaoPorItem = Math.max(0, somaIcMigracao - valorMedidoTotal);
     }
 
-    // Saldo: ciclo renovado ignora exec_anterior e migração (pizarra limpa)
+    // Saldo: ciclo renovado usa valor_ciclo como base (se definido), ignora exec_anterior e migração
+    const valorGlobalEfetivo = (dataRenovacao && valorCiclo) ? valorCiclo : valorGlobal;
     const saldoDisponivel = dataRenovacao
-      ? Math.max(0, valorGlobal - valorComprometido)
+      ? Math.max(0, valorGlobalEfetivo - valorComprometido)
       : Math.max(0, valorGlobal - valorExecAnterior - valorComprometido - valorMigracaoPorItem);
 
     return {
       contrato_id: contratoId,
       fluxo_os: fluxoOs,
-      valor_global: valorGlobal,
-      valor_executado_anterior: valorExecAnterior,
+      valor_global: valorGlobalEfetivo,
+      valor_global_contrato: valorGlobal,
+      valor_ciclo: valorCiclo,
+      valor_executado_anterior: dataRenovacao ? 0 : valorExecAnterior,
       valor_medido_total: valorMedidoTotal,
       valor_comprometido_total: valorComprometido,
       valor_em_analise: valorEmAnalise,
@@ -2690,6 +2762,34 @@ export class MedicaoService {
       .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
       .where('m.contrato_id = :contratoId', { contratoId })
       .andWhere('m.status IN (:...status)', { status: statusComprometidos });
+
+    if (excludeMedicaoId) {
+      qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
+    }
+
+    const result = await qb.getRawOne<{ total: string }>();
+    return Number(result?.total ?? 0);
+  }
+
+  /**
+   * Soma valor_medido das medições comprometidas do ciclo atual (a partir de dataRenovacao).
+   * Se excludeMedicaoId for informado, exclui essa medição.
+   */
+  private async somarValorMedicoesComprometidasCiclo(contratoId: string, dataRenovacao: Date, excludeMedicaoId?: string): Promise<number> {
+    const statusComprometidos = [
+      StatusMedicao.SUBMETIDA,
+      StatusMedicao.AGUARDANDO_ATESTE,
+      StatusMedicao.PARCIALMENTE_ATESTADA,
+      StatusMedicao.AGUARDANDO_APROVACAO,
+      StatusMedicao.APROVADA,
+    ];
+
+    const qb = this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusComprometidos })
+      .andWhere('m.periodo_inicio >= :dataRenovacao', { dataRenovacao });
 
     if (excludeMedicaoId) {
       qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });

@@ -2149,7 +2149,7 @@ export default function FornecedorContratoDetalhePage() {
                 />
                 {resumo && (
                   <p className="text-xs text-gray-500 mt-2">
-                    Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)} de {formatarMoeda(Number(contrato?.valor_global || 0))}
+                    Saldo disponível: {formatarMoeda(resumo.saldo_disponivel)} de {formatarMoeda(resumo.valor_global)}
                   </p>
                 )}
               </div>
