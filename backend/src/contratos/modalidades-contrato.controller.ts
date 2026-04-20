@@ -1210,7 +1210,7 @@ export class ModalidadesContratoController {
     ];
     const requisicoes = await this.requisicaoRepository.find({
       where: { contrato_id: contratoId, status: In(statusAtivos) },
-      select: ['id', 'numero', 'numeros_empenhos', 'valor_total_estimado', 'status', 'created_at'],
+      select: ['id', 'numero', 'tipo', 'numeros_empenhos', 'valor_total_estimado', 'status', 'created_at'],
       order: { created_at: 'ASC' },
     });
 
