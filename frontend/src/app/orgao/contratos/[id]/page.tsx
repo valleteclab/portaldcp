@@ -316,7 +316,7 @@ const TIPOS_TERMO = [
   { value: 'SUSPENSAO', label: 'Suspensão' },
 ]
 
-const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'historico', 'empenhos']
+const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos']
 
 export default function DetalheContratoOrgaoPage() {
   const params = useParams()
