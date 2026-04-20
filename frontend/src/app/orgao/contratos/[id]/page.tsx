@@ -197,8 +197,18 @@ interface EmpenhoFator {
   elemento_despesa: string
 }
 
+interface RequisicaoVinculada {
+  id: string
+  numero: string
+  tipo: string
+  status: string
+  valor_total_estimado: number
+  created_at: string
+}
+
 interface EmpenhoComposto {
   numero_empenho: string
+  ano_exercicio?: number
   empenho: EmpenhoFator | null
   acrescimos: EmpenhoFator[]
   anulacoes: EmpenhoFator[]
@@ -212,6 +222,9 @@ interface EmpenhoComposto {
   total_pago: number
   saldo_a_liquidar: number
   saldo_a_pagar: number
+  comprometido?: number
+  saldo_virtual?: number
+  requisicoes_vinculadas?: RequisicaoVinculada[]
 }
 
 interface GrupoExercicio {
@@ -2267,7 +2280,7 @@ export default function DetalheContratoOrgaoPage() {
                                 <div key={ci} className="rounded border">
                                   <div className="bg-blue-50 px-3 py-1.5 border-b flex items-center justify-between">
                                     <p className="text-xs font-semibold text-blue-800">
-                                      Empenho #{comp.numero_empenho || 's/n'}
+                                      Empenho #{comp.numero_empenho || 's/n'}{comp.ano_exercicio ? `-${comp.ano_exercicio}` : ''}
                                       {comp.empenho && (
                                         <span className="ml-2 font-normal text-blue-600">
                                           {comp.empenho.data} — {comp.empenho.credor}
@@ -2281,8 +2294,13 @@ export default function DetalheContratoOrgaoPage() {
                                       <span className="text-green-700">
                                         Pago {fmt(comp.total_pago)}
                                       </span>
-                                      <span className={comp.saldo_a_pagar > 0.01 ? 'text-amber-700' : 'text-green-700'}>
-                                        Saldo {fmt(comp.saldo_a_liquidar + comp.saldo_a_pagar)}
+                                      {comp.comprometido != null && comp.comprometido > 0.01 && (
+                                        <span className="text-orange-600">
+                                          Comprometido {fmt(comp.comprometido)}
+                                        </span>
+                                      )}
+                                      <span className={`font-bold ${(comp.saldo_virtual ?? comp.saldo_a_liquidar) > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>
+                                        Disponível {fmt(comp.saldo_virtual ?? comp.saldo_a_liquidar)}
                                       </span>
                                     </div>
                                   </div>
@@ -2359,7 +2377,7 @@ export default function DetalheContratoOrgaoPage() {
                                       {/* Rodapé do empenho composto */}
                                       <tr className="bg-gray-100 font-semibold">
                                         <td colSpan={2} className="px-3 py-1.5 text-gray-700">
-                                          Saldo do empenho #{comp.numero_empenho || 's/n'}
+                                          Saldo do empenho #{comp.numero_empenho || 's/n'}{comp.ano_exercicio ? `-${comp.ano_exercicio}` : ''}
                                         </td>
                                         <td className="px-3 py-1.5 text-right text-gray-800">
                                           {fmt(comp.saldo_a_liquidar + comp.saldo_a_pagar)}
@@ -2367,6 +2385,52 @@ export default function DetalheContratoOrgaoPage() {
                                       </tr>
                                     </tbody>
                                   </table>
+                                  {/* Ordens/Requisições vinculadas */}
+                                  {comp.requisicoes_vinculadas && comp.requisicoes_vinculadas.length > 0 && (
+                                    <div className="border-t bg-amber-50/50 px-3 py-2">
+                                      <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide mb-1">
+                                        Ordens vinculadas ({comp.requisicoes_vinculadas.length})
+                                      </p>
+                                      <div className="space-y-1">
+                                        {comp.requisicoes_vinculadas.map((req) => {
+                                          const statusColors: Record<string, string> = {
+                                            RASCUNHO: 'bg-gray-100 text-gray-700',
+                                            AGUARDANDO_AUTORIZACAO: 'bg-yellow-100 text-yellow-800',
+                                            AUTORIZADA: 'bg-blue-100 text-blue-800',
+                                            ORDEM_GERADA: 'bg-indigo-100 text-indigo-800',
+                                            ATENDIDA_PARCIAL: 'bg-orange-100 text-orange-800',
+                                            ATENDIDA: 'bg-green-100 text-green-800',
+                                          };
+                                          const statusLabels: Record<string, string> = {
+                                            RASCUNHO: 'Rascunho',
+                                            AGUARDANDO_AUTORIZACAO: 'Aguardando',
+                                            AUTORIZADA: 'Autorizada',
+                                            ORDEM_GERADA: 'Ordem gerada',
+                                            ATENDIDA_PARCIAL: 'Parcial',
+                                            ATENDIDA: 'Atendida',
+                                          };
+                                          const tipoLabel = req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'SERVICO' ? 'Serv.' : 'Req.';
+                                          return (
+                                            <div key={req.id} className="flex items-center gap-2 text-[11px]">
+                                              <a
+                                                href={req.tipo === 'ORDEM_SERVICO' ? `/orgao/almoxarifado/requisicoes?destaque=${req.id}` : `/orgao/almoxarifado/ordens?destaque=${req.id}`}
+                                                className="font-mono font-medium text-blue-700 hover:underline"
+                                              >
+                                                {req.numero || req.id.slice(0, 8)}
+                                              </a>
+                                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
+                                                {tipoLabel}
+                                              </Badge>
+                                              <Badge variant="outline" className={`text-[9px] px-1 py-0 h-4 ${statusColors[req.status] || 'bg-gray-100 text-gray-600'}`}>
+                                                {statusLabels[req.status] || req.status}
+                                              </Badge>
+                                              <span className="text-gray-600">{fmt(req.valor_total_estimado)}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>

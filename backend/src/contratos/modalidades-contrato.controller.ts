@@ -1210,7 +1210,7 @@ export class ModalidadesContratoController {
     ];
     const requisicoes = await this.requisicaoRepository.find({
       where: { contrato_id: contratoId, status: In(statusAtivos) },
-      select: ['id', 'numeros_empenhos', 'valor_total_estimado', 'status', 'created_at'],
+      select: ['id', 'numero', 'numeros_empenhos', 'valor_total_estimado', 'status', 'created_at'],
       order: { created_at: 'ASC' },
     });
 
@@ -1270,13 +1270,36 @@ export class ModalidadesContratoController {
       }
     }
 
-    // Adicionar comprometido e saldo_virtual em cada empenho_composto
+    // Mapa: numero_empenho → lista de requisições vinculadas
+    const requisicoesPorEmpenho = new Map<string, Array<{ id: string; numero: string; tipo: string; status: string; valor_total_estimado: number; created_at: string }>>();
+    for (const req of requisicoes) {
+      if (!req.numeros_empenhos) continue;
+      let nums: string[];
+      try { nums = JSON.parse(req.numeros_empenhos); } catch { continue; }
+      if (!Array.isArray(nums)) continue;
+      // Normalizar: "534-2026" → "534" para matching com numero_empenho do portal
+      const numsBase = nums.map(n => n.replace(/[-/]\d{4}$/, ''));
+      for (const num of numsBase) {
+        if (!requisicoesPorEmpenho.has(num)) requisicoesPorEmpenho.set(num, []);
+        requisicoesPorEmpenho.get(num)!.push({
+          id: req.id,
+          numero: req.numero || '',
+          tipo: req.tipo || 'MATERIAL',
+          status: req.status,
+          valor_total_estimado: Number(req.valor_total_estimado ?? 0),
+          created_at: req.created_at?.toISOString?.() ?? String(req.created_at),
+        });
+      }
+    }
+
+    // Adicionar comprometido, saldo_virtual e requisicoes_vinculadas em cada empenho_composto
     for (const grupo of resumo.grupos_exercicio) {
       for (const comp of grupo.empenhos_compostos) {
         const alloc = alocacaoMap.get(comp.numero_empenho);
         const comprometido = alloc?.comprometido ?? 0;
         (comp as any).comprometido = Math.round(comprometido * 100) / 100;
         (comp as any).saldo_virtual = Math.round((comp.saldo_a_liquidar - comprometido) * 100) / 100;
+        (comp as any).requisicoes_vinculadas = requisicoesPorEmpenho.get(comp.numero_empenho) || [];
       }
     }
 
