@@ -1354,44 +1354,110 @@ export default function DetalheContratoOrgaoPage() {
               <Card>
                 <CardHeader><CardTitle>Valores</CardTitle></CardHeader>
                 <CardContent>
+                  {(contrato as any).ciclo_ativo && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm text-blue-800">
+                        <strong>Ciclo atual</strong> iniciado em {formatarData((contrato as any).ciclo_ativo.data_renovacao)} — valores abaixo referem-se a este ciclo
+                      </span>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm text-gray-500">Valor Inicial</p>
-                      <p className="text-xl font-bold">{formatarMoeda(contrato.valor_inicial)}</p>
+                      <p className="text-sm text-gray-500">Valor Inicial{(contrato as any).ciclo_ativo ? ' do Ciclo' : ''}</p>
+                      <p className="text-xl font-bold">{formatarMoeda((contrato as any).ciclo_ativo?.valor_inicial ?? contrato.valor_inicial)}</p>
                     </div>
                     <div className="p-4 bg-green-50 rounded-lg">
-                      <p className="text-sm text-green-600 flex items-center gap-1"><TrendingUp className="w-4 h-4" /> Acréscimos</p>
-                      <p className="text-xl font-bold text-green-600">{formatarMoeda(contrato.valor_acrescimos)}</p>
+                      <p className="text-sm text-green-600 flex items-center gap-1"><TrendingUp className="w-4 h-4" /> Acréscimos{(contrato as any).ciclo_ativo ? ' do Ciclo' : ''}</p>
+                      <p className="text-xl font-bold text-green-600">{formatarMoeda((contrato as any).ciclo_ativo?.valor_acrescimos ?? contrato.valor_acrescimos)}</p>
                     </div>
                     <div className="p-4 bg-red-50 rounded-lg">
-                      <p className="text-sm text-red-600 flex items-center gap-1"><TrendingDown className="w-4 h-4" /> Supressões</p>
-                      <p className="text-xl font-bold text-red-600">{formatarMoeda(contrato.valor_supressoes)}</p>
+                      <p className="text-sm text-red-600 flex items-center gap-1"><TrendingDown className="w-4 h-4" /> Supressões{(contrato as any).ciclo_ativo ? ' do Ciclo' : ''}</p>
+                      <p className="text-xl font-bold text-red-600">{formatarMoeda((contrato as any).ciclo_ativo?.valor_supressoes ?? contrato.valor_supressoes)}</p>
                     </div>
                     <div className="p-4 bg-blue-50 rounded-lg">
-                      <p className="text-sm text-blue-600">Valor Global</p>
-                      <p className="text-xl font-bold text-blue-600">{formatarMoeda(contrato.valor_global)}</p>
+                      <p className="text-sm text-blue-600">Valor Global{(contrato as any).ciclo_ativo ? ' do Ciclo' : ''}</p>
+                      <p className="text-xl font-bold text-blue-600">{formatarMoeda((contrato as any).ciclo_ativo?.valor_global ?? contrato.valor_global)}</p>
                     </div>
-                    {contrato.saldo_total_em_valor !== undefined && (
+                    {((contrato as any).ciclo_ativo ? true : contrato.saldo_total_em_valor !== undefined) && (
                       <div className="p-4 bg-purple-50 rounded-lg">
-                        <p className="text-sm text-purple-600">Saldo Disponível</p>
-                        <p className={`text-xl font-bold ${contrato.saldo_total_em_valor > 0 ? 'text-purple-600' : 'text-red-600'}`}>{formatarMoeda(contrato.saldo_total_em_valor)}</p>
+                        <p className="text-sm text-purple-600">Saldo Disponível{(contrato as any).ciclo_ativo ? ' do Ciclo' : ''}</p>
+                        <p className={`text-xl font-bold ${((contrato as any).ciclo_ativo?.saldo_disponivel ?? contrato.saldo_total_em_valor) > 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                          {formatarMoeda((contrato as any).ciclo_ativo?.saldo_disponivel ?? contrato.saldo_total_em_valor)}
+                        </p>
                         {(contrato.valor_em_analise || 0) > 0 && (
                           <p className="text-xs text-amber-600 mt-1">Em análise: {formatarMoeda(contrato.valor_em_analise || 0)}</p>
                         )}
                       </div>
                     )}
-                    {Number(contrato.valor_executado_anterior || 0) > 0 && (
-                      <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
-                        <p className="text-sm text-amber-700">Ajuste Migração</p>
-                        <p className="text-xl font-bold text-amber-700">{formatarMoeda(contrato.valor_executado_anterior || 0)}</p>
-                        {contrato.observacao_ajuste && (
-                          <p className="text-xs text-amber-600 mt-1">{contrato.observacao_ajuste}</p>
-                        )}
-                      </div>
+                    {(contrato as any).ciclo_ativo ? (
+                      Number(contrato.valor_executado_anterior || 0) > 0 && (
+                        <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                          <p className="text-sm text-amber-700">Ajuste Migração (ciclo anterior)</p>
+                          <p className="text-xl font-bold text-amber-700">{formatarMoeda(contrato.valor_executado_anterior || 0)}</p>
+                          {contrato.observacao_ajuste && (
+                            <p className="text-xs text-amber-600 mt-1">{contrato.observacao_ajuste}</p>
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      Number(contrato.valor_executado_anterior || 0) > 0 && (
+                        <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                          <p className="text-sm text-amber-700">Ajuste Migração</p>
+                          <p className="text-xl font-bold text-amber-700">{formatarMoeda(contrato.valor_executado_anterior || 0)}</p>
+                          {contrato.observacao_ajuste && (
+                            <p className="text-xs text-amber-600 mt-1">{contrato.observacao_ajuste}</p>
+                          )}
+                        </div>
+                      )
                     )}
                   </div>
+                  {(contrato as any).ciclo_ativo && (
+                    <div className="mt-3 text-xs text-gray-500">
+                      Valores acumulados do contrato: Inicial {formatarMoeda(contrato.valor_inicial)} · Acréscimos {formatarMoeda(contrato.valor_acrescimos)} · Global {formatarMoeda(contrato.valor_global)}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
+
+              {(contrato as any).historico_ciclos && (contrato as any).historico_ciclos.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><History className="w-5 h-5" /> Histórico de Ciclos</CardTitle>
+                    <CardDescription>Ciclos de medição anteriores</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {(contrato as any).historico_ciclos.map((ciclo: any) => (
+                        <div key={ciclo.sequencial} className="p-3 bg-gray-50 rounded-lg border">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-sm text-gray-700">
+                              {ciclo.numero_termo === 'Contrato original' ? 'Ciclo 0 — Contrato original' : `${ciclo.numero_termo}`}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {ciclo.data_inicio ? formatarData(ciclo.data_inicio) : 'Início'} — {ciclo.data_fim ? formatarData(ciclo.data_fim) : 'Atual'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3 text-sm">
+                            <div>
+                              <span className="text-gray-500">Valor Global: </span>
+                              <span className="font-medium">{formatarMoeda(ciclo.valor_global)}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Valor Inicial: </span>
+                              <span className="font-medium">{formatarMoeda(ciclo.valor_inicial)}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Executado: </span>
+                              <span className="font-medium text-green-700">{formatarMoeda(ciclo.valor_executado)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {contrato.itens && contrato.itens.length > 0 && (
                 <Card>

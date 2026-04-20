@@ -342,6 +342,125 @@ export class ContratosService {
       (contrato as any).valor_medido_total = aprovado;
       (contrato as any).valor_comprometido_total = comprometido;
       (contrato as any).valor_em_analise = Math.max(0, comprometido - aprovado);
+
+      // Calcular valores por ciclo (se houver renovação de ciclo)
+      const dataRenovacao = contrato.data_renovacao_ciclo ? new Date(contrato.data_renovacao_ciclo) : null;
+      if (dataRenovacao) {
+        const termosCiclo = await this.termoAditivoRepository.find({
+          where: { contrato_id: contrato.id, renovacao_ciclo: true },
+          order: { sequencial: 'ASC' },
+        });
+        const termosAtivos = termosCiclo.filter(t => t.status !== 'CANCELADO');
+
+        // Valores do ciclo atual
+        const termoAtual = termosAtivos[termosAtivos.length - 1];
+        const valorInicialCiclo = termoAtual
+          ? (Number(termoAtual.valor_ciclo) || Number(termoAtual.valor_acrescimo) || valorGlobal)
+          : valorGlobal;
+
+        // Acréscimos/supressões do ciclo atual (termos após o ciclo atual)
+        let acrescimosCiclo = 0;
+        let supressoesCiclo = 0;
+        if (termoAtual) {
+          const termosPosCiclo = await this.termoAditivoRepository.find({
+            where: { contrato_id: contrato.id },
+            order: { sequencial: 'ASC' },
+          });
+          for (const t of termosPosCiclo) {
+            if (t.status === 'CANCELADO') continue;
+            if (t.sequencial > termoAtual.sequencial || t.id === termoAtual.id) {
+              // Incluir valor_acrescimo/supressao do próprio termo de ciclo se for aditivo de valor
+              if (t.id === termoAtual.id) {
+                if (Number(t.valor_acrescimo) > 0) acrescimosCiclo += Number(t.valor_acrescimo);
+                if (Number(t.valor_supressao) > 0) supressoesCiclo += Number(t.valor_supressao);
+              }
+              if (t.sequencial > termoAtual.sequencial && !t.renovacao_ciclo) {
+                if (Number(t.valor_acrescimo) > 0) acrescimosCiclo += Number(t.valor_acrescimo);
+                if (Number(t.valor_supressao) > 0) supressoesCiclo += Number(t.valor_supressao);
+              }
+            }
+          }
+        }
+
+        const valorGlobalCiclo = valorInicialCiclo + acrescimosCiclo - supressoesCiclo;
+
+        // Comprometido do ciclo atual
+        const { comprometido: comprometidoCiclo } = await this.somarValorMedicoesCiclo(contrato.id, dataRenovacao);
+        const saldoCiclo = Math.max(0, valorGlobalCiclo - comprometidoCiclo);
+
+        (contrato as any).ciclo_ativo = {
+          valor_inicial: valorInicialCiclo,
+          valor_acrescimos: acrescimosCiclo,
+          valor_supressoes: supressoesCiclo,
+          valor_global: valorGlobalCiclo,
+          saldo_disponivel: saldoCiclo,
+          data_renovacao: contrato.data_renovacao_ciclo,
+        };
+
+        // Histórico de ciclos anteriores
+        const historicoCiclos: Array<{
+          sequencial: number;
+          numero_termo: string;
+          data_inicio: string;
+          data_fim: string;
+          valor_inicial: number;
+          valor_global: number;
+          valor_executado: number;
+        }> = [];
+
+        // Ciclo 0 (antes de qualquer renovação)
+        const primeiroTermoCiclo = termosAtivos[0];
+        if (primeiroTermoCiclo) {
+          // Valor global antes da primeira renovação
+          let valorGlobalAntes = Number(contrato.valor_inicial);
+          const todosTermos = await this.termoAditivoRepository.find({
+            where: { contrato_id: contrato.id },
+            order: { sequencial: 'ASC' },
+          });
+          for (const t of todosTermos) {
+            if (t.status === 'CANCELADO') continue;
+            if (t.sequencial < primeiroTermoCiclo.sequencial) {
+              valorGlobalAntes += Number(t.valor_acrescimo || 0) - Number(t.valor_supressao || 0);
+            }
+          }
+
+          // Medições do ciclo 0 (antes da primeira renovação)
+          const dataPrimeiraRenovacao = new Date(primeiroTermoCiclo.data_assinatura);
+          const { aprovado: aprovadoCiclo0 } = await this.somarValorMedicoesAteData(contrato.id, dataPrimeiraRenovacao);
+
+          historicoCiclos.push({
+            sequencial: 0,
+            numero_termo: 'Contrato original',
+            data_inicio: '',
+            data_fim: primeiroTermoCiclo.data_assinatura ? new Date(primeiroTermoCiclo.data_assinatura).toISOString().split('T')[0] : '',
+            valor_inicial: Number(contrato.valor_inicial),
+            valor_global: valorGlobalAntes,
+            valor_executado: aprovadoCiclo0,
+          });
+
+          // Ciclos intermediários (entre renovações)
+          for (let i = 0; i < termosAtivos.length - 1; i++) {
+            const tInicio = termosAtivos[i];
+            const tFim = termosAtivos[i + 1];
+            const vcInicio = Number(tInicio.valor_ciclo) || Number(tInicio.valor_acrescimo) || valorGlobal;
+            const dataInicioCiclo = new Date(tInicio.data_assinatura);
+            const dataFimCiclo = new Date(tFim.data_assinatura);
+            const { aprovado: aprovadoCicloI } = await this.somarValorMedicoesEntreDatas(contrato.id, dataInicioCiclo, dataFimCiclo);
+
+            historicoCiclos.push({
+              sequencial: i + 1,
+              numero_termo: tInicio.numero_termo,
+              data_inicio: new Date(tInicio.data_assinatura).toISOString().split('T')[0],
+              data_fim: new Date(tFim.data_assinatura).toISOString().split('T')[0],
+              valor_inicial: vcInicio,
+              valor_global: vcInicio,
+              valor_executado: aprovadoCicloI,
+            });
+          }
+        }
+
+        (contrato as any).historico_ciclos = historicoCiclos;
+      }
     } else {
       const base = itens.length > 0
         ? itens.reduce((total, item) => total + Number(item.saldo_disponivel) * Number(item.valor_unitario), 0)
@@ -432,6 +551,64 @@ export class ContratosService {
     return {
       aprovado: Number(resultAprovado?.total ?? 0),
       comprometido: Number(resultComprometido?.total ?? 0),
+    };
+  }
+
+  private async somarValorMedicoesCiclo(contratoId: string, dataRenovacao: Date): Promise<{ aprovado: number; comprometido: number }> {
+    const statusComprometidos = [
+      'SUBMETIDA', 'AGUARDANDO_ATESTE', 'PARCIALMENTE_ATESTADA', 'AGUARDANDO_APROVACAO', 'APROVADA',
+    ];
+
+    const resultAprovado = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: 'APROVADA' })
+      .andWhere('m.periodo_inicio >= :dataRenovacao', { dataRenovacao })
+      .getRawOne<{ total: string }>();
+
+    const resultComprometido = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusComprometidos })
+      .andWhere('m.periodo_inicio >= :dataRenovacao', { dataRenovacao })
+      .getRawOne<{ total: string }>();
+
+    return {
+      aprovado: Number(resultAprovado?.total ?? 0),
+      comprometido: Number(resultComprometido?.total ?? 0),
+    };
+  }
+
+  private async somarValorMedicoesAteData(contratoId: string, dataFim: Date): Promise<{ aprovado: number; comprometido: number }> {
+    const resultAprovado = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: 'APROVADA' })
+      .andWhere('m.periodo_inicio < :dataFim', { dataFim })
+      .getRawOne<{ total: string }>();
+
+    return {
+      aprovado: Number(resultAprovado?.total ?? 0),
+      comprometido: 0,
+    };
+  }
+
+  private async somarValorMedicoesEntreDatas(contratoId: string, dataInicio: Date, dataFim: Date): Promise<{ aprovado: number; comprometido: number }> {
+    const resultAprovado = await this.medicaoRepository
+      .createQueryBuilder('m')
+      .select('COALESCE(SUM(m.valor_medido), 0)', 'total')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: 'APROVADA' })
+      .andWhere('m.periodo_inicio >= :dataInicio', { dataInicio })
+      .andWhere('m.periodo_inicio < :dataFim', { dataFim })
+      .getRawOne<{ total: string }>();
+
+    return {
+      aprovado: Number(resultAprovado?.total ?? 0),
+      comprometido: 0,
     };
   }
 
