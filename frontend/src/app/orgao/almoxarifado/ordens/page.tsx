@@ -521,7 +521,12 @@ function OrdensList() {
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos?ano=${anoEmpenho}`);
       if (res.ok) {
         const data = await res.json();
-        setEmpenhosDisponiveis(data?.compostos ?? data ?? []);
+        const grupos: any[] = data.grupos_exercicio ?? [];
+        const compostos: any[] = [];
+        for (const g of grupos) {
+          if (g.empenhos_compostos?.length) compostos.push(...g.empenhos_compostos);
+        }
+        setEmpenhosDisponiveis(compostos);
       }
     } catch (e) { console.error(e); }
     setLoadingEmpenhosVincular(false);
@@ -1400,6 +1405,9 @@ function OrdensList() {
                   const credor = comp.empenho?.credor || '';
                   const key = num || `sem-${data}`;
                   const selecionado = empenhosSelecionados.has(num);
+                  const saldoVirtual = comp.saldo_virtual ?? comp.saldo_a_liquidar;
+                  const comprometido = comp.comprometido ?? 0;
+                  const fmt = (v: number) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
                   return (
                     <div
                       key={key}
@@ -1422,7 +1430,13 @@ function OrdensList() {
                           </span>
                           <span className="text-xs text-gray-500">{data}</span>
                           <span className="text-xs font-medium text-green-700">
-                            {Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            Emp. {fmt(valor)}
+                          </span>
+                          {comprometido > 0.01 && (
+                            <span className="text-xs text-orange-600">Comprometido {fmt(comprometido)}</span>
+                          )}
+                          <span className={`text-xs font-bold ${saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>
+                            Disponível {fmt(saldoVirtual)}
                           </span>
                         </div>
                         <p className="text-xs text-gray-600 truncate mt-0.5">{credor}</p>
