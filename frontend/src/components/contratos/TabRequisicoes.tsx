@@ -4,14 +4,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  Loader2, ClipboardList, Package, FileText, RefreshCw, Link2, Eye, History, ChevronDown, ChevronUp,
+  Loader2, ClipboardList, Package, FileText, RefreshCw, Link2, History, ChevronDown, ChevronUp, Receipt,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -99,6 +96,10 @@ function formatarData(d: string | Date | null) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
 
+function normalizarNumeroEmpenho(valor: string) {
+  return valor.replace(/[-/]\d{4}$/, '')
+}
+
 const STATUS_REQ: Record<string, { label: string; cor: string }> = {
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-700' },
   AGUARDANDO_AUTORIZACAO: { label: 'Aguardando Autorização', cor: 'bg-yellow-100 text-yellow-700' },
@@ -158,10 +159,13 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
   const [detalheHistorico, setDetalheHistorico] = useState<HistoricoItem[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(false)
 
-  // Modal vincular empenho
-  const [modalEmpenho, setModalEmpenho] = useState<{ tipo: 'requisicao' | 'os' | 'of'; id: string; empenhosAtuais: string[] } | null>(null)
-  const [empenhoInput, setEmpenhoInput] = useState('')
+  // Modal vincular empenho (mesmo padrão do almoxarifado/ordens)
+  const [modalEmpenho, setModalEmpenho] = useState<{ tipo: 'requisicao' | 'os' | 'of'; id: string; numero: string; empenhosAtuais: string[] } | null>(null)
+  const [empenhosDisponiveis, setEmpenhosDisponiveis] = useState<any[]>([])
+  const [empenhosSelecionados, setEmpenhosSelecionados] = useState<Set<string>>(new Set())
+  const [loadingEmpenhosVincular, setLoadingEmpenhosVincular] = useState(false)
   const [salvandoEmpenho, setSalvandoEmpenho] = useState(false)
+  const [anoEmpenho, setAnoEmpenho] = useState(new Date().getFullYear().toString())
 
   // Expandir detalhes
   const [expandido, setExpandido] = useState<string | null>(null)
@@ -198,30 +202,89 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
     setLoadingHistorico(false)
   }
 
-  const abrirModalEmpenho = (tipo: 'requisicao' | 'os' | 'of', id: string, empenhosAtuais: string[]) => {
-    setModalEmpenho({ tipo, id, empenhosAtuais })
-    setEmpenhoInput(empenhosAtuais.join(', '))
+  const abrirModalEmpenho = async (tipo: 'requisicao' | 'os' | 'of', id: string, numero: string, empenhosAtuais: string[]) => {
+    setModalEmpenho({ tipo, id, numero, empenhosAtuais })
+    setEmpenhosSelecionados(new Set(empenhosAtuais.map(normalizarNumeroEmpenho).filter(Boolean)))
+    setEmpenhosDisponiveis([])
+    setLoadingEmpenhosVincular(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos?ano=${anoEmpenho}`)
+      if (res.ok) {
+        const data = await res.json()
+        const grupos: any[] = data.grupos_exercicio ?? []
+        const compostos: any[] = []
+        for (const g of grupos) {
+          if (g.empenhos_compostos?.length) compostos.push(...g.empenhos_compostos)
+        }
+        setEmpenhosDisponiveis(compostos)
+      }
+    } catch (e) { console.error(e) }
+    setLoadingEmpenhosVincular(false)
+  }
+
+  const buscarEmpenhosAno = async () => {
+    if (!modalEmpenho) return
+    setLoadingEmpenhosVincular(true)
+    setEmpenhosDisponiveis([])
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/empenhos?ano=${anoEmpenho}`)
+      if (res.ok) {
+        const data = await res.json()
+        const grupos: any[] = data.grupos_exercicio ?? []
+        const compostos: any[] = []
+        for (const g of grupos) {
+          if (g.empenhos_compostos?.length) compostos.push(...g.empenhos_compostos)
+        }
+        setEmpenhosDisponiveis(compostos)
+      }
+    } catch (e) { console.error(e) }
+    setLoadingEmpenhosVincular(false)
+  }
+
+  const toggleEmpenho = (numero: string) => {
+    setEmpenhosSelecionados(prev => {
+      const next = new Set(prev)
+      if (next.has(numero)) next.delete(numero); else next.add(numero)
+      return next
+    })
   }
 
   const salvarEmpenhos = async () => {
     if (!modalEmpenho) return
     setSalvandoEmpenho(true)
     try {
-      const empenhos = empenhoInput.split(',').map(e => e.trim()).filter(Boolean)
-      let url = ''
-      if (modalEmpenho.tipo === 'requisicao') {
-        url = `${API_URL}/api/almoxarifado/requisicoes/${modalEmpenho.id}/empenhos`
-      } else if (modalEmpenho.tipo === 'os') {
-        url = `${API_URL}/api/almoxarifado/ordens/${modalEmpenho.id}/empenhos`
-      } else {
-        url = `${API_URL}/api/almoxarifado/ordens/${modalEmpenho.id}/empenhos`
-      }
-      const res = await authFetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ empenhos }),
+      const empenhos = Array.from(empenhosSelecionados).map(num => {
+        const comp = empenhosDisponiveis.find((c: any) =>
+          (c.numero_empenho || c.empenho?.numero_liquidacao || '') === num
+        )
+        if (comp?.ano_exercicio) return `${num}-${comp.ano_exercicio}`
+        return num
       })
+      let res: Response
+      if (modalEmpenho.tipo === 'requisicao') {
+        res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${modalEmpenho.id}/empenhos`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ empenhos }),
+        })
+      } else if (modalEmpenho.tipo === 'os') {
+        res = await authFetch(`${API_URL}/api/contratos/ordens-servico/${modalEmpenho.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            numeros_empenhos: empenhos,
+            numero_empenho: empenhos[0] ?? null,
+          }),
+        })
+      } else {
+        res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${modalEmpenho.id}/empenhos`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ empenhos }),
+        })
+      }
       if (res.ok) {
+        alert('Empenhos vinculados com sucesso!')
         setModalEmpenho(null)
         carregarDados()
       } else {
@@ -383,7 +446,7 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
                                 <p className="text-sm text-gray-400 italic">Nenhum empenho vinculado</p>
                               )}
                             </div>
-                            <Button variant="outline" size="sm" onClick={() => abrirModalEmpenho('requisicao', req.id, empenhos)}>
+                            <Button variant="outline" size="sm" onClick={() => abrirModalEmpenho('requisicao', req.id, req.numero, empenhos)}>
                               <Link2 className="w-3.5 h-3.5 mr-1" /> Vincular Empenho
                             </Button>
                           </div>
@@ -498,7 +561,7 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
                                 <p className="text-sm text-gray-400 italic">Nenhum empenho vinculado</p>
                               )}
                             </div>
-                            <Button variant="outline" size="sm" onClick={() => abrirModalEmpenho('os', os.id, empenhos.length > 0 ? empenhos : (empenhoPrincipal ? [empenhoPrincipal] : []))}>
+                            <Button variant="outline" size="sm" onClick={() => abrirModalEmpenho('os', os.id, os.numero_os, empenhos.length > 0 ? empenhos : (empenhoPrincipal ? [empenhoPrincipal] : []))}>
                               <Link2 className="w-3.5 h-3.5 mr-1" /> Vincular Empenho
                             </Button>
                           </div>
@@ -602,7 +665,7 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
                                 <p className="text-sm text-gray-400 italic">Nenhum empenho vinculado</p>
                               )}
                             </div>
-                            <Button variant="outline" size="sm" onClick={() => abrirModalEmpenho('of', of.id, empenhos)}>
+                            <Button variant="outline" size="sm" onClick={() => abrirModalEmpenho('of', of.id, of.numero, empenhos)}>
                               <Link2 className="w-3.5 h-3.5 mr-1" /> Vincular Empenho
                             </Button>
                           </div>
@@ -651,33 +714,122 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
         </DialogContent>
       </Dialog>
 
-      {/* ==================== MODAL: VINCULAR EMPENHO ==================== */}
+      {/* ==================== MODAL: VINCULAR EMPENHO (mesmo padrão almoxarifado/ordens) ==================== */}
       <Dialog open={!!modalEmpenho} onOpenChange={() => setModalEmpenho(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Link2 className="w-5 h-5" />
-              Vincular Empenhos
+              <Receipt className="h-5 w-5 text-blue-600" />
+              Vincular Empenho — {modalEmpenho?.numero}
             </DialogTitle>
             <DialogDescription>
-              Informe os números dos empenhos separados por vírgula (ex: 31/2026, 32/2026)
+              Selecione os empenhos do Portal Fator Transparência. O PDF será regerado com os dados atualizados quando aplicável.
             </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
-            <div>
-              <Label>Números dos Empenhos</Label>
-              <Input
-                placeholder="Ex: 31/2026, 32/2026"
-                value={empenhoInput}
-                onChange={e => setEmpenhoInput(e.target.value)}
-              />
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">Ano:</label>
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={anoEmpenho}
+                onChange={e => setAnoEmpenho(e.target.value)}
+              >
+                {[0, 1, 2].map(d => {
+                  const y = (new Date().getFullYear() - d).toString()
+                  return <option key={y} value={y}>{y}</option>
+                })}
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={buscarEmpenhosAno}
+                disabled={loadingEmpenhosVincular}
+              >
+                {loadingEmpenhosVincular ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Buscar'}
+              </Button>
             </div>
+
+            {loadingEmpenhosVincular && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                <span className="ml-2 text-sm text-gray-500">Buscando empenhos...</span>
+              </div>
+            )}
+
+            {!loadingEmpenhosVincular && empenhosDisponiveis.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4 italic">Nenhum empenho encontrado para este contrato neste ano.</p>
+            )}
+
+            {!loadingEmpenhosVincular && empenhosDisponiveis.length > 0 && (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {empenhosDisponiveis.map((comp: any) => {
+                  const num = comp.numero_empenho || comp.empenho?.numero_liquidacao || ''
+                  const data = comp.empenho?.data || ''
+                  const valor = comp.total_empenhado_bruto ?? comp.empenho?.valor ?? 0
+                  const credor = comp.empenho?.credor || ''
+                  const key = num || `sem-${data}`
+                  const selecionado = empenhosSelecionados.has(num)
+                  const saldoVirtual = comp.saldo_virtual ?? comp.saldo_a_liquidar
+                  const comprometido = comp.comprometido ?? 0
+                  const ano = comp.ano_exercicio
+                  const fmt = (v: number) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                  return (
+                    <div
+                      key={key}
+                      onClick={() => num && toggleEmpenho(num)}
+                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selecionado ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      } ${!num ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        readOnly
+                        checked={selecionado}
+                        disabled={!num}
+                        className="mt-0.5 accent-blue-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm font-semibold">
+                            {num ? `#${num}${ano ? `-${ano}` : ''}` : 's/n'}
+                          </span>
+                          <span className="text-xs text-gray-500">{data}</span>
+                          <span className="text-xs font-medium text-green-700">
+                            Emp. {fmt(valor)}
+                          </span>
+                          {comprometido > 0.01 && (
+                            <span className="text-xs text-orange-600">Comprometido {fmt(comprometido)}</span>
+                          )}
+                          <span className={`text-xs font-bold ${saldoVirtual > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>
+                            Disponível {fmt(saldoVirtual)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 truncate mt-0.5">{credor}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {empenhosSelecionados.size > 0 && (
+              <div className="bg-blue-50 rounded-lg p-2 flex flex-wrap gap-1">
+                <span className="text-xs text-blue-700 font-medium mr-1">Selecionados:</span>
+                {Array.from(empenhosSelecionados).map(n => (
+                  <Badge key={n} variant="outline" className="font-mono text-xs bg-blue-100 border-blue-300 text-blue-800">
+                    #{n}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalEmpenho(null)}>Cancelar</Button>
-            <Button onClick={salvarEmpenhos} disabled={salvandoEmpenho}>
-              {salvandoEmpenho && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-              Salvar
+            <Button onClick={salvarEmpenhos} disabled={salvandoEmpenho} className="bg-blue-600 hover:bg-blue-700">
+              {salvandoEmpenho ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
+              Salvar e Regerar PDF
             </Button>
           </DialogFooter>
         </DialogContent>
