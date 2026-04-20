@@ -340,7 +340,13 @@ function RequisicoesList() {
       const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/empenhos`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ empenhos: Array.from(empenhosSelecionadosOS) }),
+        body: JSON.stringify({ empenhos: Array.from(empenhosSelecionadosOS).map(num => {
+          const comp = empenhosDisponiveisOS.find((c: any) =>
+            (c.numero_empenho || c.empenho?.numero_liquidacao || '') === num
+          );
+          if (comp?.ano_exercicio) return `${num}-${comp.ano_exercicio}`;
+          return num;
+        }) }),
       });
       if (res.ok) {
         setShowVincularEmpenhoOS(false);
@@ -2395,6 +2401,7 @@ function RequisicoesList() {
                   const selecionado = empenhosSelecionadosOS.has(num);
                   const saldoVirtual = comp.saldo_virtual ?? comp.saldo_a_liquidar;
                   const comprometido = comp.comprometido ?? 0;
+                  const ano = comp.ano_exercicio;
                   const fmt = (v: number) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
                   return (
                     <div
@@ -2414,7 +2421,7 @@ function RequisicoesList() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-sm font-semibold">
-                            {num ? `#${num}` : 's/n'}
+                            {num ? `#${num}${ano ? `-${ano}` : ''}` : 's/n'}
                           </span>
                           <span className="text-xs text-gray-500">{data}</span>
                           <span className="text-xs font-medium text-green-700">

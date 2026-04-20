@@ -178,6 +178,7 @@ interface EmpenhoComposto {
   saldo_a_pagar: number;
   comprometido?: number;
   saldo_virtual?: number;
+  ano_exercicio?: number;
 }
 
 interface RascunhoRequisicao {
@@ -1350,16 +1351,13 @@ function NovaRequisicaoForm() {
         }));
       }
       // Empenho disponível para todos os tipos (OS, MATERIAL, SERVICO, etc.)
-      // Salva empenhos no formato "numero/ano" (ex: "303/2025") extraindo o ano do empenho composto
+      // Salva empenhos no formato "numero-ano" (ex: "303-2025") usando ano_exercicio do empenho composto
       dados.numeros_empenhos = empenhosSelecionados.size > 0
         ? Array.from(empenhosSelecionados).map(num => {
             const comp = empenhosCompostos.find(c =>
               (c.numero_empenho || c.empenho?.numero_liquidacao || '') === num
             );
-            if (comp?.empenho?.data) {
-              const partes = comp.empenho.data.split('/');
-              if (partes.length === 3 && partes[2]) return `${num}/${partes[2]}`;
-            }
+            if (comp?.ano_exercicio) return `${num}-${comp.ano_exercicio}`;
             return num;
           })
         : undefined;
@@ -1505,14 +1503,6 @@ function NovaRequisicaoForm() {
 
           {/* Aviso: nenhum empenho selecionado */}
           {empenhosSelecionados.size === 0 && empenhosComSaldo.length > 0 && (
-            <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>Nenhum empenho selecionado. Recomenda-se vincular pelo menos um empenho com saldo disponível.</span>
-            </div>
-          )}
-
-          {/* Selecionar todos / limpar */}
-          {empenhosComSaldo.length > 0 && (
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -1568,7 +1558,7 @@ function NovaRequisicaoForm() {
                           className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         <span className="text-sm font-semibold text-gray-800">
-                          Empenho #{c.numero_empenho || 's/n'}
+                          Empenho #{c.numero_empenho || 's/n'}{c.ano_exercicio ? `-${c.ano_exercicio}` : ''}
                         </span>
                         {c.empenho && (
                           <span className="text-xs text-gray-500">
@@ -1658,7 +1648,7 @@ function NovaRequisicaoForm() {
                             Encerrado
                           </Badge>
                           <span className="text-xs font-semibold text-gray-600">
-                            Empenho #{c.numero_empenho || 's/n'}
+                            Empenho #{c.numero_empenho || 's/n'}{c.ano_exercicio ? `-${c.ano_exercicio}` : ''}
                           </span>
                           {c.empenho && (
                             <span className="text-[10px] text-gray-400">

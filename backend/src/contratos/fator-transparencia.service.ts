@@ -26,6 +26,8 @@ export interface EmpenhoFator {
 export interface EmpenhoComposto {
   /** Nº do empenho (chave de agrupamento) */
   numero_empenho: string;
+  /** Ano do exercício do empenho */
+  ano_exercicio: number;
   /** Registro do empenho (positivo) */
   empenho: EmpenhoFator | null;
   /** Acréscimos/reforços (s/n) absorvidos por este empenho */
@@ -608,6 +610,7 @@ export class FatorTransparenciaService {
       if (!mapa.has(chave)) {
         const novoComp: EmpenhoComposto = {
           numero_empenho: emp.numero_empenho,
+          ano_exercicio: grupo.ano,
           empenho: emp,
           acrescimos: [],
           anulacoes: [],
@@ -631,6 +634,7 @@ export class FatorTransparenciaService {
     if (mapa.size === 0 && (grupo.liquidacoes.length > 0 || grupo.pagamentos.length > 0)) {
       mapa.set('SEM_EMPENHO', {
         numero_empenho: '',
+        ano_exercicio: grupo.ano,
         empenho: null,
         acrescimos: [],
         anulacoes: [],
