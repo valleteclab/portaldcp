@@ -87,6 +87,11 @@ interface Contrato {
     razao_social: string;
     cpf_cnpj?: string;
   };
+  ciclo_ativo?: {
+    valor_global?: number;
+    saldo_disponivel?: number;
+    data_renovacao?: string;
+  };
   total_itens?: number;
   modalidade_execucao?: string;
   arredondar_calculo?: boolean;
@@ -1014,12 +1019,20 @@ function NovaRequisicaoForm() {
     fim: c.data_vigencia_fim || c.data_fim || '',
   });
 
+  const getValorBaseContrato = (c: Contrato) => (
+    c.ciclo_ativo?.valor_global ?? c.valor_global ?? c.valor_inicial ?? 0
+  );
+
+  const getLabelValorContrato = (c?: Contrato | null) => (
+    c?.ciclo_ativo?.valor_global != null ? 'Valor do Ciclo' : 'Valor Global'
+  );
+
   // Helper: saldo do contrato
-  const getSaldo = (c: Contrato) => c.saldo_total_em_valor ?? c.valor_global ?? c.valor_inicial ?? 0;
+  const getSaldo = (c: Contrato) => c.ciclo_ativo?.saldo_disponivel ?? c.saldo_total_em_valor ?? getValorBaseContrato(c);
 
   // Helper: percentual consumido
   const getPercentualConsumido = (c: Contrato) => {
-    const valorTotal = Number(c.valor_global || c.valor_inicial || 0);
+    const valorTotal = Number(getValorBaseContrato(c));
     const saldo = Number(getSaldo(c));
     if (valorTotal <= 0) return 0;
     return Math.max(0, Math.min(100, ((valorTotal - saldo) / valorTotal) * 100));
@@ -1812,9 +1825,9 @@ function NovaRequisicaoForm() {
                       {/* Valores: Inicial + Saldo */}
                       <div className="grid grid-cols-2 gap-2 mb-3">
                         <div className="bg-gray-50 rounded-md p-2">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p>
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide">{getLabelValorContrato(contrato)}</p>
                           <p className="text-sm font-bold text-gray-800">
-                            {formatarMoeda(contrato.valor_global || contrato.valor_inicial)}
+                            {formatarMoeda(getValorBaseContrato(contrato))}
                           </p>
                         </div>
                         <div className="bg-green-50 rounded-md p-2">
@@ -1879,7 +1892,7 @@ function NovaRequisicaoForm() {
                     <TableHead className="max-w-[200px]">Objeto</TableHead>
                     <TableHead>Fornecedor</TableHead>
                     <TableHead>Vigência</TableHead>
-                    <TableHead className="text-right">Valor Global</TableHead>
+                    <TableHead className="text-right">Valor Atual</TableHead>
                     <TableHead className="text-right">Saldo</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1929,7 +1942,7 @@ function NovaRequisicaoForm() {
                           )}
                         </TableCell>
                         <TableCell className="text-right font-medium text-gray-700 whitespace-nowrap">
-                          {formatarMoeda(contrato.valor_global || contrato.valor_inicial)}
+                          {formatarMoeda(getValorBaseContrato(contrato))}
                         </TableCell>
                         <TableCell className="text-right font-medium text-green-600 whitespace-nowrap">
                           {formatarMoeda(saldo)}
@@ -1990,7 +2003,7 @@ function NovaRequisicaoForm() {
         {/* Métricas em grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border border-b">
           {[
-            { label: 'Valor Global', value: formatarMoeda(contratoSelecionado?.valor_global || contratoSelecionado?.valor_inicial || 0) },
+            { label: getLabelValorContrato(contratoSelecionado), value: formatarMoeda(contratoSelecionado ? getValorBaseContrato(contratoSelecionado) : 0) },
             { label: 'Saldo Disponível', value: formatarMoeda(saldoContrato), highlight: 'text-green-600' },
             { label: 'Vigência', value: `${formatarData(vigenciaContrato.inicio)} – ${formatarData(vigenciaContrato.fim)}`, small: true },
             {
@@ -2710,8 +2723,8 @@ function NovaRequisicaoForm() {
                 <strong>{contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : '-'}</strong>
               </div>
               <div>
-                <span className="text-gray-500">Valor Global:</span>{' '}
-                <strong>{formatarMoeda(contratoSelecionado?.valor_global || contratoSelecionado?.valor_inicial || 0)}</strong>
+                <span className="text-gray-500">{getLabelValorContrato(contratoSelecionado)}:</span>{' '}
+                <strong>{formatarMoeda(contratoSelecionado ? getValorBaseContrato(contratoSelecionado) : 0)}</strong>
               </div>
               <div>
                 <span className="text-gray-500">Saldo Disponível:</span>{' '}
