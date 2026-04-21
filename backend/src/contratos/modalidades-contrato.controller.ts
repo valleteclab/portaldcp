@@ -1195,5 +1195,4 @@ export class ModalidadesContratoController {
       ano_contrato: contrato.ano ?? anoConsulta,
     });
   }
-
 }

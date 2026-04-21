@@ -26,10 +26,8 @@ export interface EmpenhoFator {
 export interface EmpenhoComposto {
   /** Nº do empenho (chave de agrupamento) */
   numero_empenho: string;
-  /** Registro do empenho original (positivo) */
+  /** Registro do empenho (positivo) */
   empenho: EmpenhoFator | null;
-  /** Todos os empenhos positivos (original + acréscimos) que compartilham este número */
-  empenhos_acrescimos?: EmpenhoFator[];
   /** Anulações vinculadas a este empenho */
   anulacoes: EmpenhoFator[];
   /** Liquidações (incluindo estornos de liquidação com valor negativo) */
@@ -283,18 +281,9 @@ export class FatorTransparenciaService {
       const faseTrim = fase.trim();
       const faseTipo = this.classificarFase(faseTrim);
 
-      // Fallback: extrai numero_empenho do texto Bem/Serviço quando não vem no dialog
-      // Ex: "ACRÉSCIMO DE VALOR AO EMPENHO Nº 60/2026" → "60"
-      let numeroEmpenho = detalhe.numero_empenho ?? '';
-      if (!numeroEmpenho && faseTipo === 'EMPENHO') {
-        const bemServ = detalhe.bem_servico ?? '';
-        const mEmp = bemServ.match(/EMPENHO\s*N[º°]\s*(\d+)/i);
-        if (mEmp) numeroEmpenho = mEmp[1];
-      }
-
       resultados.push({
         numero_liquidacao: detalhe.numero_liquidacao ?? '',
-        numero_empenho: numeroEmpenho,
+        numero_empenho: detalhe.numero_empenho ?? '',
         data: data.trim(),
         fase: faseTrim,
         fase_tipo: faseTipo,
@@ -337,11 +326,11 @@ export class FatorTransparenciaService {
     return {
       numero_liquidacao: this.extrairCampo(
         conteudo,
-        /Nº Liquidação:(?:&nbsp;|\s)*<\/strong>(?:&nbsp;|\s)*([\d\/]+)/,
+        /Nº Liquidação:&nbsp;<\/strong>(\d+)/,
       ),
       numero_empenho: this.extrairCampo(
         conteudo,
-        /Nº Empenho:(?:&nbsp;|\s)*<\/strong>(?:&nbsp;|\s)*([\d\/]+)/,
+        /Nº Empenho:&nbsp;<\/strong>(\d+)/,
       ),
       cnpj: this.extrairCampo(
         conteudo,
@@ -599,7 +588,6 @@ export class FatorTransparenciaService {
         mapa.set(chave, {
           numero_empenho: emp.numero_empenho || '',
           empenho: emp,
-          empenhos_acrescimos: [emp],
           anulacoes: [],
           liquidacoes: [],
           pagamentos: [],
@@ -611,11 +599,6 @@ export class FatorTransparenciaService {
           saldo_a_liquidar: 0,
           saldo_a_pagar: 0,
         });
-      } else {
-        // Acréscimo de valor ao mesmo empenho — acumula
-        const existente = mapa.get(chave)!;
-        existente.empenhos_acrescimos = existente.empenhos_acrescimos || [existente.empenho!];
-        existente.empenhos_acrescimos.push(emp);
       }
     }
 
@@ -696,9 +679,7 @@ export class FatorTransparenciaService {
     // Calcular totais e ordenar
     const compostos = Array.from(mapa.values());
     for (const c of compostos) {
-      c.total_empenhado_bruto = (c.empenhos_acrescimos ?? [c.empenho!])
-        .filter(Boolean)
-        .reduce((s, e) => s + e.valor, 0);
+      c.total_empenhado_bruto = c.empenho?.valor ?? 0;
       c.total_empenhado_liquido = c.total_empenhado_bruto - c.total_anulado;
       c.saldo_a_liquidar = Math.max(0, c.total_empenhado_liquido - c.total_liquidado);
       c.saldo_a_pagar = Math.max(0, c.total_liquidado - c.total_pago);
