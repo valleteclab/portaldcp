@@ -99,6 +99,13 @@ export class PortalTransparenciaController {
     return this.portalTransparenciaService.buscarAditivosPortal(portalContratoId);
   }
 
+  @Get('buscar-aditivos-por-contrato/:contratoId')
+  async buscarAditivosPorContrato(
+    @Param('contratoId') contratoId: string,
+  ) {
+    return this.portalTransparenciaService.buscarAditivosPorContratoId(contratoId);
+  }
+
   @Post('importar-aditivos')
   async importarAditivos(
     @Body() body: { contrato_id: string; aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }> },

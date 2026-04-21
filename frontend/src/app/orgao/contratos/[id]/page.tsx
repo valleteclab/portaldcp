@@ -340,6 +340,14 @@ export default function DetalheContratoOrgaoPage() {
   const [modalTermo, setModalTermo] = useState(false)
   const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
   const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
+  const [modalAditivosPortal, setModalAditivosPortal] = useState<{
+    open: boolean
+    aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }>
+    loading: boolean
+    importando: boolean
+    resultado: any | null
+    erro: string | null
+  }>({ open: false, aditivos: [], loading: false, importando: false, resultado: null, erro: null })
   const [novoTermo, setNovoTermo] = useState({
     tipo: 'ADITIVO_PRAZO',
     renovacao_ciclo: false,
@@ -577,6 +585,43 @@ export default function DetalheContratoOrgaoPage() {
       alert('Erro ao criar termo aditivo')
     } finally {
       setLoadingAction(false)
+    }
+  }
+
+  const buscarAditivosPortal = async () => {
+    if (!contrato) return
+    setModalAditivosPortal({ open: true, aditivos: [], loading: true, importando: false, resultado: null, erro: null })
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/buscar-aditivos-por-contrato/${contrato.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        setModalAditivosPortal(prev => prev ? { ...prev, aditivos: data.aditivos || [], loading: false } : prev)
+      } else {
+        setModalAditivosPortal(prev => prev ? { ...prev, loading: false, erro: 'Erro ao buscar aditivos no portal' } : prev)
+      }
+    } catch {
+      setModalAditivosPortal(prev => prev ? { ...prev, loading: false, erro: 'Erro de conexão com o portal' } : prev)
+    }
+  }
+
+  const importarAditivosPortal = async () => {
+    if (!contrato || !modalAditivosPortal.aditivos.length) return
+    setModalAditivosPortal(prev => prev ? { ...prev, importando: true } : prev)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/portal-transparencia/importar-aditivos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contrato_id: contrato.id, aditivos: modalAditivosPortal.aditivos }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setModalAditivosPortal(prev => prev ? { ...prev, importando: false, resultado: data } : prev)
+        carregarDados()
+      } else {
+        setModalAditivosPortal(prev => prev ? { ...prev, importando: false, erro: 'Erro ao importar aditivos' } : prev)
+      }
+    } catch {
+      setModalAditivosPortal(prev => prev ? { ...prev, importando: false, erro: 'Erro de conexão' } : prev)
     }
   }
 
@@ -1722,7 +1767,10 @@ export default function DetalheContratoOrgaoPage() {
         <TabsContent value="termos" className="space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Termos Aditivos e Apostilamentos</h3>
-            <Button onClick={() => setModalTermo(true)}><Plus className="w-4 h-4 mr-2" />Novo Termo Aditivo</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={buscarAditivosPortal}><DownloadCloud className="w-4 h-4 mr-2" />Buscar no Portal</Button>
+              <Button onClick={() => setModalTermo(true)}><Plus className="w-4 h-4 mr-2" />Novo Termo Aditivo</Button>
+            </div>
           </div>
 
           {termos.length === 0 ? (
@@ -2529,6 +2577,99 @@ export default function DetalheContratoOrgaoPage() {
             <Button variant="outline" onClick={() => setModalCancelarTermo(null)}>Voltar</Button>
             <Button variant="destructive" onClick={handleCancelarTermo} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cancelando...</> : 'Confirmar Cancelamento'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Buscar Aditivos do Portal */}
+      <Dialog open={modalAditivosPortal.open} onOpenChange={(open) => setModalAditivosPortal(prev => prev ? { ...prev, open, resultado: null, erro: null } : prev)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Aditivos do Portal de Transparência</DialogTitle>
+            <DialogDescription>
+              Termos aditivos encontrados no Portal para o contrato {contrato?.numero_contrato}
+            </DialogDescription>
+          </DialogHeader>
+
+          {modalAditivosPortal.loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+              <span className="ml-3 text-gray-500">Buscando aditivos no portal...</span>
+            </div>
+          ) : modalAditivosPortal.erro ? (
+            <div className="py-8 text-center">
+              <AlertCircle className="w-10 h-10 mx-auto text-red-400 mb-3" />
+              <p className="text-red-600">{modalAditivosPortal.erro}</p>
+            </div>
+          ) : modalAditivosPortal.resultado ? (
+            <div className="py-4">
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="w-6 h-6 text-green-600 mb-2" />
+                <p className="font-medium text-green-800">Importação concluída!</p>
+                <div className="mt-2 text-sm text-green-700 space-y-1">
+                  <p>Importados: {modalAditivosPortal.resultado.importados}</p>
+                  <p>Já existentes: {modalAditivosPortal.resultado.ja_existentes}</p>
+                  {modalAditivosPortal.resultado.erros > 0 && <p className="text-red-600">Erros: {modalAditivosPortal.resultado.erros}</p>}
+                </div>
+                {modalAditivosPortal.resultado.detalhes?.length > 0 && (
+                  <div className="mt-3 space-y-1">
+                    {modalAditivosPortal.resultado.detalhes.map((d: any, i: number) => (
+                      <p key={i} className={`text-xs ${d.status === 'importado' ? 'text-green-700' : d.status === 'ja_existente' ? 'text-amber-700' : 'text-red-700'}`}>
+                        {d.nome}: {d.status} {d.mensagem ? `— ${d.mensagem}` : ''}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : modalAditivosPortal.aditivos.length === 0 ? (
+            <div className="py-8 text-center">
+              <FileText className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">Nenhum aditivo encontrado no portal para este contrato.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 py-2">
+              <p className="text-sm text-gray-600">{modalAditivosPortal.aditivos.length} aditivo(s) encontrado(s):</p>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b">
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Nº / Nome</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Tipo</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Valor</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Vigência</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Fiscal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modalAditivosPortal.aditivos.map((a, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="px-3 py-2 font-medium">{a.nome}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline" className={a.tipo === 'Prazo' ? 'bg-blue-50 text-blue-800 border-blue-200' : a.tipo === 'Valor' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-purple-50 text-purple-800 border-purple-200'}>
+                            {a.tipo}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-green-700">{a.valor}</td>
+                        <td className="px-3 py-2 text-gray-600">{a.vigencia}</td>
+                        <td className="px-3 py-2 text-gray-600">{a.fiscal}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {!modalAditivosPortal.resultado && modalAditivosPortal.aditivos.length > 0 && !modalAditivosPortal.loading && (
+              <Button onClick={importarAditivosPortal} disabled={modalAditivosPortal.importando}>
+                {modalAditivosPortal.importando ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando...</> : <><DownloadCloud className="w-4 h-4 mr-2" />Importar Todos</>}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setModalAditivosPortal({ open: false, aditivos: [], loading: false, importando: false, resultado: null, erro: null })}>
+              {modalAditivosPortal.resultado ? 'Fechar' : 'Cancelar'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -677,6 +677,78 @@ export class PortalTransparenciaService {
   }
 
   /**
+   * Busca aditivos de um contrato do sistema no Portal de Transparência.
+   * Usa o numero_contrato para encontrar o ID do portal e então buscar os aditivos.
+   */
+  async buscarAditivosPorContratoId(contratoId: string): Promise<{
+    contrato_numero: string;
+    aditivos: Array<{
+      nome: string;
+      tipo: string;
+      valor: string;
+      vigencia: string;
+      fiscal: string;
+      pdf_url: string;
+    }>;
+  }> {
+    const contrato = await this.contratosService.findOne(contratoId);
+    if (!contrato) {
+      throw new Error('Contrato não encontrado');
+    }
+
+    const numeroContrato = contrato.numero_contrato;
+    this.logger.log(`[buscarAditivosPorContratoId] Buscando contrato ${numeroContrato} no portal...`);
+
+    // Buscar contrato na API do portal pelo número
+    const resultado = await this.buscarContratos({ numero: numeroContrato });
+    if (!resultado.data || resultado.data.length === 0) {
+      this.logger.warn(`[buscarAditivosPorContratoId] Contrato ${numeroContrato} não encontrado no portal`);
+      return { contrato_numero: numeroContrato, aditivos: [] };
+    }
+
+    // Encontrar o contrato exato (pode haver múltiplos com números parecidos)
+    const contratoPortal = resultado.data.find(c => c.contratoNumero === numeroContrato || c.contratoNumero === numeroContrato + '-Contrato');
+    if (!contratoPortal) {
+      this.logger.warn(`[buscarAditivosPorContratoId] Nenhum contrato exato para ${numeroContrato}`);
+      return { contrato_numero: numeroContrato, aditivos: [] };
+    }
+
+    // Extrair portalContratoId da URL (ex: "/contratos/?id=571" -> "571")
+    let portalContratoId = '';
+    if (contratoPortal.url) {
+      const idMatch = contratoPortal.url.match(/[?&]id=(\d+)/);
+      if (idMatch) {
+        portalContratoId = idMatch[1];
+      }
+    }
+
+    if (!portalContratoId) {
+      // Fallback: tentar scraping da página de listagem
+      this.logger.log(`[buscarAditivosPorContratoId] Sem ID na URL, tentando scraping da listagem...`);
+      const listagemUrl = `https://portaldatransparencia.cmlem.ba.gov.br/contratos/?inputContratoNumero=${encodeURIComponent(numeroContrato)}&action=search`;
+      try {
+        const listagemHtml = await firstValueFrom(
+          this.httpService.get(listagemUrl, { responseType: 'text', timeout: 15000 }),
+        );
+        const linkMatch = listagemHtml.data.match(/aditivos\/\?id=(\d+)/);
+        if (linkMatch) {
+          portalContratoId = linkMatch[1];
+        }
+      } catch (e) {
+        this.logger.warn(`[buscarAditivosPorContratoId] Erro ao buscar listagem: ${e.message}`);
+      }
+    }
+
+    if (!portalContratoId) {
+      this.logger.warn(`[buscarAditivosPorContratoId] Não foi possível obter o ID do portal para ${numeroContrato}`);
+      return { contrato_numero: numeroContrato, aditivos: [] };
+    }
+
+    this.logger.log(`[buscarAditivosPorContratoId] Portal ID: ${portalContratoId}, buscando aditivos...`);
+    return this.buscarAditivosPortal(portalContratoId);
+  }
+
+  /**
    * Importa aditivos do Portal de Transparência para um contrato existente no sistema.
    */
   async importarAditivos(
