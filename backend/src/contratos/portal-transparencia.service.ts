@@ -558,6 +558,7 @@ function inferirCategoriaContrato(params: {
 }
 
 export interface PortalTransparenciaContrato {
+  id?: string;
   contratoNumero: string;
   documento: string;
   favorecido: string;
@@ -713,9 +714,11 @@ export class PortalTransparenciaService {
       return { contrato_numero: numeroContrato, aditivos: [] };
     }
 
-    // Extrair portalContratoId da URL (ex: "/contratos/?id=571" -> "571")
-    let portalContratoId = '';
-    if (contratoPortal.url) {
+    // Usar o ID do portal diretamente (campo retornado pela API)
+    let portalContratoId = contratoPortal.id || '';
+
+    // Fallback: extrair da URL se id não estiver disponível
+    if (!portalContratoId && contratoPortal.url) {
       const idMatch = contratoPortal.url.match(/[?&]id=(\d+)/);
       if (idMatch) {
         portalContratoId = idMatch[1];
