@@ -1036,6 +1036,10 @@ export class ContratosService {
         (t) => t.sequencial < termo.sequencial && t.status !== StatusTermoAditivo.CANCELADO && t.id !== termo.id,
       );
       contrato.data_renovacao_ciclo = anterior ? (anterior.data_assinatura as any) : null;
+      if (anterior) {
+        contrato.data_assinatura = anterior.data_assinatura as any;
+        contrato.data_vigencia_inicio = (anterior.data_vigencia_inicio || anterior.data_assinatura) as any;
+      }
     }
 
     // Reverter alterações de valor (mesmo com renovação de ciclo)
@@ -1140,6 +1144,8 @@ export class ContratosService {
     // Renovação de ciclo: registra a data de referência para filtrar medições do ciclo atual
     if (termo.renovacao_ciclo) {
       contrato.data_renovacao_ciclo = termo.data_assinatura as any;
+      contrato.data_assinatura = termo.data_assinatura as any;
+      contrato.data_vigencia_inicio = (termo.data_vigencia_inicio || termo.data_assinatura) as any;
     }
 
     // Aplicar alterações de valor (mesmo com renovação de ciclo — o novo valor global reflete o novo ciclo)
