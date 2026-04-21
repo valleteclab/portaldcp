@@ -708,7 +708,11 @@ export class PortalTransparenciaService {
     }
 
     // Encontrar o contrato exato (pode haver múltiplos com números parecidos)
-    const contratoPortal = resultado.data.find(c => c.contratoNumero === numeroContrato || c.contratoNumero === numeroContrato + '-Contrato');
+    // API do portal retorna contratoNumero como "Contrato 025A/2023" ou "025A/2023-Contrato"
+    const contratoPortal = resultado.data.find(c => {
+      const numPortal = c.contratoNumero.replace(/^Contrato\s+/i, '').replace(/-Contrato$/i, '');
+      return numPortal === numeroContrato || c.contratoNumero === numeroContrato;
+    });
     if (!contratoPortal) {
       this.logger.warn(`[buscarAditivosPorContratoId] Nenhum contrato exato para ${numeroContrato}`);
       return { contrato_numero: numeroContrato, aditivos: [] };
