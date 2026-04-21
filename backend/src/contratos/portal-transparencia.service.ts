@@ -698,10 +698,11 @@ export class PortalTransparenciaService {
     }
 
     const numeroContrato = contrato.numero_contrato;
+    const numeroContratoNormalizado = this.normalizarNumeroContratoPortal(numeroContrato);
     this.logger.log(`[buscarAditivosPorContratoId] Buscando contrato ${numeroContrato} no portal...`);
 
     // Buscar contrato na API do portal pelo número
-    const resultado = await this.buscarContratos({ numero: numeroContrato });
+    const resultado = await this.buscarContratos({ numero: numeroContratoNormalizado || numeroContrato });
     if (!resultado.data || resultado.data.length === 0) {
       this.logger.warn(`[buscarAditivosPorContratoId] Contrato ${numeroContrato} não encontrado no portal`);
       return { contrato_numero: numeroContrato, aditivos: [] };
@@ -710,8 +711,12 @@ export class PortalTransparenciaService {
     // Encontrar o contrato exato (pode haver múltiplos com números parecidos)
     // API do portal retorna contratoNumero como "Contrato 025A/2023" ou "025A/2023-Contrato"
     const contratoPortal = resultado.data.find(c => {
-      const numPortal = c.contratoNumero.replace(/^Contrato\s+/i, '').replace(/-Contrato$/i, '');
-      return numPortal === numeroContrato || c.contratoNumero === numeroContrato;
+      const numPortal = this.normalizarNumeroContratoPortal(c.contratoNumero);
+      return (
+        numPortal === numeroContratoNormalizado ||
+        numPortal.startsWith(numeroContratoNormalizado) ||
+        numeroContratoNormalizado.startsWith(numPortal)
+      );
     });
     if (!contratoPortal) {
       this.logger.warn(`[buscarAditivosPorContratoId] Nenhum contrato exato para ${numeroContrato}`);
@@ -732,7 +737,7 @@ export class PortalTransparenciaService {
     if (!portalContratoId) {
       // Fallback: tentar scraping da página de listagem
       this.logger.log(`[buscarAditivosPorContratoId] Sem ID na URL, tentando scraping da listagem...`);
-      const listagemUrl = `https://portaldatransparencia.cmlem.ba.gov.br/contratos/?inputContratoNumero=${encodeURIComponent(numeroContrato)}&action=search`;
+      const listagemUrl = `https://portaldatransparencia.cmlem.ba.gov.br/contratos/?inputContratoNumero=${encodeURIComponent(numeroContratoNormalizado || numeroContrato)}&action=search`;
       try {
         const listagemHtml = await firstValueFrom(
           this.httpService.get(listagemUrl, { responseType: 'text', timeout: 15000 }),
@@ -753,6 +758,18 @@ export class PortalTransparenciaService {
 
     this.logger.log(`[buscarAditivosPorContratoId] Portal ID: ${portalContratoId}, buscando aditivos...`);
     return this.buscarAditivosPortal(portalContratoId);
+  }
+
+  private normalizarNumeroContratoPortal(numero?: string): string {
+    if (!numero) return '';
+
+    return numero
+      .replace(/^Contrato\s+/i, '')
+      .replace(/-Contrato$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .match(/^(\d+[A-Z]?[\/-]\d{4})/i)?.[1]
+      ?.replace(/-/g, '/') || '';
   }
 
   /**
