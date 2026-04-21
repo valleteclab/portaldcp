@@ -5,6 +5,7 @@ import { AgenteContratosService } from './agente-contratos.service';
 import { AgenteContratosScheduler } from './agente-contratos.scheduler';
 import { AgenteContratosController } from './agente-contratos.controller';
 import { AgenteLog } from './entities/agente-log.entity';
+import { Contrato } from '../contratos/entities/contrato.entity';
 import { ContratosModule } from '../contratos/contratos.module';
 import { FornecedoresModule } from '../fornecedores/fornecedores.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
@@ -12,7 +13,7 @@ import { IaModule } from '../ia/ia.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AgenteLog]),
+    TypeOrmModule.forFeature([AgenteLog, Contrato]),
     HttpModule,
     // Importa módulos que exportam os serviços necessários
     ContratosModule,
@@ -21,10 +22,7 @@ import { IaModule } from '../ia/ia.module';
     IaModule,
   ],
   controllers: [AgenteContratosController],
-  providers: [
-    AgenteContratosService,
-    AgenteContratosScheduler,
-  ],
+  providers: [AgenteContratosService, AgenteContratosScheduler],
   exports: [AgenteContratosService],
 })
 export class AgenteContratosModule {}

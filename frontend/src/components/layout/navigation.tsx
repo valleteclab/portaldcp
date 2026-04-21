@@ -142,7 +142,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/disputa-v3", label: "Sala de Disputa V3", icon: Search, modulo: ModuloSistema.DISPUTA },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/agente-contratos", label: "Agente IA", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
+    { href: "/orgao/agente-contratos", label: "Verif. Aditivos", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/fornecedores", label: "Gestão de Fornecedores", icon: Building2, modulo: ModuloSistema.FORNECEDORES },
     { href: "/orgao/almoxarifado", label: "Almoxarifado", icon: Warehouse, modulo: ModuloSistema.ALMOXARIFADO },
