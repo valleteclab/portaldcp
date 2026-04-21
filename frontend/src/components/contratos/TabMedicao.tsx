@@ -255,7 +255,24 @@ function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigen
 
 export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtestar, contrato: contratoProp, isAdmin }: {
   contratoId: string; valorGlobal: number; modalidade?: string; onAtestar?: (medicao: any) => void;
-  contrato?: { data_vigencia_inicio?: string; data_vigencia_fim?: string; valor_global?: number | string; boletim_por_quantidade?: boolean; valor_executado_anterior?: number | string; arredondar_calculo?: boolean; objeto?: string; data_renovacao_ciclo?: string };
+  contrato?: {
+    data_vigencia_inicio?: string;
+    data_vigencia_fim?: string;
+    valor_global?: number | string;
+    boletim_por_quantidade?: boolean;
+    valor_executado_anterior?: number | string;
+    arredondar_calculo?: boolean;
+    objeto?: string;
+    data_renovacao_ciclo?: string;
+    ciclo_ativo?: {
+      valor_global?: number | string;
+      valor_inicial?: number | string;
+      valor_acrescimos?: number | string;
+      valor_supressoes?: number | string;
+      saldo_disponivel?: number | string;
+      data_renovacao?: string;
+    };
+  };
   isAdmin?: boolean;
 }) {
   const isServicoContinuado = ['CONTINUADO', 'LICENCA'].includes(modalidade || '');
@@ -309,6 +326,15 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [execFiscalItens, setExecFiscalItens] = useState<{ item_cronograma_id: string; numero: number; descricao: string; unidade: string; no_periodo: string; ate_periodo: string; a_executar: string; fin_no_periodo: number; fin_ate_periodo: number; fin_a_executar: number; orig_descricao: string; orig_unidade: string }[]>([])
   const [carregandoExecFiscal, setCarregandoExecFiscal] = useState(false)
   const [salvandoExecFiscal, setSalvandoExecFiscal] = useState(false)
+  const valorGlobalCronograma = Number(
+    resumo?.valor_global ??
+    contratoProp?.ciclo_ativo?.valor_global ??
+    contratoProp?.valor_global ??
+    valorGlobal ??
+    0,
+  )
+  const usaCicloAtivo = contratoProp?.ciclo_ativo?.valor_global != null || !!contratoProp?.data_renovacao_ciclo
+  const labelValorCronograma = usaCicloAtivo ? 'Valor do ciclo' : 'Valor do contrato'
 
   // Forms
   const [formEtapa, setFormEtapa] = useState({
@@ -717,7 +743,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   // Calcula saldo disponível para etapas (valor e percentual)
   const somaValorEtapas = etapas.reduce((sum, e) => sum + Number(e.valor_previsto), 0)
   const somaPercentualEtapas = etapas.reduce((sum, e) => sum + Number(e.percentual_fisico), 0)
-  const saldoValorEtapas = valorGlobal - somaValorEtapas
+  const saldoValorEtapas = valorGlobalCronograma - somaValorEtapas
   const saldoPercentualEtapas = 100 - somaPercentualEtapas
 
   const salvarEtapa = async () => {
@@ -732,9 +758,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       ? etapas.filter(e => e.id !== editandoEtapa.id).reduce((sum, e) => sum + Number(e.percentual_fisico), 0)
       : somaPercentualEtapas
 
-    if (somaValorOutras + novoValor > valorGlobal + 0.01) {
-      const disponivel = Math.max(0, valorGlobal - somaValorOutras)
-      alert(`O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível.\n\nValor do contrato: R$ ${valorGlobal.toFixed(2)}\nJá alocado: R$ ${somaValorOutras.toFixed(2)}\nDisponível: R$ ${disponivel.toFixed(2)}`)
+    if (somaValorOutras + novoValor > valorGlobalCronograma + 0.01) {
+      const disponivel = Math.max(0, valorGlobalCronograma - somaValorOutras)
+      alert(`O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível.\n\n${labelValorCronograma}: R$ ${valorGlobalCronograma.toFixed(2)}\nJá alocado: R$ ${somaValorOutras.toFixed(2)}\nDisponível: R$ ${disponivel.toFixed(2)}`)
       return
     }
 
@@ -816,7 +842,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   }
 
   const somaValorItensCronograma = itensCronograma.reduce((sum, i) => sum + Number(i.valor_total), 0)
-  const saldoValorItens = valorGlobal - somaValorItensCronograma
+  const saldoValorItens = valorGlobalCronograma - somaValorItensCronograma
   const proximoNumeroItemCronograma =
     itensCronograma.length > 0
       ? Math.max(...itensCronograma.map((i) => i.numero_item)) + 1
@@ -866,8 +892,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     const somaOutras = editandoItemCronograma
       ? itensCronograma.filter(i => i.id !== editandoItemCronograma.id).reduce((a, b) => a + Number(b.valor_total), 0)
       : somaValorItensCronograma
-    if (somaOutras + novoValorTotal > valorGlobal + 0.01) {
-      const disp = Math.max(0, valorGlobal - somaOutras)
+    if (somaOutras + novoValorTotal > valorGlobalCronograma + 0.01) {
+      const disp = Math.max(0, valorGlobalCronograma - somaOutras)
       alert(`O valor total do item (R$ ${novoValorTotal.toFixed(2)}) excede o saldo disponível (R$ ${disp.toFixed(2)}).`)
       return
     }
@@ -1920,8 +1946,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             {/* Indicador de saldo disponível */}
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">Valor do contrato:</span>
-                <span className="font-medium">{formatarMoeda(valorGlobal)}</span>
+                <span className="text-gray-600">{labelValorCronograma}:</span>
+                <span className="font-medium">{formatarMoeda(valorGlobalCronograma)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Alocado em etapas:</span>
@@ -2014,8 +2040,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">Valor do contrato:</span>
-                <span className="font-medium">{formatarMoeda(valorGlobal)}</span>
+                <span className="text-gray-600">{labelValorCronograma}:</span>
+                <span className="font-medium">{formatarMoeda(valorGlobalCronograma)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Já alocado:</span>

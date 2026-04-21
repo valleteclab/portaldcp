@@ -378,6 +378,7 @@ export class MedicaoService {
     const item = await this.itemCronogramaRepository.findOne({ where: { id: itemId }, relations: ['contrato'] });
     if (!item) throw new NotFoundException('Item do cronograma não encontrado');
 
+    const valorGlobal = await this.obterValorGlobalEfetivoCronograma(item.contrato);
     const quantidadeMedida = Number(item.quantidade_medida) || 0;
     const quantidade = dados.quantidade !== undefined ? Number(dados.quantidade) : Number(item.quantidade);
     const valorUnitario = dados.valor_unitario !== undefined ? Number(dados.valor_unitario) : Number(item.valor_unitario);
@@ -399,6 +400,18 @@ export class MedicaoService {
     const rawTotal = isMensal ? quantidade * valorUnitario : (quantidadeMeses ? quantidade * valorUnitario * quantidadeMeses : rawMensal);
     const valorMensal = isMensal ? valorUnitario : truncarMoedaReais2Casas(rawMensal);
     const valorTotal = truncarMoedaReais2Casas(rawTotal);
+    const itensExistentes = await this.itemCronogramaRepository.find({ where: { contrato_id: item.contrato_id } });
+    const somaValorOutros = itensExistentes
+      .filter((i) => i.id !== item.id)
+      .reduce((sum, i) => sum + Number(i.valor_total), 0);
+    if (somaValorOutros + valorTotal > valorGlobal + 0.01) {
+      const saldoDisponivel = Math.max(0, valorGlobal - somaValorOutros);
+      throw new BadRequestException(
+        `O valor total do item (R$ ${valorTotal.toFixed(2)}) excede o saldo disponÃ­vel. ` +
+        `Valor base: R$ ${valorGlobal.toFixed(2)}, jÃ¡ alocado: R$ ${somaValorOutros.toFixed(2)}, ` +
+        `disponÃ­vel: R$ ${saldoDisponivel.toFixed(2)}.`,
+      );
+    }
     const raw = dados as Record<string, unknown>;
     const { frequencia_execucao: feRaw, numero_execucoes: neRaw, ...dadosSemFreq } = raw as any;
     Object.assign(item, {
@@ -440,6 +453,40 @@ export class MedicaoService {
 
     await this.itemMedicaoItemRepository.delete({ item_cronograma_id: itemId });
     await this.itemCronogramaRepository.remove(item);
+  }
+
+  private async obterValorGlobalEfetivoCronograma(contrato: Contrato): Promise<number> {
+    const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+    const dataRenovacao = contrato.data_renovacao_ciclo ? new Date(contrato.data_renovacao_ciclo) : null;
+    if (!dataRenovacao) return valorGlobal;
+
+    const termosCiclo = await this.termoAditivoRepository.find({
+      where: { contrato_id: contrato.id, renovacao_ciclo: true },
+      order: { sequencial: 'ASC' },
+    });
+    const termosAtivos = termosCiclo.filter((t) => t.status !== 'CANCELADO');
+    const termoAtual = termosAtivos[termosAtivos.length - 1];
+    const valorInicialCiclo = termoAtual
+      ? (Number(termoAtual.valor_ciclo) || Number(termoAtual.valor_acrescimo) || valorGlobal)
+      : valorGlobal;
+
+    let acrescimosCiclo = 0;
+    let supressoesCiclo = 0;
+    if (termoAtual) {
+      const todosTermos = await this.termoAditivoRepository.find({
+        where: { contrato_id: contrato.id },
+        order: { sequencial: 'ASC' },
+      });
+      for (const termo of todosTermos) {
+        if (termo.status === 'CANCELADO') continue;
+        if (termo.sequencial > termoAtual.sequencial && !termo.renovacao_ciclo) {
+          if (Number(termo.valor_acrescimo) > 0) acrescimosCiclo += Number(termo.valor_acrescimo);
+          if (Number(termo.valor_supressao) > 0) supressoesCiclo += Number(termo.valor_supressao);
+        }
+      }
+    }
+
+    return valorInicialCiclo + acrescimosCiclo - supressoesCiclo;
   }
 
   /**
