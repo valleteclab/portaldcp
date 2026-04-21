@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan, LessThanOrEqual, MoreThanOrEqual, In, Brackets } from 'typeorm';
+import { Repository, Between, LessThan, LessThanOrEqual, MoreThanOrEqual, In, Brackets, Not } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Contrato, StatusContrato, TipoContrato, CategoriaContrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -19,7 +19,7 @@ import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 
 @Injectable()
-export class ContratosService {
+export class ContratosService implements OnModuleInit {
   private readonly logger = new Logger(ContratosService.name);
   private readonly uploadPath = path.join(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), 'contratos');
 
@@ -54,6 +54,74 @@ export class ContratosService {
   ) {
     if (!fs.existsSync(this.uploadPath)) {
       fs.mkdirSync(this.uploadPath, { recursive: true });
+    }
+  }
+
+  async onModuleInit() {
+    await this.sincronizarDatasCicloRetroativas();
+  }
+
+  private normalizarData(date?: Date | string | null): string | null {
+    if (!date) return null;
+    return new Date(date).toISOString().split('T')[0];
+  }
+
+  private async sincronizarDatasCicloRetroativas(): Promise<void> {
+    try {
+      const termosRenovacao = await this.termoAditivoRepository.find({
+        where: {
+          renovacao_ciclo: true,
+          status: Not(StatusTermoAditivo.CANCELADO),
+        },
+        order: {
+          contrato_id: 'ASC',
+          sequencial: 'DESC',
+        },
+      });
+
+      if (!termosRenovacao.length) {
+        return;
+      }
+
+      const ultimoTermoPorContrato = new Map<string, TermoAditivo>();
+      for (const termo of termosRenovacao) {
+        if (!ultimoTermoPorContrato.has(termo.contrato_id)) {
+          ultimoTermoPorContrato.set(termo.contrato_id, termo);
+        }
+      }
+
+      const contratos = await this.contratoRepository.findBy({
+        id: In([...ultimoTermoPorContrato.keys()]),
+      });
+
+      let atualizados = 0;
+      for (const contrato of contratos) {
+        const termo = ultimoTermoPorContrato.get(contrato.id);
+        if (!termo?.data_assinatura) {
+          continue;
+        }
+
+        const dataInicioCiclo = termo.data_vigencia_inicio || termo.data_assinatura;
+        const mudouAssinatura = this.normalizarData(contrato.data_assinatura) !== this.normalizarData(termo.data_assinatura);
+        const mudouInicio = this.normalizarData(contrato.data_vigencia_inicio) !== this.normalizarData(dataInicioCiclo);
+        const mudouRenovacao = this.normalizarData(contrato.data_renovacao_ciclo) !== this.normalizarData(termo.data_assinatura);
+
+        if (!mudouAssinatura && !mudouInicio && !mudouRenovacao) {
+          continue;
+        }
+
+        contrato.data_assinatura = termo.data_assinatura as any;
+        contrato.data_vigencia_inicio = dataInicioCiclo as any;
+        contrato.data_renovacao_ciclo = termo.data_assinatura as any;
+        await this.contratoRepository.save(contrato);
+        atualizados++;
+      }
+
+      if (atualizados > 0) {
+        this.logger.log(`[sincronizarDatasCicloRetroativas] ${atualizados} contrato(s) atualizados com datas do ultimo ciclo`);
+      }
+    } catch (error) {
+      this.logger.error(`[sincronizarDatasCicloRetroativas] Erro ao sincronizar datas retroativas: ${error.message}`);
     }
   }
 
