@@ -84,6 +84,11 @@ interface Contrato {
   fiscal_nome: string
   gestor_nome: string
   saldo_total_em_valor?: number
+  ciclo_ativo?: {
+    valor_global?: number
+    saldo_disponivel?: number
+    data_renovacao?: string
+  }
   itens?: ItemContrato[]
   total_itens?: number
   licitacao?: { id: string; numero_processo: string; modalidade: string }
@@ -456,6 +461,12 @@ window._extraindoContratos = true;
     return new Date(data).toLocaleDateString('pt-BR')
   }
 
+  const getValorExibicaoContrato = (contrato: Contrato) =>
+    Number(contrato.ciclo_ativo?.valor_global ?? contrato.valor_global ?? contrato.valor_inicial ?? 0)
+
+  const getSaldoExibicaoContrato = (contrato: Contrato) =>
+    Number(contrato.ciclo_ativo?.saldo_disponivel ?? contrato.saldo_total_em_valor ?? 0)
+
   const calcularDiasRestantes = (dataFim: string) => {
     const fim = new Date(dataFim)
     const hoje = new Date()
@@ -802,10 +813,10 @@ window._extraindoContratos = true;
                           <span className="text-sm text-gray-600">{formatarModalidadeLicitacao(contrato.licitacao?.modalidade || contrato.modalidade_licitacao)}</span>
                         </td>
                         <td className="py-3 px-2 text-right align-top">
-                          <div className="font-medium">{formatarMoeda(contrato.valor_global)}</div>
-                          {contrato.saldo_total_em_valor !== undefined && (
+                          <div className="font-medium">{formatarMoeda(getValorExibicaoContrato(contrato))}</div>
+                          {(contrato.ciclo_ativo?.saldo_disponivel !== undefined || contrato.saldo_total_em_valor !== undefined) && (
                             <div className="text-xs text-gray-500">
-                              Saldo: {formatarMoeda(contrato.saldo_total_em_valor)}
+                              Saldo: {formatarMoeda(getSaldoExibicaoContrato(contrato))}
                             </div>
                           )}
                         </td>
