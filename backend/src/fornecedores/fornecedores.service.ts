@@ -42,6 +42,56 @@ export class FornecedoresService {
     return fornecedorSemSenha as FornecedorSemSenha;
   }
 
+  private normalizarCnpjEntrada(cnpj: string): string {
+    const digits = (cnpj || '').replace(/\D/g, '');
+    if (digits.length === 14) return digits;
+
+    if (digits.length === 13) {
+      const candidatos = [
+        `${digits.slice(0, 8)}0${digits.slice(8, 11)}${digits.slice(11)}`,
+        digits.padStart(14, '0'),
+      ];
+
+      const valido = candidatos.find((candidate) => this.validarCnpj(candidate));
+      if (valido) return valido;
+    }
+
+    return digits;
+  }
+
+  private validarCnpj(cnpj: string): boolean {
+    const cnpjLimpo = (cnpj || '').replace(/\D/g, '');
+    if (cnpjLimpo.length !== 14) return false;
+    if (/^(\d)\1+$/.test(cnpjLimpo)) return false;
+
+    let tamanho = cnpjLimpo.length - 2;
+    let numeros = cnpjLimpo.substring(0, tamanho);
+    const digitos = cnpjLimpo.substring(tamanho);
+    let soma = 0;
+    let pos = tamanho - 7;
+
+    for (let i = tamanho; i >= 1; i--) {
+      soma += Number(numeros.charAt(tamanho - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+
+    let resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+    if (resultado !== Number(digitos.charAt(0))) return false;
+
+    tamanho += 1;
+    numeros = cnpjLimpo.substring(0, tamanho);
+    soma = 0;
+    pos = tamanho - 7;
+
+    for (let i = tamanho; i >= 1; i--) {
+      soma += Number(numeros.charAt(tamanho - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+
+    resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+    return resultado === Number(digitos.charAt(1));
+  }
+
   private removerSenhaLista(fornecedores: Fornecedor[]): FornecedorSemSenha[] {
     return fornecedores.map(f => this.removerSenha(f));
   }
@@ -712,7 +762,7 @@ export class FornecedoresService {
    * Consulta CNPJ na API e cria com dados completos. Se CNPJ não for encontrado, cria com dados mínimos.
    */
   async cadastroRapidoOrgao(cnpj: string, razao_social: string): Promise<Fornecedor> {
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    const cnpjLimpo = this.normalizarCnpjEntrada(cnpj);
     if (cnpjLimpo.length !== 14) {
       throw new BadRequestException('CNPJ deve ter 14 dígitos');
     }

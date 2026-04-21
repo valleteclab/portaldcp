@@ -605,6 +605,54 @@ export class PortalTransparenciaService {
   private readonly baseUrl = 'https://portaldatransparencia.cmlem.ba.gov.br/api';
   private readonly importacoesIndividuais = new Map<string, ImportacaoContratoJobStatus>();
 
+  private normalizarDocumentoFornecedor(documento: string): string {
+    const digits = (documento || '').replace(/\D/g, '');
+    if (digits.length === 14) return digits;
+
+    if (digits.length === 13) {
+      const candidatoFilial = `${digits.slice(0, 8)}0${digits.slice(8, 11)}${digits.slice(11)}`;
+      if (this.validarCnpj(candidatoFilial)) return candidatoFilial;
+
+      const candidatoPadLeft = digits.padStart(14, '0');
+      if (this.validarCnpj(candidatoPadLeft)) return candidatoPadLeft;
+    }
+
+    return digits;
+  }
+
+  private validarCnpj(cnpj: string): boolean {
+    const cnpjLimpo = (cnpj || '').replace(/\D/g, '');
+    if (cnpjLimpo.length !== 14) return false;
+    if (/^(\d)\1+$/.test(cnpjLimpo)) return false;
+
+    let tamanho = cnpjLimpo.length - 2;
+    let numeros = cnpjLimpo.substring(0, tamanho);
+    const digitos = cnpjLimpo.substring(tamanho);
+    let soma = 0;
+    let pos = tamanho - 7;
+
+    for (let i = tamanho; i >= 1; i--) {
+      soma += Number(numeros.charAt(tamanho - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+
+    let resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+    if (resultado !== Number(digitos.charAt(0))) return false;
+
+    tamanho += 1;
+    numeros = cnpjLimpo.substring(0, tamanho);
+    soma = 0;
+    pos = tamanho - 7;
+
+    for (let i = tamanho; i >= 1; i--) {
+      soma += Number(numeros.charAt(tamanho - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+
+    resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+    return resultado === Number(digitos.charAt(1));
+  }
+
   constructor(
     private readonly httpService: HttpService,
     private readonly contratosService: ContratosService,
@@ -1176,7 +1224,7 @@ export class PortalTransparenciaService {
     this.logger.log(`[importarContratoIndividual] Iniciando: ${contratoApi.contratoNumero}`);
     
     // Limpar CNPJ (remover formatação)
-    const cnpjLimpo = contratoApi.documento.replace(/\D/g, '');
+    const cnpjLimpo = this.normalizarDocumentoFornecedor(contratoApi.documento);
     this.logger.log(`[importarContratoIndividual] CNPJ limpo: ${cnpjLimpo}`);
     
     // Buscar ou criar fornecedor usando métodos existentes
