@@ -323,7 +323,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
   const [itensCronoCorrigir, setItensCronoCorrigir] = useState<{ id: string; numero_item: number; descricao: string; unidade_medida: string }[]>([])
   const [salvandoItensCrono, setSalvandoItensCrono] = useState(false)
   const [execFiscalForm, setExecFiscalForm] = useState({ vigencia_inicio: '', vigencia_fim: '', dias_executados: '', dias_restantes: '', meses_executados: '', dias_executados_extra: '', meses_restantes: '', dias_restantes_extra: '' })
-  const [execFiscalItens, setExecFiscalItens] = useState<{ item_cronograma_id: string; numero: number; descricao: string; unidade: string; no_periodo: string; ate_periodo: string; a_executar: string; fin_no_periodo: number; fin_ate_periodo: number; fin_a_executar: number; orig_descricao: string; orig_unidade: string }[]>([])
+  const [execFiscalItens, setExecFiscalItens] = useState<{ item_cronograma_id: string; numero: number; descricao: string; unidade: string; no_periodo: string; ate_periodo: string; a_executar: string; fin_no_periodo: number; fin_ate_periodo: number; fin_a_executar: number; fin_no_periodo_str: string; fin_ate_periodo_str: string; fin_a_executar_str: string; orig_descricao: string; orig_unidade: string }[]>([])
   const [carregandoExecFiscal, setCarregandoExecFiscal] = useState(false)
   const [salvandoExecFiscal, setSalvandoExecFiscal] = useState(false)
   const valorGlobalCronograma = Number(
@@ -497,6 +497,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             fin_no_periodo: ef.no_periodo ?? 0,
             fin_ate_periodo: ef.ate_periodo ?? 0,
             fin_a_executar: ef.a_executar ?? 0,
+            fin_no_periodo_str: ov?.fin_no_periodo != null ? String(ov.fin_no_periodo) : (ef.no_periodo != null ? String(ef.no_periodo) : ''),
+            fin_ate_periodo_str: ov?.fin_ate_periodo != null ? String(ov.fin_ate_periodo) : (ef.ate_periodo != null ? String(ef.ate_periodo) : ''),
+            fin_a_executar_str: ov?.fin_a_executar != null ? String(ov.fin_a_executar) : (ef.a_executar != null ? String(ef.a_executar) : ''),
             orig_descricao: origDescricao,
             orig_unidade: origUnidade,
           }
@@ -630,14 +633,22 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       if (execFiscalForm.dias_restantes_extra !== '') body.dias_restantes_extra = Number(execFiscalForm.dias_restantes_extra)
       // Sempre salva item_overrides (mesmo que vazio, para limpar overrides anteriores)
       if (execFiscalItens.length > 0) {
-        body.item_overrides = execFiscalItens.map(it => ({
-          item_cronograma_id: it.item_cronograma_id,
-          no_periodo: it.no_periodo !== '' ? Number(it.no_periodo) : undefined,
-          ate_periodo: it.ate_periodo !== '' ? Number(it.ate_periodo) : undefined,
-          a_executar: it.a_executar !== '' ? Number(it.a_executar) : undefined,
-          descricao: it.descricao !== it.orig_descricao ? it.descricao : undefined,
-          unidade: it.unidade !== it.orig_unidade ? it.unidade : undefined,
-        }))
+        body.item_overrides = execFiscalItens.map(it => {
+          const finNoPeriodo = it.fin_no_periodo_str !== '' ? parseFloat(it.fin_no_periodo_str.replace(',', '.')) : undefined
+          const finAtePeriodo = it.fin_ate_periodo_str !== '' ? parseFloat(it.fin_ate_periodo_str.replace(',', '.')) : undefined
+          const finAExecutar = it.fin_a_executar_str !== '' ? parseFloat(it.fin_a_executar_str.replace(',', '.')) : undefined
+          return {
+            item_cronograma_id: it.item_cronograma_id,
+            no_periodo: it.no_periodo !== '' ? Number(it.no_periodo) : undefined,
+            ate_periodo: it.ate_periodo !== '' ? Number(it.ate_periodo) : undefined,
+            a_executar: it.a_executar !== '' ? Number(it.a_executar) : undefined,
+            descricao: it.descricao !== it.orig_descricao ? it.descricao : undefined,
+            unidade: it.unidade !== it.orig_unidade ? it.unidade : undefined,
+            fin_no_periodo: finNoPeriodo != null && !isNaN(finNoPeriodo) ? finNoPeriodo : undefined,
+            fin_ate_periodo: finAtePeriodo != null && !isNaN(finAtePeriodo) ? finAtePeriodo : undefined,
+            fin_a_executar: finAExecutar != null && !isNaN(finAExecutar) ? finAExecutar : undefined,
+          }
+        })
       }
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/execucao-fiscal`, {
         method: 'PATCH', body: JSON.stringify(body),
@@ -3988,10 +3999,19 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                               <Input className="h-7 text-xs text-center w-14" value={it.a_executar}
                                 onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, a_executar: e.target.value } : r))} />
                             </td>
-                            {/* Execução Financeira — somente leitura */}
-                            <td className="px-2 py-2 text-xs text-right text-gray-500 whitespace-nowrap">{formatarMoeda(it.fin_no_periodo)}</td>
-                            <td className="px-2 py-2 text-xs text-right text-gray-500 whitespace-nowrap">{formatarMoeda(it.fin_ate_periodo)}</td>
-                            <td className="px-2 py-2 text-xs text-right text-gray-500 whitespace-nowrap">{formatarMoeda(it.fin_a_executar)}</td>
+                            {/* Execução Financeira — editável */}
+                            <td className="px-1 py-1">
+                              <Input className="h-7 text-xs text-right w-24" value={it.fin_no_periodo_str}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, fin_no_periodo_str: e.target.value } : r))} />
+                            </td>
+                            <td className="px-1 py-1">
+                              <Input className="h-7 text-xs text-right w-24" value={it.fin_ate_periodo_str}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, fin_ate_periodo_str: e.target.value } : r))} />
+                            </td>
+                            <td className="px-1 py-1">
+                              <Input className="h-7 text-xs text-right w-24" value={it.fin_a_executar_str}
+                                onChange={e => setExecFiscalItens(prev => prev.map((r, j) => j === i ? { ...r, fin_a_executar_str: e.target.value } : r))} />
+                            </td>
                           </tr>
                         ))}
                       </tbody>

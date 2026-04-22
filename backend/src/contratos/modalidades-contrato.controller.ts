@@ -615,7 +615,7 @@ export class ModalidadesContratoController {
       dias_executados_extra?: number;
       meses_restantes?: number;
       dias_restantes_extra?: number;
-      item_overrides?: Array<{ item_cronograma_id: string; no_periodo?: number; ate_periodo?: number; a_executar?: number; descricao?: string; unidade?: string }>;
+      item_overrides?: Array<{ item_cronograma_id: string; no_periodo?: number; ate_periodo?: number; a_executar?: number; descricao?: string; unidade?: string; fin_no_periodo?: number; fin_ate_periodo?: number; fin_a_executar?: number }>;
     },
     @Req() request: { user: JwtPayload },
   ) {
