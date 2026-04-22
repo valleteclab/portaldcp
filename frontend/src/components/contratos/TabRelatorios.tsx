@@ -60,7 +60,7 @@ const RELATORIOS = [
   {
     id: 'saldo_itens',
     titulo: 'Saldo de Itens do Contrato',
-    descricao: 'Quantidade inicial, empenhada, entregue e saldo disponível por item, com valor executado e saldo financeiro.',
+    descricao: 'Quantidade inicial, solicitada, entregue e saldo disponível por item, com valor executado e saldo financeiro.',
     icon: Package,
     badge: 'Disponível',
   },
@@ -91,7 +91,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
   /* ── totais ── */
   const totalValorContratado = itens.reduce((s, i) => s + Number(i.valor_total), 0)
   const totalExecutado = itens.reduce((s, i) => s + Number(i.quantidade_entregue) * Number(i.valor_unitario), 0)
-  const totalSaldoValor = totalValorContratado - totalExecutado
+  const totalSaldoValor = itens.reduce((s, i) => s + Number(i.saldo_disponivel) * Number(i.valor_unitario), 0)
   const percExecGeral = totalValorContratado > 0 ? (totalExecutado / totalValorContratado) * 100 : 0
 
   /* ── PDF ── */
@@ -142,12 +142,12 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
         startY: y,
         head: [[
           '#', 'Lote', 'Descrição', 'Unid.',
-          'Qtd. Inicial', 'Empenhada', 'Entregue', 'Saldo Qtd.',
+          'Qtd. Inicial', 'Solicitado', 'Entregue', 'Saldo Qtd.',
           '% Exec.', 'Valor Unit.', 'Valor Total', 'Valor Exec.', 'Saldo (R$)',
         ]],
         body: itens.map(item => {
           const valorExec = Number(item.quantidade_entregue) * Number(item.valor_unitario)
-          const saldoVal = Number(item.valor_total) - valorExec
+          const saldoVal = Number(item.saldo_disponivel) * Number(item.valor_unitario)
           const perc = Number(item.quantidade_contratada) > 0
             ? ((Number(item.quantidade_entregue) / Number(item.quantidade_contratada)) * 100).toFixed(1)
             : '0,0'
@@ -277,14 +277,14 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
   <thead>
     <tr>
       <th>#</th><th>Lote</th><th style="text-align:left">Descrição</th><th>Unid.</th>
-      <th>Qtd. Inicial</th><th>Empenhada</th><th>Entregue</th><th>Saldo Qtd.</th>
+      <th>Qtd. Inicial</th><th>Solicitado</th><th>Entregue</th><th>Saldo Qtd.</th>
       <th>% Exec.</th><th>Valor Unit.</th><th>Valor Total</th><th>Valor Exec.</th><th>Saldo (R$)</th>
     </tr>
   </thead>
   <tbody>
     ${itens.map(item => {
       const valorExec = Number(item.quantidade_entregue) * Number(item.valor_unitario)
-      const saldoVal = Number(item.valor_total) - valorExec
+      const saldoVal = Number(item.saldo_disponivel) * Number(item.valor_unitario)
       const perc = Number(item.quantidade_contratada) > 0
         ? (Number(item.quantidade_entregue) / Number(item.quantidade_contratada) * 100)
         : 0
@@ -511,7 +511,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
                     <th className="py-2.5 px-3 text-left font-semibold">Descrição</th>
                     <th className="py-2.5 px-2 text-center font-semibold">Unid.</th>
                     <th className="py-2.5 px-2 text-right font-semibold">Qtd. Inicial</th>
-                    <th className="py-2.5 px-2 text-right font-semibold text-yellow-200">Empenhada</th>
+                    <th className="py-2.5 px-2 text-right font-semibold text-yellow-200">Solicitado</th>
                     <th className="py-2.5 px-2 text-right font-semibold text-green-200">Entregue</th>
                     <th className="py-2.5 px-2 text-right font-semibold">Saldo Qtd.</th>
                     <th className="py-2.5 px-2 text-center font-semibold">% Exec.</th>
@@ -524,7 +524,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
                 <tbody>
                   {itens.map((item, idx) => {
                     const valorExec = Number(item.quantidade_entregue) * Number(item.valor_unitario)
-                    const saldoVal = Number(item.valor_total) - valorExec
+                    const saldoVal = Number(item.saldo_disponivel) * Number(item.valor_unitario)
                     const perc = Number(item.quantidade_contratada) > 0
                       ? (Number(item.quantidade_entregue) / Number(item.quantidade_contratada)) * 100
                       : 0
