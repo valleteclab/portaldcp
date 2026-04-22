@@ -3732,12 +3732,13 @@ export class MedicaoService {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
       });
-    } else if (medicoesAprovadas.length > 0) {
-      medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
 
     const dataCorteCiclo = this.obterDataCorteCicloAtual(contrato, medicaoAtual?.periodo_inicio);
     medicoesAprovadas = this.filtrarMedicoesPorCiclo(medicoesAprovadas, dataCorteCiclo);
+    if (!medicaoAtual && medicoesAprovadas.length > 0) {
+      medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
+    }
 
     const itensPorMedicao: Record<string, any[]> = {};
     for (const m of medicoesAprovadas) {
@@ -4073,6 +4074,9 @@ export class MedicaoService {
     // Buscar itens de cada medição aprovada
     const dataCorteCiclo = this.obterDataCorteCicloAtual(contrato, medicaoAtual?.periodo_inicio);
     medicoesAprovadas = this.filtrarMedicoesPorCiclo(medicoesAprovadas, dataCorteCiclo);
+    if (!medicaoAtual && medicoesAprovadas.length > 0) {
+      medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
+    }
 
     const itensPorMedicao: Record<string, ItemMedicao[]> = {};
     for (const m of medicoesAprovadas) {
