@@ -1874,18 +1874,31 @@ export class MedicaoService {
           if (override.a_executar != null) base.quantidade_a_executar = Number(override.a_executar);
           if (override.descricao) base.descricao = String(override.descricao);
           if (override.unidade) base.unidade = String(override.unidade);
+          // Aplicar overrides financeiros manuais (fin_*): sobrescrevem os valores calculados
+          if (override.fin_no_periodo != null) {
+            base.valor_no_periodo = Number(override.fin_no_periodo);
+          }
+          if (override.fin_ate_periodo != null) {
+            const finNo = override.fin_no_periodo != null ? Number(override.fin_no_periodo) : base.valor_no_periodo;
+            base.valor_acumulado_anterior = Number(override.fin_ate_periodo) - finNo;
+          }
+          if (override.fin_a_executar != null) {
+            base.valor_a_executar = Number(override.fin_a_executar);
+          }
         }
 
         return base;
       });
 
-    // Recalcular totais com base nos itens corrigidos (inclui migração por item)
+    // Recalcular totais a partir de valor_no_periodo e valor_acumulado_anterior (já com overrides
+    // financeiros aplicados). Usar valor_no_periodo em vez de qtd×vu garante que overrides fin_*
+    // sejam refletidos nos totais sem recalcular a partir das quantidades físicas.
     const totalNoCent = itensParaPdf.reduce(
-      (s, i) => s + produtoQuantidadeValorUnitarioCentavos(i.quantidade_no_periodo, i.valor_unitario),
+      (s, i) => s + Math.round((Number(i.valor_no_periodo) || 0) * 100),
       0,
     );
     const totalAteCent = itensParaPdf.reduce((s, i) => {
-      const cNo = produtoQuantidadeValorUnitarioCentavos(i.quantidade_no_periodo, i.valor_unitario);
+      const cNo = Math.round((Number(i.valor_no_periodo) || 0) * 100);
       const cAcum = Math.round((Number(i.valor_acumulado_anterior) || 0) * 100);
       return s + cNo + cAcum;
     }, 0);
