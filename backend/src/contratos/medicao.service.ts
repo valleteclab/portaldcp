@@ -493,6 +493,39 @@ export class MedicaoService {
    * Atualiza quantidade_medida do item do cronograma (ajuste de migração).
    * Apenas administradores. Usado para informar quantidade já consumida antes da implantação do sistema.
    */
+  private obterDataRenovacaoCiclo(contrato: Contrato): Date | null {
+    if (!contrato.data_renovacao_ciclo) return null;
+    const dataRenovacao = new Date(contrato.data_renovacao_ciclo);
+    return Number.isNaN(dataRenovacao.getTime()) ? null : dataRenovacao;
+  }
+
+  private obterDataCorteCicloAtual(
+    contrato: Contrato,
+    periodoInicioReferencia?: string | Date | null,
+  ): Date | null {
+    const dataRenovacao = this.obterDataRenovacaoCiclo(contrato);
+    if (!dataRenovacao) return null;
+    if (!periodoInicioReferencia) return dataRenovacao;
+
+    const periodoInicio = new Date(periodoInicioReferencia);
+    if (Number.isNaN(periodoInicio.getTime())) return dataRenovacao;
+    return periodoInicio >= dataRenovacao ? dataRenovacao : null;
+  }
+
+  private filtrarMedicoesPorCiclo<T extends { periodo_inicio?: string | Date | null }>(
+    medicoes: T[],
+    dataCorteCiclo: Date | null,
+  ): T[] {
+    if (!dataCorteCiclo) return medicoes;
+
+    return medicoes.filter((medicao) => {
+      if (!medicao?.periodo_inicio) return true;
+      const periodoInicio = new Date(medicao.periodo_inicio);
+      if (Number.isNaN(periodoInicio.getTime())) return true;
+      return periodoInicio >= dataCorteCiclo;
+    });
+  }
+
   async atualizarQuantidadeMedidaMigracao(
     contratoId: string,
     itemId: string,
@@ -625,10 +658,12 @@ export class MedicaoService {
     const medicoesAprovadas = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
     });
-    const valorAcumuladoAnterior = medicoesAprovadas.reduce(
+    const dataCorteCiclo = this.obterDataCorteCicloAtual(contrato, dados.periodo_inicio);
+    const medicoesAprovadasDoCiclo = this.filtrarMedicoesPorCiclo(medicoesAprovadas, dataCorteCiclo);
+    const valorAcumuladoAnterior = medicoesAprovadasDoCiclo.reduce(
       (sum, m) => sum + Number(m.valor_medido), 0
     );
-    const percentualAcumuladoAnterior = medicoesAprovadas.reduce(
+    const percentualAcumuladoAnterior = medicoesAprovadasDoCiclo.reduce(
       (sum, m) => sum + Number(m.percentual_fisico_medido), 0
     );
 
@@ -3686,7 +3721,7 @@ export class MedicaoService {
     
 
     // Buscar todas as medições aprovadas
-    const medicoesAprovadas = await this.medicaoRepository.find({
+    let medicoesAprovadas = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
@@ -3700,6 +3735,9 @@ export class MedicaoService {
     } else if (medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
+
+    const dataCorteCiclo = this.obterDataCorteCicloAtual(contrato, medicaoAtual?.periodo_inicio);
+    medicoesAprovadas = this.filtrarMedicoesPorCiclo(medicoesAprovadas, dataCorteCiclo);
 
     const itensPorMedicao: Record<string, any[]> = {};
     for (const m of medicoesAprovadas) {
@@ -4021,7 +4059,7 @@ export class MedicaoService {
     });
 
     // Buscar todas as medições aprovadas
-    const medicoesAprovadas = await this.medicaoRepository.find({
+    let medicoesAprovadas = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
@@ -4033,6 +4071,9 @@ export class MedicaoService {
     }
 
     // Buscar itens de cada medição aprovada
+    const dataCorteCiclo = this.obterDataCorteCicloAtual(contrato, medicaoAtual?.periodo_inicio);
+    medicoesAprovadas = this.filtrarMedicoesPorCiclo(medicoesAprovadas, dataCorteCiclo);
+
     const itensPorMedicao: Record<string, ItemMedicao[]> = {};
     for (const m of medicoesAprovadas) {
       itensPorMedicao[m.id] = await this.itemMedicaoRepository.find({
