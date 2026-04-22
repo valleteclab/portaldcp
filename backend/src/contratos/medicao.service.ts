@@ -1803,14 +1803,19 @@ export class MedicaoService {
         const centNo = produtoQuantidadeValorUnitarioCentavos(qtdMedida, vlrUnitario);
 
         // centSnap: valor snapshot salvo na submissão (ate_periodo_global já inclui a medição atual).
-        // null quando não há snapshot para este item (fallback para centMigracao).
-        const centSnap = efItem
+        // Apenas usado para medições APROVADAS: nesse estado ic.quantidade_medida já foi incrementado
+        // pela aprovação, logo usar centMigracao causaria dupla contagem.
+        // Para medições não aprovadas o snapshot pode estar desatualizado (outras medições foram
+        // aprovadas depois, incrementando ic.quantidade_medida), então sempre usamos centMigracao
+        // que reflete o estado atual de ic.quantidade_medida.
+        const centSnap = (efItem && (medicao as any).status === StatusMedicao.APROVADA)
           ? Math.round(truncarMoedaReais2Casas(Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0)) * 100)
           : null;
-        // centMigracao: fallback para itens sem snapshot, usando ic.quantidade_medida (dados de
-        // migração por admin + medições aprovadas acumuladas). Apenas usado quando centSnap é null,
-        // pois após a aprovação ic.quantidade_medida já inclui a medição atual e somar centNo
-        // causaria dupla contagem.
+        // centMigracao: caminho principal para medições não aprovadas; para medições aprovadas
+        // é o fallback quando não há snapshot. Usa ic.quantidade_medida (histórico acumulado de
+        // aprovações + migração) somado ao valor do período atual. Correto apenas enquanto a
+        // medição não está aprovada, pois nesse estado ic.quantidade_medida ainda NÃO inclui a
+        // quantidade atual (sem dupla contagem).
         const centMigracao = ic
           ? produtoQuantidadeValorUnitarioCentavos(Number(ic.quantidade_medida || 0), vlrUnitario) + centNo
           : centNo;
