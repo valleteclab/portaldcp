@@ -3835,6 +3835,20 @@ export class MedicaoService {
           };
         });
 
+    // Aplicar overrides financeiros manuais armazenados em execucao_fiscal.item_overrides (campos fin_*)
+    if (medicaoAtual) {
+      const efFiscal: any = (medicaoAtual as any).execucao_fiscal || {};
+      const finOverrides: any[] = efFiscal.item_overrides || [];
+      for (const ov of finOverrides) {
+        const item = resultado.find((r: any) => r.etapa_id === ov.item_cronograma_id);
+        if (item) {
+          if (ov.fin_no_periodo != null) item.no_periodo = Number(ov.fin_no_periodo);
+          if (ov.fin_ate_periodo != null) item.ate_periodo = Number(ov.fin_ate_periodo);
+          if (ov.fin_a_executar != null) item.a_executar = Number(ov.fin_a_executar);
+        }
+      }
+    }
+
     // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
     // Quando boletim_por_quantidade, não calcular execução em dias
     const vigenciaInicio = contrato.data_vigencia_inicio
@@ -4065,6 +4079,20 @@ export class MedicaoService {
         a_executar: truncarMoedaReais2Casas(aExecutar),
       };
     });
+
+    // Aplicar overrides financeiros manuais armazenados em execucao_fiscal.item_overrides (campos fin_*)
+    if (medicaoAtual) {
+      const efFiscal: any = (medicaoAtual as any).execucao_fiscal || {};
+      const finOverrides: any[] = efFiscal.item_overrides || [];
+      for (const ov of finOverrides) {
+        const item = resultado.find((r: any) => r.etapa_id === ov.item_cronograma_id);
+        if (item) {
+          if (ov.fin_no_periodo != null) item.no_periodo = Number(ov.fin_no_periodo);
+          if (ov.fin_ate_periodo != null) item.ate_periodo = Number(ov.fin_ate_periodo);
+          if (ov.fin_a_executar != null) item.a_executar = Number(ov.fin_a_executar);
+        }
+      }
+    }
 
     // Calcular execução temporal (fiscal) - usando ano comercial de 360 dias (12 meses x 30 dias)
     const vigenciaInicio = contrato.data_vigencia_inicio
