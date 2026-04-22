@@ -3493,12 +3493,12 @@ export class MedicaoService {
 
     const updates: Partial<Medicao> = {};
     if (dados.competencia !== undefined) updates.competencia = dados.competencia.trim() || null;
-    if (dados.periodo_inicio !== undefined) updates.periodo_inicio = new Date(dados.periodo_inicio) as any;
-    if (dados.periodo_fim !== undefined) updates.periodo_fim = new Date(dados.periodo_fim) as any;
+    if (dados.periodo_inicio !== undefined) updates.periodo_inicio = dados.periodo_inicio.slice(0, 10) as any;
+    if (dados.periodo_fim !== undefined) updates.periodo_fim = dados.periodo_fim.slice(0, 10) as any;
     if (dados.valor_medido !== undefined) updates.valor_medido = dados.valor_medido as any;
     if (dados.nota_fiscal_numero !== undefined) updates.nota_fiscal_numero = dados.nota_fiscal_numero || null;
     if (dados.nota_fiscal_valor !== undefined) updates.nota_fiscal_valor = dados.nota_fiscal_valor as any;
-    if (dados.nota_fiscal_data !== undefined) updates.nota_fiscal_data = dados.nota_fiscal_data ? new Date(dados.nota_fiscal_data) as any : null;
+    if (dados.nota_fiscal_data !== undefined) updates.nota_fiscal_data = dados.nota_fiscal_data ? dados.nota_fiscal_data.slice(0, 10) as any : null;
     // Limpa o PDF para forçar regeneração
     updates.boletim_pdf_url = null;
 
@@ -4905,8 +4905,8 @@ export class MedicaoService {
     const orgaoNome = contrato?.orgao?.nome || 'Órgão';
     const numContrato = contrato?.numero_contrato || '';
     const numMedicao = String(medicao.numero_medicao || '').padStart(3, '0');
-    const periodoInicio = medicao.periodo_inicio ? new Date(medicao.periodo_inicio).toLocaleDateString('pt-BR') : '';
-    const periodoFim   = medicao.periodo_fim    ? new Date(medicao.periodo_fim).toLocaleDateString('pt-BR')    : '';
+    const periodoInicio = medicao.periodo_inicio ? new Date(medicao.periodo_inicio).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '';
+    const periodoFim   = medicao.periodo_fim    ? new Date(medicao.periodo_fim).toLocaleDateString('pt-BR', { timeZone: 'UTC' })    : '';
 
     const mensagem =
       `Olá, *${fiscal.nome}*! 👋\n\n` +
