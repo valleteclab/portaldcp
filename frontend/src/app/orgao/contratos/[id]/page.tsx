@@ -63,6 +63,7 @@ import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
+import TabRelatorios from '@/components/contratos/TabRelatorios'
 
 interface TermoAditivo {
   id: string
@@ -316,7 +317,7 @@ const TIPOS_TERMO = [
   { value: 'SUSPENSAO', label: 'Suspensão' },
 ]
 
-const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos']
+const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos', 'relatorios']
 
 export default function DetalheContratoOrgaoPage() {
   const params = useParams()
@@ -1323,6 +1324,7 @@ export default function DetalheContratoOrgaoPage() {
           <TabsTrigger value="requisicoes">Requisições</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
           <TabsTrigger value="empenhos">Empenhos</TabsTrigger>
+          <TabsTrigger value="relatorios">Relatórios</TabsTrigger>
         </TabsList>
 
         {contrato.status === 'AGUARDANDO_LIBERACAO' && (
@@ -2576,6 +2578,10 @@ export default function DetalheContratoOrgaoPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="relatorios" className="space-y-6">
+          <TabRelatorios contrato={contrato} />
         </TabsContent>
       </Tabs>
 
