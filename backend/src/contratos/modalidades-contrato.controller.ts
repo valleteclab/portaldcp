@@ -163,7 +163,7 @@ export class ModalidadesContratoController {
   async atualizarQuantidadeMedidaMigracao(
     @Param('contratoId') contratoId: string,
     @Param('itemId') itemId: string,
-    @Body() body: { quantidade_medida: number },
+    @Body() body: { quantidade_medida: number; valor_migracao_reais?: number | null },
     @Req() request: { user: JwtPayload },
   ) {
     const isAdmin = request.user.type === UserType.ADMIN || request.user.role === 'ADMIN';
@@ -176,6 +176,7 @@ export class ModalidadesContratoController {
       contratoId,
       itemId,
       Number(body.quantidade_medida) || 0,
+      body.valor_migracao_reais != null ? Number(body.valor_migracao_reais) : null,
     );
   }
 

@@ -87,6 +87,7 @@ interface ItemCronograma {
   valor_mensal?: number
   valor_total: number
   quantidade_medida: number
+  valor_migracao_reais?: number | null
   observacoes?: string
 }
 
@@ -839,7 +840,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         observacoes: item.observacoes || '',
         quantidade_medida: String(Number(item.quantidade_medida) || 0),
         valor_medida_reais: item.unidade_medida === 'MENSAL' && Number(item.quantidade_medida) > 0
-          ? String(prodTrunc(Number(item.quantidade_medida), Number(item.valor_unitario)))
+          ? String(Number(item.valor_migracao_reais ?? prodTrunc(Number(item.quantidade_medida), Number(item.valor_unitario))))
           : '',
       })
     } else {
@@ -929,8 +930,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
         if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
         if (isAdmin) {
           const qtdMedida = parseFloat(formItemCronograma.quantidade_medida || '0') || 0
+          const valorMigracaoReais = isMensalUnit
+            ? (formItemCronograma.valor_medida_reais !== '' ? (parseFloat(formItemCronograma.valor_medida_reais) || 0) : null)
+            : null
           const resMig = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma/${editandoItemCronograma.id}/quantidade-migracao`, {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantidade_medida: qtdMedida }),
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantidade_medida: qtdMedida, valor_migracao_reais: valorMigracaoReais }),
           })
           if (!resMig.ok) { const e = await resMig.json().catch(() => ({})); alert(e.message || 'Erro ao salvar quantidade já utilizada'); return }
         }
@@ -2802,7 +2806,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                     const fromBackend = backendItem
                       ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0)
                       : 0
-                    const centMigracao = Math.floor(Math.round(Number(ic.quantidade_medida ?? 0) * 100) * Math.round(vm * 100) / 100)
+                    const centMigracao = Number(ic.valor_migracao_reais ?? 0) > 0
+                      ? Math.round(Number(ic.valor_migracao_reais) * 100)
+                      : Math.floor(Math.round(Number(ic.quantidade_medida ?? 0) * 100) * Math.round(vm * 100) / 100)
                     const centAprovadoAnterior = Math.round(Math.max(fromBackend, centMigracao / 100) * 100)
                     const centAte = centAprovadoAnterior + centItem
                     const centTotal = Math.round((Number(ic.valor_total) || 0) * 100)
@@ -2861,7 +2867,11 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                 }
                 const noPeriodo = valorMedicaoAtual || 0
                 if (usarItensCronograma) {
-                  const valorMigracao = itensBase.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0)
+                  const valorMigracao = itensBase.reduce((sum, ic) => sum + (
+                    ic.unidade_medida === 'MENSAL' && Number(ic.valor_migracao_reais ?? 0) > 0
+                      ? Number(ic.valor_migracao_reais ?? 0)
+                      : Number(ic.quantidade_medida) * Number(ic.valor_unitario)
+                  ), 0)
                   const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0)
                   const atePeriodo = valorMigracao + valorAprovadoAnterior + noPeriodo
                   const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0)

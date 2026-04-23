@@ -530,6 +530,7 @@ export class MedicaoService {
     contratoId: string,
     itemId: string,
     quantidadeMedida: number,
+    valorMigracaoReais?: number | null,
   ): Promise<ItemCronograma> {
     const item = await this.itemCronogramaRepository.findOne({
       where: { id: itemId, contrato_id: contratoId },
@@ -546,6 +547,10 @@ export class MedicaoService {
     }
 
     item.quantidade_medida = qtd;
+    item.valor_migracao_reais =
+      item.unidade_medida === 'MENSAL' && valorMigracaoReais != null && Number.isFinite(Number(valorMigracaoReais))
+        ? truncarMoedaReais2Casas(Number(valorMigracaoReais))
+        : null;
     return this.itemCronogramaRepository.save(item);
   }
 
@@ -1852,7 +1857,11 @@ export class MedicaoService {
         // medição não está aprovada, pois nesse estado ic.quantidade_medida ainda NÃO inclui a
         // quantidade atual (sem dupla contagem).
         const centMigracao = ic
-          ? produtoQuantidadeValorUnitarioCentavos(Number(ic.quantidade_medida || 0), vlrUnitario) + centNo
+          ? (
+              (ic.unidade_medida === 'MENSAL' && Number(ic.valor_migracao_reais || 0) > 0)
+                ? Math.round(Number(ic.valor_migracao_reais || 0) * 100) + centNo
+                : produtoQuantidadeValorUnitarioCentavos(Number(ic.quantidade_medida || 0), vlrUnitario) + centNo
+            )
           : centNo;
         const centAte = centSnap !== null ? centSnap : Math.max(centNo, centMigracao);
         const centAcum = centAte - centNo;
@@ -2488,9 +2497,13 @@ export class MedicaoService {
     // Migração por item: irrelevante no ciclo renovado (slate limpa); usado apenas sem renovação
     let valorMigracaoPorItem = 0;
     if (usarItens && !dataRenovacao) {
-      const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
-      const somaIcMigracao = itensCronograma.reduce(
-        (sum, ic) => sum + Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0),
+    const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
+    const somaIcMigracao = itensCronograma.reduce(
+        (sum, ic) => sum + (
+          ic.unidade_medida === 'MENSAL' && Number(ic.valor_migracao_reais || 0) > 0
+            ? Number(ic.valor_migracao_reais || 0)
+            : Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0)
+        ),
         0,
       );
       // Only count the portion NOT already in valorMedidoTotal (approved measurements)

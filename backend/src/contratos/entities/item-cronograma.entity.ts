@@ -70,6 +70,10 @@ export class ItemCronograma {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
   quantidade_medida: number;
 
+  /** Valor exato do ajuste de migração para itens mensais, preservando medições parciais em R$. */
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, default: null })
+  valor_migracao_reais: number | null;
+
   @Column({ type: 'text', nullable: true })
   observacoes: string;
 
