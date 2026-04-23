@@ -2429,11 +2429,15 @@ export class MedicaoService {
 
         const efItem = efItemMap.get(item.item_cronograma_id || '');
         const ic = icMigracaoMap.get(item.item_cronograma_id || '');
+        const valorNoPeriodoArmazenado = Number(item.valor_medido || 0);
         // NO PERÍODO e demais q×vu: centavos inteiros (ex.: 2831,40×6,94 → 19.649,91; float dava ,90).
-        const centNo = produtoQuantidadeValorUnitarioCentavos(
-          qtdMedida,
-          vlrUnitario,
-        );
+        const centNo =
+          Number.isFinite(valorNoPeriodoArmazenado) &&
+          valorNoPeriodoArmazenado > 0
+            ? Math.round(
+                truncarMoedaReais2Casas(valorNoPeriodoArmazenado) * 100,
+              )
+            : produtoQuantidadeValorUnitarioCentavos(qtdMedida, vlrUnitario);
 
         // centSnap: valor snapshot salvo na submissão (ate_periodo_global já inclui a medição atual).
         // Apenas usado para medições APROVADAS: nesse estado ic.quantidade_medida já foi incrementado
