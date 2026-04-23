@@ -241,9 +241,17 @@ function calcularDiasMesComercial(data1: string, data2: string, _dataFimContrato
   return Math.max(0, Math.min(dias, 360))
 }
 
-function calcularExecucaoFiscal(periodoInicio: string, periodoFim: string, vigenciaInicio: string, vigenciaFim: string) {
+function calcularExecucaoFiscal(
+  periodoInicio: string,
+  periodoFim: string,
+  vigenciaInicio: string,
+  vigenciaFim: string,
+  primeiraMedicaoCiclo = false,
+) {
   const diasPeriodo = calcularDiasMesComercial(periodoInicio, periodoFim, vigenciaFim)
-  const diasAte = calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim)
+  const diasAte = primeiraMedicaoCiclo
+    ? diasPeriodo
+    : calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim)
   const diasRestantes = Math.max(0, 360 - diasAte)
   const fmt = (d: number) => {
     const m = Math.floor(d / 30); const r = d % 30
@@ -982,6 +990,20 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
     const ic = itensCronograma.find(c => c.id === (primeiro as any).item_cronograma_id)
     return ic?.unidade_medida === 'MENSAL' ? 'mensal' : 'quantidade'
   })()
+
+  const existeMedicaoAnteriorNoCiclo = (periodoInicio?: string) => {
+    if (!periodoInicio) return false
+    const inicioAtual = new Date(periodoInicio)
+    if (Number.isNaN(inicioAtual.getTime())) return false
+
+    return medicoes.some((m) => {
+      if (!m?.periodo_inicio) return false
+      const inicioMedicao = new Date(m.periodo_inicio)
+      if (Number.isNaN(inicioMedicao.getTime())) return false
+      if (dataRenovacaoCiclo && inicioMedicao < dataRenovacaoCiclo) return false
+      return inicioMedicao < inicioAtual
+    })
+  }
 
   const abrirModalMedicao = () => {
     setFormMedicao({
@@ -2762,6 +2784,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
             )}
 
             {formMedicao.periodo_inicio && formMedicao.periodo_fim && contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim && (() => {
+              const primeiraMedicaoCiclo = !existeMedicaoAnteriorNoCiclo(formMedicao.periodo_inicio)
               const valorMedicaoAtual = isServicoContinuado
                 ? (parseFloat(formMedicao.valor_medido) || 0)
                 : usarItensCronograma
@@ -2942,9 +2965,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         )
                       })() : (
                         <>
-                          <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).noPeriodo}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).atePeriodo}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim).aExecutar}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo).noPeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo).atePeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo).aExecutar}</span></div>
                         </>
                       )}
                     </div>

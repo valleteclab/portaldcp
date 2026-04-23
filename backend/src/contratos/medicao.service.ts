@@ -3752,6 +3752,7 @@ export class MedicaoService {
     if (!medicaoAtual && medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
+    const possuiMedicaoAnteriorNoCiclo = !!medicaoAtual && medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id);
 
     const itensPorMedicao: Record<string, any[]> = {};
     for (const m of medicoesAprovadas) {
@@ -3976,7 +3977,10 @@ export class MedicaoService {
         return Math.min(dias, 360);
       };
       
-      const diasExecutados = calcularDiasComercial(vigenciaInicio, dataReferencia);
+      const inicioAcumulado = medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
+        ? new Date(medicaoAtual.periodo_inicio)
+        : vigenciaInicio;
+      const diasExecutados = calcularDiasComercial(inicioAcumulado, dataReferencia);
       const diasRestantes = Math.max(0, totalDias - diasExecutados);
       
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
@@ -4090,6 +4094,7 @@ export class MedicaoService {
     if (!medicaoAtual && medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
+    const possuiMedicaoAnteriorNoCiclo = !!medicaoAtual && medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id);
 
     const itensPorMedicao: Record<string, ItemMedicao[]> = {};
     for (const m of medicoesAprovadas) {
@@ -4197,13 +4202,17 @@ export class MedicaoService {
       // Calcular dias executados usando ano comercial com UTC para evitar timezone issues
       let diasExecutados = 0;
       
-      if (dataReferencia >= vigenciaInicio) {
+      const inicioAcumulado = medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
+        ? new Date(medicaoAtual.periodo_inicio)
+        : vigenciaInicio;
+
+      if (dataReferencia >= inicioAcumulado) {
         const dataFimExecucao = dataReferencia > vigenciaFim ? vigenciaFim : dataReferencia;
         
         // Usar métodos UTC para evitar problemas de timezone
-        const anoInicio = vigenciaInicio.getUTCFullYear();
-        const mesInicio = vigenciaInicio.getUTCMonth();
-        const diaInicio = vigenciaInicio.getUTCDate();
+        const anoInicio = inicioAcumulado.getUTCFullYear();
+        const mesInicio = inicioAcumulado.getUTCMonth();
+        const diaInicio = inicioAcumulado.getUTCDate();
         
         const anoFim = dataFimExecucao.getUTCFullYear();
         const mesFim = dataFimExecucao.getUTCMonth();
