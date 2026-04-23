@@ -247,10 +247,11 @@ function calcularExecucaoFiscal(
   vigenciaInicio: string,
   vigenciaFim: string,
   primeiraMedicaoCiclo = false,
+  diasMigracaoAnterior = 0,
 ) {
   const diasPeriodo = calcularDiasMesComercial(periodoInicio, periodoFim, vigenciaFim)
   const diasAte = primeiraMedicaoCiclo
-    ? diasPeriodo
+    ? Math.min(360, diasPeriodo + Math.max(0, diasMigracaoAnterior))
     : calcularDiasMesComercial(vigenciaInicio, periodoFim, vigenciaFim)
   const diasRestantes = Math.max(0, 360 - diasAte)
   const fmt = (d: number) => {
@@ -1003,6 +1004,21 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
       if (dataRenovacaoCiclo && inicioMedicao < dataRenovacaoCiclo) return false
       return inicioMedicao < inicioAtual
     })
+  }
+
+  const calcularDiasMigracaoTempo = () => {
+    const itensMensais = itensCronograma.filter((ic) => ic.unidade_medida === 'MENSAL')
+    if (itensMensais.length === 0) return 0
+
+    return itensMensais.reduce((maxDias, ic) => {
+      const valorUnit = Number(ic.valor_unitario) || Number(ic.valor_mensal) || 0
+      const mesesMigracao = Number(ic.quantidade_medida || 0)
+      const mesesPeloValor = Number(ic.valor_migracao_reais ?? 0) > 0 && valorUnit > 0
+        ? Number(ic.valor_migracao_reais) / valorUnit
+        : mesesMigracao
+      const dias = Math.max(0, Math.round(mesesPeloValor * 30))
+      return Math.max(maxDias, dias)
+    }, 0)
   }
 
   const abrirModalMedicao = () => {
@@ -2785,6 +2801,7 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
 
             {formMedicao.periodo_inicio && formMedicao.periodo_fim && contratoProp?.data_vigencia_inicio && contratoProp?.data_vigencia_fim && (() => {
               const primeiraMedicaoCiclo = !existeMedicaoAnteriorNoCiclo(formMedicao.periodo_inicio)
+              const diasMigracaoTempo = calcularDiasMigracaoTempo()
               const valorMedicaoAtual = isServicoContinuado
                 ? (parseFloat(formMedicao.valor_medido) || 0)
                 : usarItensCronograma
@@ -2965,9 +2982,9 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                         )
                       })() : (
                         <>
-                          <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo).noPeriodo}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo).atePeriodo}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo).aExecutar}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">No Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo, diasMigracaoTempo).noPeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Até o Período:</span><span className="font-medium text-blue-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo, diasMigracaoTempo).atePeriodo}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">A Executar:</span><span className="font-medium text-green-700">{calcularExecucaoFiscal(formMedicao.periodo_inicio, formMedicao.periodo_fim, contratoProp.data_vigencia_inicio, contratoProp.data_vigencia_fim, primeiraMedicaoCiclo, diasMigracaoTempo).aExecutar}</span></div>
                         </>
                       )}
                     </div>

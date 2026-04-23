@@ -3980,7 +3980,20 @@ export class MedicaoService {
       const inicioAcumulado = medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
         ? new Date(medicaoAtual.periodo_inicio)
         : vigenciaInicio;
-      const diasExecutados = calcularDiasComercial(inicioAcumulado, dataReferencia);
+      const diasMigracaoTempo = !possuiMedicaoAnteriorNoCiclo
+        ? itensCronograma
+            .filter((item) => item.unidade_medida === 'MENSAL')
+            .reduce((maxDias, item) => {
+              const valorUnit = Number(item.valor_unitario) || Number(item.valor_mensal) || 0;
+              const mesesMigracao = Number(item.quantidade_medida || 0);
+              const mesesPeloValor =
+                Number(item.valor_migracao_reais || 0) > 0 && valorUnit > 0
+                  ? Number(item.valor_migracao_reais || 0) / valorUnit
+                  : mesesMigracao;
+              return Math.max(maxDias, Math.max(0, Math.round(mesesPeloValor * 30)));
+            }, 0)
+        : 0;
+      const diasExecutados = Math.min(360, calcularDiasComercial(inicioAcumulado, dataReferencia) + diasMigracaoTempo);
       const diasRestantes = Math.max(0, totalDias - diasExecutados);
       
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
