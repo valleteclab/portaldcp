@@ -2671,7 +2671,10 @@ export class MedicaoService {
       nota_fiscal_valor: medicao.nota_fiscal_valor
         ? Number(medicao.nota_fiscal_valor)
         : undefined,
-      execucao_fiscal: medicao.execucao_fiscal || undefined,
+      execucao_fiscal:
+        execucaoFinanceiraAtual?.execucao_fiscal ||
+        medicao.execucao_fiscal ||
+        undefined,
       // Usa quantidade se o contrato tem a flag OU se qualquer item tem unidade não-MENSAL
       // (espelha a lógica do frontend: tipoMedicaoAtual = 'quantidade' quando unidade != 'MENSAL')
       execucao_fiscal_por_quantidade:
@@ -5195,7 +5198,23 @@ export class MedicaoService {
           const quantidadeTotal = quantidadeFisicaTotalContratada(item);
           const unidadeMedida = (item as any).unidade_medida || 'UNIDADE';
 
-          const obterValorBrutoItemMedicao = (itemMedicao: any): number => {
+          const obterValorBrutoItemMedicao = (
+            itemMedicao: any,
+            medicaoReferencia?: Medicao | null,
+          ): number => {
+            const valorMensalCorrigido = this.calcularValorMensalProporcionalExato(
+              itemMedicao?.itemCronograma,
+              Number(itemMedicao?.quantidade_medida || 0),
+              medicaoReferencia?.periodo_inicio,
+              medicaoReferencia?.periodo_fim,
+            );
+            if (
+              valorMensalCorrigido != null &&
+              Number.isFinite(valorMensalCorrigido) &&
+              valorMensalCorrigido > 0
+            ) {
+              return valorMensalCorrigido;
+            }
             // Prioriza o valor_medido armazenado no item (calculado na criação com precisão correta).
             // Isso garante que execucao_financeira.no_periodo seja idêntico ao valor_medido da medição,
             // independente de arredondamentos de quantidade_medida (ex.: itens MENSAL com fator 11/30).
@@ -5228,7 +5247,7 @@ export class MedicaoService {
             );
             if (itemMedicao) {
               const valorHistorico = Math.round(
-                obterValorBrutoItemMedicao(itemMedicao) * 100,
+                obterValorBrutoItemMedicao(itemMedicao, m) * 100,
               );
               centAprovadoHistorico += valorHistorico;
               quantidadeAprovadaHistorica +=
@@ -5237,7 +5256,7 @@ export class MedicaoService {
             if (medicaoAtual && m.id === medicaoAtual.id) continue;
             if (itemMedicao) {
               centAnterior += Math.round(
-                obterValorBrutoItemMedicao(itemMedicao) * 100,
+                obterValorBrutoItemMedicao(itemMedicao, m) * 100,
               );
             }
           }
@@ -5254,7 +5273,7 @@ export class MedicaoService {
             );
             if (itemMedicao) {
               centNoPeriodo = Math.round(
-                obterValorBrutoItemMedicao(itemMedicao) * 100,
+                obterValorBrutoItemMedicao(itemMedicao, medicaoAtual) * 100,
               );
               quantidadeNoPeriodo = obterQuantidadeItemMedicao(itemMedicao);
             }
