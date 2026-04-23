@@ -2494,26 +2494,39 @@ export class MedicaoService {
       mapa.forEach((qtd, itemId) => { itensComprometidos[itemId] = qtd; });
     }
 
-    // Migração por item: irrelevante no ciclo renovado (slate limpa); usado apenas sem renovação
     let valorMigracaoPorItem = 0;
-    if (usarItens && !dataRenovacao) {
-    const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
-    const somaIcMigracao = itensCronograma.reduce(
-        (sum, ic) => sum + (
-          ic.unidade_medida === 'MENSAL' && Number(ic.valor_migracao_reais || 0) > 0
-            ? Number(ic.valor_migracao_reais || 0)
-            : Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0)
-        ),
-        0,
-      );
-      // Only count the portion NOT already in valorMedidoTotal (approved measurements)
-      valorMigracaoPorItem = Math.max(0, somaIcMigracao - valorMedidoTotal);
+    if (usarItens) {
+      const itensCronograma = await this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } });
+      const medicaoIdsAprovadas = medicoesAprovadas.map((m) => m.id);
+      const valoresAprovadosPorItem = new Map<string, number>();
+
+      if (medicaoIdsAprovadas.length > 0) {
+        const itensAprovados = await this.itemMedicaoItemRepository.find({
+          where: { medicao_id: In(medicaoIdsAprovadas) },
+          select: ['item_cronograma_id', 'valor_medido'],
+        } as any);
+        for (const item of itensAprovados) {
+          const atual = valoresAprovadosPorItem.get(item.item_cronograma_id) || 0;
+          valoresAprovadosPorItem.set(item.item_cronograma_id, atual + Number(item.valor_medido || 0));
+        }
+      }
+
+      valorMigracaoPorItem = itensCronograma.reduce((sum, ic) => {
+        if (ic.unidade_medida === 'MENSAL' && Number(ic.valor_migracao_reais || 0) > 0) {
+          return sum + Number(ic.valor_migracao_reais || 0);
+        }
+
+        const valorAcumuladoItem = Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0);
+        const valorAprovadoItem = valoresAprovadosPorItem.get(ic.id) || 0;
+        return sum + Math.max(0, valorAcumuladoItem - valorAprovadoItem);
+      }, 0);
     }
 
-    // Saldo: ciclo renovado usa valor_ciclo como base (se definido), ignora exec_anterior e migração
+    const valorMedidoTotalExibicao = valorMedidoTotal + valorMigracaoPorItem;
+    // Saldo: ciclo renovado usa valor_ciclo como base (se definido), mas deve considerar migração por item
     const valorGlobalEfetivo = (dataRenovacao && valorCiclo) ? valorCiclo : valorGlobal;
     const saldoDisponivel = dataRenovacao
-      ? Math.max(0, valorGlobalEfetivo - valorComprometido)
+      ? Math.max(0, valorGlobalEfetivo - valorComprometido - valorMigracaoPorItem)
       : Math.max(0, valorGlobal - valorExecAnterior - valorComprometido - valorMigracaoPorItem);
 
     return {
@@ -2523,7 +2536,7 @@ export class MedicaoService {
       valor_global_contrato: valorGlobal,
       valor_ciclo: valorCiclo,
       valor_executado_anterior: dataRenovacao ? 0 : valorExecAnterior,
-      valor_medido_total: valorMedidoTotal,
+      valor_medido_total: valorMedidoTotalExibicao,
       valor_comprometido_total: valorComprometido,
       valor_em_analise: valorEmAnalise,
       saldo_disponivel: saldoDisponivel,
