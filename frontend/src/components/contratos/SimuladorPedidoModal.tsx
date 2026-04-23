@@ -53,6 +53,12 @@ function fmtNum(valor: number | string) {
   return (n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4, minimumFractionDigits: 0 })
 }
 
+const UNIDADES_METRO = ['METRO', 'M', 'ML', 'M²', 'M2', 'M³', 'M3']
+
+function isPorMetro(unidade: string) {
+  return UNIDADES_METRO.includes((unidade ?? '').toUpperCase().trim())
+}
+
 function gerarSugestao(items: ItemContrato[], saldoVirtual: number): Record<string, Selecao> {
   const sorted = [...items].sort(
     (a, b) => Number(b.saldo_disponivel) - Number(a.saldo_disponivel),
@@ -67,7 +73,10 @@ function gerarSugestao(items: ItemContrato[], saldoVirtual: number): Record<stri
       result[item.id] = { checked: false, qty: 0 }
       continue
     }
-    const qty = Math.min(Math.floor(remaining / preco), max)
+    // Itens por metro permitem decimal (2 casas); demais são inteiros
+    const qty = isPorMetro(item.unidade_medida)
+      ? Math.min(Math.round((remaining / preco) * 100) / 100, max)
+      : Math.min(Math.floor(remaining / preco), max)
     result[item.id] = { checked: qty > 0, qty }
     remaining -= qty * preco
   }
@@ -114,8 +123,9 @@ export default function SimuladorPedidoModal({
     setSelections(prev => ({ ...prev, [id]: { ...prev[id], checked } }))
   }
 
-  function setQty(id: string, raw: string) {
-    const qty = Math.max(0, Number(raw) || 0)
+  function setQty(id: string, raw: string, porMetro: boolean) {
+    const n = Number(raw) || 0
+    const qty = porMetro ? Math.max(0, Math.round(n * 100) / 100) : Math.max(0, Math.floor(n))
     setSelections(prev => ({ ...prev, [id]: { ...prev[id], qty } }))
   }
 
@@ -151,7 +161,7 @@ export default function SimuladorPedidoModal({
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
-<title>Simulação de Pedido – Empenho ${empenho.numero_empenho}</title>
+<title>Simulação de Pedido – Empenho ${empenhoLabel}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 20px; }
   h1 { font-size: 14px; text-align: center; color: #1351B4; margin-bottom: 4px; text-transform: uppercase; }
@@ -169,7 +179,7 @@ export default function SimuladorPedidoModal({
 <body>
 <h1>Simulação de Pedido</h1>
 <div class="sub">
-  Contrato nº ${contratoNumero} &nbsp;|&nbsp; Empenho: ${empenho.numero_empenho}
+  Contrato nº ${contratoNumero} &nbsp;|&nbsp; Empenho: ${empenhoLabel}
   &nbsp;|&nbsp; Saldo disponível: ${fmtMoeda(saldoVirtual)}
 </div>
 <table>
@@ -201,17 +211,21 @@ export default function SimuladorPedidoModal({
   }
 
   const percentual = saldoVirtual > 0 ? Math.min(100, (totalSelecionado / saldoVirtual) * 100) : 0
+  const empenhoLabel = empenho.ano_exercicio
+    ? `${empenho.numero_empenho}/${empenho.ano_exercicio}`
+    : empenho.numero_empenho
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            Simulador de Pedido · Empenho Nº {empenho.numero_empenho}
+            Simulador de Pedido · Empenho Nº {empenhoLabel}
           </DialogTitle>
           <DialogDescription>
             Saldo disponível: <span className="font-semibold text-blue-700">{fmtMoeda(saldoVirtual)}</span>
             {empenho.ano_exercicio ? ` · Exercício ${empenho.ano_exercicio}` : ''}
+            {' · '}<span className="text-gray-500">Empenho {empenhoLabel}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -247,6 +261,7 @@ export default function SimuladorPedidoModal({
               </thead>
               <tbody>
                 {items.map(item => {
+                  const porMetro = isPorMetro(item.unidade_medida)
                   const sel = selections[item.id] ?? { checked: false, qty: 0 }
                   const subtotal = sel.checked && sel.qty > 0
                     ? sel.qty * Number(item.valor_unitario)
@@ -273,9 +288,10 @@ export default function SimuladorPedidoModal({
                         <Input
                           type="number"
                           min={0}
+                          step={porMetro ? 0.01 : 1}
                           max={Number(item.saldo_disponivel)}
                           value={sel.qty || ''}
-                          onChange={e => setQty(item.id, e.target.value)}
+                          onChange={e => setQty(item.id, e.target.value, porMetro)}
                           className={`h-7 text-right text-xs w-full ${exceedsItem ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
                           disabled={!sel.checked}
                         />
