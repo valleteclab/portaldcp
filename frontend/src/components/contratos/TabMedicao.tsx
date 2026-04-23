@@ -3769,8 +3769,8 @@ export default function TabMedicao({ contratoId, valorGlobal, modalidade, onAtes
                             <TableCell className="text-sm break-words whitespace-normal min-w-[220px]">{item.descricao}</TableCell>
                             <TableCell className="text-sm text-right">{formatarMoeda(item.valor_previsto)}</TableCell>
                             <TableCell className="text-sm text-right font-medium text-blue-700 bg-blue-50/50">{formatarMoeda(item.no_periodo)}</TableCell>
-                            <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo)}</TableCell>
-                            <TableCell className="text-sm text-right font-medium text-green-700 bg-green-50/50">{formatarMoeda(item.a_executar)}</TableCell>
+                            <TableCell className="text-sm text-right">{formatarMoeda(item.ate_periodo_global ?? item.ate_periodo)}</TableCell>
+                            <TableCell className="text-sm text-right font-medium text-green-700 bg-green-50/50">{formatarMoeda(item.a_executar_global ?? item.a_executar)}</TableCell>
                           </TableRow>
                         ))}
                         <TableRow className="bg-gray-50 font-bold">

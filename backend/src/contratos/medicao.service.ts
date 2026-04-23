@@ -3823,10 +3823,17 @@ export class MedicaoService {
 
           // Acumular em centavos para evitar drift de ponto flutuante ao somar medições
           let centAnterior = 0;
+          let centAprovadoHistorico = 0;
+          let quantidadeAprovadaHistorica = 0;
           for (const m of medicoesAprovadas) {
-            if (medicaoAtual && m.id === medicaoAtual.id) continue;
             const itensM = itensPorMedicao[m.id] || [];
             const itemMedicao = itensM.find(i => (i as any).item_cronograma_id === item.id);
+            if (itemMedicao) {
+              const valorHistorico = Math.round(obterValorBrutoItemMedicao(itemMedicao) * 100);
+              centAprovadoHistorico += valorHistorico;
+              quantidadeAprovadaHistorica += obterQuantidadeItemMedicao(itemMedicao);
+            }
+            if (medicaoAtual && m.id === medicaoAtual.id) continue;
             if (itemMedicao) {
               centAnterior += Math.round(obterValorBrutoItemMedicao(itemMedicao) * 100);
             }
@@ -3845,11 +3852,26 @@ export class MedicaoService {
             }
           }
 
-          const centAtePeriodo = centAnterior + centNoPeriodo;
+          const centMigracao = unidadeMedida === 'MENSAL' && Number((item as any).valor_migracao_reais || 0) > 0
+            ? Math.round(Number((item as any).valor_migracao_reais || 0) * 100)
+            : Math.max(
+                0,
+                produtoQuantidadeValorUnitarioCentavos(Number(item.quantidade_medida) || 0, Number(item.valor_unitario)) - centAprovadoHistorico,
+              );
+
+          const quantidadeMigracao = unidadeMedida === 'MENSAL' && Number((item as any).valor_migracao_reais || 0) > 0
+            ? (
+                (Number(item.valor_unitario) || 0) > 0
+                  ? Number((item as any).valor_migracao_reais || 0) / Number(item.valor_unitario)
+                  : 0
+              )
+            : Math.max(0, (Number(item.quantidade_medida) || 0) - quantidadeAprovadaHistorica);
+
+          const centAtePeriodo = centAnterior + centNoPeriodo + centMigracao;
           const noPeriodo = centavosParaReaisTrunc2(centNoPeriodo);
           const atePeriodo = centavosParaReaisTrunc2(centAtePeriodo);
           const quantidadeMedidaItem = Number(item.quantidade_medida) || 0;
-          const quantidadeAtePeriodo = quantidadeMedidaItem + quantidadeNoPeriodo;
+          const quantidadeAtePeriodo = quantidadeMigracao + quantidadeAprovadaHistorica - (medicaoAtual?.status === StatusMedicao.APROVADA ? quantidadeNoPeriodo : 0) + quantidadeNoPeriodo;
           const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
           // Para não-MENSAL: computa via qtd×vu (evita floor(total)-floor(ate) ≠ floor(total-ate))
           // Para MENSAL: usa aritmética monetária pois qtd é fracionária (meses proporcionais)
