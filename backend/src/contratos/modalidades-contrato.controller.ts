@@ -38,6 +38,7 @@ import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servi
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { Medicao } from './entities/medicao.entity';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -1209,6 +1210,7 @@ export class ModalidadesContratoController {
       where: { id: contratoId },
       select: [
         'id',
+        'orgao_id',
         'numero_contrato',
         'ano',
         'objeto',
@@ -1217,12 +1219,16 @@ export class ModalidadesContratoController {
         'data_vigencia_inicio',
         'data_vigencia_fim',
       ],
-      relations: ['orgao'],
     });
 
     if (!contrato) {
-      throw new NotFoundException('Contrato nÃƒÂ£o encontrado');
+      throw new NotFoundException('Contrato nao encontrado');
     }
+
+    const orgao = await this.contratoRepository.manager.getRepository(Orgao).findOne({
+      where: { id: contrato.orgao_id },
+      select: ['nome', 'cnpj', 'cidade', 'uf'],
+    });
 
     const [requisicoes, ordensFornecimento, ordensServico] = await Promise.all([
       this.requisicaoRepository.find({
@@ -1326,12 +1332,12 @@ export class ModalidadesContratoController {
         data_vigencia_fim: contrato.data_vigencia_fim,
         fornecedor_razao_social: contrato.fornecedor_razao_social,
         fornecedor_cnpj: contrato.fornecedor_cnpj,
-        orgao: contrato.orgao
+        orgao
           ? {
-              nome: contrato.orgao.nome,
-              cnpj: contrato.orgao.cnpj,
-              cidade: contrato.orgao.cidade,
-              uf: contrato.orgao.uf,
+              nome: orgao.nome,
+              cnpj: orgao.cnpj,
+              cidade: orgao.cidade,
+              uf: orgao.uf,
             }
           : null,
       },

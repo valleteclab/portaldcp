@@ -103,14 +103,14 @@ const RELATORIOS = [
   {
     id: 'saldo_itens',
     titulo: 'Saldo de Itens do Contrato',
-    descricao: 'Quantidade inicial, solicitada, entregue e saldo disponÃ­vel por item, com valor executado e saldo financeiro.',
+    descricao: 'Quantidade inicial, solicitada, entregue e saldo disponível por item, com valor executado e saldo financeiro.',
     icon: Package,
-    badge: 'DisponÃ­vel',
+    badge: 'Disponível',
   },
   {
     id: 'pedidos',
-    titulo: 'RelatÃ³rio de Pedidos',
-    descricao: 'Ordens de Fornecimento, RequisiÃ§Ãµes e Ordens de ServiÃ§o com os empenhos vinculados em cada documento.',
+    titulo: 'Relatório de Pedidos',
+    descricao: 'Ordens de Fornecimento, Requisições e Ordens de Serviço com os empenhos vinculados em cada documento.',
     icon: ClipboardList,
     badge: 'Novo',
   },
@@ -186,15 +186,25 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       setCarregandoPedidos(true)
       setErroPedidos(null)
       try {
-        const response = await authFetch(`${API_URL}/api/contratos/${contrato.id}/relatorio-pedidos`)
+        const controller = new AbortController()
+        const timeoutId = window.setTimeout(() => controller.abort(), 15000)
+        const response = await authFetch(`${API_URL}/api/contratos/${contrato.id}/relatorio-pedidos`, {
+          signal: controller.signal,
+        })
+        window.clearTimeout(timeoutId)
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ message: 'Erro ao carregar relatÃ³rio de pedidos' }))
-          throw new Error(error.message || 'Erro ao carregar relatÃ³rio de pedidos')
+          const error = await response.json().catch(() => ({ message: 'Erro ao carregar relatório de pedidos' }))
+          throw new Error(error.message || 'Erro ao carregar relatório de pedidos')
         }
         const data = await response.json()
         if (ativo) setDadosPedidos(data)
       } catch (error) {
-        if (ativo) setErroPedidos(error instanceof Error ? error.message : 'Erro ao carregar relatÃ³rio de pedidos')
+        const mensagem = error instanceof Error && error.name === 'AbortError'
+          ? 'Tempo esgotado ao carregar o relatório de pedidos'
+          : error instanceof Error
+            ? error.message
+            : 'Erro ao carregar relatório de pedidos'
+        if (ativo) setErroPedidos(mensagem)
       } finally {
         if (ativo) setCarregandoPedidos(false)
       }
@@ -220,17 +230,17 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     doc.setTextColor(255, 255, 255)
     doc.setFontSize(13)
     doc.setFont('helvetica', 'bold')
-    doc.text('RELATÃ“RIO DE SALDO DE ITENS DO CONTRATO', pageW / 2, 11, { align: 'center' })
+    doc.text('RELATÓRIO DE SALDO DE ITENS DO CONTRATO', pageW / 2, 11, { align: 'center' })
 
     doc.setTextColor(30, 30, 30)
     doc.setFontSize(8.5)
     doc.setFont('helvetica', 'normal')
 
     const info = [
-      [`Ã“rgÃ£o: ${contrato.orgao.nome}`, `CNPJ: ${contrato.orgao.cnpj}`],
-      [`Contrato nÂº ${contrato.numero_contrato}/${contrato.ano}`, `Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`],
-      [`Objeto: ${contrato.objeto}`, `VigÃªncia: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
-      [`Valor Contratado (global): ${fmtMoeda(contrato.valor_global)}`, `Emitido em: ${new Date().toLocaleDateString('pt-BR')} Ã s ${new Date().toLocaleTimeString('pt-BR')}`],
+      [`Órgão: ${contrato.orgao.nome}`, `CNPJ: ${contrato.orgao.cnpj}`],
+      [`Contrato nº ${contrato.numero_contrato}/${contrato.ano}`, `Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`],
+      [`Objeto: ${contrato.objeto}`, `Vigência: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
+      [`Valor Contratado (global): ${fmtMoeda(contrato.valor_global)}`, `Emitido em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`],
     ]
 
     let y = 24
@@ -247,7 +257,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     autoTable(doc, {
       startY: y,
       head: [[
-        '#', 'Lote', 'DescriÃ§Ã£o', 'Unid.',
+        '#', 'Lote', 'Descrição', 'Unid.',
         'Qtd. Inicial', 'Solicitado', 'Entregue', 'Saldo Qtd.',
         '% Exec.', 'Valor Unit.', 'Valor Total', 'Valor Exec.', 'Saldo (R$)',
       ]],
@@ -306,7 +316,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       doc.setTextColor(120, 120, 120)
       const pageH = doc.internal.pageSize.height
       doc.text(contrato.orgao.nome, 10, pageH - 6)
-      doc.text(`PÃ¡gina ${pagina} de ${totalPags}`, pageW - 10, pageH - 6, { align: 'right' })
+      doc.text(`Página ${pagina} de ${totalPags}`, pageW - 10, pageH - 6, { align: 'right' })
     }
 
     doc.save(`saldo-itens-${contrato.numero_contrato}-${contrato.ano}.pdf`)
@@ -326,8 +336,8 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     const pageW = doc.internal.pageSize.width
     const secoes = [
       { titulo: 'Ordens de Fornecimento', dados: dadosPedidos.secoes.ordens_fornecimento },
-      { titulo: 'RequisiÃ§Ãµes', dados: dadosPedidos.secoes.requisicoes },
-      { titulo: 'Ordens de ServiÃ§o', dados: dadosPedidos.secoes.ordens_servico },
+      { titulo: 'Requisições', dados: dadosPedidos.secoes.requisicoes },
+      { titulo: 'Ordens de Serviço', dados: dadosPedidos.secoes.ordens_servico },
     ]
 
     doc.setFillColor(19, 81, 180)
@@ -335,16 +345,16 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     doc.setTextColor(255, 255, 255)
     doc.setFontSize(13)
     doc.setFont('helvetica', 'bold')
-    doc.text('RELATÃ“RIO DE PEDIDOS', pageW / 2, 11, { align: 'center' })
+    doc.text('RELATÓRIO DE PEDIDOS', pageW / 2, 11, { align: 'center' })
 
     doc.setTextColor(30, 30, 30)
     doc.setFontSize(8.5)
     doc.setFont('helvetica', 'normal')
 
     const info = [
-      [`Ã“rgÃ£o: ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}`, `CNPJ: ${dadosPedidos.contrato.orgao?.cnpj || contrato.orgao.cnpj}`],
-      [`Contrato nÂº ${contrato.numero_contrato}/${contrato.ano}`, `Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`],
-      [`Objeto: ${contrato.objeto}`, `VigÃªncia: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
+      [`Órgão: ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}`, `CNPJ: ${dadosPedidos.contrato.orgao?.cnpj || contrato.orgao.cnpj}`],
+      [`Contrato nº ${contrato.numero_contrato}/${contrato.ano}`, `Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`],
+      [`Objeto: ${contrato.objeto}`, `Vigência: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
       [`Documentos: ${dadosPedidos.resumo.total_documentos}`, `Empenhos vinculados: ${dadosPedidos.resumo.total_empenhos_vinculados}`],
     ]
 
@@ -364,7 +374,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 
       autoTable(doc, {
         startY: inicio + 2,
-        head: [['NÃºmero', 'Tipo', 'Data', 'Status', 'Valor', 'Empenhos vinculados']],
+        head: [['Número', 'Tipo', 'Data', 'Status', 'Valor', 'Empenhos vinculados']],
         body: secao.dados.length > 0
           ? secao.dados.map(item => [
               item.numero || '-',
@@ -397,7 +407,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       doc.setTextColor(120, 120, 120)
       const pageH = doc.internal.pageSize.height
       doc.text(dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome, 10, pageH - 6)
-      doc.text(`PÃ¡gina ${pagina} de ${totalPags}`, pageW - 10, pageH - 6, { align: 'right' })
+      doc.text(`Página ${pagina} de ${totalPags}`, pageW - 10, pageH - 6, { align: 'right' })
     }
 
     doc.save(`pedidos-${contrato.numero_contrato}-${contrato.ano}.pdf`)
@@ -438,27 +448,27 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 </style>
 </head>
 <body>
-<h1>RelatÃ³rio de Saldo de Itens do Contrato</h1>
+<h1>Relatório de Saldo de Itens do Contrato</h1>
 <div class="info-grid">
-  <span><strong>Ã“rgÃ£o:</strong> ${contrato.orgao.nome}</span>
+  <span><strong>Órgão:</strong> ${contrato.orgao.nome}</span>
   <span><strong>CNPJ:</strong> ${contrato.orgao.cnpj}</span>
-  <span><strong>Contrato nÂº:</strong> ${contrato.numero_contrato}/${contrato.ano}</span>
+  <span><strong>Contrato nº:</strong> ${contrato.numero_contrato}/${contrato.ano}</span>
   <span><strong>Fornecedor:</strong> ${contrato.fornecedor_razao_social}</span>
   <span><strong>Objeto:</strong> ${contrato.objeto}</span>
   <span><strong>CNPJ Fornecedor:</strong> ${contrato.fornecedor_cnpj}</span>
-  <span><strong>VigÃªncia:</strong> ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}</span>
-  <span><strong>Emitido em:</strong> ${new Date().toLocaleDateString('pt-BR')} Ã s ${new Date().toLocaleTimeString('pt-BR')}</span>
+  <span><strong>Vigência:</strong> ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}</span>
+  <span><strong>Emitido em:</strong> ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</span>
 </div>
 <div class="summary">
   <div class="card blue"><div class="label">Valor Contratado</div><div class="value">${fmtMoeda(totalValorContratado)}</div></div>
   <div class="card green"><div class="label">Valor Executado</div><div class="value">${fmtMoeda(totalExecutado)}</div></div>
-  <div class="card purple"><div class="label">Saldo DisponÃ­vel</div><div class="value">${fmtMoeda(totalSaldoValor)}</div></div>
+  <div class="card purple"><div class="label">Saldo Disponível</div><div class="value">${fmtMoeda(totalSaldoValor)}</div></div>
   <div class="card orange"><div class="label">% Executado</div><div class="value">${percExecGeral.toFixed(1)}%</div></div>
 </div>
 <table>
   <thead>
     <tr>
-      <th>#</th><th>Lote</th><th style="text-align:left">DescriÃ§Ã£o</th><th>Unid.</th>
+      <th>#</th><th>Lote</th><th style="text-align:left">Descrição</th><th>Unid.</th>
       <th>Qtd. Inicial</th><th>Solicitado</th><th>Entregue</th><th>Saldo Qtd.</th>
       <th>% Exec.</th><th>Valor Unit.</th><th>Valor Total</th><th>Valor Exec.</th><th>Saldo (R$)</th>
     </tr>
@@ -520,7 +530,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
         <table>
           <thead>
             <tr>
-              <th>NÃºmero</th>
+              <th>Número</th>
               <th>Tipo</th>
               <th>Data</th>
               <th>Status</th>
@@ -548,7 +558,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
-<title>RelatÃ³rio de Pedidos - Contrato ${contrato.numero_contrato}/${contrato.ano}</title>
+<title>Relatório de Pedidos - Contrato ${contrato.numero_contrato}/${contrato.ano}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 16px; }
@@ -569,24 +579,24 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 </style>
 </head>
 <body>
-<h1>RelatÃ³rio de Pedidos</h1>
+<h1>Relatório de Pedidos</h1>
 <div class="info-grid">
-  <span><strong>Ã“rgÃ£o:</strong> ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}</span>
+  <span><strong>Órgão:</strong> ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}</span>
   <span><strong>CNPJ:</strong> ${dadosPedidos.contrato.orgao?.cnpj || contrato.orgao.cnpj}</span>
-  <span><strong>Contrato nÂº:</strong> ${contrato.numero_contrato}/${contrato.ano}</span>
+  <span><strong>Contrato nº:</strong> ${contrato.numero_contrato}/${contrato.ano}</span>
   <span><strong>Fornecedor:</strong> ${contrato.fornecedor_razao_social}</span>
   <span><strong>Objeto:</strong> ${contrato.objeto}</span>
-  <span><strong>VigÃªncia:</strong> ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}</span>
+  <span><strong>Vigência:</strong> ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}</span>
 </div>
 <div class="summary">
   <div class="card"><div class="label">Ordens de Fornecimento</div><div class="value">${dadosPedidos.resumo.total_ordens_fornecimento}</div></div>
-  <div class="card"><div class="label">RequisiÃ§Ãµes</div><div class="value">${dadosPedidos.resumo.total_requisicoes}</div></div>
-  <div class="card"><div class="label">Ordens de ServiÃ§o</div><div class="value">${dadosPedidos.resumo.total_ordens_servico}</div></div>
+  <div class="card"><div class="label">Requisições</div><div class="value">${dadosPedidos.resumo.total_requisicoes}</div></div>
+  <div class="card"><div class="label">Ordens de Serviço</div><div class="value">${dadosPedidos.resumo.total_ordens_servico}</div></div>
   <div class="card"><div class="label">Empenhos vinculados</div><div class="value">${dadosPedidos.resumo.total_empenhos_vinculados}</div></div>
 </div>
 ${htmlSecao('Ordens de Fornecimento', dadosPedidos.secoes.ordens_fornecimento)}
-${htmlSecao('RequisiÃ§Ãµes', dadosPedidos.secoes.requisicoes)}
-${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
+${htmlSecao('Requisições', dadosPedidos.secoes.requisicoes)}
+${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
 <div class="footer">
   <span>${contrato.orgao.nome} - ${contrato.orgao.cidade}/${contrato.orgao.uf}</span>
   <span>Documento gerado pelo Portal DCP</span>
@@ -637,7 +647,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-[#1351B4] text-white">
-              <th className="py-2.5 px-3 text-left font-semibold">NÃºmero</th>
+              <th className="py-2.5 px-3 text-left font-semibold">Número</th>
               <th className="py-2.5 px-3 text-left font-semibold">Tipo</th>
               <th className="py-2.5 px-3 text-center font-semibold">Data</th>
               <th className="py-2.5 px-3 text-left font-semibold">Status</th>
@@ -682,9 +692,9 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
     return (
       <div className="space-y-6">
         <div>
-          <h3 className="text-lg font-semibold">RelatÃ³rios do Contrato</h3>
+          <h3 className="text-lg font-semibold">Relatórios do Contrato</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Selecione um relatÃ³rio para visualizar e exportar.
+            Selecione um relatório para visualizar e exportar.
           </p>
         </div>
 
@@ -712,7 +722,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                 <CardContent className="pt-0">
                   <Button size="sm" className="w-full" onClick={() => setRelatorioAtivo(rel.id)}>
                     <FileText className="w-4 h-4 mr-2" />
-                    Gerar RelatÃ³rio
+                    Gerar Relatório
                   </Button>
                 </CardContent>
               </Card>
@@ -723,7 +733,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
     )
   }
 
-  const titulo = relatorioAtivo === 'pedidos' ? 'RelatÃ³rio de Pedidos' : 'Saldo de Itens do Contrato'
+  const titulo = relatorioAtivo === 'pedidos' ? 'Relatório de Pedidos' : 'Saldo de Itens do Contrato'
   const subtitulo = `${contrato.numero_contrato}/${contrato.ano} - ${contrato.fornecedor_razao_social}`
 
   return (
@@ -732,7 +742,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setRelatorioAtivo(null)}>
             <ArrowLeft className="w-4 h-4 mr-1" />
-            RelatÃ³rios
+            Relatórios
           </Button>
           <div>
             <h3 className="text-lg font-semibold">{titulo}</h3>
@@ -763,10 +773,10 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
       <Card className="border-blue-100 bg-blue-50/40">
         <CardContent className="pt-4 pb-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-sm">
-            <div><span className="text-gray-500 text-xs">Ã“rgÃ£o</span><p className="font-medium">{contrato.orgao.nome}</p></div>
+            <div><span className="text-gray-500 text-xs">Órgão</span><p className="font-medium">{contrato.orgao.nome}</p></div>
             <div><span className="text-gray-500 text-xs">Contrato</span><p className="font-medium">{contrato.numero_contrato}/{contrato.ano}</p></div>
             <div><span className="text-gray-500 text-xs">Fornecedor</span><p className="font-medium">{contrato.fornecedor_razao_social}</p></div>
-            <div><span className="text-gray-500 text-xs">VigÃªncia</span><p className="font-medium">{fmtData(contrato.data_vigencia_inicio)} a {fmtData(contrato.data_vigencia_fim)}</p></div>
+            <div><span className="text-gray-500 text-xs">Vigência</span><p className="font-medium">{fmtData(contrato.data_vigencia_inicio)} a {fmtData(contrato.data_vigencia_fim)}</p></div>
             <div className="col-span-2 md:col-span-4 mt-1"><span className="text-gray-500 text-xs">Objeto</span><p className="font-medium text-sm leading-snug">{contrato.objeto}</p></div>
           </div>
         </CardContent>
@@ -777,7 +787,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
           {carregandoPedidos ? (
             <Card>
               <CardContent className="py-12 text-center text-sm text-gray-500">
-                Carregando relatÃ³rio de pedidos...
+                Carregando relatório de pedidos...
               </CardContent>
             </Card>
           ) : erroPedidos ? (
@@ -802,7 +812,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Receipt className="w-4 h-4 text-green-600" />
-                      <span className="text-xs text-gray-500 uppercase tracking-wide">RequisiÃ§Ãµes</span>
+                      <span className="text-xs text-gray-500 uppercase tracking-wide">Requisições</span>
                     </div>
                     <p className="text-xl font-bold text-green-700">{dadosPedidos.resumo.total_requisicoes}</p>
                   </CardContent>
@@ -811,7 +821,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Wrench className="w-4 h-4 text-orange-600" />
-                      <span className="text-xs text-gray-500 uppercase tracking-wide">Ordens de ServiÃ§o</span>
+                      <span className="text-xs text-gray-500 uppercase tracking-wide">Ordens de Serviço</span>
                     </div>
                     <p className="text-xl font-bold text-orange-600">{dadosPedidos.resumo.total_ordens_servico}</p>
                   </CardContent>
@@ -844,11 +854,11 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Receipt className="w-4 h-4 text-green-600" />
-                    RequisiÃ§Ãµes
+                    Requisições
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {renderTabelaPedidos(dadosPedidos.secoes.requisicoes, 'Nenhuma requisiÃ§Ã£o encontrada neste contrato.')}
+                  {renderTabelaPedidos(dadosPedidos.secoes.requisicoes, 'Nenhuma requisição encontrada neste contrato.')}
                 </CardContent>
               </Card>
 
@@ -856,11 +866,11 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Wrench className="w-4 h-4 text-orange-600" />
-                    Ordens de ServiÃ§o
+                    Ordens de Serviço
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {renderTabelaPedidos(dadosPedidos.secoes.ordens_servico, 'Nenhuma ordem de serviÃ§o encontrada neste contrato.')}
+                  {renderTabelaPedidos(dadosPedidos.secoes.ordens_servico, 'Nenhuma ordem de serviço encontrada neste contrato.')}
                 </CardContent>
               </Card>
             </>
@@ -937,7 +947,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                       <tr className="bg-[#1351B4] text-white">
                         <th className="py-2.5 px-2 text-center font-semibold">#</th>
                         <th className="py-2.5 px-2 text-center font-semibold">Lote</th>
-                        <th className="py-2.5 px-3 text-left font-semibold">DescriÃ§Ã£o</th>
+                        <th className="py-2.5 px-3 text-left font-semibold">Descrição</th>
                         <th className="py-2.5 px-2 text-center font-semibold">Unid.</th>
                         <th className="py-2.5 px-2 text-right font-semibold">Qtd. Inicial</th>
                         <th className="py-2.5 px-2 text-right font-semibold text-yellow-200">Solicitado</th>
@@ -965,7 +975,7 @@ ${htmlSecao('Ordens de ServiÃ§o', dadosPedidos.secoes.ordens_servico)}
                             <td className="px-3 py-2.5 max-w-[420px]">
                               <div className="font-medium text-slate-900 leading-snug">{item.descricao}</div>
                               {item.codigo_catalogo_proprio && (
-                                <div className="text-[11px] text-purple-700 mt-0.5">CatÃ¡logo: {item.codigo_catalogo_proprio}</div>
+                                <div className="text-[11px] text-purple-700 mt-0.5">Catálogo: {item.codigo_catalogo_proprio}</div>
                               )}
                             </td>
                             <td className="px-2 py-2.5 text-center">{item.unidade_medida}</td>
