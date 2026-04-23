@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -60,6 +60,10 @@ import {
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+import {
+  gerarSugestaoPedido,
+  gerarSugestaoPedidoExata,
+} from '@/lib/pedido-simulator';
 import { cn } from '@/lib/utils';
 
 // Chave para localStorage
@@ -444,6 +448,7 @@ function NovaRequisicaoForm() {
   const [empenhosOS, setEmpenhosOS] = useState<EmpenhoFator[]>([]);
   const [empenhosCompostos, setEmpenhosCompostos] = useState<EmpenhoComposto[]>([]);
   const [loadingEmpenhosOS, setLoadingEmpenhosOS] = useState(false);
+  const [mensagemSugestaoRestos, setMensagemSugestaoRestos] = useState<string | null>(null);
 
   // Confirmação de empenho ao salvar/enviar
   const [confirmacaoEmpenho, setConfirmacaoEmpenho] = useState<{
@@ -469,6 +474,42 @@ function NovaRequisicaoForm() {
   const usarItensCronograma = isOS && itensCronograma.length > 0;
   const usarEtapasCronograma = isOS && etapasOS.length > 0 && itensCronograma.length === 0;
   const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
+  const anoAtual = new Date().getFullYear();
+
+  const restosAPagarComSaldo = useMemo(
+    () =>
+      empenhosCompostos.filter((comp) => {
+        const saldoDisponivel = Number(comp.saldo_virtual ?? comp.saldo_a_liquidar ?? 0);
+        return Number(comp.ano_exercicio) > 0 && Number(comp.ano_exercicio) < anoAtual && saldoDisponivel > 0.01;
+      }),
+    [anoAtual, empenhosCompostos],
+  );
+
+  const saldoRestosAPagar = useMemo(
+    () =>
+      restosAPagarComSaldo.reduce(
+        (total, comp) => total + Number(comp.saldo_virtual ?? comp.saldo_a_liquidar ?? 0),
+        0,
+      ),
+    [restosAPagarComSaldo],
+  );
+
+  const valorTotalItensDisponiveis = useMemo(
+    () =>
+      itensContrato.reduce(
+        (total, item) => total + Number(item.saldo_disponivel || 0) * Number(item.valor_unitario || 0),
+        0,
+      ),
+    [itensContrato],
+  );
+
+  const alvoSugestaoRestos = Math.min(saldoRestosAPagar, valorTotalItensDisponiveis);
+
+  useEffect(() => {
+    if (restosAPagarComSaldo.length === 0) {
+      setMensagemSugestaoRestos(null);
+    }
+  }, [restosAPagarComSaldo.length]);
 
   const handleSetorChange = (value: string) => {
     setSetorId(value);
@@ -1059,6 +1100,7 @@ function NovaRequisicaoForm() {
   const handleSelecionarContrato = (contrato: Contrato) => {
     setContratoSelecionado(contrato);
     setItensRequisicao([]); // Limpa itens ao mudar contrato
+    setMensagemSugestaoRestos(null);
     // Auto-preencher tipo baseado na modalidade/categoria do contrato
     // Contratos de MEDICAO (obras/serviços por medição) usam fluxo de OS
     if (contrato.modalidade_execucao === 'MEDICAO' || contrato.categoria === 'OBRAS') {
@@ -1126,6 +1168,65 @@ function NovaRequisicaoForm() {
 
   const handleLimparSelecaoItens = () => {
     setItensRequisicao([]);
+  };
+
+  const handleAplicarSugestaoRestosAPagar = () => {
+    if (itensRequisicao.length > 0) {
+      const confirmar = window.confirm(
+        'Aplicar a sugestão de restos a pagar vai substituir os itens já selecionados. Deseja continuar?',
+      );
+      if (!confirmar) return;
+    }
+
+    if (restosAPagarComSaldo.length === 0 || alvoSugestaoRestos <= 0) {
+      setMensagemSugestaoRestos('Não há restos a pagar com saldo disponível para sugerir neste contrato.');
+      return;
+    }
+
+    const itensDisponiveis = itensContrato.filter(item => Number(item.saldo_disponivel) > 0);
+    if (itensDisponiveis.length === 0) {
+      setMensagemSugestaoRestos('Não há itens com saldo disponível para montar a sugestão de restos a pagar.');
+      return;
+    }
+
+    const sugestao =
+      gerarSugestaoPedidoExata(itensDisponiveis, alvoSugestaoRestos) ??
+      gerarSugestaoPedido(itensDisponiveis, alvoSugestaoRestos);
+
+    const itensSugeridos = itensDisponiveis
+      .map(item => {
+        const selecao = sugestao[item.id];
+        const quantidade = selecao?.checked ? Number(selecao.qty || 0) : 0;
+        if (quantidade <= 0) return null;
+
+        return {
+          item_contrato_id: item.id,
+          numero_item: item.numero_item,
+          descricao: item.descricao,
+          unidade_medida: item.unidade_medida,
+          quantidade_solicitada: quantidade,
+          valor_unitario: Number(item.valor_unitario),
+          valor_total: quantidade * Number(item.valor_unitario),
+          saldo_disponivel: Number(item.saldo_disponivel),
+        };
+      })
+      .filter((item): item is ItemRequisicao => item !== null);
+
+    const numerosEmpenho = restosAPagarComSaldo
+      .map(comp => comp.numero_empenho || comp.empenho?.numero_liquidacao || '')
+      .filter(Boolean);
+
+    setItensRequisicao(itensSugeridos);
+    setEmpenhosSelecionados(new Set(numerosEmpenho));
+
+    const totalSugerido = itensSugeridos.reduce((total, item) => total + Number(item.valor_total || 0), 0);
+    const houveFechamentoExato = Math.abs(totalSugerido - alvoSugestaoRestos) < 0.01;
+
+    setMensagemSugestaoRestos(
+      houveFechamentoExato
+        ? `Sugestão aplicada com base nos restos a pagar (${formatarMoeda(totalSugerido)}). Os empenhos de exercícios anteriores foram vinculados automaticamente.`
+        : `Sugestão aplicada usando restos a pagar. O sistema montou a melhor combinação sem ultrapassar ${formatarMoeda(alvoSugestaoRestos)}.`,
+    );
   };
 
   const handleAlterarQuantidadeOSDemanda = (itemCronogramaId: string, quantidade: number) => {
@@ -2081,6 +2182,44 @@ function NovaRequisicaoForm() {
             </Button>
           </div>
         </div>
+
+        {!isOS && restosAPagarComSaldo.length > 0 && (
+          <div className="border-b bg-amber-50/60 px-4 py-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="text-sm font-semibold">
+                    Há empenhos de exercícios anteriores com saldo disponível
+                  </span>
+                </div>
+                <p className="text-sm text-amber-900">
+                  Encontramos {restosAPagarComSaldo.length} empenho{restosAPagarComSaldo.length > 1 ? 's' : ''} de restos a pagar,
+                  somando {formatarMoeda(saldoRestosAPagar)}. Podemos sugerir um pré-preenchimento dos itens usando esse saldo.
+                </p>
+                <p className="text-xs text-amber-700">
+                  A sugestão seleciona automaticamente os empenhos antigos com saldo e você ainda pode ajustar os itens antes de salvar.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAplicarSugestaoRestosAPagar}
+                  className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
+                >
+                  Aplicar sugestão de restos a pagar
+                </Button>
+              </div>
+            </div>
+            {mensagemSugestaoRestos && (
+              <div className="mt-3 rounded-md border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-900">
+                {mensagemSugestaoRestos}
+              </div>
+            )}
+          </div>
+        )}
 
         {carregandoItens ? (
           <div className="flex items-center justify-center py-12">

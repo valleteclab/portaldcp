@@ -13,6 +13,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { API_URL, authFetch } from '@/lib/api'
+import {
+  gerarSugestaoPedido,
+  gerarSugestaoPedidoExata,
+  isPedidoItemFracionavel,
+} from '@/lib/pedido-simulator'
 import { AlertCircle, Printer } from 'lucide-react'
 
 interface EmpenhoComposto {
@@ -63,136 +68,8 @@ function parseMoedaInput(valor: string) {
   return Number.isFinite(numero) ? numero : 0
 }
 
-function mdc(a: number, b: number): number {
-  let x = Math.abs(a)
-  let y = Math.abs(b)
-  while (y !== 0) {
-    const resto = x % y
-    x = y
-    y = resto
-  }
-  return x || 1
-}
-
-const UNIDADES_METRO = ['METRO', 'M', 'ML', 'M²', 'M2', 'M³', 'M3']
-
 function isPorMetro(unidade: string) {
-  return UNIDADES_METRO.includes((unidade ?? '').toUpperCase().trim())
-}
-
-function gerarSugestao(items: ItemContrato[], saldoVirtual: number): Record<string, Selecao> {
-  const sorted = [...items].sort(
-    (a, b) => Number(b.saldo_disponivel) - Number(a.saldo_disponivel),
-  )
-  let remaining = saldoVirtual
-  const result: Record<string, Selecao> = {}
-
-  for (const item of sorted) {
-    const max = Number(item.saldo_disponivel)
-    const preco = Number(item.valor_unitario)
-    if (preco <= 0 || remaining < preco) {
-      result[item.id] = { checked: false, qty: 0 }
-      continue
-    }
-    // Itens por metro permitem decimal (2 casas); demais são inteiros
-    const qty = isPorMetro(item.unidade_medida)
-      ? Math.min(Math.round((remaining / preco) * 100) / 100, max)
-      : Math.min(Math.floor(remaining / preco), max)
-    result[item.id] = { checked: qty > 0, qty }
-    remaining -= qty * preco
-  }
-  return result
-}
-
-function gerarSugestaoExata(items: ItemContrato[], valorAlvo: number): Record<string, Selecao> | null {
-  const alvoCentavos = Math.round(valorAlvo * 100)
-  if (alvoCentavos <= 0) return {}
-
-  const candidatos = items
-    .map(item => ({
-      id: item.id,
-      fracionavel: isPorMetro(item.unidade_medida),
-      saldoDisponivel: Math.max(0, Number(item.saldo_disponivel)),
-      valorUnitarioCentavos: Math.round(Number(item.valor_unitario) * 100),
-    }))
-    .map(item => {
-      if (item.fracionavel) {
-        const passoQuantidadeCent = 100 / mdc(item.valorUnitarioCentavos, 100)
-        const passoQuantidade = passoQuantidadeCent / 100
-        const maxPassos = Math.floor((item.saldoDisponivel + 0.000001) / passoQuantidade)
-        const valorCentavos = (item.valorUnitarioCentavos * passoQuantidadeCent) / 100
-        return {
-          id: item.id,
-          qtyStep: passoQuantidade,
-          maxQty: maxPassos,
-          valorCentavos,
-        }
-      }
-
-      return {
-        id: item.id,
-        qtyStep: 1,
-        maxQty: Math.max(0, Math.floor(item.saldoDisponivel)),
-        valorCentavos: item.valorUnitarioCentavos,
-      }
-    })
-    .filter(item => item.maxQty > 0 && item.valorCentavos > 0 && item.valorCentavos <= alvoCentavos)
-
-  const chunks: Array<{ id: string; qty: number; valorCentavos: number }> = []
-  for (const item of candidatos) {
-    let bloco = 1
-    let restante = item.maxQty
-    while (restante > 0) {
-      const multiplicador = Math.min(bloco, restante)
-      chunks.push({
-        id: item.id,
-        qty: item.qtyStep * multiplicador,
-        valorCentavos: item.valorCentavos * multiplicador,
-      })
-      restante -= multiplicador
-      bloco *= 2
-    }
-  }
-
-  const alcançavel = new Uint8Array(alvoCentavos + 1)
-  const chunkPai = new Int32Array(alvoCentavos + 1)
-  const somaAnterior = new Int32Array(alvoCentavos + 1)
-  chunkPai.fill(-1)
-  somaAnterior.fill(-1)
-  alcançavel[0] = 1
-
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-    const chunk = chunks[chunkIndex]
-    for (let soma = alvoCentavos; soma >= chunk.valorCentavos; soma -= 1) {
-      if (alcançavel[soma] || !alcançavel[soma - chunk.valorCentavos]) continue
-      alcançavel[soma] = 1
-      chunkPai[soma] = chunkIndex
-      somaAnterior[soma] = soma - chunk.valorCentavos
-    }
-  }
-
-  if (!alcançavel[alvoCentavos]) return null
-
-  const quantidades = new Map<string, number>()
-  let somaAtual = alvoCentavos
-  while (somaAtual > 0) {
-    const indexChunk = chunkPai[somaAtual]
-    if (indexChunk < 0) break
-    const chunk = chunks[indexChunk]
-    quantidades.set(chunk.id, (quantidades.get(chunk.id) ?? 0) + chunk.qty)
-    somaAtual = somaAnterior[somaAtual]
-  }
-
-  const resultado: Record<string, Selecao> = {}
-  for (const item of items) {
-    const qtyBruta = quantidades.get(item.id) ?? 0
-    const qty = isPorMetro(item.unidade_medida)
-      ? Math.round(qtyBruta * 100) / 100
-      : Math.floor(qtyBruta)
-    resultado[item.id] = { checked: qty > 0, qty }
-  }
-
-  return resultado
+  return isPedidoItemFracionavel(unidade)
 }
 
 export default function SimuladorPedidoModal({
@@ -220,7 +97,7 @@ export default function SimuladorPedidoModal({
         const resposta = await authFetch(`${API_URL}/api/almoxarifado/contratos/${contratoId}/itens/disponiveis`)
         const data = await resposta.json()
         setItems(data)
-        setSelections(gerarSugestao(data, saldoVirtual))
+        setSelections(gerarSugestaoPedido(data, saldoVirtual))
       } catch {
         setItems([])
       } finally {
@@ -262,7 +139,7 @@ export default function SimuladorPedidoModal({
 
   function aplicarSugestaoAutomatica() {
     setMensagemSugestao(null)
-    setSelections(gerarSugestao(items, saldoVirtual))
+    setSelections(gerarSugestaoPedido(items, saldoVirtual))
   }
 
   function aplicarSugestaoExata() {
@@ -276,9 +153,9 @@ export default function SimuladorPedidoModal({
       return
     }
 
-    const sugestao = gerarSugestaoExata(items, alvo)
+    const sugestao = gerarSugestaoPedidoExata(items, alvo)
     if (!sugestao) {
-      setSelections(gerarSugestao(items, alvo))
+      setSelections(gerarSugestaoPedido(items, alvo))
       setMensagemSugestao(`Não encontrei fechamento exato para ${fmtMoeda(alvo)}. Apliquei a melhor sugestão sem ultrapassar o saldo do empenho.`)
       return
     }
