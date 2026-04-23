@@ -28,13 +28,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { MedicaoService } from './medicao.service';
-import { Requisicao, StatusRequisicao } from '../almoxarifado/entities/requisicao.entity';
-import { OrdemFornecimento, StatusOrdemFornecimento } from '../almoxarifado/entities/ordem-fornecimento.entity';
+import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
+import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from '../almoxarifado/entities/ordem-fornecimento.entity';
 import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { FatorTransparenciaService } from './fator-transparencia.service';
-import { StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
+import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { Medicao } from './entities/medicao.entity';
@@ -58,6 +58,8 @@ export class ModalidadesContratoController {
     private readonly requisicaoRepository: Repository<Requisicao>,
     @InjectRepository(OrdemFornecimento)
     private readonly ordemFornecimentoRepository: Repository<OrdemFornecimento>,
+    @InjectRepository(OrdemServicoContrato)
+    private readonly ordemServicoContratoRepository: Repository<OrdemServicoContrato>,
   ) {}
 
   /**
@@ -75,11 +77,37 @@ export class ModalidadesContratoController {
     if (orgaoId) {
       return orgaoId;
     }
-    throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
+    throw new ForbiddenException('NÃ£o foi possÃ­vel identificar o Ã³rgÃ£o do usuÃ¡rio');
+  }
+
+  private parseNumerosEmpenhos(valor: unknown): string[] {
+    if (Array.isArray(valor)) {
+      return valor
+        .map(item => String(item ?? '').trim())
+        .filter(Boolean);
+    }
+
+    if (typeof valor === 'string' && valor.trim()) {
+      try {
+        const parsed = JSON.parse(valor);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map(item => String(item ?? '').trim())
+            .filter(Boolean);
+        }
+      } catch {
+        return valor
+          .split(',')
+          .map(item => item.trim())
+          .filter(Boolean);
+      }
+    }
+
+    return [];
   }
 
   // ============================================================================
-  // MEDIÇÃO — Consulta de OS (criação/aprovação via módulo centralizado de Requisições)
+  // MEDIÃ‡ÃƒO â€” Consulta de OS (criaÃ§Ã£o/aprovaÃ§Ã£o via mÃ³dulo centralizado de RequisiÃ§Ãµes)
   // ============================================================================
 
   @Get(':contratoId/os-medicao')
@@ -93,7 +121,7 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // MEDIÇÃO — Etapas do Cronograma
+  // MEDIÃ‡ÃƒO â€” Etapas do Cronograma
   // ============================================================================
 
   @Post(':contratoId/etapas')
@@ -123,7 +151,7 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // MEDIÇÃO — Itens do Cronograma (Serviços por quantidade)
+  // MEDIÃ‡ÃƒO â€” Itens do Cronograma (ServiÃ§os por quantidade)
   // ============================================================================
 
   @Get('unidades-cronograma')
@@ -168,10 +196,10 @@ export class ModalidadesContratoController {
   ) {
     const isAdmin = request.user.type === UserType.ADMIN || request.user.role === 'ADMIN';
     if (!isAdmin) {
-      throw new ForbiddenException('Apenas administradores podem informar quantidade medida em ajuste de migração');
+      throw new ForbiddenException('Apenas administradores podem informar quantidade medida em ajuste de migraÃ§Ã£o');
     }
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato) throw new NotFoundException('Contrato nÃ£o encontrado');
     return this.medicaoService.atualizarQuantidadeMedidaMigracao(
       contratoId,
       itemId,
@@ -181,7 +209,7 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // MEDIÇÃO — Rotas estáticas DEVEM vir ANTES das rotas com :parametro
+  // MEDIÃ‡ÃƒO â€” Rotas estÃ¡ticas DEVEM vir ANTES das rotas com :parametro
   //           para evitar que NestJS interprete "resumo-fiscal" como :medicaoId
   // ============================================================================
 
@@ -250,7 +278,7 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Resumo de medições por contrato para o painel do fiscal.
+   * Resumo de mediÃ§Ãµes por contrato para o painel do fiscal.
    * Se mes=YYYY-MM for informado, inclui enviou_mes por contrato.
    */
   @Get('medicoes/resumo-fiscal')
@@ -267,7 +295,7 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // MEDIÇÃO — Rotas parametrizadas (medicoes/:medicaoId e :contratoId/medicoes)
+  // MEDIÃ‡ÃƒO â€” Rotas parametrizadas (medicoes/:medicaoId e :contratoId/medicoes)
   // ============================================================================
 
   @Post(':contratoId/medicoes')
@@ -289,8 +317,8 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Solicita ao fornecedor o envio da medição do mês.
-   * Validação multiorgão: contrato deve pertencer ao órgão do usuário.
+   * Solicita ao fornecedor o envio da mediÃ§Ã£o do mÃªs.
+   * ValidaÃ§Ã£o multiorgÃ£o: contrato deve pertencer ao Ã³rgÃ£o do usuÃ¡rio.
    */
   @Post(':contratoId/medicoes/solicitar')
   async solicitarMedicao(
@@ -300,16 +328,16 @@ export class ModalidadesContratoController {
   ) {
     const orgaoId = this.getOrgaoId(request.user);
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato) throw new NotFoundException('Contrato nÃ£o encontrado');
     if (contrato.orgao_id !== orgaoId) {
-      throw new ForbiddenException('Você não tem permissão para acessar este contrato');
+      throw new ForbiddenException('VocÃª nÃ£o tem permissÃ£o para acessar este contrato');
     }
     const modalidadesComMedicao = [ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA];
     if (!modalidadesComMedicao.includes(contrato.modalidade_execucao)) {
-      throw new BadRequestException('Contrato não suporta medições');
+      throw new BadRequestException('Contrato nÃ£o suporta mediÃ§Ãµes');
     }
     if (!body.mes_referencia?.trim()) {
-      throw new BadRequestException('mes_referencia é obrigatório (formato YYYY-MM)');
+      throw new BadRequestException('mes_referencia Ã© obrigatÃ³rio (formato YYYY-MM)');
     }
 
     const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
@@ -327,7 +355,7 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Solicita medição em lote para múltiplos contratos de uma vez.
+   * Solicita mediÃ§Ã£o em lote para mÃºltiplos contratos de uma vez.
    */
   @Post('medicoes/solicitar-lote')
   async solicitarMedicaoLote(
@@ -339,7 +367,7 @@ export class ModalidadesContratoController {
       throw new BadRequestException('Selecione pelo menos um contrato');
     }
     if (!body.mes_referencia?.trim()) {
-      throw new BadRequestException('mes_referencia é obrigatório (formato YYYY-MM)');
+      throw new BadRequestException('mes_referencia Ã© obrigatÃ³rio (formato YYYY-MM)');
     }
 
     const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
@@ -351,16 +379,16 @@ export class ModalidadesContratoController {
       try {
         const contrato = await this.contratoRepository.findOne({ where: { id: contratoId }, relations: ['fornecedor'] });
         if (!contrato) {
-          resultados.push({ contrato_id: contratoId, sucesso: false, erro: 'Contrato não encontrado' });
+          resultados.push({ contrato_id: contratoId, sucesso: false, erro: 'Contrato nÃ£o encontrado' });
           continue;
         }
         if (contrato.orgao_id !== orgaoId) {
-          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Sem permissão' });
+          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Sem permissÃ£o' });
           continue;
         }
         const modalidadesComMedicao = [ModalidadeExecucao.MEDICAO, ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA];
         if (!modalidadesComMedicao.includes(contrato.modalidade_execucao)) {
-          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'Não é modalidade com medição' });
+          resultados.push({ contrato_id: contratoId, numero_contrato: contrato.numero_contrato, sucesso: false, erro: 'NÃ£o Ã© modalidade com mediÃ§Ã£o' });
           continue;
         }
         const telefoneOverride = body.telefone_overrides?.[contratoId];
@@ -395,7 +423,7 @@ export class ModalidadesContratoController {
     const enviados = resultados.filter(r => r.sucesso).length;
     const erros = resultados.filter(r => !r.sucesso).length;
     return {
-      message: `Solicitações enviadas: ${enviados} sucesso, ${erros} erro(s)`,
+      message: `SolicitaÃ§Ãµes enviadas: ${enviados} sucesso, ${erros} erro(s)`,
       total: body.contrato_ids.length,
       enviados,
       erros,
@@ -404,7 +432,7 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Histórico de solicitações de medição enviadas pelo órgão.
+   * HistÃ³rico de solicitaÃ§Ãµes de mediÃ§Ã£o enviadas pelo Ã³rgÃ£o.
    */
   @Get('medicoes/solicitacoes-enviadas')
   async listarSolicitacoesEnviadas(
@@ -417,11 +445,11 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // DISCRIMINAÇÃO DE DESPESAS — Órgão (fiscal/gestor)
+  // DISCRIMINAÃ‡ÃƒO DE DESPESAS â€” Ã“rgÃ£o (fiscal/gestor)
   // ============================================================================
 
   /**
-   * Sugestão de discriminações (da última medição do contrato).
+   * SugestÃ£o de discriminaÃ§Ãµes (da Ãºltima mediÃ§Ã£o do contrato).
    * GET /api/contratos/medicoes/:medicaoId/discriminacoes/sugestao
    */
   @Get('medicoes/:medicaoId/discriminacoes/sugestao')
@@ -430,12 +458,12 @@ export class ModalidadesContratoController {
       where: { id: medicaoId },
       relations: ['contrato'],
     });
-    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (!medicao) throw new NotFoundException('MediÃ§Ã£o nÃ£o encontrada');
     return this.medicaoService.sugerirDiscriminacoes(medicao.contrato_id);
   }
 
   /**
-   * Lista discriminações de despesa de uma medição.
+   * Lista discriminaÃ§Ãµes de despesa de uma mediÃ§Ã£o.
    * GET /api/contratos/medicoes/:medicaoId/discriminacoes
    */
   @Get('medicoes/:medicaoId/discriminacoes')
@@ -446,7 +474,7 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Lista assinaturas digitais de uma medição.
+   * Lista assinaturas digitais de uma mediÃ§Ã£o.
    * GET /api/contratos/medicoes/:medicaoId/assinaturas
    */
   @Get('medicoes/:medicaoId/assinaturas')
@@ -457,7 +485,7 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Fiscal corrige um item de discriminação.
+   * Fiscal corrige um item de discriminaÃ§Ã£o.
    * PATCH /api/contratos/medicoes/:medicaoId/discriminacoes/:discriminacaoId
    */
   @Patch('medicoes/:medicaoId/discriminacoes/:discriminacaoId')
@@ -481,7 +509,7 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Fiscal substitui todas as discriminações (correção em massa).
+   * Fiscal substitui todas as discriminaÃ§Ãµes (correÃ§Ã£o em massa).
    * PUT /api/contratos/medicoes/:medicaoId/discriminacoes
    */
   @Put('medicoes/:medicaoId/discriminacoes')
@@ -507,11 +535,11 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // EXECUÇÃO FISCAL/FINANCEIRA (auto-calculada)
+  // EXECUÃ‡ÃƒO FISCAL/FINANCEIRA (auto-calculada)
   // ============================================================================
 
   /**
-   * Retorna o resumo de execução fiscal/financeira por item do contrato.
+   * Retorna o resumo de execuÃ§Ã£o fiscal/financeira por item do contrato.
    * GET /api/contratos/:contratoId/execucao-financeira?medicaoId=xxx
    */
   @Get(':contratoId/execucao-financeira')
@@ -522,7 +550,7 @@ export class ModalidadesContratoController {
   ) {
     const orgaoId = this.getOrgaoId(request.user);
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato) throw new NotFoundException('Contrato nÃ£o encontrado');
     const usarItensCronograma = await this.medicaoService.usarItensCronograma(contratoId);
     if (usarItensCronograma && contrato.fornecedor_id) {
       return this.medicaoService.calcularExecucaoFinanceiraFornecedor(contratoId, medicaoId || undefined);
@@ -544,17 +572,17 @@ export class ModalidadesContratoController {
   ): Promise<StreamableFile> {
     const medicao = await this.medicaoService.buscarMedicao(medicaoId);
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato) throw new NotFoundException('Contrato nÃ£o encontrado');
 
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     if (contrato.orgao_id !== orgaoId) {
-      throw new ForbiddenException('Você não tem acesso a esta medição');
+      throw new ForbiddenException('VocÃª nÃ£o tem acesso a esta mediÃ§Ã£o');
     }
 
     await this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
     const filePath = this.medicaoService.getBoletimPdfFilePath(medicaoId);
     if (!filePath || !existsSync(filePath)) {
-      throw new NotFoundException('Boletim PDF não encontrado');
+      throw new NotFoundException('Boletim PDF nÃ£o encontrado');
     }
 
     const filename = `boletim_medicao_${medicao.numero_medicao || medicaoId}.pdf`;
@@ -573,11 +601,11 @@ export class ModalidadesContratoController {
   ) {
     const medicao = await this.medicaoService.buscarMedicao(medicaoId);
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato) throw new NotFoundException('Contrato nÃ£o encontrado');
 
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     if (contrato.orgao_id !== orgaoId) {
-      throw new ForbiddenException('Você não tem acesso a esta medição');
+      throw new ForbiddenException('VocÃª nÃ£o tem acesso a esta mediÃ§Ã£o');
     }
 
     return this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
@@ -645,7 +673,7 @@ export class ModalidadesContratoController {
   ) {
     const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
     if (request.user.type === UserType.USUARIO && !usuario?.pode_enviar_contabilidade) {
-      throw new ForbiddenException('Você não tem permissão para marcar envio para contabilidade');
+      throw new ForbiddenException('VocÃª nÃ£o tem permissÃ£o para marcar envio para contabilidade');
     }
     const orgaoId = this.getOrgaoId(request.user);
     const nomeUsuario = usuario?.nome || request.user.email || '';
@@ -690,9 +718,9 @@ export class ModalidadesContratoController {
   ) {
     const medicao = await this.medicaoService.buscarMedicao(medicaoId);
     const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato) throw new NotFoundException('Contrato nÃ£o encontrado');
     const orgaoId = this.getOrgaoId(request.user);
-    if (contrato.orgao_id !== orgaoId) throw new ForbiddenException('Sem acesso a esta medição');
+    if (contrato.orgao_id !== orgaoId) throw new ForbiddenException('Sem acesso a esta mediÃ§Ã£o');
     return this.medicaoService.submeterMedicaoFiscal(medicaoId, body.fiscal_id, body.fiscal_nome);
   }
 
@@ -739,7 +767,7 @@ export class ModalidadesContratoController {
     @Param('medicaoId') medicaoId: string,
     @Req() request: { user: JwtPayload },
   ) {
-    // Verificar permissão real no banco de dados (não confiar em query params)
+    // Verificar permissÃ£o real no banco de dados (nÃ£o confiar em query params)
     let isAdmin = request.user.type === UserType.ADMIN;
     if (!isAdmin && request.user.type === UserType.USUARIO) {
       const usuario = await this.usuarioRepository.findOne({
@@ -775,7 +803,7 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // ATESTAÇÃO MENSAL (Serviços Continuados)
+  // ATESTAÃ‡ÃƒO MENSAL (ServiÃ§os Continuados)
   // ============================================================================
 
   @Post(':contratoId/atestacoes/pre-criar')
@@ -843,7 +871,7 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // LICENÇAS (Software/SaaS)
+  // LICENÃ‡AS (Software/SaaS)
   // ============================================================================
 
   @Post(':contratoId/licencas')
@@ -914,10 +942,10 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // ORDENS DE SERVIÇO — Módulo Unificado
+  // ORDENS DE SERVIÃ‡O â€” MÃ³dulo Unificado
   // ============================================================================
 
-  // Banco de Métricas (apenas ORDEM_SERVICO)
+  // Banco de MÃ©tricas (apenas ORDEM_SERVICO)
   @Post(':contratoId/banco-metricas')
   async criarBancoMetricas(
     @Param('contratoId') contratoId: string,
@@ -939,7 +967,7 @@ export class ModalidadesContratoController {
     return this.osService.atualizarBancoMetricas(bancoId, dados);
   }
 
-  // --- Listagem geral de OS (por órgão) ---
+  // --- Listagem geral de OS (por Ã³rgÃ£o) ---
 
   @Get('ordens-servico/pendentes-aprovacao')
   async listarOSPendentesAprovacao(
@@ -973,7 +1001,7 @@ export class ModalidadesContratoController {
     return this.osService.criarOS(contratoId, {
       ...dados,
       usuario_cadastro_id: request.user.sub,
-      usuario_cadastro_nome: usuario?.nome || 'Usuário',
+      usuario_cadastro_nome: usuario?.nome || 'UsuÃ¡rio',
     });
   }
 
@@ -1003,7 +1031,7 @@ export class ModalidadesContratoController {
     return this.osService.atualizarOS(osId, dados);
   }
 
-  // --- Fluxo de aprovação ---
+  // --- Fluxo de aprovaÃ§Ã£o ---
 
   @Patch('ordens-servico/:osId/submeter')
   async submeterAprovacaoOS(@Param('osId') osId: string) {
@@ -1030,7 +1058,7 @@ export class ModalidadesContratoController {
     return this.osService.rejeitarAprovacaoOS(osId, request.user.sub, usuario?.nome || 'Aprovador', body.observacao);
   }
 
-  // --- Fluxo de execução ---
+  // --- Fluxo de execuÃ§Ã£o ---
 
   @Patch('ordens-servico/:osId/iniciar')
   async iniciarExecucao(@Param('osId') osId: string) {
@@ -1081,13 +1109,13 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================================
-  // ASSINATURA DIGITAL — Boletim de Medição
+  // ASSINATURA DIGITAL â€” Boletim de MediÃ§Ã£o
   // ============================================================================
 
   /**
-   * Registra uma assinatura digital para um Boletim de Medição.
-   * Usa o mesmo módulo de assinaturas das OS/OF (assinaturas_digitais).
-   * Retorna o código de validação formatado para inclusão no PDF.
+   * Registra uma assinatura digital para um Boletim de MediÃ§Ã£o.
+   * Usa o mesmo mÃ³dulo de assinaturas das OS/OF (assinaturas_digitais).
+   * Retorna o cÃ³digo de validaÃ§Ã£o formatado para inclusÃ£o no PDF.
    */
   @Post('medicoes/:medicaoId/solicitar-otp-fiscal')
   async solicitarOtpFiscal(
@@ -1098,8 +1126,8 @@ export class ModalidadesContratoController {
   }
 
   /**
-   * Envia OTP para o telefone do fornecedor (quando o órgão cria a medição).
-   * A assinatura será do fornecedor, no campo FORNECEDOR do boletim.
+   * Envia OTP para o telefone do fornecedor (quando o Ã³rgÃ£o cria a mediÃ§Ã£o).
+   * A assinatura serÃ¡ do fornecedor, no campo FORNECEDOR do boletim.
    */
   @Post('medicoes/:medicaoId/solicitar-otp-fornecedor')
   async solicitarOtpFornecedor(@Param('medicaoId') medicaoId: string) {
@@ -1140,7 +1168,7 @@ export class ModalidadesContratoController {
     @Param('medicaoId') medicaoId: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
+    if (!file) throw new BadRequestException('Arquivo PDF Ã© obrigatÃ³rio');
     const pdfUrl = await this.medicaoService.salvarBoletimPdf(medicaoId, file.buffer);
     return { url: pdfUrl };
   }
@@ -1172,8 +1200,158 @@ export class ModalidadesContratoController {
   }
 
   // ============================================================
-  // EMPENHOS — Portal Fator Transparência
+  // EMPENHOS â€” Portal Fator TransparÃªncia
   // ============================================================
+
+  @Get(':contratoId/relatorio-pedidos')
+  async relatorioPedidos(@Param('contratoId') contratoId: string) {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      select: [
+        'id',
+        'numero_contrato',
+        'ano',
+        'objeto',
+        'fornecedor_razao_social',
+        'fornecedor_cnpj',
+        'data_vigencia_inicio',
+        'data_vigencia_fim',
+      ],
+      relations: ['orgao'],
+    });
+
+    if (!contrato) {
+      throw new NotFoundException('Contrato nÃƒÂ£o encontrado');
+    }
+
+    const [requisicoes, ordensFornecimento, ordensServico] = await Promise.all([
+      this.requisicaoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero',
+          'tipo',
+          'status',
+          'valor_total_estimado',
+          'data_solicitacao',
+          'created_at',
+          'numeros_empenhos',
+        ],
+        order: { data_solicitacao: 'DESC', created_at: 'DESC' },
+      }),
+      this.ordemFornecimentoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero',
+          'tipo',
+          'status',
+          'valor_total',
+          'data_emissao',
+          'created_at',
+          'requisicao_id',
+          'numeros_empenhos',
+        ],
+        order: { data_emissao: 'DESC', created_at: 'DESC' },
+      }),
+      this.ordemServicoContratoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero_os',
+          'status',
+          'valor_total',
+          'data_abertura',
+          'data_prazo',
+          'created_at',
+          'numero_empenho',
+          'numeros_empenhos',
+        ],
+        order: { data_abertura: 'DESC', created_at: 'DESC' },
+      }),
+    ]);
+
+    const secoes = {
+      ordens_fornecimento: ordensFornecimento
+        .filter(ordem => ordem.tipo === TipoOrdem.FORNECIMENTO)
+        .map(ordem => ({
+          id: ordem.id,
+          numero: ordem.numero,
+          tipo: ordem.tipo,
+          status: ordem.status,
+          valor_total: Number(ordem.valor_total ?? 0),
+          data_documento: ordem.data_emissao
+            ? new Date(ordem.data_emissao).toISOString()
+            : ordem.created_at?.toISOString?.() ?? null,
+          requisicao_origem_id: ordem.requisicao_id,
+          empenhos: this.parseNumerosEmpenhos(ordem.numeros_empenhos),
+        })),
+      requisicoes: requisicoes
+        .filter(requisicao => requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO)
+        .map(requisicao => ({
+          id: requisicao.id,
+          numero: requisicao.numero,
+          tipo: requisicao.tipo,
+          status: requisicao.status,
+          valor_total: Number(requisicao.valor_total_estimado ?? 0),
+          data_documento: requisicao.data_solicitacao
+            ? new Date(requisicao.data_solicitacao).toISOString()
+            : requisicao.created_at?.toISOString?.() ?? null,
+          empenhos: this.parseNumerosEmpenhos(requisicao.numeros_empenhos),
+        })),
+      ordens_servico: ordensServico.map(ordem => ({
+        id: ordem.id,
+        numero: ordem.numero_os,
+        tipo: 'ORDEM_SERVICO',
+        status: ordem.status,
+        valor_total: Number(ordem.valor_total ?? 0),
+        data_documento: ordem.data_abertura
+          ? new Date(ordem.data_abertura).toISOString()
+          : ordem.created_at?.toISOString?.() ?? null,
+        data_prazo: ordem.data_prazo ? new Date(ordem.data_prazo).toISOString() : null,
+        empenhos: Array.from(new Set([
+          ...this.parseNumerosEmpenhos(ordem.numeros_empenhos),
+          ...this.parseNumerosEmpenhos(ordem.numero_empenho ? [ordem.numero_empenho] : []),
+        ])),
+      })),
+    };
+
+    return {
+      contrato: {
+        id: contrato.id,
+        numero_contrato: contrato.numero_contrato,
+        ano: contrato.ano,
+        objeto: contrato.objeto,
+        data_vigencia_inicio: contrato.data_vigencia_inicio,
+        data_vigencia_fim: contrato.data_vigencia_fim,
+        fornecedor_razao_social: contrato.fornecedor_razao_social,
+        fornecedor_cnpj: contrato.fornecedor_cnpj,
+        orgao: contrato.orgao
+          ? {
+              nome: contrato.orgao.nome,
+              cnpj: contrato.orgao.cnpj,
+              cidade: contrato.orgao.cidade,
+              uf: contrato.orgao.uf,
+            }
+          : null,
+      },
+      resumo: {
+        total_ordens_fornecimento: secoes.ordens_fornecimento.length,
+        total_requisicoes: secoes.requisicoes.length,
+        total_ordens_servico: secoes.ordens_servico.length,
+        total_documentos:
+          secoes.ordens_fornecimento.length +
+          secoes.requisicoes.length +
+          secoes.ordens_servico.length,
+        total_empenhos_vinculados: new Set([
+          ...secoes.ordens_fornecimento.flatMap(item => item.empenhos),
+          ...secoes.requisicoes.flatMap(item => item.empenhos),
+          ...secoes.ordens_servico.flatMap(item => item.empenhos),
+        ]).size,
+      },
+      secoes,
+    };
+  }
 
   @Get(':contratoId/empenhos')
   async buscarEmpenhos(
@@ -1185,10 +1363,10 @@ export class ModalidadesContratoController {
       select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano', 'valor_global'],
     });
     if (!contrato) {
-      throw new NotFoundException('Contrato não encontrado');
+      throw new NotFoundException('Contrato nÃ£o encontrado');
     }
 
-    // Usa o ano do contrato como padrão quando não informado pelo frontend
+    // Usa o ano do contrato como padrÃ£o quando nÃ£o informado pelo frontend
     const anoConsulta = ano ? parseInt(ano, 10) : (contrato.ano ?? new Date().getFullYear());
 
     const empenhos = await this.fatorTransparencia.buscarEmpenhos({
@@ -1202,8 +1380,8 @@ export class ModalidadesContratoController {
       ano_contrato: contrato.ano ?? anoConsulta,
     });
 
-    // Calcular comprometido por empenho (valor das requisições ativas vinculadas)
-    // Regra FIFO: debitar do empenho mais antigo primeiro; se faltar saldo, passar ao próximo
+    // Calcular comprometido por empenho (valor das requisiÃ§Ãµes ativas vinculadas)
+    // Regra FIFO: debitar do empenho mais antigo primeiro; se faltar saldo, passar ao prÃ³ximo
     const statusAtivos = [
       StatusRequisicao.RASCUNHO,
       StatusRequisicao.AGUARDANDO_AUTORIZACAO,
@@ -1218,7 +1396,7 @@ export class ModalidadesContratoController {
       order: { created_at: 'ASC' },
     });
 
-    // Buscar também ordens de fornecimento com empenhos vinculados
+    // Buscar tambÃ©m ordens de fornecimento com empenhos vinculados
     const statusAtivosOrdem = [
       StatusOrdemFornecimento.EMITIDA,
       StatusOrdemFornecimento.ENVIADA,
@@ -1232,7 +1410,7 @@ export class ModalidadesContratoController {
       order: { created_at: 'ASC' },
     });
 
-    // Combinar requisições e ordens em lista unificada para cálculo FIFO e vinculadas
+    // Combinar requisiÃ§Ãµes e ordens em lista unificada para cÃ¡lculo FIFO e vinculadas
     type ItemVinculado = { id: string; numero: string; tipo: string; numeros_empenhos: string[] | null; valor: number; status: string; created_at: Date; origem: 'requisicao' | 'ordem' };
     const todosItens: ItemVinculado[] = [
       ...requisicoes.map(r => ({
@@ -1257,8 +1435,8 @@ export class ModalidadesContratoController {
       })),
     ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-    // Mapa: numero_empenho → { saldo_base (portal), comprometido acumulado }
-    // Comprometido é calculado por alocação FIFO (empenho mais antigo primeiro)
+    // Mapa: numero_empenho â†’ { saldo_base (portal), comprometido acumulado }
+    // Comprometido Ã© calculado por alocaÃ§Ã£o FIFO (empenho mais antigo primeiro)
     const alocacaoMap = new Map<string, { saldo_base: number; comprometido: number }>();
     for (const grupo of resumo.grupos_exercicio) {
       for (const comp of grupo.empenhos_compostos) {
@@ -1269,12 +1447,12 @@ export class ModalidadesContratoController {
       }
     }
 
-    // Processar itens (requisições + ordens) em ordem cronológica (mais antiga primeiro)
+    // Processar itens (requisiÃ§Ãµes + ordens) em ordem cronolÃ³gica (mais antiga primeiro)
     for (const item of todosItens) {
       if (!item.numeros_empenhos || item.numeros_empenhos.length === 0) continue;
       const nums = item.numeros_empenhos;
 
-      // Normalizar: "534-2026" → "534" para matching com numero_empenho do portal
+      // Normalizar: "534-2026" â†’ "534" para matching com numero_empenho do portal
       const numsBase = nums.map(n => n.replace(/[-/]\d{4}$/, ''));
 
       // Ordenar numeros_empenhos por data do empenho (mais antigo primeiro)
@@ -1284,7 +1462,7 @@ export class ModalidadesContratoController {
         return idxA - idxB;
       });
 
-      // Débito FIFO: descontar do empenho mais antigo primeiro
+      // DÃ©bito FIFO: descontar do empenho mais antigo primeiro
       let restante = item.valor;
       for (const num of numsOrdenados) {
         if (restante <= 0.01) break;
@@ -1307,7 +1485,7 @@ export class ModalidadesContratoController {
       }
     }
 
-    // Mapa: numero_empenho → lista de itens vinculados (requisições + ordens)
+    // Mapa: numero_empenho â†’ lista de itens vinculados (requisiÃ§Ãµes + ordens)
     const vinculadasPorEmpenho = new Map<string, Array<{ id: string; numero: string; tipo: string; status: string; valor_total_estimado: number; created_at: string }>>();
     for (const item of todosItens) {
       if (!item.numeros_empenhos || item.numeros_empenhos.length === 0) continue;
