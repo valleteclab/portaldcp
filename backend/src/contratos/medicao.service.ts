@@ -2363,6 +2363,11 @@ export class MedicaoService {
       : null;
 
     const discriminacoes = await this.listarDiscriminacoes(medicaoId);
+    const execucaoFinanceiraAtual =
+      await this.calcularExecucaoFinanceiraFornecedor(
+        medicao.contrato_id,
+        medicaoId,
+      );
 
     const assinaturas = await this.assinaturaDigitalRepository.find({
       where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
@@ -2397,7 +2402,10 @@ export class MedicaoService {
     // Usa o snapshot execucao_financeira salvo na submissão do fornecedor.
     // Para itens MENSAL com migração via /quantidade-migracao, o snapshot não
     // inclui ic.quantidade_medida no ate_periodo. Aplicamos Math.max igual ao frontend.
-    const efItens: any[] = (medicao.execucao_financeira as any)?.itens || [];
+    const efItens: any[] =
+      execucaoFinanceiraAtual?.itens ||
+      (medicao.execucao_financeira as any)?.itens ||
+      [];
     const efItemMap = new Map<string, any>();
     for (const ef of efItens) {
       if (ef.etapa_id) efItemMap.set(ef.etapa_id, ef);
@@ -2439,20 +2447,13 @@ export class MedicaoService {
               )
             : produtoQuantidadeValorUnitarioCentavos(qtdMedida, vlrUnitario);
 
-        // centSnap: valor snapshot salvo na submissão (ate_periodo_global já inclui a medição atual).
-        // Apenas usado para medições APROVADAS: nesse estado ic.quantidade_medida já foi incrementado
-        // pela aprovação, logo usar centMigracao causaria dupla contagem.
-        // Para medições não aprovadas o snapshot pode estar desatualizado (outras medições foram
-        // aprovadas depois, incrementando ic.quantidade_medida), então sempre usamos centMigracao
-        // que reflete o estado atual de ic.quantidade_medida.
-        const centSnap =
-          efItem && (medicao as any).status === StatusMedicao.APROVADA
-            ? Math.round(
-                truncarMoedaReais2Casas(
-                  Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0),
-                ) * 100,
-              )
-            : null;
+        const centSnap = efItem
+          ? Math.round(
+              truncarMoedaReais2Casas(
+                Number(efItem.ate_periodo_global ?? efItem.ate_periodo ?? 0),
+              ) * 100,
+            )
+          : null;
         // centMigracao: caminho principal para medições não aprovadas; para medições aprovadas
         // é o fallback quando não há snapshot. Usa ic.quantidade_medida (histórico acumulado de
         // aprovações + migração) somado ao valor do período atual. Correto apenas enquanto a
@@ -2499,14 +2500,24 @@ export class MedicaoService {
           (item.item_unidade || '') === 'MENSAL' &&
           !!(contrato as any).boletim_por_quantidade;
         const qtdAcumuladaRaw =
-          vlrUnitario > 0
-            ? vlrAcumAnterior / vlrUnitario
-            : Number(item.item_quantidade_acumulada || 0);
+          efItem?.quantidade_ate_periodo != null &&
+          efItem?.quantidade_no_periodo != null
+            ? Number(efItem.quantidade_ate_periodo) -
+              Number(efItem.quantidade_no_periodo)
+            : vlrUnitario > 0
+              ? vlrAcumAnterior / vlrUnitario
+              : Number(item.item_quantidade_acumulada || 0);
         const qtdAcumulada = isMensalComFlag
           ? Math.round(qtdAcumuladaRaw)
           : Math.round(Number(qtdAcumuladaRaw) * 100) / 100;
-        const qtdAtePeriodo = qtdAcumulada + qtdMedida;
-        const qtdAExecutar = Math.max(0, qtdTotal - qtdAtePeriodo);
+        const qtdAtePeriodo =
+          efItem?.quantidade_ate_periodo != null
+            ? Number(efItem.quantidade_ate_periodo)
+            : qtdAcumulada + qtdMedida;
+        const qtdAExecutar =
+          efItem?.quantidade_a_executar != null
+            ? Number(efItem.quantidade_a_executar)
+            : Math.max(0, qtdTotal - qtdAtePeriodo);
         const base: any = {
           numero: Number(item.etapa_numero || item.item_numero || 0),
           descricao: item.item_descricao || item.etapa_descricao || '',
@@ -2594,7 +2605,22 @@ export class MedicaoService {
     }, 0);
 
     const execucaoFinanceiraTotaisCorrigidos =
-      itensParaPdf.length > 0
+      execucaoFinanceiraAtual?.totais
+        ? {
+            no_periodo: truncarMoedaReais2Casas(
+              Number(execucaoFinanceiraAtual.totais.no_periodo) || 0,
+            ),
+            ate_periodo: truncarMoedaReais2Casas(
+              Number(execucaoFinanceiraAtual.totais.ate_periodo) || 0,
+            ),
+            a_executar: truncarMoedaReais2Casas(
+              Number(execucaoFinanceiraAtual.totais.a_executar) || 0,
+            ),
+            valor_previsto: truncarMoedaReais2Casas(
+              Number(execucaoFinanceiraAtual.totais.valor_previsto) || 0,
+            ),
+          }
+        : itensParaPdf.length > 0
         ? {
             no_periodo: totalNoPeriodoPdf,
             ate_periodo: totalAtePeriodoPdf,
@@ -2649,6 +2675,7 @@ export class MedicaoService {
       // Usa quantidade se o contrato tem a flag OU se qualquer item tem unidade não-MENSAL
       // (espelha a lógica do frontend: tipoMedicaoAtual = 'quantidade' quando unidade != 'MENSAL')
       execucao_fiscal_por_quantidade:
+        !!execucaoFinanceiraAtual?.execucao_fiscal_por_quantidade ||
         !!(contrato as any).boletim_por_quantidade ||
         itensParaPdf.some((i) => i.unidade && i.unidade !== 'MENSAL'),
       itens: itensParaPdf.length > 0 ? itensParaPdf : undefined,
