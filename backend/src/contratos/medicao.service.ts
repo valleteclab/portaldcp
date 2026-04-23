@@ -3996,16 +3996,20 @@ export class MedicaoService {
       String(periodoInicio),
       String(periodoFim),
     );
-    const quantidadeComercial = Number(
-      (Math.min(diasComerciais, 30) / 30).toFixed(4),
-    );
+    const quantidadeComercialExata = Math.min(diasComerciais, 30) / 30;
+    const quantidadeComercial = Number(quantidadeComercialExata.toFixed(4));
+    const quantidadeComercial3 = Number(quantidadeComercialExata.toFixed(3));
+    const quantidadeComercial2 = Number(quantidadeComercialExata.toFixed(2));
 
-    // Corrige apenas os casos em que a quantidade salva coincide com o
-    // proporcional comercial arredondado da UI. Entradas manuais continuam
-    // usando o valor persistido originalmente.
-    if (
-      Math.abs(Number(quantidadeMedida || 0) - quantidadeComercial) > 0.00011
-    ) {
+    const quantidadeSalva = Number(quantidadeMedida || 0);
+    const coincideComProporcionalAntigo =
+      Math.abs(quantidadeSalva - quantidadeComercial) <= 0.00011 ||
+      Math.abs(quantidadeSalva - quantidadeComercial3) <= 0.00011 ||
+      Math.abs(quantidadeSalva - quantidadeComercial2) <= 0.00011;
+
+    // Corrige proporcionais gerados automaticamente com 2, 3 ou 4 casas.
+    // Entradas manuais realmente diferentes do período continuam preservadas.
+    if (!coincideComProporcionalAntigo) {
       return null;
     }
 
