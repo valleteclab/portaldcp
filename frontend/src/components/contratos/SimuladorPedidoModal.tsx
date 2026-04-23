@@ -63,6 +63,17 @@ function parseMoedaInput(valor: string) {
   return Number.isFinite(numero) ? numero : 0
 }
 
+function mdc(a: number, b: number): number {
+  let x = Math.abs(a)
+  let y = Math.abs(b)
+  while (y !== 0) {
+    const resto = x % y
+    x = y
+    y = resto
+  }
+  return x || 1
+}
+
 const UNIDADES_METRO = ['METRO', 'M', 'ML', 'M²', 'M2', 'M³', 'M3']
 
 function isPorMetro(unidade: string) {
@@ -98,12 +109,33 @@ function gerarSugestaoExata(items: ItemContrato[], valorAlvo: number): Record<st
   if (alvoCentavos <= 0) return {}
 
   const candidatos = items
-    .filter(item => !isPorMetro(item.unidade_medida))
     .map(item => ({
       id: item.id,
-      maxQty: Math.max(0, Math.floor(Number(item.saldo_disponivel))),
-      valorCentavos: Math.round(Number(item.valor_unitario) * 100),
+      fracionavel: isPorMetro(item.unidade_medida),
+      saldoDisponivel: Math.max(0, Number(item.saldo_disponivel)),
+      valorUnitarioCentavos: Math.round(Number(item.valor_unitario) * 100),
     }))
+    .map(item => {
+      if (item.fracionavel) {
+        const passoQuantidadeCent = 100 / mdc(item.valorUnitarioCentavos, 100)
+        const passoQuantidade = passoQuantidadeCent / 100
+        const maxPassos = Math.floor((item.saldoDisponivel + 0.000001) / passoQuantidade)
+        const valorCentavos = (item.valorUnitarioCentavos * passoQuantidadeCent) / 100
+        return {
+          id: item.id,
+          qtyStep: passoQuantidade,
+          maxQty: maxPassos,
+          valorCentavos,
+        }
+      }
+
+      return {
+        id: item.id,
+        qtyStep: 1,
+        maxQty: Math.max(0, Math.floor(item.saldoDisponivel)),
+        valorCentavos: item.valorUnitarioCentavos,
+      }
+    })
     .filter(item => item.maxQty > 0 && item.valorCentavos > 0 && item.valorCentavos <= alvoCentavos)
 
   const chunks: Array<{ id: string; qty: number; valorCentavos: number }> = []
@@ -111,13 +143,13 @@ function gerarSugestaoExata(items: ItemContrato[], valorAlvo: number): Record<st
     let bloco = 1
     let restante = item.maxQty
     while (restante > 0) {
-      const qty = Math.min(bloco, restante)
+      const multiplicador = Math.min(bloco, restante)
       chunks.push({
         id: item.id,
-        qty,
-        valorCentavos: item.valorCentavos * qty,
+        qty: item.qtyStep * multiplicador,
+        valorCentavos: item.valorCentavos * multiplicador,
       })
-      restante -= qty
+      restante -= multiplicador
       bloco *= 2
     }
   }
@@ -153,7 +185,10 @@ function gerarSugestaoExata(items: ItemContrato[], valorAlvo: number): Record<st
 
   const resultado: Record<string, Selecao> = {}
   for (const item of items) {
-    const qty = quantidades.get(item.id) ?? 0
+    const qtyBruta = quantidades.get(item.id) ?? 0
+    const qty = isPorMetro(item.unidade_medida)
+      ? Math.round(qtyBruta * 100) / 100
+      : Math.floor(qtyBruta)
     resultado[item.id] = { checked: qty > 0, qty }
   }
 
