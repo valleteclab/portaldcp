@@ -48,9 +48,19 @@ function fmtMoeda(valor: number) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+function fmtMoedaInput(valor: number) {
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function fmtNum(valor: number | string) {
   const n = Number(valor)
   return (n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4, minimumFractionDigits: 0 })
+}
+
+function parseMoedaInput(valor: string) {
+  const normalizado = valor.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '')
+  const numero = Number(normalizado)
+  return Number.isFinite(numero) ? numero : 0
 }
 
 const UNIDADES_METRO = ['METRO', 'M', 'ML', 'M²', 'M2', 'M³', 'M3']
@@ -83,6 +93,73 @@ function gerarSugestao(items: ItemContrato[], saldoVirtual: number): Record<stri
   return result
 }
 
+function gerarSugestaoExata(items: ItemContrato[], valorAlvo: number): Record<string, Selecao> | null {
+  const alvoCentavos = Math.round(valorAlvo * 100)
+  if (alvoCentavos <= 0) return {}
+
+  const candidatos = items
+    .filter(item => !isPorMetro(item.unidade_medida))
+    .map(item => ({
+      id: item.id,
+      maxQty: Math.max(0, Math.floor(Number(item.saldo_disponivel))),
+      valorCentavos: Math.round(Number(item.valor_unitario) * 100),
+    }))
+    .filter(item => item.maxQty > 0 && item.valorCentavos > 0 && item.valorCentavos <= alvoCentavos)
+
+  const chunks: Array<{ id: string; qty: number; valorCentavos: number }> = []
+  for (const item of candidatos) {
+    let bloco = 1
+    let restante = item.maxQty
+    while (restante > 0) {
+      const qty = Math.min(bloco, restante)
+      chunks.push({
+        id: item.id,
+        qty,
+        valorCentavos: item.valorCentavos * qty,
+      })
+      restante -= qty
+      bloco *= 2
+    }
+  }
+
+  const alcançavel = new Uint8Array(alvoCentavos + 1)
+  const chunkPai = new Int32Array(alvoCentavos + 1)
+  const somaAnterior = new Int32Array(alvoCentavos + 1)
+  chunkPai.fill(-1)
+  somaAnterior.fill(-1)
+  alcançavel[0] = 1
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+    const chunk = chunks[chunkIndex]
+    for (let soma = alvoCentavos; soma >= chunk.valorCentavos; soma -= 1) {
+      if (alcançavel[soma] || !alcançavel[soma - chunk.valorCentavos]) continue
+      alcançavel[soma] = 1
+      chunkPai[soma] = chunkIndex
+      somaAnterior[soma] = soma - chunk.valorCentavos
+    }
+  }
+
+  if (!alcançavel[alvoCentavos]) return null
+
+  const quantidades = new Map<string, number>()
+  let somaAtual = alvoCentavos
+  while (somaAtual > 0) {
+    const indexChunk = chunkPai[somaAtual]
+    if (indexChunk < 0) break
+    const chunk = chunks[indexChunk]
+    quantidades.set(chunk.id, (quantidades.get(chunk.id) ?? 0) + chunk.qty)
+    somaAtual = somaAnterior[somaAtual]
+  }
+
+  const resultado: Record<string, Selecao> = {}
+  for (const item of items) {
+    const qty = quantidades.get(item.id) ?? 0
+    resultado[item.id] = { checked: qty > 0, qty }
+  }
+
+  return resultado
+}
+
 export default function SimuladorPedidoModal({
   open,
   onClose,
@@ -95,18 +172,28 @@ export default function SimuladorPedidoModal({
   const [items, setItems] = useState<ItemContrato[]>([])
   const [loading, setLoading] = useState(false)
   const [selections, setSelections] = useState<Record<string, Selecao>>({})
+  const [valorAlvo, setValorAlvo] = useState('')
+  const [mensagemSugestao, setMensagemSugestao] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setLoading(true)
-    authFetch(`${API_URL}/api/almoxarifado/contratos/${contratoId}/itens/disponiveis`)
-      .then(r => r.json())
-      .then((data: ItemContrato[]) => {
+    async function carregarItens() {
+      setLoading(true)
+      setMensagemSugestao(null)
+      setValorAlvo(fmtMoedaInput(saldoVirtual))
+      try {
+        const resposta = await authFetch(`${API_URL}/api/almoxarifado/contratos/${contratoId}/itens/disponiveis`)
+        const data = await resposta.json()
         setItems(data)
         setSelections(gerarSugestao(data, saldoVirtual))
-      })
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false))
+      } catch {
+        setItems([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void carregarItens()
   }, [open, contratoId, saldoVirtual])
 
   const totalSelecionado = useMemo(() => {
@@ -130,11 +217,38 @@ export default function SimuladorPedidoModal({
   }
 
   function limparSelecao() {
+    setMensagemSugestao(null)
     setSelections(prev => {
       const next: Record<string, Selecao> = {}
       for (const id of Object.keys(prev)) next[id] = { checked: false, qty: 0 }
       return next
     })
+  }
+
+  function aplicarSugestaoAutomatica() {
+    setMensagemSugestao(null)
+    setSelections(gerarSugestao(items, saldoVirtual))
+  }
+
+  function aplicarSugestaoExata() {
+    const alvo = parseMoedaInput(valorAlvo)
+    if (alvo <= 0) {
+      setMensagemSugestao('Informe um valor-alvo maior que zero.')
+      return
+    }
+    if (alvo > saldoVirtual + 0.01) {
+      setMensagemSugestao(`O valor-alvo não pode ultrapassar o saldo do empenho (${fmtMoeda(saldoVirtual)}).`)
+      return
+    }
+
+    const sugestao = gerarSugestaoExata(items, alvo)
+    if (!sugestao) {
+      setMensagemSugestao('Não encontrei combinação exata com os itens inteiros disponíveis. Tente outro valor ou ajuste manualmente.')
+      return
+    }
+
+    setMensagemSugestao(`Combinação exata aplicada para ${fmtMoeda(alvo)}.`)
+    setSelections(sugestao)
   }
 
   function imprimirSimulacao() {
@@ -315,6 +429,37 @@ export default function SimuladorPedidoModal({
         {/* Barra de total */}
         {!loading && items.length > 0 && (
           <div className="border-t pt-3 space-y-2">
+            <div className="rounded-lg border bg-slate-50 p-3 space-y-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs font-medium text-slate-700">
+                    Valor-alvo da simulação
+                  </label>
+                  <Input
+                    value={valorAlvo}
+                    onChange={e => setValorAlvo(e.target.value)}
+                    placeholder="0,00"
+                    className="text-sm"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Monte uma combinação exata com base no valor desejado, respeitando o saldo disponível de cada item.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={aplicarSugestaoAutomatica}>
+                    Sugestão automática
+                  </Button>
+                  <Button onClick={aplicarSugestaoExata}>
+                    Buscar valor exato
+                  </Button>
+                </div>
+              </div>
+              {mensagemSugestao && (
+                <div className="text-xs text-slate-600">
+                  {mensagemSugestao}
+                </div>
+              )}
+            </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-600">Total simulado:</span>
               <span className={`font-bold text-base ${excedeSaldo ? 'text-red-600' : 'text-blue-700'}`}>
