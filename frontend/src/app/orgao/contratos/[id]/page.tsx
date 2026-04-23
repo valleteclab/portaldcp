@@ -64,6 +64,7 @@ import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
+import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
 
 interface TermoAditivo {
   id: string
@@ -342,6 +343,7 @@ export default function DetalheContratoOrgaoPage() {
   const [resumoEmpenhos, setResumoEmpenhos] = useState<ResumoEmpenhos['resumo'] | null>(null)
   const [empenhosPorAno, setEmpenhosPorAno] = useState<ResumoAnoEmpenhos[]>([])
   const [gruposExercicio, setGruposExercicio] = useState<GrupoExercicio[]>([])
+  const [simuladorEmpenho, setSimuladorEmpenho] = useState<EmpenhoComposto | null>(null)
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -2375,6 +2377,16 @@ export default function DetalheContratoOrgaoPage() {
                                       <span className={`font-bold ${(comp.saldo_virtual ?? comp.saldo_a_liquidar) > 0.01 ? 'text-blue-700' : 'text-red-600'}`}>
                                         Disponível {fmt(comp.saldo_virtual ?? comp.saldo_a_liquidar)}
                                       </span>
+                                      {(comp.saldo_virtual ?? comp.saldo_a_liquidar) > 0.01 && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="text-[10px] h-6 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                                          onClick={() => setSimuladorEmpenho(comp)}
+                                        >
+                                          Simular Pedido
+                                        </Button>
+                                      )}
                                     </div>
                                   </div>
                                   <table className="w-full text-xs">
@@ -2578,6 +2590,16 @@ export default function DetalheContratoOrgaoPage() {
               )}
             </CardContent>
           </Card>
+
+          {simuladorEmpenho && (
+            <SimuladorPedidoModal
+              open={!!simuladorEmpenho}
+              onClose={() => setSimuladorEmpenho(null)}
+              empenho={simuladorEmpenho}
+              contratoId={id as string}
+              contratoNumero={contrato?.numero_contrato ?? ''}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="relatorios" className="space-y-6">
