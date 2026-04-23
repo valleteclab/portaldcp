@@ -3016,7 +3016,7 @@ export class MedicaoService {
 
     let medicoesEmAnalise = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: In(statusEmAnalise) },
-      select: ['id', 'periodo_inicio'],
+      select: ['id', 'periodo_inicio', 'periodo_fim'],
       order: { numero_medicao: 'ASC' },
     });
 
@@ -3032,6 +3032,9 @@ export class MedicaoService {
     }
 
     const medicaoIds = medicoesEmAnalise.map((medicao) => medicao.id);
+    const medicoesPorId = new Map(
+      medicoesEmAnalise.map((medicao) => [medicao.id, medicao] as const),
+    );
     const [itensEtapa, itensCronograma] = await Promise.all([
       this.itemMedicaoRepository.find({
         where: { medicao_id: In(medicaoIds) },
@@ -3039,7 +3042,7 @@ export class MedicaoService {
       }),
       this.itemMedicaoItemRepository.find({
         where: { medicao_id: In(medicaoIds) },
-        select: ['item_cronograma_id', 'valor_medido', 'quantidade_medida'],
+        relations: ['itemCronograma'],
       } as any),
     ]);
 
@@ -3055,11 +3058,54 @@ export class MedicaoService {
     for (const item of itensCronograma) {
       const itemId = (item as any).item_cronograma_id as string | undefined;
       if (!itemId) continue;
-      valoresPorItem.set(itemId, (valoresPorItem.get(itemId) || 0) + Number((item as any).valor_medido || 0));
+      const itemCronograma = (item as any).itemCronograma as ItemCronograma | undefined;
+      const medicao = medicoesPorId.get((item as any).medicao_id as string);
+      const valorUnitario = Number(itemCronograma?.valor_unitario || 0);
+      const valorCalculadoMensal =
+        itemCronograma?.unidade_medida === 'MENSAL' &&
+        valorUnitario > 0 &&
+        medicao?.periodo_inicio &&
+        medicao?.periodo_fim
+          ? truncarMoedaReais2Casas(
+              (valorUnitario / 30) *
+              this.calcularDiasComercialPeriodo(
+                String(medicao.periodo_inicio),
+                String(medicao.periodo_fim),
+              ),
+            )
+          : Number((item as any).valor_medido || 0);
+      valoresPorItem.set(itemId, (valoresPorItem.get(itemId) || 0) + valorCalculadoMensal);
       quantidadesPorItem.set(itemId, (quantidadesPorItem.get(itemId) || 0) + Number((item as any).quantidade_medida || 0));
     }
 
     return { valoresPorEtapa, valoresPorItem, quantidadesPorItem };
+  }
+
+  private calcularDiasComercialPeriodo(dataInicio: string, dataFim: string): number {
+    const inicio = new Date(dataInicio);
+    const fim = new Date(dataFim);
+
+    const ano1 = inicio.getUTCFullYear();
+    const mes1 = inicio.getUTCMonth();
+    const dia1 = inicio.getUTCDate();
+    const ano2 = fim.getUTCFullYear();
+    const mes2 = fim.getUTCMonth();
+    const dia2 = fim.getUTCDate();
+    const dia2Com = Math.min(dia2, 30);
+
+    let dias = 0;
+    if (ano1 === ano2 && mes1 === mes2) {
+      dias = dia2Com - dia1 + 1;
+    } else {
+      const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
+      let mesesCompletos = 0;
+      if (ano2 > ano1 || mes2 > mes1 + 1) {
+        mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
+      }
+      dias = diasPrimeiroMes + (mesesCompletos * 30) + dia2Com;
+    }
+
+    return Math.max(0, Math.min(dias, 360));
   }
 
   private readonly MODALIDADES_COM_MEDICAO = [
