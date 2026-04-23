@@ -214,7 +214,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     return () => {
       ativo = false
     }
-  }, [carregandoPedidos, contrato.id, dadosPedidos, relatorioAtivo])
+  }, [contrato.id, dadosPedidos, relatorioAtivo])
 
   async function exportarPDFSaldo() {
     const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
