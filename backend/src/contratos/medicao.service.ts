@@ -2998,6 +2998,70 @@ export class MedicaoService {
     return mapa;
   }
 
+  private async carregarValoresEmAnalisePorReferencia(
+    contratoId: string,
+    dataCorteCiclo: Date | null,
+    medicaoAtualId?: string,
+  ): Promise<{
+    valoresPorEtapa: Map<string, number>;
+    valoresPorItem: Map<string, number>;
+    quantidadesPorItem: Map<string, number>;
+  }> {
+    const statusEmAnalise = [
+      StatusMedicao.SUBMETIDA,
+      StatusMedicao.AGUARDANDO_ATESTE,
+      StatusMedicao.PARCIALMENTE_ATESTADA,
+      StatusMedicao.AGUARDANDO_APROVACAO,
+    ];
+
+    let medicoesEmAnalise = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: In(statusEmAnalise) },
+      select: ['id', 'periodo_inicio'],
+      order: { numero_medicao: 'ASC' },
+    });
+
+    medicoesEmAnalise = this.filtrarMedicoesPorCiclo(medicoesEmAnalise, dataCorteCiclo)
+      .filter((medicao) => medicao.id !== medicaoAtualId);
+
+    if (medicoesEmAnalise.length === 0) {
+      return {
+        valoresPorEtapa: new Map(),
+        valoresPorItem: new Map(),
+        quantidadesPorItem: new Map(),
+      };
+    }
+
+    const medicaoIds = medicoesEmAnalise.map((medicao) => medicao.id);
+    const [itensEtapa, itensCronograma] = await Promise.all([
+      this.itemMedicaoRepository.find({
+        where: { medicao_id: In(medicaoIds) },
+        select: ['etapa_id', 'valor_medido'],
+      }),
+      this.itemMedicaoItemRepository.find({
+        where: { medicao_id: In(medicaoIds) },
+        select: ['item_cronograma_id', 'valor_medido', 'quantidade_medida'],
+      } as any),
+    ]);
+
+    const valoresPorEtapa = new Map<string, number>();
+    for (const item of itensEtapa) {
+      const etapaId = item.etapa_id;
+      if (!etapaId) continue;
+      valoresPorEtapa.set(etapaId, (valoresPorEtapa.get(etapaId) || 0) + Number(item.valor_medido || 0));
+    }
+
+    const valoresPorItem = new Map<string, number>();
+    const quantidadesPorItem = new Map<string, number>();
+    for (const item of itensCronograma) {
+      const itemId = (item as any).item_cronograma_id as string | undefined;
+      if (!itemId) continue;
+      valoresPorItem.set(itemId, (valoresPorItem.get(itemId) || 0) + Number((item as any).valor_medido || 0));
+      quantidadesPorItem.set(itemId, (quantidadesPorItem.get(itemId) || 0) + Number((item as any).quantidade_medida || 0));
+    }
+
+    return { valoresPorEtapa, valoresPorItem, quantidadesPorItem };
+  }
+
   private readonly MODALIDADES_COM_MEDICAO = [
     ModalidadeExecucao.MEDICAO,
     ModalidadeExecucao.CONTINUADO,
@@ -3766,6 +3830,14 @@ export class MedicaoService {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
     const possuiMedicaoAnteriorNoCiclo = !!medicaoAtual && medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id);
+    const incluirEmAnaliseNoAcumulado = !medicaoAtual || medicaoAtual.status !== StatusMedicao.APROVADA;
+    const emAnalise = incluirEmAnaliseNoAcumulado
+      ? await this.carregarValoresEmAnalisePorReferencia(contratoId, dataCorteCiclo, medicaoAtual?.id)
+      : {
+          valoresPorEtapa: new Map<string, number>(),
+          valoresPorItem: new Map<string, number>(),
+          quantidadesPorItem: new Map<string, number>(),
+        };
 
     const itensPorMedicao: Record<string, any[]> = {};
     for (const m of medicoesAprovadas) {
@@ -3867,11 +3939,17 @@ export class MedicaoService {
               )
             : Math.max(0, (Number(item.quantidade_medida) || 0) - quantidadeAprovadaHistorica);
 
-          const centAtePeriodo = centAnterior + centNoPeriodo + centMigracao;
+          const centEmAnaliseOutras = Math.round((emAnalise.valoresPorItem.get(item.id) || 0) * 100);
+          const centAtePeriodo = centAnterior + centNoPeriodo + centMigracao + centEmAnaliseOutras;
           const noPeriodo = centavosParaReaisTrunc2(centNoPeriodo);
           const atePeriodo = centavosParaReaisTrunc2(centAtePeriodo);
-          const quantidadeMedidaItem = Number(item.quantidade_medida) || 0;
-          const quantidadeAtePeriodo = quantidadeMigracao + quantidadeAprovadaHistorica - (medicaoAtual?.status === StatusMedicao.APROVADA ? quantidadeNoPeriodo : 0) + quantidadeNoPeriodo;
+          const quantidadeEmAnaliseOutras = emAnalise.quantidadesPorItem.get(item.id) || 0;
+          const quantidadeAtePeriodo =
+            quantidadeMigracao +
+            quantidadeAprovadaHistorica +
+            quantidadeEmAnaliseOutras -
+            (medicaoAtual?.status === StatusMedicao.APROVADA ? quantidadeNoPeriodo : 0) +
+            quantidadeNoPeriodo;
           const quantidadeAExecutar = Math.max(0, quantidadeTotal - quantidadeAtePeriodo);
           // Para não-MENSAL: computa via qtd×vu (evita floor(total)-floor(ate) ≠ floor(total-ate))
           // Para MENSAL: usa aritmética monetária pois qtd é fracionária (meses proporcionais)
@@ -3926,7 +4004,7 @@ export class MedicaoService {
             }
           }
 
-          const atePeriodo = valorAnterior + noPeriodo;
+          const atePeriodo = valorAnterior + noPeriodo + (emAnalise.valoresPorEtapa.get(etapa.id) || 0);
           const aExecutar = Math.max(0, valorPrevisto - atePeriodo);
 
           return {
@@ -4143,6 +4221,14 @@ export class MedicaoService {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
     const possuiMedicaoAnteriorNoCiclo = !!medicaoAtual && medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id);
+    const incluirEmAnaliseNoAcumulado = !medicaoAtual || medicaoAtual.status !== StatusMedicao.APROVADA;
+    const emAnalise = incluirEmAnaliseNoAcumulado
+      ? await this.carregarValoresEmAnalisePorReferencia(contratoId, dataCorteCiclo, medicaoAtual?.id)
+      : {
+          valoresPorEtapa: new Map<string, number>(),
+          valoresPorItem: new Map<string, number>(),
+          quantidadesPorItem: new Map<string, number>(),
+        };
 
     const itensPorMedicao: Record<string, ItemMedicao[]> = {};
     for (const m of medicoesAprovadas) {
@@ -4174,6 +4260,7 @@ export class MedicaoService {
           atePeríodo += Number(itemEtapa.valor_medido) || 0;
         }
       }
+      atePeríodo += emAnalise.valoresPorEtapa.get(etapa.id) || 0;
 
       // Valor no período (medição atual)
       let noPeriodo = 0;
