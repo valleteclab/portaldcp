@@ -268,21 +268,22 @@ export default function SimuladorPedidoModal({
   function aplicarSugestaoExata() {
     const alvo = parseMoedaInput(valorAlvo)
     if (alvo <= 0) {
-      setMensagemSugestao('Informe um valor-alvo maior que zero.')
+      setMensagemSugestao('Informe um saldo-alvo maior que zero.')
       return
     }
     if (alvo > saldoVirtual + 0.01) {
-      setMensagemSugestao(`O valor-alvo não pode ultrapassar o saldo do empenho (${fmtMoeda(saldoVirtual)}).`)
+      setMensagemSugestao(`O saldo-alvo não pode ultrapassar o disponível do empenho (${fmtMoeda(saldoVirtual)}).`)
       return
     }
 
     const sugestao = gerarSugestaoExata(items, alvo)
     if (!sugestao) {
-      setMensagemSugestao('Não encontrei combinação exata com os itens inteiros disponíveis. Tente outro valor ou ajuste manualmente.')
+      setSelections(gerarSugestao(items, alvo))
+      setMensagemSugestao(`Não encontrei fechamento exato para ${fmtMoeda(alvo)}. Apliquei a melhor sugestão sem ultrapassar o saldo do empenho.`)
       return
     }
 
-    setMensagemSugestao(`Combinação exata aplicada para ${fmtMoeda(alvo)}.`)
+    setMensagemSugestao(`Pré-pedido montado com fechamento exato para ${fmtMoeda(alvo)}.`)
     setSelections(sugestao)
   }
 
@@ -468,7 +469,7 @@ export default function SimuladorPedidoModal({
               <div className="flex flex-col gap-3 md:flex-row md:items-end">
                 <div className="flex-1 space-y-1">
                   <label className="text-xs font-medium text-slate-700">
-                    Valor-alvo da simulação
+                    Saldo-alvo do pré-pedido
                   </label>
                   <Input
                     value={valorAlvo}
@@ -477,15 +478,15 @@ export default function SimuladorPedidoModal({
                     className="text-sm"
                   />
                   <p className="text-[11px] text-slate-500">
-                    Monte uma combinação exata com base no valor desejado, respeitando o saldo disponível de cada item.
+                    O simulador tenta montar o pré-pedido consumindo o saldo disponível do empenho, respeitando o saldo de cada item.
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={aplicarSugestaoAutomatica}>
-                    Sugestão automática
+                    Sugestão aproximada
                   </Button>
                   <Button onClick={aplicarSugestaoExata}>
-                    Buscar valor exato
+                    Montar pré-pedido
                   </Button>
                 </div>
               </div>
