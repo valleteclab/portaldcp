@@ -1332,7 +1332,7 @@ export class ModalidadesContratoController {
         data_vigencia_fim: contrato.data_vigencia_fim,
         fornecedor_razao_social: contrato.fornecedor_razao_social,
         fornecedor_cnpj: contrato.fornecedor_cnpj,
-        orgao
+        orgao: orgao
           ? {
               nome: orgao.nome,
               cnpj: orgao.cnpj,
