@@ -5279,20 +5279,6 @@ export class MedicaoService {
             }
           }
 
-          const centMigracao =
-            unidadeMedida === 'MENSAL' &&
-            Number((item as any).valor_migracao_reais || 0) > 0
-              ? Math.round(
-                  Number((item as any).valor_migracao_reais || 0) * 100,
-                )
-              : Math.max(
-                  0,
-                  produtoQuantidadeValorUnitarioCentavos(
-                    Number(item.quantidade_medida) || 0,
-                    Number(item.valor_unitario),
-                  ) - centAprovadoHistorico,
-                );
-
           const quantidadeMigracao =
             unidadeMedida === 'MENSAL' &&
             Number((item as any).valor_migracao_reais || 0) > 0
@@ -5304,6 +5290,16 @@ export class MedicaoService {
                   0,
                   (Number(item.quantidade_medida) || 0) -
                     quantidadeAprovadaHistorica,
+                );
+          const centMigracao =
+            unidadeMedida === 'MENSAL' &&
+            Number((item as any).valor_migracao_reais || 0) > 0
+              ? Math.round(
+                  Number((item as any).valor_migracao_reais || 0) * 100,
+                )
+              : produtoQuantidadeValorUnitarioCentavos(
+                  quantidadeMigracao,
+                  Number(item.valor_unitario),
                 );
 
           const centEmAnaliseOutras = Math.round(
