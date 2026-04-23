@@ -742,7 +742,10 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
 
     const body: any[][] = dados.itens.map(item => {
       const vu = Number(item.valor_unitario) || 0
-      const cNo = produtoQuantidadeValorUnitarioCentavos(item.quantidade_no_periodo, vu)
+      const cNo =
+        item.valor_no_periodo !== undefined && item.valor_no_periodo !== null
+          ? Math.round(truncarMoedaReais2Casas(Number(item.valor_no_periodo)) * 100)
+          : produtoQuantidadeValorUnitarioCentavos(item.quantidade_no_periodo, vu)
       const cAcum =
         item.valor_acumulado_anterior !== undefined && item.valor_acumulado_anterior !== null
           ? Math.round(truncarMoedaReais2Casas(Number(item.valor_acumulado_anterior)) * 100)
