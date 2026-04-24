@@ -622,6 +622,9 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     doc.setTextColor(0, 0, 0)
 
     const totalItens = dados.itens_contratados.reduce((s, ic) => s + ic.valor_total, 0)
+    const exibirColunasFrequencia = dados.itens_contratados.some(
+      (ic) => !!ic.frequencia_exibicao && ic.frequencia_exibicao !== '—',
+    )
 
     const fmtNExec = (ic: ItemContratadoPdf) =>
       ic.numero_execucoes != null && ic.numero_execucoes !== undefined ? String(ic.numero_execucoes) : '—'
@@ -636,10 +639,14 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
         { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
         { content: 'Unidade', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: 'Freq.', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        ...(exibirColunasFrequencia
+          ? [{ content: 'Freq.', styles: { halign: 'center' as const, fontStyle: 'bold' as const } }]
+          : []),
         { content: 'Qtd.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
         { content: 'Vl. Unit.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: 'Nº exec.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        ...(exibirColunasFrequencia
+          ? [{ content: 'Nº exec.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
+          : []),
         { content: 'Vl./freq.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
         { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
@@ -648,15 +655,19 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
           { content: ic.numero, styles: { halign: 'center' as const } },
           ic.descricao,
           { content: ic.unidade_exibicao || ic.unidade, styles: { halign: 'center' as const, fontSize: 5.5 } },
-          { content: ic.frequencia_exibicao ?? '—', styles: { halign: 'center' as const, fontSize: 5.5 } },
+          ...(exibirColunasFrequencia
+            ? [{ content: ic.frequencia_exibicao ?? '—', styles: { halign: 'center' as const, fontSize: 5.5 } }]
+            : []),
           { content: ic.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), styles: { halign: 'right' as const } },
           { content: fmt(ic.valor_unitario), styles: { halign: 'right' as const } },
-          { content: fmtNExec(ic), styles: { halign: 'right' as const } },
+          ...(exibirColunasFrequencia
+            ? [{ content: fmtNExec(ic), styles: { halign: 'right' as const } }]
+            : []),
           { content: vlFreq(ic), styles: { halign: 'right' as const } },
           { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
         ]),
         [
-          { content: 'TOTAL', colSpan: 8, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 6, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmt(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
@@ -666,14 +677,25 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       // Larguras somam 196 mm (= A4 − 2×mX), alinhado ao bloco EXECUÇÃO FISCAL / FINANCEIRA
       columnStyles: {
         0: { cellWidth: 8 },
-        1: { cellWidth: 62 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 16 },
-        4: { cellWidth: 16 },
-        5: { cellWidth: 18 },
-        6: { cellWidth: 12 },
-        7: { cellWidth: 20 },
-        8: { cellWidth: 22 },
+        ...(exibirColunasFrequencia
+          ? {
+              1: { cellWidth: 62 },
+              2: { cellWidth: 22 },
+              3: { cellWidth: 16 },
+              4: { cellWidth: 16 },
+              5: { cellWidth: 18 },
+              6: { cellWidth: 12 },
+              7: { cellWidth: 20 },
+              8: { cellWidth: 22 },
+            }
+          : {
+              1: { cellWidth: 72 },
+              2: { cellWidth: 22 },
+              3: { cellWidth: 18 },
+              4: { cellWidth: 18 },
+              5: { cellWidth: 26 },
+              6: { cellWidth: 32 },
+            }),
       },
       margin: { left: mX, right: mX },
     })

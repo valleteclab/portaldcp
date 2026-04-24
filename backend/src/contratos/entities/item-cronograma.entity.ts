@@ -41,7 +41,7 @@ export class ItemCronograma {
   descricao: string;
 
   @Column({ type: 'varchar', length: 20 })
-  unidade_medida: string; // HORA, MENSAL, LITROS, METROS, UNIDADE
+  unidade_medida: string; // HORA, MENSAL, LITROS, METROS, SERVICO, UNIDADE
 
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   quantidade: number;
@@ -85,4 +85,4 @@ export class ItemCronograma {
 }
 
 /** Unidades pré-cadastradas para itens do cronograma */
-export const UNIDADES_CRONOGRAMA = ['HORA', 'MENSAL', 'LITROS', 'METROS', 'UNIDADE'] as const;
+export const UNIDADES_CRONOGRAMA = ['HORA', 'MENSAL', 'LITROS', 'METROS', 'SERVICO', 'UNIDADE'] as const;

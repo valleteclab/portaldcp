@@ -35,6 +35,8 @@ export function textoUnidadeCronogramaPdf(unidade: string | undefined | null): s
       return 'Serviço (preço por litro)';
     case 'MENSAL':
       return 'Mensal (R$/mês)';
+    case 'SERVICO':
+      return 'Serviço';
     case 'HORA':
       return 'Hora';
     case 'UNIDADE':

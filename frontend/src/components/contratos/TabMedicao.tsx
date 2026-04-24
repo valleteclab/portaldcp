@@ -431,6 +431,9 @@ export default function TabMedicao({
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const exibirColunasFrequenciaCronograma = itensCronograma.some(
+    (item) => !!item.frequencia_execucao,
+  );
 
   // Verificar se o usuário logado tem permissão de excluir medições
   const [podeExcluirMedicao, setPodeExcluirMedicao] = useState(false);
@@ -2663,12 +2666,16 @@ export default function TabMedicao({
                       <TableHead className="text-center min-w-[140px]">
                         Unidade
                       </TableHead>
-                      <TableHead className="text-center min-w-[100px]">
-                        Frequência
-                      </TableHead>
+                      {exibirColunasFrequenciaCronograma && (
+                        <TableHead className="text-center min-w-[100px]">
+                          Frequência
+                        </TableHead>
+                      )}
                       <TableHead className="text-right">Quantidade</TableHead>
                       <TableHead className="text-right">Valor Unit.</TableHead>
-                      <TableHead className="text-right">Nº exec.</TableHead>
+                      {exibirColunasFrequenciaCronograma && (
+                        <TableHead className="text-right">Nº exec.</TableHead>
+                      )}
                       <TableHead className="text-right">
                         Vl. por frequência
                       </TableHead>
@@ -2691,20 +2698,24 @@ export default function TabMedicao({
                           <TableCell className="text-center text-sm whitespace-normal max-w-[200px]">
                             {textoUnidadeCronogramaNaTela(i.unidade_medida)}
                           </TableCell>
-                          <TableCell className="text-center text-sm whitespace-nowrap">
-                            {textoFrequenciaNaTela(i.frequencia_execucao)}
-                          </TableCell>
+                          {exibirColunasFrequenciaCronograma && (
+                            <TableCell className="text-center text-sm whitespace-nowrap">
+                              {textoFrequenciaNaTela(i.frequencia_execucao)}
+                            </TableCell>
+                          )}
                           <TableCell className="text-right whitespace-nowrap">
                             {Number(i.quantidade).toLocaleString("pt-BR")}
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap">
                             {formatarMoeda(i.valor_unitario)}
                           </TableCell>
-                          <TableCell className="text-right whitespace-nowrap">
-                            {i.quantidade_meses != null
-                              ? i.quantidade_meses
-                              : "-"}
-                          </TableCell>
+                          {exibirColunasFrequenciaCronograma && (
+                            <TableCell className="text-right whitespace-nowrap">
+                              {i.quantidade_meses != null
+                                ? i.quantidade_meses
+                                : "-"}
+                            </TableCell>
+                          )}
                           <TableCell className="text-right whitespace-nowrap">
                             {formatarMoeda(
                               i.unidade_medida === "MENSAL"
@@ -4589,9 +4600,11 @@ export default function TabMedicao({
                         <TableHead className="text-center font-bold text-xs uppercase w-28">
                           Unidade
                         </TableHead>
-                        <TableHead className="text-center font-bold text-xs uppercase w-24">
-                          Frequência
-                        </TableHead>
+                        {exibirColunasFrequenciaCronograma && (
+                          <TableHead className="text-center font-bold text-xs uppercase w-24">
+                            Frequência
+                          </TableHead>
+                        )}
                         <TableHead className="text-right font-bold text-xs uppercase w-20">
                           Qtd. Total
                         </TableHead>
@@ -4663,9 +4676,11 @@ export default function TabMedicao({
                             <TableCell className="text-center text-xs leading-tight max-w-[120px]">
                               {textoUnidadeCronogramaNaTela(ic.unidade_medida)}
                             </TableCell>
-                            <TableCell className="text-center text-xs whitespace-nowrap">
-                              {textoFrequenciaNaTela(ic.frequencia_execucao)}
-                            </TableCell>
+                            {exibirColunasFrequenciaCronograma && (
+                              <TableCell className="text-center text-xs whitespace-nowrap">
+                                {textoFrequenciaNaTela(ic.frequencia_execucao)}
+                              </TableCell>
+                            )}
                             <TableCell className="text-right text-sm">
                               {qtdTotal.toLocaleString("pt-BR")}
                             </TableCell>
