@@ -87,6 +87,15 @@ type SessionResponse = {
   }
 }
 
+type PlanoFerramenta = {
+  nome?: string
+  titulo?: string
+  tipo?: string
+  confianca?: string
+  bloqueio?: string
+  status?: string
+}
+
 function formatarMoeda(valor?: number | null) {
   return Number(valor || 0).toLocaleString('pt-BR', {
     style: 'currency',
@@ -114,6 +123,12 @@ function labelPendencia(pendencia: string) {
     OBSERVACOES: 'Observacoes',
   }
   return labels[pendencia] || pendencia
+}
+
+function asPlanoFerramentas(value: Record<string, unknown> | null | undefined) {
+  const ferramentas = value?.ferramentas
+  if (!Array.isArray(ferramentas)) return [] as PlanoFerramenta[]
+  return ferramentas.filter((item): item is PlanoFerramenta => typeof item === 'object' && item !== null)
 }
 
 export default function MedicaoChatFornecedorPage() {
@@ -274,6 +289,7 @@ export default function MedicaoChatFornecedorPage() {
     sessionData?.preview.discriminacoes ||
     sessionData?.preview.draft?.discriminacoes ||
     []
+  const ferramentasAgente = asPlanoFerramentas(sessionData?.session.plano_agente)
 
   if (loading) {
     return (
@@ -562,6 +578,55 @@ export default function MedicaoChatFornecedorPage() {
                   )}
                 </div>
               </div>
+
+              {sessionData.session.plano_agente && (
+                <div className="rounded-lg border border-purple-200 bg-purple-50/40 p-3 space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-purple-900">Plano do agente</p>
+                    <p className="text-xs text-purple-700 mt-1">
+                      {String(
+                        sessionData.session.plano_agente.resumo_intencao ||
+                          'Sem analise resumida neste turno.',
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className="bg-purple-100 text-purple-700">
+                      Intencao: {String(sessionData.session.plano_agente.intencao || 'n/a')}
+                    </Badge>
+                    {sessionData.session.plano_agente.proxima_melhor_acao && (
+                      <Badge className="bg-slate-100 text-slate-700">
+                        Proxima: {String(sessionData.session.plano_agente.proxima_melhor_acao)}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {ferramentasAgente.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase text-gray-500">Ferramentas</p>
+                      {ferramentasAgente.slice(0, 6).map((ferramenta, index) => (
+                        <div
+                          key={`${ferramenta.nome || ferramenta.titulo || 'tool'}-${index}`}
+                          className="rounded-md border bg-white px-3 py-2 text-sm"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium">
+                              {ferramenta.titulo || ferramenta.nome || 'Ferramenta'}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {ferramenta.tipo || 'acao'} · {ferramenta.confianca || 'medium'}
+                            </span>
+                          </div>
+                          {ferramenta.bloqueio && (
+                            <p className="mt-1 text-xs text-amber-700">{ferramenta.bloqueio}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {sessionData.session.medicao_id && (
                 <Button asChild className="w-full bg-blue-600 hover:bg-blue-700">

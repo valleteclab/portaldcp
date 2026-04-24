@@ -54,6 +54,7 @@ import { FatorTransparenciaService } from './fator-transparencia.service';
 import { MedicaoChatSession } from './entities/medicao-chat-session.entity';
 import { MedicaoChatController } from './medicao-chat.controller';
 import { MedicaoChatService } from './medicao-chat.service';
+import { MedicaoChatAgentService } from './medicao-chat-agent.service';
 import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
 
 @Module({
@@ -75,7 +76,7 @@ import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
     SystemConfigModule,
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController],
-  providers: [ContratosService, MedicaoService, MedicaoChatService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService],
+  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}
