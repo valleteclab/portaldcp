@@ -975,10 +975,15 @@ export class MedicaoService {
         // Para itens MENSAL com proporcional: o frontend pode enviar valor_medido_override
         // calculado via aritmética inteira (dias × vu_centavos / 30), mais preciso que qtd × vu.
         const overrideRaw = Number((item as any).valor_medido_override);
+        const arredondar = contrato.arredondar_calculo ?? true;
+        const aplicar = (v: number) =>
+          arredondar
+            ? Math.round(v * 100) / 100
+            : truncarMoedaReais2Casas(v);
         const valorItem =
           Number.isFinite(overrideRaw) && overrideRaw > 0
-            ? truncarMoedaReais2Casas(overrideRaw)
-            : truncarMoedaReais2Casas(qtdMedida * valorUnitario);
+            ? aplicar(overrideRaw)
+            : aplicar(qtdMedida * valorUnitario);
         valorMedido += valorItem;
 
         const valorTotalItem = Number(itemCron.valor_total) || 1;
