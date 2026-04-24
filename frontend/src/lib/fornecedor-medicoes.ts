@@ -94,6 +94,12 @@ export function obterStatusMedicaoLabel(status: string) {
 }
 
 export function buildMedicaoActionHref(contratoId: string, acao: 'nova' | 'continuar' | 'editar' | 'ver', medicaoId?: string) {
+  if (acao === 'nova' || acao === 'continuar' || acao === 'editar') {
+    const params = new URLSearchParams({ acao })
+    if (medicaoId) params.set('medicaoId', medicaoId)
+    return `/fornecedor/contratos/${contratoId}/medicao-chat?${params.toString()}`
+  }
+
   const params = new URLSearchParams({ tab: 'medicoes', acao })
   if (medicaoId) params.set('medicaoId', medicaoId)
   return `/fornecedor/contratos/${contratoId}?${params.toString()}`

@@ -1161,6 +1161,388 @@ export class MedicaoService {
     return this.buscarMedicaoCompleta(medicaoSalva.id);
   }
 
+  async atualizarRascunhoAssistido(
+    medicaoId: string,
+    dados: {
+      periodo_inicio: string;
+      periodo_fim: string;
+      competencia?: string;
+      valor_medido?: number;
+      fornecedor_id?: string;
+      fornecedor_nome?: string;
+      fornecedor_observacoes?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number;
+      nota_fiscal_data?: string;
+      observacoes?: string;
+      itens?: Array<
+        | {
+            etapa_id: string;
+            percentual_executado_atual?: number;
+            valor_executado_atual?: number;
+          }
+        | { item_cronograma_id: string; quantidade_medida: number }
+      >;
+    },
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (
+      medicao.status !== StatusMedicao.RASCUNHO &&
+      medicao.status !== StatusMedicao.DEVOLVIDA
+    ) {
+      throw new BadRequestException(
+        'Apenas medições em rascunho ou devolvidas podem ser atualizadas pelo chat',
+      );
+    }
+
+    const contrato = await this.validarContratoMedicao(medicao.contrato_id);
+    const servicoContinuado = this.isServicoContinuado(contrato);
+
+    if (!dados.periodo_inicio || !dados.periodo_fim) {
+      throw new BadRequestException('Período de início e fim são obrigatórios');
+    }
+
+    if (
+      dados.nota_fiscal_data !== undefined &&
+      dados.nota_fiscal_data?.toString().trim() === ''
+    ) {
+      dados.nota_fiscal_data = undefined;
+    }
+    if (
+      dados.nota_fiscal_numero !== undefined &&
+      dados.nota_fiscal_numero?.toString().trim() === ''
+    ) {
+      dados.nota_fiscal_numero = undefined;
+    }
+    if (
+      dados.nota_fiscal_valor !== undefined &&
+      dados.nota_fiscal_valor !== null
+    ) {
+      const nfVal = Number(dados.nota_fiscal_valor);
+      dados.nota_fiscal_valor = isNaN(nfVal) ? undefined : nfVal;
+    }
+
+    if (contrato.data_vigencia_fim) {
+      const dataFimPeriodo = new Date(dados.periodo_fim);
+      const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
+      if (dataFimPeriodo > dataVigenciaFim) {
+        const formatarDataBR = (dataStr: string | Date) => {
+          const data =
+            typeof dataStr === 'string' ? new Date(dataStr) : dataStr;
+          return data.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        };
+        throw new BadRequestException(
+          `O período de medição não pode ultrapassar a data de vigência do contrato. ` +
+            `Período informado: ${formatarDataBR(dados.periodo_fim)}, Vigência do contrato: ${formatarDataBR(contrato.data_vigencia_fim)}`,
+        );
+      }
+    }
+
+    const dataCorteCiclo = this.obterDataCorteCicloAtual(
+      contrato,
+      dados.periodo_inicio,
+    );
+    const medicoesAprovadas = this.filtrarMedicoesPorCiclo(
+      await this.medicaoRepository.find({
+        where: {
+          contrato_id: medicao.contrato_id,
+          status: StatusMedicao.APROVADA,
+        },
+      }),
+      dataCorteCiclo,
+    );
+    const valorAcumuladoAnterior = medicoesAprovadas.reduce(
+      (sum, item) => sum + Number(item.valor_medido),
+      0,
+    );
+    const percentualAcumuladoAnterior = medicoesAprovadas.reduce(
+      (sum, item) => sum + Number(item.percentual_fisico_medido),
+      0,
+    );
+
+    let valorMedido = 0;
+    let percentualFisicoMedido = 0;
+    const itensParaSalvar: Partial<ItemMedicao>[] = [];
+    const itensItemParaSalvar: Array<{
+      item_cronograma_id: string;
+      quantidade_medida: number;
+      valor_medido: number;
+    }> = [];
+
+    if (servicoContinuado) {
+      valorMedido = Number(dados.valor_medido) || 0;
+      if (valorMedido <= 0) {
+        throw new BadRequestException('Informe o valor medido');
+      }
+
+      const dataRenovacao = contrato.data_renovacao_ciclo
+        ? new Date(contrato.data_renovacao_ciclo)
+        : null;
+      let valorContrato =
+        Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
+      let valorExecAnterior = Number(contrato.valor_executado_anterior) || 0;
+
+      if (dataRenovacao) {
+        const termosCiclo = await this.termoAditivoRepository.find({
+          where: { contrato_id: medicao.contrato_id, renovacao_ciclo: true },
+          order: { sequencial: 'DESC' },
+        });
+        const termoCicloAtivo = termosCiclo.find(
+          (t) => t.status !== 'CANCELADO',
+        );
+        if (termoCicloAtivo) {
+          const valorCiclo =
+            Number(termoCicloAtivo.valor_ciclo) ||
+            Number(termoCicloAtivo.valor_acrescimo) ||
+            null;
+          if (valorCiclo) valorContrato = valorCiclo;
+        }
+        valorExecAnterior = 0;
+      }
+
+      const valorComprometido = dataRenovacao
+        ? await this.somarValorMedicoesComprometidasCiclo(
+            medicao.contrato_id,
+            dataRenovacao,
+            medicao.id,
+          )
+        : await this.somarValorMedicoesComprometidas(
+            medicao.contrato_id,
+            medicao.id,
+          );
+      const saldoDisponivel =
+        valorContrato - valorExecAnterior - valorComprometido;
+      if (valorMedido > saldoDisponivel + 0.01) {
+        throw new BadRequestException(
+          `O valor da medição (R$ ${valorMedido.toFixed(2)}) excede o saldo disponível do contrato (R$ ${saldoDisponivel.toFixed(2)}).`,
+        );
+      }
+
+      const valorGlobal = valorContrato || 1;
+      percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
+    } else if (await this.usarItensCronograma(medicao.contrato_id)) {
+      const itensPayload = (dados.itens || []) as Array<{
+        item_cronograma_id?: string;
+        quantidade_medida?: number;
+        valor_medido_override?: number;
+      }>;
+      const itensComItemCronograma = itensPayload.filter(
+        (item) => item.item_cronograma_id,
+      );
+      if (itensComItemCronograma.length === 0) {
+        throw new BadRequestException(
+          'Informe pelo menos um item com quantidade medida',
+        );
+      }
+
+      const quantidadeEmTransitoPorItem =
+        await this.calcularQuantidadeComprometidaPorItem(
+          medicao.contrato_id,
+          medicao.id,
+        );
+      const unidadesAtivas: string[] = [];
+
+      for (const item of itensComItemCronograma) {
+        const itemCron = await this.itemCronogramaRepository.findOne({
+          where: { id: item.item_cronograma_id! },
+        });
+        if (!itemCron) {
+          throw new NotFoundException(
+            `Item do cronograma ${item.item_cronograma_id} não encontrado`,
+          );
+        }
+
+        const qtdMedida = Number(item.quantidade_medida) || 0;
+        if (qtdMedida <= 0) continue;
+        unidadesAtivas.push(itemCron.unidade_medida);
+
+        const quantidadeTotal = Number(itemCron.quantidade);
+        const quantidadeAprovada = Number(itemCron.quantidade_medida) || 0;
+        const quantidadeEmTransito =
+          quantidadeEmTransitoPorItem.get(item.item_cronograma_id!) || 0;
+        const saldoDisponivel =
+          quantidadeTotal - quantidadeAprovada - quantidadeEmTransito;
+
+        if (qtdMedida > saldoDisponivel + 0.0001) {
+          throw new BadRequestException(
+            `Item "${itemCron.descricao}": quantidade medida (${qtdMedida}) excede o saldo disponível (${saldoDisponivel.toFixed(2)}).`,
+          );
+        }
+
+        const valorUnitario = Number(itemCron.valor_unitario);
+        const overrideRaw = Number((item as any).valor_medido_override);
+        const arredondar = contrato.arredondar_calculo ?? true;
+        const aplicar = (v: number) =>
+          arredondar
+            ? Math.round(v * 100) / 100
+            : truncarMoedaReais2Casas(v);
+        const valorItem =
+          Number.isFinite(overrideRaw) && overrideRaw > 0
+            ? aplicar(overrideRaw)
+            : aplicar(qtdMedida * valorUnitario);
+
+        valorMedido += valorItem;
+        const valorTotalItem = Number(itemCron.valor_total) || 1;
+        percentualFisicoMedido += (valorItem / valorTotalItem) * 100;
+
+        itensItemParaSalvar.push({
+          item_cronograma_id: item.item_cronograma_id!,
+          quantidade_medida: qtdMedida,
+          valor_medido: valorItem,
+        });
+      }
+
+      if (valorMedido <= 0) {
+        throw new BadRequestException(
+          'A medição deve ter pelo menos um item com quantidade > 0',
+        );
+      }
+
+      const temMensal = unidadesAtivas.some((u) => u === 'MENSAL');
+      const temQuantidade = unidadesAtivas.some((u) => u !== 'MENSAL');
+      if (temMensal && temQuantidade) {
+        throw new BadRequestException(
+          'Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.',
+        );
+      }
+    } else {
+      const percentuaisEmTransito =
+        await this.calcularPercentualComprometidoPorEtapa(
+          medicao.contrato_id,
+          medicao.id,
+        );
+
+      for (const item of dados.itens || []) {
+        const itemEtapa = item as {
+          etapa_id: string;
+          percentual_executado_atual?: number;
+          valor_executado_atual?: number;
+        };
+        const etapa = await this.etapaRepository.findOne({
+          where: { id: itemEtapa.etapa_id },
+        });
+        if (!etapa) {
+          throw new NotFoundException(
+            `Etapa ${itemEtapa.etapa_id} não encontrada`,
+          );
+        }
+
+        let percentualExecAtual = itemEtapa.percentual_executado_atual || 0;
+        if (
+          !percentualExecAtual &&
+          itemEtapa.valor_executado_atual &&
+          Number(etapa.valor_previsto) > 0
+        ) {
+          percentualExecAtual =
+            (itemEtapa.valor_executado_atual / Number(etapa.valor_previsto)) *
+            100;
+        }
+        if (percentualExecAtual <= 0) continue;
+
+        const percentualAprovado = Number(etapa.percentual_executado);
+        const percentualEmTransito =
+          percentuaisEmTransito.get(itemEtapa.etapa_id) || 0;
+        const percentualAcumuladoComNovo =
+          percentualAprovado + percentualEmTransito + percentualExecAtual;
+
+        if (percentualAcumuladoComNovo > 100.01) {
+          throw new BadRequestException(
+            `Etapa "${etapa.descricao}": percentual acumulado (${percentualAcumuladoComNovo.toFixed(1)}%) excede 100%.`,
+          );
+        }
+
+        const valorItem =
+          (percentualExecAtual / 100) * Number(etapa.valor_previsto);
+        valorMedido += valorItem;
+        percentualFisicoMedido +=
+          (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
+
+        itensParaSalvar.push({
+          etapa_id: itemEtapa.etapa_id,
+          percentual_executado_anterior: percentualAprovado,
+          percentual_executado_atual: percentualExecAtual,
+          percentual_executado_acumulado:
+            percentualAprovado + percentualExecAtual,
+          valor_medido: valorItem,
+        });
+      }
+
+      if (valorMedido <= 0) {
+        throw new BadRequestException(
+          'A medição deve ter pelo menos um item com valor > 0',
+        );
+      }
+    }
+
+    await this.itemMedicaoRepository.delete({ medicao_id: medicao.id });
+    await this.itemMedicaoItemRepository.delete({ medicao_id: medicao.id });
+
+    medicao.periodo_inicio = dados.periodo_inicio as any;
+    medicao.periodo_fim = dados.periodo_fim as any;
+    medicao.competencia = dados.competencia || null;
+    medicao.valor_medido = valorMedido as any;
+    medicao.valor_acumulado_anterior = valorAcumuladoAnterior as any;
+    medicao.valor_acumulado_atual =
+      (valorAcumuladoAnterior + valorMedido) as any;
+    medicao.percentual_fisico_medido = percentualFisicoMedido as any;
+    medicao.percentual_fisico_acumulado =
+      (percentualAcumuladoAnterior + percentualFisicoMedido) as any;
+    medicao.fornecedor_id = dados.fornecedor_id || medicao.fornecedor_id;
+    medicao.fornecedor_nome = dados.fornecedor_nome || medicao.fornecedor_nome;
+    medicao.fornecedor_observacoes =
+      dados.fornecedor_observacoes || dados.observacoes || null;
+    medicao.observacoes = dados.observacoes || null;
+    medicao.nota_fiscal_numero = dados.nota_fiscal_numero || null;
+    medicao.nota_fiscal_valor = (dados.nota_fiscal_valor as any) || null;
+    medicao.nota_fiscal_data = (dados.nota_fiscal_data as any) || null;
+    medicao.boletim_pdf_url = null as any;
+
+    const medicaoSalva = await this.medicaoRepository.save(medicao);
+
+    try {
+      const execucaoFinanceira = await this.calcularExecucaoFinanceira(
+        medicao.contrato_id,
+        '',
+        medicaoSalva.id,
+      );
+      if (execucaoFinanceira) {
+        await this.medicaoRepository.update(medicaoSalva.id, {
+          execucao_fiscal: execucaoFinanceira.execucao_fiscal,
+          execucao_financeira:
+            this.montarSnapshotExecucaoFinanceira(execucaoFinanceira),
+        });
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Erro ao recalcular execução fiscal/financeira para medição assistida ${medicaoSalva.id}: ${error.message}`,
+      );
+    }
+
+    for (const item of itensParaSalvar) {
+      const itemMedicao = this.itemMedicaoRepository.create({
+        ...item,
+        medicao_id: medicaoSalva.id,
+      } as any);
+      await this.itemMedicaoRepository.save(itemMedicao);
+    }
+
+    for (const item of itensItemParaSalvar) {
+      const itemMedicaoItem = this.itemMedicaoItemRepository.create({
+        medicao_id: medicaoSalva.id,
+        item_cronograma_id: item.item_cronograma_id,
+        quantidade_medida: item.quantidade_medida,
+        valor_medido: item.valor_medido,
+      } as any);
+      await this.itemMedicaoItemRepository.save(itemMedicaoItem);
+    }
+
+    return this.buscarMedicaoCompleta(medicaoSalva.id);
+  }
+
   // ============================================================================
   // MEDIÇÕES — Exclusão
   // ============================================================================

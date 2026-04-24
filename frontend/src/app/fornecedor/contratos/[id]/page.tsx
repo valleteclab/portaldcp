@@ -1625,9 +1625,20 @@ export default function FornecedorContratoDetalhePage() {
               <h3 className="text-lg font-semibold">Boletins de Medição</h3>
               <p className="text-sm text-gray-500">Crie e submeta medições para análise do fiscal do contrato</p>
             </div>
-            <Button onClick={() => contrato?.categoria === 'COMPRAS' ? setModalComprasAviso(true) : abrirModalNovaMedicao()} className="gap-2 bg-blue-600 hover:bg-blue-700" disabled={!isServicoContinuado && !temCronograma && contrato?.categoria !== 'COMPRAS'}>
-              <Plus className="w-4 h-4" />Abrir Medição do Mês
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                asChild
+                className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50"
+              >
+                <Link href={`/fornecedor/contratos/${contratoId}/medicao-chat`}>
+                  <FileText className="w-4 h-4" />Assistente IA
+                </Link>
+              </Button>
+              <Button onClick={() => contrato?.categoria === 'COMPRAS' ? setModalComprasAviso(true) : abrirModalNovaMedicao()} className="gap-2 bg-blue-600 hover:bg-blue-700" disabled={!isServicoContinuado && !temCronograma && contrato?.categoria !== 'COMPRAS'}>
+                <Plus className="w-4 h-4" />Abrir Medição do Mês
+              </Button>
+            </div>
           </div>
 
           {medicoes.length === 0 ? (
