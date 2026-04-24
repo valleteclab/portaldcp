@@ -2748,9 +2748,11 @@ export default function TabMedicao({
                       {exibirColunasFrequenciaCronograma && (
                         <TableHead className="text-right">Nº exec.</TableHead>
                       )}
-                      <TableHead className="text-right">
-                        Vl. por frequência
-                      </TableHead>
+                      {exibirColunasFrequenciaCronograma && (
+                        <TableHead className="text-right">
+                          Vl. por frequência
+                        </TableHead>
+                      )}
                       <TableHead className="text-right">Valor Total</TableHead>
                       <TableHead className="text-center">Medido</TableHead>
                       <TableHead className="w-20"></TableHead>
@@ -2788,14 +2790,16 @@ export default function TabMedicao({
                                 : "-"}
                             </TableCell>
                           )}
-                          <TableCell className="text-right whitespace-nowrap">
-                            {formatarMoeda(
-                              i.unidade_medida === "MENSAL"
-                                ? Number(i.valor_unitario)
-                                : Number(i.quantidade) *
-                                    Number(i.valor_unitario),
-                            )}
-                          </TableCell>
+                          {exibirColunasFrequenciaCronograma && (
+                            <TableCell className="text-right whitespace-nowrap">
+                              {formatarMoeda(
+                                i.unidade_medida === "MENSAL"
+                                  ? Number(i.valor_unitario)
+                                  : Number(i.quantidade) *
+                                      Number(i.valor_unitario),
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell className="text-right font-medium whitespace-nowrap">
                             {formatarMoeda(
                               i.unidade_medida === "MENSAL"

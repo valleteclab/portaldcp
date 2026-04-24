@@ -508,7 +508,9 @@ export async function gerarBoletimMedicaoPdf(
         ...(exibirColunasFrequencia
           ? [{ content: 'Nº exec.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
           : []),
-        { content: 'Vl./freq.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        ...(exibirColunasFrequencia
+          ? [{ content: 'Vl./freq.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
+          : []),
         { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
       body: [
@@ -524,11 +526,13 @@ export async function gerarBoletimMedicaoPdf(
           ...(exibirColunasFrequencia
             ? [{ content: fmtNExecIc(ic), styles: { halign: 'right' as const } }]
             : []),
-          { content: vlFreqIc(ic), styles: { halign: 'right' as const } },
+          ...(exibirColunasFrequencia
+            ? [{ content: vlFreqIc(ic), styles: { halign: 'right' as const } }]
+            : []),
           { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
         ]),
         [
-          { content: 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 6, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmt(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
@@ -549,12 +553,11 @@ export async function gerarBoletimMedicaoPdf(
               8: { cellWidth: 22 },
             }
           : {
-              1: { cellWidth: 72 },
-              2: { cellWidth: 22 },
-              3: { cellWidth: 18 },
-              4: { cellWidth: 18 },
-              5: { cellWidth: 26 },
-              6: { cellWidth: 32 },
+              1: { cellWidth: 82 },
+              2: { cellWidth: 26 },
+              3: { cellWidth: 24 },
+              4: { cellWidth: 26 },
+              5: { cellWidth: 30 },
             }),
       },
       margin: { left: mX, right: mX },
