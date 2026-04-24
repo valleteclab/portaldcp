@@ -14,6 +14,7 @@ import {
   FileText,
   Loader2,
   Paperclip,
+  RotateCcw,
   Send,
   Sparkles,
   User,
@@ -61,6 +62,8 @@ type SessionResponse = {
     pendencias: string[]
     historico_ia: HistoricoMensagem[]
     confirmacao_pendente?: Record<string, unknown> | null
+    plano_agente?: Record<string, unknown> | null
+    ultima_analise_agente?: Record<string, unknown> | null
   }
   contrato: {
     id: string
@@ -121,6 +124,7 @@ export default function MedicaoChatFornecedorPage() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [sessionData, setSessionData] = useState<SessionResponse | null>(null)
   const [mensagem, setMensagem] = useState('')
 
@@ -234,6 +238,33 @@ export default function MedicaoChatFornecedorPage() {
     }
   }
 
+  const resetarConversa = async () => {
+    if (!sessionData?.session.id || !fornecedorId) return
+    setResetting(true)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fornecedor/contratos/medicao-chat/sessoes/${sessionData.session.id}/reset`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fornecedor_id: fornecedorId }),
+        },
+      )
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Erro ao resetar conversa')
+      }
+      const data = (await res.json()) as SessionResponse
+      setSessionData(data)
+      setMensagem('')
+      toast.success('Conversa reiniciada')
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao resetar conversa')
+    } finally {
+      setResetting(false)
+    }
+  }
+
   const previewFinanceiro = useMemo(() => {
     if (!sessionData || sessionData.preview.modo !== 'medicao') return null
     return sessionData.preview.medicao?.execucao_financeira?.totais || null
@@ -289,6 +320,14 @@ export default function MedicaoChatFornecedorPage() {
               <FileText className="w-4 h-4 mr-1" />
               Formulario classico
             </Link>
+          </Button>
+          <Button variant="outline" onClick={() => void resetarConversa()} disabled={resetting}>
+            {resetting ? (
+              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+            ) : (
+              <RotateCcw className="w-4 h-4 mr-1" />
+            )}
+            Reiniciar conversa
           </Button>
         </div>
       </div>

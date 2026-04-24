@@ -57,6 +57,8 @@ type ResultadoAgente = {
   handled: boolean;
   resposta?: string;
   confirmacao_pendente?: Record<string, unknown>;
+  plano_agente?: Record<string, any> | null;
+  ultima_analise_agente?: Record<string, any> | null;
 };
 
 type AcaoAgenteStatus = 'planned' | 'applied' | 'blocked' | 'skipped';
@@ -81,6 +83,18 @@ type ContextoAssistidoContrato = {
   itens_cronograma: ItemCronograma[];
   etapas_cronograma: EtapaCronograma[];
   ultima_medicao: Medicao | null;
+};
+
+type PlanejamentoLlmMedicao = {
+  resumo_intencao?: string;
+  acoes?: Array<{
+    ferramenta?: string;
+    objetivo?: string;
+    confianca?: 'high' | 'medium' | 'low';
+    parametros?: Record<string, any>;
+    bloqueio?: string | null;
+  }>;
+  resposta_sugerida?: string;
 };
 
 type MedicaoChatDraft = {
@@ -224,6 +238,40 @@ export class MedicaoChatService {
     return this.montarRespostaSessao(session, contrato);
   }
 
+  async resetarConversa(sessionId: string, fornecedorId: string) {
+    const session = await this.buscarSessao(sessionId, fornecedorId);
+    const contrato = await this.validarContexto(
+      session.contrato_id,
+      fornecedorId,
+    );
+
+    session.confirmacao_pendente = null;
+    session.plano_agente = null;
+    session.ultima_analise_agente = null;
+    session.status = StatusMedicaoChatSession.ATIVA;
+    session.etapa_atual = this.determinarEtapaAtual(
+      (session.draft || {}) as MedicaoChatDraft,
+      contrato,
+    );
+    session.pendencias = this.calcularPendencias(
+      (session.draft || {}) as MedicaoChatDraft,
+      contrato,
+    );
+    session.historico_ia = [
+      {
+        role: 'assistant',
+        content: await this.montarMensagemReset(
+          contrato,
+          (session.draft || {}) as MedicaoChatDraft,
+        ),
+        created_at: new Date().toISOString(),
+      },
+    ];
+
+    const saved = await this.sessionRepository.save(session);
+    return this.montarRespostaSessao(saved, contrato);
+  }
+
   async processarMensagem(
     sessionId: string,
     fornecedorId: string,
@@ -265,6 +313,9 @@ export class MedicaoChatService {
         draft,
         fornecedorId,
       );
+      session.plano_agente = resultadoAgente.plano_agente || null;
+      session.ultima_analise_agente =
+        resultadoAgente.ultima_analise_agente || null;
       if (resultadoAgente.handled) {
         respostaAssistente = resultadoAgente.resposta || '';
         if (resultadoAgente.confirmacao_pendente) {
@@ -552,6 +603,14 @@ export class MedicaoChatService {
     return `Vamos montar a medição assistida do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''} Vou preencher o rascunho em tempo real e te avisar o que ainda falta. Primeiro, me informe o **período da medição** no formato "01/04/2026 a 30/04/2026".${pendenciaPrincipal && pendenciaPrincipal !== 'PERIODO' ? ' Se preferir, você também pode começar anexando a nota fiscal em XML ou PDF.' : ''}`;
   }
 
+  private async montarMensagemReset(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ) {
+    const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+    return `Reiniciei a conversa assistida e limpei o contexto do chat. Mantive o rascunho atual para você não perder dados. ${orientacao}`;
+  }
+
   private async aplicarMensagemNaEtapa(
     etapaAtual: string,
     mensagem: string,
@@ -771,10 +830,22 @@ export class MedicaoChatService {
     draft: MedicaoChatDraft,
     fornecedorId: string,
   ): Promise<ResultadoAgente> {
+    const planejamentoLlm = await this.planejarComLlm(contrato, draft, mensagem);
     const aplicacoes: string[] = [];
     const plano: AcaoAgente[] = [];
     let nfAtualizada = false;
     let handled = false;
+
+    for (const acao of planejamentoLlm?.acoes || []) {
+      plano.push({
+        id: `llm_${acao.ferramenta || plano.length}`,
+        titulo: acao.objetivo || acao.ferramenta || 'ação planejada',
+        status: acao.bloqueio ? 'blocked' : 'planned',
+        confianca: acao.confianca || 'medium',
+        motivo: acao.ferramenta || undefined,
+        blocker: acao.bloqueio || undefined,
+      });
+    }
 
     const periodo = this.extrairPeriodoTexto(mensagem);
     plano.push({
@@ -1055,7 +1126,11 @@ export class MedicaoChatService {
     }
 
     if (!handled) {
-      return { handled: false };
+      return {
+        handled: false,
+        plano_agente: { acoes: plano },
+        ultima_analise_agente: planejamentoLlm,
+      };
     }
 
     const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
@@ -1068,6 +1143,8 @@ export class MedicaoChatService {
         contrato,
         plano,
       ),
+      plano_agente: { acoes: plano },
+      ultima_analise_agente: planejamentoLlm,
     };
   }
 
@@ -1561,6 +1638,8 @@ export class MedicaoChatService {
         pendencias: session.pendencias || [],
         historico_ia: session.historico_ia || [],
         confirmacao_pendente: session.confirmacao_pendente || null,
+        plano_agente: session.plano_agente || null,
+        ultima_analise_agente: session.ultima_analise_agente || null,
       },
       contrato: {
         id: contrato.id,
@@ -1612,6 +1691,59 @@ export class MedicaoChatService {
       etapas_cronograma: etapasCronograma,
       ultima_medicao: ultimaMedicao,
     };
+  }
+
+  private async planejarComLlm(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    mensagem: string,
+  ): Promise<PlanejamentoLlmMedicao | null> {
+    const contexto = await this.carregarContextoAssistido(contrato);
+    return this.iaService.planejarAcoesMedicaoAssistida({
+      contrato: {
+        id: contrato.id,
+        numero_contrato: contrato.numero_contrato,
+        modalidade_execucao: contrato.modalidade_execucao,
+        categoria: contrato.categoria,
+      },
+      resumo: contexto.resumo as Record<string, any>,
+      draft: {
+        periodo_inicio: draft.periodo_inicio,
+        periodo_fim: draft.periodo_fim,
+        competencia: draft.competencia,
+        nota_fiscal_numero: draft.nota_fiscal_numero,
+        nota_fiscal_valor: draft.nota_fiscal_valor,
+        valor_medido: draft.valor_medido,
+        observacoes: draft.observacoes,
+        itens_count: Array.isArray(draft.itens) ? draft.itens.length : 0,
+        discriminacoes_count: Array.isArray(draft.discriminacoes)
+          ? draft.discriminacoes.length
+          : 0,
+      },
+      contexto: {
+        usar_itens_cronograma: contexto.usar_itens_cronograma,
+        itens_cronograma: contexto.itens_cronograma.slice(0, 10).map((item) => ({
+          numero_item: item.numero_item,
+          unidade_medida: item.unidade_medida,
+          valor_mensal: Number(item.valor_mensal || 0),
+          valor_total: Number(item.valor_total || 0),
+          valor_unitario: Number(item.valor_unitario || 0),
+        })),
+        etapas_cronograma: contexto.etapas_cronograma.slice(0, 10).map((item) => ({
+          numero_etapa: item.numero_etapa,
+          valor_previsto: Number(item.valor_previsto || 0),
+          percentual_fisico: Number(item.percentual_fisico || 0),
+        })),
+        ultima_medicao: contexto.ultima_medicao
+          ? {
+              numero_medicao: contexto.ultima_medicao.numero_medicao,
+              valor_medido: Number(contexto.ultima_medicao.valor_medido || 0),
+              competencia: contexto.ultima_medicao.competencia,
+            }
+          : null,
+      },
+      mensagem,
+    });
   }
 
   private montarResumoContextoContrato(contexto: ContextoAssistidoContrato) {

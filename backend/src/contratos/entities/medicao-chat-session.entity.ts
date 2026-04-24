@@ -52,6 +52,12 @@ export class MedicaoChatSession {
   @Column({ type: 'json', nullable: true })
   confirmacao_pendente: Record<string, any> | null;
 
+  @Column({ type: 'json', nullable: true })
+  plano_agente: Record<string, any> | null;
+
+  @Column({ type: 'json', nullable: true })
+  ultima_analise_agente: Record<string, any> | null;
+
   @CreateDateColumn()
   created_at: Date;
 

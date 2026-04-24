@@ -83,4 +83,15 @@ export class MedicaoChatController {
       body.descricao,
     );
   }
+
+  @Post('medicao-chat/sessoes/:sessionId/reset')
+  async resetarSessao(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { fornecedor_id: string },
+  ) {
+    if (!body.fornecedor_id) {
+      throw new BadRequestException('fornecedor_id é obrigatório');
+    }
+    return this.medicaoChatService.resetarConversa(sessionId, body.fornecedor_id);
+  }
 }

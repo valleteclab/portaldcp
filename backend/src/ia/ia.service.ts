@@ -365,6 +365,89 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
     return data.choices[0]?.message?.content || 'Não foi possível processar sua mensagem.';
   }
 
+  async planejarAcoesMedicaoAssistida(input: {
+    contrato: Record<string, any>;
+    resumo?: Record<string, any> | null;
+    draft?: Record<string, any> | null;
+    contexto?: Record<string, any> | null;
+    mensagem: string;
+  }): Promise<{
+    resumo_intencao: string;
+    acoes: Array<{
+      ferramenta: string;
+      objetivo: string;
+      confianca: 'high' | 'medium' | 'low';
+      parametros?: Record<string, any>;
+      bloqueio?: string | null;
+    }>;
+    resposta_sugerida?: string;
+  } | null> {
+    const systemPrompt = `Você é um planejador de ações para um agente de medição de contratos públicos.
+
+Sua tarefa NÃO é conversar com o usuário. Sua tarefa é planejar ações que um agente backend deve tentar executar.
+
+Ferramentas disponíveis:
+- atualizar_periodo
+- definir_competencia
+- atualizar_nota_fiscal
+- preencher_valor_medido
+- preencher_itens_cronograma
+- preencher_etapas
+- reaproveitar_discriminacoes
+- atualizar_discriminacoes
+- atualizar_observacoes
+- usar_contexto_da_nf
+- pedir_confirmacao
+- responder_pendencia
+
+Regras:
+1. Retorne APENAS JSON válido.
+2. Seja conservador: só proponha ação com confiança alta quando a mensagem for inequívoca.
+3. Se a mensagem trouxer múltiplas intenções, inclua múltiplas ações.
+4. Se faltar informação, use bloqueio em vez de inventar.
+5. Nunca proponha submissão final da medição.
+
+Formato:
+{
+  "resumo_intencao": "",
+  "acoes": [
+    {
+      "ferramenta": "",
+      "objetivo": "",
+      "confianca": "high|medium|low",
+      "parametros": {},
+      "bloqueio": null
+    }
+  ],
+  "resposta_sugerida": ""
+}`;
+
+    try {
+      const raw = await this.chatComSistemaPersonalizado(
+        [
+          {
+            role: 'user',
+            content: JSON.stringify(input),
+          },
+        ],
+        systemPrompt,
+      );
+      const cleaned = raw
+        .trim()
+        .replace(/^```(?:json)?/i, '')
+        .replace(/```$/i, '')
+        .trim();
+      const parsed = JSON.parse(cleaned);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed;
+    } catch (error: any) {
+      this.logger.warn(
+        `Falha ao planejar ações da medição assistida via OpenRouter: ${error.message}`,
+      );
+      return null;
+    }
+  }
+
   async chat(mensagens: Array<{ role: string; content: string }>, tipoDocumento?: string): Promise<string> {
     const apiKey = await this.getApiKey();
     const model = await this.getModel();
