@@ -51,6 +51,8 @@ export function textoUnidadeCronogramaNaTela(unidade: string): string {
       return 'Serviço (preço por litro)'
     case 'MENSAL':
       return 'Mensal (R$/mês)'
+    case 'SERVICO':
+      return 'Serviço'
     case 'HORA':
       return 'Hora'
     case 'UNIDADE':

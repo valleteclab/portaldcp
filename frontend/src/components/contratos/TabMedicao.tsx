@@ -424,6 +424,7 @@ export default function TabMedicao({
     "MENSAL",
     "LITROS",
     "METROS",
+    "SERVICO",
     "UNIDADE",
   ]);
   const [medicoes, setMedicoes] = useState<Medicao[]>([]);
