@@ -56,6 +56,15 @@ type MedicaoCompletaChat = Medicao & {
   itens?: Array<Record<string, any>>;
 };
 
+type ContextoAssistidoContrato = {
+  resumo: Awaited<ReturnType<MedicaoService['resumoMedicoes']>>;
+  medicoes: Medicao[];
+  usar_itens_cronograma: boolean;
+  itens_cronograma: ItemCronograma[];
+  etapas_cronograma: EtapaCronograma[];
+  ultima_medicao: Medicao | null;
+};
+
 type MedicaoChatDraft = {
   contrato_id: string;
   fornecedor_id: string;
@@ -174,7 +183,7 @@ export class MedicaoChatService {
       });
       session = await this.sessionRepository.save(session);
 
-      const mensagemInicial = this.montarMensagemInicial(contrato, draft);
+      const mensagemInicial = await this.montarMensagemInicial(contrato, draft);
       session.historico_ia = [
         {
           role: 'assistant',
@@ -321,18 +330,19 @@ export class MedicaoChatService {
     });
 
     session.draft = draft;
-    session.confirmacao_pendente = {
-      tipo: 'ANEXO_NF',
-      temp_path: tempPath,
-      nf_sugerida: nfSugerida,
-      nome_original: file.originalname,
-    };
+      const resumoNf = this.formatarResumoNfSugerida(nfSugerida);
+      session.confirmacao_pendente = {
+        tipo: 'ANEXO_NF',
+        temp_path: tempPath,
+        nf_sugerida: nfSugerida,
+        nome_original: file.originalname,
+      };
     session.historico_ia = [
       ...(session.historico_ia || []),
-      {
-        role: 'assistant',
-        content: nfSugerida
-          ? `Analisei o arquivo **${file.originalname}** e encontrei dados de nota fiscal. Posso aplicar a NF sugerida ao rascunho e deixar este arquivo pronto para anexar ao boletim quando a medição estiver materializada?`
+        {
+          role: 'assistant',
+          content: nfSugerida
+          ? `Analisei o arquivo **${file.originalname}** e encontrei dados de nota fiscal.${resumoNf ? ` ${resumoNf}` : ''} Posso aplicar essa NF ao rascunho e deixar o arquivo pronto para anexar ao boletim quando a medição estiver materializada?`
           : `Recebi o arquivo **${file.originalname}**. Posso deixá-lo pendente para anexar ao boletim assim que o rascunho estiver pronto?`,
         created_at: new Date().toISOString(),
       },
@@ -461,12 +471,17 @@ export class MedicaoChatService {
     return pendencias;
   }
 
-  private montarMensagemInicial(contrato: Contrato, draft: MedicaoChatDraft) {
+  private async montarMensagemInicial(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ) {
+    const contexto = await this.carregarContextoAssistido(contrato);
     const tipoFluxo = this.medicaoService.isServicoContinuado(contrato)
       ? 'serviço continuado'
       : 'medição por cronograma';
     const pendenciaPrincipal = this.calcularPendencias(draft, contrato)[0];
-    return `Vamos montar a medição assistida do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**. Vou preencher o rascunho em tempo real e te avisar o que ainda falta. Primeiro, me informe o **período da medição** no formato "01/04/2026 a 30/04/2026".${pendenciaPrincipal && pendenciaPrincipal !== 'PERIODO' ? ' Se preferir, você também pode começar anexando a nota fiscal.' : ''}`;
+    const resumoContrato = this.montarResumoContextoContrato(contexto);
+    return `Vamos montar a medição assistida do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''} Vou preencher o rascunho em tempo real e te avisar o que ainda falta. Primeiro, me informe o **período da medição** no formato "01/04/2026 a 30/04/2026".${pendenciaPrincipal && pendenciaPrincipal !== 'PERIODO' ? ' Se preferir, você também pode começar anexando a nota fiscal em XML ou PDF.' : ''}`;
   }
 
   private async aplicarMensagemNaEtapa(
@@ -482,7 +497,7 @@ export class MedicaoChatService {
       case 'COMPETENCIA':
         return this.aplicarCompetencia(mensagem, draft);
       case 'NF':
-        return this.aplicarNotaFiscal(mensagem, draft);
+        return this.aplicarNotaFiscal(mensagem, contrato, draft);
       case 'MEDICAO':
         return this.aplicarMedicao(mensagem, contrato, draft);
       case 'DISCRIMINACOES':
@@ -559,17 +574,18 @@ export class MedicaoChatService {
     };
   }
 
-  private aplicarNotaFiscal(
+  private async aplicarNotaFiscal(
     mensagem: string,
+    contrato: Contrato,
     draft: MedicaoChatDraft,
-  ): ResultadoEtapaChat {
+  ): Promise<ResultadoEtapaChat> {
     if (/sem nf|sem nota|depois|pular/i.test(mensagem)) {
       draft.nota_fiscal_numero = draft.nota_fiscal_numero || null;
       draft.nota_fiscal_valor = draft.nota_fiscal_valor || null;
       draft.nota_fiscal_data = draft.nota_fiscal_data || null;
+      const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
       return {
-        resposta:
-          'Tudo bem. Vamos seguir sem preencher a NF agora. Me informe a execução desta medição.',
+        resposta: `Tudo bem. Vamos seguir sem preencher a NF agora.${orientacao ? ` ${orientacao}` : ''}`,
       };
     }
 
@@ -587,10 +603,10 @@ export class MedicaoChatService {
     if (numero) draft.nota_fiscal_numero = numero;
     if (valor != null) draft.nota_fiscal_valor = valor;
     if (data) draft.nota_fiscal_data = data;
+    const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
 
     return {
-      resposta:
-        'Dados da NF atualizados. Agora me informe a execução desta medição. Para itens/etapas, pode mandar linhas como "item 1 = 2,5" ou "etapa 2 = 35%".',
+      resposta: `Dados da NF atualizados.${orientacao ? ` ${orientacao}` : ' Agora me informe a execução desta medição. Para itens/etapas, pode mandar linhas como "item 1 = 2,5" ou "etapa 2 = 35%".'}`,
     };
   }
 
@@ -756,9 +772,13 @@ export class MedicaoChatService {
             draft.competencia = pendente.nf_sugerida.competencia;
           }
         }
+        const proximaOrientacao = await this.montarOrientacaoProximaEtapa(
+          contrato,
+          draft,
+        );
         return {
           resposta:
-            'Perfeito. A sugestão da NF foi aplicada ao rascunho e o arquivo ficou reservado para anexação ao boletim assim que a medição estiver materializada.',
+            `Perfeito. A sugestão da NF foi aplicada ao rascunho e o arquivo ficou reservado para anexação ao boletim assim que a medição estiver materializada.${proximaOrientacao ? ` ${proximaOrientacao}` : ''}`,
         };
       }
       default:
@@ -934,7 +954,194 @@ export class MedicaoChatService {
       },
       resumo,
       preview,
+      contexto_assistido: await this.carregarContextoAssistido(contrato),
     };
+  }
+
+  private async carregarContextoAssistido(
+    contrato: Contrato,
+  ): Promise<ContextoAssistidoContrato> {
+    const [resumo, medicoes, usarItensCronograma] = await Promise.all([
+      this.medicaoService.resumoMedicoes(contrato.id),
+      this.medicaoService.listarMedicoes(contrato.id),
+      this.medicaoService.usarItensCronograma(contrato.id),
+    ]);
+
+    const [itensCronograma, etapasCronograma] = await Promise.all([
+      usarItensCronograma
+        ? this.itemCronogramaRepository.find({
+            where: { contrato_id: contrato.id },
+            order: { numero_item: 'ASC' },
+          })
+        : Promise.resolve([]),
+      !usarItensCronograma && !this.medicaoService.isServicoContinuado(contrato)
+        ? this.etapaRepository.find({
+            where: { contrato_id: contrato.id },
+            order: { numero_etapa: 'ASC' },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const ultimaMedicao =
+      medicoes.length > 0 ? medicoes[medicoes.length - 1] : null;
+
+    return {
+      resumo,
+      medicoes,
+      usar_itens_cronograma: usarItensCronograma,
+      itens_cronograma: itensCronograma,
+      etapas_cronograma: etapasCronograma,
+      ultima_medicao: ultimaMedicao,
+    };
+  }
+
+  private montarResumoContextoContrato(contexto: ContextoAssistidoContrato) {
+    const partes: string[] = [];
+    if (contexto.resumo?.saldo_disponivel != null) {
+      partes.push(
+        `Saldo disponível atual: **${this.formatCurrency(contexto.resumo.saldo_disponivel)}**.`,
+      );
+    }
+    if ((contexto.resumo?.valor_em_analise || 0) > 0) {
+      partes.push(
+        `Já existe **${this.formatCurrency(contexto.resumo.valor_em_analise)}** em análise.`,
+      );
+    }
+    if (contexto.ultima_medicao?.numero_medicao) {
+      partes.push(
+        `A última medição registrada é a **#${contexto.ultima_medicao.numero_medicao}**.`,
+      );
+    }
+    return partes.join(' ');
+  }
+
+  private async montarOrientacaoProximaEtapa(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ): Promise<string> {
+    const pendencia = this.determinarEtapaAtual(draft, contrato);
+    const contexto = await this.carregarContextoAssistido(contrato);
+    const resumoContrato = this.montarResumoContextoContrato(contexto);
+
+    if (pendencia === 'MEDICAO') {
+      if (this.medicaoService.isServicoContinuado(contrato)) {
+        if ((draft.nota_fiscal_valor || 0) > 0) {
+          return `${resumoContrato ? `${resumoContrato} ` : ''}Como este contrato é continuado, o próximo passo é informar o **valor medido**. Se a NF representa o período cheio, você pode responder: **valor ${this.formatNumberBr(draft.nota_fiscal_valor || 0)}**.`;
+        }
+        return `${resumoContrato ? `${resumoContrato} ` : ''}Agora preciso do **valor medido do período**.`;
+      }
+
+      if (contexto.usar_itens_cronograma) {
+        const sugestaoItens = this.montarSugestaoItensCronograma(
+          contexto.itens_cronograma,
+          draft,
+        );
+        return `${resumoContrato ? `${resumoContrato} ` : ''}${sugestaoItens}`;
+      }
+
+      if (contexto.etapas_cronograma.length > 0) {
+        const exemplos = contexto.etapas_cronograma
+          .slice(0, 3)
+          .map((item) => `etapa ${item.numero_etapa} = 20%`)
+          .join(', ');
+        return `${resumoContrato ? `${resumoContrato} ` : ''}Agora preciso da execução das etapas. Você pode responder algo como: **${exemplos}**.`;
+      }
+    }
+
+    if (pendencia === 'DISCRIMINACOES') {
+      const sugestaoUltima =
+        contexto.ultima_medicao != null
+          ? ' Se quiser, responda **reaproveitar última**.'
+          : '';
+      return `${resumoContrato ? `${resumoContrato} ` : ''}Agora preciso das **discriminações da despesa**.${sugestaoUltima}`;
+    }
+
+    if (pendencia === 'OBSERVACOES') {
+      return `${resumoContrato ? `${resumoContrato} ` : ''}Falta só registrar as **observações finais**. Se não houver nada a acrescentar, responda **sem observações**.`;
+    }
+
+    if (pendencia === 'NF') {
+      return `${resumoContrato ? `${resumoContrato} ` : ''}Se preferir, envie primeiro o **XML da NF**. Se não tiver, pode mandar o **PDF**.`;
+    }
+
+    if (pendencia === 'COMPETENCIA') {
+      return `Agora confirme a **competência** no formato **MÊS/ANO** ou responda **usar automática**.`;
+    }
+
+    if (pendencia === 'PERIODO') {
+      return `Me informe o **período da medição** no formato **01/04/2026 a 30/04/2026**.`;
+    }
+
+    return resumoContrato;
+  }
+
+  private montarSugestaoItensCronograma(
+    itensCronograma: ItemCronograma[],
+    draft: MedicaoChatDraft,
+  ) {
+    if (itensCronograma.length === 0) {
+      return 'Agora preciso das quantidades medidas por item.';
+    }
+
+    if (itensCronograma.length === 1) {
+      const item = itensCronograma[0];
+      const valorBase =
+        Number(draft.nota_fiscal_valor) || Number(item.valor_mensal) || 0;
+      const valorComparacao =
+        Number(item.valor_mensal) || Number(item.valor_unitario) || 0;
+      const quantidadeSugerida =
+        valorComparacao > 0 ? valorBase / valorComparacao : 0;
+
+      if (
+        item.unidade_medida === 'MENSAL' &&
+        valorComparacao > 0 &&
+        Math.abs(valorBase - valorComparacao) <= 0.05
+      ) {
+        return `O contrato tem um único item mensal (**item ${item.numero_item}**) com valor de **${this.formatCurrency(valorComparacao)}**. Se esta NF corresponde ao mês cheio, responda: **item ${item.numero_item} = 1**.`;
+      }
+
+      if (quantidadeSugerida > 0) {
+        return `O contrato tem um único item (**item ${item.numero_item}**). Pela NF, a sugestão é responder: **item ${item.numero_item} = ${this.formatNumberBr(quantidadeSugerida, 4)}**.`;
+      }
+    }
+
+    const exemplos = itensCronograma
+      .slice(0, 3)
+      .map((item) => `item ${item.numero_item} = 1`)
+      .join(', ');
+    return `Agora preciso das quantidades medidas por item. Você pode responder algo como: **${exemplos}**.`;
+  }
+
+  private formatarResumoNfSugerida(nfSugerida?: Record<string, any> | null) {
+    if (!nfSugerida) return '';
+    const partes: string[] = [];
+    if (nfSugerida.nota_fiscal_numero) {
+      partes.push(`NF **${nfSugerida.nota_fiscal_numero}**`);
+    }
+    if (nfSugerida.nota_fiscal_data) {
+      partes.push(`data **${this.formatDateBr(nfSugerida.nota_fiscal_data)}**`);
+    }
+    if (nfSugerida.nota_fiscal_valor != null) {
+      partes.push(`valor bruto **${this.formatCurrency(Number(nfSugerida.nota_fiscal_valor))}**`);
+    }
+    if (nfSugerida.competencia) {
+      partes.push(`competência **${nfSugerida.competencia}**`);
+    }
+    return partes.length > 0 ? ` Identifiquei ${partes.join(', ')}.` : '';
+  }
+
+  private formatCurrency(value: number) {
+    return value.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+  }
+
+  private formatNumberBr(value: number, maximumFractionDigits = 2) {
+    return value.toLocaleString('pt-BR', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits,
+    });
   }
 
   private interpretarConfirmacao(mensagem: string) {
