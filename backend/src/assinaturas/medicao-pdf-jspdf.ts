@@ -17,16 +17,6 @@ import * as QRCode from 'qrcode';
 
 // ---- Helpers (idênticos ao frontend) ----
 
-function fmt(v: number): string {
-  const truncado = truncarMoedaReais2Casas(v);
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(truncado);
-}
-
 /** Corta em 2 casas sem arredondar. +1e-9 neutraliza ruído IEEE 754 de floats já truncados. */
 function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v);
@@ -334,6 +324,22 @@ export async function gerarBoletimMedicaoPdf(
   const mX = 7;
   let y = 8;
 
+  // Formata valor monetário respeitando a flag arredondar_calculo do contrato.
+  // Quando true (padrão): arredonda para 2 casas. Quando false: trunca.
+  const ar = dados.arredondar_calculo ?? true;
+  const fmtAr = (v: number): string => {
+    const x = Number(v);
+    const val = ar
+      ? Math.round(x * 100) / 100
+      : truncarMoedaReais2Casas(x);
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(val);
+  };
+
   const competencia = dados.competencia || derivarCompetencia(dados.periodo_inicio);
 
   // Gerar QR Code se temos código de validação
@@ -401,15 +407,15 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'bold');
   doc.text('Nº NF:', nfX, y);
   doc.setFont('helvetica', 'normal');
-  doc.text(dados.nota_fiscal_numero ? `${textoSeguro(dados.nota_fiscal_numero)}${dados.nota_fiscal_valor ? `  —  ${fmt(Number(dados.nota_fiscal_valor) || 0)}` : ''}` : '-', nfX + 12, y);
+  doc.text(dados.nota_fiscal_numero ? `${textoSeguro(dados.nota_fiscal_numero)}${dados.nota_fiscal_valor ? `  —  ${fmtAr(Number(dados.nota_fiscal_valor) || 0)}` : ''}` : '-', nfX + 12, y);
   y += 5;
 
   // Valor Bruto (= valor da medição)
-  linhaInfo('VALOR BRUTO', fmt(dados.valor_medido));
+  linhaInfo('VALOR BRUTO', fmtAr(dados.valor_medido));
 
   // Valor da Nota Fiscal (base da discriminação de despesas)
   if (dados.nota_fiscal_valor && Number(dados.nota_fiscal_valor) > 0) {
-    linhaInfo('VALOR DA NOTA FISCAL', fmt(Number(dados.nota_fiscal_valor)));
+    linhaInfo('VALOR DA NOTA FISCAL', fmtAr(Number(dados.nota_fiscal_valor)));
   }
 
   // Competência
@@ -451,12 +457,12 @@ export async function gerarBoletimMedicaoPdf(
         ...dados.discriminacoes.map((d: any) => [
           { content: d.numero, styles: { halign: 'center' as const } },
           d.descricao,
-          { content: fmt(d.valor), styles: { halign: 'right' as const } },
+          { content: fmtAr(d.valor), styles: { halign: 'right' as const } },
           { content: `${Number(d.percentual || 0).toFixed(2)}%`, styles: { halign: 'right' as const } },
         ]),
         [
           { content: 'TOTAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
-          { content: fmt(totalDisc), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: fmtAr(totalDisc), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: '100,00%', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
@@ -490,8 +496,8 @@ export async function gerarBoletimMedicaoPdf(
       ic.numero_execucoes != null && ic.numero_execucoes !== undefined ? String(ic.numero_execucoes) : '—';
     const vlFreqIc = (ic: any) => {
       const vpf = Number(ic.valor_por_frequencia);
-      if (Number.isFinite(vpf) && vpf > 0) return fmt(vpf);
-      return fmt(Number(ic.quantidade) * Number(ic.valor_unitario));
+      if (Number.isFinite(vpf) && vpf > 0) return fmtAr(vpf);
+      return fmtAr(Number(ic.quantidade) * Number(ic.valor_unitario));
     };
 
     autoTable(doc, {
@@ -522,18 +528,18 @@ export async function gerarBoletimMedicaoPdf(
             ? [{ content: ic.frequencia_exibicao ?? '—', styles: { halign: 'center' as const, fontSize: 5.5 } }]
             : []),
           { content: Number(ic.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 4 }), styles: { halign: 'right' as const } },
-          { content: fmt(ic.valor_unitario), styles: { halign: 'right' as const } },
+          { content: fmtAr(ic.valor_unitario), styles: { halign: 'right' as const } },
           ...(exibirColunasFrequencia
             ? [{ content: fmtNExecIc(ic), styles: { halign: 'right' as const } }]
             : []),
           ...(exibirColunasFrequencia
             ? [{ content: vlFreqIc(ic), styles: { halign: 'right' as const } }]
             : []),
-          { content: fmt(ic.valor_total), styles: { halign: 'right' as const } },
+          { content: fmtAr(ic.valor_total), styles: { halign: 'right' as const } },
         ]),
         [
           { content: 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
-          { content: fmt(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: fmtAr(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
       theme: 'grid',
@@ -739,7 +745,7 @@ export async function gerarBoletimMedicaoPdf(
         { content: `${e.percentual_fisico.toFixed(1)}%`, styles: { halign: 'center' as const } },
         { content: `${e.percentual_executado_anterior.toFixed(1)}%`, styles: { halign: 'center' as const } },
         { content: `${e.percentual_executado_atual.toFixed(1)}%`, styles: { halign: 'center' as const } },
-        { content: fmt(e.valor_medido), styles: { halign: 'right' as const } },
+        { content: fmtAr(e.valor_medido), styles: { halign: 'right' as const } },
       ]),
       theme: 'grid',
       styles: { fontSize: 7, cellPadding: 1.5 },
@@ -764,7 +770,7 @@ export async function gerarBoletimMedicaoPdf(
   doc.text('VALOR DA MEDIÇÃO:', mX + 4, y + 5.5);
   doc.setFontSize(13);
   doc.setTextColor(22, 60, 100);
-  doc.text(fmt(dados.valor_medido), mX + 4, y + 12);
+  doc.text(fmtAr(dados.valor_medido), mX + 4, y + 12);
   y += 16;
 
   // =========================================================

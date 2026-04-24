@@ -2443,13 +2443,15 @@ export class MedicaoService {
         const efItem = efItemMap.get(item.item_cronograma_id || '');
         const ic = icMigracaoMap.get(item.item_cronograma_id || '');
         const valorNoPeriodoArmazenado = Number(item.valor_medido || 0);
-        // NO PERÍODO e demais q×vu: centavos inteiros (ex.: 2831,40×6,94 → 19.649,91; float dava ,90).
+        const arContrato = (contrato as any).arredondar_calculo ?? true;
+        // NO PERÍODO: converte para centavos sem truncar quando arredondar_calculo=true,
+        // pois o valor já foi salvo arredondado (ex.: 4164,10 não pode virar 4164,09).
         const centNo =
           Number.isFinite(valorNoPeriodoArmazenado) &&
           valorNoPeriodoArmazenado > 0
-            ? Math.round(
-                truncarMoedaReais2Casas(valorNoPeriodoArmazenado) * 100,
-              )
+            ? arContrato
+              ? Math.round(valorNoPeriodoArmazenado * 100)
+              : Math.round(truncarMoedaReais2Casas(valorNoPeriodoArmazenado) * 100)
             : produtoQuantidadeValorUnitarioCentavos(qtdMedida, vlrUnitario);
 
         const centSnap = efItem
@@ -2670,6 +2672,7 @@ export class MedicaoService {
       orgao: contrato.orgao || null,
       orgao_nome: contrato.orgao?.nome || '',
       contrato_numero: contrato.numero_contrato || '',
+      arredondar_calculo: contrato.arredondar_calculo ?? true,
       contrato_objeto:
         (medicao as any).objeto_contrato || contrato.objeto || undefined,
       fornecedor_nome:
