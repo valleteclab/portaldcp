@@ -262,7 +262,10 @@ export default function MedicaoChatFornecedorPage() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fornecedor_id: fornecedorId }),
+          body: JSON.stringify({
+            fornecedor_id: fornecedorId,
+            limpar_rascunho: true,
+          }),
         },
       )
       if (!res.ok) {
@@ -272,7 +275,7 @@ export default function MedicaoChatFornecedorPage() {
       const data = (await res.json()) as SessionResponse
       setSessionData(data)
       setMensagem('')
-      toast.success('Conversa reiniciada')
+      toast.success('Conversa e rascunho reiniciados')
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : 'Erro ao resetar conversa')
     } finally {
@@ -343,7 +346,7 @@ export default function MedicaoChatFornecedorPage() {
             ) : (
               <RotateCcw className="w-4 h-4 mr-1" />
             )}
-            Reiniciar conversa
+            Reiniciar do zero
           </Button>
         </div>
       </div>
@@ -595,7 +598,7 @@ export default function MedicaoChatFornecedorPage() {
                     <Badge className="bg-purple-100 text-purple-700">
                       Intencao: {String(sessionData.session.plano_agente.intencao || 'n/a')}
                     </Badge>
-                    {sessionData.session.plano_agente.proxima_melhor_acao && (
+                    {!!sessionData.session.plano_agente.proxima_melhor_acao && (
                       <Badge className="bg-slate-100 text-slate-700">
                         Proxima: {String(sessionData.session.plano_agente.proxima_melhor_acao)}
                       </Badge>
