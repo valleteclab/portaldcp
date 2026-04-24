@@ -4604,13 +4604,14 @@ export default function TabMedicao({
                           const vuCentavos = Math.round(
                             Number(ic.valor_unitario) * 100,
                           );
+                          const ar = contratoProp?.arredondar_calculo ?? true;
                           const valorOverride = isMensal
-                            ? Math.floor(
-                                (Math.min(dias, 30) * vuCentavos) / 30,
-                              ) / 100
-                            : Math.round(
-                                qtd * Number(ic.valor_unitario) * 100,
-                              ) / 100;
+                            ? (ar
+                                ? Math.round((Math.min(dias, 30) * vuCentavos) / 30) / 100
+                                : Math.floor((Math.min(dias, 30) * vuCentavos) / 30) / 100)
+                            : (ar
+                                ? Math.round(qtd * Number(ic.valor_unitario) * 100) / 100
+                                : Math.floor(qtd * Number(ic.valor_unitario) * 100) / 100);
                           // MENSAL usa modo 'valor' para que a coluna Valor R$ exiba o valor exato (não qtd × vu)
                           const modo = isMensal
                             ? ("valor" as const)
