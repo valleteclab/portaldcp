@@ -19,7 +19,9 @@
       "Bash(grep -n \"EmpenhoComposto\\\\|acrescimos\" frontend/src/app/contratos/\\\\\\\\[id\\\\\\\\]/page.tsx)",
       "Bash(grep -n \"classificaEmpenho\\\\|Apostilamento\\\\|apostilamento\\\\|fecha o ciclo\\\\|APOSTILAMENTO\" frontend/src/app/orgao/contratos/\\\\\\\\[id\\\\\\\\]/page.tsx)",
       "Bash(grep -n \"classificaEmpenho\\\\|Apostilamento \\(fecha\" frontend/src/app/contratos/\\\\\\\\[id\\\\\\\\]/page.tsx)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(grep -E \"\\(frontend|backend\\)$\")",
+      "Bash(git commit *)"
     ]
   }
 }

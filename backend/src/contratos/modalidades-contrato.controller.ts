@@ -107,6 +107,118 @@ export class ModalidadesContratoController {
     return [];
   }
 
+  private async carregarRequisicoesRelatorio(contratoId: string) {
+    try {
+      return await this.requisicaoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero',
+          'tipo',
+          'status',
+          'valor_total_estimado',
+          'data_solicitacao',
+          'created_at',
+          'numeros_empenhos',
+        ],
+        order: { data_solicitacao: 'DESC', created_at: 'DESC' },
+      });
+    } catch (error) {
+      console.warn(
+        `[relatorio-pedidos] fallback requisições ${contratoId}: ${(error as Error).message}`,
+      );
+      return await this.requisicaoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero',
+          'tipo',
+          'status',
+          'valor_total_estimado',
+          'data_solicitacao',
+          'created_at',
+        ],
+        order: { data_solicitacao: 'DESC', created_at: 'DESC' },
+      });
+    }
+  }
+
+  private async carregarOrdensFornecimentoRelatorio(contratoId: string) {
+    try {
+      return await this.ordemFornecimentoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero',
+          'tipo',
+          'status',
+          'valor_total',
+          'data_emissao',
+          'created_at',
+          'requisicao_id',
+          'numeros_empenhos',
+        ],
+        order: { data_emissao: 'DESC', created_at: 'DESC' },
+      });
+    } catch (error) {
+      console.warn(
+        `[relatorio-pedidos] fallback ordens fornecimento ${contratoId}: ${(error as Error).message}`,
+      );
+      return await this.ordemFornecimentoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero',
+          'tipo',
+          'status',
+          'valor_total',
+          'data_emissao',
+          'created_at',
+          'requisicao_id',
+        ],
+        order: { data_emissao: 'DESC', created_at: 'DESC' },
+      });
+    }
+  }
+
+  private async carregarOrdensServicoRelatorio(contratoId: string) {
+    try {
+      return await this.ordemServicoContratoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero_os',
+          'status',
+          'valor_total',
+          'data_abertura',
+          'data_prazo',
+          'created_at',
+          'numero_empenho',
+          'numeros_empenhos',
+        ],
+        order: { data_abertura: 'DESC', created_at: 'DESC' },
+      });
+    } catch (error) {
+      console.warn(
+        `[relatorio-pedidos] fallback ordens serviço ${contratoId}: ${(error as Error).message}`,
+      );
+      return await this.ordemServicoContratoRepository.find({
+        where: { contrato_id: contratoId },
+        select: [
+          'id',
+          'numero_os',
+          'status',
+          'valor_total',
+          'data_abertura',
+          'data_prazo',
+          'created_at',
+          'numero_empenho',
+        ],
+        order: { data_abertura: 'DESC', created_at: 'DESC' },
+      });
+    }
+  }
+
   // ============================================================================
   // MEDIÃ‡ÃƒO â€” Consulta de OS (criaÃ§Ã£o/aprovaÃ§Ã£o via mÃ³dulo centralizado de RequisiÃ§Ãµes)
   // ============================================================================
@@ -645,6 +757,11 @@ export class ModalidadesContratoController {
       dias_executados_extra?: number;
       meses_restantes?: number;
       dias_restantes_extra?: number;
+      totais_financeiros?: {
+        no_periodo?: number;
+        ate_periodo?: number;
+        a_executar?: number;
+      };
       item_overrides?: Array<{ item_cronograma_id: string; no_periodo?: number; ate_periodo?: number; a_executar?: number; descricao?: string; unidade?: string; fin_no_periodo?: number; fin_ate_periodo?: number; fin_a_executar?: number }>;
     },
     @Req() request: { user: JwtPayload },
@@ -1231,50 +1348,9 @@ export class ModalidadesContratoController {
     });
 
     const [requisicoes, ordensFornecimento, ordensServico] = await Promise.all([
-      this.requisicaoRepository.find({
-        where: { contrato_id: contratoId },
-        select: [
-          'id',
-          'numero',
-          'tipo',
-          'status',
-          'valor_total_estimado',
-          'data_solicitacao',
-          'created_at',
-          'numeros_empenhos',
-        ],
-        order: { data_solicitacao: 'DESC', created_at: 'DESC' },
-      }),
-      this.ordemFornecimentoRepository.find({
-        where: { contrato_id: contratoId },
-        select: [
-          'id',
-          'numero',
-          'tipo',
-          'status',
-          'valor_total',
-          'data_emissao',
-          'created_at',
-          'requisicao_id',
-          'numeros_empenhos',
-        ],
-        order: { data_emissao: 'DESC', created_at: 'DESC' },
-      }),
-      this.ordemServicoContratoRepository.find({
-        where: { contrato_id: contratoId },
-        select: [
-          'id',
-          'numero_os',
-          'status',
-          'valor_total',
-          'data_abertura',
-          'data_prazo',
-          'created_at',
-          'numero_empenho',
-          'numeros_empenhos',
-        ],
-        order: { data_abertura: 'DESC', created_at: 'DESC' },
-      }),
+      this.carregarRequisicoesRelatorio(contratoId),
+      this.carregarOrdensFornecimentoRelatorio(contratoId),
+      this.carregarOrdensServicoRelatorio(contratoId),
     ]);
 
     const secoes = {

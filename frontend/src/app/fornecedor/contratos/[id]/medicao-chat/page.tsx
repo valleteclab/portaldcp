@@ -18,8 +18,11 @@ import {
   Send,
   Sparkles,
   User,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 type HistoricoMensagem = {
   role: 'assistant' | 'user' | 'system'
@@ -142,6 +145,7 @@ export default function MedicaoChatFornecedorPage() {
   const [resetting, setResetting] = useState(false)
   const [sessionData, setSessionData] = useState<SessionResponse | null>(null)
   const [mensagem, setMensagem] = useState('')
+  const [arquivoPendente, setArquivoPendente] = useState<File | null>(null)
 
   useEffect(() => {
     try {
@@ -228,6 +232,7 @@ export default function MedicaoChatFornecedorPage() {
   const handleUpload = async (file: File) => {
     if (!sessionData?.session.id || !fornecedorId) return
     setUploading(true)
+    setArquivoPendente(null)
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -375,9 +380,25 @@ export default function MedicaoChatFornecedorPage() {
                     </div>
                   )}
                   <div
-                    className={`${item.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white border'} rounded-2xl px-4 py-3 max-w-[85%] text-sm whitespace-pre-wrap`}
+                    className={`${item.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white border'} rounded-2xl px-4 py-3 max-w-[85%] text-sm`}
                   >
-                    {item.content}
+                    {item.role === 'user' ? (
+                      <span className="whitespace-pre-wrap">{item.content}</span>
+                    ) : (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal list-inside mb-1 space-y-0.5">{children}</ol>,
+                          li: ({ children }) => <li className="text-sm">{children}</li>,
+                          code: ({ children }) => <code className="bg-slate-100 px-1 rounded text-xs font-mono">{children}</code>,
+                        }}
+                      >
+                        {item.content}
+                      </ReactMarkdown>
+                    )}
                   </div>
                   {item.role === 'user' && (
                     <div className="w-8 h-8 rounded-full bg-slate-600 text-white flex items-center justify-center flex-shrink-0">
@@ -390,27 +411,45 @@ export default function MedicaoChatFornecedorPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                disabled={uploading}
-                onClick={() => {
-                  const input = document.createElement('input')
-                  input.type = 'file'
-                  input.accept = '.pdf,.xml,image/png,image/jpeg,image/jpg'
-                  input.onchange = async (event) => {
-                    const file = (event.target as HTMLInputElement).files?.[0]
-                    if (file) await handleUpload(file)
-                  }
-                  input.click()
-                }}
-              >
-                {uploading ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                ) : (
+              {arquivoPendente ? (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-1.5 text-sm">
+                  <FileText className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span className="text-amber-800 font-medium truncate max-w-[180px]">{arquivoPendente.name}</span>
+                  <span className="text-amber-600 text-xs">({(arquivoPendente.size / 1024).toFixed(0)} KB)</span>
+                  <Button
+                    size="sm"
+                    className="h-6 px-2 text-xs bg-amber-600 hover:bg-amber-700"
+                    onClick={() => void handleUpload(arquivoPendente)}
+                    disabled={uploading}
+                  >
+                    {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Enviar'}
+                  </Button>
+                  <button
+                    className="text-amber-500 hover:text-amber-700"
+                    onClick={() => setArquivoPendente(null)}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = '.pdf,.xml,image/png,image/jpeg,image/jpg'
+                    input.onchange = (event) => {
+                      const file = (event.target as HTMLInputElement).files?.[0]
+                      if (file) setArquivoPendente(file)
+                    }
+                    input.click()
+                  }}
+                >
                   <Paperclip className="w-4 h-4 mr-1" />
-                )}
-                Enviar NF / anexo
-              </Button>
+                  Enviar NF / anexo
+                </Button>
+              )}
               {sessionData.session.confirmacao_pendente && (
                 <Badge className="bg-amber-100 text-amber-700">
                   Confirmacao pendente
