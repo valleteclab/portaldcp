@@ -53,6 +53,12 @@ type ResultadoEtapaChat = {
   confirmacao_pendente?: Record<string, unknown>;
 };
 
+type ResultadoAgente = {
+  handled: boolean;
+  resposta?: string;
+  confirmacao_pendente?: Record<string, unknown>;
+};
+
 type MedicaoCompletaChat = Medicao & {
   itens?: Array<Record<string, any>>;
 };
@@ -242,17 +248,30 @@ export class MedicaoChatService {
         respostaAssistente = resultadoConfirmacao.resposta;
       }
     } else {
-      const etapaAtual = this.determinarEtapaAtual(draft, contrato);
-      const resultado = await this.aplicarMensagemNaEtapa(
-        etapaAtual,
+      const resultadoAgente = await this.processarMensagemComoAgente(
         mensagem,
         contrato,
         draft,
         fornecedorId,
       );
-      respostaAssistente = resultado.resposta;
-      if (resultado.confirmacao_pendente) {
-        session.confirmacao_pendente = resultado.confirmacao_pendente;
+      if (resultadoAgente.handled) {
+        respostaAssistente = resultadoAgente.resposta || '';
+        if (resultadoAgente.confirmacao_pendente) {
+          session.confirmacao_pendente = resultadoAgente.confirmacao_pendente;
+        }
+      } else {
+        const etapaAtual = this.determinarEtapaAtual(draft, contrato);
+        const resultado = await this.aplicarMensagemNaEtapa(
+          etapaAtual,
+          mensagem,
+          contrato,
+          draft,
+          fornecedorId,
+        );
+        respostaAssistente = resultado.resposta;
+        if (resultado.confirmacao_pendente) {
+          session.confirmacao_pendente = resultado.confirmacao_pendente;
+        }
       }
     }
 
@@ -331,22 +350,59 @@ export class MedicaoChatService {
     });
 
     session.draft = draft;
-      const resumoNf = this.formatarResumoNfSugerida(nfSugerida);
+    const resumoNf = this.formatarResumoNfSugerida(nfSugerida);
+    if (nfSugerida && !nfSugerida.conflito_cnpj) {
+      if (nfSugerida.nota_fiscal_numero) {
+        draft.nota_fiscal_numero = nfSugerida.nota_fiscal_numero;
+      }
+      if (nfSugerida.nota_fiscal_valor != null) {
+        draft.nota_fiscal_valor = Number(nfSugerida.nota_fiscal_valor);
+      }
+      if (nfSugerida.nota_fiscal_data) {
+        draft.nota_fiscal_data = nfSugerida.nota_fiscal_data;
+      }
+      if (!draft.competencia && nfSugerida.competencia) {
+        draft.competencia = nfSugerida.competencia;
+      }
+      await this.aplicarPreenchimentoAutomaticoPosNf(contrato, draft, nfSugerida);
+      session.draft = draft;
+      session.pendencias = this.calcularPendencias(draft, contrato);
+      session.etapa_atual = this.determinarEtapaAtual(draft, contrato);
+      session.medicao_id = await this.materializarDraft(
+        session,
+        contrato,
+        fornecedorId,
+      );
+      const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+      session.historico_ia = [
+        ...(session.historico_ia || []),
+        {
+          role: 'assistant',
+          content: `Analisei o arquivo **${file.originalname}** e apliquei automaticamente os dados da nota fiscal ao rascunho.${resumoNf ? ` ${resumoNf}` : ''}${orientacao ? ` ${orientacao}` : ''}`,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      const saved = await this.sessionRepository.save(session);
+      return this.montarRespostaSessao(saved, contrato);
+    }
+
+    if (nfSugerida?.conflito_cnpj) {
       session.confirmacao_pendente = {
         tipo: 'ANEXO_NF',
         temp_path: tempPath,
         nf_sugerida: nfSugerida,
         nome_original: file.originalname,
       };
+    }
     session.historico_ia = [
       ...(session.historico_ia || []),
         {
           role: 'assistant',
           content: nfSugerida
-          ? `Analisei o arquivo **${file.originalname}** e encontrei dados de nota fiscal.${resumoNf ? ` ${resumoNf}` : ''} Posso aplicar essa NF ao rascunho e deixar o arquivo pronto para anexar ao boletim quando a medição estiver materializada?`
-          : `Recebi o arquivo **${file.originalname}**. Posso deixá-lo pendente para anexar ao boletim assim que o rascunho estiver pronto?`,
-        created_at: new Date().toISOString(),
-      },
+            ? `Analisei o arquivo **${file.originalname}** e encontrei dados de nota fiscal.${resumoNf ? ` ${resumoNf}` : ''}${nfSugerida.conflito_cnpj ? ' O CNPJ do emissor parece diferente do fornecedor do contrato. Posso aplicar essa NF mesmo assim?' : ' Posso aplicar essa NF ao rascunho e deixar o arquivo pronto para anexar ao boletim quando a medição estiver materializada?'}`
+            : `Recebi o arquivo **${file.originalname}**. Posso deixá-lo pendente para anexar ao boletim assim que o rascunho estiver pronto?`,
+          created_at: new Date().toISOString(),
+        },
     ];
     const saved = await this.sessionRepository.save(session);
     return this.montarRespostaSessao(saved, contrato);
@@ -511,6 +567,191 @@ export class MedicaoChatService {
             'Seu rascunho já está praticamente completo. Se quiser, você pode revisar, anexar arquivos ou complementar observações antes de enviar manualmente para ateste.',
         };
     }
+  }
+
+  private async processarMensagemComoAgente(
+    mensagem: string,
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    fornecedorId: string,
+  ): Promise<ResultadoAgente> {
+    const aplicacoes: string[] = [];
+    let nfAtualizada = false;
+    let handled = false;
+
+    const periodo = this.extrairPeriodoTexto(mensagem);
+    if (
+      periodo &&
+      (!draft.periodo_inicio || !draft.periodo_fim || this.extrairDatasCount(mensagem) >= 2)
+    ) {
+      if (!draft.periodo_inicio || !draft.periodo_fim) {
+        draft.periodo_inicio = periodo.inicio;
+        draft.periodo_fim = periodo.fim;
+        draft.competencia = draft.competencia || this.derivarCompetencia(periodo.fim);
+        aplicacoes.push(
+          `registrei o período ${this.formatDateBr(periodo.inicio)} a ${this.formatDateBr(periodo.fim)}`,
+        );
+        handled = true;
+      }
+    }
+
+    const competencia = this.normalizarCompetencia(mensagem);
+    if (competencia && draft.competencia !== competencia) {
+      draft.competencia = competencia;
+      aplicacoes.push(`defini a competência como ${competencia}`);
+      handled = true;
+    } else if (
+      /automatic|auto|pode usar|usar/i.test(mensagem) &&
+      draft.periodo_fim &&
+      !draft.competencia
+    ) {
+      draft.competencia = this.derivarCompetencia(draft.periodo_fim);
+      aplicacoes.push(`defini a competência automática como ${draft.competencia}`);
+      handled = true;
+    }
+
+    const numeroNf = this.extrairNumeroNF(mensagem);
+    const dataNf = this.extrairDataAvulsa(mensagem);
+    const valorNf =
+      /\bnf\b|\bnota\b/i.test(mensagem) || this.determinarEtapaAtual(draft, contrato) === 'NF'
+        ? this.extrairMoeda(mensagem)
+        : null;
+    if (numeroNf || dataNf || valorNf != null) {
+      if (numeroNf) draft.nota_fiscal_numero = numeroNf;
+      if (dataNf) draft.nota_fiscal_data = dataNf;
+      if (valorNf != null) draft.nota_fiscal_valor = valorNf;
+      nfAtualizada = numeroNf != null || dataNf != null || valorNf != null;
+      if (nfAtualizada) {
+        aplicacoes.push('atualizei os dados da nota fiscal');
+        handled = true;
+      }
+    }
+
+    if (/reaproveitar|última|ultima/i.test(mensagem) && /discrimin/i.test(mensagem)) {
+      draft.discriminacoes = await this.medicaoService.sugerirDiscriminacoes(
+        contrato.id,
+      );
+      if ((draft.discriminacoes || []).length > 0) {
+        aplicacoes.push('reaproveitei as discriminações da última medição');
+        handled = true;
+      }
+    } else {
+      const valorBase = Number(draft.nota_fiscal_valor || draft.valor_medido || 0);
+      const discriminacoes = await this.extrairDiscriminacoesDaMensagem(
+        mensagem,
+        valorBase,
+      );
+      if (discriminacoes.length > 0) {
+        draft.discriminacoes = discriminacoes;
+        aplicacoes.push('atualizei as discriminações');
+        handled = true;
+      }
+    }
+
+    if (this.medicaoService.isServicoContinuado(contrato)) {
+      if (
+        /valor medido|valor do período|valor do periodo|medição|medicao/i.test(
+          mensagem,
+        ) ||
+        this.determinarEtapaAtual(draft, contrato) === 'MEDICAO'
+      ) {
+        const valorMedido = this.extrairMoeda(mensagem);
+        if (valorMedido != null && valorMedido > 0) {
+          draft.valor_medido = valorMedido;
+          aplicacoes.push(`defini o valor medido em ${this.formatCurrency(valorMedido)}`);
+          handled = true;
+        }
+      }
+    } else if (
+      /item\s*\d+\s*[:=]/i.test(mensagem) ||
+      /^\s*\d+\s*[:=]/im.test(mensagem)
+    ) {
+      const itensDisponiveis = await this.itemCronogramaRepository.find({
+        where: { contrato_id: contrato.id },
+        order: { numero_item: 'ASC' },
+      });
+      const itensExtraidos = await this.extrairItensCronogramaDaMensagem(
+        mensagem,
+        itensDisponiveis,
+      );
+      if (itensExtraidos.length > 0) {
+        draft.itens = itensExtraidos;
+        aplicacoes.push(`preenchi ${itensExtraidos.length} item(ns) da medição`);
+        handled = true;
+      }
+    } else if (/etapa\s*\d+\s*[:=]/i.test(mensagem)) {
+      const etapasDisponiveis = await this.etapaRepository.find({
+        where: { contrato_id: contrato.id },
+        order: { numero_etapa: 'ASC' },
+      });
+      const etapasExtraidas = await this.extrairEtapasDaMensagem(
+        mensagem,
+        etapasDisponiveis,
+      );
+      if (etapasExtraidas.length > 0) {
+        draft.itens = etapasExtraidas;
+        aplicacoes.push(`preenchi ${etapasExtraidas.length} etapa(s) da medição`);
+        handled = true;
+      }
+    }
+
+    if (/sem observ/i.test(mensagem)) {
+      draft.observacoes = '';
+      aplicacoes.push('registrei que não há observações adicionais');
+      handled = true;
+    } else if (
+      /observa/i.test(mensagem) ||
+      (this.determinarEtapaAtual(draft, contrato) === 'OBSERVACOES' &&
+        mensagem.trim().length > 6)
+    ) {
+      const observacoes = mensagem
+        .replace(/^.*observa(?:ç|c)[aã]o(?:es)?[:\s-]*/i, '')
+        .trim();
+      if (observacoes) {
+        draft.observacoes = observacoes;
+        aplicacoes.push('atualizei as observações do boletim');
+        handled = true;
+      }
+    }
+
+    if (nfAtualizada) {
+      await this.aplicarPreenchimentoAutomaticoPosNf(contrato, draft, null);
+      if (
+        this.medicaoService.isServicoContinuado(contrato) &&
+        Number(draft.valor_medido || 0) > 0
+      ) {
+        aplicacoes.push('usei a nota para preencher automaticamente o valor medido');
+      } else if ((draft.itens || []).length > 0) {
+        aplicacoes.push('usei a nota para sugerir automaticamente a execução da medição');
+      }
+    }
+
+    if (!handled) {
+      return { handled: false };
+    }
+
+    const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+    return {
+      handled: true,
+      resposta: this.montarRespostaAgente(aplicacoes, orientacao, draft, contrato),
+    };
+  }
+
+  private montarRespostaAgente(
+    aplicacoes: string[],
+    orientacao: string,
+    draft: MedicaoChatDraft,
+    contrato: Contrato,
+  ) {
+    const pendencias = this.calcularPendencias(draft, contrato);
+    const prefixo =
+      aplicacoes.length > 0
+        ? `Entendi sua mensagem e já atualizei o rascunho: ${this.listarNatural(aplicacoes)}.`
+        : 'Analisei sua mensagem e mantive o rascunho atualizado.';
+    if (pendencias.length === 0) {
+      return `${prefixo} O boletim ficou **praticamente pronto**. Revise os dados ao lado e siga para o envio manual ao ateste.`;
+    }
+    return `${prefixo} ${orientacao}`;
   }
 
   private aplicarPeriodo(
@@ -1256,6 +1497,12 @@ export class MedicaoChatService {
     });
   }
 
+  private listarNatural(itens: string[]) {
+    if (itens.length <= 1) return itens[0] || '';
+    if (itens.length === 2) return `${itens[0]} e ${itens[1]}`;
+    return `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`;
+  }
+
   private interpretarConfirmacao(mensagem: string) {
     if (
       /^\s*(sim|confirmo|pode|ok|yes|seguir|prosseguir|continuar)\b/i.test(
@@ -1276,6 +1523,12 @@ export class MedicaoChatService {
     const fim = this.normalizarData(matches[1][0]);
     if (!inicio || !fim) return null;
     return { inicio, fim };
+  }
+
+  private extrairDatasCount(texto: string) {
+    return [
+      ...texto.matchAll(/(\d{2}[\/-]\d{2}[\/-]\d{4}|\d{4}-\d{2}-\d{2})/g),
+    ].length;
   }
 
   private extrairNumeroNF(texto: string) {
