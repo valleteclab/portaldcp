@@ -2629,6 +2629,23 @@ export class MedicaoService {
           }
         : (medicao.execucao_financeira as any)?.totais || undefined;
 
+    const totaisFinanceirosOverride =
+      (medicao.execucao_fiscal as any)?.totais_financeiros || {};
+    if (execucaoFinanceiraTotaisCorrigidos) {
+      if (totaisFinanceirosOverride.no_periodo != null) {
+        execucaoFinanceiraTotaisCorrigidos.no_periodo =
+          truncarMoedaReais2Casas(Number(totaisFinanceirosOverride.no_periodo));
+      }
+      if (totaisFinanceirosOverride.ate_periodo != null) {
+        execucaoFinanceiraTotaisCorrigidos.ate_periodo =
+          truncarMoedaReais2Casas(Number(totaisFinanceirosOverride.ate_periodo));
+      }
+      if (totaisFinanceirosOverride.a_executar != null) {
+        execucaoFinanceiraTotaisCorrigidos.a_executar =
+          truncarMoedaReais2Casas(Number(totaisFinanceirosOverride.a_executar));
+      }
+    }
+
     // Itens contratados (para bloco ITENS CONTRATADOS) — espelho do cronograma na UI
     const itensContratados = icMigracao.map((ic, idx) => ({
       numero: ic.numero_item || idx + 1,
@@ -4922,6 +4939,11 @@ export class MedicaoService {
       dias_executados_extra?: number;
       meses_restantes?: number;
       dias_restantes_extra?: number;
+      totais_financeiros?: {
+        no_periodo?: number | null;
+        ate_periodo?: number | null;
+        a_executar?: number | null;
+      };
       item_overrides?: Array<{
         item_cronograma_id: string;
         no_periodo?: number;
@@ -4972,6 +4994,27 @@ export class MedicaoService {
         ? { dias_restantes_extra: dados.dias_restantes_extra }
         : {}),
     };
+    if (dados.totais_financeiros !== undefined) {
+      const totaisFinanceirosAtuais = {
+        ...(efAtual?.totais_financeiros || {}),
+      };
+      if (dados.totais_financeiros?.no_periodo === null) {
+        delete totaisFinanceirosAtuais.no_periodo;
+      } else if (dados.totais_financeiros?.no_periodo !== undefined) {
+        totaisFinanceirosAtuais.no_periodo = dados.totais_financeiros.no_periodo;
+      }
+      if (dados.totais_financeiros?.ate_periodo === null) {
+        delete totaisFinanceirosAtuais.ate_periodo;
+      } else if (dados.totais_financeiros?.ate_periodo !== undefined) {
+        totaisFinanceirosAtuais.ate_periodo = dados.totais_financeiros.ate_periodo;
+      }
+      if (dados.totais_financeiros?.a_executar === null) {
+        delete totaisFinanceirosAtuais.a_executar;
+      } else if (dados.totais_financeiros?.a_executar !== undefined) {
+        totaisFinanceirosAtuais.a_executar = dados.totais_financeiros.a_executar;
+      }
+      efNovo.totais_financeiros = totaisFinanceirosAtuais;
+    }
     if (dados.item_overrides !== undefined) {
       efNovo.item_overrides = dados.item_overrides;
     }

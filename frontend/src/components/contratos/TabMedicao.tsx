@@ -506,6 +506,11 @@ export default function TabMedicao({
     meses_restantes: "",
     dias_restantes_extra: "",
   });
+  const [execFiscalTotaisForm, setExecFiscalTotaisForm] = useState({
+    fin_no_periodo_total: "",
+    fin_ate_periodo_total: "",
+    fin_a_executar_total: "",
+  });
   const [execFiscalItens, setExecFiscalItens] = useState<
     {
       item_cronograma_id: string;
@@ -722,6 +727,7 @@ export default function TabMedicao({
     // Execução fiscal — campos globais
     const ef = m.execucao_fiscal;
     const efOverrides: any[] = (ef as any)?.item_overrides || [];
+    const efTotaisOverrides: any = (ef as any)?.totais_financeiros || {};
     setExecFiscalForm({
       vigencia_inicio: ef?.vigencia_inicio
         ? ef.vigencia_inicio.slice(0, 10)
@@ -742,6 +748,20 @@ export default function TabMedicao({
       dias_restantes_extra:
         ef?.dias_restantes_extra != null ? String(ef.dias_restantes_extra) : "",
     });
+    setExecFiscalTotaisForm({
+      fin_no_periodo_total:
+        efTotaisOverrides?.no_periodo != null
+          ? String(efTotaisOverrides.no_periodo)
+          : "",
+      fin_ate_periodo_total:
+        efTotaisOverrides?.ate_periodo != null
+          ? String(efTotaisOverrides.ate_periodo)
+          : "",
+      fin_a_executar_total:
+        efTotaisOverrides?.a_executar != null
+          ? String(efTotaisOverrides.a_executar)
+          : "",
+    });
     // Execução fiscal — itens: carrega apenas os itens medidos (igual ao PDF)
     // usando buscarMedicaoCompleta (GET /medicoes/:id) + execução financeira para valores
     setCarregandoExecFiscal(true);
@@ -756,6 +776,26 @@ export default function TabMedicao({
       if (resMed.ok && resEf.ok) {
         const medData = await resMed.json();
         const efData = await resEf.json();
+        setExecFiscalTotaisForm((prev) => ({
+          fin_no_periodo_total:
+            prev.fin_no_periodo_total !== ""
+              ? prev.fin_no_periodo_total
+              : efData?.totais?.no_periodo != null
+                ? String(efData.totais.no_periodo)
+                : "",
+          fin_ate_periodo_total:
+            prev.fin_ate_periodo_total !== ""
+              ? prev.fin_ate_periodo_total
+              : efData?.totais?.ate_periodo != null
+                ? String(efData.totais.ate_periodo)
+                : "",
+          fin_a_executar_total:
+            prev.fin_a_executar_total !== ""
+              ? prev.fin_a_executar_total
+              : efData?.totais?.a_executar != null
+                ? String(efData.totais.a_executar)
+                : "",
+        }));
         // efMap: item_cronograma_id → valores financeiros calculados
         const efMap: Record<string, any> = {};
         for (const it of efData.itens || []) {
@@ -1037,6 +1077,38 @@ export default function TabMedicao({
         body.meses_restantes = Number(execFiscalForm.meses_restantes);
       if (execFiscalForm.dias_restantes_extra !== "")
         body.dias_restantes_extra = Number(execFiscalForm.dias_restantes_extra);
+      const finNoPeriodoTotal =
+        execFiscalTotaisForm.fin_no_periodo_total !== ""
+          ? parseFloat(execFiscalTotaisForm.fin_no_periodo_total.replace(",", "."))
+          : undefined;
+      const finAtePeriodoTotal =
+        execFiscalTotaisForm.fin_ate_periodo_total !== ""
+          ? parseFloat(execFiscalTotaisForm.fin_ate_periodo_total.replace(",", "."))
+          : undefined;
+      const finAExecutarTotal =
+        execFiscalTotaisForm.fin_a_executar_total !== ""
+          ? parseFloat(execFiscalTotaisForm.fin_a_executar_total.replace(",", "."))
+          : undefined;
+      body.totais_financeiros = {
+        no_periodo:
+          execFiscalTotaisForm.fin_no_periodo_total === ""
+            ? null
+            : finNoPeriodoTotal != null && !isNaN(finNoPeriodoTotal)
+              ? finNoPeriodoTotal
+              : undefined,
+        ate_periodo:
+          execFiscalTotaisForm.fin_ate_periodo_total === ""
+            ? null
+            : finAtePeriodoTotal != null && !isNaN(finAtePeriodoTotal)
+              ? finAtePeriodoTotal
+              : undefined,
+        a_executar:
+          execFiscalTotaisForm.fin_a_executar_total === ""
+            ? null
+            : finAExecutarTotal != null && !isNaN(finAExecutarTotal)
+              ? finAExecutarTotal
+              : undefined,
+      };
       // Sempre salva item_overrides (mesmo que vazio, para limpar overrides anteriores)
       if (execFiscalItens.length > 0) {
         body.item_overrides = execFiscalItens.map((it) => {
@@ -7844,6 +7916,59 @@ export default function TabMedicao({
                     </div>
                   </div>
                 </details>
+
+                <div className="border rounded-lg p-4 space-y-3 bg-gray-50">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700">
+                      Totais da Execução Financeira
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      Use estes campos quando precisar ajustar manualmente a linha
+                      TOTAL do quadro financeiro no boletim.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Total No Período (R$)</Label>
+                      <Input
+                        className="text-sm"
+                        value={execFiscalTotaisForm.fin_no_periodo_total}
+                        onChange={(e) =>
+                          setExecFiscalTotaisForm((f) => ({
+                            ...f,
+                            fin_no_periodo_total: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Total Até o Período (R$)</Label>
+                      <Input
+                        className="text-sm"
+                        value={execFiscalTotaisForm.fin_ate_periodo_total}
+                        onChange={(e) =>
+                          setExecFiscalTotaisForm((f) => ({
+                            ...f,
+                            fin_ate_periodo_total: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Total A Executar (R$)</Label>
+                      <Input
+                        className="text-sm"
+                        value={execFiscalTotaisForm.fin_a_executar_total}
+                        onChange={(e) =>
+                          setExecFiscalTotaisForm((f) => ({
+                            ...f,
+                            fin_a_executar_total: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
 
                 <div className="flex justify-end">
                   <Button
