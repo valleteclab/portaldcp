@@ -59,6 +59,17 @@ type ResultadoAgente = {
   confirmacao_pendente?: Record<string, unknown>;
 };
 
+type AcaoAgenteStatus = 'planned' | 'applied' | 'blocked' | 'skipped';
+
+type AcaoAgente = {
+  id: string;
+  titulo: string;
+  status: AcaoAgenteStatus;
+  confianca: 'high' | 'medium' | 'low';
+  motivo?: string;
+  blocker?: string;
+};
+
 type MedicaoCompletaChat = Medicao & {
   itens?: Array<Record<string, any>>;
 };
@@ -248,7 +259,7 @@ export class MedicaoChatService {
         respostaAssistente = resultadoConfirmacao.resposta;
       }
     } else {
-      const resultadoAgente = await this.processarMensagemComoAgente(
+      const resultadoAgente = await this.processarMensagemComoAgenteV2(
         mensagem,
         contrato,
         draft,
@@ -752,6 +763,367 @@ export class MedicaoChatService {
       return `${prefixo} O boletim ficou **praticamente pronto**. Revise os dados ao lado e siga para o envio manual ao ateste.`;
     }
     return `${prefixo} ${orientacao}`;
+  }
+
+  private async processarMensagemComoAgenteV2(
+    mensagem: string,
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    fornecedorId: string,
+  ): Promise<ResultadoAgente> {
+    const aplicacoes: string[] = [];
+    const plano: AcaoAgente[] = [];
+    let nfAtualizada = false;
+    let handled = false;
+
+    const periodo = this.extrairPeriodoTexto(mensagem);
+    plano.push({
+      id: 'periodo',
+      titulo: 'interpretar período da medição',
+      status: periodo ? 'planned' : 'skipped',
+      confianca: periodo ? 'high' : 'low',
+      motivo: periodo
+        ? 'Encontrei duas datas na mensagem'
+        : 'Nenhum período completo foi identificado',
+    });
+    if (periodo) {
+      if (!draft.periodo_inicio || !draft.periodo_fim) {
+        draft.periodo_inicio = periodo.inicio;
+        draft.periodo_fim = periodo.fim;
+        draft.competencia =
+          draft.competencia || this.derivarCompetencia(periodo.fim);
+        aplicacoes.push(
+          `registrei o período ${this.formatDateBr(periodo.inicio)} a ${this.formatDateBr(periodo.fim)}`,
+        );
+        this.marcarAcao(plano, 'periodo', 'applied');
+        handled = true;
+      } else if (
+        draft.periodo_inicio !== periodo.inicio ||
+        draft.periodo_fim !== periodo.fim
+      ) {
+        this.marcarAcao(
+          plano,
+          'periodo',
+          'blocked',
+          'Já existe período preenchido; preciso confirmação para trocar.',
+        );
+      }
+    }
+
+    const competencia = this.normalizarCompetencia(mensagem);
+    plano.push({
+      id: 'competencia',
+      titulo: 'interpretar competência',
+      status:
+        competencia || /automatic|auto|pode usar|usar/i.test(mensagem)
+          ? 'planned'
+          : 'skipped',
+      confianca: competencia ? 'high' : 'medium',
+    });
+    if (competencia && draft.competencia !== competencia) {
+      draft.competencia = competencia;
+      aplicacoes.push(`defini a competência como ${competencia}`);
+      this.marcarAcao(plano, 'competencia', 'applied');
+      handled = true;
+    } else if (
+      /automatic|auto|pode usar|usar/i.test(mensagem) &&
+      draft.periodo_fim &&
+      !draft.competencia
+    ) {
+      draft.competencia = this.derivarCompetencia(draft.periodo_fim);
+      aplicacoes.push(`defini a competência automática como ${draft.competencia}`);
+      this.marcarAcao(plano, 'competencia', 'applied');
+      handled = true;
+    } else if (
+      /automatic|auto|pode usar|usar/i.test(mensagem) &&
+      !draft.periodo_fim
+    ) {
+      this.marcarAcao(
+        plano,
+        'competencia',
+        'blocked',
+        'Preciso do período para calcular a competência automática.',
+      );
+    }
+
+    const numeroNf = this.extrairNumeroNF(mensagem);
+    const dataNf = this.extrairDataAvulsa(mensagem);
+    const valorNf =
+      /\bnf\b|\bnota\b/i.test(mensagem) ||
+      this.determinarEtapaAtual(draft, contrato) === 'NF'
+        ? this.extrairMoeda(mensagem)
+        : null;
+    plano.push({
+      id: 'nf',
+      titulo: 'atualizar dados da nota fiscal',
+      status: numeroNf || dataNf || valorNf != null ? 'planned' : 'skipped',
+      confianca: numeroNf || dataNf || valorNf != null ? 'medium' : 'low',
+    });
+    if (numeroNf || dataNf || valorNf != null) {
+      if (numeroNf) draft.nota_fiscal_numero = numeroNf;
+      if (dataNf) draft.nota_fiscal_data = dataNf;
+      if (valorNf != null) draft.nota_fiscal_valor = valorNf;
+      nfAtualizada = numeroNf != null || dataNf != null || valorNf != null;
+      if (nfAtualizada) {
+        aplicacoes.push('atualizei os dados da nota fiscal');
+        this.marcarAcao(plano, 'nf', 'applied');
+        handled = true;
+      }
+    }
+
+    plano.push({
+      id: 'discriminacoes',
+      titulo: 'atualizar discriminações',
+      status:
+        /reaproveitar|última|ultima/i.test(mensagem) ||
+        /[-:=]\s*[\d.,]+/.test(mensagem)
+          ? 'planned'
+          : 'skipped',
+      confianca: 'medium',
+    });
+    if (
+      /reaproveitar|Ãºltima|ultima/i.test(mensagem) &&
+      /discrimin/i.test(mensagem)
+    ) {
+      draft.discriminacoes = await this.medicaoService.sugerirDiscriminacoes(
+        contrato.id,
+      );
+      if ((draft.discriminacoes || []).length > 0) {
+        aplicacoes.push('reaproveitei as discriminações da última medição');
+        this.marcarAcao(plano, 'discriminacoes', 'applied');
+        handled = true;
+      } else {
+        this.marcarAcao(
+          plano,
+          'discriminacoes',
+          'blocked',
+          'Não encontrei discriminações anteriores para reaproveitar.',
+        );
+      }
+    } else {
+      const valorBase = Number(
+        draft.nota_fiscal_valor || draft.valor_medido || 0,
+      );
+      const discriminacoes = await this.extrairDiscriminacoesDaMensagem(
+        mensagem,
+        valorBase,
+      );
+      if (discriminacoes.length > 0) {
+        draft.discriminacoes = discriminacoes;
+        aplicacoes.push('atualizei as discriminações');
+        this.marcarAcao(plano, 'discriminacoes', 'applied');
+        handled = true;
+      }
+    }
+
+    plano.push({
+      id: 'medicao',
+      titulo: 'preencher execução da medição',
+      status: 'skipped',
+      confianca: 'medium',
+    });
+    if (this.medicaoService.isServicoContinuado(contrato)) {
+      if (
+        /valor medido|valor do per[ií]odo|medi[cç][aã]o/i.test(mensagem) ||
+        this.determinarEtapaAtual(draft, contrato) === 'MEDICAO'
+      ) {
+        const valorMedido = this.extrairMoeda(mensagem);
+        if (valorMedido != null && valorMedido > 0) {
+          draft.valor_medido = valorMedido;
+          aplicacoes.push(
+            `defini o valor medido em ${this.formatCurrency(valorMedido)}`,
+          );
+          this.marcarAcao(plano, 'medicao', 'applied');
+          handled = true;
+        } else {
+          this.marcarAcao(
+            plano,
+            'medicao',
+            'blocked',
+            'Identifiquei intenção de informar a medição, mas sem um valor válido.',
+          );
+        }
+      }
+    } else if (
+      /item\s*\d+\s*[:=]/i.test(mensagem) ||
+      /^\s*\d+\s*[:=]/im.test(mensagem)
+    ) {
+      const itensDisponiveis = await this.itemCronogramaRepository.find({
+        where: { contrato_id: contrato.id },
+        order: { numero_item: 'ASC' },
+      });
+      const itensExtraidos = await this.extrairItensCronogramaDaMensagem(
+        mensagem,
+        itensDisponiveis,
+      );
+      if (itensExtraidos.length > 0) {
+        draft.itens = itensExtraidos;
+        aplicacoes.push(`preenchi ${itensExtraidos.length} item(ns) da medição`);
+        this.marcarAcao(plano, 'medicao', 'applied');
+        handled = true;
+      } else {
+        this.marcarAcao(
+          plano,
+          'medicao',
+          'blocked',
+          'A mensagem parece citar itens, mas não consegui fechar quantidades válidas.',
+        );
+      }
+    } else if (/etapa\s*\d+\s*[:=]/i.test(mensagem)) {
+      const etapasDisponiveis = await this.etapaRepository.find({
+        where: { contrato_id: contrato.id },
+        order: { numero_etapa: 'ASC' },
+      });
+      const etapasExtraidas = await this.extrairEtapasDaMensagem(
+        mensagem,
+        etapasDisponiveis,
+      );
+      if (etapasExtraidas.length > 0) {
+        draft.itens = etapasExtraidas;
+        aplicacoes.push(`preenchi ${etapasExtraidas.length} etapa(s) da medição`);
+        this.marcarAcao(plano, 'medicao', 'applied');
+        handled = true;
+      } else {
+        this.marcarAcao(
+          plano,
+          'medicao',
+          'blocked',
+          'A mensagem parece citar etapas, mas não consegui fechar percentuais ou valores válidos.',
+        );
+      }
+    }
+
+    plano.push({
+      id: 'observacoes',
+      titulo: 'atualizar observações finais',
+      status:
+        /observa/i.test(mensagem) || /sem observ/i.test(mensagem)
+          ? 'planned'
+          : 'skipped',
+      confianca: 'medium',
+    });
+    if (/sem observ/i.test(mensagem)) {
+      draft.observacoes = '';
+      aplicacoes.push('registrei que não há observações adicionais');
+      this.marcarAcao(plano, 'observacoes', 'applied');
+      handled = true;
+    } else if (
+      /observa/i.test(mensagem) ||
+      (this.determinarEtapaAtual(draft, contrato) === 'OBSERVACOES' &&
+        mensagem.trim().length > 6)
+    ) {
+      const observacoes = mensagem
+        .replace(/^.*observa(?:Ã§|c)[aÃ£]o(?:es)?[:\s-]*/i, '')
+        .trim();
+      if (observacoes) {
+        draft.observacoes = observacoes;
+        aplicacoes.push('atualizei as observações do boletim');
+        this.marcarAcao(plano, 'observacoes', 'applied');
+        handled = true;
+      }
+    }
+
+    if (nfAtualizada) {
+      plano.push({
+        id: 'auto_nf',
+        titulo: 'usar contexto do contrato para completar a medição com base na NF',
+        status: 'planned',
+        confianca: 'medium',
+      });
+      await this.aplicarPreenchimentoAutomaticoPosNf(contrato, draft, null);
+      if (
+        this.medicaoService.isServicoContinuado(contrato) &&
+        Number(draft.valor_medido || 0) > 0
+      ) {
+        aplicacoes.push(
+          'usei a nota para preencher automaticamente o valor medido',
+        );
+        this.marcarAcao(plano, 'auto_nf', 'applied');
+      } else if ((draft.itens || []).length > 0) {
+        aplicacoes.push(
+          'usei a nota para sugerir automaticamente a execução da medição',
+        );
+        this.marcarAcao(plano, 'auto_nf', 'applied');
+      } else {
+        this.marcarAcao(
+          plano,
+          'auto_nf',
+          'blocked',
+          'Ainda não consegui inferir a execução completa só a partir da NF e da estrutura do contrato.',
+        );
+      }
+    }
+
+    if (!handled) {
+      return { handled: false };
+    }
+
+    const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+    return {
+      handled: true,
+      resposta: this.montarRespostaAgenteV2(
+        aplicacoes,
+        orientacao,
+        draft,
+        contrato,
+        plano,
+      ),
+    };
+  }
+
+  private montarRespostaAgenteV2(
+    aplicacoes: string[],
+    orientacao: string,
+    draft: MedicaoChatDraft,
+    contrato: Contrato,
+    plano: AcaoAgente[],
+  ) {
+    const pendencias = this.calcularPendencias(draft, contrato);
+    const aplicadas = plano
+      .filter((item) => item.status === 'applied')
+      .map((item) => item.titulo.toLowerCase());
+    const bloqueios = plano
+      .filter((item) => item.status === 'blocked' && item.blocker)
+      .map((item) => item.blocker as string);
+    const blocos: string[] = [];
+
+    blocos.push(
+      aplicacoes.length > 0
+        ? `Entendi sua mensagem e já atualizei o rascunho: ${this.listarNatural(aplicacoes)}.`
+        : 'Analisei sua mensagem e mantive o rascunho atualizado.',
+    );
+    if (aplicadas.length > 0) {
+      blocos.push(
+        `Plano executado neste turno: ${this.listarNatural(aplicadas)}.`,
+      );
+    }
+    if (bloqueios.length > 0) {
+      blocos.push(
+        `O que eu ainda bloqueei por segurança: ${this.listarNatural(bloqueios)}.`,
+      );
+    }
+    if (pendencias.length === 0) {
+      blocos.push(
+        'O boletim ficou **praticamente pronto**. Revise os dados ao lado e siga para o envio manual ao ateste.',
+      );
+      return blocos.join(' ');
+    }
+    blocos.push(`O que ainda falta: ${orientacao}`);
+    return blocos.join(' ');
+  }
+
+  private marcarAcao(
+    plano: AcaoAgente[],
+    id: string,
+    status: AcaoAgenteStatus,
+    blocker?: string,
+  ) {
+    const alvo = plano.find((item) => item.id === id);
+    if (!alvo) return;
+    alvo.status = status;
+    if (blocker) {
+      alvo.blocker = blocker;
+    }
   }
 
   private aplicarPeriodo(
