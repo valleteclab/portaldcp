@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { extname, join } from 'path';
 import * as fs from 'fs';
+import { XMLParser } from 'fast-xml-parser';
 import { Contrato } from './entities/contrato.entity';
 import {
   MedicaoChatSession,
@@ -772,6 +773,11 @@ export class MedicaoChatService {
             draft.competencia = pendente.nf_sugerida.competencia;
           }
         }
+        await this.aplicarPreenchimentoAutomaticoPosNf(
+          contrato,
+          draft,
+          pendente.nf_sugerida || null,
+        );
         const proximaOrientacao = await this.montarOrientacaoProximaEtapa(
           contrato,
           draft,
@@ -1072,7 +1078,113 @@ export class MedicaoChatService {
       return `Me informe o **período da medição** no formato **01/04/2026 a 30/04/2026**.`;
     }
 
-    return resumoContrato;
+    return `${resumoContrato ? `${resumoContrato} ` : ''}O rascunho ficou **praticamente pronto**. Revise os dados ao lado e, se estiver tudo certo, siga para o envio manual ao ateste.`;
+  }
+
+  private async aplicarPreenchimentoAutomaticoPosNf(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    nfSugerida?: Record<string, any> | null,
+  ) {
+    const valorBruto =
+      Number(nfSugerida?.nota_fiscal_valor) ||
+      Number(draft.nota_fiscal_valor) ||
+      0;
+
+    if (!draft.observacoes || draft.observacoes.trim() === '') {
+      draft.observacoes = this.gerarObservacaoAutomatica(draft, nfSugerida);
+    }
+
+    if (this.medicaoService.isServicoContinuado(contrato)) {
+      if (!draft.valor_medido && valorBruto > 0) {
+        draft.valor_medido = valorBruto;
+      }
+      return;
+    }
+
+    const usarItensCronograma = await this.medicaoService.usarItensCronograma(
+      contrato.id,
+    );
+
+    if (!usarItensCronograma || (draft.itens || []).length > 0) {
+      return;
+    }
+
+    const itensCronograma = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_item: 'ASC' },
+    });
+
+    if (itensCronograma.length === 0 || valorBruto <= 0) {
+      return;
+    }
+
+    const itemMensalExato = itensCronograma.find((item) => {
+      const valorReferencia =
+        Number(item.valor_mensal) || Number(item.valor_total) || 0;
+      return (
+        item.unidade_medida === 'MENSAL' &&
+        valorReferencia > 0 &&
+        Math.abs(valorReferencia - valorBruto) <= 0.05
+      );
+    });
+
+    if (itemMensalExato) {
+      draft.itens = [
+        {
+          item_cronograma_id: itemMensalExato.id,
+          numero_item: itemMensalExato.numero_item,
+          descricao: itemMensalExato.descricao,
+          quantidade_medida: 1,
+        },
+      ];
+      return;
+    }
+
+    if (itensCronograma.length === 1) {
+      const item = itensCronograma[0];
+      const baseQuantidade =
+        Number(item.valor_mensal) || Number(item.valor_unitario) || 0;
+      if (baseQuantidade > 0) {
+        const quantidadeSugerida =
+          Math.round((valorBruto / baseQuantidade) * 10000) / 10000;
+        if (quantidadeSugerida > 0) {
+          draft.itens = [
+            {
+              item_cronograma_id: item.id,
+              numero_item: item.numero_item,
+              descricao: item.descricao,
+              quantidade_medida: quantidadeSugerida,
+            },
+          ];
+        }
+      }
+    }
+  }
+
+  private gerarObservacaoAutomatica(
+    draft: MedicaoChatDraft,
+    nfSugerida?: Record<string, any> | null,
+  ) {
+    const partes: string[] = [];
+    if (draft.competencia) {
+      partes.push(`Medição referente à competência ${draft.competencia}`);
+    } else {
+      partes.push('Medição assistida preenchida com base na nota fiscal');
+    }
+    if (draft.nota_fiscal_numero || nfSugerida?.nota_fiscal_numero) {
+      partes.push(
+        `NF nº ${draft.nota_fiscal_numero || nfSugerida?.nota_fiscal_numero}`,
+      );
+    }
+    if (draft.nota_fiscal_data || nfSugerida?.nota_fiscal_data) {
+      partes.push(
+        `emitida em ${this.formatDateBr(
+          draft.nota_fiscal_data || nfSugerida?.nota_fiscal_data,
+        )}`,
+      );
+    }
+    return `${partes.join(', ')}.`;
   }
 
   private montarSugestaoItensCronograma(
@@ -1145,7 +1257,14 @@ export class MedicaoChatService {
   }
 
   private interpretarConfirmacao(mensagem: string) {
-    if (/^\s*(sim|confirmo|pode|ok|yes)\b/i.test(mensagem)) return true;
+    if (
+      /^\s*(sim|confirmo|pode|ok|yes|seguir|prosseguir|continuar)\b/i.test(
+        mensagem,
+      ) ||
+      /\b(pode seguir|pode prosseguir|pode continuar|segue)\b/i.test(mensagem)
+    ) {
+      return true;
+    }
     if (/^\s*(nao|não|cancelar|deixa|no)\b/i.test(mensagem)) return false;
     return null;
   }
@@ -1409,6 +1528,10 @@ export class MedicaoChatService {
 
     if (isXml) {
       const xml = file.buffer.toString('utf-8');
+      const nfse = this.extrairSugestaoNfseXml(xml, fornecedorCnpj);
+      if (nfse) {
+        return nfse;
+      }
       const parsed = this.xmlNfeParserService.parse(xml);
       const data = this.normalizarData(parsed.header.dataEmissao);
       return {
@@ -1425,8 +1548,16 @@ export class MedicaoChatService {
     }
 
     const SYSTEM_PROMPT = `Extraia APENAS JSON válido de uma nota fiscal.
-Campos: numero, data_emissao (YYYY-MM-DD ou null), valor_total (number ou null), competencia (MÊS/ANO ou null).
-Retorne {"numero":"","data_emissao":null,"valor_total":null,"competencia":null}.`;
+Priorize sempre o VALOR BRUTO DO SERVIÇO/NOTA. Não use valor líquido quando houver retenções.
+Campos:
+- numero
+- data_emissao (YYYY-MM-DD ou null)
+- valor_bruto (number ou null)
+- valor_liquido (number ou null)
+- competencia (MÊS/ANO ou null)
+- descricao_servico (string ou null)
+Retorne exatamente:
+{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"competencia":null,"descricao_servico":null}`;
 
     let resposta = '';
     if (file.mimetype === 'application/pdf') {
@@ -1455,16 +1586,92 @@ Retorne {"numero":"","data_emissao":null,"valor_total":null,"competencia":null}.
       );
     }
     const parsed = this.safeParseJson(resposta) || {};
+    const dataEmissao = this.normalizarData(parsed.data_emissao);
+    const valorBruto =
+      parsed.valor_bruto != null
+        ? Number(parsed.valor_bruto)
+        : parsed.valor_total != null
+          ? Number(parsed.valor_total)
+          : null;
     return {
       nota_fiscal_numero: parsed.numero || null,
-      nota_fiscal_valor:
-        parsed.valor_total != null ? Number(parsed.valor_total) : null,
-      nota_fiscal_data: this.normalizarData(parsed.data_emissao) || null,
+      nota_fiscal_valor: valorBruto,
+      nota_fiscal_data: dataEmissao || null,
       competencia:
         parsed.competencia ||
-        (this.normalizarData(parsed.data_emissao)
-          ? this.derivarCompetencia(this.normalizarData(parsed.data_emissao)!)
+        (dataEmissao
+          ? this.derivarCompetencia(dataEmissao)
           : null),
+      valor_liquido:
+        parsed.valor_liquido != null ? Number(parsed.valor_liquido) : null,
+      descricao_servico:
+        parsed.descricao_servico != null
+          ? String(parsed.descricao_servico)
+          : null,
     };
+  }
+
+  private extrairSugestaoNfseXml(xml: string, fornecedorCnpj: string) {
+    if (!/<NFSe[\s>]/i.test(xml) && !/<infNFSe[\s>]/i.test(xml)) {
+      return null;
+    }
+
+    try {
+      const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+        parseTagValue: true,
+        trimValues: true,
+        removeNSPrefix: true,
+      });
+      const parsed = parser.parse(xml);
+      const infNFSe = parsed?.NFSe?.infNFSe || parsed?.infNFSe;
+      const infDPS = infNFSe?.DPS?.infDPS || {};
+      const emit = infNFSe?.emit || {};
+      const valoresNfse = infNFSe?.valores || {};
+      const valoresDps = infDPS?.valores || {};
+      const valorBruto =
+        Number(valoresDps?.vServPrest?.vServ) ||
+        Number(valoresDps?.vServPrest?.vServPrest) ||
+        Number(valoresNfse?.vServ) ||
+        null;
+      const valorLiquido = Number(valoresNfse?.vLiq) || null;
+      const dataEmissao =
+        this.normalizarData(infDPS?.dCompet) ||
+        this.normalizarData(infDPS?.dhEmi) ||
+        this.normalizarData(infNFSe?.dhProc);
+      const cnpjEmitente = String(emit?.CNPJ || infDPS?.prest?.CNPJ || '');
+      const descricaoServico =
+        infDPS?.serv?.cServ?.xDescServ ||
+        infDPS?.serv?.xDescServ ||
+        null;
+
+      return {
+        nota_fiscal_numero: String(infNFSe?.nNFSe || infDPS?.nDPS || ''),
+        nota_fiscal_valor: valorBruto,
+        nota_fiscal_data: dataEmissao || null,
+        competencia:
+          this.extrairCompetenciaDaDescricao(descricaoServico) ||
+          (dataEmissao ? this.derivarCompetencia(dataEmissao) : null),
+        cnpj_emitente: cnpjEmitente || null,
+        conflito_cnpj:
+          !!fornecedorCnpj &&
+          !!cnpjEmitente &&
+          cnpjEmitente.replace(/\D/g, '') !== fornecedorCnpj.replace(/\D/g, ''),
+        valor_liquido: valorLiquido,
+        descricao_servico: descricaoServico,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Falha ao interpretar NFSe XML: ${error.message}`);
+      return null;
+    }
+  }
+
+  private extrairCompetenciaDaDescricao(texto?: string | null) {
+    if (!texto) return null;
+    const competencia = this.normalizarCompetencia(texto);
+    if (competencia) return competencia;
+    const data = this.extrairDataAvulsa(texto);
+    return data ? this.derivarCompetencia(data) : null;
   }
 }
