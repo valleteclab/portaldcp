@@ -240,7 +240,11 @@ export class MedicaoChatService {
     return this.montarRespostaSessao(session, contrato);
   }
 
-  async resetarConversa(sessionId: string, fornecedorId: string) {
+  async resetarConversa(
+    sessionId: string,
+    fornecedorId: string,
+    limparRascunho = false,
+  ) {
     const session = await this.buscarSessao(sessionId, fornecedorId);
     const contrato = await this.validarContexto(
       session.contrato_id,
@@ -251,6 +255,11 @@ export class MedicaoChatService {
     session.plano_agente = null;
     session.ultima_analise_agente = null;
     session.ultimo_snapshot_draft = null;
+    if (limparRascunho) {
+      session.draft = this.criarDraftVazio(contrato.id, fornecedorId);
+      session.medicao_id = null;
+    }
+
     session.status = StatusMedicaoChatSession.ATIVA;
     session.etapa_atual = this.determinarEtapaAtual(
       (session.draft || {}) as MedicaoChatDraft,
@@ -266,6 +275,7 @@ export class MedicaoChatService {
         content: await this.montarMensagemReset(
           contrato,
           (session.draft || {}) as MedicaoChatDraft,
+          limparRascunho,
         ),
         created_at: new Date().toISOString(),
       },
@@ -503,13 +513,7 @@ export class MedicaoChatService {
     fornecedorId: string,
     medicao?: Medicao | null,
   ): Promise<MedicaoChatDraft> {
-    const draft: MedicaoChatDraft = {
-      contrato_id: contrato.id,
-      fornecedor_id: fornecedorId,
-      anexos_pendentes: [],
-      discriminacoes: [],
-      itens: [],
-    };
+    const draft = this.criarDraftVazio(contrato.id, fornecedorId);
 
     if (medicao) {
       draft.periodo_inicio = this.formatDateOnly(medicao.periodo_inicio);
@@ -568,6 +572,19 @@ export class MedicaoChatService {
     return draft;
   }
 
+  private criarDraftVazio(
+    contratoId: string,
+    fornecedorId: string,
+  ): MedicaoChatDraft {
+    return {
+      contrato_id: contratoId,
+      fornecedor_id: fornecedorId,
+      anexos_pendentes: [],
+      discriminacoes: [],
+      itens: [],
+    };
+  }
+
   private determinarEtapaAtual(draft: MedicaoChatDraft, contrato: Contrato) {
     const pendencias = this.calcularPendencias(draft, contrato);
     return pendencias[0] || 'REVISAO';
@@ -610,8 +627,15 @@ export class MedicaoChatService {
   private async montarMensagemReset(
     contrato: Contrato,
     draft: MedicaoChatDraft,
+    limpouRascunho = false,
   ) {
-    const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+    const orientacao = await this.montarPerguntaObjetivaProximaEtapa(
+      contrato,
+      draft,
+    );
+    if (limpouRascunho) {
+      return `Reiniciei a conversa assistida e limpei também o rascunho da medição. Vamos começar do zero. ${orientacao}`;
+    }
     return `Reiniciei a conversa assistida e limpei o contexto do chat. Mantive o rascunho atual para você não perder dados. ${orientacao}`;
   }
 
@@ -819,16 +843,69 @@ export class MedicaoChatService {
     orientacao: string,
     draft: MedicaoChatDraft,
     contrato: Contrato,
+    resumo?: Record<string, any> | null,
   ) {
     const pendencias = this.calcularPendencias(draft, contrato);
+    const avisos = this.validarConformidadeContrato(draft, contrato, resumo);
     const prefixo =
       aplicacoes.length > 0
         ? `Entendi sua mensagem e já atualizei o rascunho: ${this.listarNatural(aplicacoes)}.`
         : 'Analisei sua mensagem e mantive o rascunho atualizado.';
-    if (pendencias.length === 0) {
-      return `${prefixo} O boletim ficou **praticamente pronto**. Revise os dados ao lado e siga para o envio manual ao ateste.`;
+    const blocos: string[] = [prefixo];
+    if (avisos.length > 0) {
+      blocos.push(`⚠️ ${avisos.join(' ')}`);
     }
-    return `${prefixo} ${orientacao}`;
+    if (pendencias.length === 0) {
+      blocos.push('O boletim ficou **praticamente pronto**. Revise os dados ao lado e siga para o envio manual ao ateste.');
+      return blocos.join(' ');
+    }
+    blocos.push(orientacao);
+    const labels = this.pendenciasParaLabels(pendencias);
+    blocos.push(`Ainda falta preencher: ${labels}.`);
+    return blocos.join(' ');
+  }
+
+  private readonly PENDENCIA_LABELS: Record<string, string> = {
+    PERIODO: 'Período da medição',
+    COMPETENCIA: 'Competência',
+    NF: 'Nota Fiscal',
+    MEDICAO: 'Valores/itens da medição',
+    DISCRIMINACOES: 'Discriminações',
+    OBSERVACOES: 'Observações',
+  };
+
+  private pendenciasParaLabels(pendencias: string[]): string {
+    return pendencias
+      .map((p) => `**${this.PENDENCIA_LABELS[p] || p}**`)
+      .join(', ');
+  }
+
+  private validarConformidadeContrato(
+    draft: MedicaoChatDraft,
+    contrato: Contrato,
+    resumo?: Record<string, any> | null,
+  ): string[] {
+    const avisos: string[] = [];
+    if (draft.periodo_fim && contrato.data_vigencia_fim) {
+      const fim = new Date(draft.periodo_fim);
+      const vigFim = new Date(contrato.data_vigencia_fim);
+      if (fim > vigFim) {
+        avisos.push('Período ultrapassa a vigência do contrato.');
+      }
+    }
+    if (draft.periodo_inicio && contrato.data_vigencia_inicio) {
+      const inicio = new Date(draft.periodo_inicio);
+      const vigInicio = new Date(contrato.data_vigencia_inicio);
+      if (inicio < vigInicio) {
+        avisos.push('Período começa antes da vigência do contrato.');
+      }
+    }
+    if (resumo?.saldo_disponivel != null && draft.valor_medido != null) {
+      if (Number(draft.valor_medido) > Number(resumo.saldo_disponivel)) {
+        avisos.push('Valor medido ultrapassa o saldo disponível.');
+      }
+    }
+    return avisos;
   }
 
   private async processarMensagemComoAgenteV2(
@@ -892,7 +969,10 @@ export class MedicaoChatService {
         (session.ultimo_snapshot_draft || {}) as MedicaoChatDraft,
       );
       session.ultimo_snapshot_draft = null;
-      const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+      const orientacao = await this.montarPerguntaObjetivaProximaEtapa(
+        contrato,
+        draft,
+      );
       return {
         handled: true,
         resposta: `${planejamentoAgente.resposta_base} ${orientacao}`,
@@ -1251,6 +1331,7 @@ export class MedicaoChatService {
         draft,
         contrato,
         plano,
+        contexto.resumo as Record<string, any> | null,
       ),
       plano_agente: {
         ...(planejamentoAgente as unknown as Record<string, any>),
@@ -1332,7 +1413,10 @@ export class MedicaoChatService {
       planoAgente.intencao === 'negative_feedback' ||
       planoAgente.intencao === 'unknown'
     ) {
-      const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+      const orientacao = await this.montarPerguntaObjetivaProximaEtapa(
+        contrato,
+        draft,
+      );
       return {
         handled: true,
         resposta: `${planoAgente.resposta_base} ${orientacao}`,
@@ -1376,8 +1460,10 @@ export class MedicaoChatService {
     draft: MedicaoChatDraft,
     contrato: Contrato,
     plano: AcaoAgente[],
+    resumo?: Record<string, any> | null,
   ) {
     const pendencias = this.calcularPendencias(draft, contrato);
+    const avisos = this.validarConformidadeContrato(draft, contrato, resumo);
     const aplicadas = plano
       .filter((item) => item.status === 'applied')
       .map((item) => item.titulo.toLowerCase());
@@ -1391,6 +1477,9 @@ export class MedicaoChatService {
         ? `Entendi sua mensagem e já atualizei o rascunho: ${this.listarNatural(aplicacoes)}.`
         : 'Analisei sua mensagem e mantive o rascunho atualizado.',
     );
+    if (avisos.length > 0) {
+      blocos.push(`⚠️ ${avisos.join(' ')}`);
+    }
     if (aplicadas.length > 0) {
       blocos.push(
         `Plano executado neste turno: ${this.listarNatural(aplicadas)}.`,
@@ -1408,6 +1497,7 @@ export class MedicaoChatService {
       return blocos.join(' ');
     }
     blocos.push(`O que ainda falta: ${orientacao}`);
+    blocos.push(`Ainda falta preencher: ${this.pendenciasParaLabels(pendencias)}.`);
     return blocos.join(' ');
   }
 
@@ -2059,6 +2149,60 @@ export class MedicaoChatService {
     return `${resumoContrato ? `${resumoContrato} ` : ''}O rascunho ficou **praticamente pronto**. Revise os dados ao lado e, se estiver tudo certo, siga para o envio manual ao ateste.`;
   }
 
+  private async montarPerguntaObjetivaProximaEtapa(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ): Promise<string> {
+    const pendencia = this.determinarEtapaAtual(draft, contrato);
+
+    if (pendencia === 'PERIODO') {
+      return 'Primeiro, me informe o período da medição no formato "01/04/2026 a 30/04/2026".';
+    }
+
+    if (pendencia === 'COMPETENCIA') {
+      return 'Agora me confirme a competência no formato MÊS/ANO, por exemplo: "ABRIL/2026".';
+    }
+
+    if (pendencia === 'NF') {
+      return 'Agora me envie a NF em XML/PDF ou informe número, data e valor bruto da nota.';
+    }
+
+    if (pendencia === 'MEDICAO') {
+      if (this.medicaoService.isServicoContinuado(contrato)) {
+        return 'Agora me informe o valor medido do período.';
+      }
+
+      const usarItens = await this.medicaoService.usarItensCronograma(contrato.id);
+      if (usarItens) {
+        const itensCronograma = await this.itemCronogramaRepository.find({
+          where: { contrato_id: contrato.id },
+          order: { numero_item: 'ASC' },
+        });
+        if (itensCronograma.length === 1) {
+          const item = itensCronograma[0];
+          const dicaMensal =
+            item.unidade_medida === 'MENSAL'
+              ? ` Se foi mês cheio, você pode responder "item ${item.numero_item} = 1".`
+              : '';
+          return `Agora me informe a execução do item ${item.numero_item} neste período.${dicaMensal}`;
+        }
+        return 'Agora me informe as quantidades medidas por item, por exemplo: "item 1 = 2".';
+      }
+
+      return 'Agora me informe a execução das etapas, por exemplo: "etapa 1 = 20%".';
+    }
+
+    if (pendencia === 'DISCRIMINACOES') {
+      return 'Agora me informe as discriminações da despesa ou diga "reaproveitar última".';
+    }
+
+    if (pendencia === 'OBSERVACOES') {
+      return 'Por fim, me informe as observações finais ou responda "sem observações".';
+    }
+
+    return 'Revise o rascunho ao lado e siga para o envio manual quando estiver tudo certo.';
+  }
+
   private async aplicarPreenchimentoAutomaticoPosNf(
     contrato: Contrato,
     draft: MedicaoChatDraft,
@@ -2190,7 +2334,10 @@ export class MedicaoChatService {
         return `O contrato tem um único item mensal (**item ${item.numero_item}**) com valor de **${this.formatCurrency(valorComparacao)}**. Se esta NF corresponde ao mês cheio, responda: **item ${item.numero_item} = 1**.`;
       }
 
-      if (quantidadeSugerida > 0) {
+      if (
+        quantidadeSugerida > 0 &&
+        Math.abs(quantidadeSugerida - Math.round(quantidadeSugerida)) <= 0.02
+      ) {
         return `O contrato tem um único item (**item ${item.numero_item}**). Pela NF, a sugestão é responder: **item ${item.numero_item} = ${this.formatNumberBr(quantidadeSugerida, 4)}**.`;
       }
     }
@@ -2431,17 +2578,67 @@ export class MedicaoChatService {
       .split('\n')
       .map((linha) => linha.trim())
       .filter(Boolean);
-    const resultado: DraftDiscriminacao[] = [];
+
+    // Tentativa 1: padrão "label: valor" (valor absoluto)
+    const resultadoAbsoluto: DraftDiscriminacao[] = [];
     for (const linha of linhas) {
       const match = linha.match(/^(.+?)\s*[-:=]\s*([\d.,]+)\s*%?$/);
       if (!match) continue;
-      resultado.push({
+      resultadoAbsoluto.push({
         descricao: match[1].trim(),
         valor: Number(match[2].replace(/\./g, '').replace(',', '.')),
       });
     }
-    if (resultado.length > 0) {
-      return this.recalcularPercentuais(resultado, valorBase);
+    if (resultadoAbsoluto.length > 0) {
+      return this.recalcularPercentuais(resultadoAbsoluto, valorBase);
+    }
+
+    // Tentativa 2: padrões baseados em percentual — "label X%" ou "X% label"
+    const resultadoPercent: Array<{ descricao: string; percentual: number }> = [];
+    // Padrão inline: vírgula/ponto e vírgula separando itens numa linha só
+    const textoUnico = mensagem.replace(/\n/g, ', ');
+    const regexes = [
+      // "label N%" — e.g. "ISS 2%"
+      /([a-zA-ZÀ-ú][a-zA-ZÀ-ú\s/()-]{1,60}?)\s+(\d+(?:[.,]\d+)?)\s*%/g,
+      // "N% label" — e.g. "2% ISS"
+      /(\d+(?:[.,]\d+)?)\s*%\s+([a-zA-ZÀ-ú][a-zA-ZÀ-ú\s/()-]{1,60})/g,
+    ];
+
+    let matchPercent;
+    // Regex "label N%"
+    regexes[0].lastIndex = 0;
+    while ((matchPercent = regexes[0].exec(textoUnico)) !== null) {
+      const descricao = matchPercent[1].trim().replace(/,\s*$/, '');
+      const perc = Number(matchPercent[2].replace(',', '.'));
+      if (descricao && perc > 0) {
+        resultadoPercent.push({ descricao, percentual: perc });
+      }
+    }
+    // Regex "N% label"
+    if (resultadoPercent.length === 0) {
+      regexes[1].lastIndex = 0;
+      while ((matchPercent = regexes[1].exec(textoUnico)) !== null) {
+        const perc = Number(matchPercent[1].replace(',', '.'));
+        const descricao = matchPercent[2].trim().replace(/,\s*$/, '');
+        if (descricao && perc > 0) {
+          resultadoPercent.push({ descricao, percentual: perc });
+        }
+      }
+    }
+
+    if (resultadoPercent.length > 0 && valorBase > 0) {
+      const somaPercentuais = resultadoPercent.reduce((acc, item) => acc + item.percentual, 0);
+      const resultado = resultadoPercent.map((item) => ({
+        descricao: item.descricao,
+        valor: Math.round((item.percentual / 100) * valorBase * 100) / 100,
+        percentual: item.percentual,
+      }));
+      if (Math.abs(somaPercentuais - 100) > 0.01) {
+        this.logger.warn(
+          `[extrairDiscriminacoesDaMensagem] Percentuais somam ${somaPercentuais}% (esperado 100%) — aplicando mesmo assim`,
+        );
+      }
+      return resultado;
     }
 
     try {

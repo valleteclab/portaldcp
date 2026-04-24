@@ -338,6 +338,18 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
     const apiKey = await this.getApiKey();
     const model = await this.getModel();
 
+    // Separar última mensagem das anteriores para aplicar prompt caching
+    const ultimaMensagem = mensagens.length > 0 ? mensagens[mensagens.length - 1].content : '';
+    const mensagensAnteriores = mensagens.length > 1 ? mensagens.slice(0, -1) : [];
+
+    const messages: Array<any> = [
+      { role: 'system', content: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] },
+      ...mensagensAnteriores,
+    ];
+    if (ultimaMensagem) {
+      messages.push({ role: 'user', content: [{ type: 'text', text: ultimaMensagem, cache_control: { type: 'ephemeral' } }] });
+    }
+
     const response = await fetch(this.apiUrl, {
       method: 'POST',
       headers: {
@@ -345,13 +357,11 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://portaldcp.com.br',
         'X-Title': 'Portal DCP',
+        'anthropic-beta': 'prompt-caching-1',
       },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...mensagens,
-        ],
+        messages,
         temperature: 0.7,
         max_tokens: 2000,
       }),
@@ -422,24 +432,96 @@ Formato:
   "resposta_sugerida": ""
 }`;
 
-    try {
-      const raw = await this.chatComSistemaPersonalizado(
-        [
-          {
-            role: 'user',
-            content: JSON.stringify(input),
+    const planejarAcoesTool = {
+      type: 'function',
+      function: {
+        name: 'planejar_acoes',
+        description: 'Retorna o plano de acoes para o turno do agente',
+        parameters: {
+          type: 'object',
+          required: ['resumo_intencao', 'acoes'],
+          properties: {
+            resumo_intencao: { type: 'string' },
+            acoes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['ferramenta', 'objetivo', 'confianca'],
+                properties: {
+                  ferramenta: { type: 'string' },
+                  objetivo: { type: 'string' },
+                  confianca: { type: 'string', enum: ['high', 'medium', 'low'] },
+                  parametros: { type: 'object' },
+                  bloqueio: { type: ['string', 'null'] },
+                },
+              },
+            },
+            resposta_sugerida: { type: 'string' },
           },
-        ],
-        systemPrompt,
-      );
-      const cleaned = raw
-        .trim()
-        .replace(/^```(?:json)?/i, '')
-        .replace(/```$/i, '')
-        .trim();
-      const parsed = JSON.parse(cleaned);
-      if (!parsed || typeof parsed !== 'object') return null;
-      return parsed;
+        },
+      },
+    };
+
+    try {
+      const apiKey = await this.getApiKey();
+      const model = await this.getModel();
+
+      // Separar o contexto (cacheável) da mensagem atual (não cacheável)
+      const { mensagem, ...contexto } = input;
+      const contextoCacheavel = JSON.stringify(contexto);
+
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://portaldcp.com.br',
+          'X-Title': 'Portal DCP',
+          'anthropic-beta': 'prompt-caching-1',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] },
+            { role: 'user', content: [{ type: 'text', text: contextoCacheavel, cache_control: { type: 'ephemeral' } }] },
+            { role: 'user', content: mensagem },
+          ],
+          tools: [planejarAcoesTool],
+          tool_choice: { type: 'function', function: { name: 'planejar_acoes' } },
+          temperature: 0.2,
+          max_tokens: 2000,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro na API de IA: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Tentar extrair resultado via tool_use (OpenRouter wraps em OpenAI format)
+      const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+      if (toolCall?.function?.arguments) {
+        const parsed = JSON.parse(toolCall.function.arguments);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+
+      // Fallback: tentar parsear conteúdo de texto como JSON
+      const raw = data.choices?.[0]?.message?.content || '';
+      if (raw) {
+        const cleaned = raw
+          .trim()
+          .replace(/^```(?:json)?/i, '')
+          .replace(/```$/i, '')
+          .trim();
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (parsed && typeof parsed === 'object') return parsed;
+        }
+      }
+
+      return null;
     } catch (error: any) {
       this.logger.warn(
         `Falha ao planejar ações da medição assistida via OpenRouter: ${error.message}`,
