@@ -228,17 +228,32 @@ export class MedicaoChatService {
         },
       ];
       session = await this.sessionRepository.save(session);
+    } else {
+      const draft = (session.draft || {}) as MedicaoChatDraft;
+      if (await this.preencherIdentificacaoFornecedor(draft, fornecedorId)) {
+        session.draft = draft;
+        session.pendencias = this.calcularPendencias(draft, contrato);
+        session.etapa_atual = this.determinarEtapaAtual(draft, contrato);
+        session = await this.sessionRepository.save(session);
+      }
     }
 
     return this.montarRespostaSessao(session, contrato);
   }
 
   async obterSessao(sessionId: string, fornecedorId: string) {
-    const session = await this.buscarSessao(sessionId, fornecedorId);
+    let session = await this.buscarSessao(sessionId, fornecedorId);
     const contrato = await this.validarContexto(
       session.contrato_id,
       fornecedorId,
     );
+    const draft = (session.draft || {}) as MedicaoChatDraft;
+    if (await this.preencherIdentificacaoFornecedor(draft, fornecedorId)) {
+      session.draft = draft;
+      session.pendencias = this.calcularPendencias(draft, contrato);
+      session.etapa_atual = this.determinarEtapaAtual(draft, contrato);
+      session = await this.sessionRepository.save(session);
+    }
     return this.montarRespostaSessao(session, contrato);
   }
 
@@ -258,7 +273,9 @@ export class MedicaoChatService {
     session.ultima_analise_agente = null;
     session.ultimo_snapshot_draft = null;
     if (limparRascunho) {
-      session.draft = this.criarDraftVazio(contrato.id, fornecedorId);
+      const draft = this.criarDraftVazio(contrato.id, fornecedorId);
+      await this.preencherIdentificacaoFornecedor(draft, fornecedorId);
+      session.draft = draft;
       session.medicao_id = null;
     }
 
@@ -298,6 +315,7 @@ export class MedicaoChatService {
       fornecedorId,
     );
     const draft = (session.draft || {}) as MedicaoChatDraft;
+    await this.preencherIdentificacaoFornecedor(draft, fornecedorId);
     const historico = [...(session.historico_ia || [])];
     historico.push({
       role: 'user',
@@ -516,6 +534,7 @@ export class MedicaoChatService {
     medicao?: Medicao | null,
   ): Promise<MedicaoChatDraft> {
     const draft = this.criarDraftVazio(contrato.id, fornecedorId);
+    await this.preencherIdentificacaoFornecedor(draft, fornecedorId);
 
     if (medicao) {
       draft.periodo_inicio = this.formatDateOnly(medicao.periodo_inicio);
@@ -574,6 +593,32 @@ export class MedicaoChatService {
     return draft;
   }
 
+  private async preencherIdentificacaoFornecedor(
+    draft: MedicaoChatDraft,
+    fornecedorId: string,
+  ): Promise<boolean> {
+    if (draft.fornecedor_nome_informado && draft.fornecedor_cnpj_informado) {
+      return false;
+    }
+
+    const fornecedor = await this.fornecedorRepository.findOne({
+      where: { id: fornecedorId },
+    });
+    if (!fornecedor) return false;
+
+    let alterou = false;
+    if (!draft.fornecedor_nome_informado) {
+      draft.fornecedor_nome_informado =
+        fornecedor.razao_social || fornecedor.nome_fantasia || null;
+      alterou = Boolean(draft.fornecedor_nome_informado);
+    }
+    if (!draft.fornecedor_cnpj_informado) {
+      draft.fornecedor_cnpj_informado = fornecedor.cpf_cnpj || null;
+      alterou = Boolean(draft.fornecedor_cnpj_informado) || alterou;
+    }
+    return alterou;
+  }
+
   private criarDraftVazio(
     contratoId: string,
     fornecedorId: string,
@@ -628,7 +673,11 @@ export class MedicaoChatService {
       ? 'serviço continuado'
       : 'medição por cronograma';
     const resumoContrato = this.montarResumoContextoContrato(contexto);
-    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nPara começar, pode me informar seu **nome** e o **CNPJ da empresa**?`;
+    if (!draft.fornecedor_nome_informado || !draft.fornecedor_cnpj_informado) {
+      return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nPara começar, pode me informar seu **nome** e o **CNPJ da empresa**?`;
+    }
+
+    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nJá encontrei a identificação do fornecedor no cadastro. Para começar, pode me informar o **período da medição** no formato "01/04/2026 a 30/04/2026"?`;
   }
 
   private async montarMensagemReset(
@@ -2486,6 +2535,10 @@ Regras obrigatórias:
     draft: MedicaoChatDraft,
   ): Promise<string> {
     const pendencia = this.determinarEtapaAtual(draft, contrato);
+
+    if (pendencia === 'IDENTIFICACAO') {
+      return 'Preciso confirmar a identificação do fornecedor. Informe nome/razão social e CNPJ.';
+    }
 
     if (pendencia === 'PERIODO') {
       return 'Primeiro, me informe o período da medição no formato "01/04/2026 a 30/04/2026".';
