@@ -1398,9 +1398,19 @@ export class MedicaoChatService {
       );
       session.ultimo_snapshot_draft = null;
       const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+      const resposta = await this.montarRespostaConversacionalChat({
+        mensagem,
+        contrato,
+        draft,
+        contexto,
+        planoAgente,
+        respostaBase: `${planoAgente.resposta_base} ${orientacao}`,
+        houveEscrita: false,
+        historico: session.historico_ia || [],
+      });
       return {
         handled: true,
-        resposta: `${planoAgente.resposta_base} ${orientacao}`,
+        resposta,
         plano_agente: planoAgente as unknown as Record<string, any>,
         ultima_analise_agente:
           (planoAgente.llm as Record<string, any> | null) || null,
@@ -1417,9 +1427,19 @@ export class MedicaoChatService {
         contrato,
         draft,
       );
+      const resposta = await this.montarRespostaConversacionalChat({
+        mensagem,
+        contrato,
+        draft,
+        contexto,
+        planoAgente,
+        respostaBase: `${planoAgente.resposta_base} ${orientacao}`,
+        houveEscrita: false,
+        historico: session.historico_ia || [],
+      });
       return {
         handled: true,
-        resposta: `${planoAgente.resposta_base} ${orientacao}`,
+        resposta,
         plano_agente: planoAgente as unknown as Record<string, any>,
         ultima_analise_agente:
           (planoAgente.llm as Record<string, any> | null) || null,
@@ -1439,6 +1459,19 @@ export class MedicaoChatService {
 
     if (resultado.handled && houveMudanca) {
       session.ultimo_snapshot_draft = draftAntes as Record<string, any>;
+    }
+
+    if (resultado.handled) {
+      resultado.resposta = await this.montarRespostaConversacionalChat({
+        mensagem,
+        contrato,
+        draft,
+        contexto,
+        planoAgente,
+        respostaBase: resultado.resposta || '',
+        houveEscrita: houveMudanca,
+        historico: session.historico_ia || [],
+      });
     }
 
     return {
@@ -1499,6 +1532,136 @@ export class MedicaoChatService {
     blocos.push(`O que ainda falta: ${orientacao}`);
     blocos.push(`Ainda falta preencher: ${this.pendenciasParaLabels(pendencias)}.`);
     return blocos.join(' ');
+  }
+
+  private async montarRespostaConversacionalChat(input: {
+    mensagem: string;
+    contrato: Contrato;
+    draft: MedicaoChatDraft;
+    contexto: ContextoAssistidoContrato;
+    planoAgente: Record<string, any>;
+    respostaBase: string;
+    houveEscrita: boolean;
+    historico: Array<{ role: 'assistant' | 'user' | 'system'; content: string; created_at: string }>;
+  }): Promise<string> {
+    const pendencias = this.calcularPendencias(input.draft, input.contrato);
+    const avisos = this.validarConformidadeContrato(
+      input.draft,
+      input.contrato,
+      input.contexto.resumo as Record<string, any> | null,
+    );
+    const resumoContrato = this.montarResumoContextoContrato(input.contexto);
+    const historicoCurto = input.historico
+      .slice(-6)
+      .map((item) => ({
+        role: item.role,
+        content: String(item.content || '').slice(0, 900),
+      }));
+
+    const payload = {
+      mensagem_usuario: input.mensagem,
+      resposta_base_obrigatoria: input.respostaBase,
+      houve_escrita_no_rascunho: input.houveEscrita,
+      contrato: {
+        numero_contrato: input.contrato.numero_contrato,
+        objeto: input.contrato.objeto,
+        modalidade_execucao: input.contrato.modalidade_execucao,
+        categoria: input.contrato.categoria,
+        vigencia_inicio: this.formatDateOnly(input.contrato.data_vigencia_inicio),
+        vigencia_fim: this.formatDateOnly(input.contrato.data_vigencia_fim),
+      },
+      resumo_contrato: resumoContrato,
+      rascunho_atual: {
+        periodo_inicio: input.draft.periodo_inicio || null,
+        periodo_fim: input.draft.periodo_fim || null,
+        competencia: input.draft.competencia || null,
+        nota_fiscal_numero: input.draft.nota_fiscal_numero || null,
+        nota_fiscal_valor: input.draft.nota_fiscal_valor ?? null,
+        nota_fiscal_data: input.draft.nota_fiscal_data || null,
+        valor_medido: input.draft.valor_medido ?? null,
+        itens_count: Array.isArray(input.draft.itens) ? input.draft.itens.length : 0,
+        discriminacoes_count: Array.isArray(input.draft.discriminacoes)
+          ? input.draft.discriminacoes.length
+          : 0,
+        observacoes_preenchidas: input.draft.observacoes != null,
+      },
+      pendencias,
+      avisos,
+      plano_agente: {
+        intencao: input.planoAgente?.intencao,
+        resumo_intencao: input.planoAgente?.resumo_intencao,
+        ferramentas: input.planoAgente?.ferramentas,
+        acoes_legado: input.planoAgente?.legado?.acoes,
+      },
+      contexto_execucao: {
+        usar_itens_cronograma: input.contexto.usar_itens_cronograma,
+        ultima_medicao: input.contexto.ultima_medicao
+          ? {
+              numero_medicao: input.contexto.ultima_medicao.numero_medicao,
+              valor_medido: Number(input.contexto.ultima_medicao.valor_medido || 0),
+              competencia: input.contexto.ultima_medicao.competencia,
+            }
+          : null,
+        amostra_itens_cronograma: input.contexto.itens_cronograma
+          .slice(0, 8)
+          .map((item) => ({
+            numero_item: item.numero_item,
+            descricao: item.descricao,
+            unidade_medida: item.unidade_medida,
+            valor_mensal: Number(item.valor_mensal || 0),
+            valor_unitario: Number(item.valor_unitario || 0),
+          })),
+        amostra_etapas: input.contexto.etapas_cronograma
+          .slice(0, 8)
+          .map((item) => ({
+            numero_etapa: item.numero_etapa,
+            descricao: item.descricao,
+            valor_previsto: Number(item.valor_previsto || 0),
+          })),
+      },
+      historico_recente: historicoCurto,
+    };
+
+    const systemPrompt = `Você é o chat de IA de medição do Portal DCP.
+Converse em português brasileiro, de forma natural, objetiva e útil para um fornecedor preencher uma medição de contrato público.
+
+Regras obrigatórias:
+- Use os fatos do JSON. Não invente valores, datas, anexos, itens, percentuais ou permissões.
+- Se resposta_base_obrigatoria disser que algo foi aplicado, preserva esse fato.
+- Se houve_escrita_no_rascunho for false, diga claramente que não alterou o rascunho quando isso for relevante.
+- Não prometa submissão automática, ateste, aprovação ou assinatura. O envio final continua manual.
+- Quando houver pendências, faça uma única pergunta ou pedido de próximo passo, com exemplo curto.
+- Quando houver avisos, destaque sem alarmismo.
+- Evite linguagem robótica como "plano executado" ou "ferramenta". O usuário quer conversar, não ver logs internos.
+- Responda em markdown simples, com no máximo 3 parágrafos curtos.`;
+
+    try {
+      const resposta = await this.iaService.chatComSistemaPersonalizado(
+        [
+          {
+            role: 'user',
+            content: JSON.stringify(payload),
+          },
+        ],
+        systemPrompt,
+      );
+      const normalizada = this.normalizarRespostaChatIa(resposta);
+      return normalizada || input.respostaBase;
+    } catch (error: any) {
+      this.logger.warn(
+        `Falha ao gerar resposta conversacional da medição: ${error.message}`,
+      );
+      return input.respostaBase;
+    }
+  }
+
+  private normalizarRespostaChatIa(resposta: string) {
+    const texto = String(resposta || '')
+      .replace(/^```(?:markdown|md)?/i, '')
+      .replace(/```$/i, '')
+      .trim();
+    if (!texto) return '';
+    return texto.length > 1800 ? `${texto.slice(0, 1800).trim()}...` : texto;
   }
 
   private marcarAcao(

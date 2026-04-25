@@ -98,15 +98,6 @@ type SessionResponse = {
   }
 }
 
-type PlanoFerramenta = {
-  nome?: string
-  titulo?: string
-  tipo?: string
-  confianca?: string
-  bloqueio?: string
-  status?: string
-}
-
 function formatarMoeda(valor?: number | null) {
   return Number(valor || 0).toLocaleString('pt-BR', {
     style: 'currency',
@@ -143,12 +134,6 @@ function labelPendencia(pendencia: string) {
     OBSERVACOES: 'Observacoes',
   }
   return labels[pendencia] || pendencia
-}
-
-function asPlanoFerramentas(value: Record<string, unknown> | null | undefined) {
-  const ferramentas = value?.ferramentas
-  if (!Array.isArray(ferramentas)) return [] as PlanoFerramenta[]
-  return ferramentas.filter((item): item is PlanoFerramenta => typeof item === 'object' && item !== null)
 }
 
 export default function MedicaoChatFornecedorPage() {
@@ -319,7 +304,6 @@ export default function MedicaoChatFornecedorPage() {
     sessionData?.preview.discriminacoes ||
     sessionData?.preview.draft?.discriminacoes ||
     []
-  const ferramentasAgente = asPlanoFerramentas(sessionData?.session.plano_agente)
 
   if (loading) {
     return (
@@ -486,8 +470,9 @@ export default function MedicaoChatFornecedorPage() {
               <Textarea
                 value={mensagem}
                 onChange={(e) => setMensagem(e.target.value)}
-                placeholder='Ex.: "01/04/2026 a 30/04/2026", "usar automatica", "item 1 = 2"...'
+                placeholder='Converse com a IA. Ex.: "a NF e de abril, valor 36.598,50, periodo cheio", "corrija o item 2 para 1,5"...'
                 rows={4}
+                disabled={sending}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
@@ -672,49 +657,22 @@ export default function MedicaoChatFornecedorPage() {
               {sessionData.session.plano_agente && (
                 <div className="rounded-lg border border-purple-200 bg-purple-50/40 p-3 space-y-3">
                   <div>
-                    <p className="text-sm font-semibold text-purple-900">Plano do agente</p>
+                    <p className="text-sm font-semibold text-purple-900">Leitura da IA</p>
                     <p className="text-xs text-purple-700 mt-1">
                       {String(
                         sessionData.session.plano_agente.resumo_intencao ||
-                          'Sem analise resumida neste turno.',
+                          'A IA esta usando o contexto do contrato e do rascunho para orientar o proximo passo.',
                       )}
                     </p>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <Badge className="bg-purple-100 text-purple-700">
-                      Intencao: {String(sessionData.session.plano_agente.intencao || 'n/a')}
-                    </Badge>
                     {!!sessionData.session.plano_agente.proxima_melhor_acao && (
-                      <Badge className="bg-slate-100 text-slate-700">
+                      <div className="rounded-md border bg-white px-3 py-2 text-sm text-purple-900">
                         Proxima: {String(sessionData.session.plano_agente.proxima_melhor_acao)}
-                      </Badge>
+                      </div>
                     )}
                   </div>
-
-                  {ferramentasAgente.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-gray-500">Ferramentas</p>
-                      {ferramentasAgente.slice(0, 6).map((ferramenta, index) => (
-                        <div
-                          key={`${ferramenta.nome || ferramenta.titulo || 'tool'}-${index}`}
-                          className="rounded-md border bg-white px-3 py-2 text-sm"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium">
-                              {ferramenta.titulo || ferramenta.nome || 'Ferramenta'}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              {ferramenta.tipo || 'acao'} · {ferramenta.confianca || 'medium'}
-                            </span>
-                          </div>
-                          {ferramenta.bloqueio && (
-                            <p className="mt-1 text-xs text-amber-700">{ferramenta.bloqueio}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
 
