@@ -14,7 +14,7 @@ import {
   MedicaoChatSession,
   StatusMedicaoChatSession,
 } from './entities/medicao-chat-session.entity';
-import { Medicao } from './entities/medicao.entity';
+import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { EtapaCronograma } from './entities/etapa-cronograma.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
@@ -84,6 +84,7 @@ type ContextoAssistidoContrato = {
   itens_cronograma: ItemCronograma[];
   etapas_cronograma: EtapaCronograma[];
   ultima_medicao: Medicao | null;
+  rascunho_aberto: Medicao | null;
 };
 
 type PlanejamentoLlmMedicao = {
@@ -103,6 +104,7 @@ type MedicaoChatDraft = {
   fornecedor_id: string;
   fornecedor_nome_informado?: string | null;
   fornecedor_cnpj_informado?: string | null;
+  rascunho_ignorado_id?: string | null;
   periodo_inicio?: string | null;
   periodo_fim?: string | null;
   competencia?: string | null;
@@ -324,8 +326,16 @@ export class MedicaoChatService {
     });
 
     let respostaAssistente = '';
-
-    if (session.confirmacao_pendente) {
+    const decisaoRascunho = await this.processarDecisaoRascunhoAberto(
+      session,
+      contrato,
+      draft,
+      fornecedorId,
+      mensagem,
+    );
+    if (decisaoRascunho) {
+      respostaAssistente = decisaoRascunho.resposta;
+    } else if (session.confirmacao_pendente) {
       const confirmou = this.interpretarConfirmacao(mensagem);
       if (confirmou == null) {
         respostaAssistente =
@@ -628,10 +638,65 @@ export class MedicaoChatService {
       fornecedor_id: fornecedorId,
       fornecedor_nome_informado: null,
       fornecedor_cnpj_informado: null,
+      rascunho_ignorado_id: null,
       anexos_pendentes: [],
       discriminacoes: [],
       itens: [],
     };
+  }
+
+  private draftSemMedicaoPreenchida(draft: MedicaoChatDraft) {
+    return (
+      !draft.periodo_inicio &&
+      !draft.periodo_fim &&
+      !draft.competencia &&
+      !draft.nota_fiscal_numero &&
+      !draft.nota_fiscal_valor &&
+      !draft.valor_medido &&
+      (!Array.isArray(draft.itens) || draft.itens.length === 0)
+    );
+  }
+
+  private async processarDecisaoRascunhoAberto(
+    session: MedicaoChatSession,
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    fornecedorId: string,
+    mensagem: string,
+  ): Promise<ResultadoEtapaChat | null> {
+    const contexto = await this.carregarContextoAssistido(contrato);
+    const rascunho = contexto.rascunho_aberto;
+    if (
+      !rascunho ||
+      session.medicao_id ||
+      draft.rascunho_ignorado_id === rascunho.id ||
+      !this.draftSemMedicaoPreenchida(draft)
+    ) {
+      return null;
+    }
+
+    if (/continuar|retomar|usar|aproveitar|seguir/i.test(mensagem)) {
+      const draftRascunho = await this.prepararDraftInicial(
+        contrato,
+        fornecedorId,
+        rascunho,
+      );
+      this.substituirDraft(draft, draftRascunho);
+      session.medicao_id = rascunho.id;
+      return {
+        resposta: `Perfeito, retomei o **rascunho da medição #${rascunho.numero_medicao}**. Revisei os dados que já estavam salvos e vou continuar a partir dele. ${await this.montarPerguntaObjetivaProximaEtapa(contrato, draft)}`,
+      };
+    }
+
+    if (/recome[cç]ar|come[cç]ar do zero|novo|nova|zerar|ignorar/i.test(mensagem)) {
+      draft.rascunho_ignorado_id = rascunho.id;
+      return {
+        resposta:
+          'Combinado, vou ignorar esse rascunho nesta conversa e começar uma nova medição do zero. Informe o **período da medição** no formato "01/04/2026 a 30/04/2026".',
+      };
+    }
+
+    return null;
   }
 
   private determinarEtapaAtual(draft: MedicaoChatDraft, contrato: Contrato) {
@@ -672,7 +737,15 @@ export class MedicaoChatService {
     const tipoFluxo = this.medicaoService.isServicoContinuado(contrato)
       ? 'serviço continuado'
       : 'medição por cronograma';
-    const resumoContrato = this.montarResumoContextoContrato(contexto);
+    const resumoContrato = this.montarResumoContextoContrato(contexto, false);
+    if (
+      contexto.rascunho_aberto?.numero_medicao &&
+      draft.rascunho_ignorado_id !== contexto.rascunho_aberto.id &&
+      !draft.periodo_inicio
+    ) {
+      return `Olá! Sou o Assistente de Medição do Portal DCP IA. Encontrei um **rascunho da medição #${contexto.rascunho_aberto.numero_medicao}** em andamento para o contrato **${contrato.numero_contrato}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nVocê quer **continuar esse rascunho** ou **recomeçar do zero**?`;
+    }
+
     if (!draft.fornecedor_nome_informado || !draft.fornecedor_cnpj_informado) {
       return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nPara começar, pode me informar seu **nome** e o **CNPJ da empresa**?`;
     }
@@ -2386,8 +2459,18 @@ Regras obrigatórias:
         : Promise.resolve([]),
     ]);
 
+    const medicoesRegistradas = medicoes.filter(
+      (medicao) => medicao.status !== StatusMedicao.RASCUNHO,
+    );
+    const rascunhos = medicoes.filter(
+      (medicao) => medicao.status === StatusMedicao.RASCUNHO,
+    );
     const ultimaMedicao =
-      medicoes.length > 0 ? medicoes[medicoes.length - 1] : null;
+      medicoesRegistradas.length > 0
+        ? medicoesRegistradas[medicoesRegistradas.length - 1]
+        : null;
+    const rascunhoAberto =
+      rascunhos.length > 0 ? rascunhos[rascunhos.length - 1] : null;
 
     return {
       resumo,
@@ -2396,6 +2479,7 @@ Regras obrigatórias:
       itens_cronograma: itensCronograma,
       etapas_cronograma: etapasCronograma,
       ultima_medicao: ultimaMedicao,
+      rascunho_aberto: rascunhoAberto,
     };
   }
 
@@ -2452,7 +2536,10 @@ Regras obrigatórias:
     });
   }
 
-  private montarResumoContextoContrato(contexto: ContextoAssistidoContrato) {
+  private montarResumoContextoContrato(
+    contexto: ContextoAssistidoContrato,
+    incluirRascunho = true,
+  ) {
     const partes: string[] = [];
     if (contexto.resumo?.saldo_disponivel != null) {
       partes.push(
@@ -2462,6 +2549,11 @@ Regras obrigatórias:
     if ((contexto.resumo?.valor_em_analise || 0) > 0) {
       partes.push(
         `Já existe **${this.formatCurrency(contexto.resumo.valor_em_analise)}** em análise.`,
+      );
+    }
+    if (incluirRascunho && contexto.rascunho_aberto?.numero_medicao) {
+      partes.push(
+        `Há um rascunho da medição **#${contexto.rascunho_aberto.numero_medicao}** em andamento.`,
       );
     }
     if (contexto.ultima_medicao?.numero_medicao) {
