@@ -2538,7 +2538,7 @@ Regras obrigatórias:
 
   private montarResumoContextoContrato(
     contexto: ContextoAssistidoContrato,
-    incluirRascunho = true,
+    incluirRascunho = false,
   ) {
     const partes: string[] = [];
     if (contexto.resumo?.saldo_disponivel != null) {
