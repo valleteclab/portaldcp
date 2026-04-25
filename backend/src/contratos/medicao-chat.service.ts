@@ -101,6 +101,8 @@ type PlanejamentoLlmMedicao = {
 type MedicaoChatDraft = {
   contrato_id: string;
   fornecedor_id: string;
+  fornecedor_nome_informado?: string | null;
+  fornecedor_cnpj_informado?: string | null;
   periodo_inicio?: string | null;
   periodo_fim?: string | null;
   competencia?: string | null;
@@ -579,6 +581,8 @@ export class MedicaoChatService {
     return {
       contrato_id: contratoId,
       fornecedor_id: fornecedorId,
+      fornecedor_nome_informado: null,
+      fornecedor_cnpj_informado: null,
       anexos_pendentes: [],
       discriminacoes: [],
       itens: [],
@@ -592,16 +596,20 @@ export class MedicaoChatService {
 
   private calcularPendencias(draft: MedicaoChatDraft, contrato: Contrato) {
     const pendencias: string[] = [];
+    if (!draft.fornecedor_nome_informado || !draft.fornecedor_cnpj_informado) {
+      pendencias.push('IDENTIFICACAO');
+    }
     if (!draft.periodo_inicio || !draft.periodo_fim) pendencias.push('PERIODO');
     if (!draft.competencia) pendencias.push('COMPETENCIA');
-    if (draft.nota_fiscal_numero == null && draft.nota_fiscal_valor == null) {
-      pendencias.push('NF');
-    }
 
     if (this.medicaoService.isServicoContinuado(contrato)) {
       if (!draft.valor_medido || draft.valor_medido <= 0) pendencias.push('MEDICAO');
     } else if (Array.isArray(draft.itens) && draft.itens.length === 0) {
       pendencias.push('MEDICAO');
+    }
+
+    if (draft.nota_fiscal_numero == null && draft.nota_fiscal_valor == null) {
+      pendencias.push('NF');
     }
 
     if (!draft.discriminacoes || draft.discriminacoes.length === 0) {
@@ -619,9 +627,8 @@ export class MedicaoChatService {
     const tipoFluxo = this.medicaoService.isServicoContinuado(contrato)
       ? 'serviço continuado'
       : 'medição por cronograma';
-    const pendenciaPrincipal = this.calcularPendencias(draft, contrato)[0];
     const resumoContrato = this.montarResumoContextoContrato(contexto);
-    return `Vamos montar a medição assistida do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''} Vou preencher o rascunho em tempo real e te avisar o que ainda falta. Primeiro, me informe o **período da medição** no formato "01/04/2026 a 30/04/2026".${pendenciaPrincipal && pendenciaPrincipal !== 'PERIODO' ? ' Se preferir, você também pode começar anexando a nota fiscal em XML ou PDF.' : ''}`;
+    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nPara começar, pode me informar seu **nome** e o **CNPJ da empresa**?`;
   }
 
   private async montarMensagemReset(
@@ -647,6 +654,8 @@ export class MedicaoChatService {
     fornecedorId: string,
   ): Promise<ResultadoEtapaChat> {
     switch (etapaAtual) {
+      case 'IDENTIFICACAO':
+        return this.aplicarIdentificacao(mensagem, draft);
       case 'PERIODO':
         return this.aplicarPeriodo(mensagem, draft);
       case 'COMPETENCIA':
@@ -956,6 +965,7 @@ export class MedicaoChatService {
     const plano: AcaoAgente[] = [];
     const draftAntesEscrita = this.clonarJson(draft);
     const etapaAntesDaMensagem = this.determinarEtapaAtual(draft, contrato);
+    let confirmacaoPendente: Record<string, unknown> | undefined;
     let nfAtualizada = false;
     let handled = false;
     let houveEscrita = false;
@@ -1016,6 +1026,18 @@ export class MedicaoChatService {
       });
     }
 
+    if (etapaAntesDaMensagem === 'IDENTIFICACAO') {
+      const cnpj = this.extrairCnpj(mensagem);
+      const nome = this.extrairNomeFornecedorInformado(mensagem);
+      if (nome) draft.fornecedor_nome_informado = nome;
+      if (cnpj) draft.fornecedor_cnpj_informado = cnpj;
+      if (draft.fornecedor_nome_informado && draft.fornecedor_cnpj_informado) {
+        aplicacoes.push('registrei a identificação do fornecedor');
+        handled = true;
+        houveEscrita = true;
+      }
+    }
+
     const periodo = this.extrairPeriodoTexto(mensagem);
     plano.push({
       id: 'periodo',
@@ -1053,6 +1075,9 @@ export class MedicaoChatService {
     }
 
     const competencia = this.normalizarCompetencia(mensagem);
+    const competenciaPorMes = !competencia
+      ? this.normalizarCompetenciaComAnoDoPeriodo(mensagem, draft)
+      : null;
     plano.push({
       id: 'competencia',
       titulo: 'interpretar competência',
@@ -1068,6 +1093,21 @@ export class MedicaoChatService {
       aplicacoes.push(`defini a competência como ${competencia}`);
       this.marcarAcao(plano, 'competencia', 'applied');
       handled = true;
+      houveEscrita = true;
+      if (
+        draft.periodo_inicio &&
+        draft.periodo_fim &&
+        this.periodoPareceMesCheio(draft.periodo_inicio, draft.periodo_fim)
+      ) {
+        confirmacaoPendente = { tipo: 'CONFIRMAR_MES_CHEIO' };
+      }
+    } else if (competenciaPorMes && draft.competencia !== competenciaPorMes) {
+      this.marcarAcao(plano, 'competencia', 'planned');
+      confirmacaoPendente = {
+        tipo: 'CONFIRMAR_COMPETENCIA',
+        competencia: competenciaPorMes,
+      };
+      handled = true;
     } else if (
       /automatic|auto|pode usar|usar/i.test(mensagem) &&
       draft.periodo_fim &&
@@ -1077,6 +1117,7 @@ export class MedicaoChatService {
       aplicacoes.push(`defini a competência automática como ${draft.competencia}`);
       this.marcarAcao(plano, 'competencia', 'applied');
       handled = true;
+      houveEscrita = true;
     } else if (
       /automatic|auto|pode usar|usar/i.test(mensagem) &&
       !draft.periodo_fim
@@ -1089,14 +1130,19 @@ export class MedicaoChatService {
       );
     }
 
-    const numeroNf = this.extrairNumeroNF(mensagem);
+    const numeroNf =
+      this.extrairNumeroNF(mensagem) ||
+      (etapaAntesDaMensagem === 'NF'
+        ? this.extrairNumeroNfAvulso(mensagem)
+        : null);
     const podeInterpretarNotaFiscal =
       /\bnf\b|\bnota\b/i.test(mensagem) || etapaAntesDaMensagem === 'NF';
+    const valorNfExplicito = /\b(valor|total|bruto|r\$)\b/i.test(mensagem);
     const dataNf = podeInterpretarNotaFiscal
       ? this.extrairDataAvulsa(mensagem)
       : null;
     const valorNf =
-      podeInterpretarNotaFiscal
+      podeInterpretarNotaFiscal && valorNfExplicito
         ? this.extrairMoedaIgnorandoDatas(mensagem)
         : null;
     plano.push({
@@ -1327,16 +1373,23 @@ export class MedicaoChatService {
     }
 
     const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+    let resposta = this.montarRespostaAgenteV2(
+      aplicacoes,
+      orientacao,
+      draft,
+      contrato,
+      plano,
+      contexto.resumo as Record<string, any> | null,
+    );
+    if (confirmacaoPendente?.tipo === 'CONFIRMAR_COMPETENCIA') {
+      resposta = `Entendido. Para completar o formato correto, confirme a competência **${confirmacaoPendente.competencia}**. Está correto?`;
+    } else if (confirmacaoPendente?.tipo === 'CONFIRMAR_MES_CHEIO') {
+      resposta = `Ótimo! Competência registrada: **${draft.competencia}**.\n\nConsiderando que o período é de **${this.formatDateBr(draft.periodo_inicio!)} a ${this.formatDateBr(draft.periodo_fim!)}** (mês integral), a quantidade é **1 mês**. Confirma?`;
+    }
     return {
       handled: true,
-      resposta: this.montarRespostaAgenteV2(
-        aplicacoes,
-        orientacao,
-        draft,
-        contrato,
-        plano,
-        contexto.resumo as Record<string, any> | null,
-      ),
+      resposta,
+      confirmacao_pendente: confirmacaoPendente,
       plano_agente: {
         ...(planejamentoAgente as unknown as Record<string, any>),
         acoes: plano,
@@ -1694,6 +1747,28 @@ Regras obrigatórias:
     return JSON.parse(JSON.stringify(valor));
   }
 
+  private aplicarIdentificacao(
+    mensagem: string,
+    draft: MedicaoChatDraft,
+  ): ResultadoEtapaChat {
+    const cnpj = this.extrairCnpj(mensagem);
+    const nome = this.extrairNomeFornecedorInformado(mensagem);
+
+    if (nome) draft.fornecedor_nome_informado = nome;
+    if (cnpj) draft.fornecedor_cnpj_informado = cnpj;
+
+    if (!draft.fornecedor_nome_informado || !draft.fornecedor_cnpj_informado) {
+      return {
+        resposta:
+          'Para iniciar, preciso da identificação completa. Pode me informar o **nome/razão social** e o **CNPJ da empresa**?',
+      };
+    }
+
+    return {
+      resposta: `Obrigado! Identificação registrada:\n\n**Empresa:** ${draft.fornecedor_nome_informado}\n**CNPJ:** ${this.formatarCnpj(draft.fornecedor_cnpj_informado)}\n\nAgora, por favor, informe as **datas de início e fim do período de medição** no formato dd/mm/aaaa.`,
+    };
+  }
+
   private aplicarPeriodo(
     mensagem: string,
     draft: MedicaoChatDraft,
@@ -1743,6 +1818,18 @@ Regras obrigatórias:
     }
 
     const competencia = this.normalizarCompetencia(mensagem);
+    const competenciaPorMes = !competencia
+      ? this.normalizarCompetenciaComAnoDoPeriodo(mensagem, draft)
+      : null;
+    if (competenciaPorMes) {
+      return {
+        resposta: `Entendido. Para completar o formato correto, confirme a competência **${competenciaPorMes}**. Está correto?`,
+        confirmacao_pendente: {
+          tipo: 'CONFIRMAR_COMPETENCIA',
+          competencia: competenciaPorMes,
+        },
+      };
+    }
     if (!competencia) {
       return {
         resposta:
@@ -1750,9 +1837,26 @@ Regras obrigatórias:
       };
     }
     draft.competencia = competencia;
+    return this.respostaAposCompetencia(draft);
+  }
+
+  private respostaAposCompetencia(draft: MedicaoChatDraft): ResultadoEtapaChat {
+    if (
+      draft.periodo_inicio &&
+      draft.periodo_fim &&
+      this.periodoPareceMesCheio(draft.periodo_inicio, draft.periodo_fim)
+    ) {
+      return {
+        resposta: `Ótimo! Competência registrada: **${draft.competencia}**.\n\nConsiderando que o período é de **${this.formatDateBr(draft.periodo_inicio)} a ${this.formatDateBr(draft.periodo_fim)}** (mês integral), a quantidade é **1 mês**. Confirma?`,
+        confirmacao_pendente: {
+          tipo: 'CONFIRMAR_MES_CHEIO',
+        },
+      };
+    }
+
     return {
       resposta:
-        'Competência registrada. Agora me informe os dados da NF (por exemplo: "NF 105, valor 36598,50, data 13/04/2026") ou diga "sem NF por enquanto".',
+        'Competência registrada. Agora informe a **quantidade medida** do período. Para mês cheio, responda **1 mês**.',
     };
   }
 
@@ -1771,8 +1875,11 @@ Regras obrigatórias:
       };
     }
 
-    const numero = this.extrairNumeroNF(mensagem);
-    const valor = this.extrairMoedaIgnorandoDatas(mensagem);
+    const numero =
+      this.extrairNumeroNF(mensagem) || this.extrairNumeroNfAvulso(mensagem);
+    const valor = /\b(valor|total|bruto|r\$)\b/i.test(mensagem)
+      ? this.extrairMoedaIgnorandoDatas(mensagem)
+      : null;
     const data = this.extrairDataAvulsa(mensagem);
 
     if (!numero && valor == null && !data) {
@@ -1797,6 +1904,19 @@ Regras obrigatórias:
     contrato: Contrato,
     draft: MedicaoChatDraft,
   ): Promise<ResultadoEtapaChat> {
+    if (/^(sim|confirmo|pode|ok|isso|correto)\b/i.test(mensagem.trim())) {
+      const aplicado = await this.aplicarQuantidadeMesCheioSePossivel(
+        contrato,
+        draft,
+      );
+      if (aplicado) {
+        return {
+          resposta:
+            'Perfeito! Quantidade registrada: **1 mês**.\n\nAgora, por favor, informe o **número da Nota Fiscal** correspondente a esta medição.',
+        };
+      }
+    }
+
     if (this.medicaoService.isServicoContinuado(contrato)) {
       const valor = this.extrairMoeda(mensagem);
       if (valor == null || valor <= 0) {
@@ -1861,6 +1981,28 @@ Regras obrigatórias:
     draft: MedicaoChatDraft,
     fornecedorId: string,
   ): Promise<ResultadoEtapaChat> {
+    const confirmouReaproveitar =
+      /^(sim|confirmo|pode|ok|isso|replicar|mesmo|igual)\b/i.test(
+        mensagem.trim(),
+      );
+
+    if (confirmouReaproveitar) {
+      const sugestoes = await this.medicaoService.sugerirDiscriminacoes(
+        contrato.id,
+      );
+      if (sugestoes.length > 0) {
+        draft.discriminacoes = sugestoes;
+        return {
+          resposta: `Perfeito! Percentuais registrados:\n${this.formatarDiscriminacoesResumo(sugestoes)}\n\nHá alguma **observação** sobre a execução dos serviços no período? Campo opcional; pode responder "nenhuma".`,
+        };
+      }
+
+      return {
+        resposta:
+          'Ainda não encontrei discriminações anteriores para reaproveitar. Me envie em linhas como "ISS 2%, Despesas Operacionais 48%, Serviços 50%".',
+      };
+    }
+
     if (/reaproveitar|última|ultima/i.test(mensagem)) {
       return {
         resposta:
@@ -1889,11 +2031,24 @@ Regras obrigatórias:
     };
   }
 
+  private formatarDiscriminacoesResumo(discriminacoes: any[]) {
+    return discriminacoes
+      .map((item) => {
+        const percentual =
+          item.percentual != null ? `${Number(item.percentual)}%` : null;
+        const valor =
+          item.valor != null ? this.formatCurrency(Number(item.valor)) : null;
+        const detalhe = percentual || valor || 'registrado';
+        return `- **${item.descricao}:** ${detalhe}`;
+      })
+      .join('\n');
+  }
+
   private aplicarObservacoes(
     mensagem: string,
     draft: MedicaoChatDraft,
   ): ResultadoEtapaChat {
-    draft.observacoes = /sem observ/i.test(mensagem)
+    draft.observacoes = /sem observ|nenhuma|n[aã]o\b|nao\b/i.test(mensagem)
       ? ''
       : mensagem.trim();
     return {
@@ -1926,6 +2081,15 @@ Regras obrigatórias:
         return {
           resposta:
             `Período alterado para **${this.formatDateBr(pendente.periodo_inicio)} a ${this.formatDateBr(pendente.periodo_fim)}**. Agora me confirme a competência.`,
+        };
+      case 'CONFIRMAR_COMPETENCIA':
+        draft.competencia = String(pendente.competencia || '');
+        return this.respostaAposCompetencia(draft);
+      case 'CONFIRMAR_MES_CHEIO':
+        await this.aplicarQuantidadeMesCheioSePossivel(contrato, draft);
+        return {
+          resposta:
+            'Perfeito! Quantidade registrada: **1 mês**.\n\nAgora, por favor, informe o **número da Nota Fiscal** correspondente a esta medição.',
         };
       case 'REAPROVEITAR_DISCRIMINACOES':
         draft.discriminacoes = await this.medicaoService.sugerirDiscriminacoes(
@@ -2452,6 +2616,47 @@ Regras obrigatórias:
     }
   }
 
+  private async aplicarQuantidadeMesCheioSePossivel(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ) {
+    if (this.medicaoService.isServicoContinuado(contrato)) {
+      const valorReferencia =
+        Number(draft.nota_fiscal_valor) ||
+        Number((contrato as any).valor_mensal) ||
+        Number(contrato.valor_global) ||
+        0;
+      if (!draft.valor_medido && valorReferencia > 0) {
+        draft.valor_medido = valorReferencia;
+      }
+      return Number(draft.valor_medido || 0) > 0;
+    }
+
+    const usarItensCronograma = await this.medicaoService.usarItensCronograma(
+      contrato.id,
+    );
+    if (!usarItensCronograma) return false;
+
+    const itensCronograma = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_item: 'ASC' },
+    });
+    const itensMesCheio =
+      itensCronograma.filter((item) => item.unidade_medida === 'MENSAL') ||
+      [];
+    const itensParaMedir =
+      itensMesCheio.length > 0 ? itensMesCheio : itensCronograma.slice(0, 1);
+    if (itensParaMedir.length === 0) return false;
+
+    draft.itens = itensParaMedir.map((item) => ({
+      item_cronograma_id: item.id,
+      numero_item: item.numero_item,
+      descricao: item.descricao,
+      quantidade_medida: 1,
+    }));
+    return true;
+  }
+
   private gerarObservacaoAutomatica(
     draft: MedicaoChatDraft,
     nfSugerida?: Record<string, any> | null,
@@ -2568,6 +2773,37 @@ Regras obrigatórias:
     return null;
   }
 
+  private extrairCnpj(texto: string) {
+    const match = texto.match(/\b(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})\b/);
+    return match?.[1]?.replace(/\D/g, '') || null;
+  }
+
+  private extrairNomeFornecedorInformado(texto: string) {
+    const semCnpj = texto
+      .replace(/\bcnpj\b/gi, ' ')
+      .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!semCnpj || semCnpj.length < 2) return null;
+    return semCnpj
+      .split(' ')
+      .map((parte) =>
+        parte.length <= 3
+          ? parte.toUpperCase()
+          : `${parte.charAt(0).toUpperCase()}${parte.slice(1)}`,
+      )
+      .join(' ');
+  }
+
+  private formatarCnpj(cnpj: string) {
+    const digits = cnpj.replace(/\D/g, '');
+    if (digits.length !== 14) return cnpj;
+    return digits.replace(
+      /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+      '$1.$2.$3/$4-$5',
+    );
+  }
+
   private extrairPeriodoTexto(texto: string) {
     const matches = [...texto.matchAll(/(\d{2}[\/-]\d{2}[\/-]\d{4}|\d{4}-\d{2}-\d{2})/g)];
     if (matches.length < 2) return null;
@@ -2586,6 +2822,12 @@ Regras obrigatórias:
   private extrairNumeroNF(texto: string) {
     const match = texto.match(/\b(?:nf|nota)\s*#?\s*(\d{1,20})\b/i);
     return match?.[1] || null;
+  }
+
+  private extrairNumeroNfAvulso(texto: string) {
+    const limpo = texto.trim();
+    if (!/^\d{1,20}$/.test(limpo)) return null;
+    return limpo;
   }
 
   private extrairMoeda(texto: string) {
@@ -2627,6 +2869,29 @@ Regras obrigatórias:
       );
     if (!match) return null;
     return `${match[1]}/${match[2]}`;
+  }
+
+  private normalizarCompetenciaComAnoDoPeriodo(
+    texto: string,
+    draft: MedicaoChatDraft,
+  ) {
+    if (!draft.periodo_fim) return null;
+    const textoNormalizado = texto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+    const mes = MESES_PT.find(
+      (nome) => nome && new RegExp(`\\b${nome}\\b`).test(textoNormalizado),
+    );
+    if (!mes) return null;
+    return `${mes}/${draft.periodo_fim.substring(0, 4)}`;
+  }
+
+  private periodoPareceMesCheio(inicio: string, fim: string) {
+    const [iy, im, id] = inicio.split('-').map(Number);
+    const [fy, fm, fd] = fim.split('-').map(Number);
+    if (iy !== fy || im !== fm || id !== 1) return false;
+    return fd === new Date(fy, fm, 0).getDate();
   }
 
   private derivarCompetencia(data: string) {

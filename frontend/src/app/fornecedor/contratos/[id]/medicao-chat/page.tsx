@@ -149,6 +149,7 @@ function getDiscriminacoes(sessionData: SessionResponse | null) {
 function getActiveStepIndex(sessionData: SessionResponse | null) {
   if (!sessionData) return 0
   const pendencias = sessionData.session.pendencias || []
+  if (pendencias.includes('IDENTIFICACAO')) return 0
   if (pendencias.includes('PERIODO')) return 1
   if (pendencias.includes('COMPETENCIA')) return 2
   if (pendencias.includes('MEDICAO')) return 3

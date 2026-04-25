@@ -364,11 +364,11 @@ export class MedicaoChatAgentService {
     if (!draft?.competencia) {
       return 'Pedir a competencia da medicao.';
     }
-    if (!draft?.nota_fiscal_numero && !draft?.nota_fiscal_valor) {
-      return 'Pedir a nota fiscal ou receber XML/PDF.';
-    }
     if (!draft?.valor_medido && (!Array.isArray(draft?.itens) || draft.itens.length === 0)) {
       return 'Preencher a execucao da medicao com valor, itens ou etapas.';
+    }
+    if (!draft?.nota_fiscal_numero && !draft?.nota_fiscal_valor) {
+      return 'Pedir o numero da nota fiscal ou receber XML/PDF.';
     }
     if (!Array.isArray(draft?.discriminacoes) || draft.discriminacoes.length === 0) {
       return 'Completar as discriminacoes do boletim.';
