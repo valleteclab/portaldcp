@@ -294,10 +294,10 @@ export class MedicaoChatAgentService {
         origem: 'heuristica',
       });
     }
-    if (/discrimin|irrf|iss|servi[cç]os|material/i.test(mensagem)) {
+    if (/discrimin|irrf|iss|imposto|taxa|tribut|operacion|servi[cç]os|material/i.test(mensagem)) {
       ferramentas.push({
         nome: 'atualizar_discriminacoes',
-        titulo: 'Atualizar discriminacoes',
+        titulo: 'Atualizar composicao financeira da despesa',
         tipo: 'write',
         confianca: 'medium',
         origem: 'heuristica',
@@ -371,7 +371,7 @@ export class MedicaoChatAgentService {
       return 'Pedir o numero da nota fiscal ou receber XML/PDF.';
     }
     if (!Array.isArray(draft?.discriminacoes) || draft.discriminacoes.length === 0) {
-      return 'Completar as discriminacoes do boletim.';
+      return 'Completar a composicao financeira da despesa: ISS, impostos/taxas, despesas operacionais, servicos ou outros percentuais/valores.';
     }
     if (draft?.observacoes == null) {
       return 'Perguntar se ha observacoes finais.';

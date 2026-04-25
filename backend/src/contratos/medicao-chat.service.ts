@@ -1736,6 +1736,8 @@ Regras obrigatórias:
 - Se resposta_base_obrigatoria disser que algo foi aplicado, preserva esse fato.
 - Se houve_escrita_no_rascunho for false, diga claramente que não alterou o rascunho quando isso for relevante.
 - Só informe "valor medido" atual quando rascunho_atual.valor_medido estiver preenchido ou quando resposta_base_obrigatoria trouxer esse valor explicitamente. Não use ultima_medicao como valor da medição atual.
+- "Discriminações da despesa" são a composição financeira do boletim, como ISS, impostos/taxas, despesas operacionais, serviços/mão de obra, materiais, etc. Não trate esse campo como descrição do objeto executado.
+- Quando a pendência for DISCRIMINACOES, peça percentuais ou valores da composição financeira, por exemplo "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou ofereça reaproveitar a última medição se existir.
 - Não prometa submissão automática, ateste, aprovação ou assinatura. O envio final continua manual.
 - Quando houver pendências, faça uma única pergunta ou pedido de próximo passo, com exemplo curto.
 - Quando houver avisos, destaque sem alarmismo.
@@ -1977,7 +1979,7 @@ Regras obrigatórias:
       draft.valor_medido = valor;
       return {
         resposta:
-          'Valor medido registrado. Agora me informe as **discriminações de despesa** em linhas como "Serviços - 30000" ou diga "reaproveitar última".',
+          'Valor medido registrado. Agora me informe a **composição financeira da despesa**, como "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou diga "reaproveitar última".',
       };
     }
 
@@ -1999,7 +2001,7 @@ Regras obrigatórias:
       draft.itens = itensExtraidos;
       return {
         resposta:
-          'Itens da medição registrados. Agora me informe as **discriminações de despesa** ou diga "reaproveitar última".',
+          'Itens da medição registrados. Agora me informe a **composição financeira da despesa**, como "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou diga "reaproveitar última".',
       };
     }
 
@@ -2020,7 +2022,7 @@ Regras obrigatórias:
     draft.itens = etapasExtraidas;
     return {
       resposta:
-        'Execução por etapas registrada. Agora me informe as **discriminações de despesa** ou diga "reaproveitar última".',
+        'Execução por etapas registrada. Agora me informe a **composição financeira da despesa**, como "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou diga "reaproveitar última".',
     };
   }
 
@@ -2070,7 +2072,7 @@ Regras obrigatórias:
     if (discriminacoes.length === 0) {
       return {
         resposta:
-          'Não consegui entender as discriminações. Me envie em linhas como "Serviços - 30000" e "Tributos - 6598,50".',
+          'Não consegui entender a composição financeira. Me envie percentuais ou valores, como "ISS 2%, Despesas Operacionais 48%, Serviços 50%".',
       };
     }
     draft.discriminacoes = discriminacoes;
@@ -2506,9 +2508,9 @@ Regras obrigatórias:
     if (pendencia === 'DISCRIMINACOES') {
       const sugestaoUltima =
         contexto.ultima_medicao != null
-          ? ' Se quiser, responda **reaproveitar última**.'
+          ? ' Se mantiver a mesma composição da medição anterior, responda **reaproveitar última**.'
           : '';
-      return `${resumoContrato ? `${resumoContrato} ` : ''}Agora preciso das **discriminações da despesa**.${sugestaoUltima}`;
+      return `${resumoContrato ? `${resumoContrato} ` : ''}Agora preciso das **discriminações da despesa**, ou seja, a composição financeira com impostos/taxas e serviços. Exemplo: **ISS 2%, Despesas Operacionais 48%, Serviços 50%**.${sugestaoUltima}`;
     }
 
     if (pendencia === 'OBSERVACOES') {
@@ -2578,7 +2580,7 @@ Regras obrigatórias:
     }
 
     if (pendencia === 'DISCRIMINACOES') {
-      return 'Agora me informe as discriminações da despesa ou diga "reaproveitar última".';
+      return 'Agora me informe a composição financeira da despesa, por exemplo "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou diga "reaproveitar última".';
     }
 
     if (pendencia === 'OBSERVACOES') {
@@ -3140,10 +3142,10 @@ Regras obrigatórias:
           {
             role: 'user',
             content:
-              `Mensagem do fornecedor:\n${mensagem}\n\nValor base: ${valorBase}\n\nRetorne apenas JSON no formato {"discriminacoes":[{"descricao":"Serviços","valor":1000}]}.`,
+              `Mensagem do fornecedor:\n${mensagem}\n\nValor base: ${valorBase}\n\nExtraia apenas a composição financeira da despesa, como ISS, impostos/taxas, despesas operacionais, serviços, mão de obra ou materiais. Não extraia descrição da execução/objeto do contrato como discriminação.\n\nRetorne apenas JSON no formato {"discriminacoes":[{"descricao":"ISS","valor":1000}]}.`,
           },
         ],
-        'Extraia discriminações de despesa e valores de uma instrução curta. Retorne apenas JSON válido.',
+        'Extraia discriminações financeiras de despesa e valores/percentuais de uma instrução curta. Discriminação não é descrição do serviço executado. Retorne apenas JSON válido.',
       );
       const parsed = this.safeParseJson(response);
       const lista = Array.isArray(parsed?.discriminacoes)
