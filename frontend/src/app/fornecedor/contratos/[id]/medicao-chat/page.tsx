@@ -37,6 +37,14 @@ type PreviewMedicao = {
   nota_fiscal_numero?: string
   nota_fiscal_valor?: number
   valor_medido?: number
+  execucao_fiscal?: {
+    dias_executados?: number
+    meses_executados?: number
+    dias_executados_extra?: number
+    dias_restantes?: number
+    meses_restantes?: number
+    dias_restantes_extra?: number
+  }
   execucao_financeira?: {
     totais?: {
       no_periodo?: number
@@ -104,6 +112,15 @@ function formatarMoeda(valor?: number | null) {
     style: 'currency',
     currency: 'BRL',
   })
+}
+
+function formatarTempo(meses?: number, dias?: number) {
+  const m = Number(meses || 0)
+  const d = Number(dias || 0)
+  if (m === 0 && d === 0) return '—'
+  if (m === 0) return `${d} dia${d !== 1 ? 's' : ''}`
+  if (d === 0) return `${m} mês${m !== 1 ? 'es' : ''}`
+  return `${m} mês${m !== 1 ? 'es' : ''} e ${d} dia${d !== 1 ? 's' : ''}`
 }
 
 function formatarData(data?: string | null) {
@@ -291,6 +308,11 @@ export default function MedicaoChatFornecedorPage() {
   const previewFinanceiro = useMemo(() => {
     if (!sessionData || sessionData.preview.modo !== 'medicao') return null
     return sessionData.preview.medicao?.execucao_financeira?.totais || null
+  }, [sessionData])
+
+  const previewFiscal = useMemo(() => {
+    if (!sessionData || sessionData.preview.modo !== 'medicao') return null
+    return sessionData.preview.medicao?.execucao_fiscal || null
   }, [sessionData])
 
   const discriminacoes =
@@ -559,26 +581,52 @@ export default function MedicaoChatFornecedorPage() {
                 </div>
               </div>
 
-              {previewFinanceiro && (
+              {(previewFiscal || previewFinanceiro) && (
                 <div className="rounded-lg border border-green-200 bg-green-50/40 p-3 space-y-2 text-sm">
-                  <p className="font-semibold text-green-800">Execucao financeira</p>
-                  <div className="flex justify-between">
-                    <span>No periodo</span>
-                    <span className="font-medium">
-                      {formatarMoeda(previewFinanceiro.no_periodo)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Ate o periodo</span>
-                    <span className="font-medium">
-                      {formatarMoeda(previewFinanceiro.ate_periodo)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>A executar</span>
-                    <span className="font-medium">
-                      {formatarMoeda(previewFinanceiro.a_executar)}
-                    </span>
+                  <p className="font-semibold text-green-800 flex items-center gap-1">
+                    Execução Fiscal e Financeira
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {previewFiscal && (
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Fiscal (Tempo)</p>
+                        <div className="flex justify-between gap-1">
+                          <span className="text-slate-500 text-xs">Até o Período:</span>
+                          <span className="font-medium text-blue-700 text-xs text-right">
+                            {formatarTempo(previewFiscal.meses_executados, previewFiscal.dias_executados_extra)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-1">
+                          <span className="text-slate-500 text-xs">A Executar:</span>
+                          <span className="font-medium text-blue-700 text-xs text-right">
+                            {formatarTempo(previewFiscal.meses_restantes, previewFiscal.dias_restantes_extra)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {previewFinanceiro && (
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Financeira (R$)</p>
+                        <div className="flex justify-between gap-1">
+                          <span className="text-slate-500 text-xs">No Período:</span>
+                          <span className="font-medium text-green-700 text-xs text-right">
+                            {formatarMoeda(previewFinanceiro.no_periodo)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-1">
+                          <span className="text-slate-500 text-xs">Até o Período:</span>
+                          <span className="font-medium text-green-700 text-xs text-right">
+                            {formatarMoeda(previewFinanceiro.ate_periodo)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-1">
+                          <span className="text-slate-500 text-xs">A Executar:</span>
+                          <span className="font-medium text-red-600 text-xs text-right">
+                            {formatarMoeda(previewFinanceiro.a_executar)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
