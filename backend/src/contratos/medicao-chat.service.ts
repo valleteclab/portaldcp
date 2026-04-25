@@ -955,6 +955,7 @@ export class MedicaoChatService {
     const aplicacoes: string[] = [];
     const plano: AcaoAgente[] = [];
     const draftAntesEscrita = this.clonarJson(draft);
+    const etapaAntesDaMensagem = this.determinarEtapaAtual(draft, contrato);
     let nfAtualizada = false;
     let handled = false;
     let houveEscrita = false;
@@ -1089,11 +1090,14 @@ export class MedicaoChatService {
     }
 
     const numeroNf = this.extrairNumeroNF(mensagem);
-    const dataNf = this.extrairDataAvulsa(mensagem);
+    const podeInterpretarNotaFiscal =
+      /\bnf\b|\bnota\b/i.test(mensagem) || etapaAntesDaMensagem === 'NF';
+    const dataNf = podeInterpretarNotaFiscal
+      ? this.extrairDataAvulsa(mensagem)
+      : null;
     const valorNf =
-      /\bnf\b|\bnota\b/i.test(mensagem) ||
-      this.determinarEtapaAtual(draft, contrato) === 'NF'
-        ? this.extrairMoeda(mensagem)
+      podeInterpretarNotaFiscal
+        ? this.extrairMoedaIgnorandoDatas(mensagem)
         : null;
     plano.push({
       id: 'nf',
@@ -1629,6 +1633,7 @@ Regras obrigatórias:
 - Use os fatos do JSON. Não invente valores, datas, anexos, itens, percentuais ou permissões.
 - Se resposta_base_obrigatoria disser que algo foi aplicado, preserva esse fato.
 - Se houve_escrita_no_rascunho for false, diga claramente que não alterou o rascunho quando isso for relevante.
+- Só informe "valor medido" atual quando rascunho_atual.valor_medido estiver preenchido ou quando resposta_base_obrigatoria trouxer esse valor explicitamente. Não use ultima_medicao como valor da medição atual.
 - Não prometa submissão automática, ateste, aprovação ou assinatura. O envio final continua manual.
 - Quando houver pendências, faça uma única pergunta ou pedido de próximo passo, com exemplo curto.
 - Quando houver avisos, destaque sem alarmismo.
@@ -1767,7 +1772,7 @@ Regras obrigatórias:
     }
 
     const numero = this.extrairNumeroNF(mensagem);
-    const valor = this.extrairMoeda(mensagem);
+    const valor = this.extrairMoedaIgnorandoDatas(mensagem);
     const data = this.extrairDataAvulsa(mensagem);
 
     if (!numero && valor == null && !data) {
@@ -2588,6 +2593,13 @@ Regras obrigatórias:
     if (!matches || matches.length === 0) return null;
     const last = matches[matches.length - 1];
     return Number(last.replace(/\./g, '').replace(',', '.'));
+  }
+
+  private extrairMoedaIgnorandoDatas(texto: string) {
+    const semDatas = texto
+      .replace(/\d{2}[\/-]\d{2}[\/-]\d{4}/g, ' ')
+      .replace(/\d{4}-\d{2}-\d{2}/g, ' ');
+    return this.extrairMoeda(semDatas);
   }
 
   private extrairDataAvulsa(texto: string) {
