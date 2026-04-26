@@ -540,7 +540,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   doc.setFont('helvetica', 'bold')
   doc.text('Nº NF:', nfX, y)
   doc.setFont('helvetica', 'normal')
-  doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}${dados.nota_fiscal_valor ? `  —  ${fmt(dados.nota_fiscal_valor)}` : ''}` : '-', nfX + 12, y)
+  doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}` : '-', nfX + 12, y)
   y += 5
 
   // Valor Bruto (= valor da medição)

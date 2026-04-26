@@ -407,7 +407,7 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'bold');
   doc.text('Nº NF:', nfX, y);
   doc.setFont('helvetica', 'normal');
-  doc.text(dados.nota_fiscal_numero ? `${textoSeguro(dados.nota_fiscal_numero)}${dados.nota_fiscal_valor ? `  —  ${fmtAr(Number(dados.nota_fiscal_valor) || 0)}` : ''}` : '-', nfX + 12, y);
+  doc.text(dados.nota_fiscal_numero ? textoSeguro(dados.nota_fiscal_numero) : '-', nfX + 12, y);
   y += 5;
 
   // Valor Bruto (= valor da medição)

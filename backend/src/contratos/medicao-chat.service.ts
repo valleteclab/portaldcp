@@ -1531,8 +1531,14 @@ export class MedicaoChatService {
       (etapaAntesDaMensagem === 'NF'
         ? this.extrairNumeroNfAvulso(mensagem)
         : null);
+    const mensagemEhDiscriminacaoEstruturada =
+      /<!--DISCRIMINACOES_CONFIRMACAO_JSON:[\s\S]+?-->/.test(mensagem);
+    const mensagemFalaDeDiscriminacao =
+      /discrimin|descrim|despesa|composi/i.test(mensagem);
     const podeInterpretarNotaFiscal =
-      /\bnf\b|\bnota\b/i.test(mensagem) || etapaAntesDaMensagem === 'NF';
+      !mensagemEhDiscriminacaoEstruturada &&
+      !mensagemFalaDeDiscriminacao &&
+      (/\bnf\b|\bnota\b/i.test(mensagem) || etapaAntesDaMensagem === 'NF');
     const valorNfExplicito = /\b(valor|total|bruto|r\$)\b/i.test(mensagem);
     const dataNf = podeInterpretarNotaFiscal
       ? this.extrairDataAvulsa(mensagem)
