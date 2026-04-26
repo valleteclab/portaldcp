@@ -657,6 +657,16 @@ type TabelaItensChat = {
   itens: ItemMedicaoJson[]
 }
 
+type DiscriminacaoJson = {
+  descricao: string
+  valor: number
+  percentual: number
+}
+
+type TabelaDiscriminacaoChat = {
+  discriminacoes: DiscriminacaoJson[]
+}
+
 function extrairTabelaItensChat(content: string): TabelaItensChat | null {
   const match = content.match(/<!--ITENS_MEDICAO_JSON:([\s\S]+?)-->/)
   if (!match) return null
@@ -669,6 +679,18 @@ function extrairTabelaItensChat(content: string): TabelaItensChat | null {
       aviso: avisoLinha?.trim(),
       itens,
     }
+  } catch {
+    return null
+  }
+}
+
+function extrairTabelaDiscriminacaoChat(content: string): TabelaDiscriminacaoChat | null {
+  const match = content.match(/<!--DISCRIMINACOES_JSON:([\s\S]+?)-->/)
+  if (!match) return null
+  try {
+    const discriminacoes = JSON.parse(match[1]) as DiscriminacaoJson[]
+    if (!Array.isArray(discriminacoes) || discriminacoes.length === 0) return null
+    return { discriminacoes }
   } catch {
     return null
   }
@@ -904,6 +926,139 @@ function CardTabelaItensChat({
   )
 }
 
+function CardTabelaDiscriminacaoChat({
+  content,
+  onEnviarMensagem,
+  disabled,
+}: {
+  content: string
+  onEnviarMensagem: (texto: string) => void
+  disabled?: boolean
+}) {
+  const tabela = extrairTabelaDiscriminacaoChat(content)
+  const [busca, setBusca] = useState('')
+  const [valores, setValores] = useState<Record<number, string>>(() => {
+    if (!tabela) return {}
+    const map: Record<number, string> = {}
+    tabela.discriminacoes.forEach((d, i) => {
+      map[i] = d.percentual != null ? String(d.percentual) : ''
+    })
+    return map
+  })
+
+  if (!tabela) return null
+
+  const discriminacoesFiltradas = tabela.discriminacoes.filter((item, idx) => {
+    if (busca.trim()) {
+      const alvo = `${idx + 1} ${item.descricao}`.toLowerCase()
+      if (!alvo.includes(busca.toLowerCase())) return false
+    }
+    return true
+  })
+
+  const handleConfirmar = () => {
+    const partes: string[] = []
+    tabela.discriminacoes.forEach((d, i) => {
+      const pct = (valores[i] ?? '').trim()
+      if (!pct) return
+      partes.push(`${d.descricao} ${pct}%`)
+    })
+    if (partes.length === 0) return
+    onEnviarMensagem(partes.join(', '))
+  }
+
+  const totalPercentual = tabela.discriminacoes.reduce((acc, _, i) => {
+    const v = Number((valores[i] ?? '').replace(',', '.')) || 0
+    return acc + v
+  }, 0)
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="🔍 Buscar discriminação..."
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="ml-auto text-xs text-slate-500">
+            Total: <span className={`font-semibold ${totalPercentual === 100 ? 'text-green-600' : totalPercentual > 100 ? 'text-red-600' : 'text-slate-700'}`}>{totalPercentual.toFixed(1)}%</span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-[#163b73] text-white">
+              <tr>
+                <th className="px-2 py-2 text-left">#</th>
+                <th className="px-2 py-2 text-left">DESCRIÇÃO</th>
+                <th className="px-2 py-2 text-left">%</th>
+                <th className="px-2 py-2 text-left">VALOR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {discriminacoesFiltradas.map((item, idx) => {
+                const indexOriginal = tabela.discriminacoes.indexOf(item)
+                return (
+                  <tr
+                    key={idx}
+                    className="border-b border-slate-100 last:border-b-0"
+                  >
+                    <td className="px-2 py-2 align-top font-semibold text-slate-700">{idx + 1}</td>
+                    <td className="px-2 py-2 align-top">
+                      <div className="max-w-[340px] whitespace-normal text-[11px] leading-4 text-slate-700">{item.descricao}</div>
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={valores[indexOriginal] ?? ''}
+                        onChange={(e) =>
+                          setValores((prev) => ({ ...prev, [indexOriginal]: e.target.value }))
+                        }
+                        className="w-16 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-2 py-2 align-top font-mono text-slate-700">
+                      R$ {formatarReais(item.valor || 0)}
+                    </td>
+                  </tr>
+                )
+              })}
+              {discriminacoesFiltradas.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">
+                    Nenhuma discriminação encontrada.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="text-[11px] text-slate-500">
+            Exibindo {discriminacoesFiltradas.length} de {tabela.discriminacoes.length} discriminações
+          </div>
+          <Button
+            size="sm"
+            onClick={handleConfirmar}
+            disabled={disabled}
+            className="h-8 bg-blue-700 px-3 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+          >
+            <Check className="mr-1 h-3.5 w-3.5" />
+            Confirmar discriminações
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ResumoLinha({ label, value, destaque = false }: { label: string; value: string; destaque?: boolean }) {
   return (
     <div className={`rounded-lg border px-3 py-2.5 ${destaque ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'}`}>
@@ -924,13 +1079,19 @@ function MensagemChat({
 }) {
   const user = item.role === 'user'
   const tabelaItens = !user ? extrairTabelaItensChat(item.content) : null
-  const conteudoSemMarker = item.content.replace(/<!--ITENS_MEDICAO_JSON:[\s\S]+?-->/, '').trim()
+  const tabelaDiscriminacao = !user ? extrairTabelaDiscriminacaoChat(item.content) : null
+  const conteudoSemMarker = item.content
+    .replace(/<!--ITENS_MEDICAO_JSON:[\s\S]+?-->/, '')
+    .replace(/<!--DISCRIMINACOES_JSON:[\s\S]+?-->/, '')
+    .trim()
   const conteudoSemTabelaMarkdown = conteudoSemMarker
     .replace(/📋 \*\*Itens disponíveis para medição:\*\*/g, '')
+    .replace(/📊 \*\*Discriminações da despesa:\*\*/g, '')
     .replace(/\|[^\n]+\|\n\|[-: |]+\|\n(\|[^\n]+\|\n?)+/g, '')
     .replace(/Selecione os itens na tabela[\s\S]+/g, '')
+    .replace(/Ajuste os valores ou percentuais[\s\S]+/g, '')
     .trim()
-  const textoIntroducao = tabelaItens ? conteudoSemTabelaMarkdown : conteudoSemMarker
+  const textoIntroducao = tabelaItens || tabelaDiscriminacao ? conteudoSemTabelaMarkdown : conteudoSemMarker
 
   if (tabelaItens) {
     return (
@@ -957,6 +1118,36 @@ function MensagemChat({
             </div>
           ) : null}
           <CardTabelaItensChat content={item.content} onEnviarMensagem={onEnviarMensagem} disabled={disabled} />
+        </div>
+      </div>
+    )
+  }
+
+  if (tabelaDiscriminacao) {
+    return (
+      <div className={`flex w-full gap-2 ${user ? 'ml-auto flex-row-reverse' : ''}`}>
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-full text-xs font-semibold ${
+            user ? 'bg-slate-200 text-slate-600' : 'bg-blue-50 text-blue-800'
+          }`}
+        >
+          {user ? 'F' : 'IA'}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {textoIntroducao ? (
+            <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                }}
+              >
+                {textoIntroducao}
+              </ReactMarkdown>
+            </div>
+          ) : null}
+          <CardTabelaDiscriminacaoChat content={item.content} onEnviarMensagem={onEnviarMensagem} disabled={disabled} />
         </div>
       </div>
     )

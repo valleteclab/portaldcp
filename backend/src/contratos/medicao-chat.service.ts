@@ -828,8 +828,7 @@ export class MedicaoChatService {
 
     if ((draft.discriminacoes || []).length > 0) {
       return {
-        resposta:
-          `As discriminações registradas no rascunho são:\n${this.formatarDiscriminacoesResumo(draft.discriminacoes || [])}\n\nSe quiser trocar, envie as novas linhas ou responda "reaproveitar última".`,
+        resposta: this.formatarRespostaDiscriminacoes(draft.discriminacoes || []),
       };
     }
 
@@ -2514,7 +2513,7 @@ Regras obrigatórias:
       if (sugestoes.length > 0) {
         draft.discriminacoes = sugestoes;
         return {
-          resposta: `Perfeito! Percentuais registrados:\n${this.formatarDiscriminacoesResumo(sugestoes)}\n\nHá alguma **observação** sobre a execução dos serviços no período? Campo opcional; pode responder "nenhuma".`,
+          resposta: this.formatarRespostaDiscriminacoes(sugestoes),
         };
       }
 
@@ -2547,8 +2546,7 @@ Regras obrigatórias:
     }
     draft.discriminacoes = discriminacoes;
     return {
-      resposta:
-        'Discriminações registradas. Por fim, me envie as observações do boletim ou responda "sem observações".',
+      resposta: this.formatarRespostaDiscriminacoes(discriminacoes),
     };
   }
 
@@ -2563,6 +2561,41 @@ Regras obrigatórias:
         return `- **${item.descricao}:** ${detalhe}`;
       })
       .join('\n');
+  }
+
+  private formatarTabelaDiscriminacoes(discriminacoes: DraftDiscriminacao[]): string {
+    const linhas = discriminacoes
+      .map((d) => {
+        const pct = d.percentual != null ? `${Number(d.percentual)}%` : '-';
+        const val = d.valor != null ? this.formatCurrency(Number(d.valor)) : '-';
+        return `| ${d.descricao} | ${pct} | ${val} |`;
+      })
+      .join('\n');
+    return `| Descrição | % | Valor |
+|---|---|---|
+${linhas}`;
+  }
+
+  private formatarRespostaDiscriminacoes(discriminacoes: DraftDiscriminacao[]): string {
+    const tabela = this.formatarTabelaDiscriminacoes(discriminacoes);
+    const json = JSON.stringify(
+      discriminacoes.map((d) => ({
+        descricao: d.descricao,
+        valor: d.valor,
+        percentual: d.percentual,
+      })),
+    );
+    return (
+      `📊 **Discriminações da despesa:**
+
+${tabela}
+
+` +
+      `Ajuste os valores ou percentuais conforme necessário e clique em **Confirmar discriminações**.
+
+` +
+      `<!--DISCRIMINACOES_JSON:${json}-->`
+    );
   }
 
   private async reaproveitarDiscriminacoesUltimaMedicao(
@@ -2753,8 +2786,7 @@ Regras obrigatórias:
           };
         }
         return {
-          resposta:
-            `Reaproveitei as discriminações da última medição:\n${this.formatarDiscriminacoesResumo(draft.discriminacoes)}\n\nSe quiser ajustar algum valor depois, me envie as novas linhas normalmente. Agora você pode informar as observações finais.`,
+          resposta: this.formatarRespostaDiscriminacoes(draft.discriminacoes),
         };
       case 'ANEXO_NF': {
         const anexos = draft.anexos_pendentes || [];
