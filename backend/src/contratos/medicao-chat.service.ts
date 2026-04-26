@@ -866,8 +866,9 @@ export class MedicaoChatService {
     }
 
     if (/reaproveitar|última|ultima/i.test(mensagem) && /discrimin/i.test(mensagem)) {
-      draft.discriminacoes = await this.medicaoService.sugerirDiscriminacoes(
-        contrato.id,
+      draft.discriminacoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
+        contrato,
+        draft,
       );
       if ((draft.discriminacoes || []).length > 0) {
         aplicacoes.push('reaproveitei as discriminações da última medição');
@@ -1311,24 +1312,31 @@ export class MedicaoChatService {
       titulo: 'atualizar discriminações',
       status:
         /reaproveitar|última|ultima/i.test(mensagem) ||
-        /[-:=]\s*[\d.,]+/.test(mensagem) &&
-        podeUsarFerramenta('atualizar_discriminacoes')
+        /(?:[-:=]|r\$|\d+\s*%)\s*[\d.,]*/i.test(mensagem) &&
+        (podeUsarFerramenta('atualizar_discriminacoes') ||
+          etapaAntesDaMensagem === 'DISCRIMINACOES')
           ? 'planned'
           : 'skipped',
       confianca: 'medium',
     });
+    const podeAtualizarDiscriminacoes =
+      podeUsarFerramenta('atualizar_discriminacoes') ||
+      etapaAntesDaMensagem === 'DISCRIMINACOES';
     if (
-      /reaproveitar|Ãºltima|ultima/i.test(mensagem) &&
-      /discrimin/i.test(mensagem) &&
-      podeUsarFerramenta('atualizar_discriminacoes')
+      /reaproveitar|última|ultima/i.test(mensagem) &&
+      (/discrimin|descrim/i.test(mensagem) ||
+        etapaAntesDaMensagem === 'DISCRIMINACOES') &&
+      podeAtualizarDiscriminacoes
     ) {
-      draft.discriminacoes = await this.medicaoService.sugerirDiscriminacoes(
-        contrato.id,
+      draft.discriminacoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
+        contrato,
+        draft,
       );
       if ((draft.discriminacoes || []).length > 0) {
         aplicacoes.push('reaproveitei as discriminações da última medição');
         this.marcarAcao(plano, 'discriminacoes', 'applied');
         handled = true;
+        houveEscrita = true;
       } else {
         this.marcarAcao(
           plano,
@@ -1347,7 +1355,7 @@ export class MedicaoChatService {
       );
       if (
         discriminacoes.length > 0 &&
-        podeUsarFerramenta('atualizar_discriminacoes')
+        podeAtualizarDiscriminacoes
       ) {
         draft.discriminacoes = discriminacoes;
         aplicacoes.push('atualizei as discriminações');
@@ -2125,8 +2133,9 @@ Regras obrigatórias:
       );
 
     if (confirmouReaproveitar) {
-      const sugestoes = await this.medicaoService.sugerirDiscriminacoes(
-        contrato.id,
+      const sugestoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
+        contrato,
+        draft,
       );
       if (sugestoes.length > 0) {
         draft.discriminacoes = sugestoes;
@@ -2182,6 +2191,90 @@ Regras obrigatórias:
       .join('\n');
   }
 
+  private async reaproveitarDiscriminacoesUltimaMedicao(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ): Promise<DraftDiscriminacao[]> {
+    const sugestoes = await this.medicaoService.sugerirDiscriminacoes(
+      contrato.id,
+    );
+    if (sugestoes.length === 0) return [];
+
+    const valorBase = await this.calcularValorBaseDiscriminacaoDraft(
+      contrato,
+      draft,
+    );
+
+    return sugestoes
+      .map((item) => {
+        const percentual = Number(item.percentual) || 0;
+        const valorOriginal = Number(item.valor) || 0;
+        const valor =
+          valorBase > 0 && percentual > 0
+            ? Math.round((percentual / 100) * valorBase * 100) / 100
+            : valorOriginal;
+        return {
+          descricao: String(item.descricao || '').trim(),
+          valor,
+          percentual:
+            percentual ||
+            (valorBase > 0 && valor > 0
+              ? Math.round((valor / valorBase) * 10000) / 100
+              : 0),
+        };
+      })
+      .filter((item) => item.descricao && item.valor >= 0);
+  }
+
+  private async calcularValorBaseDiscriminacaoDraft(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ) {
+    const valorDireto =
+      Number(draft.nota_fiscal_valor || 0) || Number(draft.valor_medido || 0);
+    if (valorDireto > 0) return valorDireto;
+
+    if (!Array.isArray(draft.itens) || draft.itens.length === 0) return 0;
+
+    if (await this.medicaoService.usarItensCronograma(contrato.id)) {
+      const itensCronograma = await this.itemCronogramaRepository.find({
+        where: { contrato_id: contrato.id },
+      });
+      return Math.round(
+        draft.itens.reduce((total, item: any) => {
+          if (!item?.item_cronograma_id) return total;
+          const itemCronograma = itensCronograma.find(
+            (cronograma) => cronograma.id === item.item_cronograma_id,
+          );
+          if (!itemCronograma) return total;
+          return (
+            total +
+            Number(item.quantidade_medida || 0) *
+              Number(itemCronograma.valor_unitario || 0)
+          );
+        }, 0) * 100,
+      ) / 100;
+    }
+
+    const etapas = await this.etapaRepository.find({
+      where: { contrato_id: contrato.id },
+    });
+    return Math.round(
+      draft.itens.reduce((total, item: any) => {
+        if (!item?.etapa_id) return total;
+        const etapa = etapas.find((etapaItem) => etapaItem.id === item.etapa_id);
+        if (!etapa) return total;
+        const valorAtual = Number(item.valor_executado_atual || 0);
+        if (valorAtual > 0) return total + valorAtual;
+        return (
+          total +
+          (Number(item.percentual_executado_atual || 0) / 100) *
+            Number(etapa.valor_previsto || 0)
+        );
+      }, 0) * 100,
+    ) / 100;
+  }
+
   private aplicarObservacoes(
     mensagem: string,
     draft: MedicaoChatDraft,
@@ -2230,12 +2323,19 @@ Regras obrigatórias:
             'Perfeito! Quantidade registrada: **1 mês**.\n\nAgora, por favor, informe o **número da Nota Fiscal** correspondente a esta medição.',
         };
       case 'REAPROVEITAR_DISCRIMINACOES':
-        draft.discriminacoes = await this.medicaoService.sugerirDiscriminacoes(
-          contrato.id,
+        draft.discriminacoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
+          contrato,
+          draft,
         );
+        if ((draft.discriminacoes || []).length === 0) {
+          return {
+            resposta:
+              'Não encontrei discriminações anteriores para reaproveitar. Me envie os percentuais ou valores em linhas, por exemplo: "ISS 2%, Despesas Operacionais 48%, Serviços 50%".',
+          };
+        }
         return {
           resposta:
-            'Reaproveitei as discriminações da última medição. Se quiser ajustar algum valor depois, me envie as novas linhas normalmente. Agora você pode informar as observações finais.',
+            `Reaproveitei as discriminações da última medição:\n${this.formatarDiscriminacoesResumo(draft.discriminacoes)}\n\nSe quiser ajustar algum valor depois, me envie as novas linhas normalmente. Agora você pode informar as observações finais.`,
         };
       case 'ANEXO_NF': {
         const anexos = draft.anexos_pendentes || [];
@@ -2286,6 +2386,13 @@ Regras obrigatórias:
     const payload = this.converterDraftParaPayload(contrato, draft, fornecedorId);
 
     if (!this.podeMaterializar(contrato, payload)) {
+      if (session.medicao_id && (draft.discriminacoes || []).length > 0) {
+        await this.salvarDiscriminacoesDoDraft(
+          session.medicao_id,
+          fornecedorId,
+          draft,
+        );
+      }
       return session.medicao_id || null;
     }
 
@@ -2303,20 +2410,28 @@ Regras obrigatórias:
     }
 
     if ((draft.discriminacoes || []).length > 0) {
-      await this.medicaoService.salvarDiscriminacoes(
-        medicaoId,
-        fornecedorId,
-        (draft.discriminacoes || []).map((item) => ({
-          descricao: item.descricao,
-          valor: Number(item.valor) || 0,
-          percentual: Number(item.percentual) || 0,
-        })),
-      );
+      await this.salvarDiscriminacoesDoDraft(medicaoId, fornecedorId, draft);
     }
 
     await this.materializarAnexosPendentes(medicaoId, session, fornecedorId);
 
     return medicaoId;
+  }
+
+  private async salvarDiscriminacoesDoDraft(
+    medicaoId: string,
+    fornecedorId: string,
+    draft: MedicaoChatDraft,
+  ) {
+    await this.medicaoService.salvarDiscriminacoes(
+      medicaoId,
+      fornecedorId,
+      (draft.discriminacoes || []).map((item) => ({
+        descricao: item.descricao,
+        valor: Number(item.valor) || 0,
+        percentual: Number(item.percentual) || 0,
+      })),
+    );
   }
 
   private converterDraftParaPayload(
@@ -3380,6 +3495,18 @@ Regras obrigatórias:
     mensagem: string,
     valorBase: number,
   ): Promise<DraftDiscriminacao[]> {
+    const discriminacoesComValor =
+      this.extrairDiscriminacoesComValor(mensagem);
+    if (discriminacoesComValor.length > 0) {
+      return this.recalcularPercentuais(discriminacoesComValor, valorBase);
+    }
+
+    const discriminacoesComPercentual =
+      this.extrairDiscriminacoesComPercentual(mensagem, valorBase);
+    if (discriminacoesComPercentual.length > 0) {
+      return discriminacoesComPercentual;
+    }
+
     const linhas = mensagem
       .split('\n')
       .map((linha) => linha.trim())
@@ -3472,6 +3599,139 @@ Regras obrigatórias:
     } catch {
       return [];
     }
+  }
+
+  private extrairDiscriminacoesComValor(
+    mensagem: string,
+  ): Array<{ descricao: string; valor: number }> {
+    const matches = [
+      ...mensagem.matchAll(
+        /(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+[.,]\d{2})/gi,
+      ),
+    ];
+    const resultado: Array<{ descricao: string; valor: number }> = [];
+    let cursor = 0;
+
+    for (const match of matches) {
+      const inicioNumero = match.index ?? 0;
+      const fimNumero = inicioNumero + match[0].length;
+      const proximoNaoEspaco = mensagem.slice(fimNumero).match(/^\s*(.)/)?.[1];
+      const descricao = this.limparDescricaoDiscriminacao(
+        mensagem.slice(cursor, inicioNumero),
+      );
+      cursor = fimNumero;
+
+      if (proximoNaoEspaco === '%' || !descricao) continue;
+
+      const valor = this.parseNumeroDecimalBr(match[0]);
+      if (valor > 0) {
+        resultado.push({ descricao, valor });
+      }
+    }
+
+    return resultado;
+  }
+
+  private extrairDiscriminacoesComPercentual(
+    mensagem: string,
+    valorBase: number,
+  ): DraftDiscriminacao[] {
+    const resultadoAntesPercentual =
+      this.extrairPercentuaisComDescricaoAntes(mensagem, valorBase);
+    if (resultadoAntesPercentual.length > 0) {
+      return resultadoAntesPercentual;
+    }
+    return this.extrairPercentuaisComDescricaoDepois(mensagem, valorBase);
+  }
+
+  private extrairPercentuaisComDescricaoAntes(
+    mensagem: string,
+    valorBase: number,
+  ): DraftDiscriminacao[] {
+    const matches = [...mensagem.matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)];
+    const resultado: DraftDiscriminacao[] = [];
+    if (
+      matches.length > 0 &&
+      !this.limparDescricaoDiscriminacao(
+        mensagem.slice(0, matches[0].index ?? 0),
+      )
+    ) {
+      return [];
+    }
+    let cursor = 0;
+
+    for (const match of matches) {
+      const inicioPercentual = match.index ?? 0;
+      const fimPercentual = inicioPercentual + match[0].length;
+      const descricao = this.limparDescricaoDiscriminacao(
+        mensagem.slice(cursor, inicioPercentual),
+      );
+      cursor = fimPercentual;
+      if (!descricao) continue;
+
+      const percentual = Number(match[1].replace(',', '.'));
+      if (percentual > 0) {
+        resultado.push({
+          descricao,
+          percentual,
+          valor:
+            valorBase > 0
+              ? Math.round((percentual / 100) * valorBase * 100) / 100
+              : 0,
+        });
+      }
+    }
+
+    return resultado;
+  }
+
+  private extrairPercentuaisComDescricaoDepois(
+    mensagem: string,
+    valorBase: number,
+  ): DraftDiscriminacao[] {
+    const resultado: DraftDiscriminacao[] = [];
+    const regex =
+      /(\d+(?:[.,]\d+)?)\s*%\s*([^,;\n]+?)(?=\s*(?:[,;\n]|\d+(?:[.,]\d+)?\s*%|$))/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(mensagem)) !== null) {
+      const percentual = Number(match[1].replace(',', '.'));
+      const descricao = this.limparDescricaoDiscriminacao(match[2]);
+      if (!descricao || !(percentual > 0)) continue;
+      resultado.push({
+        descricao,
+        percentual,
+        valor:
+          valorBase > 0
+            ? Math.round((percentual / 100) * valorBase * 100) / 100
+            : 0,
+      });
+    }
+    return resultado;
+  }
+
+  private limparDescricaoDiscriminacao(valor: string) {
+    const descricao = valor
+      .replace(/[\r\n;\t]+/g, ' ')
+      .replace(/^[\s,:=-]+|[\s,:=-]+$/g, '')
+      .replace(/\b(?:r\$|valor|total|bruto|liquido|líquido)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (descricao.length < 2) return '';
+    if (!/[A-Za-zÀ-ÿ]/.test(descricao)) return '';
+    if (/^(nf|nota|data|numero|número)$/i.test(descricao)) return '';
+    return descricao.substring(0, 255);
+  }
+
+  private parseNumeroDecimalBr(valor: string) {
+    const limpo = valor
+      .replace(/R\$/gi, '')
+      .replace(/\s/g, '')
+      .trim();
+    if (!limpo) return 0;
+    if (limpo.includes(',')) {
+      return Number(limpo.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    return Number(limpo) || 0;
   }
 
   private recalcularPercentuais(

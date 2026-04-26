@@ -299,7 +299,7 @@ export class MedicaoChatAgentService {
         origem: 'heuristica',
       });
     }
-    if (/discrimin|irrf|iss|imposto|taxa|tribut|operacion|servi[cç]os|material/i.test(mensagem)) {
+    if (/discrimin|descrim|irrf|iss|imposto|taxa|tribut|operacion|servi[cç]os|material/i.test(mensagem)) {
       ferramentas.push({
         nome: 'atualizar_discriminacoes',
         titulo: 'Atualizar composicao financeira da despesa',
