@@ -799,7 +799,7 @@ export class MedicaoChatService {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
     const pediuNavegacao =
-      /\b(voltar|volta|retornar|ver|veja|mostrar|abrir|ir|revisar|conferir)\b/.test(
+      /\b(voltar|volta|retornar|ver|veja|mostrar|abrir|ir|revisar|conferir|alterar|trocar|corrigir|mudar|editar|ajustar)\b/.test(
         texto,
       );
     const pediuDiscriminacoes =
