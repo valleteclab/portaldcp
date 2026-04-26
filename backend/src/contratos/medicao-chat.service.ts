@@ -422,9 +422,23 @@ export class MedicaoChatService {
     session.draft = draft;
     session.pendencias = this.calcularPendencias(draft, contrato);
     session.etapa_atual = this.determinarEtapaAtual(draft, contrato);
-    session.medicao_id = await this.materializarDraft(session, contrato, fornecedorId);
+    const erroMaterializacao = await this.tentarMaterializarDraft(
+      session,
+      contrato,
+      fornecedorId,
+    );
+    if (erroMaterializacao) {
+      respostaAssistente = this.juntarRespostas(
+        respostaAssistente,
+        this.formatarErroMaterializacaoChat(erroMaterializacao),
+      );
+    }
 
-    if (!session.confirmacao_pendente && session.pendencias.length === 0) {
+    if (
+      !erroMaterializacao &&
+      !session.confirmacao_pendente &&
+      session.pendencias.length === 0
+    ) {
       session.status = StatusMedicaoChatSession.CONCLUIDA;
     }
 
@@ -517,7 +531,7 @@ export class MedicaoChatService {
       session.draft = draft;
       session.pendencias = this.calcularPendencias(draft, contrato);
       session.etapa_atual = this.determinarEtapaAtual(draft, contrato);
-      session.medicao_id = await this.materializarDraft(
+      const erroMaterializacao = await this.tentarMaterializarDraft(
         session,
         contrato,
         fornecedorId,
@@ -534,7 +548,11 @@ export class MedicaoChatService {
         ...(session.historico_ia || []),
         {
           role: 'assistant',
-          content: `Analisei o arquivo **${file.originalname}** e apliquei automaticamente os dados da nota fiscal ao rascunho.${resumoNf ? ` ${resumoNf}` : ''}${orientacao ? ` ${orientacao}` : ''}`,
+          content:
+            `Analisei o arquivo **${file.originalname}** e apliquei automaticamente os dados da nota fiscal ao rascunho.${resumoNf ? ` ${resumoNf}` : ''}${orientacao ? ` ${orientacao}` : ''}` +
+            (erroMaterializacao
+              ? ` ${this.formatarErroMaterializacaoChat(erroMaterializacao)}`
+              : ''),
           created_at: new Date().toISOString(),
         },
       ];
@@ -2602,6 +2620,60 @@ Regras obrigatórias:
           resposta: 'Confirmação aplicada ao rascunho.',
         };
     }
+  }
+
+  private async tentarMaterializarDraft(
+    session: MedicaoChatSession,
+    contrato: Contrato,
+    fornecedorId: string,
+  ): Promise<string | null> {
+    try {
+      session.medicao_id = await this.materializarDraft(
+        session,
+        contrato,
+        fornecedorId,
+      );
+      return null;
+    } catch (error: any) {
+      const mensagem = this.extrairMensagemBadRequest(error);
+      if (!mensagem) throw error;
+
+      this.logger.warn(
+        `Rascunho assistido ${session.id} não materializado: ${mensagem}`,
+      );
+      return mensagem;
+    }
+  }
+
+  private extrairMensagemBadRequest(error: any): string | null {
+    const isBadRequest =
+      error instanceof BadRequestException || error?.getStatus?.() === 400;
+    if (!isBadRequest) return null;
+
+    const response = error?.getResponse?.();
+    if (typeof response === 'string') return response;
+
+    const message = response?.message;
+    if (Array.isArray(message)) return message.join(' ');
+    if (typeof message === 'string') return message;
+
+    return typeof error?.message === 'string' ? error.message : null;
+  }
+
+  private juntarRespostas(resposta: string, complemento: string): string {
+    const base = resposta?.trim();
+    const extra = complemento?.trim();
+    if (!base) return extra || '';
+    if (!extra) return base;
+    return `${base}\n\n${extra}`;
+  }
+
+  private formatarErroMaterializacaoChat(mensagem: string): string {
+    const precisaNovoPeriodo =
+      /medi[cç][aã]o aprovada|per[ií]odo|sobreposto/i.test(mensagem);
+    return precisaNovoPeriodo
+      ? `${mensagem} Informe outro período para continuar.`
+      : mensagem;
   }
 
   private async materializarDraft(

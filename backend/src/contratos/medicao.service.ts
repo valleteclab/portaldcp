@@ -675,6 +675,66 @@ export class MedicaoService {
     });
   }
 
+  private normalizarDataPeriodo(valor?: string | Date | null): string | null {
+    if (!valor) return null;
+    if (valor instanceof Date) {
+      return valor.toISOString().substring(0, 10);
+    }
+    const texto = String(valor).trim();
+    const match = texto.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    const data = new Date(texto);
+    if (Number.isNaN(data.getTime())) return null;
+    return data.toISOString().substring(0, 10);
+  }
+
+  private formatarDataPeriodoBR(valor?: string | Date | null): string {
+    const iso = this.normalizarDataPeriodo(valor);
+    if (!iso) return String(valor || '');
+    const [ano, mes, dia] = iso.split('-');
+    return `${dia}/${mes}/${ano}`;
+  }
+
+  async validarPeriodoSemMedicaoAprovada(
+    contratoId: string,
+    periodoInicio: string | Date,
+    periodoFim: string | Date,
+    medicaoIdIgnorado?: string | null,
+  ): Promise<void> {
+    const inicio = this.normalizarDataPeriodo(periodoInicio);
+    const fim = this.normalizarDataPeriodo(periodoFim);
+
+    if (!inicio || !fim) {
+      throw new BadRequestException('Período de medição inválido');
+    }
+    if (inicio > fim) {
+      throw new BadRequestException(
+        'A data final do período não pode ser anterior à data inicial',
+      );
+    }
+
+    const query = this.medicaoRepository
+      .createQueryBuilder('m')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .andWhere('m.periodo_inicio <= :fim', { fim })
+      .andWhere('m.periodo_fim >= :inicio', { inicio })
+      .orderBy('m.periodo_inicio', 'DESC');
+
+    if (medicaoIdIgnorado) {
+      query.andWhere('m.id <> :medicaoIdIgnorado', { medicaoIdIgnorado });
+    }
+
+    const existente = await query.getOne();
+    if (!existente) return;
+
+    throw new BadRequestException(
+      `Já existe uma medição aprovada para este contrato no período ` +
+        `${this.formatarDataPeriodoBR(existente.periodo_inicio)} a ${this.formatarDataPeriodoBR(existente.periodo_fim)} ` +
+        `(medição #${existente.numero_medicao}). Não é possível criar ou atualizar outra medição com período sobreposto.`,
+    );
+  }
+
   async atualizarQuantidadeMedidaMigracao(
     contratoId: string,
     itemId: string,
@@ -788,6 +848,12 @@ export class MedicaoService {
         );
       }
     }
+
+    await this.validarPeriodoSemMedicaoAprovada(
+      contratoId,
+      dados.periodo_inicio,
+      dados.periodo_fim,
+    );
 
     let osVinculada: OrdemServicoContrato | null = null;
     const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
@@ -1241,6 +1307,13 @@ export class MedicaoService {
         );
       }
     }
+
+    await this.validarPeriodoSemMedicaoAprovada(
+      medicao.contrato_id,
+      dados.periodo_inicio,
+      dados.periodo_fim,
+      medicao.id,
+    );
 
     const dataCorteCiclo = this.obterDataCorteCicloAtual(
       contrato,
@@ -1719,6 +1792,13 @@ export class MedicaoService {
       );
     }
 
+    await this.validarPeriodoSemMedicaoAprovada(
+      medicao.contrato_id,
+      medicao.periodo_inicio,
+      medicao.periodo_fim,
+      medicao.id,
+    );
+
     if (contrato) {
       const servicoContinuado = this.isServicoContinuado(contrato);
 
@@ -1877,6 +1957,13 @@ export class MedicaoService {
         'Apenas medições em rascunho ou devolvidas podem ser submetidas',
       );
     }
+
+    await this.validarPeriodoSemMedicaoAprovada(
+      medicao.contrato_id,
+      medicao.periodo_inicio,
+      medicao.periodo_fim,
+      medicao.id,
+    );
 
     const contrato = await this.contratoRepository.findOne({
       where: { id: medicao.contrato_id },
@@ -2119,6 +2206,13 @@ export class MedicaoService {
         'Apenas medições submetidas ou parcialmente atestadas podem receber ateste',
       );
     }
+
+    await this.validarPeriodoSemMedicaoAprovada(
+      medicao.contrato_id,
+      medicao.periodo_inicio,
+      medicao.periodo_fim,
+      medicao.id,
+    );
 
     // Atestar todos os itens da medição (etapas + itens de quantidade)
     const [itensEtapa, itensQuantidade] = await Promise.all([
@@ -2432,6 +2526,13 @@ export class MedicaoService {
       );
     }
 
+    await this.validarPeriodoSemMedicaoAprovada(
+      medicao.contrato_id,
+      medicao.periodo_inicio,
+      medicao.periodo_fim,
+      medicao.id,
+    );
+
     medicao.status = StatusMedicao.AGUARDANDO_APROVACAO;
     medicao.fiscal_id = fiscalId;
     medicao.fiscal_nome = fiscalNome;
@@ -2464,6 +2565,13 @@ export class MedicaoService {
         'Apenas medições aguardando aprovação podem ser aprovadas',
       );
     }
+
+    await this.validarPeriodoSemMedicaoAprovada(
+      medicao.contrato_id,
+      medicao.periodo_inicio,
+      medicao.periodo_fim,
+      medicao.id,
+    );
 
     const contrato = await this.contratoRepository.findOne({
       where: { id: medicao.contrato_id },
@@ -5296,6 +5404,18 @@ export class MedicaoService {
     if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
       throw new ForbiddenException(
         'Você não tem permissão para corrigir esta medição',
+      );
+    }
+
+    if (
+      dados.periodo_inicio !== undefined ||
+      dados.periodo_fim !== undefined
+    ) {
+      await this.validarPeriodoSemMedicaoAprovada(
+        medicao.contrato_id,
+        dados.periodo_inicio || medicao.periodo_inicio,
+        dados.periodo_fim || medicao.periodo_fim,
+        medicao.id,
       );
     }
 
