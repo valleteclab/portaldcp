@@ -35,6 +35,19 @@ type DraftItemQuantidade = {
   quantidade_medida: number;
 };
 
+type ItemDisponivelMedicao = {
+  item_cronograma_id: string;
+  numero_item: number;
+  descricao: string;
+  unidade_medida: string;
+  quantidade_contratada: number;
+  quantidade_medida_anterior: number;
+  saldo_disponivel: number;
+  valor_unitario: number;
+  bloqueado?: boolean;
+  motivo_bloqueio?: string;
+};
+
 type DraftItemEtapa = {
   etapa_id: string;
   numero_etapa: number;
@@ -812,7 +825,7 @@ export class MedicaoChatService {
     if ((draft.discriminacoes || []).length > 0) {
       return {
         resposta:
-          `As discriminações registradas no rascunho são:\n${this.formatarDiscriminacoesResumo(draft.discriminacoes)}\n\nSe quiser trocar, envie as novas linhas ou responda "reaproveitar última".`,
+          `As discriminações registradas no rascunho são:\n${this.formatarDiscriminacoesResumo(draft.discriminacoes || [])}\n\nSe quiser trocar, envie as novas linhas ou responda "reaproveitar última".`,
       };
     }
 
@@ -1353,6 +1366,32 @@ export class MedicaoChatService {
             `⚠️ Itens já medidos neste período: ${itensTxt}. Esses itens ficam bloqueados; você pode medir os demais.`,
           );
         }
+
+        // Apresentar tabela de itens disponíveis para o fornecedor escolher
+        const usarItens = await this.medicaoService.usarItensCronograma(contrato.id);
+        if (usarItens && !bloqueio.bloqueioGlobal) {
+          const itensDisponiveis = await this.calcularItensDisponiveisMedicao(
+            contrato.id,
+            periodo.inicio,
+            periodo.fim,
+            session.medicao_id,
+          );
+          const tabela = this.formatarTabelaItensMedicao(itensDisponiveis);
+          const itensNaoBloqueados = itensDisponiveis.filter((i) => !i.bloqueado && i.saldo_disponivel > 0);
+          if (itensNaoBloqueados.length > 0) {
+            aplicacoes.push(
+              `\n\n📋 **Itens disponíveis para medição:**\n\n${tabela}\n\n` +
+              `Informe o **item e a quantidade** que deseja medir, por exemplo:\n` +
+              `• "item 1 = 10,5"\n` +
+              `• "medir item 2: 5 unidades"\n` +
+              `• "1 = 10,5, 3 = 4,2" (múltiplos itens)`,
+            );
+          } else {
+            aplicacoes.push(
+              `\n\n⚠️ **Todos os itens estão bloqueados ou esgotados para este período.** Não há itens disponíveis para medição.`,
+            );
+          }
+        }
       } else if (
         draft.periodo_inicio !== periodo.inicio ||
         draft.periodo_fim !== periodo.fim
@@ -1602,26 +1641,36 @@ export class MedicaoChatService {
       /item\s*\d+\s*[:=]/i.test(mensagem) ||
       /^\s*\d+\s*[:=]/im.test(mensagem)
     ) {
-      const itensDisponiveis = await this.itemCronogramaRepository.find({
-        where: { contrato_id: contrato.id },
-        order: { numero_item: 'ASC' },
-      });
-      const itensExtraidos = await this.extrairItensCronogramaDaMensagem(
-        mensagem,
-        itensDisponiveis,
-      );
-      if (itensExtraidos.length > 0) {
-        draft.itens = itensExtraidos;
-        aplicacoes.push(`preenchi ${itensExtraidos.length} item(ns) da medição`);
-        this.marcarAcao(plano, 'medicao', 'applied');
-        handled = true;
+      // Verificar se período foi informado para validar bloqueios
+      if (!draft.periodo_inicio || !draft.periodo_fim) {
+        aplicacoes.push('⚠️ Informe primeiro o **período da medição** para que eu possa verificar quais itens estão disponíveis.');
+        this.marcarAcao(plano, 'medicao', 'blocked', 'Período não informado para validar itens disponíveis');
       } else {
-        this.marcarAcao(
-          plano,
-          'medicao',
-          'blocked',
-          'A mensagem parece citar itens, mas não consegui fechar quantidades válidas.',
+        const resultado = await this.processarEscolhaItensMedicao(
+          mensagem,
+          contrato.id,
+          draft.periodo_inicio,
+          draft.periodo_fim,
+          session.medicao_id,
         );
+
+        if (resultado.itensValidos.length > 0) {
+          draft.itens = resultado.itensValidos;
+          aplicacoes.push(resultado.mensagemResposta);
+          this.marcarAcao(plano, 'medicao', 'applied');
+          handled = true;
+        } else if (resultado.erros.length > 0) {
+          aplicacoes.push(resultado.mensagemResposta);
+          this.marcarAcao(plano, 'medicao', 'blocked', 'Validação de itens retornou erros');
+          handled = true;
+        } else {
+          this.marcarAcao(
+            plano,
+            'medicao',
+            'blocked',
+            'A mensagem parece citar itens, mas não consegui fechar quantidades válidas.',
+          );
+        }
       }
     } else if (/etapa\s*\d+\s*[:=]/i.test(mensagem)) {
       const etapasDisponiveis = await this.etapaRepository.find({
@@ -2324,24 +2373,35 @@ Regras obrigatórias:
     }
 
     if (await this.medicaoService.usarItensCronograma(contrato.id)) {
-      const itensDisponiveis = await this.itemCronogramaRepository.find({
-        where: { contrato_id: contrato.id },
-        order: { numero_item: 'ASC' },
-      });
-      const itensExtraidos = await this.extrairItensCronogramaDaMensagem(
-        mensagem,
-        itensDisponiveis,
-      );
-      if (itensExtraidos.length === 0) {
+      // Verificar se período foi informado para validar bloqueios
+      if (!draft.periodo_inicio || !draft.periodo_fim) {
         return {
           resposta:
-            'Não consegui identificar itens e quantidades. Me envie algo como "item 1 = 2, item 3 = 4,5".',
+            '⚠️ Informe primeiro o **período da medição** para que eu possa verificar quais itens estão disponíveis.',
         };
       }
-      draft.itens = itensExtraidos;
+
+      const resultado = await this.processarEscolhaItensMedicao(
+        mensagem,
+        contrato.id,
+        draft.periodo_inicio,
+        draft.periodo_fim,
+        null, // medicaoIdIgnorado - no fluxo não-agente não temos session
+      );
+
+      if (resultado.itensValidos.length === 0) {
+        return {
+          resposta:
+            resultado.mensagemResposta +
+            '\n\nMe envie algo como "item 1 = 2, item 3 = 4,5".',
+        };
+      }
+
+      draft.itens = resultado.itensValidos;
       return {
         resposta:
-          'Itens da medição registrados. Agora me informe a **composição financeira da despesa**, como "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou diga "reaproveitar última".',
+          resultado.mensagemResposta +
+          '\n\nAgora me informe a **composição financeira da despesa**, como "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou diga "reaproveitar última".',
       };
     }
 
@@ -3958,6 +4018,169 @@ Regras obrigatórias:
       }
     }
     return encontrados;
+  }
+
+  /**
+   * Calcula os itens disponíveis para medição, considerando saldo e bloqueios por período.
+   * Retorna lista com quantidade contratada, já medida e saldo disponível.
+   */
+  private async calcularItensDisponiveisMedicao(
+    contratoId: string,
+    periodoInicio: string,
+    periodoFim: string,
+    medicaoIdIgnorado?: string | null,
+  ): Promise<ItemDisponivelMedicao[]> {
+    const [itensCronograma, bloqueio] = await Promise.all([
+      this.itemCronogramaRepository.find({
+        where: { contrato_id: contratoId },
+        order: { numero_item: 'ASC' },
+      }),
+      this.medicaoService.consultarItensBloqueadosPorPeriodo(
+        contratoId,
+        periodoInicio,
+        periodoFim,
+        medicaoIdIgnorado,
+      ),
+    ]);
+
+    const idsBloqueados = new Set(
+      bloqueio.bloqueioGlobal ? itensCronograma.map((i) => i.id) : bloqueio.itensBloqueados.map((i) => i.itemCronogramaId),
+    );
+
+    return itensCronograma.map((item) => {
+      const quantidadeContratada = Number(item.quantidade || 0);
+      const quantidadeMedidaAnterior = Number(item.quantidade_medida || 0);
+      const saldoDisponivel = Math.max(0, quantidadeContratada - quantidadeMedidaAnterior);
+      const bloqueado = idsBloqueados.has(item.id);
+
+      return {
+        item_cronograma_id: item.id,
+        numero_item: item.numero_item,
+        descricao: item.descricao,
+        unidade_medida: item.unidade_medida,
+        quantidade_contratada: quantidadeContratada,
+        quantidade_medida_anterior: quantidadeMedidaAnterior,
+        saldo_disponivel: bloqueado ? 0 : saldoDisponivel,
+        valor_unitario: Number(item.valor_unitario || 0),
+        bloqueado,
+        motivo_bloqueio: bloqueado ? 'Item já possui medição aprovada no período informado' : undefined,
+      };
+    });
+  }
+
+  /**
+   * Formata tabela markdown com itens disponíveis para medição.
+   */
+  private formatarTabelaItensMedicao(itens: ItemDisponivelMedicao[]): string {
+    if (itens.length === 0) return '';
+
+    const linhas = [
+      '| Item | Descrição | Unidade | Contratado | Já Medido | Saldo | Valor Unit. | Status |',
+      '|------|-----------|---------|------------|-----------|-------|-------------|--------|',
+    ];
+
+    for (const item of itens) {
+      const status = item.bloqueado ? '🔒 Bloqueado' : (item.saldo_disponivel > 0 ? '✅ Disponível' : '⚠️ Esgotado');
+      const saldoFmt = item.bloqueado ? '0,00' : item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+      linhas.push(
+        `| ${item.numero_item} | ${item.descricao.substring(0, 40)}${item.descricao.length > 40 ? '...' : ''} | ${item.unidade_medida} | ${item.quantidade_contratada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | ${item.quantidade_medida_anterior.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | ${saldoFmt} | R$ ${item.valor_unitario.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | ${status} |`,
+      );
+    }
+
+    return linhas.join('\n');
+  }
+
+  /**
+   * Processa a escolha de itens do fornecedor, validando saldo e bloqueios.
+   * Retorna os itens válidos e mensagens de erro para itens inválidos.
+   */
+  private async processarEscolhaItensMedicao(
+    mensagem: string,
+    contratoId: string,
+    periodoInicio: string,
+    periodoFim: string,
+    medicaoIdIgnorado?: string | null,
+  ): Promise<{
+    itensValidos: DraftItemQuantidade[];
+    erros: string[];
+    mensagemResposta: string;
+  }> {
+    const itensDisponiveis = await this.calcularItensDisponiveisMedicao(
+      contratoId,
+      periodoInicio,
+      periodoFim,
+      medicaoIdIgnorado,
+    );
+
+    // Regex para extrair item e quantidade (ex: "item 1 = 10,5" ou "1 = 10.5")
+    const regexItens = [
+      ...mensagem.matchAll(/item\s*(\d+)\s*[:=]\s*([\d.,]+)/gi),
+      ...mensagem.matchAll(/^(\d+)\s*[:=]\s*([\d.,]+)/gim),
+    ];
+
+    const itensValidos: DraftItemQuantidade[] = [];
+    const erros: string[] = [];
+    const processados = new Set<number>();
+
+    for (const match of regexItens) {
+      const numeroItem = Number(match[1]);
+      const quantidadeInformada = Number(match[2].replace(/\./g, '').replace(',', '.'));
+
+      if (processados.has(numeroItem)) continue;
+      processados.add(numeroItem);
+
+      const itemInfo = itensDisponiveis.find((i) => i.numero_item === numeroItem);
+
+      if (!itemInfo) {
+        erros.push(`Item ${numeroItem} não encontrado no contrato`);
+        continue;
+      }
+
+      if (itemInfo.bloqueado) {
+        erros.push(`Item ${numeroItem} (${itemInfo.descricao}) está bloqueado: ${itemInfo.motivo_bloqueio}`);
+        continue;
+      }
+
+      if (quantidadeInformada <= 0) {
+        erros.push(`Item ${numeroItem}: quantidade deve ser maior que zero`);
+        continue;
+      }
+
+      if (quantidadeInformada > itemInfo.saldo_disponivel) {
+        erros.push(
+          `Item ${numeroItem} (${itemInfo.descricao}): quantidade ${quantidadeInformada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} excede o saldo disponível de ${itemInfo.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${itemInfo.unidade_medida}`,
+        );
+        continue;
+      }
+
+      itensValidos.push({
+        item_cronograma_id: itemInfo.item_cronograma_id,
+        numero_item: itemInfo.numero_item,
+        descricao: itemInfo.descricao,
+        quantidade_medida: quantidadeInformada,
+      });
+    }
+
+    // Montar mensagem de resposta
+    let mensagemResposta = '';
+    if (itensValidos.length > 0) {
+      const itensTxt = itensValidos
+        .map((i) => `• Item ${i.numero_item} (${i.descricao}): ${i.quantidade_medida.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`)
+        .join('\n');
+      mensagemResposta += `✅ **Itens registrados:**\n${itensTxt}`;
+    }
+
+    if (erros.length > 0) {
+      const errosTxt = erros.map((e) => `• ${e}`).join('\n');
+      if (mensagemResposta) mensagemResposta += '\n\n';
+      mensagemResposta += `⚠️ **Ajustes necessários:**\n${errosTxt}`;
+    }
+
+    if (itensValidos.length === 0 && erros.length === 0) {
+      mensagemResposta = 'Não consegui identificar itens e quantidades na mensagem. Use o formato: "item 1 = 10,5" ou "1 = 10,5".';
+    }
+
+    return { itensValidos, erros, mensagemResposta };
   }
 
   private async extrairDiscriminacoesDaMensagem(
