@@ -1,6 +1,6 @@
 #!/bin/bash
 # Criar primeira atualização do sistema
-docker exec portaldcp-postgres-1 psql -U licitafacil -d licitafacil -c "
+docker exec portaldcp-postgres-1 psql -U portaldcp -d portaldcp -c "
 INSERT INTO atualizacoes_sistema (id, versao, titulo, conteudo, ativo, publico_alvo, created_at, updated_at)
 VALUES (
   gen_random_uuid(),
