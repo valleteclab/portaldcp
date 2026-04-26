@@ -638,7 +638,7 @@ export default function MedicaoChatFornecedorPage() {
         </main>
       </div>
     </div>
-  return data
+  )
 }
 
 type LinhaTabelaItens = {
