@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { gerarPdfMedicao } from '@/lib/pdf-medicao'
 import { API_URL } from '@/lib/api'
 import {
   CheckCircle,
@@ -70,21 +69,6 @@ export default function AssinarMedicaoPage() {
       }
       const data = await r.json()
       setCodigoValidacao(data.codigo_formatado || data.codigo_validacao || '')
-
-      // Regenerar PDF com layout correto (jsPDF) e fazer upload
-      if (data.dados_pdf && data.medicao_id) {
-        try {
-          const pdfBlob = gerarPdfMedicao(data.dados_pdf)
-          const formData = new FormData()
-          formData.append('arquivo', pdfBlob, `boletim_${data.medicao_id}.pdf`)
-          await fetch(
-            `${API_URL}/api/contratos/medicoes/${data.medicao_id}/upload-boletim-oficial`,
-            { method: 'POST', body: formData },
-          )
-        } catch (e) {
-          console.warn('Não foi possível fazer upload do PDF assinado:', e)
-        }
-      }
 
       setEtapa('assinado')
     } catch {
