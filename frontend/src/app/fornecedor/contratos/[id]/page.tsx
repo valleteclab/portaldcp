@@ -321,6 +321,27 @@ const formatarMoeda = (valor: number | null | undefined) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 };
 
+const parseValorDecimal = (valor: string | number | null | undefined) => {
+  if (valor == null) return 0;
+  if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0;
+  const limpo = valor.replace(/R\$/gi, '').replace(/\s/g, '').trim();
+  if (!limpo) return 0;
+  if (limpo.includes(',')) return Number(limpo.replace(/\./g, '').replace(',', '.')) || 0;
+  return Number(limpo) || 0;
+};
+
+const escolherValorBaseDiscriminacao = (
+  notaFiscalValor: string | number | null | undefined,
+  valorMedidoAtual: number,
+) => {
+  const valorNf = parseValorDecimal(notaFiscalValor);
+  const valorMedido = Number(valorMedidoAtual) || 0;
+  if (valorNf > 0 && valorMedido > 0 && (valorNf > valorMedido * 10 || valorMedido > valorNf * 10)) {
+    return valorMedido;
+  }
+  return valorNf || valorMedido;
+};
+
 const formatarData = (data: string | null | undefined) => {
   if (!data) return '-';
   // Se for formato YYYY-MM-DD (date-only), faz split para evitar problema de timezone UTC
@@ -930,7 +951,7 @@ export default function FornecedorContratoDetalhePage() {
         competencia: novaMedicao.competencia || undefined,
         observacoes: novaMedicao.observacoes || undefined,
         nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
-        nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+        nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? parseValorDecimal(novaMedicao.nota_fiscal_valor) : undefined,
         nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
         fornecedor_id: fornecedor.id,
         fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
@@ -1063,7 +1084,7 @@ export default function FornecedorContratoDetalhePage() {
         competencia: novaMedicao.competencia || undefined,
         observacoes: novaMedicao.observacoes || undefined,
         nota_fiscal_numero: novaMedicao.nota_fiscal_numero || undefined,
-        nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? Number(novaMedicao.nota_fiscal_valor) : undefined,
+        nota_fiscal_valor: novaMedicao.nota_fiscal_valor ? parseValorDecimal(novaMedicao.nota_fiscal_valor) : undefined,
         nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
         fornecedor_id: fornecedor.id,
         fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
@@ -1314,7 +1335,7 @@ export default function FornecedorContratoDetalhePage() {
             return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
           }, 0);
     // Base da discriminação: valor da NF quando disponível, senão valor medido
-    const valorBaseDiscriminacao = (parseFloat(novaMedicao.nota_fiscal_valor) || 0) || valorMedidoAtual;
+    const valorBaseDiscriminacao = escolherValorBaseDiscriminacao(novaMedicao.nota_fiscal_valor, valorMedidoAtual);
 
     if (valorBaseDiscriminacao <= 0) {
       alert(isServicoContinuado ? 'Informe o valor medido ou da nota fiscal antes de reaproveitar.' : 'Preencha os itens da planilha ou valor da NF antes de reaproveitar.');
@@ -1455,10 +1476,10 @@ export default function FornecedorContratoDetalhePage() {
           periodo_fim: medicao.periodo_fim,
           competencia: medicao.competencia || '',
           observacoes: medicao.fornecedor_observacoes || '',
-          nota_fiscal_numero: medicao.nota_fiscal_numero || '',
-          nota_fiscal_valor: medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : '',
-          nota_fiscal_data: medicao.nota_fiscal_data || '',
-          valor_medido: String(medicao.valor_medido || ''),
+          nota_fiscal_numero: medicaoCompleta.nota_fiscal_numero || medicao.nota_fiscal_numero || '',
+          nota_fiscal_valor: medicaoCompleta.nota_fiscal_valor ? String(medicaoCompleta.nota_fiscal_valor) : (medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : ''),
+          nota_fiscal_data: medicaoCompleta.nota_fiscal_data || medicao.nota_fiscal_data || '',
+          valor_medido: String(medicaoCompleta.valor_medido || medicao.valor_medido || ''),
           itens: medicaoCompleta.itens?.map((item: any) => {
             if (item.tipo_item === 'item_cronograma') {
               return {
@@ -2627,7 +2648,7 @@ export default function FornecedorContratoDetalhePage() {
                       return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
                     }, 0);
               // Base da discriminação: valor da NF quando disponível, senão valor medido
-              const valorBaseDiscriminacao = (parseFloat(novaMedicao.nota_fiscal_valor) || 0) || valorMedidoAtual;
+              const valorBaseDiscriminacao = escolherValorBaseDiscriminacao(novaMedicao.nota_fiscal_valor, valorMedidoAtual);
 
               const totalDiscPerc = discriminacoes.reduce((s, d) => s + (Number(d.percentual) || 0), 0);
               const totalDiscValorBruto = discriminacoes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
