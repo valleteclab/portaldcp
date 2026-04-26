@@ -1772,9 +1772,15 @@ export class MedicaoService {
     medicao.fornecedor_observacoes =
       dados.fornecedor_observacoes || dados.observacoes || null;
     medicao.observacoes = dados.observacoes || null;
-    medicao.nota_fiscal_numero = dados.nota_fiscal_numero || null;
-    medicao.nota_fiscal_valor = (dados.nota_fiscal_valor as any) || null;
-    medicao.nota_fiscal_data = (dados.nota_fiscal_data as any) || null;
+    if (dados.nota_fiscal_numero !== undefined) {
+      medicao.nota_fiscal_numero = dados.nota_fiscal_numero || null;
+    }
+    if (dados.nota_fiscal_valor !== undefined) {
+      medicao.nota_fiscal_valor = (dados.nota_fiscal_valor as any) || null;
+    }
+    if (dados.nota_fiscal_data !== undefined) {
+      medicao.nota_fiscal_data = (dados.nota_fiscal_data as any) || null;
+    }
     medicao.boletim_pdf_url = null as any;
 
     const medicaoSalva = await this.medicaoRepository.save(medicao);
@@ -5299,9 +5305,8 @@ export class MedicaoService {
     const itensValidos = itens.filter(
       (i) => i.descricao && i.descricao.trim() !== '',
     );
-    // Base da discriminação: valor da NF quando disponível, senão valor medido
     const valorBaseDiscriminacao =
-      Number(medicao.nota_fiscal_valor) || Number(medicao.valor_medido) || 0;
+      this.escolherValorBaseDiscriminacao(medicao, itensValidos);
     const valoresFinais = this.normalizarValoresDiscriminacoes(
       itensValidos,
       valorBaseDiscriminacao,
@@ -5496,9 +5501,8 @@ export class MedicaoService {
     const itensValidos = itens.filter(
       (i) => i.descricao && i.descricao.trim() !== '',
     );
-    // Base da discriminação: valor da NF quando disponível, senão valor medido
     const valorBaseDiscriminacao =
-      Number(medicao.nota_fiscal_valor) || Number(medicao.valor_medido) || 0;
+      this.escolherValorBaseDiscriminacao(medicao, itensValidos);
     const valoresFinais = this.normalizarValoresDiscriminacoes(
       itensValidos,
       valorBaseDiscriminacao,
@@ -5577,6 +5581,32 @@ export class MedicaoService {
     }
 
     return valoresCentavos.map((v) => v / 100);
+  }
+
+  private escolherValorBaseDiscriminacao(
+    medicao: Medicao,
+    itens: { descricao: string; valor: number; percentual: number }[],
+  ): number {
+    const valorNf = Number(medicao.nota_fiscal_valor) || 0;
+    const valorMedido = Number(medicao.valor_medido) || 0;
+    const somaItens = Math.round(
+      itens.reduce((soma, item) => soma + (Number(item.valor) || 0), 0) * 100,
+    ) / 100;
+    const candidatos = [valorNf, valorMedido, somaItens].filter(
+      (valor) => valor > 0,
+    );
+    if (candidatos.length === 0) return 0;
+
+    const referencia = valorMedido > 0 ? valorMedido : somaItens;
+    if (referencia > 0) {
+      const coerente = candidatos.find(
+        (valor) => valor >= referencia / 10 && valor <= referencia * 10,
+      );
+      if (coerente) return coerente;
+      return referencia;
+    }
+
+    return candidatos[0];
   }
 
   /**

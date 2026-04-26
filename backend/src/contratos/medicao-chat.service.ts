@@ -3985,7 +3985,9 @@ ${tabela}
   }
 
   private extrairNumeroNF(texto: string) {
-    const match = texto.match(/\b(?:nf|nota)\s*#?\s*(\d{1,20})\b/i);
+    const match = texto.match(
+      /\b(?:nf|nota(?:\s+fiscal)?)(?:\s*(?:n[ºo.]|numero|número))?\s*#?\s*(\d{1,20})\b/i,
+    );
     return match?.[1] || null;
   }
 
