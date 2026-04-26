@@ -440,7 +440,11 @@ export class MedicaoChatService {
       contrato,
       fornecedorId,
     );
-    if (erroMaterializacao) {
+    const jaOrientouSobreItensBloqueados =
+      Boolean(respostaAssistente) &&
+      (/Itens já medidos neste período/i.test(respostaAssistente) ||
+        /Itens disponíveis para medição/i.test(respostaAssistente));
+    if (erroMaterializacao && !jaOrientouSobreItensBloqueados) {
       respostaAssistente = this.juntarRespostas(
         respostaAssistente,
         this.formatarErroMaterializacaoChat(erroMaterializacao),
@@ -1242,6 +1246,7 @@ export class MedicaoChatService {
     let handled = false;
     let houveEscrita = false;
     let respostaDiretaItens: string | null = null;
+    let avisoItensBloqueados: string | null = null;
 
     if (
       planejamentoAgente.intencao === 'negative_feedback' &&
@@ -1363,9 +1368,9 @@ export class MedicaoChatService {
           const itensTxt = bloqueio.itensBloqueados
             .map((i) => `item ${i.numeroItem} (${i.descricao}) — medição #${i.medicaoNumero}`)
             .join(', ');
-          aplicacoes.push(
-            `⚠️ Itens já medidos neste período: ${itensTxt}. Esses itens ficam bloqueados; você pode medir os demais.`,
-          );
+          avisoItensBloqueados =
+            `⚠️ **Itens já medidos neste período:** ${itensTxt}. ` +
+            `Esses itens ficam bloqueados; você pode medir os demais.`;
         }
 
         // Apresentar itens disponíveis para o fornecedor escolher
@@ -1409,10 +1414,12 @@ export class MedicaoChatService {
             const ehMesCheio = this.periodoPareceMesCheio(periodo.inicio, periodo.fim);
             if (ehMensal && ehMesCheio) {
               respostaDiretaItens =
+                `${avisoItensBloqueados ? `${avisoItensBloqueados}\n\n` : ''}` +
                 `O contrato tem o **item ${item.numero_item}** (${item.descricao}) com saldo de **${item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${item.unidade_medida}**.\n\n` +
                 `Como o período cobre o mês inteiro, responda: **item ${item.numero_item} = 1**`;
             } else {
               respostaDiretaItens =
+                `${avisoItensBloqueados ? `${avisoItensBloqueados}\n\n` : ''}` +
                 `O contrato tem o **item ${item.numero_item}** (${item.descricao}) com saldo de **${item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${item.unidade_medida}**.\n\n` +
                 `Informe a quantidade medida, por exemplo: **item ${item.numero_item} = ${item.saldo_disponivel > 1 ? '10,5' : item.saldo_disponivel.toLocaleString('pt-BR')}**`;
             }
@@ -1420,6 +1427,7 @@ export class MedicaoChatService {
             // Múltiplos itens — tabela completa
             const tabela = this.formatarTabelaItensMedicao(itensDisponiveis);
             respostaDiretaItens =
+              `${avisoItensBloqueados ? `${avisoItensBloqueados}\n\n` : ''}` +
               `📋 **Itens disponíveis para medição:**\n\n${tabela}\n\n` +
               `Informe o **item e a quantidade** que deseja medir, por exemplo:\n` +
               `• "item 1 = 10,5"\n` +

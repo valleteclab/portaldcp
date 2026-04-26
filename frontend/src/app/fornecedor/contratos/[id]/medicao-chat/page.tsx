@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import React from 'react'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
 import { API_URL, authFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   ArrowLeft,
   Check,
@@ -636,6 +638,135 @@ export default function MedicaoChatFornecedorPage() {
         </main>
       </div>
     </div>
+  return data
+}
+
+type LinhaTabelaItens = {
+  item: string
+  descricao: string
+  unidade: string
+  contratado: string
+  jaMedido: string
+  saldo: string
+  valorUnit: string
+  status: string
+}
+
+function extrairTabelaItensChat(content: string): {
+  aviso?: string
+  titulo?: string
+  linhas: LinhaTabelaItens[]
+  instrucoes?: string[]
+} | null {
+  if (!content.includes('Itens disponíveis para medição:') || !content.includes('| Item |')) {
+    return null
+  }
+
+  const linhasTexto = content.split('\n')
+  const tituloIndex = linhasTexto.findIndex((linha) => linha.includes('Itens disponíveis para medição:'))
+  const avisoIndex = linhasTexto.findIndex((linha) => linha.includes('Itens já medidos neste período:'))
+  const inicioTabela = linhasTexto.findIndex((linha) => linha.trim().startsWith('| Item |'))
+  if (inicioTabela === -1) return null
+
+  const linhasTabela: LinhaTabelaItens[] = []
+  for (let i = inicioTabela + 2; i < linhasTexto.length; i += 1) {
+    const linha = linhasTexto[i]?.trim()
+    if (!linha || !linha.startsWith('|')) break
+    const colunas = linha
+      .split('|')
+      .map((parte) => parte.trim())
+      .filter(Boolean)
+    if (colunas.length < 8) continue
+    linhasTabela.push({
+      item: colunas[0],
+      descricao: colunas[1],
+      unidade: colunas[2],
+      contratado: colunas[3],
+      jaMedido: colunas[4],
+      saldo: colunas[5],
+      valorUnit: colunas[6],
+      status: colunas[7],
+    })
+  }
+
+  const instrucoes = linhasTexto
+    .slice(inicioTabela)
+    .filter((linha) => linha.trim().startsWith('•') || linha.includes('Informe o **item e a quantidade**'))
+
+  return {
+    aviso: avisoIndex >= 0 ? linhasTexto[avisoIndex].trim() : undefined,
+    titulo: tituloIndex >= 0 ? linhasTexto[tituloIndex].trim() : undefined,
+    linhas: linhasTabela,
+    instrucoes,
+  }
+}
+
+function badgeStatusTabela(status: string) {
+  if (/bloqueado/i.test(status)) {
+    return <Badge className="rounded-full border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-50">Medido #{status.match(/#\d+/)?.[0]?.replace('#', '') || ''}</Badge>
+  }
+  if (/dispon[ií]vel/i.test(status)) {
+    return <Badge className="rounded-full border-green-300 bg-green-50 text-[10px] font-semibold text-green-700 hover:bg-green-50">Disponível</Badge>
+  }
+  return <Badge variant="secondary" className="rounded-full text-[10px]">{status}</Badge>
+}
+
+function CardTabelaItensChat({ content }: { content: string }) {
+  const tabela = extrairTabelaItensChat(content)
+  if (!tabela) return null
+
+  return (
+    <div className="space-y-3">
+      {tabela.aviso ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {tabela.aviso.replace(/^⚠️\s*/, '')}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-xl border border-slate-200">
+        <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+          Itens do período para seleção
+        </div>
+        <Table className="text-xs">
+          <TableHeader className="bg-[#163b73]">
+            <TableRow className="border-b-0 hover:bg-[#163b73]">
+              <TableHead className="h-9 text-white">#</TableHead>
+              <TableHead className="h-9 text-white">Descrição do item</TableHead>
+              <TableHead className="h-9 text-white">Unid.</TableHead>
+              <TableHead className="h-9 text-white">Qtd.</TableHead>
+              <TableHead className="h-9 text-white">Já medido</TableHead>
+              <TableHead className="h-9 text-white">Saldo</TableHead>
+              <TableHead className="h-9 text-white">Valor unit.</TableHead>
+              <TableHead className="h-9 text-white">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tabela.linhas.map((linha) => (
+              <TableRow key={`${linha.item}-${linha.descricao}`} className="align-top">
+                <TableCell className="font-semibold text-slate-700">{linha.item}</TableCell>
+                <TableCell className="max-w-[360px] whitespace-normal leading-4 text-slate-700">{linha.descricao}</TableCell>
+                <TableCell>{linha.unidade}</TableCell>
+                <TableCell>{linha.contratado}</TableCell>
+                <TableCell>{linha.jaMedido}</TableCell>
+                <TableCell className="font-semibold">{linha.saldo}</TableCell>
+                <TableCell>{linha.valorUnit}</TableCell>
+                <TableCell>{badgeStatusTabela(linha.status)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {tabela.instrucoes && tabela.instrucoes.length > 0 ? (
+        <div className="space-y-1 text-xs text-slate-600">
+          {tabela.instrucoes.map((linha, index) => (
+            <div key={`${linha}-${index}`} className="whitespace-pre-wrap">
+              {linha}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -650,6 +781,7 @@ function ResumoLinha({ label, value, destaque = false }: { label: string; value:
 
 function MensagemChat({ item }: { item: HistoricoMensagem }) {
   const user = item.role === 'user'
+  const tabelaItens = !user ? extrairTabelaItensChat(item.content) : null
   return (
     <div className={`flex max-w-[85%] gap-2 ${user ? 'ml-auto flex-row-reverse' : ''}`}>
       <div
@@ -668,6 +800,8 @@ function MensagemChat({ item }: { item: HistoricoMensagem }) {
       >
         {user ? (
           <span className="whitespace-pre-wrap">{item.content}</span>
+        ) : tabelaItens ? (
+          <CardTabelaItensChat content={item.content} />
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
