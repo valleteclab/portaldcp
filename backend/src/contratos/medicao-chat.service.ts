@@ -2970,6 +2970,7 @@ ${tabela}
     fornecedorId: string,
   ) {
     const draft = (session.draft || {}) as MedicaoChatDraft;
+    await this.corrigirNotaFiscalValorIncoerente(contrato, draft);
     const payload = this.converterDraftParaPayload(contrato, draft, fornecedorId);
 
     if (!this.podeMaterializar(contrato, payload)) {
@@ -3003,6 +3004,33 @@ ${tabela}
     await this.materializarAnexosPendentes(medicaoId, session, fornecedorId);
 
     return medicaoId;
+  }
+
+  private async corrigirNotaFiscalValorIncoerente(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ) {
+    const valorNf = Number(draft.nota_fiscal_valor || 0);
+    if (!(valorNf > 0)) return;
+
+    let valorReferencia = Number(draft.valor_medido || 0);
+
+    if (!(valorReferencia > 0)) {
+      const valorNfOriginal = draft.nota_fiscal_valor;
+      draft.nota_fiscal_valor = null;
+      valorReferencia = await this.calcularValorBaseDiscriminacaoDraft(
+        contrato,
+        draft,
+      );
+      draft.nota_fiscal_valor = valorNfOriginal;
+    }
+
+    if (
+      valorReferencia > 0 &&
+      (valorReferencia > valorNf * 10 || valorNf > valorReferencia * 10)
+    ) {
+      draft.nota_fiscal_valor = Math.round(valorReferencia * 100) / 100;
+    }
   }
 
   private async salvarDiscriminacoesDoDraft(

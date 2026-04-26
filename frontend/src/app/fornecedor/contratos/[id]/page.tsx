@@ -3071,7 +3071,10 @@ export default function FornecedorContratoDetalhePage() {
               {medicaoDetalhe.nota_fiscal_numero && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500 mb-1">Nota Fiscal</p>
-                  <p className="text-sm">NF {medicaoDetalhe.nota_fiscal_numero} — {formatarMoeda(medicaoDetalhe.nota_fiscal_valor || 0)} — {formatarData(medicaoDetalhe.nota_fiscal_data || '')}</p>
+                  <p className="text-sm">
+                    NF {medicaoDetalhe.nota_fiscal_numero}
+                    {medicaoDetalhe.nota_fiscal_data ? ` - ${formatarData(medicaoDetalhe.nota_fiscal_data)}` : ''}
+                  </p>
                 </div>
               )}
 
