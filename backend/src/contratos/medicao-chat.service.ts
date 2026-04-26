@@ -1241,6 +1241,7 @@ export class MedicaoChatService {
     let nfAtualizada = false;
     let handled = false;
     let houveEscrita = false;
+    let respostaDiretaItens: string | null = null;
 
     if (
       planejamentoAgente.intencao === 'negative_feedback' &&
@@ -1367,7 +1368,7 @@ export class MedicaoChatService {
           );
         }
 
-        // Apresentar tabela de itens disponíveis para o fornecedor escolher
+        // Apresentar itens disponíveis para o fornecedor escolher
         const usarItens = await this.medicaoService.usarItensCronograma(contrato.id);
         if (usarItens && !bloqueio.bloqueioGlobal) {
           const itensDisponiveis = await this.calcularItensDisponiveisMedicao(
@@ -1376,20 +1377,33 @@ export class MedicaoChatService {
             periodo.fim,
             session.medicao_id,
           );
-          const tabela = this.formatarTabelaItensMedicao(itensDisponiveis);
           const itensNaoBloqueados = itensDisponiveis.filter((i) => !i.bloqueado && i.saldo_disponivel > 0);
-          if (itensNaoBloqueados.length > 0) {
-            aplicacoes.push(
-              `\n\n📋 **Itens disponíveis para medição:**\n\n${tabela}\n\n` +
+
+          if (itensNaoBloqueados.length === 0) {
+            respostaDiretaItens =
+              `⚠️ **Todos os itens estão bloqueados ou esgotados para este período.** Não há itens disponíveis para medição.`;
+          } else if (itensNaoBloqueados.length === 1) {
+            // Contrato com único item disponível — prompt direto e contextualizado
+            const item = itensNaoBloqueados[0];
+            const ehMensal = item.unidade_medida === 'MENSAL';
+            const ehMesCheio = this.periodoPareceMesCheio(periodo.inicio, periodo.fim);
+            if (ehMensal && ehMesCheio) {
+              respostaDiretaItens =
+                `O contrato tem o **item ${item.numero_item}** (${item.descricao}) com saldo de **${item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${item.unidade_medida}**.\n\n` +
+                `Como o período cobre o mês inteiro, responda: **item ${item.numero_item} = 1**`;
+            } else {
+              respostaDiretaItens =
+                `O contrato tem o **item ${item.numero_item}** (${item.descricao}) com saldo de **${item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${item.unidade_medida}**.\n\n` +
+                `Informe a quantidade medida, por exemplo: **item ${item.numero_item} = ${item.saldo_disponivel > 1 ? '10,5' : item.saldo_disponivel.toLocaleString('pt-BR')}**`;
+            }
+          } else {
+            // Múltiplos itens — tabela completa
+            const tabela = this.formatarTabelaItensMedicao(itensDisponiveis);
+            respostaDiretaItens =
+              `📋 **Itens disponíveis para medição:**\n\n${tabela}\n\n` +
               `Informe o **item e a quantidade** que deseja medir, por exemplo:\n` +
               `• "item 1 = 10,5"\n` +
-              `• "medir item 2: 5 unidades"\n` +
-              `• "1 = 10,5, 3 = 4,2" (múltiplos itens)`,
-            );
-          } else {
-            aplicacoes.push(
-              `\n\n⚠️ **Todos os itens estão bloqueados ou esgotados para este período.** Não há itens disponíveis para medição.`,
-            );
+              `• "1 = 10,5, 3 = 4,2" (múltiplos itens)`;
           }
         }
       } else if (
@@ -1770,14 +1784,26 @@ export class MedicaoChatService {
     }
 
     const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
-    let resposta = this.montarRespostaAgenteV2(
-      aplicacoes,
-      orientacao,
-      draft,
-      contrato,
-      plano,
-      contexto.resumo as Record<string, any> | null,
-    );
+    let resposta: string;
+
+    if (respostaDiretaItens) {
+      // Resposta direta com itens — sem mensagens de plano/bloqueio/orientação
+      const pendencias = this.calcularPendencias(draft, contrato);
+      resposta = `Período registrado: **${this.formatDateBr(draft.periodo_inicio!)} a ${this.formatDateBr(draft.periodo_fim!)}**.\n\n${respostaDiretaItens}`;
+      if (pendencias.length > 0) {
+        resposta += `\n\nAinda falta preencher: ${this.pendenciasParaLabels(pendencias)}.`;
+      }
+    } else {
+      resposta = this.montarRespostaAgenteV2(
+        aplicacoes,
+        orientacao,
+        draft,
+        contrato,
+        plano,
+        contexto.resumo as Record<string, any> | null,
+      );
+    }
+
     if (confirmacaoPendente?.tipo === 'CONFIRMAR_COMPETENCIA') {
       resposta = `Entendido. Para completar o formato correto, confirme a competência **${confirmacaoPendente.competencia}**. Está correto?`;
     } else if (confirmacaoPendente?.tipo === 'CONFIRMAR_MES_CHEIO') {
@@ -1919,13 +1945,15 @@ export class MedicaoChatService {
     }
 
     if (resultado.handled) {
-      // Se a resposta contém uma tabela de itens (markdown table), mostrar diretamente sem passar pelo LLM
-      // Isso garante que o usuário veja a tabela completa de itens disponíveis
-      const contemTabelaItens = resultado.resposta?.includes('📋 **Itens disponíveis para medição**') ||
-                                 resultado.resposta?.includes('| Item | Descrição |');
+      // Se a resposta contém prompt direto de itens (1 item) ou tabela (múltiplos),
+      // mostrar diretamente sem passar pelo LLM conversacional
+      const contemRespostaDiretaItens =
+        resultado.resposta?.includes('📋 **Itens disponíveis para medição**') ||
+        resultado.resposta?.includes('O contrato tem o **item') ||
+        resultado.resposta?.includes('Todos os itens estão bloqueados');
 
-      if (contemTabelaItens) {
-        // Manter a resposta com a tabela, apenas normalizar
+      if (contemRespostaDiretaItens) {
+        // Manter a resposta direta, apenas normalizar
         resultado.resposta = this.normalizarRespostaChatIa(resultado.resposta);
       } else {
         resultado.resposta = await this.montarRespostaConversacionalChat({
