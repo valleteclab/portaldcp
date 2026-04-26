@@ -1380,8 +1380,28 @@ export class MedicaoChatService {
           const itensNaoBloqueados = itensDisponiveis.filter((i) => !i.bloqueado && i.saldo_disponivel > 0);
 
           if (itensNaoBloqueados.length === 0) {
+            // Todos os itens bloqueados/esgotados — reverter período e pedir outro
+            draft.periodo_inicio = null;
+            draft.periodo_fim = null;
+            draft.competencia = null;
+            aplicacoes.pop(); // remove "registrei o período"
+            this.marcarAcao(plano, 'periodo', 'blocked', 'Todos os itens bloqueados ou esgotados no período');
+
+            const itensBloqueadosTxt = itensDisponiveis
+              .filter((i) => i.bloqueado)
+              .map((i) => `item ${i.numero_item} (${i.descricao})`)
+              .join(', ');
+            const itensEsgotadosTxt = itensDisponiveis
+              .filter((i) => !i.bloqueado && i.saldo_disponivel <= 0)
+              .map((i) => `item ${i.numero_item} (${i.descricao}) — saldo esgotado`)
+              .join(', ');
+
+            let motivo = '';
+            if (itensBloqueadosTxt) motivo += `Já possuem medição aprovada neste período: ${itensBloqueadosTxt}.`;
+            if (itensEsgotadosTxt) motivo += `${motivo ? ' ' : ''}${itensEsgotadosTxt}.`;
+
             respostaDiretaItens =
-              `⚠️ **Todos os itens estão bloqueados ou esgotados para este período.** Não há itens disponíveis para medição.`;
+              `⚠️ **Não é possível medir no período ${this.formatDateBr(periodo.inicio)} a ${this.formatDateBr(periodo.fim)}.**\n\n${motivo}\n\nInforme um **outro período** para a medição.`;
           } else if (itensNaoBloqueados.length === 1) {
             // Contrato com único item disponível — prompt direto e contextualizado
             const item = itensNaoBloqueados[0];
@@ -1788,10 +1808,16 @@ export class MedicaoChatService {
 
     if (respostaDiretaItens) {
       // Resposta direta com itens — sem mensagens de plano/bloqueio/orientação
-      const pendencias = this.calcularPendencias(draft, contrato);
-      resposta = `Período registrado: **${this.formatDateBr(draft.periodo_inicio!)} a ${this.formatDateBr(draft.periodo_fim!)}**.\n\n${respostaDiretaItens}`;
-      if (pendencias.length > 0) {
-        resposta += `\n\nAinda falta preencher: ${this.pendenciasParaLabels(pendencias)}.`;
+      if (draft.periodo_inicio && draft.periodo_fim) {
+        // Período válido — mostrar com contexto
+        const pendencias = this.calcularPendencias(draft, contrato);
+        resposta = `Período registrado: **${this.formatDateBr(draft.periodo_inicio)} a ${this.formatDateBr(draft.periodo_fim)}**.\n\n${respostaDiretaItens}`;
+        if (pendencias.length > 0) {
+          resposta += `\n\nAinda falta preencher: ${this.pendenciasParaLabels(pendencias)}.`;
+        }
+      } else {
+        // Período revertido (bloqueio total) — apenas mensagem de bloqueio
+        resposta = respostaDiretaItens;
       }
     } else {
       resposta = this.montarRespostaAgenteV2(
@@ -1950,7 +1976,7 @@ export class MedicaoChatService {
       const contemRespostaDiretaItens =
         resultado.resposta?.includes('📋 **Itens disponíveis para medição**') ||
         resultado.resposta?.includes('O contrato tem o **item') ||
-        resultado.resposta?.includes('Todos os itens estão bloqueados');
+        resultado.resposta?.includes('Não é possível medir no período');
 
       if (contemRespostaDiretaItens) {
         // Manter a resposta direta, apenas normalizar
