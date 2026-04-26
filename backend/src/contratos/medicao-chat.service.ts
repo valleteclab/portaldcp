@@ -2171,6 +2171,17 @@ Regras obrigatórias:
     };
   }
 
+  private async respostaAposQuantidadeMesCheio(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    prefixo = 'Perfeito! Quantidade registrada: **1 mês**.',
+  ): Promise<ResultadoEtapaChat> {
+    const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+    return {
+      resposta: `${prefixo}${orientacao ? ` ${orientacao}` : ''}`,
+    };
+  }
+
   private async aplicarNotaFiscal(
     mensagem: string,
     contrato: Contrato,
@@ -2221,10 +2232,7 @@ Regras obrigatórias:
         draft,
       );
       if (aplicado) {
-        return {
-          resposta:
-            'Perfeito! Quantidade registrada: **1 mês**.\n\nAgora, por favor, informe o **número da Nota Fiscal** correspondente a esta medição.',
-        };
+        return this.respostaAposQuantidadeMesCheio(contrato, draft);
       }
     }
 
@@ -2512,13 +2520,27 @@ Regras obrigatórias:
         if (pendente.competencia) {
           draft.competencia = String(pendente.competencia);
         }
+        if (
+          draft.periodo_inicio &&
+          draft.periodo_fim &&
+          this.periodoPareceMesCheio(draft.periodo_inicio, draft.periodo_fim)
+        ) {
+          const aplicado = await this.aplicarQuantidadeMesCheioSePossivel(
+            contrato,
+            draft,
+          );
+          if (aplicado) {
+            return this.respostaAposQuantidadeMesCheio(
+              contrato,
+              draft,
+              'Perfeito! Período confirmado e quantidade registrada: **1 mês**.',
+            );
+          }
+        }
         return this.respostaAposCompetencia(draft);
       case 'CONFIRMAR_MES_CHEIO':
         await this.aplicarQuantidadeMesCheioSePossivel(contrato, draft);
-        return {
-          resposta:
-            'Perfeito! Quantidade registrada: **1 mês**.\n\nAgora, por favor, informe o **número da Nota Fiscal** correspondente a esta medição.',
-        };
+        return this.respostaAposQuantidadeMesCheio(contrato, draft);
       case 'REAPROVEITAR_DISCRIMINACOES':
         draft.discriminacoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
           contrato,
