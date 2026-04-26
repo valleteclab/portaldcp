@@ -1436,9 +1436,18 @@ export default function FornecedorContratoDetalhePage() {
   const carregarDadosMedicao = async (medicao: Medicao) => {
     try {
       // Buscar itens da medição
-      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`);
+      const fornecedorData = localStorage.getItem('fornecedor');
+      const fornecedorAtual = fornecedor || (fornecedorData ? JSON.parse(fornecedorData) : null);
+      const fornecedorIdAtual = fornecedorAtual?.id || '';
+      const [res, discriminacoesRes] = await Promise.all([
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedorIdAtual}`),
+      ]);
       if (res.ok) {
         const medicaoCompleta = await res.json();
+        const discriminacoesExistentes = discriminacoesRes.ok
+          ? await discriminacoesRes.json()
+          : [];
         
         // Preparar nova medição com os dados da devolvida
         setNovaMedicao({
@@ -1469,6 +1478,11 @@ export default function FornecedorContratoDetalhePage() {
         });
         
         // Setar a medição original para atualização
+        setDiscriminacoes((discriminacoesExistentes || []).map((item: any) => ({
+          descricao: item.descricao || '',
+          valor: Number(item.valor) || 0,
+          percentual: Number(item.percentual) || 0,
+        })));
         setMedicaoParaEditar(medicao);
         await reaproveitarAnexosExistentes(medicao.id);
         await carregarExecucaoFinanceira(medicao.id);

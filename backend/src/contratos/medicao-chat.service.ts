@@ -356,33 +356,43 @@ export class MedicaoChatService {
         respostaAssistente = resultadoConfirmacao.resposta;
       }
     } else {
-      const resultadoAgente = await this.processarMensagemComoAgenteV3(
-        session,
+      const navegacaoEtapa = await this.processarPedidoNavegacaoEtapa(
         mensagem,
         contrato,
         draft,
-        fornecedorId,
       );
-      session.plano_agente = resultadoAgente.plano_agente || null;
-      session.ultima_analise_agente =
-        resultadoAgente.ultima_analise_agente || null;
-      if (resultadoAgente.handled) {
-        respostaAssistente = resultadoAgente.resposta || '';
-        if (resultadoAgente.confirmacao_pendente) {
-          session.confirmacao_pendente = resultadoAgente.confirmacao_pendente;
-        }
+      if (navegacaoEtapa) {
+        respostaAssistente = navegacaoEtapa.resposta;
       } else {
-        const etapaAtual = this.determinarEtapaAtual(draft, contrato);
-        const resultado = await this.aplicarMensagemNaEtapa(
-          etapaAtual,
+        const resultadoAgente = await this.processarMensagemComoAgenteV3(
+          session,
           mensagem,
           contrato,
           draft,
           fornecedorId,
         );
-        respostaAssistente = resultado.resposta;
-        if (resultado.confirmacao_pendente) {
-          session.confirmacao_pendente = resultado.confirmacao_pendente;
+        session.plano_agente = resultadoAgente.plano_agente || null;
+        session.ultima_analise_agente =
+          resultadoAgente.ultima_analise_agente || null;
+        if (resultadoAgente.handled) {
+          respostaAssistente = resultadoAgente.resposta || '';
+          if (resultadoAgente.confirmacao_pendente) {
+            session.confirmacao_pendente = resultadoAgente.confirmacao_pendente;
+          }
+        } else {
+          const etapaAtual = this.determinarEtapaAtual(draft, contrato);
+          const resultado = await this.aplicarMensagemNaEtapa(
+            etapaAtual,
+            mensagem,
+            contrato,
+            draft,
+            fornecedorId,
+            session.medicao_id,
+          );
+          respostaAssistente = resultado.resposta;
+          if (resultado.confirmacao_pendente) {
+            session.confirmacao_pendente = resultado.confirmacao_pendente;
+          }
         }
       }
     }
@@ -710,6 +720,50 @@ export class MedicaoChatService {
     return pendencias[0] || 'REVISAO';
   }
 
+  private async processarPedidoNavegacaoEtapa(
+    mensagem: string,
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ): Promise<ResultadoEtapaChat | null> {
+    const texto = mensagem
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    const pediuNavegacao =
+      /\b(voltar|volta|retornar|ver|veja|mostrar|abrir|ir|revisar|conferir)\b/.test(
+        texto,
+      );
+    const pediuDiscriminacoes =
+      /\b(discriminacao|discriminacoes|descrimina|descrim|despesa|despesas|composicao|composicoes)\b/.test(
+        texto,
+      );
+
+    if (!pediuNavegacao || !pediuDiscriminacoes) return null;
+
+    if ((draft.discriminacoes || []).length > 0) {
+      return {
+        resposta:
+          `As discriminações registradas no rascunho são:\n${this.formatarDiscriminacoesResumo(draft.discriminacoes)}\n\nSe quiser trocar, envie as novas linhas ou responda "reaproveitar última".`,
+      };
+    }
+
+    const valorBase = await this.calcularValorBaseDiscriminacaoDraft(
+      contrato,
+      draft,
+    );
+    if (valorBase <= 0) {
+      return {
+        resposta:
+          'Consigo voltar para a discriminação de despesas, sim. Mas ainda preciso do valor base da medição/NF para calcular os valores. Envie a NF ou informe o valor bruto primeiro.',
+      };
+    }
+
+    return {
+      resposta:
+        'Voltamos para a discriminação de despesas. Ainda não há nenhuma salva neste rascunho. Envie a composição, por exemplo "ISS 2%, Despesas Operacionais 48%, Serviços 50%", ou responda "reaproveitar última".',
+    };
+  }
+
   private calcularPendencias(draft: MedicaoChatDraft, contrato: Contrato) {
     const pendencias: string[] = [];
     if (!draft.fornecedor_nome_informado || !draft.fornecedor_cnpj_informado) {
@@ -780,6 +834,7 @@ export class MedicaoChatService {
     contrato: Contrato,
     draft: MedicaoChatDraft,
     fornecedorId: string,
+    medicaoAtualId?: string | null,
   ): Promise<ResultadoEtapaChat> {
     switch (etapaAtual) {
       case 'IDENTIFICACAO':
@@ -793,7 +848,13 @@ export class MedicaoChatService {
       case 'MEDICAO':
         return this.aplicarMedicao(mensagem, contrato, draft);
       case 'DISCRIMINACOES':
-        return this.aplicarDiscriminacoes(mensagem, contrato, draft, fornecedorId);
+        return this.aplicarDiscriminacoes(
+          mensagem,
+          contrato,
+          draft,
+          fornecedorId,
+          medicaoAtualId || undefined,
+        );
       case 'OBSERVACOES':
         return this.aplicarObservacoes(mensagem, draft);
       default:
@@ -1307,30 +1368,48 @@ export class MedicaoChatService {
       }
     }
 
+    const pendenciasAntesDiscriminacoes = this.calcularPendencias(
+      draft,
+      contrato,
+    );
+    const temValorBaseDiscriminacao =
+      Number(draft.nota_fiscal_valor || draft.valor_medido || 0) > 0 ||
+      (Array.isArray(draft.itens) && draft.itens.length > 0);
+    const mensagemDiscriminacoes = mensagem
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    const querReaproveitarDiscriminacoes =
+      /reaproveitar|ultima/.test(mensagemDiscriminacoes) &&
+      (/discrimin|descrim|despesa|composi/.test(mensagemDiscriminacoes) ||
+        etapaAntesDaMensagem === 'DISCRIMINACOES' ||
+        (temValorBaseDiscriminacao &&
+          pendenciasAntesDiscriminacoes.includes('DISCRIMINACOES')));
+
     plano.push({
       id: 'discriminacoes',
       titulo: 'atualizar discriminações',
       status:
-        /reaproveitar|última|ultima/i.test(mensagem) ||
-        /(?:[-:=]|r\$|\d+\s*%)\s*[\d.,]*/i.test(mensagem) &&
-        (podeUsarFerramenta('atualizar_discriminacoes') ||
-          etapaAntesDaMensagem === 'DISCRIMINACOES')
+        querReaproveitarDiscriminacoes ||
+        (/(?:[-:=]|r\$|\d+\s*%)\s*[\d.,]*/i.test(mensagem) &&
+          (podeUsarFerramenta('atualizar_discriminacoes') ||
+            etapaAntesDaMensagem === 'DISCRIMINACOES'))
           ? 'planned'
           : 'skipped',
       confianca: 'medium',
     });
     const podeAtualizarDiscriminacoes =
       podeUsarFerramenta('atualizar_discriminacoes') ||
-      etapaAntesDaMensagem === 'DISCRIMINACOES';
+      etapaAntesDaMensagem === 'DISCRIMINACOES' ||
+      querReaproveitarDiscriminacoes;
     if (
-      /reaproveitar|última|ultima/i.test(mensagem) &&
-      (/discrimin|descrim/i.test(mensagem) ||
-        etapaAntesDaMensagem === 'DISCRIMINACOES') &&
+      querReaproveitarDiscriminacoes &&
       podeAtualizarDiscriminacoes
     ) {
       draft.discriminacoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
         contrato,
         draft,
+        session.medicao_id || undefined,
       );
       if ((draft.discriminacoes || []).length > 0) {
         aplicacoes.push('reaproveitei as discriminações da última medição');
@@ -2126,6 +2205,7 @@ Regras obrigatórias:
     contrato: Contrato,
     draft: MedicaoChatDraft,
     fornecedorId: string,
+    medicaoAtualId?: string,
   ): Promise<ResultadoEtapaChat> {
     const confirmouReaproveitar =
       /^(sim|confirmo|pode|ok|isso|replicar|mesmo|igual)\b/i.test(
@@ -2136,6 +2216,7 @@ Regras obrigatórias:
       const sugestoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
         contrato,
         draft,
+        medicaoAtualId,
       );
       if (sugestoes.length > 0) {
         draft.discriminacoes = sugestoes;
@@ -2194,9 +2275,11 @@ Regras obrigatórias:
   private async reaproveitarDiscriminacoesUltimaMedicao(
     contrato: Contrato,
     draft: MedicaoChatDraft,
+    medicaoAtualId?: string,
   ): Promise<DraftDiscriminacao[]> {
     const sugestoes = await this.medicaoService.sugerirDiscriminacoes(
       contrato.id,
+      medicaoAtualId,
     );
     if (sugestoes.length === 0) return [];
 
@@ -2326,6 +2409,7 @@ Regras obrigatórias:
         draft.discriminacoes = await this.reaproveitarDiscriminacoesUltimaMedicao(
           contrato,
           draft,
+          session.medicao_id || undefined,
         );
         if ((draft.discriminacoes || []).length === 0) {
           return {

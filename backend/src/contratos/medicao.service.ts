@@ -5044,9 +5044,10 @@ export class MedicaoService {
    */
   async sugerirDiscriminacoes(
     contratoId: string,
+    ignorarMedicaoId?: string,
   ): Promise<{ descricao: string; valor: number; percentual: number }[]> {
     // Rascunhos podem ser criados pelo assistente; não devem virar referência histórica.
-    const ultimaMedicao = await this.medicaoRepository.findOne({
+    const medicoesReferencia = await this.medicaoRepository.find({
       where: {
         contrato_id: contratoId,
         status: In([
@@ -5062,19 +5063,25 @@ export class MedicaoService {
       order: { numero_medicao: 'DESC' },
     });
 
-    if (!ultimaMedicao) return [];
+    for (const medicao of medicoesReferencia) {
+      if (ignorarMedicaoId && medicao.id === ignorarMedicaoId) continue;
 
-    const discriminacoes = await this.discriminacaoRepository.find({
-      where: { medicao_id: ultimaMedicao.id },
-      order: { numero_item: 'ASC' },
-    });
+      const discriminacoes = await this.discriminacaoRepository.find({
+        where: { medicao_id: medicao.id },
+        order: { numero_item: 'ASC' },
+      });
 
-    // Retorna apenas os campos necessários (sem IDs) para sugestão
-    return discriminacoes.map((d) => ({
-      descricao: d.descricao,
-      valor: Number(d.valor),
-      percentual: Number(d.percentual),
-    }));
+      if (discriminacoes.length === 0) continue;
+
+      // Retorna apenas os campos necessarios (sem IDs) para sugestao.
+      return discriminacoes.map((d) => ({
+        descricao: d.descricao,
+        valor: Number(d.valor),
+        percentual: Number(d.percentual),
+      }));
+    }
+
+    return [];
   }
 
   /**

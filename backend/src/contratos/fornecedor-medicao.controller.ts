@@ -27,7 +27,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { AnexoMedicao, TipoAnexoMedicao } from './entities/anexo-medicao.entity';
-import { Medicao } from './entities/medicao.entity';
+import { Medicao, StatusMedicao } from './entities/medicao.entity';
 
 // Diretório de uploads — mesmo do UploadModule
 const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
@@ -385,7 +385,15 @@ export class FornecedorMedicaoController {
     if (fornecedorId && medicao.contrato) {
       await this.validarAcessoFornecedor(medicao.contrato.id, fornecedorId);
     }
-    return this.medicaoService.sugerirDiscriminacoes(medicao.contrato_id);
+    const ignorarAtual =
+      medicao.status === StatusMedicao.RASCUNHO ||
+      medicao.status === StatusMedicao.DEVOLVIDA
+        ? medicao.id
+        : undefined;
+    return this.medicaoService.sugerirDiscriminacoes(
+      medicao.contrato_id,
+      ignorarAtual,
+    );
   }
 
   /**

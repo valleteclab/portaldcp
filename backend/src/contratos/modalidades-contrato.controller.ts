@@ -37,7 +37,7 @@ import { FatorTransparenciaService } from './fator-transparencia.service';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
-import { Medicao } from './entities/medicao.entity';
+import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 
 @Controller('contratos')
@@ -572,7 +572,15 @@ export class ModalidadesContratoController {
       relations: ['contrato'],
     });
     if (!medicao) throw new NotFoundException('MediÃ§Ã£o nÃ£o encontrada');
-    return this.medicaoService.sugerirDiscriminacoes(medicao.contrato_id);
+    const ignorarAtual =
+      medicao.status === StatusMedicao.RASCUNHO ||
+      medicao.status === StatusMedicao.DEVOLVIDA
+        ? medicao.id
+        : undefined;
+    return this.medicaoService.sugerirDiscriminacoes(
+      medicao.contrato_id,
+      ignorarAtual,
+    );
   }
 
   /**
