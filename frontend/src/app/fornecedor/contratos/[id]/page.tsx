@@ -1145,11 +1145,20 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComValor;
       }
 
-      const resCriar = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-      });
+      const resCriar = medicaoParaEditar
+        ? await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoParaEditar.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+          })
+        : await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/medicoes`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+          });
 
-      if (!resCriar.ok) { const err = await resCriar.json(); alert(err.message || 'Erro ao criar medição'); setSubmitting(false); return; }
+      if (!resCriar.ok) {
+        const err = await resCriar.json();
+        alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+        setSubmitting(false);
+        return;
+      }
       const medicaoCriada = await resCriar.json();
 
       if (discriminacoes.length > 0 && medicaoCriada?.id) {
@@ -1165,11 +1174,11 @@ export default function FornecedorContratoDetalhePage() {
       // preventing pointer-events:none from getting stuck on body.
       setModalNovaMedicao(false);
       setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
-      setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]);
+      setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null);
       const medicaoIdParaOtp = medicaoCriada.id;
       setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
     } catch (error) {
-      alert('Erro ao criar medição');
+      alert(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
