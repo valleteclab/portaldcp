@@ -475,6 +475,9 @@ export class MedicaoChatService {
     });
 
     session.draft = draft;
+    if (nfSugerida && !nfSugerida.conflito_cnpj) {
+      this.aplicarPeriodoSugeridoPorNf(draft, contrato, nfSugerida);
+    }
     const resumoNf = this.formatarResumoNfSugerida(nfSugerida);
     if (nfSugerida && !nfSugerida.conflito_cnpj) {
       if (nfSugerida.nota_fiscal_numero) {
@@ -487,7 +490,9 @@ export class MedicaoChatService {
         draft.nota_fiscal_data = nfSugerida.nota_fiscal_data;
       }
       if (!draft.competencia && nfSugerida.competencia) {
-        draft.competencia = nfSugerida.competencia;
+        draft.competencia =
+          this.normalizarCompetencia(String(nfSugerida.competencia)) ||
+          nfSugerida.competencia;
       }
       await this.aplicarPreenchimentoAutomaticoPosNf(contrato, draft, nfSugerida);
       session.draft = draft;
@@ -711,7 +716,7 @@ export class MedicaoChatService {
       draft.rascunho_ignorado_id = rascunho.id;
       return {
         resposta:
-          'Combinado, vou ignorar esse rascunho nesta conversa e começar uma nova medição do zero. Informe o **período da medição** no formato "01/04/2026 a 30/04/2026".',
+          'Combinado, vou ignorar esse rascunho nesta conversa e começar uma nova medição do zero. Se já tiver a NF, envie o **XML/PDF da nota** para eu tentar preencher os dados automaticamente. Se preferir seguir manualmente, informe o **período da medição** no formato "01/04/2026 a 30/04/2026".',
       };
     }
 
@@ -830,7 +835,7 @@ export class MedicaoChatService {
       return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nPara começar, pode me informar seu **nome** e o **CNPJ da empresa**?`;
     }
 
-    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nJá encontrei a identificação do fornecedor no cadastro. Para começar, pode me informar o **período da medição**? Pode usar "01/04/2026 a 30/04/2026" ou "01 04 a 30 04" quando o ano estiver claro pela vigência.`;
+    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nJá encontrei a identificação do fornecedor no cadastro. Para começar, envie o **XML/PDF da NF** para eu tentar identificar período, competência, valor e execução da medição. Se preferir preencher manualmente, informe o **período da medição**, por exemplo "01/04/2026 a 30/04/2026".`;
   }
 
   private async montarMensagemReset(
@@ -1302,17 +1307,27 @@ export class MedicaoChatService {
     const competenciaPorMes = !competencia
       ? this.normalizarCompetenciaComAnoDoPeriodo(mensagem, draft)
       : null;
+    const podeAtualizarCompetencia =
+      podeUsarFerramenta('atualizar_competencia') ||
+      etapaAntesDaMensagem === 'COMPETENCIA' ||
+      Boolean(competencia || competenciaPorMes);
     plano.push({
       id: 'competencia',
       titulo: 'interpretar competência',
       status:
-        (competencia || /automatic|auto|pode usar|usar/i.test(mensagem)) &&
-        podeUsarFerramenta('atualizar_competencia')
+        (competencia ||
+          competenciaPorMes ||
+          /automatic|auto|pode usar|usar/i.test(mensagem)) &&
+        podeAtualizarCompetencia
           ? 'planned'
           : 'skipped',
       confianca: competencia ? 'high' : 'medium',
     });
-    if (competencia && draft.competencia !== competencia) {
+    if (
+      competencia &&
+      podeAtualizarCompetencia &&
+      draft.competencia !== competencia
+    ) {
       draft.competencia = competencia;
       aplicacoes.push(`defini a competência como ${competencia}`);
       this.marcarAcao(plano, 'competencia', 'applied');
@@ -1325,17 +1340,32 @@ export class MedicaoChatService {
       ) {
         confirmacaoPendente = { tipo: 'CONFIRMAR_MES_CHEIO' };
       }
-    } else if (competenciaPorMes && draft.competencia !== competenciaPorMes) {
+    } else if (competencia && podeAtualizarCompetencia) {
+      aplicacoes.push(`confirmei a competência como ${competencia}`);
+      this.marcarAcao(plano, 'competencia', 'applied');
+      handled = true;
+    } else if (
+      competenciaPorMes &&
+      podeAtualizarCompetencia &&
+      draft.competencia !== competenciaPorMes
+    ) {
       this.marcarAcao(plano, 'competencia', 'planned');
       confirmacaoPendente = {
         tipo: 'CONFIRMAR_COMPETENCIA',
         competencia: competenciaPorMes,
       };
       handled = true;
+    } else if (competenciaPorMes && podeAtualizarCompetencia) {
+      draft.competencia = competenciaPorMes;
+      aplicacoes.push(`confirmei a competência como ${competenciaPorMes}`);
+      this.marcarAcao(plano, 'competencia', 'applied');
+      handled = true;
+      houveEscrita = true;
     } else if (
       /automatic|auto|pode usar|usar/i.test(mensagem) &&
       draft.periodo_fim &&
-      !draft.competencia
+      (!draft.competencia || etapaAntesDaMensagem === 'COMPETENCIA') &&
+      podeAtualizarCompetencia
     ) {
       draft.competencia = this.derivarCompetencia(draft.periodo_fim);
       aplicacoes.push(`defini a competência automática como ${draft.competencia}`);
@@ -2019,7 +2049,7 @@ Regras obrigatórias:
     }
 
     return {
-      resposta: `Obrigado! Identificação registrada:\n\n**Empresa:** ${draft.fornecedor_nome_informado}\n**CNPJ:** ${this.formatarCnpj(draft.fornecedor_cnpj_informado)}\n\nAgora, por favor, informe as **datas de início e fim do período de medição**. Pode enviar como "01/04/2026 a 30/04/2026" ou "01 04 a 30 04" quando o ano estiver claro pela vigência.`,
+      resposta: `Obrigado! Identificação registrada:\n\n**Empresa:** ${draft.fornecedor_nome_informado}\n**CNPJ:** ${this.formatarCnpj(draft.fornecedor_cnpj_informado)}\n\nSe já tiver a nota, envie o **XML/PDF da NF** para eu tentar preencher período, competência, valor e execução da medição. Se preferir preencher manualmente, informe as **datas de início e fim do período**, por exemplo "01/04/2026 a 30/04/2026".`,
     };
   }
 
@@ -2421,10 +2451,10 @@ Regras obrigatórias:
       case 'ALTERAR_PERIODO':
         draft.periodo_inicio = pendente.periodo_inicio;
         draft.periodo_fim = pendente.periodo_fim;
-        draft.competencia = draft.competencia || this.derivarCompetencia(pendente.periodo_fim);
+        draft.competencia = null;
         return {
           resposta:
-            `Período alterado para **${this.formatDateBr(pendente.periodo_inicio)} a ${this.formatDateBr(pendente.periodo_fim)}**. Agora me confirme a competência.`,
+            `Período alterado para **${this.formatDateBr(pendente.periodo_inicio)} a ${this.formatDateBr(pendente.periodo_fim)}**. Agora me confirme a competência. Se quiser usar a competência pelo fim do período, responda **usar automática** para manter **${this.derivarCompetencia(pendente.periodo_fim)}**.`,
         };
       case 'CONFIRMAR_COMPETENCIA':
         draft.competencia = String(pendente.competencia || '');
@@ -2455,6 +2485,11 @@ Regras obrigatórias:
         const anexos = draft.anexos_pendentes || [];
         const alvo = anexos.find((item) => item.temp_path === pendente.temp_path);
         if (alvo && pendente.nf_sugerida) {
+          this.aplicarPeriodoSugeridoPorNf(
+            draft,
+            contrato,
+            pendente.nf_sugerida,
+          );
           if (pendente.nf_sugerida.nota_fiscal_numero) {
             draft.nota_fiscal_numero = pendente.nf_sugerida.nota_fiscal_numero;
           }
@@ -2467,7 +2502,9 @@ Regras obrigatórias:
             draft.nota_fiscal_data = pendente.nf_sugerida.nota_fiscal_data;
           }
           if (!draft.competencia && pendente.nf_sugerida.competencia) {
-            draft.competencia = pendente.nf_sugerida.competencia;
+            draft.competencia =
+              this.normalizarCompetencia(String(pendente.nf_sugerida.competencia)) ||
+              pendente.nf_sugerida.competencia;
           }
         }
         await this.aplicarPreenchimentoAutomaticoPosNf(
@@ -2861,7 +2898,7 @@ Regras obrigatórias:
     }
 
     if (pendencia === 'PERIODO') {
-      return `Me informe o **período da medição** no formato **01/04/2026 a 30/04/2026**.`;
+      return `Envie o **XML/PDF da NF** para eu tentar identificar automaticamente o período, a competência e o valor. Se preferir, informe o **período da medição** no formato **01/04/2026 a 30/04/2026**.`;
     }
 
     return `${resumoContrato ? `${resumoContrato} ` : ''}O rascunho ficou **praticamente pronto**. Revise os dados ao lado e, se estiver tudo certo, siga para o envio manual ao ateste.`;
@@ -2878,7 +2915,7 @@ Regras obrigatórias:
     }
 
     if (pendencia === 'PERIODO') {
-      return 'Primeiro, me informe o período da medição no formato "01/04/2026 a 30/04/2026".';
+      return 'Para começar, envie o XML/PDF da NF. Se preferir preencher manualmente, informe o período da medição no formato "01/04/2026 a 30/04/2026".';
     }
 
     if (pendencia === 'COMPETENCIA') {
@@ -2930,6 +2967,8 @@ Regras obrigatórias:
     draft: MedicaoChatDraft,
     nfSugerida?: Record<string, any> | null,
   ) {
+    this.aplicarPeriodoSugeridoPorNf(draft, contrato, nfSugerida);
+
     const valorBruto =
       Number(nfSugerida?.nota_fiscal_valor) ||
       Number(draft.nota_fiscal_valor) ||
@@ -3004,6 +3043,62 @@ Regras obrigatórias:
         }
       }
     }
+  }
+
+  private aplicarPeriodoSugeridoPorNf(
+    draft: MedicaoChatDraft,
+    contrato: Contrato,
+    nfSugerida?: Record<string, any> | null,
+  ) {
+    if (!nfSugerida || (draft.periodo_inicio && draft.periodo_fim)) {
+      return false;
+    }
+
+    const periodo = this.extrairPeriodoSugeridoPorNf(
+      nfSugerida,
+      contrato,
+      draft,
+    );
+    if (!periodo) return false;
+
+    draft.periodo_inicio = periodo.inicio;
+    draft.periodo_fim = periodo.fim;
+    nfSugerida.periodo_inicio = periodo.inicio;
+    nfSugerida.periodo_fim = periodo.fim;
+    if (!draft.competencia) {
+      draft.competencia =
+        this.normalizarCompetencia(String(nfSugerida.competencia || '')) ||
+        this.derivarCompetencia(periodo.fim);
+    }
+    return true;
+  }
+
+  private extrairPeriodoSugeridoPorNf(
+    nfSugerida: Record<string, any>,
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ) {
+    const inicio = this.normalizarData(nfSugerida.periodo_inicio);
+    const fim = this.normalizarData(nfSugerida.periodo_fim);
+    if (inicio && fim && inicio <= fim) {
+      return { inicio, fim };
+    }
+
+    const fontes = [
+      nfSugerida.descricao_servico,
+      nfSugerida.discriminacao_servico,
+      nfSugerida.historico,
+    ].filter((item) => typeof item === 'string' && item.trim().length > 0);
+
+    for (const fonte of fontes) {
+      const periodo = this.extrairPeriodoTexto(String(fonte), {
+        contrato,
+        draft,
+      });
+      if (periodo) return periodo;
+    }
+
+    return null;
   }
 
   private async aplicarQuantidadeMesCheioSePossivel(
@@ -3126,6 +3221,11 @@ Regras obrigatórias:
     }
     if (nfSugerida.competencia) {
       partes.push(`competência **${nfSugerida.competencia}**`);
+    }
+    if (nfSugerida.periodo_inicio && nfSugerida.periodo_fim) {
+      partes.push(
+        `período **${this.formatDateBr(nfSugerida.periodo_inicio)} a ${this.formatDateBr(nfSugerida.periodo_fim)}**`,
+      );
     }
     return partes.length > 0 ? ` Identifiquei ${partes.join(', ')}.` : '';
   }
@@ -3455,15 +3555,20 @@ Regras obrigatórias:
   }
 
   private normalizarCompetencia(texto: string) {
-    const match = texto
+    const normalizado = texto
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-      .match(
-        /(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)[\s/-]*(\d{4})/,
-      );
-    if (!match) return null;
-    return `${match[1]}/${match[2]}`;
+      .toUpperCase();
+    const match = normalizado.match(
+      /(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)[\s/-]*(\d{4})/,
+    );
+    if (match) return `${match[1]}/${match[2]}`;
+
+    const numerica = normalizado.match(
+      /^\s*(?:COMPETENCIA\s*[:=-]?\s*)?(0?[1-9]|1[0-2])[\s/-]*(\d{4})\s*$/,
+    );
+    if (!numerica) return null;
+    return `${MESES_PT[Number(numerica[1])]}/${numerica[2]}`;
   }
 
   private normalizarCompetenciaComAnoDoPeriodo(
@@ -3921,10 +4026,12 @@ Campos:
 - data_emissao (YYYY-MM-DD ou null)
 - valor_bruto (number ou null)
 - valor_liquido (number ou null)
+- periodo_inicio (YYYY-MM-DD ou null, somente se a nota trouxer o período de medição/prestação)
+- periodo_fim (YYYY-MM-DD ou null, somente se a nota trouxer o período de medição/prestação)
 - competencia (MÊS/ANO ou null)
 - descricao_servico (string ou null)
 Retorne exatamente:
-{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"competencia":null,"descricao_servico":null}`;
+{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"periodo_inicio":null,"periodo_fim":null,"competencia":null,"descricao_servico":null}`;
 
     let resposta = '';
     if (file.mimetype === 'application/pdf') {
@@ -3964,6 +4071,8 @@ Retorne exatamente:
       nota_fiscal_numero: parsed.numero || null,
       nota_fiscal_valor: valorBruto,
       nota_fiscal_data: dataEmissao || null,
+      periodo_inicio: this.normalizarData(parsed.periodo_inicio),
+      periodo_fim: this.normalizarData(parsed.periodo_fim),
       competencia:
         parsed.competencia ||
         (dataEmissao

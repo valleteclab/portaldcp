@@ -272,7 +272,7 @@ export class MedicaoChatAgentService {
         origem: 'heuristica',
       });
     }
-    if (/(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\/?\d{4}|\d{2}\/\d{4}/i.test(mensagem)) {
+    if (/(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)[\s/-]*\d{4}|\d{2}\/\d{4}/i.test(mensagem)) {
       ferramentas.push({
         nome: 'atualizar_competencia',
         titulo: 'Atualizar competencia',
@@ -364,7 +364,7 @@ export class MedicaoChatAgentService {
 
   private sugerirProximaAcao(draft?: Record<string, any> | null) {
     if (!draft?.periodo_inicio || !draft?.periodo_fim) {
-      return 'Pedir o periodo da medicao.';
+      return 'Receber XML/PDF da NF para tentar preencher a medicao ou pedir o periodo manualmente.';
     }
     if (!draft?.competencia) {
       return 'Pedir a competencia da medicao.';
