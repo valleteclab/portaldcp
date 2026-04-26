@@ -909,7 +909,7 @@ export class MedicaoChatService {
       case 'IDENTIFICACAO':
         return this.aplicarIdentificacao(mensagem, draft);
       case 'PERIODO':
-        return this.aplicarPeriodo(mensagem, draft, contrato);
+        return this.aplicarPeriodo(mensagem, draft, contrato, medicaoAtualId);
       case 'COMPETENCIA':
         return this.aplicarCompetencia(mensagem, draft);
       case 'NF':
@@ -1328,6 +1328,31 @@ export class MedicaoChatService {
         this.marcarAcao(plano, 'periodo', 'applied');
         handled = true;
         houveEscrita = true;
+
+        // Validar itens bloqueados para o período informado
+        const bloqueio = await this.medicaoService.consultarItensBloqueadosPorPeriodo(
+          contrato.id,
+          periodo.inicio,
+          periodo.fim,
+          session.medicao_id,
+        );
+        if (bloqueio.bloqueioGlobal) {
+          draft.periodo_inicio = null;
+          draft.periodo_fim = null;
+          draft.competencia = null;
+          aplicacoes.pop(); // remove "registrei o período"
+          this.marcarAcao(plano, 'periodo', 'blocked', 'Período com medição aprovada existente');
+          aplicacoes.push(
+            `⚠️ O período ${this.formatDateBr(periodo.inicio)} a ${this.formatDateBr(periodo.fim)} já possui medição aprovada #${bloqueio.medicaoConflitante.numero} (${bloqueio.medicaoConflitante.periodoInicio} a ${bloqueio.medicaoConflitante.periodoFim}). Informe outro período.`,
+          );
+        } else if (bloqueio.itensBloqueados.length > 0) {
+          const itensTxt = bloqueio.itensBloqueados
+            .map((i) => `item ${i.numeroItem} (${i.descricao}) — medição #${i.medicaoNumero}`)
+            .join(', ');
+          aplicacoes.push(
+            `⚠️ Itens já medidos neste período: ${itensTxt}. Esses itens ficam bloqueados; você pode medir os demais.`,
+          );
+        }
       } else if (
         draft.periodo_inicio !== periodo.inicio ||
         draft.periodo_fim !== periodo.fim
@@ -2097,11 +2122,12 @@ Regras obrigatórias:
     };
   }
 
-  private aplicarPeriodo(
+  private async aplicarPeriodo(
     mensagem: string,
     draft: MedicaoChatDraft,
     contrato?: Contrato,
-  ): ResultadoEtapaChat {
+    medicaoIdIgnorado?: string | null,
+  ): Promise<ResultadoEtapaChat> {
     const parsed = this.extrairPeriodoTexto(mensagem, { contrato, draft });
     if (!parsed) {
       return {
@@ -2123,6 +2149,34 @@ Regras obrigatórias:
           periodo_fim: parsed.fim,
         },
       };
+    }
+
+    // Validar itens bloqueados antes de registrar o período
+    if (contrato) {
+      const bloqueio = await this.medicaoService.consultarItensBloqueadosPorPeriodo(
+        contrato.id,
+        parsed.inicio,
+        parsed.fim,
+        medicaoIdIgnorado,
+      );
+      if (bloqueio.bloqueioGlobal) {
+        return {
+          resposta: `⚠️ O período **${this.formatDateBr(parsed.inicio)} a ${this.formatDateBr(parsed.fim)}** já possui medição aprovada #${bloqueio.medicaoConflitante.numero} (${bloqueio.medicaoConflitante.periodoInicio} a ${bloqueio.medicaoConflitante.periodoFim}). Informe outro período para continuar.`,
+        };
+      }
+      if (bloqueio.itensBloqueados.length > 0) {
+        const itensTxt = bloqueio.itensBloqueados
+          .map((i) => `item ${i.numeroItem} (${i.descricao}) — medição #${i.medicaoNumero}`)
+          .join(', ');
+        draft.periodo_inicio = parsed.inicio;
+        draft.periodo_fim = parsed.fim;
+        if (!draft.competencia) {
+          draft.competencia = this.derivarCompetencia(parsed.fim);
+        }
+        return {
+          resposta: `Período registrado: **${this.formatDateBr(parsed.inicio)} a ${this.formatDateBr(parsed.fim)}**.\n\n⚠️ **Itens já medidos neste período:** ${itensTxt}. Esses itens ficam bloqueados; você pode medir os demais.\n\nAgora me confirme a **competência** no formato MÊS/ANO ou responda "usar automática" para manter **${draft.competencia}**.`,
+        };
+      }
     }
 
     draft.periodo_inicio = parsed.inicio;
@@ -2497,7 +2551,7 @@ Regras obrigatórias:
       const periodo = this.extrairPeriodoTexto(mensagem, { contrato, draft });
       if (periodo) {
         session.confirmacao_pendente = null;
-        return this.aplicarPeriodo(mensagem, draft, contrato);
+        return this.aplicarPeriodo(mensagem, draft, contrato, session.medicao_id);
       }
     }
 

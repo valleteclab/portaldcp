@@ -727,6 +727,120 @@ export class MedicaoService {
     );
   }
 
+  /**
+   * Consulta quais itens do cronograma possuem medição aprovada com período sobreposto.
+   * Retorna lista de itens bloqueados (com dados da medição conflitante) sem lançar erro.
+   * Para serviço continuado, retorna bloqueio global do contrato.
+   */
+  async consultarItensBloqueadosPorPeriodo(
+    contratoId: string,
+    periodoInicio: string | Date,
+    periodoFim: string | Date,
+    medicaoIdIgnorado?: string | null,
+  ): Promise<
+    | { bloqueioGlobal: true; medicaoConflitante: { numero: number; periodoInicio: string; periodoFim: string } }
+    | { bloqueioGlobal: false; itensBloqueados: Array<{ itemCronogramaId: string; numeroItem: number; descricao: string; medicaoNumero: number; medicaoPeriodoInicio: string; medicaoPeriodoFim: string }> }
+  > {
+    const inicio = this.normalizarDataPeriodo(periodoInicio);
+    const fim = this.normalizarDataPeriodo(periodoFim);
+    if (!inicio || !fim || inicio > fim) {
+      return { bloqueioGlobal: false, itensBloqueados: [] };
+    }
+
+    const servicoContinuado = await this.contratoRepository
+      .findOne({ where: { id: contratoId } })
+      .then((c) => (c ? this.isServicoContinuado(c) : false));
+
+    if (servicoContinuado) {
+      const query = this.medicaoRepository
+        .createQueryBuilder('m')
+        .where('m.contrato_id = :contratoId', { contratoId })
+        .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+        .andWhere('m.periodo_inicio <= :fim', { fim })
+        .andWhere('m.periodo_fim >= :inicio', { inicio })
+        .orderBy('m.periodo_inicio', 'DESC');
+      if (medicaoIdIgnorado) {
+        query.andWhere('m.id <> :medicaoIdIgnorado', { medicaoIdIgnorado });
+      }
+      const existente = await query.getOne();
+      if (existente) {
+        return {
+          bloqueioGlobal: true,
+          medicaoConflitante: {
+            numero: existente.numero_medicao,
+            periodoInicio: this.formatarDataPeriodoBR(existente.periodo_inicio),
+            periodoFim: this.formatarDataPeriodoBR(existente.periodo_fim),
+          },
+        };
+      }
+      return { bloqueioGlobal: false, itensBloqueados: [] };
+    }
+
+    // Contrato com itens de cronograma: buscar quais itens têm medição aprovada no período
+    const usarItens = await this.usarItensCronograma(contratoId);
+    if (!usarItens) {
+      // Etapas: bloqueio global como antes
+      const query = this.medicaoRepository
+        .createQueryBuilder('m')
+        .where('m.contrato_id = :contratoId', { contratoId })
+        .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+        .andWhere('m.periodo_inicio <= :fim', { fim })
+        .andWhere('m.periodo_fim >= :inicio', { inicio });
+      if (medicaoIdIgnorado) {
+        query.andWhere('m.id <> :medicaoIdIgnorado', { medicaoIdIgnorado });
+      }
+      const existente = await query.getOne();
+      if (existente) {
+        return {
+          bloqueioGlobal: true,
+          medicaoConflitante: {
+            numero: existente.numero_medicao,
+            periodoInicio: this.formatarDataPeriodoBR(existente.periodo_inicio),
+            periodoFim: this.formatarDataPeriodoBR(existente.periodo_fim),
+          },
+        };
+      }
+      return { bloqueioGlobal: false, itensBloqueados: [] };
+    }
+
+    // Buscar itens do cronograma com medição aprovada no período
+    const qbItens = this.itemMedicaoItemRepository
+      .createQueryBuilder('imi')
+      .innerJoin(Medicao, 'm', 'm.id = imi.medicao_id')
+      .innerJoin(ItemCronograma, 'ic', 'ic.id = imi.item_cronograma_id')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .andWhere('m.periodo_inicio <= :fim', { fim })
+      .andWhere('m.periodo_fim >= :inicio', { inicio })
+      .andWhere('ic.contrato_id = :contratoId', { contratoId });
+
+    if (medicaoIdIgnorado) {
+      qbItens.andWhere('m.id <> :medicaoIdIgnorado', { medicaoIdIgnorado });
+    }
+
+    const itensBloqueadosRaw = await qbItens
+      .select([
+        'imi.item_cronograma_id AS item_cronograma_id',
+        'ic.numero_item AS numero_item',
+        'ic.descricao AS descricao',
+        'm.numero_medicao AS medicao_numero',
+        'm.periodo_inicio AS medicao_periodo_inicio',
+        'm.periodo_fim AS medicao_periodo_fim',
+      ])
+      .getRawMany();
+
+    const itensBloqueados = itensBloqueadosRaw.map((row) => ({
+      itemCronogramaId: row.item_cronograma_id,
+      numeroItem: Number(row.numero_item),
+      descricao: row.descricao,
+      medicaoNumero: Number(row.medicao_numero),
+      medicaoPeriodoInicio: this.formatarDataPeriodoBR(row.medicao_periodo_inicio),
+      medicaoPeriodoFim: this.formatarDataPeriodoBR(row.medicao_periodo_fim),
+    }));
+
+    return { bloqueioGlobal: false, itensBloqueados };
+  }
+
   async validarPeriodoSemMedicaoAprovada(
     contratoId: string,
     periodoInicio: string | Date,
