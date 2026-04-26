@@ -363,6 +363,9 @@ export class MedicaoChatService {
       );
       if (navegacaoEtapa) {
         respostaAssistente = navegacaoEtapa.resposta;
+        if (navegacaoEtapa.confirmacao_pendente) {
+          session.confirmacao_pendente = navegacaoEtapa.confirmacao_pendente;
+        }
       } else {
         const resultadoAgente = await this.processarMensagemComoAgenteV3(
           session,
@@ -737,6 +740,23 @@ export class MedicaoChatService {
       /\b(discriminacao|discriminacoes|descrimina|descrim|despesa|despesas|composicao|composicoes)\b/.test(
         texto,
       );
+    const pediuPeriodo =
+      /\b(periodo|data|datas|inicio|fim)\b/.test(texto) &&
+      /\b(alterar|trocar|corrigir|mudar|editar|ajustar|voltar|retornar|revisar|conferir)\b/.test(
+        texto,
+      );
+
+    if (pediuPeriodo) {
+      const periodo = this.extrairPeriodoTexto(mensagem, { contrato, draft });
+      if (periodo) {
+        return this.aplicarPeriodo(mensagem, draft, contrato);
+      }
+
+      return {
+        resposta:
+          'Claro. Me envie o novo periodo da medicao com inicio e fim, por exemplo: "01/04/2026 a 30/04/2026".',
+      };
+    }
 
     if (!pediuNavegacao || !pediuDiscriminacoes) return null;
 
@@ -1235,7 +1255,8 @@ export class MedicaoChatService {
     });
     const podeAtualizarPeriodo =
       podeUsarFerramenta('atualizar_periodo') ||
-      etapaAntesDaMensagem === 'PERIODO';
+      etapaAntesDaMensagem === 'PERIODO' ||
+      Boolean(periodo);
     plano.push({
       id: 'periodo',
       titulo: 'interpretar período da medição',
@@ -1262,10 +1283,16 @@ export class MedicaoChatService {
         draft.periodo_inicio !== periodo.inicio ||
         draft.periodo_fim !== periodo.fim
       ) {
+        confirmacaoPendente = {
+          tipo: 'ALTERAR_PERIODO',
+          periodo_inicio: periodo.inicio,
+          periodo_fim: periodo.fim,
+        };
+        handled = true;
         this.marcarAcao(
           plano,
           'periodo',
-          'blocked',
+          'planned',
           'Já existe período preenchido; preciso confirmação para trocar.',
         );
       }
@@ -1607,6 +1634,9 @@ export class MedicaoChatService {
       resposta = `Entendido. Para completar o formato correto, confirme a competência **${confirmacaoPendente.competencia}**. Está correto?`;
     } else if (confirmacaoPendente?.tipo === 'CONFIRMAR_MES_CHEIO') {
       resposta = `Ótimo! Competência registrada: **${draft.competencia}**.\n\nConsiderando que o período é de **${this.formatDateBr(draft.periodo_inicio!)} a ${this.formatDateBr(draft.periodo_fim!)}** (mês integral), a quantidade é **1 mês**. Confirma?`;
+    } else if (confirmacaoPendente?.tipo === 'ALTERAR_PERIODO') {
+      resposta =
+        `Voce esta alterando o periodo para **${this.formatDateBr(String(confirmacaoPendente.periodo_inicio))} a ${this.formatDateBr(String(confirmacaoPendente.periodo_fim))}**. Responda "sim" para confirmar a troca.`;
     }
     return {
       handled: true,
