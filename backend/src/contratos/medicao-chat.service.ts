@@ -2743,7 +2743,11 @@ ${tabela}
       ) / 100;
     }
 
-    if (valorDireto > 0 && valorPorItens > valorDireto * 10) {
+    if (
+      valorDireto > 0 &&
+      valorPorItens > 0 &&
+      (valorPorItens > valorDireto * 10 || valorDireto > valorPorItens * 10)
+    ) {
       return valorPorItens;
     }
     return valorDireto || valorPorItens;
@@ -3997,7 +4001,7 @@ ${tabela}
     );
     if (!matches || matches.length === 0) return null;
     const last = matches[matches.length - 1];
-    return Number(last.replace(/\./g, '').replace(',', '.'));
+    return this.parseNumeroDecimalBr(last);
   }
 
   private extrairMoedaIgnorandoDatas(texto: string) {
