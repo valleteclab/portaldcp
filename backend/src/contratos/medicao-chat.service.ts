@@ -1919,16 +1919,26 @@ export class MedicaoChatService {
     }
 
     if (resultado.handled) {
-      resultado.resposta = await this.montarRespostaConversacionalChat({
-        mensagem,
-        contrato,
-        draft,
-        contexto,
-        planoAgente,
-        respostaBase: resultado.resposta || '',
-        houveEscrita: houveMudanca,
-        historico: session.historico_ia || [],
-      });
+      // Se a resposta contém uma tabela de itens (markdown table), mostrar diretamente sem passar pelo LLM
+      // Isso garante que o usuário veja a tabela completa de itens disponíveis
+      const contemTabelaItens = resultado.resposta?.includes('📋 **Itens disponíveis para medição**') ||
+                                 resultado.resposta?.includes('| Item | Descrição |');
+
+      if (contemTabelaItens) {
+        // Manter a resposta com a tabela, apenas normalizar
+        resultado.resposta = this.normalizarRespostaChatIa(resultado.resposta);
+      } else {
+        resultado.resposta = await this.montarRespostaConversacionalChat({
+          mensagem,
+          contrato,
+          draft,
+          contexto,
+          planoAgente,
+          respostaBase: resultado.resposta || '',
+          houveEscrita: houveMudanca,
+          historico: session.historico_ia || [],
+        });
+      }
     }
 
     return {
