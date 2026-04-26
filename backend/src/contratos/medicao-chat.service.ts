@@ -344,8 +344,23 @@ export class MedicaoChatService {
     } else if (session.confirmacao_pendente) {
       const confirmou = this.interpretarConfirmacao(mensagem);
       if (confirmou == null) {
-        respostaAssistente =
-          'Preciso só da sua confirmação para continuar. Responda com "sim" ou "não".';
+        const resultadoDuranteConfirmacao =
+          await this.processarMensagemDuranteConfirmacaoPendente(
+            session,
+            contrato,
+            draft,
+            mensagem,
+          );
+        if (resultadoDuranteConfirmacao) {
+          respostaAssistente = resultadoDuranteConfirmacao.resposta;
+          if (resultadoDuranteConfirmacao.confirmacao_pendente) {
+            session.confirmacao_pendente =
+              resultadoDuranteConfirmacao.confirmacao_pendente;
+          }
+        } else {
+          respostaAssistente =
+            'Preciso só da sua confirmação para continuar. Responda com "sim" ou "não".';
+        }
       } else {
         const resultadoConfirmacao = await this.processarConfirmacaoPendente(
           session,
@@ -354,6 +369,10 @@ export class MedicaoChatService {
           confirmou,
         );
         respostaAssistente = resultadoConfirmacao.resposta;
+        if (resultadoConfirmacao.confirmacao_pendente) {
+          session.confirmacao_pendente =
+            resultadoConfirmacao.confirmacao_pendente;
+        }
       }
     } else {
       const navegacaoEtapa = await this.processarPedidoNavegacaoEtapa(
@@ -503,7 +522,14 @@ export class MedicaoChatService {
         contrato,
         fornecedorId,
       );
-      const orientacao = await this.montarOrientacaoProximaEtapa(contrato, draft);
+      const confirmacaoPeriodo =
+        this.montarConfirmacaoPeriodoPorCompetencia(draft, nfSugerida);
+      if (confirmacaoPeriodo) {
+        session.confirmacao_pendente = confirmacaoPeriodo.pendente;
+      }
+      const orientacao = confirmacaoPeriodo
+        ? confirmacaoPeriodo.mensagem
+        : await this.montarOrientacaoProximaEtapa(contrato, draft);
       session.historico_ia = [
         ...(session.historico_ia || []),
         {
@@ -2431,6 +2457,27 @@ Regras obrigatórias:
     };
   }
 
+  private async processarMensagemDuranteConfirmacaoPendente(
+    session: MedicaoChatSession,
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+    mensagem: string,
+  ): Promise<ResultadoEtapaChat | null> {
+    const pendente = session.confirmacao_pendente || {};
+    if (
+      pendente.tipo === 'CONFIRMAR_PERIODO_COMPETENCIA' ||
+      pendente.tipo === 'ALTERAR_PERIODO'
+    ) {
+      const periodo = this.extrairPeriodoTexto(mensagem, { contrato, draft });
+      if (periodo) {
+        session.confirmacao_pendente = null;
+        return this.aplicarPeriodo(mensagem, draft, contrato);
+      }
+    }
+
+    return null;
+  }
+
   private async processarConfirmacaoPendente(
     session: MedicaoChatSession,
     contrato: Contrato,
@@ -2458,6 +2505,13 @@ Regras obrigatórias:
         };
       case 'CONFIRMAR_COMPETENCIA':
         draft.competencia = String(pendente.competencia || '');
+        return this.respostaAposCompetencia(draft);
+      case 'CONFIRMAR_PERIODO_COMPETENCIA':
+        draft.periodo_inicio = String(pendente.periodo_inicio || '');
+        draft.periodo_fim = String(pendente.periodo_fim || '');
+        if (pendente.competencia) {
+          draft.competencia = String(pendente.competencia);
+        }
         return this.respostaAposCompetencia(draft);
       case 'CONFIRMAR_MES_CHEIO':
         await this.aplicarQuantidadeMesCheioSePossivel(contrato, draft);
@@ -2898,6 +2952,9 @@ Regras obrigatórias:
     }
 
     if (pendencia === 'PERIODO') {
+      if (draft.nota_fiscal_numero || draft.nota_fiscal_valor) {
+        return `A NF já foi lida; falta só o **período da medição**. Informe início e fim, por exemplo **01/04/2026 a 30/04/2026**.`;
+      }
       return `Envie o **XML/PDF da NF** para eu tentar identificar automaticamente o período, a competência e o valor. Se preferir, informe o **período da medição** no formato **01/04/2026 a 30/04/2026**.`;
     }
 
@@ -2915,6 +2972,9 @@ Regras obrigatórias:
     }
 
     if (pendencia === 'PERIODO') {
+      if (draft.nota_fiscal_numero || draft.nota_fiscal_valor) {
+        return 'A NF já foi lida; agora informe o período da medição no formato "01/04/2026 a 30/04/2026".';
+      }
       return 'Para começar, envie o XML/PDF da NF. Se preferir preencher manualmente, informe o período da medição no formato "01/04/2026 a 30/04/2026".';
     }
 
@@ -3101,6 +3161,46 @@ Regras obrigatórias:
     return null;
   }
 
+  private montarConfirmacaoPeriodoPorCompetencia(
+    draft: MedicaoChatDraft,
+    nfSugerida?: Record<string, any> | null,
+  ) {
+    if (draft.periodo_inicio && draft.periodo_fim) return null;
+
+    const competencia =
+      this.normalizarCompetencia(String(draft.competencia || '')) ||
+      this.normalizarCompetencia(String(nfSugerida?.competencia || ''));
+    const periodo = this.periodoCompletoDaCompetencia(competencia);
+    if (!competencia || !periodo) return null;
+
+    return {
+      pendente: {
+        tipo: 'CONFIRMAR_PERIODO_COMPETENCIA',
+        competencia,
+        periodo_inicio: periodo.inicio,
+        periodo_fim: periodo.fim,
+      },
+      mensagem:
+        `A NF não trouxe datas de início e fim do período; ela trouxe apenas a competência **${competencia}**. ` +
+        `Posso usar o mês cheio, **${this.formatDateBr(periodo.inicio)} a ${this.formatDateBr(periodo.fim)}**? ` +
+        'Responda **sim** para confirmar ou informe outro período.',
+    };
+  }
+
+  private periodoCompletoDaCompetencia(competencia?: string | null) {
+    const normalizada = this.normalizarCompetencia(String(competencia || ''));
+    if (!normalizada) return null;
+    const [mesNome, anoTexto] = normalizada.split('/');
+    const mes = MESES_PT.indexOf(mesNome);
+    const ano = Number(anoTexto);
+    if (mes <= 0 || !ano) return null;
+
+    const inicio = this.montarDataIso(1, mes, ano);
+    const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+    const fim = this.montarDataIso(ultimoDia, mes, ano);
+    return inicio && fim ? { inicio, fim } : null;
+  }
+
   private async aplicarQuantidadeMesCheioSePossivel(
     contrato: Contrato,
     draft: MedicaoChatDraft,
@@ -3220,7 +3320,9 @@ Regras obrigatórias:
       partes.push(`valor bruto **${this.formatCurrency(Number(nfSugerida.nota_fiscal_valor))}**`);
     }
     if (nfSugerida.competencia) {
-      partes.push(`competência **${nfSugerida.competencia}**`);
+      partes.push(
+        `competência **${this.normalizarCompetencia(String(nfSugerida.competencia)) || nfSugerida.competencia}**`,
+      );
     }
     if (nfSugerida.periodo_inicio && nfSugerida.periodo_fim) {
       partes.push(
