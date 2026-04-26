@@ -681,10 +681,6 @@ export class MedicaoChatService {
       return draft;
     }
 
-    const sugestoes = await this.medicaoService.sugerirDiscriminacoes(contrato.id);
-    if (sugestoes.length > 0) {
-      draft.discriminacoes = sugestoes;
-    }
     return draft;
   }
 
@@ -1975,6 +1971,8 @@ export class MedicaoChatService {
     const querTratarDiscriminacoes = planoAgente.ferramentas.some(
       (ferramenta) => ferramenta.nome === 'atualizar_discriminacoes',
     );
+    const mensagemMencionaDiscriminacoes =
+      /discrimin|descrim|despesa|composi/i.test(mensagem);
     const informouNovosValoresDiscriminacao =
       /(?:r\$|\d+(?:[,.]\d+)?\s*%|[-:=]\s*\d)/i.test(mensagem);
     const querReaproveitarDiscriminacoes =
@@ -1982,6 +1980,7 @@ export class MedicaoChatService {
 
     if (
       querTratarDiscriminacoes &&
+      mensagemMencionaDiscriminacoes &&
       !informouNovosValoresDiscriminacao &&
       !querReaproveitarDiscriminacoes &&
       (draft.discriminacoes || []).length > 0
