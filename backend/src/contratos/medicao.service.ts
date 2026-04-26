@@ -695,11 +695,44 @@ export class MedicaoService {
     return `${dia}/${mes}/${ano}`;
   }
 
+  private normalizarItemCronogramaIds(
+    valores?: Array<string | null | undefined> | null,
+  ): string[] {
+    return Array.from(
+      new Set(
+        (valores || [])
+          .map((valor) => String(valor || '').trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  private extrairItemCronogramaIdsPayload(
+    itens?: Array<{ item_cronograma_id?: string | null }> | null,
+  ): string[] {
+    return this.normalizarItemCronogramaIds(
+      (itens || []).map((item) => item?.item_cronograma_id),
+    );
+  }
+
+  private async obterItemCronogramaIdsMedicao(
+    medicaoId: string,
+  ): Promise<string[]> {
+    const itens = await this.itemMedicaoItemRepository.find({
+      where: { medicao_id: medicaoId },
+      select: ['item_cronograma_id'],
+    });
+    return this.normalizarItemCronogramaIds(
+      itens.map((item) => item.item_cronograma_id),
+    );
+  }
+
   async validarPeriodoSemMedicaoAprovada(
     contratoId: string,
     periodoInicio: string | Date,
     periodoFim: string | Date,
     medicaoIdIgnorado?: string | null,
+    escopo?: { itemCronogramaIds?: string[] | null },
   ): Promise<void> {
     const inicio = this.normalizarDataPeriodo(periodoInicio);
     const fim = this.normalizarDataPeriodo(periodoFim);
@@ -713,6 +746,15 @@ export class MedicaoService {
       );
     }
 
+    const escopoItemInformado =
+      escopo &&
+      Object.prototype.hasOwnProperty.call(escopo, 'itemCronogramaIds');
+    const itemCronogramaIds = escopoItemInformado
+      ? this.normalizarItemCronogramaIds(escopo.itemCronogramaIds)
+      : medicaoIdIgnorado
+        ? await this.obterItemCronogramaIdsMedicao(medicaoIdIgnorado)
+        : [];
+
     const query = this.medicaoRepository
       .createQueryBuilder('m')
       .where('m.contrato_id = :contratoId', { contratoId })
@@ -725,13 +767,29 @@ export class MedicaoService {
       query.andWhere('m.id <> :medicaoIdIgnorado', { medicaoIdIgnorado });
     }
 
+    if (itemCronogramaIds.length > 0) {
+      query.innerJoin(
+        ItemMedicaoItem,
+        'imi_periodo',
+        'imi_periodo.medicao_id = m.id AND imi_periodo.item_cronograma_id IN (:...itemCronogramaIds)',
+        { itemCronogramaIds },
+      );
+    }
+
     const existente = await query.getOne();
     if (!existente) return;
 
+    const escopoTexto =
+      itemCronogramaIds.length > 0
+        ? 'para um dos itens selecionados deste contrato'
+        : 'para este contrato';
+    const complemento =
+      itemCronogramaIds.length > 0 ? ' para o mesmo item' : '';
+
     throw new BadRequestException(
-      `Já existe uma medição aprovada para este contrato no período ` +
+      `Já existe uma medição aprovada ${escopoTexto} no período ` +
         `${this.formatarDataPeriodoBR(existente.periodo_inicio)} a ${this.formatarDataPeriodoBR(existente.periodo_fim)} ` +
-        `(medição #${existente.numero_medicao}). Não é possível criar ou atualizar outra medição com período sobreposto.`,
+        `(medição #${existente.numero_medicao}). Não é possível criar ou atualizar outra medição com período sobreposto${complemento}.`,
     );
   }
 
@@ -830,6 +888,8 @@ export class MedicaoService {
 
     const contrato = await this.validarContratoMedicao(contratoId);
     const servicoContinuado = this.isServicoContinuado(contrato);
+    const usaItensCronogramaContrato =
+      !servicoContinuado && (await this.usarItensCronograma(contratoId));
 
     // Validar que período da medição não ultrapassa a data de vigência fim do contrato
     if (contrato.data_vigencia_fim) {
@@ -849,11 +909,13 @@ export class MedicaoService {
       }
     }
 
-    await this.validarPeriodoSemMedicaoAprovada(
-      contratoId,
-      dados.periodo_inicio,
-      dados.periodo_fim,
-    );
+    if (!usaItensCronogramaContrato) {
+      await this.validarPeriodoSemMedicaoAprovada(
+        contratoId,
+        dados.periodo_inicio,
+        dados.periodo_fim,
+      );
+    }
 
     let osVinculada: OrdemServicoContrato | null = null;
     const fluxoOs = await this.getFluxoOsEfetivo(contratoId);
@@ -988,7 +1050,7 @@ export class MedicaoService {
       // Calcular percentual proporcional ao valor global
       const valorGlobal = valorContrato || 1;
       percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
-    } else if (await this.usarItensCronograma(contratoId)) {
+    } else if (usaItensCronogramaContrato) {
       // Fluxo por itens do cronograma (quantidade medida)
       const itensPayload = (dados.itens || []) as Array<{
         item_cronograma_id?: string;
@@ -1003,6 +1065,17 @@ export class MedicaoService {
           'Informe pelo menos um item com quantidade medida',
         );
       }
+
+      await this.validarPeriodoSemMedicaoAprovada(
+        contratoId,
+        dados.periodo_inicio,
+        dados.periodo_fim,
+        null,
+        {
+          itemCronogramaIds:
+            this.extrairItemCronogramaIdsPayload(itensComItemCronograma),
+        },
+      );
 
       const quantidadeEmTransitoPorItem =
         await this.calcularQuantidadeComprometidaPorItem(contratoId);
@@ -1267,6 +1340,9 @@ export class MedicaoService {
 
     const contrato = await this.validarContratoMedicao(medicao.contrato_id);
     const servicoContinuado = this.isServicoContinuado(contrato);
+    const usaItensCronogramaContrato =
+      !servicoContinuado &&
+      (await this.usarItensCronograma(medicao.contrato_id));
 
     if (!dados.periodo_inicio || !dados.periodo_fim) {
       throw new BadRequestException('Período de início e fim são obrigatórios');
@@ -1308,12 +1384,14 @@ export class MedicaoService {
       }
     }
 
-    await this.validarPeriodoSemMedicaoAprovada(
-      medicao.contrato_id,
-      dados.periodo_inicio,
-      dados.periodo_fim,
-      medicao.id,
-    );
+    if (!usaItensCronogramaContrato) {
+      await this.validarPeriodoSemMedicaoAprovada(
+        medicao.contrato_id,
+        dados.periodo_inicio,
+        dados.periodo_fim,
+        medicao.id,
+      );
+    }
 
     const dataCorteCiclo = this.obterDataCorteCicloAtual(
       contrato,
@@ -1397,7 +1475,7 @@ export class MedicaoService {
 
       const valorGlobal = valorContrato || 1;
       percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
-    } else if (await this.usarItensCronograma(medicao.contrato_id)) {
+    } else if (usaItensCronogramaContrato) {
       const itensPayload = (dados.itens || []) as Array<{
         item_cronograma_id?: string;
         quantidade_medida?: number;
@@ -1411,6 +1489,17 @@ export class MedicaoService {
           'Informe pelo menos um item com quantidade medida',
         );
       }
+
+      await this.validarPeriodoSemMedicaoAprovada(
+        medicao.contrato_id,
+        dados.periodo_inicio,
+        dados.periodo_fim,
+        medicao.id,
+        {
+          itemCronogramaIds:
+            this.extrairItemCronogramaIdsPayload(itensComItemCronograma),
+        },
+      );
 
       const quantidadeEmTransitoPorItem =
         await this.calcularQuantidadeComprometidaPorItem(
