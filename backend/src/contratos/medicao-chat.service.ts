@@ -1631,8 +1631,9 @@ export class MedicaoChatService {
         );
       }
     } else {
-      const valorBase = Number(
-        draft.nota_fiscal_valor || draft.valor_medido || 0,
+      const valorBase = await this.calcularValorBaseDiscriminacaoDraft(
+        contrato,
+        draft,
       );
       const discriminacoes = await this.extrairDiscriminacoesDaMensagem(
         mensagem,
@@ -2570,7 +2571,10 @@ Regras obrigatórias:
       };
     }
 
-    const valorBase = Number(draft.nota_fiscal_valor || draft.valor_medido || 0);
+    const valorBase = await this.calcularValorBaseDiscriminacaoDraft(
+      contrato,
+      draft,
+    );
     const discriminacoes = await this.extrairDiscriminacoesDaMensagem(
       mensagem,
       valorBase,
@@ -2692,15 +2696,17 @@ ${tabela}
   ) {
     const valorDireto =
       Number(draft.nota_fiscal_valor || 0) || Number(draft.valor_medido || 0);
-    if (valorDireto > 0) return valorDireto;
+    if (!Array.isArray(draft.itens) || draft.itens.length === 0) {
+      return valorDireto;
+    }
 
-    if (!Array.isArray(draft.itens) || draft.itens.length === 0) return 0;
+    let valorPorItens = 0;
 
     if (await this.medicaoService.usarItensCronograma(contrato.id)) {
       const itensCronograma = await this.itemCronogramaRepository.find({
         where: { contrato_id: contrato.id },
       });
-      return Math.round(
+      valorPorItens = Math.round(
         draft.itens.reduce((total, item: any) => {
           if (!item?.item_cronograma_id) return total;
           const itemCronograma = itensCronograma.find(
@@ -2714,25 +2720,30 @@ ${tabela}
           );
         }, 0) * 100,
       ) / 100;
+    } else {
+      const etapas = await this.etapaRepository.find({
+        where: { contrato_id: contrato.id },
+      });
+      valorPorItens = Math.round(
+        draft.itens.reduce((total, item: any) => {
+          if (!item?.etapa_id) return total;
+          const etapa = etapas.find((etapaItem) => etapaItem.id === item.etapa_id);
+          if (!etapa) return total;
+          const valorAtual = Number(item.valor_executado_atual || 0);
+          if (valorAtual > 0) return total + valorAtual;
+          return (
+            total +
+            (Number(item.percentual_executado_atual || 0) / 100) *
+              Number(etapa.valor_previsto || 0)
+          );
+        }, 0) * 100,
+      ) / 100;
     }
 
-    const etapas = await this.etapaRepository.find({
-      where: { contrato_id: contrato.id },
-    });
-    return Math.round(
-      draft.itens.reduce((total, item: any) => {
-        if (!item?.etapa_id) return total;
-        const etapa = etapas.find((etapaItem) => etapaItem.id === item.etapa_id);
-        if (!etapa) return total;
-        const valorAtual = Number(item.valor_executado_atual || 0);
-        if (valorAtual > 0) return total + valorAtual;
-        return (
-          total +
-          (Number(item.percentual_executado_atual || 0) / 100) *
-            Number(etapa.valor_previsto || 0)
-        );
-      }, 0) * 100,
-    ) / 100;
+    if (valorDireto > 0 && valorPorItens > valorDireto * 10) {
+      return valorPorItens;
+    }
+    return valorDireto || valorPorItens;
   }
 
   private aplicarObservacoes(
@@ -3978,7 +3989,9 @@ ${tabela}
   }
 
   private extrairMoeda(texto: string) {
-    const matches = texto.match(/\d{1,3}(?:\.\d{3})*,\d{2}|\d+\.\d{2}|\d+/g);
+    const matches = texto.match(
+      /\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+,\d{1,2}|\d+\.\d{1,2}|\d+/g,
+    );
     if (!matches || matches.length === 0) return null;
     const last = matches[matches.length - 1];
     return Number(last.replace(/\./g, '').replace(',', '.'));
@@ -4337,6 +4350,12 @@ ${tabela}
     mensagem: string,
     valorBase: number,
   ): Promise<DraftDiscriminacao[]> {
+    const discriminacoesConfirmadas =
+      this.extrairDiscriminacoesConfirmadasJson(mensagem, valorBase);
+    if (discriminacoesConfirmadas.length > 0) {
+      return discriminacoesConfirmadas;
+    }
+
     const discriminacoesComValor =
       this.extrairDiscriminacoesComValor(mensagem);
     if (discriminacoesComValor.length > 0) {
@@ -4472,6 +4491,50 @@ ${tabela}
     }
 
     return resultado;
+  }
+
+  private extrairDiscriminacoesConfirmadasJson(
+    mensagem: string,
+    valorBase: number,
+  ): DraftDiscriminacao[] {
+    const match = mensagem.match(
+      /<!--DISCRIMINACOES_CONFIRMACAO_JSON:([\s\S]+?)-->/,
+    );
+    if (!match) return [];
+    try {
+      const lista = JSON.parse(match[1]) as Array<{
+        descricao?: string;
+        percentual?: number | string;
+        valor?: number | string;
+      }>;
+      if (!Array.isArray(lista)) return [];
+      return lista
+        .map((item) => {
+          const descricao = String(item.descricao || '').trim();
+          const percentual = Number(
+            String(item.percentual ?? '').replace(',', '.'),
+          );
+          const valorInformado = Number(
+            String(item.valor ?? '').replace(',', '.'),
+          );
+          const valor =
+            valorBase > 0 && percentual > 0
+              ? Math.round((percentual / 100) * valorBase * 100) / 100
+              : valorInformado || 0;
+          return {
+            descricao,
+            percentual:
+              percentual ||
+              (valorBase > 0 && valor > 0
+                ? Math.round((valor / valorBase) * 10000) / 100
+                : 0),
+            valor,
+          };
+        })
+        .filter((item) => item.descricao && item.valor >= 0);
+    } catch {
+      return [];
+    }
   }
 
   private extrairDiscriminacoesComPercentual(

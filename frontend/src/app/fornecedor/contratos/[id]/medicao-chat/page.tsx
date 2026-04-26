@@ -957,14 +957,19 @@ function CardTabelaDiscriminacaoChat({
   })
 
   const handleConfirmar = () => {
-    const partes: string[] = []
-    tabela.discriminacoes.forEach((d, i) => {
+    const discriminacoes = tabela.discriminacoes.flatMap((d, i) => {
       const pct = (valores[i] ?? '').trim()
-      if (!pct) return
-      partes.push(`${d.descricao} ${pct}%`)
+      if (!pct) return []
+      return [{
+        descricao: d.descricao,
+        percentual: Number(pct.replace(',', '.')) || 0,
+        valor: d.valor || 0,
+      }]
     })
-    if (partes.length === 0) return
-    onEnviarMensagem(partes.join(', '))
+    if (discriminacoes.length === 0) return
+    onEnviarMensagem(
+      `Confirmar discriminações ajustadas. <!--DISCRIMINACOES_CONFIRMACAO_JSON:${JSON.stringify(discriminacoes)}-->`
+    )
   }
 
   const totalPercentual = tabela.discriminacoes.reduce((acc, _, i) => {
@@ -1083,6 +1088,7 @@ function MensagemChat({
   const conteudoSemMarker = item.content
     .replace(/<!--ITENS_MEDICAO_JSON:[\s\S]+?-->/, '')
     .replace(/<!--DISCRIMINACOES_JSON:[\s\S]+?-->/, '')
+    .replace(/<!--DISCRIMINACOES_CONFIRMACAO_JSON:[\s\S]+?-->/, '')
     .trim()
   const conteudoSemTabelaMarkdown = conteudoSemMarker
     .replace(/📋 \*\*Itens disponíveis para medição:\*\*/g, '')
