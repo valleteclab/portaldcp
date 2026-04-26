@@ -123,6 +123,28 @@ export class FornecedorMedicaoController {
   }
 
   /**
+   * Fornecedor atualiza uma medição em rascunho/devolvida.
+   * PATCH /api/fornecedor/contratos/medicoes/:medicaoId
+   */
+  @Patch('medicoes/:medicaoId')
+  async atualizarMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() dados: any,
+  ) {
+    if (!dados.fornecedor_id) {
+      throw new BadRequestException('fornecedor_id é obrigatório');
+    }
+
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    await this.validarAcessoFornecedor(medicao.contrato_id, dados.fornecedor_id);
+    return this.medicaoService.atualizarRascunhoAssistido(medicaoId, dados);
+  }
+
+  /**
    * Obtém ou gera o boletim PDF oficial persistido da medição.
    * GET /api/fornecedor/contratos/medicoes/:medicaoId/boletim-oficial?fornecedorId=X
    */
