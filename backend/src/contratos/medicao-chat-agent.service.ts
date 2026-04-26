@@ -258,7 +258,12 @@ export class MedicaoChatAgentService {
 
   private ferramentasFallback(mensagem: string): FerramentaAgente[] {
     const ferramentas: FerramentaAgente[] = [];
-    if (/\d{2}\/\d{2}\/\d{4}|\d{4}-\d{2}-\d{2}/.test(mensagem)) {
+    if (
+      /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{1,2}-\d{1,2}/.test(mensagem) ||
+      /(?:^|[^\d])\d{1,2}\s*[\/.\-\s]\s*\d{1,2}(?:\s*[\/.\-\s]\s*\d{2,4})?\s*(?:a|ate|até|ao|à|-|–|—)\s*\d{1,2}\s*[\/.\-\s]\s*\d{1,2}/i.test(
+        mensagem,
+      )
+    ) {
       ferramentas.push({
         nome: 'atualizar_periodo',
         titulo: 'Atualizar periodo da medicao',

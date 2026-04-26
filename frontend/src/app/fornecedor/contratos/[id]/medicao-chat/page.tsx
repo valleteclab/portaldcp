@@ -249,6 +249,26 @@ export default function MedicaoChatFornecedorPage() {
   const enviarMensagem = async (texto?: string) => {
     const conteudo = (texto ?? mensagem).trim()
     if (!sessionData?.session.id || !conteudo || !fornecedorId) return
+
+    const sessionDataAnterior = sessionData
+    const mensagemOtimista: HistoricoMensagem = {
+      role: 'user',
+      content: conteudo,
+      created_at: new Date().toISOString(),
+    }
+
+    setSessionData((atual) =>
+      atual
+        ? {
+            ...atual,
+            session: {
+              ...atual.session,
+              historico_ia: [...(atual.session.historico_ia || []), mensagemOtimista],
+            },
+          }
+        : atual,
+    )
+    setMensagem('')
     setSending(true)
     try {
       const res = await authFetch(
@@ -267,8 +287,11 @@ export default function MedicaoChatFornecedorPage() {
         throw new Error(err.message || 'Erro ao enviar mensagem')
       }
       setSessionData((await res.json()) as SessionResponse)
-      setMensagem('')
     } catch (error: unknown) {
+      setSessionData(sessionDataAnterior)
+      if (texto == null) {
+        setMensagem(conteudo)
+      }
       toast.error(error instanceof Error ? error.message : 'Erro ao enviar mensagem')
     } finally {
       setSending(false)
@@ -385,7 +408,7 @@ export default function MedicaoChatFornecedorPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white">
+        <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white">
           <section className="border-b border-slate-200 p-4">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               Contrato
@@ -454,36 +477,36 @@ export default function MedicaoChatFornecedorPage() {
             </div>
           </section>
 
-          <section className="p-4">
+          <section className="p-5">
             <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-              Resumo da medicao
+              Resumo da medição
             </div>
             {!preview?.periodo_inicio &&
             !preview?.competencia &&
             !preview?.nota_fiscal_numero &&
             !preview?.valor_medido ? (
-              <p className="text-xs italic text-slate-400">Preencha o formulario para ver o resumo.</p>
+              <p className="text-xs italic text-slate-400">Preencha o formulário para ver o resumo.</p>
             ) : (
-              <div className="space-y-2 text-xs">
+              <div className="space-y-3 text-xs">
                 {preview?.periodo_inicio && (
-                  <ResumoLinha label="Periodo Inicio" value={formatarData(preview.periodo_inicio)} />
+                  <ResumoLinha label="Período início" value={formatarData(preview.periodo_inicio)} />
                 )}
                 {preview?.periodo_fim && (
-                  <ResumoLinha label="Periodo Fim" value={formatarData(preview.periodo_fim)} />
+                  <ResumoLinha label="Período fim" value={formatarData(preview.periodo_fim)} />
                 )}
-                {preview?.competencia && <ResumoLinha label="Competencia" value={preview.competencia} />}
+                {preview?.competencia && <ResumoLinha label="Competência" value={preview.competencia} />}
                 {preview?.nota_fiscal_numero && <ResumoLinha label="Nota Fiscal" value={preview.nota_fiscal_numero} />}
                 {preview?.valor_medido != null && (
-                  <ResumoLinha label="Valor da Medicao" value={formatarMoeda(preview.valor_medido)} destaque />
+                  <ResumoLinha label="Valor da medição" value={formatarMoeda(preview.valor_medido)} destaque />
                 )}
                 {discriminacoes.length > 0 && (
-                  <div className="pt-1">
-                    <div className="mb-1 text-[11px] text-slate-500">Discriminacao</div>
-                    <div className="space-y-1">
-                      {discriminacoes.slice(0, 3).map((item, index) => (
-                        <div key={`${item.descricao}-${index}`} className="flex justify-between gap-2 text-[11px]">
-                          <span className="truncate text-slate-600">{item.descricao}</span>
-                          <span className="font-mono text-slate-900">{formatarMoeda(item.valor)}</span>
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Discriminação</div>
+                    <div className="space-y-2">
+                      {discriminacoes.map((item, index) => (
+                        <div key={`${item.descricao}-${index}`} className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
+                          <div className="break-words text-[12px] leading-4 text-slate-600">{item.descricao}</div>
+                          <div className="mt-1 font-mono text-sm font-semibold text-slate-900">{formatarMoeda(item.valor)}</div>
                         </div>
                       ))}
                     </div>
@@ -598,13 +621,15 @@ export default function MedicaoChatFornecedorPage() {
               </Button>
             </div>
 
-            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-              <span>{sessionData.session.confirmacao_pendente ? 'Confirmacao pendente' : `Etapa atual: ${STEPS[activeStep]?.label || 'Revisao'}`}</span>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span>{sessionData.session.confirmacao_pendente ? 'Confirmação pendente' : `Etapa atual: ${STEPS[activeStep]?.label || 'Revisão'}`}</span>
               {sessionData.session.medicao_id && (
-                <Link className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline" href={`/fornecedor/contratos/${params.id}?tab=medicoes&acao=continuar&medicaoId=${sessionData.session.medicao_id}`}>
-                  <Upload className="h-3.5 w-3.5" />
-                  Abrir rascunho para envio
-                </Link>
+                <Button asChild size="sm" className="h-8 bg-green-700 px-3 text-xs font-semibold text-white shadow-sm hover:bg-green-800">
+                  <Link href={`/fornecedor/contratos/${params.id}?tab=medicoes&acao=continuar&medicaoId=${sessionData.session.medicao_id}`}>
+                    <Upload className="mr-1.5 h-3.5 w-3.5" />
+                    Revisar e enviar rascunho
+                  </Link>
+                </Button>
               )}
             </div>
           </div>
@@ -616,9 +641,9 @@ export default function MedicaoChatFornecedorPage() {
 
 function ResumoLinha({ label, value, destaque = false }: { label: string; value: string; destaque?: boolean }) {
   return (
-    <div>
-      <div className="text-[11px] text-slate-500">{label}</div>
-      <div className={`mt-0.5 font-medium ${destaque ? 'font-mono text-green-700' : 'text-slate-900'}`}>{value}</div>
+    <div className={`rounded-lg border px-3 py-2.5 ${destaque ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'}`}>
+      <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">{label}</div>
+      <div className={`mt-1 break-words font-semibold ${destaque ? 'font-mono text-base text-green-700' : 'text-sm text-slate-900'}`}>{value}</div>
     </div>
   )
 }

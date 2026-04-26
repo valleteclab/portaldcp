@@ -127,6 +127,12 @@ type MedicaoChatDraft = {
   }>;
 };
 
+type PeriodoParseContext = {
+  contrato?: Contrato;
+  draft?: MedicaoChatDraft;
+  ultimaMedicao?: Medicao | null;
+};
+
 const ALLOWED_MIMES = [
   'application/pdf',
   'application/xml',
@@ -750,7 +756,7 @@ export class MedicaoChatService {
       return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nPara começar, pode me informar seu **nome** e o **CNPJ da empresa**?`;
     }
 
-    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nJá encontrei a identificação do fornecedor no cadastro. Para começar, pode me informar o **período da medição** no formato "01/04/2026 a 30/04/2026"?`;
+    return `Olá! Sou o Assistente de Medição do Portal DCP IA. Vou te guiar no preenchimento do boletim de medição do contrato **${contrato.numero_contrato}**. Identifiquei que este contrato usa **${tipoFluxo}**.${resumoContrato ? ` ${resumoContrato}` : ''}\n\nJá encontrei a identificação do fornecedor no cadastro. Para começar, pode me informar o **período da medição**? Pode usar "01/04/2026 a 30/04/2026" ou "01 04 a 30 04" quando o ano estiver claro pela vigência.`;
   }
 
   private async montarMensagemReset(
@@ -779,7 +785,7 @@ export class MedicaoChatService {
       case 'IDENTIFICACAO':
         return this.aplicarIdentificacao(mensagem, draft);
       case 'PERIODO':
-        return this.aplicarPeriodo(mensagem, draft);
+        return this.aplicarPeriodo(mensagem, draft, contrato);
       case 'COMPETENCIA':
         return this.aplicarCompetencia(mensagem, draft);
       case 'NF':
@@ -808,7 +814,7 @@ export class MedicaoChatService {
     let nfAtualizada = false;
     let handled = false;
 
-    const periodo = this.extrairPeriodoTexto(mensagem);
+    const periodo = this.extrairPeriodoTexto(mensagem, { contrato, draft });
     if (
       periodo &&
       (!draft.periodo_inicio || !draft.periodo_fim || this.extrairDatasCount(mensagem) >= 2)
@@ -1160,18 +1166,25 @@ export class MedicaoChatService {
       }
     }
 
-    const periodo = this.extrairPeriodoTexto(mensagem);
+    const periodo = this.extrairPeriodoTexto(mensagem, {
+      contrato,
+      draft,
+      ultimaMedicao: contexto.ultima_medicao,
+    });
+    const podeAtualizarPeriodo =
+      podeUsarFerramenta('atualizar_periodo') ||
+      etapaAntesDaMensagem === 'PERIODO';
     plano.push({
       id: 'periodo',
       titulo: 'interpretar período da medição',
       status:
-        periodo && podeUsarFerramenta('atualizar_periodo') ? 'planned' : 'skipped',
+        periodo && podeAtualizarPeriodo ? 'planned' : 'skipped',
       confianca: periodo ? 'high' : 'low',
       motivo: periodo
         ? 'Encontrei duas datas na mensagem'
         : 'Nenhum período completo foi identificado',
     });
-    if (periodo && podeUsarFerramenta('atualizar_periodo')) {
+    if (periodo && podeAtualizarPeriodo) {
       if (!draft.periodo_inicio || !draft.periodo_fim) {
         draft.periodo_inicio = periodo.inicio;
         draft.periodo_fim = periodo.fim;
@@ -1889,19 +1902,20 @@ Regras obrigatórias:
     }
 
     return {
-      resposta: `Obrigado! Identificação registrada:\n\n**Empresa:** ${draft.fornecedor_nome_informado}\n**CNPJ:** ${this.formatarCnpj(draft.fornecedor_cnpj_informado)}\n\nAgora, por favor, informe as **datas de início e fim do período de medição** no formato dd/mm/aaaa.`,
+      resposta: `Obrigado! Identificação registrada:\n\n**Empresa:** ${draft.fornecedor_nome_informado}\n**CNPJ:** ${this.formatarCnpj(draft.fornecedor_cnpj_informado)}\n\nAgora, por favor, informe as **datas de início e fim do período de medição**. Pode enviar como "01/04/2026 a 30/04/2026" ou "01 04 a 30 04" quando o ano estiver claro pela vigência.`,
     };
   }
 
   private aplicarPeriodo(
     mensagem: string,
     draft: MedicaoChatDraft,
+    contrato?: Contrato,
   ): ResultadoEtapaChat {
-    const parsed = this.extrairPeriodoTexto(mensagem);
+    const parsed = this.extrairPeriodoTexto(mensagem, { contrato, draft });
     if (!parsed) {
       return {
         resposta:
-          'Não consegui entender o período. Me envie no formato "01/04/2026 a 30/04/2026" ou "2026-04-01 a 2026-04-30".',
+          'Não consegui entender o período. Me envie como "01/04/2026 a 30/04/2026", "2026-04-01 a 2026-04-30" ou, quando o ano estiver claro pela vigência, "01 04 a 30 04".',
       };
     }
 
@@ -2951,19 +2965,216 @@ Regras obrigatórias:
     );
   }
 
-  private extrairPeriodoTexto(texto: string) {
-    const matches = [...texto.matchAll(/(\d{2}[\/-]\d{2}[\/-]\d{4}|\d{4}-\d{2}-\d{2})/g)];
-    if (matches.length < 2) return null;
-    const inicio = this.normalizarData(matches[0][0]);
-    const fim = this.normalizarData(matches[1][0]);
-    if (!inicio || !fim) return null;
-    return { inicio, fim };
+  private extrairPeriodoTexto(
+    texto: string,
+    contexto: PeriodoParseContext = {},
+  ) {
+    const matches = [
+      ...texto.matchAll(
+        /(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/g,
+      ),
+    ];
+    if (matches.length >= 2) {
+      const inicio = this.normalizarData(matches[0][0]);
+      const fim = this.normalizarData(matches[1][0]);
+      if (inicio && fim && inicio <= fim) return { inicio, fim };
+    }
+
+    return this.extrairPeriodoCurtoTexto(texto, contexto);
+  }
+
+  private extrairPeriodoCurtoTexto(
+    texto: string,
+    contexto: PeriodoParseContext,
+  ) {
+    const match = texto
+      .replace(/[“”"]/g, ' ')
+      .match(
+        /(?:^|[^\d])(\d{1,2})\s*[\/.\-\s]\s*(\d{1,2})(?:\s*[\/.\-\s]\s*(\d{2,4}))?\s*(?:a|ate|até|ao|à|-|–|—)\s*(\d{1,2})\s*[\/.\-\s]\s*(\d{1,2})(?:\s*[\/.\-\s]\s*(\d{2,4}))?(?=$|[^\d])/i,
+      );
+    if (!match) return null;
+
+    const inicioDia = Number(match[1]);
+    const inicioMes = Number(match[2]);
+    const inicioAno = match[3] ? this.normalizarAno(match[3]) : null;
+    const fimDia = Number(match[4]);
+    const fimMes = Number(match[5]);
+    const fimAno = match[6] ? this.normalizarAno(match[6]) : null;
+
+    const anosBase =
+      inicioAno || fimAno
+        ? [inicioAno || fimAno!]
+        : this.inferirAnosBasePeriodo(contexto);
+    const candidatos = anosBase
+      .map((anoBase) =>
+        this.montarPeriodoComAno({
+          inicioDia,
+          inicioMes,
+          inicioAno,
+          fimDia,
+          fimMes,
+          fimAno,
+          anoBase,
+        }),
+      )
+      .filter((item): item is { inicio: string; fim: string } => Boolean(item));
+
+    if (candidatos.length === 0) return null;
+
+    return candidatos.sort(
+      (a, b) =>
+        this.pontuarPeriodoInferido(b, contexto) -
+        this.pontuarPeriodoInferido(a, contexto),
+    )[0];
   }
 
   private extrairDatasCount(texto: string) {
-    return [
-      ...texto.matchAll(/(\d{2}[\/-]\d{2}[\/-]\d{4}|\d{4}-\d{2}-\d{2})/g),
+    const completas = [
+      ...texto.matchAll(
+        /(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/g,
+      ),
     ].length;
+    if (completas >= 2) return completas;
+    return /(?:^|[^\d])\d{1,2}\s*[\/.\-\s]\s*\d{1,2}(?:\s*[\/.\-\s]\s*\d{2,4})?\s*(?:a|ate|até|ao|à|-|–|—)\s*\d{1,2}\s*[\/.\-\s]\s*\d{1,2}/i.test(
+      texto,
+    )
+      ? 2
+      : completas;
+  }
+
+  private normalizarAno(valor: string) {
+    const ano = Number(valor);
+    if (valor.length === 2) return 2000 + ano;
+    return ano;
+  }
+
+  private inferirAnosBasePeriodo(contexto: PeriodoParseContext) {
+    const anos: number[] = [];
+    const adicionarAno = (ano?: number | null) => {
+      if (ano && ano >= 1900 && ano <= 2200 && !anos.includes(ano)) {
+        anos.push(ano);
+      }
+    };
+    const adicionarAnoDeData = (data?: Date | string | null) => {
+      const iso = this.formatDateOnly(data);
+      if (iso) adicionarAno(Number(iso.substring(0, 4)));
+    };
+    const adicionarAnoDeCompetencia = (competencia?: string | null) => {
+      const match = String(competencia || '').match(/(\d{4})/);
+      if (match) adicionarAno(Number(match[1]));
+    };
+
+    adicionarAnoDeCompetencia(contexto.draft?.competencia);
+    adicionarAnoDeData(contexto.draft?.periodo_fim);
+    adicionarAnoDeData(contexto.draft?.periodo_inicio);
+    adicionarAnoDeCompetencia(contexto.ultimaMedicao?.competencia);
+    adicionarAnoDeData(contexto.ultimaMedicao?.periodo_fim);
+    adicionarAnoDeData(contexto.ultimaMedicao?.periodo_inicio);
+
+    const vigenciaInicio = this.formatDateOnly(
+      contexto.contrato?.data_vigencia_inicio,
+    );
+    const vigenciaFim = this.formatDateOnly(contexto.contrato?.data_vigencia_fim);
+    if (vigenciaInicio && vigenciaFim) {
+      const anoInicio = Number(vigenciaInicio.substring(0, 4));
+      const anoFim = Number(vigenciaFim.substring(0, 4));
+      for (let ano = anoInicio; ano <= anoFim && ano <= anoInicio + 10; ano++) {
+        adicionarAno(ano);
+      }
+    }
+
+    if (anos.length === 0) adicionarAno(new Date().getFullYear());
+    return anos;
+  }
+
+  private montarPeriodoComAno(input: {
+    inicioDia: number;
+    inicioMes: number;
+    inicioAno: number | null;
+    fimDia: number;
+    fimMes: number;
+    fimAno: number | null;
+    anoBase: number;
+  }) {
+    let anoInicio = input.inicioAno ?? input.anoBase;
+    let anoFim = input.fimAno ?? input.inicioAno ?? input.anoBase;
+
+    if (!input.inicioAno && input.fimAno) {
+      anoInicio = input.fimAno;
+      if (
+        input.inicioMes > input.fimMes ||
+        (input.inicioMes === input.fimMes && input.inicioDia > input.fimDia)
+      ) {
+        anoInicio = input.fimAno - 1;
+      }
+    }
+
+    if (
+      !input.fimAno &&
+      (input.inicioMes > input.fimMes ||
+        (input.inicioMes === input.fimMes && input.inicioDia > input.fimDia))
+    ) {
+      anoFim = anoInicio + 1;
+    }
+
+    const inicio = this.montarDataIso(input.inicioDia, input.inicioMes, anoInicio);
+    const fim = this.montarDataIso(input.fimDia, input.fimMes, anoFim);
+    if (!inicio || !fim || inicio > fim) return null;
+    return { inicio, fim };
+  }
+
+  private montarDataIso(dia: number, mes: number, ano: number) {
+    if (!(dia >= 1 && dia <= 31 && mes >= 1 && mes <= 12 && ano >= 1900)) {
+      return null;
+    }
+    const data = new Date(Date.UTC(ano, mes - 1, dia));
+    if (
+      data.getUTCFullYear() !== ano ||
+      data.getUTCMonth() !== mes - 1 ||
+      data.getUTCDate() !== dia
+    ) {
+      return null;
+    }
+    return `${ano.toString().padStart(4, '0')}-${mes
+      .toString()
+      .padStart(2, '0')}-${dia.toString().padStart(2, '0')}`;
+  }
+
+  private pontuarPeriodoInferido(
+    periodo: { inicio: string; fim: string },
+    contexto: PeriodoParseContext,
+  ) {
+    let score = 0;
+    const vigenciaInicio = this.formatDateOnly(
+      contexto.contrato?.data_vigencia_inicio,
+    );
+    const vigenciaFim = this.formatDateOnly(contexto.contrato?.data_vigencia_fim);
+    if (vigenciaInicio && vigenciaFim) {
+      score += periodo.inicio >= vigenciaInicio && periodo.fim <= vigenciaFim ? 100 : -100;
+    }
+
+    const ultimaFim = this.formatDateOnly(contexto.ultimaMedicao?.periodo_fim);
+    if (ultimaFim) {
+      score += periodo.inicio > ultimaFim ? 30 : -10;
+      if (periodo.inicio === this.adicionarDiasIso(ultimaFim, 1)) {
+        score += 50;
+      }
+    }
+
+    const competenciaAno = String(contexto.draft?.competencia || '').match(
+      /(\d{4})/,
+    )?.[1];
+    if (competenciaAno && periodo.fim.startsWith(competenciaAno)) score += 20;
+
+    return score;
+  }
+
+  private adicionarDiasIso(iso: string, dias: number) {
+    const [ano, mes, dia] = iso.split('-').map(Number);
+    const data = new Date(Date.UTC(ano, mes - 1, dia + dias));
+    return `${data.getUTCFullYear()}-${(data.getUTCMonth() + 1)
+      .toString()
+      .padStart(2, '0')}-${data.getUTCDate().toString().padStart(2, '0')}`;
   }
 
   private extrairNumeroNF(texto: string) {
@@ -2998,10 +3209,18 @@ Regras obrigatórias:
 
   private normalizarData(valor?: string | null) {
     if (!valor) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
-    if (/^\d{2}[\/-]\d{2}[\/-]\d{4}$/.test(valor)) {
-      const [d, m, y] = valor.split(/[\/-]/);
-      return `${y}-${m}-${d}`;
+    const texto = String(valor).trim().substring(0, 10);
+    const iso = texto.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (iso) {
+      return this.montarDataIso(Number(iso[3]), Number(iso[2]), Number(iso[1]));
+    }
+    const br = texto.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+    if (br) {
+      return this.montarDataIso(
+        Number(br[1]),
+        Number(br[2]),
+        this.normalizarAno(br[3]),
+      );
     }
     return null;
   }
