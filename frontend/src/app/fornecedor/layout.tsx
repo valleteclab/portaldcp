@@ -2,6 +2,7 @@
 
 import { Sidebar, Header } from "@/components/layout/navigation"
 import { AuthGuard } from "@/components/auth/auth-guard"
+import { AtualizacaoPopup } from "@/components/atualizacoes/atualizacao-popup"
 
 export default function FornecedorLayout({
   children,
@@ -10,6 +11,7 @@ export default function FornecedorLayout({
 }) {
   return (
     <AuthGuard userType="fornecedor">
+      <AtualizacaoPopup />
       <div className="flex min-h-screen bg-slate-50">
         <Sidebar userType="fornecedor" />
         <div className="flex-1 flex flex-col">

@@ -55,6 +55,10 @@ import { MedicaoChatSession } from './entities/medicao-chat-session.entity';
 import { MedicaoChatController } from './medicao-chat.controller';
 import { MedicaoChatService } from './medicao-chat.service';
 import { MedicaoChatAgentService } from './medicao-chat-agent.service';
+import { AtualizacaoSistema } from './entities/atualizacao-sistema.entity';
+import { AtualizacaoLida } from './entities/atualizacao-lida.entity';
+import { AtualizacoesService } from './atualizacoes.service';
+import { AtualizacoesController } from './atualizacoes.controller';
 import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
 
 @Module({
@@ -65,7 +69,7 @@ import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
       EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
-      MedicaoChatSession,
+      MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
     ]),
     NotificacoesModule,
     UploadModule,
@@ -75,8 +79,8 @@ import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
     FornecedoresModule,
     SystemConfigModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController],
-  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
+  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}
