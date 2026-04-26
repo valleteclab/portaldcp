@@ -8,7 +8,6 @@ import { API_URL, authFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   ArrowLeft,
   Check,
@@ -548,7 +547,7 @@ export default function MedicaoChatFornecedorPage() {
           <div className="flex-1 overflow-y-auto p-5">
             <div className="flex flex-col gap-3">
               {sessionData.session.historico_ia.map((item, index) => (
-                <MensagemChat key={`${item.created_at}-${index}`} item={item} />
+                <MensagemChat key={`${item.created_at}-${index}`} item={item} onEnviarMensagem={(texto) => void enviarMensagem(texto)} disabled={sending} />
               ))}
               {sending && (
                 <div className="flex max-w-[85%] gap-2">
@@ -641,79 +640,114 @@ export default function MedicaoChatFornecedorPage() {
   )
 }
 
-type LinhaTabelaItens = {
-  item: string
+type ItemMedicaoJson = {
+  numero_item: number
   descricao: string
-  unidade: string
-  contratado: string
-  jaMedido: string
-  saldo: string
-  valorUnit: string
-  status: string
+  unidade_medida: string
+  quantidade_contratada: number
+  quantidade_medida_anterior: number
+  saldo_disponivel: number
+  valor_unitario: number
+  bloqueado: boolean
+  motivo_bloqueio?: string
 }
 
-function extrairTabelaItensChat(content: string): {
+type TabelaItensChat = {
   aviso?: string
-  titulo?: string
-  linhas: LinhaTabelaItens[]
-  instrucoes?: string[]
-} | null {
-  if (!content.includes('Itens disponíveis para medição:') || !content.includes('| Item |')) {
+  itens: ItemMedicaoJson[]
+}
+
+function extrairTabelaItensChat(content: string): TabelaItensChat | null {
+  const match = content.match(/<!--ITENS_MEDICAO_JSON:([\s\S]+?)-->/)
+  if (!match) return null
+  try {
+    const itens = JSON.parse(match[1]) as ItemMedicaoJson[]
+    if (!Array.isArray(itens) || itens.length === 0) return null
+    const linhas = content.split('\n')
+    const avisoLinha = linhas.find((l) => l.includes('Itens já medidos neste período:'))
+    return {
+      aviso: avisoLinha?.trim(),
+      itens,
+    }
+  } catch {
     return null
   }
-
-  const linhasTexto = content.split('\n')
-  const tituloIndex = linhasTexto.findIndex((linha) => linha.includes('Itens disponíveis para medição:'))
-  const avisoIndex = linhasTexto.findIndex((linha) => linha.includes('Itens já medidos neste período:'))
-  const inicioTabela = linhasTexto.findIndex((linha) => linha.trim().startsWith('| Item |'))
-  if (inicioTabela === -1) return null
-
-  const linhasTabela: LinhaTabelaItens[] = []
-  for (let i = inicioTabela + 2; i < linhasTexto.length; i += 1) {
-    const linha = linhasTexto[i]?.trim()
-    if (!linha || !linha.startsWith('|')) break
-    const colunas = linha
-      .split('|')
-      .map((parte) => parte.trim())
-      .filter(Boolean)
-    if (colunas.length < 8) continue
-    linhasTabela.push({
-      item: colunas[0],
-      descricao: colunas[1],
-      unidade: colunas[2],
-      contratado: colunas[3],
-      jaMedido: colunas[4],
-      saldo: colunas[5],
-      valorUnit: colunas[6],
-      status: colunas[7],
-    })
-  }
-
-  const instrucoes = linhasTexto
-    .slice(inicioTabela)
-    .filter((linha) => linha.trim().startsWith('•') || linha.includes('Informe o **item e a quantidade**'))
-
-  return {
-    aviso: avisoIndex >= 0 ? linhasTexto[avisoIndex].trim() : undefined,
-    titulo: tituloIndex >= 0 ? linhasTexto[tituloIndex].trim() : undefined,
-    linhas: linhasTabela,
-    instrucoes,
-  }
 }
 
-function badgeStatusTabela(status: string) {
-  if (/bloqueado/i.test(status)) {
-    return <Badge className="rounded-full border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-50">Medido #{status.match(/#\d+/)?.[0]?.replace('#', '') || ''}</Badge>
-  }
-  if (/dispon[ií]vel/i.test(status)) {
-    return <Badge className="rounded-full border-green-300 bg-green-50 text-[10px] font-semibold text-green-700 hover:bg-green-50">Disponível</Badge>
-  }
-  return <Badge variant="secondary" className="rounded-full text-[10px]">{status}</Badge>
+function formatarQtd(valor: number, casas = 2) {
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: 4 })
 }
 
-function CardTabelaItensChat({ content }: { content: string }) {
+function formatarReais(valor: number) {
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+type FiltroStatusTabela = 'todos' | 'disponivel' | 'bloqueado'
+
+function CardTabelaItensChat({
+  content,
+  onEnviarMensagem,
+  disabled,
+}: {
+  content: string
+  onEnviarMensagem: (texto: string) => void
+  disabled?: boolean
+}) {
   const tabela = extrairTabelaItensChat(content)
+  const [busca, setBusca] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatusTabela>('todos')
+  const [selecionados, setSelecionados] = useState<Record<number, boolean>>({})
+  const [quantidades, setQuantidades] = useState<Record<number, string>>(() => {
+    if (!tabela) return {}
+    const map: Record<number, string> = {}
+    for (const item of tabela.itens) {
+      if (item.bloqueado) continue
+      if (item.unidade_medida === 'MENSAL') {
+        map[item.numero_item] = '1'
+      } else {
+        map[item.numero_item] = ''
+      }
+    }
+    return map
+  })
+
   if (!tabela) return null
+
+  const itensFiltrados = tabela.itens.filter((item) => {
+    if (busca.trim()) {
+      const alvo = `${item.numero_item} ${item.descricao}`.toLowerCase()
+      if (!alvo.includes(busca.toLowerCase())) return false
+    }
+    if (filtroStatus === 'disponivel' && (item.bloqueado || item.saldo_disponivel <= 0)) return false
+    if (filtroStatus === 'bloqueado' && !item.bloqueado) return false
+    return true
+  })
+
+  const totalSelecionados = Object.values(selecionados).filter(Boolean).length
+
+  const toggleItem = (numero: number) => {
+    setSelecionados((prev) => ({ ...prev, [numero]: !prev[numero] }))
+  }
+
+  const toggleTodos = (marcar: boolean) => {
+    const novos: Record<number, boolean> = {}
+    for (const item of itensFiltrados) {
+      if (!item.bloqueado && item.saldo_disponivel > 0) novos[item.numero_item] = marcar
+    }
+    setSelecionados((prev) => ({ ...prev, ...novos }))
+  }
+
+  const handleMedirSelecionados = () => {
+    const partes: string[] = []
+    for (const item of tabela.itens) {
+      if (!selecionados[item.numero_item]) continue
+      const qtdStr = (quantidades[item.numero_item] || '').trim()
+      if (!qtdStr) continue
+      partes.push(`item ${item.numero_item} = ${qtdStr}`)
+    }
+    if (partes.length === 0) return
+    onEnviarMensagem(partes.join(', '))
+  }
 
   return (
     <div className="space-y-3">
@@ -723,49 +757,149 @@ function CardTabelaItensChat({ content }: { content: string }) {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200">
-        <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-          Itens do período para seleção
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="🔍 Buscar item, descricao..."
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex items-center gap-1 text-xs">
+            <label className="text-slate-500">Status:</label>
+            <select
+              value={filtroStatus}
+              onChange={(e) => setFiltroStatus(e.target.value as FiltroStatusTabela)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500"
+            >
+              <option value="todos">Todos</option>
+              <option value="disponivel">Disponível</option>
+              <option value="bloqueado">Bloqueado</option>
+            </select>
+          </div>
+          <div className="ml-auto text-xs text-slate-500">
+            <span className="font-semibold text-slate-700">{totalSelecionados}</span> selecionado(s)
+          </div>
         </div>
-        <Table className="text-xs">
-          <TableHeader className="bg-[#163b73]">
-            <TableRow className="border-b-0 hover:bg-[#163b73]">
-              <TableHead className="h-9 text-white">#</TableHead>
-              <TableHead className="h-9 text-white">Descrição do item</TableHead>
-              <TableHead className="h-9 text-white">Unid.</TableHead>
-              <TableHead className="h-9 text-white">Qtd.</TableHead>
-              <TableHead className="h-9 text-white">Já medido</TableHead>
-              <TableHead className="h-9 text-white">Saldo</TableHead>
-              <TableHead className="h-9 text-white">Valor unit.</TableHead>
-              <TableHead className="h-9 text-white">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tabela.linhas.map((linha) => (
-              <TableRow key={`${linha.item}-${linha.descricao}`} className="align-top">
-                <TableCell className="font-semibold text-slate-700">{linha.item}</TableCell>
-                <TableCell className="max-w-[360px] whitespace-normal leading-4 text-slate-700">{linha.descricao}</TableCell>
-                <TableCell>{linha.unidade}</TableCell>
-                <TableCell>{linha.contratado}</TableCell>
-                <TableCell>{linha.jaMedido}</TableCell>
-                <TableCell className="font-semibold">{linha.saldo}</TableCell>
-                <TableCell>{linha.valorUnit}</TableCell>
-                <TableCell>{badgeStatusTabela(linha.status)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
 
-      {tabela.instrucoes && tabela.instrucoes.length > 0 ? (
-        <div className="space-y-1 text-xs text-slate-600">
-          {tabela.instrucoes.map((linha, index) => (
-            <div key={`${linha}-${index}`} className="whitespace-pre-wrap">
-              {linha}
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-[#163b73] text-white">
+              <tr>
+                <th className="px-2 py-2 text-left">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 cursor-pointer"
+                    checked={
+                      itensFiltrados.length > 0 &&
+                      itensFiltrados.filter((i) => !i.bloqueado && i.saldo_disponivel > 0).every((i) => selecionados[i.numero_item])
+                    }
+                    onChange={(e) => toggleTodos(e.target.checked)}
+                  />
+                </th>
+                <th className="px-2 py-2 text-left">#</th>
+                <th className="px-2 py-2 text-left">DESCRIÇÃO DO ITEM</th>
+                <th className="px-2 py-2 text-left">UNID.</th>
+                <th className="px-2 py-2 text-left">QTD.</th>
+                <th className="px-2 py-2 text-left">VALOR UNIT.</th>
+                <th className="px-2 py-2 text-left">VALOR TOTAL</th>
+                <th className="px-2 py-2 text-left">STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itensFiltrados.map((item) => {
+                const podeSelecionar = !item.bloqueado && item.saldo_disponivel > 0
+                const selecionado = !!selecionados[item.numero_item]
+                const medicaoNumero = item.motivo_bloqueio?.match(/#(\d+)/)?.[1]
+                return (
+                  <tr
+                    key={item.numero_item}
+                    className={`border-b border-slate-100 last:border-b-0 ${selecionado ? 'bg-blue-50/40' : ''}`}
+                  >
+                    <td className="px-2 py-2 align-top">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!podeSelecionar}
+                        checked={selecionado}
+                        onChange={() => toggleItem(item.numero_item)}
+                      />
+                    </td>
+                    <td className="px-2 py-2 align-top font-semibold text-slate-700">{item.numero_item}</td>
+                    <td className="px-2 py-2 align-top">
+                      <div className="max-w-[340px] whitespace-normal text-[11px] leading-4 text-slate-700">{item.descricao}</div>
+                    </td>
+                    <td className="px-2 py-2 align-top text-slate-600">{item.unidade_medida}</td>
+                    <td className="px-2 py-2 align-top">
+                      {podeSelecionar ? (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={quantidades[item.numero_item] ?? ''}
+                          onChange={(e) =>
+                            setQuantidades((prev) => ({ ...prev, [item.numero_item]: e.target.value }))
+                          }
+                          onFocus={() => setSelecionados((prev) => ({ ...prev, [item.numero_item]: true }))}
+                          className="w-20 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500"
+                          placeholder={formatarQtd(item.saldo_disponivel, 0)}
+                        />
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 align-top font-mono text-slate-700">R$ {formatarReais(item.valor_unitario)}</td>
+                    <td className="px-2 py-2 align-top font-mono font-semibold text-slate-800">
+                      R${' '}
+                      {formatarReais(
+                        Number(quantidades[item.numero_item]?.replace(',', '.') || 0) * item.valor_unitario,
+                      )}
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      {item.bloqueado ? (
+                        <Badge className="rounded-full border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-50">
+                          MEDIDO{medicaoNumero ? ` #${medicaoNumero}` : ''}
+                        </Badge>
+                      ) : item.saldo_disponivel > 0 ? (
+                        <Badge className="rounded-full border-green-300 bg-green-50 text-[10px] font-semibold text-green-700 hover:bg-green-50">
+                          DISPONÍVEL
+                        </Badge>
+                      ) : (
+                        <Badge className="rounded-full border-slate-300 bg-slate-100 text-[10px] font-semibold text-slate-600 hover:bg-slate-100">
+                          ESGOTADO
+                        </Badge>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+              {itensFiltrados.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-xs text-slate-500">
+                    Nenhum item encontrado para os filtros aplicados.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
-      ) : null}
+
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="text-[11px] text-slate-500">
+            Exibindo {itensFiltrados.length} de {tabela.itens.length} itens
+          </div>
+          <Button
+            size="sm"
+            onClick={handleMedirSelecionados}
+            disabled={disabled || totalSelecionados === 0}
+            className="h-8 bg-blue-700 px-3 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+          >
+            <Check className="mr-1 h-3.5 w-3.5" />
+            Medir itens selecionados
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -779,9 +913,55 @@ function ResumoLinha({ label, value, destaque = false }: { label: string; value:
   )
 }
 
-function MensagemChat({ item }: { item: HistoricoMensagem }) {
+function MensagemChat({
+  item,
+  onEnviarMensagem,
+  disabled,
+}: {
+  item: HistoricoMensagem
+  onEnviarMensagem: (texto: string) => void
+  disabled?: boolean
+}) {
   const user = item.role === 'user'
   const tabelaItens = !user ? extrairTabelaItensChat(item.content) : null
+  const conteudoSemMarker = item.content.replace(/<!--ITENS_MEDICAO_JSON:[\s\S]+?-->/, '').trim()
+  const conteudoSemTabelaMarkdown = conteudoSemMarker
+    .replace(/📋 \*\*Itens disponíveis para medição:\*\*/g, '')
+    .replace(/\|[^\n]+\|\n\|[-: |]+\|\n(\|[^\n]+\|\n?)+/g, '')
+    .replace(/Selecione os itens na tabela[\s\S]+/g, '')
+    .trim()
+  const textoIntroducao = tabelaItens ? conteudoSemTabelaMarkdown : conteudoSemMarker
+
+  if (tabelaItens) {
+    return (
+      <div className={`flex w-full gap-2 ${user ? 'ml-auto flex-row-reverse' : ''}`}>
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-full text-xs font-semibold ${
+            user ? 'bg-slate-200 text-slate-600' : 'bg-blue-50 text-blue-800'
+          }`}
+        >
+          {user ? 'F' : 'IA'}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {textoIntroducao ? (
+            <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                }}
+              >
+                {textoIntroducao}
+              </ReactMarkdown>
+            </div>
+          ) : null}
+          <CardTabelaItensChat content={item.content} onEnviarMensagem={onEnviarMensagem} disabled={disabled} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`flex max-w-[85%] gap-2 ${user ? 'ml-auto flex-row-reverse' : ''}`}>
       <div
@@ -800,8 +980,6 @@ function MensagemChat({ item }: { item: HistoricoMensagem }) {
       >
         {user ? (
           <span className="whitespace-pre-wrap">{item.content}</span>
-        ) : tabelaItens ? (
-          <CardTabelaItensChat content={item.content} />
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -814,7 +992,7 @@ function MensagemChat({ item }: { item: HistoricoMensagem }) {
               code: ({ children }) => <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs">{children}</code>,
             }}
           >
-            {item.content}
+            {conteudoSemMarker}
           </ReactMarkdown>
         )}
       </div>

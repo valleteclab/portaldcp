@@ -1407,31 +1407,27 @@ export class MedicaoChatService {
 
             respostaDiretaItens =
               `⚠️ **Não é possível medir no período ${this.formatDateBr(periodo.inicio)} a ${this.formatDateBr(periodo.fim)}.**\n\n${motivo}\n\nInforme um **outro período** para a medição.`;
-          } else if (itensNaoBloqueados.length === 1) {
-            // Contrato com único item disponível — prompt direto e contextualizado
-            const item = itensNaoBloqueados[0];
-            const ehMensal = item.unidade_medida === 'MENSAL';
-            const ehMesCheio = this.periodoPareceMesCheio(periodo.inicio, periodo.fim);
-            if (ehMensal && ehMesCheio) {
-              respostaDiretaItens =
-                `${avisoItensBloqueados ? `${avisoItensBloqueados}\n\n` : ''}` +
-                `O contrato tem o **item ${item.numero_item}** (${item.descricao}) com saldo de **${item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${item.unidade_medida}**.\n\n` +
-                `Como o período cobre o mês inteiro, responda: **item ${item.numero_item} = 1**`;
-            } else {
-              respostaDiretaItens =
-                `${avisoItensBloqueados ? `${avisoItensBloqueados}\n\n` : ''}` +
-                `O contrato tem o **item ${item.numero_item}** (${item.descricao}) com saldo de **${item.saldo_disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${item.unidade_medida}**.\n\n` +
-                `Informe a quantidade medida, por exemplo: **item ${item.numero_item} = ${item.saldo_disponivel > 1 ? '10,5' : item.saldo_disponivel.toLocaleString('pt-BR')}**`;
-            }
           } else {
-            // Múltiplos itens — tabela completa
+            // Sempre apresentar tabela completa (1 ou N itens)
             const tabela = this.formatarTabelaItensMedicao(itensDisponiveis);
+            const itensJson = JSON.stringify(
+              itensDisponiveis.map((i) => ({
+                numero_item: i.numero_item,
+                descricao: i.descricao,
+                unidade_medida: i.unidade_medida,
+                quantidade_contratada: i.quantidade_contratada,
+                quantidade_medida_anterior: i.quantidade_medida_anterior,
+                saldo_disponivel: i.saldo_disponivel,
+                valor_unitario: i.valor_unitario,
+                bloqueado: i.bloqueado,
+                motivo_bloqueio: i.motivo_bloqueio,
+              })),
+            );
             respostaDiretaItens =
               `${avisoItensBloqueados ? `${avisoItensBloqueados}\n\n` : ''}` +
               `📋 **Itens disponíveis para medição:**\n\n${tabela}\n\n` +
-              `Informe o **item e a quantidade** que deseja medir, por exemplo:\n` +
-              `• "item 1 = 10,5"\n` +
-              `• "1 = 10,5, 3 = 4,2" (múltiplos itens)`;
+              `Selecione os itens na tabela, ajuste as quantidades e clique em **Medir itens selecionados**.\n\n` +
+              `<!--ITENS_MEDICAO_JSON:${itensJson}-->`;
           }
         }
       } else if (
@@ -1982,8 +1978,7 @@ export class MedicaoChatService {
       // Se a resposta contém prompt direto de itens (1 item) ou tabela (múltiplos),
       // mostrar diretamente sem passar pelo LLM conversacional
       const contemRespostaDiretaItens =
-        resultado.resposta?.includes('📋 **Itens disponíveis para medição**') ||
-        resultado.resposta?.includes('O contrato tem o **item') ||
+        resultado.resposta?.includes('Itens disponíveis para medição') ||
         resultado.resposta?.includes('Não é possível medir no período');
 
       if (contemRespostaDiretaItens) {
