@@ -1582,6 +1582,8 @@ export class MedicaoChatService {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
+    const confirmouDiscriminacoesEstruturadas =
+      /<!--DISCRIMINACOES_CONFIRMACAO_JSON:[\s\S]+?-->/.test(mensagem);
     const querReaproveitarDiscriminacoes =
       /reaproveitar|ultima/.test(mensagemDiscriminacoes) &&
       (/discrimin|descrim|despesa|composi/.test(mensagemDiscriminacoes) ||
@@ -1648,9 +1650,11 @@ export class MedicaoChatService {
         this.marcarAcao(plano, 'discriminacoes', 'applied');
         handled = true;
         houveEscrita = true;
-        respostaDiretaDiscriminacoes = this.formatarRespostaDiscriminacoes(
-          draft.discriminacoes,
-        );
+        if (!confirmouDiscriminacoesEstruturadas) {
+          respostaDiretaDiscriminacoes = this.formatarRespostaDiscriminacoes(
+            draft.discriminacoes,
+          );
+        }
       }
     }
 

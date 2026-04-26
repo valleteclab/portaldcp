@@ -1176,7 +1176,7 @@ function MensagemChat({
         }`}
       >
         {user ? (
-          <span className="whitespace-pre-wrap">{item.content}</span>
+          <span className="whitespace-pre-wrap">{conteudoSemMarker}</span>
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
