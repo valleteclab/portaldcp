@@ -1245,6 +1245,7 @@ export class MedicaoChatService {
     let handled = false;
     let houveEscrita = false;
     let respostaDiretaItens: string | null = null;
+    let respostaDiretaDiscriminacoes: string | null = null;
     let avisoItensBloqueados: string | null = null;
 
     if (
@@ -1618,6 +1619,9 @@ export class MedicaoChatService {
         this.marcarAcao(plano, 'discriminacoes', 'applied');
         handled = true;
         houveEscrita = true;
+        respostaDiretaDiscriminacoes = this.formatarRespostaDiscriminacoes(
+          draft.discriminacoes,
+        );
       } else {
         this.marcarAcao(
           plano,
@@ -1643,6 +1647,9 @@ export class MedicaoChatService {
         this.marcarAcao(plano, 'discriminacoes', 'applied');
         handled = true;
         houveEscrita = true;
+        respostaDiretaDiscriminacoes = this.formatarRespostaDiscriminacoes(
+          draft.discriminacoes,
+        );
       }
     }
 
@@ -1822,6 +1829,8 @@ export class MedicaoChatService {
         // Período revertido (bloqueio total) — apenas mensagem de bloqueio
         resposta = respostaDiretaItens;
       }
+    } else if (respostaDiretaDiscriminacoes) {
+      resposta = respostaDiretaDiscriminacoes;
     } else {
       resposta = this.montarRespostaAgenteV2(
         aplicacoes,
@@ -1964,8 +1973,7 @@ export class MedicaoChatService {
     const informouNovosValoresDiscriminacao =
       /(?:r\$|\d+(?:[,.]\d+)?\s*%|[-:=]\s*\d)/i.test(mensagem);
     const querReaproveitarDiscriminacoes =
-      /reaproveitar|[uú]ltima/i.test(mensagem) &&
-      /discrimin|descrim|despesa|composi/i.test(mensagem);
+      /reaproveitar|[uú]ltima/i.test(mensagem);
 
     if (
       querTratarDiscriminacoes &&
@@ -2005,8 +2013,11 @@ export class MedicaoChatService {
       const contemRespostaDiretaItens =
         resultado.resposta?.includes('Itens disponíveis para medição') ||
         resultado.resposta?.includes('Não é possível medir no período');
+      const contemRespostaDiretaDiscriminacoes = resultado.resposta?.includes(
+        '<!--DISCRIMINACOES_JSON:',
+      );
 
-      if (contemRespostaDiretaItens) {
+      if (contemRespostaDiretaItens || contemRespostaDiretaDiscriminacoes) {
         // Manter a resposta direta, apenas normalizar
         resultado.resposta = this.normalizarRespostaChatIa(resultado.resposta);
       } else {
@@ -2639,11 +2650,25 @@ ${tabela}
       contrato,
       draft,
     );
+    const somaPercentuais = sugestoes.reduce(
+      (soma, item) => soma + (Number(item.percentual) || 0),
+      0,
+    );
+    const somaValoresReferencia = sugestoes.reduce(
+      (soma, item) => soma + Math.max(0, Number(item.valor) || 0),
+      0,
+    );
+    const usarPercentuaisHistoricos = Math.abs(somaPercentuais - 100) <= 0.1;
 
     return sugestoes
       .map((item) => {
-        const percentual = Number(item.percentual) || 0;
         const valorOriginal = Number(item.valor) || 0;
+        const percentual =
+          usarPercentuaisHistoricos
+            ? Number(item.percentual) || 0
+            : somaValoresReferencia > 0
+              ? Math.round((Math.max(0, valorOriginal) / somaValoresReferencia) * 10000) / 100
+              : 0;
         const valor =
           valorBase > 0 && percentual > 0
             ? Math.round((percentual / 100) * valorBase * 100) / 100
