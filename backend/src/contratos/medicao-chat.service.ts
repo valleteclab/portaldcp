@@ -799,7 +799,7 @@ export class MedicaoChatService {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
     const pediuNavegacao =
-      /\b(voltar|volta|retornar|ver|veja|mostrar|abrir|ir|revisar|conferir|alterar|trocar|corrigir|mudar|editar|ajustar)\b/.test(
+      /\b(voltar|volta|retornar|ver|veja|mostrar|abrir|ir|revisar|conferir)\b/.test(
         texto,
       );
     const pediuDiscriminacoes =
@@ -1952,6 +1952,32 @@ export class MedicaoChatService {
       return {
         handled: true,
         resposta,
+        plano_agente: planoAgente as unknown as Record<string, any>,
+        ultima_analise_agente:
+          (planoAgente.llm as Record<string, any> | null) || null,
+      };
+    }
+
+    const querTratarDiscriminacoes = planoAgente.ferramentas.some(
+      (ferramenta) => ferramenta.nome === 'atualizar_discriminacoes',
+    );
+    const informouNovosValoresDiscriminacao =
+      /(?:r\$|\d+(?:[,.]\d+)?\s*%|[-:=]\s*\d)/i.test(mensagem);
+    const querReaproveitarDiscriminacoes =
+      /reaproveitar|[uú]ltima/i.test(mensagem) &&
+      /discrimin|descrim|despesa|composi/i.test(mensagem);
+
+    if (
+      querTratarDiscriminacoes &&
+      !informouNovosValoresDiscriminacao &&
+      !querReaproveitarDiscriminacoes &&
+      (draft.discriminacoes || []).length > 0
+    ) {
+      return {
+        handled: true,
+        resposta: this.formatarRespostaDiscriminacoes(
+          draft.discriminacoes || [],
+        ),
         plano_agente: planoAgente as unknown as Record<string, any>,
         ultima_analise_agente:
           (planoAgente.llm as Record<string, any> | null) || null,
