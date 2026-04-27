@@ -667,6 +667,15 @@ type TabelaDiscriminacaoChat = {
   discriminacoes: DiscriminacaoJson[]
 }
 
+function limparMarcadoresInternosChat(content: string) {
+  return content
+    .replace(/<!--ITENS_MEDICAO_JSON:[\s\S]*?-->/g, '')
+    .replace(/<!--DISCRIMINACOES_JSON:[\s\S]*?-->/g, '')
+    .replace(/<!--DISCRIMINACOES_CONFIRMACAO_JSON:[\s\S]*?-->/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trim()
+}
+
 function extrairTabelaItensChat(content: string): TabelaItensChat | null {
   const match = content.match(/<!--ITENS_MEDICAO_JSON:([\s\S]+?)-->/)
   if (!match) return null
@@ -1085,11 +1094,7 @@ function MensagemChat({
   const user = item.role === 'user'
   const tabelaItens = !user ? extrairTabelaItensChat(item.content) : null
   const tabelaDiscriminacao = !user ? extrairTabelaDiscriminacaoChat(item.content) : null
-  const conteudoSemMarker = item.content
-    .replace(/<!--ITENS_MEDICAO_JSON:[\s\S]+?-->/, '')
-    .replace(/<!--DISCRIMINACOES_JSON:[\s\S]+?-->/, '')
-    .replace(/<!--DISCRIMINACOES_CONFIRMACAO_JSON:[\s\S]+?-->/, '')
-    .trim()
+  const conteudoSemMarker = limparMarcadoresInternosChat(item.content)
   const conteudoSemTabelaMarkdown = conteudoSemMarker
     .replace(/📋 \*\*Itens disponíveis para medição:\*\*/g, '')
     .replace(/📊 \*\*Discriminações da despesa:\*\*/g, '')
