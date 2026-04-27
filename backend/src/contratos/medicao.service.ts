@@ -3445,13 +3445,12 @@ export class MedicaoService {
         execucaoFinanceiraAtual?.execucao_fiscal ||
         medicao.execucao_fiscal ||
         undefined,
-      // Usa quantidade sempre que o boletim foi montado por item do cronograma.
-      // Para item MENSAL, isso evita misturar execucao fiscal por vigencia
-      // (dias corridos/comerciais) com execucao financeira por quantidade mensal.
+      // Usa quantidade se o contrato tem a flag OU se qualquer item tem unidade não-MENSAL
+      // (espelha a lógica do frontend: tipoMedicaoAtual = 'quantidade' quando unidade != 'MENSAL')
       execucao_fiscal_por_quantidade:
         !!execucaoFinanceiraAtual?.execucao_fiscal_por_quantidade ||
         !!(contrato as any).boletim_por_quantidade ||
-        itensParaPdf.length > 0,
+        itensParaPdf.some((i) => i.unidade && i.unidade !== 'MENSAL'),
       itens: itensParaPdf.length > 0 ? itensParaPdf : undefined,
       itens_contratados:
         itensContratados.length > 0 ? itensContratados : undefined,
