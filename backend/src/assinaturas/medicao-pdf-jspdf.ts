@@ -675,12 +675,16 @@ export async function gerarBoletimMedicaoPdf(
       ];
     });
 
-    const totalNoPeriodoExibicao =
-      dados.valor_medido ?? dados.execucao_financeira_totais?.no_periodo ?? centavosParaReaisTrunc2(totalNoCent);
-    const totalAtePeriodoExibicao =
-      dados.execucao_financeira_totais?.ate_periodo ?? centavosParaReaisTrunc2(totalAteCent);
-    const totalAExecutarExibicao =
-      dados.execucao_financeira_totais?.a_executar ?? centavosParaReaisTrunc2(totalAExecCent);
+    const temItensExibidos = Array.isArray(dados.itens) && dados.itens.length > 0;
+    const totalNoPeriodoExibicao = temItensExibidos
+      ? centavosParaReaisTrunc2(totalNoCent)
+      : dados.valor_medido ?? dados.execucao_financeira_totais?.no_periodo ?? centavosParaReaisTrunc2(totalNoCent);
+    const totalAtePeriodoExibicao = temItensExibidos
+      ? centavosParaReaisTrunc2(totalAteCent)
+      : dados.execucao_financeira_totais?.ate_periodo ?? centavosParaReaisTrunc2(totalAteCent);
+    const totalAExecutarExibicao = temItensExibidos
+      ? centavosParaReaisTrunc2(totalAExecCent)
+      : dados.execucao_financeira_totais?.a_executar ?? centavosParaReaisTrunc2(totalAExecCent);
 
     body.push([
       { content: 'TOTAL', colSpan: 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.5, fillColor: [230, 230, 230] as [number,number,number] } },
