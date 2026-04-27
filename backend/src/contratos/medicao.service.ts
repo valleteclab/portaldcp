@@ -119,6 +119,56 @@ export class MedicaoService {
     private geradorPdfService: GeradorPdfService,
   ) {}
 
+  private aplicarRegraArredondamentoContrato(
+    contrato: Contrato,
+    valor: number,
+  ): number {
+    const numero = Number(valor);
+    if (!Number.isFinite(numero)) return 0;
+    const arredondar = contrato.arredondar_calculo ?? true;
+    return arredondar
+      ? Math.round(numero * 100) / 100
+      : truncarMoedaReais2Casas(numero);
+  }
+
+  private calcularValorItemCronogramaMedicao(
+    contrato: Contrato,
+    itemCron: ItemCronograma,
+    quantidadeMedida: number,
+    valorOverride?: number,
+  ): number {
+    if (Number.isFinite(valorOverride) && Number(valorOverride) > 0) {
+      return this.aplicarRegraArredondamentoContrato(
+        contrato,
+        Number(valorOverride),
+      );
+    }
+
+    const valorUnitario = Number(itemCron.valor_unitario) || 0;
+    const quantidade = Number(quantidadeMedida) || 0;
+    const unidade = String(itemCron.unidade_medida || '').toUpperCase();
+    const quantidadeInteira = Math.round(quantidade);
+
+    if (
+      unidade === 'MENSAL' &&
+      quantidade > 0 &&
+      Math.abs(quantidade - quantidadeInteira) > 0.0001
+    ) {
+      const diasComerciais = Math.max(0, Math.round(quantidade * 30));
+      if (diasComerciais > 0) {
+        return this.aplicarRegraArredondamentoContrato(
+          contrato,
+          (valorUnitario / 30) * diasComerciais,
+        );
+      }
+    }
+
+    return this.aplicarRegraArredondamentoContrato(
+      contrato,
+      quantidade * valorUnitario,
+    );
+  }
+
   // ============================================================================
   // ORDEM DE SERVIÇO — Dual source: Requisicao ou OrdemServicoContrato conforme fluxo_os
   // ============================================================================
@@ -1224,19 +1274,15 @@ export class MedicaoService {
           );
         }
 
-        const valorUnitario = Number(itemCron.valor_unitario);
         // Para itens MENSAL com proporcional: o frontend pode enviar valor_medido_override
         // calculado via aritmética inteira (dias × vu_centavos / 30), mais preciso que qtd × vu.
         const overrideRaw = Number((item as any).valor_medido_override);
-        const arredondar = contrato.arredondar_calculo ?? true;
-        const aplicar = (v: number) =>
-          arredondar
-            ? Math.round(v * 100) / 100
-            : truncarMoedaReais2Casas(v);
-        const valorItem =
-          Number.isFinite(overrideRaw) && overrideRaw > 0
-            ? aplicar(overrideRaw)
-            : aplicar(qtdMedida * valorUnitario);
+        const valorItem = this.calcularValorItemCronogramaMedicao(
+          contrato,
+          itemCron,
+          qtdMedida,
+          overrideRaw,
+        );
         valorMedido += valorItem;
 
         const valorTotalItem = Number(itemCron.valor_total) || 1;
@@ -1649,17 +1695,13 @@ export class MedicaoService {
           );
         }
 
-        const valorUnitario = Number(itemCron.valor_unitario);
         const overrideRaw = Number((item as any).valor_medido_override);
-        const arredondar = contrato.arredondar_calculo ?? true;
-        const aplicar = (v: number) =>
-          arredondar
-            ? Math.round(v * 100) / 100
-            : truncarMoedaReais2Casas(v);
-        const valorItem =
-          Number.isFinite(overrideRaw) && overrideRaw > 0
-            ? aplicar(overrideRaw)
-            : aplicar(qtdMedida * valorUnitario);
+        const valorItem = this.calcularValorItemCronogramaMedicao(
+          contrato,
+          itemCron,
+          qtdMedida,
+          overrideRaw,
+        );
 
         valorMedido += valorItem;
         const valorTotalItem = Number(itemCron.valor_total) || 1;

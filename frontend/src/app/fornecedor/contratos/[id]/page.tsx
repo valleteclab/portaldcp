@@ -72,6 +72,7 @@ interface Contrato {
   categoria: string;
   modalidade_execucao: string;
   boletim_por_quantidade?: boolean;
+  arredondar_calculo?: boolean;
   valor_global: number;
   valor_inicial: number;
   data_assinatura: string;
@@ -340,6 +341,13 @@ const escolherValorBaseDiscriminacao = (
     return valorMedido;
   }
   return valorNf || valorMedido;
+};
+
+const aplicarRegraArredondamentoContrato = (valor: number, arredondar = true) => {
+  const numero = Number(valor);
+  if (!Number.isFinite(numero)) return 0;
+  if (arredondar) return Math.round(numero * 100) / 100;
+  return Math.trunc(numero * 100) / 100;
 };
 
 const formatarData = (data: string | null | undefined) => {
@@ -967,8 +975,12 @@ export default function FornecedorContratoDetalhePage() {
         payload.valor_medido = valor;
       } else if (usarItensCronograma) {
         const itensComQtd = novaMedicao.itens
-          .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
-          .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
+          .filter((i): i is { item_cronograma_id: string; quantidade_medida: number; valor_override?: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+          .map(i => ({
+            item_cronograma_id: i.item_cronograma_id,
+            quantidade_medida: Number(i.quantidade_medida),
+            valor_medido_override: i.valor_override,
+          }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
         // Validar que não há mistura de tipos (mensal vs quantidade)
         const itensMensaisNoSubmit = itensComQtd.filter(item => {
@@ -1100,8 +1112,12 @@ export default function FornecedorContratoDetalhePage() {
         payload.valor_medido = valor;
       } else if (usarItensCronograma) {
         const itensComQtd = novaMedicao.itens
-          .filter((i): i is { item_cronograma_id: string; quantidade_medida: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
-          .map(i => ({ item_cronograma_id: i.item_cronograma_id, quantidade_medida: Number(i.quantidade_medida) }));
+          .filter((i): i is { item_cronograma_id: string; quantidade_medida: number; valor_override?: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+          .map(i => ({
+            item_cronograma_id: i.item_cronograma_id,
+            quantidade_medida: Number(i.quantidade_medida),
+            valor_medido_override: i.valor_override,
+          }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
         // Validar que não há mistura de tipos (mensal vs quantidade)
         const itensMensaisNoSubmit = itensComQtd.filter(item => {
@@ -2321,7 +2337,15 @@ export default function FornecedorContratoDetalhePage() {
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
                               const itens = [...novaMedicao.itens];
-                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: val, modo_input: 'quantidade', valor_override: Math.floor(Math.round(val * 100) * Math.round(valorUnit * 100) / 100) / 100 };
+                              itens[idx] = {
+                                item_cronograma_id: ic.id,
+                                quantidade_medida: val,
+                                modo_input: 'quantidade',
+                                valor_override: aplicarRegraArredondamentoContrato(
+                                  val * valorUnit,
+                                  contrato?.arredondar_calculo ?? true,
+                                ),
+                              };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
                             className={`text-center h-8 text-sm ${modoInput === 'quantidade' ? 'ring-1 ring-blue-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
