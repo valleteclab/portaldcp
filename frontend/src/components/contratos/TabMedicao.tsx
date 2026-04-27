@@ -294,6 +294,33 @@ function prodTrunc(q: number, vl: number): number {
   return Math.floor((Math.round(q * 100) * Math.round(vl * 100)) / 100) / 100;
 }
 
+function calcularSaldoFinanceiroItemCronograma(ic: ItemCronograma): number {
+  const valorTotal = Number(ic.valor_total) || 0;
+  const valorUnitario = Number(ic.valor_unitario) || 0;
+  const quantidadeMedida = Number(ic.quantidade_medida) || 0;
+  const valorMigracao = Number(ic.valor_migracao_reais || 0);
+
+  if (ic.unidade_medida === "MENSAL" && valorMigracao > 0 && valorUnitario > 0) {
+    const mesesMigracao = valorMigracao / valorUnitario;
+    const quantidadeAprovadaRaw = Math.max(0, quantidadeMedida - mesesMigracao);
+    const quantidadeAprovada =
+      Math.abs(quantidadeAprovadaRaw - Math.round(quantidadeAprovadaRaw)) < 0.01
+        ? Math.round(quantidadeAprovadaRaw)
+        : quantidadeAprovadaRaw;
+    const valorAprovado = Math.round(quantidadeAprovada * valorUnitario * 100) / 100;
+    return Math.max(0, Math.round((valorTotal - valorMigracao - valorAprovado) * 100) / 100);
+  }
+
+  return Math.max(0, Math.round((valorTotal - quantidadeMedida * valorUnitario) * 100) / 100);
+}
+
+function limitarValorAoSaldoFinanceiro(valor: number, saldoFinanceiro: number): number {
+  return Math.min(
+    Math.round((Number(valor) || 0) * 100) / 100,
+    Math.round((Number(saldoFinanceiro) || 0) * 100) / 100,
+  );
+}
+
 function formatarMoeda(v: number | string) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -4592,6 +4619,8 @@ export default function TabMedicao({
                             Number(ic.quantidade) -
                             Number(ic.quantidade_medida) -
                             (resumo?.itens_comprometidos?.[ic.id] || 0);
+                          const saldoFinanceiro =
+                            calcularSaldoFinanceiroItemCronograma(ic);
                           const isMensal = ic.unidade_medida === "MENSAL";
                           const qtd = isMensal
                             ? Math.min(Math.round(fator * 10000) / 10000, saldo)
@@ -4605,13 +4634,17 @@ export default function TabMedicao({
                             Number(ic.valor_unitario) * 100,
                           );
                           const ar = contratoProp?.arredondar_calculo ?? true;
-                          const valorOverride = isMensal
+                          const valorProporcional = isMensal
                             ? (ar
                                 ? Math.round((Math.min(dias, 30) * vuCentavos) / 30) / 100
                                 : Math.floor((Math.min(dias, 30) * vuCentavos) / 30) / 100)
                             : (ar
                                 ? Math.round(qtd * Number(ic.valor_unitario) * 100) / 100
                                 : Math.floor(qtd * Number(ic.valor_unitario) * 100) / 100);
+                          const valorOverride = limitarValorAoSaldoFinanceiro(
+                            valorProporcional,
+                            saldoFinanceiro,
+                          );
                           // MENSAL usa modo 'valor' para que a coluna Valor R$ exiba o valor exato (não qtd × vu)
                           const modo = isMensal
                             ? ("valor" as const)
@@ -4717,6 +4750,8 @@ export default function TabMedicao({
                         const emTransito =
                           resumo?.itens_comprometidos?.[ic.id] || 0;
                         const saldo = qtdTotal - qtdAprovada - emTransito;
+                        const saldoFinanceiro =
+                          calcularSaldoFinanceiroItemCronograma(ic);
                         const valorUnit = Number(ic.valor_unitario);
                         const subtotal =
                           modoInput === "valor" && valorOverride != null
@@ -4724,7 +4759,7 @@ export default function TabMedicao({
                             : qtdMedida * valorUnit;
                         const excedeSaldo =
                           modoInput === "valor"
-                            ? (valorOverride || 0) > saldo * valorUnit + 0.01
+                            ? (valorOverride || 0) > saldoFinanceiro + 0.01
                             : qtdMedida > saldo + 0.001;
                         const isMensal = ic.unidade_medida === "MENSAL";
                         const tipoEsteItem = isMensal ? "mensal" : "quantidade";
@@ -4787,7 +4822,10 @@ export default function TabMedicao({
                                     quantidade_medida: val,
                                     modo_input: "quantidade",
                                     valor_override:
-                                      Math.round(val * valorUnit * 100) / 100,
+                                      limitarValorAoSaldoFinanceiro(
+                                        Math.round(val * valorUnit * 100) / 100,
+                                        saldoFinanceiro,
+                                      ),
                                   };
                                   setFormMedicao({ ...formMedicao, itens });
                                 }}
@@ -4799,7 +4837,7 @@ export default function TabMedicao({
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                max={saldo * valorUnit}
+                                max={saldoFinanceiro}
                                 placeholder="0,00"
                                 disabled={bloqueado}
                                 value={
@@ -4811,9 +4849,14 @@ export default function TabMedicao({
                                 }
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value) || 0;
+                                  const valorLimitado =
+                                    limitarValorAoSaldoFinanceiro(
+                                      val,
+                                      saldoFinanceiro,
+                                    );
                                   const qtdCalc =
                                     valorUnit > 0
-                                      ? Math.round((val / valorUnit) * 10000) /
+                                      ? Math.round((valorLimitado / valorUnit) * 10000) /
                                         10000
                                       : 0;
                                   const itens = [...formMedicao.itens];
@@ -4821,7 +4864,7 @@ export default function TabMedicao({
                                     item_cronograma_id: ic.id,
                                     quantidade_medida: qtdCalc,
                                     modo_input: "valor",
-                                    valor_override: val,
+                                    valor_override: valorLimitado,
                                   };
                                   setFormMedicao({ ...formMedicao, itens });
                                 }}

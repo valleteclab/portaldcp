@@ -107,6 +107,7 @@ interface ItemCronograma {
   valor_mensal?: number;
   valor_total: number;
   quantidade_medida: number;
+  valor_migracao_reais?: number | null;
 }
 
 interface Medicao {
@@ -350,6 +351,32 @@ const aplicarRegraArredondamentoContrato = (valor: number, arredondar = true) =>
   return Math.trunc(numero * 100) / 100;
 };
 
+const calcularSaldoFinanceiroItemCronograma = (ic: ItemCronograma) => {
+  const valorTotal = Number(ic.valor_total) || 0;
+  const valorUnitario = Number(ic.valor_unitario) || 0;
+  const quantidadeMedida = Number(ic.quantidade_medida) || 0;
+  const valorMigracao = Number(ic.valor_migracao_reais || 0);
+
+  if (ic.unidade_medida === 'MENSAL' && valorMigracao > 0 && valorUnitario > 0) {
+    const mesesMigracao = valorMigracao / valorUnitario;
+    const quantidadeAprovadaRaw = Math.max(0, quantidadeMedida - mesesMigracao);
+    const quantidadeAprovada =
+      Math.abs(quantidadeAprovadaRaw - Math.round(quantidadeAprovadaRaw)) < 0.01
+        ? Math.round(quantidadeAprovadaRaw)
+        : quantidadeAprovadaRaw;
+    const valorAprovado = Math.round(quantidadeAprovada * valorUnitario * 100) / 100;
+    return Math.max(0, Math.round((valorTotal - valorMigracao - valorAprovado) * 100) / 100);
+  }
+
+  return Math.max(0, Math.round((valorTotal - quantidadeMedida * valorUnitario) * 100) / 100);
+};
+
+const limitarValorAoSaldoFinanceiro = (valor: number, saldoFinanceiro: number) =>
+  Math.min(
+    Math.round((Number(valor) || 0) * 100) / 100,
+    Math.round((Number(saldoFinanceiro) || 0) * 100) / 100,
+  );
+
 const formatarData = (data: string | null | undefined) => {
   if (!data) return '-';
   // Se for formato YYYY-MM-DD (date-only), faz split para evitar problema de timezone UTC
@@ -467,7 +494,12 @@ export default function FornecedorContratoDetalhePage() {
       ? novaMedicao.itens.reduce((acc, item) => {
           if (!('item_cronograma_id' in item)) return acc;
           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
-          return acc + (ic ? Number(item.quantidade_medida || 0) * Number(ic.valor_unitario) : 0);
+          if (!ic) return acc;
+          const subtotal =
+            item.modo_input === 'valor' && item.valor_override != null
+              ? item.valor_override
+              : Number(item.quantidade_medida || 0) * Number(ic.valor_unitario);
+          return acc + subtotal;
         }, 0)
       : novaMedicao.itens.reduce((acc, item, idx) => {
           const etapa = etapas[idx];
@@ -496,10 +528,16 @@ export default function FornecedorContratoDetalhePage() {
         const qtdNoPeriodo = Number(itemState?.quantidade_medida ?? 0);
         if (qtdNoPeriodo <= 0) continue;
         const vm = Number(ic.valor_mensal) || Number(ic.valor_unitario) || 0;
-        const valorNoPeriodo = qtdNoPeriodo * vm;
+        const valorNoPeriodo =
+          itemState?.modo_input === 'valor' && itemState?.valor_override != null
+            ? Number(itemState.valor_override)
+            : qtdNoPeriodo * vm;
         const backendItem = execucaoFinanceira?.itens?.find((i: any) => i.etapa_id === ic.id);
         const fromBackend = backendItem ? Number(backendItem.ate_periodo_global ?? backendItem.ate_periodo ?? 0) : 0;
-        const fromMigracao = Number(ic.quantidade_medida ?? 0) * vm;
+        const fromMigracao =
+          Number(ic.valor_migracao_reais ?? 0) > 0
+            ? Number(ic.valor_migracao_reais)
+            : Number(ic.quantidade_medida ?? 0) * vm;
         const valorAprovadoAnterior = Math.max(fromBackend, fromMigracao);
         const valorAtePeriodo = valorAprovadoAnterior + valorNoPeriodo;
         const valorTotal = Number(ic.valor_total) || 0;
@@ -569,7 +607,14 @@ export default function FornecedorContratoDetalhePage() {
     // Fallback: sem dados do backend — calcular a partir dos itens do cronograma
     const noPeriodo = valorMedicaoAtual || 0;
     if (usarItensCronograma) {
-      const valorMigracao = itensBase.reduce((sum, ic) => sum + Number(ic.quantidade_medida) * Number(ic.valor_unitario), 0);
+      const valorMigracao = itensBase.reduce(
+        (sum, ic) =>
+          sum +
+          (ic.unidade_medida === 'MENSAL' && Number(ic.valor_migracao_reais ?? 0) > 0
+            ? Number(ic.valor_migracao_reais ?? 0)
+            : Number(ic.quantidade_medida) * Number(ic.valor_unitario)),
+        0,
+      );
       const valorAprovadoAnterior = Number(resumo?.valor_medido_total || 0);
       const atePeriodo = valorMigracao + valorAprovadoAnterior + noPeriodo;
       const valorTotal = itensBase.reduce((sum, ic) => sum + Number(ic.valor_total), 0);
@@ -2249,6 +2294,7 @@ export default function FornecedorContratoDetalhePage() {
                       const qtdAprovada = Number(ic.quantidade_medida);
                       const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                       const saldo = qtdTotal - qtdAprovada - emTransito;
+                      const saldoFinanceiro = calcularSaldoFinanceiroItemCronograma(ic);
                       const isMensalProp = ic.unidade_medida === 'MENSAL';
                       const tipoItemProp = isMensalProp ? 'mensal' : 'quantidade';
                       // Se já há um tipo selecionado, não preencher itens de tipo diferente
@@ -2258,8 +2304,14 @@ export default function FornecedorContratoDetalhePage() {
                       const qtdProporcional = isMensalProp
                         ? Math.min(Math.round(fator * 1000) / 1000, saldo)
                         : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
-                      const valorOverride = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
-                      return { item_cronograma_id: ic.id, quantidade_medida: qtdProporcional, modo_input: 'quantidade' as const, valor_override: valorOverride };
+                      const valorProporcional = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
+                      const valorOverride = limitarValorAoSaldoFinanceiro(valorProporcional, saldoFinanceiro);
+                      return {
+                        item_cronograma_id: ic.id,
+                        quantidade_medida: qtdProporcional,
+                        modo_input: isMensalProp ? ('valor' as const) : ('quantidade' as const),
+                        valor_override: valorOverride,
+                      };
                     });
                     setNovaMedicao({ ...novaMedicao, itens });
                   }}
@@ -2304,10 +2356,11 @@ export default function FornecedorContratoDetalhePage() {
                     const qtdAprovada = Number(ic.quantidade_medida);
                     const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                     const saldo = qtdTotal - qtdAprovada - emTransito;
+                    const saldoFinanceiro = calcularSaldoFinanceiroItemCronograma(ic);
                     const valorUnit = Number(ic.valor_unitario);
                     const subtotal = modoInput === 'valor' && valorOverride != null ? valorOverride : qtdMedida * valorUnit;
                     const excedeSaldo = modoInput === 'valor'
-                      ? (valorOverride || 0) > saldo * valorUnit + 0.01
+                      ? (valorOverride || 0) > saldoFinanceiro + 0.01
                       : qtdMedida > saldo + 0.001;
                     const isMensal = ic.unidade_medida === 'MENSAL';
                     const tipoEsteItem = isMensal ? 'mensal' : 'quantidade';
@@ -2341,9 +2394,12 @@ export default function FornecedorContratoDetalhePage() {
                                 item_cronograma_id: ic.id,
                                 quantidade_medida: val,
                                 modo_input: 'quantidade',
-                                valor_override: aplicarRegraArredondamentoContrato(
-                                  val * valorUnit,
-                                  contrato?.arredondar_calculo ?? true,
+                                valor_override: limitarValorAoSaldoFinanceiro(
+                                  aplicarRegraArredondamentoContrato(
+                                    val * valorUnit,
+                                    contrato?.arredondar_calculo ?? true,
+                                  ),
+                                  saldoFinanceiro,
                                 ),
                               };
                               setNovaMedicao({ ...novaMedicao, itens });
@@ -2357,15 +2413,16 @@ export default function FornecedorContratoDetalhePage() {
                         {/* Valor R$ */}
                         <TableCell className="bg-green-50/50">
                           <Input
-                            type="number" step="0.01" min="0" max={saldo * valorUnit}
+                            type="number" step="0.01" min="0" max={saldoFinanceiro}
                             placeholder="0,00"
                             disabled={bloqueado}
                             value={modoInput === 'valor' ? (valorOverride || '') : (subtotal > 0 ? subtotal.toFixed(2) : '')}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
-                              const qtdCalc = valorUnit > 0 ? Math.round((val / valorUnit) * 10000) / 10000 : 0;
+                              const valorLimitado = limitarValorAoSaldoFinanceiro(val, saldoFinanceiro);
+                              const qtdCalc = valorUnit > 0 ? Math.round((valorLimitado / valorUnit) * 10000) / 10000 : 0;
                               const itens = [...novaMedicao.itens];
-                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: qtdCalc, modo_input: 'valor', valor_override: val };
+                              itens[idx] = { item_cronograma_id: ic.id, quantidade_medida: qtdCalc, modo_input: 'valor', valor_override: valorLimitado };
                               setNovaMedicao({ ...novaMedicao, itens });
                             }}
                             className={`text-center h-8 text-sm ${modoInput === 'valor' ? 'ring-1 ring-green-300 bg-white' : 'bg-gray-50 text-gray-500'} ${excedeSaldo ? 'border-red-400' : ''}`}
