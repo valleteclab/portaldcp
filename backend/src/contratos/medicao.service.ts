@@ -1992,6 +1992,9 @@ export class MedicaoService {
 
     // Excluir a medição
     await this.medicaoRepository.remove(medicao);
+    if (medicao.status === StatusMedicao.APROVADA) {
+      await this.recalcularAcumuladosMedicoesAprovadas(medicao.contrato_id);
+    }
 
     this.logger.log(
       `Medição #${medicao.numero_medicao} (${medicao.status}) excluída por ${solicitanteId || 'órgão/admin'}`,
@@ -2889,6 +2892,7 @@ export class MedicaoService {
     medicao.data_aprovacao = new Date() as any;
 
     await this.medicaoRepository.save(medicao);
+    await this.recalcularAcumuladosMedicoesAprovadas(medicao.contrato_id);
 
     // Notificar fiscal e fornecedor sobre aprovação
     if (contrato) {
@@ -4506,6 +4510,47 @@ export class MedicaoService {
     };
   }
 
+  private async recalcularAcumuladosMedicoesAprovadas(
+    contratoId: string,
+  ): Promise<void> {
+    const medicoesAprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      order: { numero_medicao: 'ASC' },
+    });
+
+    let acumuladoCentavos = 0;
+    for (const medicao of medicoesAprovadas) {
+      const valorMedicaoCentavos = Math.round(
+        (Number(medicao.valor_medido) || 0) * 100,
+      );
+
+      medicao.valor_acumulado_anterior =
+        centavosParaReaisTrunc2(acumuladoCentavos) as any;
+      medicao.valor_acumulado_atual = centavosParaReaisTrunc2(
+        acumuladoCentavos + valorMedicaoCentavos,
+      ) as any;
+
+      try {
+        const execucaoFinanceira =
+          await this.calcularExecucaoFinanceiraFornecedor(
+            contratoId,
+            medicao.id,
+          );
+        medicao.execucao_fiscal =
+          execucaoFinanceira?.execucao_fiscal || (null as any);
+        medicao.execucao_financeira = execucaoFinanceira
+          ? (this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any)
+          : (null as any);
+      } catch (error) {
+        this.logger.warn(
+          `Erro ao recalcular acumulados da medicao ${medicao.id}: ${(error as any).message}`,
+        );
+      }
+
+      await this.medicaoRepository.save(medicao);
+      acumuladoCentavos += valorMedicaoCentavos;
+    }
+  }
   // ============================================================================
   // HELPERS
   // ============================================================================
@@ -6374,9 +6419,21 @@ export class MedicaoService {
     }
 
     // Totais
-    const totalNoPeriodo = resultado.reduce((s, r) => s + r.no_periodo, 0);
-    const totalAtePeriodo = resultado.reduce((s, r) => s + r.ate_periodo, 0);
-    const totalPrevisto = resultado.reduce((s, r) => s + r.valor_previsto, 0);
+    const totalNoPeriodoCent = resultado.reduce(
+      (s, r) => s + Math.round((Number(r.no_periodo) || 0) * 100),
+      0,
+    );
+    const totalAtePeriodoCent = resultado.reduce(
+      (s, r) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
+      0,
+    );
+    const totalPrevistoCent = resultado.reduce(
+      (s, r) => s + Math.round((Number(r.valor_previsto) || 0) * 100),
+      0,
+    );
+    const totalNoPeriodo = centavosParaReaisTrunc2(totalNoPeriodoCent);
+    const totalAtePeriodo = centavosParaReaisTrunc2(totalAtePeriodoCent);
+    const totalPrevisto = centavosParaReaisTrunc2(totalPrevistoCent);
     const ajusteMigracao = Number(contrato.valor_executado_anterior) || 0;
     const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
     const totalAExecutar = Math.max(
