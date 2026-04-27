@@ -5640,6 +5640,17 @@ export class MedicaoService {
     );
     const somaValores = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
     const percentuaisSomam100 = Math.abs(somaPercentuais - 100) < 0.05;
+    const valoresSomamValorBruto =
+      valorBruto > 0 &&
+      somaValores > 0 &&
+      Math.abs(somaValores - valorBruto) < 0.02;
+    const usarValoresInformados =
+      valoresSomamValorBruto || !percentuaisSomam100;
+
+    if (usarValoresInformados) {
+      return itens.map((i) => Math.round((Number(i.valor) || 0) * 100) / 100);
+    }
+
     const valorAlvo =
       percentuaisSomam100 && valorBruto > 0
         ? valorBruto
@@ -5647,9 +5658,7 @@ export class MedicaoService {
 
     const exatos = itens.map((i) => {
       const perc = Number(i.percentual) || 0;
-      return percentuaisSomam100 && valorBruto > 0
-        ? (perc / 100) * valorAlvo
-        : Number(i.valor) || 0;
+      return (perc / 100) * valorAlvo;
     });
 
     const floorsCentavos = exatos.map((v) => Math.floor(v * 100));
