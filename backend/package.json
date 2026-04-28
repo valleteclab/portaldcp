@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build && mkdir -p dist/migrations && cp dist/src/migrations/*.js dist/migrations/ 2>/dev/null || true",
+    "build": "cp ../docs/API_FORNECEDORES.md src/ext/api-docs-content.md 2>/dev/null || true && nest build && mkdir -p dist/migrations && cp dist/src/migrations/*.js dist/migrations/ 2>/dev/null || true && cp src/ext/api-docs-content.md dist/src/ext/ 2>/dev/null || true",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
