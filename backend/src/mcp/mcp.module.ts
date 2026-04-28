@@ -10,6 +10,7 @@ import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.en
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { ContratosModule } from '../contratos/contratos.module';
 import { UploadModule } from '../upload/upload.module';
+import { ExtModule } from '../ext/ext.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { UploadModule } from '../upload/upload.module';
     ]),
     ContratosModule,
     UploadModule,
+    ExtModule,
   ],
   controllers: [McpController],
 })

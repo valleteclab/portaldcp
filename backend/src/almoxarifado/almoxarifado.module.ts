@@ -93,6 +93,7 @@ import { IaModule } from '../ia/ia.module';
     OrdemFornecimentoService,
     RecebimentoService,
     ConfiguracaoAprovacaoService,
+    NotaFiscalFornecedorService,
   ],
 })
 export class AlmoxarifadoModule {}

@@ -11,6 +11,8 @@ import { AssinaturaDigital } from '../assinaturas/entities/assinatura-digital.en
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { ContratosModule } from '../contratos/contratos.module';
 import { UploadModule } from '../upload/upload.module';
+import { AlmoxarifadoModule } from '../almoxarifado/almoxarifado.module';
+import { FornecedorApiService } from './fornecedor-api.service';
 
 @Module({
   imports: [
@@ -28,7 +30,10 @@ import { UploadModule } from '../upload/upload.module';
     ]),
     ContratosModule,
     UploadModule,
+    AlmoxarifadoModule,
   ],
   controllers: [ExtController],
+  providers: [FornecedorApiService],
+  exports: [FornecedorApiService],
 })
 export class ExtModule {}

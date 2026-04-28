@@ -25,6 +25,7 @@ import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
 import { AnexoMedicao } from '../contratos/entities/anexo-medicao.entity';
 import { AssinaturaDigital, EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
 import { MedicaoService } from '../contratos/medicao.service';
+import { FornecedorApiService } from '../ext/fornecedor-api.service';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 
 @Public()
@@ -50,6 +51,7 @@ export class McpController {
     @InjectRepository(AssinaturaDigital)
     private readonly assinaturaRepo: Repository<AssinaturaDigital>,
     private readonly medicaoService: MedicaoService,
+    private readonly fornecedorApiService: FornecedorApiService,
   ) {}
 
   // ===========================================================
@@ -392,7 +394,7 @@ export class McpController {
       codigo_validacao: codigoValidacao,
       ip_address: null,
       user_agent: 'portaldcp-mcp/1.0',
-    });
+    } as any);
     await this.assinaturaRepo.save(assinatura);
 
     const medicaoAtualizada = await this.medicaoService.submeterMedicao(medicaoId, fornecedor.id);

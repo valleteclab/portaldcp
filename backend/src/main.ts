@@ -26,6 +26,7 @@ import { json, urlencoded } from 'express';
 import { DataSource } from 'typeorm';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
   // Preferir IPv4 na resolução DNS para evitar ENETUNREACH em redes sem IPv6
@@ -107,6 +108,35 @@ async function bootstrap() {
   app.enableCors(); // Habilita requisições do Frontend
   app.setGlobalPrefix('api'); // Padroniza rotas como /api/licitacoes
   
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Portal DCP API')
+    .setDescription(
+      'API oficial do Portal DCP para integracoes de fornecedores. ' +
+      'Use X-Api-Key para acessar os endpoints /api/ext/v1.',
+    )
+    .setVersion('1.0')
+    .addApiKey(
+      {
+        type: 'apiKey',
+        name: 'X-Api-Key',
+        in: 'header',
+        description: 'Chave de API do fornecedor gerada no Portal DCP.',
+      },
+      'X-Api-Key',
+    )
+    .addTag('Fornecedor API', 'Autenticacao e diagnostico da API externa')
+    .addTag('Contratos', 'Contratos vinculados ao fornecedor autenticado')
+    .addTag('Medicoes', 'Medicoes, anexos e submissao ao fiscal')
+    .addTag('Ordens', 'Ordens de fornecimento/servico do fornecedor')
+    .addTag('Notas Fiscais', 'Envio e consulta de notas fiscais de ordens')
+    .addTag('MCP legado', 'Endpoint MCP mantido por compatibilidade')
+    .build();
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('docs', app, swaggerDocument, {
+    useGlobalPrefix: true,
+    jsonDocumentUrl: 'docs-json',
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
   console.log(`🚀 Backend rodando na porta ${port}`);

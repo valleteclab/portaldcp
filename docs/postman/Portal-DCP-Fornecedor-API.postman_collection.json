@@ -1,0 +1,253 @@
+{
+  "info": {
+    "name": "Portal DCP - Fornecedor API",
+    "description": "Colecao oficial da API REST de fornecedores do Portal DCP. Configure baseUrl e apiKey no environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-Api-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{apiKey}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Diagnostico",
+      "item": [
+        {
+          "name": "Validar API key",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contratos",
+      "item": [
+        {
+          "name": "Listar contratos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/contratos"
+          }
+        },
+        {
+          "name": "Consultar contrato",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/contratos/{{contractId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Medicoes",
+      "item": [
+        {
+          "name": "Criar medicao",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodo_inicio\": \"2026-04-01\",\n  \"periodo_fim\": \"2026-04-30\",\n  \"nota_fiscal_numero\": \"12345\",\n  \"nota_fiscal_valor\": 1000,\n  \"nota_fiscal_data\": \"2026-04-28\",\n  \"valor_medido\": 1000,\n  \"observacoes\": \"Servico executado conforme contrato.\"\n}"
+            },
+            "url": "{{baseUrl}}/contratos/{{contractId}}/medicoes"
+          }
+        },
+        {
+          "name": "Criar e enviar medicao",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"periodo_inicio\": \"2026-04-01\",\n  \"periodo_fim\": \"2026-04-30\",\n  \"valor_medido\": 1000,\n  \"enviar_imediatamente\": true\n}"
+            },
+            "url": "{{baseUrl}}/contratos/{{contractId}}/medicoes"
+          }
+        },
+        {
+          "name": "Enviar medicao",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/medicoes/{{measurementId}}/enviar"
+          }
+        },
+        {
+          "name": "Consultar medicao",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/medicoes/{{measurementId}}"
+          }
+        },
+        {
+          "name": "Anexar documento",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "tipo",
+                  "value": "NOTA_FISCAL",
+                  "type": "text"
+                },
+                {
+                  "key": "descricao",
+                  "value": "Nota fiscal da medicao",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/medicoes/{{measurementId}}/documentos"
+          }
+        },
+        {
+          "name": "Listar documentos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/medicoes/{{measurementId}}/documentos"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ordens",
+      "item": [
+        {
+          "name": "Listar ordens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ordens"
+          }
+        },
+        {
+          "name": "Consultar ordem",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ordens/{{orderId}}"
+          }
+        },
+        {
+          "name": "Ciencia de recebimento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"observacao\": \"Ordem recebida.\"\n}"
+            },
+            "url": "{{baseUrl}}/ordens/{{orderId}}/ciencia-recebimento"
+          }
+        },
+        {
+          "name": "Ciencia de entrega",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data_entrega\": \"2026-04-28\",\n  \"observacao\": \"Entrega realizada.\"\n}"
+            },
+            "url": "{{baseUrl}}/ordens/{{orderId}}/ciencia-entrega"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notas Fiscais",
+      "item": [
+        {
+          "name": "Enviar NF da ordem",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "arquivos",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "arquivos",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/ordens/{{orderId}}/nota-fiscal"
+          }
+        },
+        {
+          "name": "Consultar NF mais recente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ordens/{{orderId}}/nota-fiscal"
+          }
+        },
+        {
+          "name": "Listar NFs da ordem",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ordens/{{orderId}}/notas-fiscais"
+          }
+        }
+      ]
+    }
+  ]
+}

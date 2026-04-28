@@ -1,12 +1,12 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
+  Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
+import { Repository } from 'typeorm';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 
 @Injectable()
@@ -18,21 +18,21 @@ export class ApiKeyGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const apiKey = request.headers['x-api-key'];
+    const apiKeyHeader = request.headers['x-api-key'];
+    const apiKey = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
 
     if (!apiKey) {
-      throw new UnauthorizedException('X-Api-Key header é obrigatório');
+      throw new UnauthorizedException('X-Api-Key header e obrigatorio');
     }
 
     const hash = createHash('sha256').update(apiKey).digest('hex');
-
     const fornecedor = await this.fornecedorRepository.findOne({
       where: { api_key_hash: hash },
       select: ['id', 'razao_social', 'cpf_cnpj', 'telefone', 'email'],
     });
 
     if (!fornecedor) {
-      throw new UnauthorizedException('API Key inválida ou revogada');
+      throw new UnauthorizedException('API Key invalida ou revogada');
     }
 
     request.fornecedor = {
@@ -42,6 +42,7 @@ export class ApiKeyGuard implements CanActivate {
       telefone: fornecedor.telefone,
       email: fornecedor.email,
     };
+    request.apiKey = apiKey;
 
     return true;
   }
