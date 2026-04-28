@@ -135,15 +135,6 @@ function fmtQuantidadeExecucaoFiscal(valor: number, unidade: string): string {
   return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}${suf}`;
 }
 
-function fmtExecucaoFiscalItem(valor: number, unidade: string): string {
-  const u = (unidade || '').toUpperCase();
-  const n = Number(valor);
-  if ((u === 'MENSAL' || u === 'MES' || u === 'MÊS') && Number.isFinite(n)) {
-    return fmtTempo(Math.round(n * 30));
-  }
-  return fmtQuantidadeExecucaoFiscal(n, unidade);
-}
-
 /** Deriva "FEVEREIRO/2026" a partir de uma data ISO */
 function derivarCompetencia(periodoInicio: string): string {
   if (!periodoInicio) return '';
@@ -668,25 +659,9 @@ export async function gerarBoletimMedicaoPdf(
       totalAExecCent += cAExec;
 
       const un = item.unidade || 'UNIDADE';
-      const isMensal = ['MENSAL', 'MES', 'MÊS'].includes(String(un).toUpperCase());
-      const quantidadeAtePeriodo =
-        item.quantidade_ate_periodo ??
-        (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo);
-      const quantidadeAExecutar =
-        item.quantidade_a_executar ??
-        Math.max(0, item.quantidade_total_contrato - quantidadeAtePeriodo);
-      const fiscalNo =
-        porQuantidade || isMensal
-          ? fmtExecucaoFiscalItem(item.quantidade_no_periodo, un)
-          : txtFiscalNoPeriodo;
-      const fiscalAte =
-        porQuantidade || isMensal
-          ? fmtExecucaoFiscalItem(quantidadeAtePeriodo, un)
-          : txtFiscalAtePeriodo;
-      const fiscalExec =
-        porQuantidade || isMensal
-          ? fmtExecucaoFiscalItem(quantidadeAExecutar, un)
-          : txtFiscalAExecutar;
+      const fiscalNo = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_no_periodo, un) : txtFiscalNoPeriodo;
+      const fiscalAte = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo;
+      const fiscalExec = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar;
 
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
