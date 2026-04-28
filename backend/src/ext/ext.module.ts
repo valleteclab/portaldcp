@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { ExtController } from './ext.controller';
+import { ApiDocsController } from './api-docs.controller';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { Medicao } from '../contratos/entities/medicao.entity';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
@@ -32,7 +33,7 @@ import { FornecedorApiService } from './fornecedor-api.service';
     UploadModule,
     AlmoxarifadoModule,
   ],
-  controllers: [ExtController],
+  controllers: [ExtController, ApiDocsController],
   providers: [FornecedorApiService],
   exports: [FornecedorApiService],
 })

@@ -27,6 +27,8 @@ A chave e gerada no Portal DCP no cadastro do fornecedor. O valor completo apare
 
 | Recurso | URL |
 | --- | --- |
+| **Documentacao da API** (HTML) | `https://compras.cmlem.ba.gov.br/api/ext/docs` |
+| **Documentacao da API** (Markdown) | `https://compras.cmlem.ba.gov.br/api/ext/docs.md` |
 | Interface Swagger | `https://compras.cmlem.ba.gov.br/api/docs` |
 | OpenAPI JSON | `https://compras.cmlem.ba.gov.br/api/docs-json` |
 
@@ -331,7 +333,20 @@ curl -sS -X POST "https://compras.cmlem.ba.gov.br/api/ext/v1/medicoes/$MEASUREME
 
 ### POST /medicoes/:id/enviar
 
-Submete a medicao ao fiscal para ateste. A medicao deve estar com status `RASCUNHO`. Ao submeter, o sistema gera uma assinatura digital automaticamente em nome do fornecedor autenticado.
+Submete a medicao ao fiscal para ateste. A medicao deve estar com status `RASCUNHO`.
+
+Ao submeter via API, o sistema gera automaticamente uma **assinatura digital** em nome do fornecedor autenticado. A API Key funciona como equivalente funcional ao token OTP usado no portal web — quem possui a chave tem controle exclusivo da conta do fornecedor.
+
+**Como funciona a assinatura via API**:
+
+1. A requisicao e autenticada pela API Key (header `X-Api-Key`)
+2. O sistema cria um registro de `AssinaturaDigital` com os dados do fornecedor
+3. E gerado um `codigo_validacao` de 16 caracteres, retornado na resposta
+4. O boletim de medicao (PDF) inclui a assinatura com codigo de validacao e QR Code para verificacao publica
+
+**Rastro de auditoria**: A assinatura registra `usuario_cargo` como `"Assinatura via API Key - A3B5C7D9***"` (prefixo da chave), `user_agent` como `"portaldcp-api/1.0"` e `ip_address` como nulo (requisicoes server-to-server nao tem IP confiavel).
+
+**Validacao juridica**: O `codigo_validacao` pode ser verificado publicamente em `https://portaldcp.com.br/validar-documento`. O PDF do boletim inclui dados do assinante, data/hora, codigo de validacao, QR Code e hash SHA-256 do documento.
 
 **Parametros**:
 
