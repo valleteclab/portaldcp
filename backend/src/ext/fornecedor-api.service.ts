@@ -418,6 +418,18 @@ export class FornecedorApiService {
     return this.nfService.findAllByOrdem(ordemId);
   }
 
+  async getBoletimPdf(medicaoId: string, fornecedorId: string) {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medicao nao encontrada');
+    await this.validarContratoFornecedor(medicao.contrato_id, fornecedorId);
+
+    await this.medicaoService.obterOuGerarPdfOficialMedicao(medicaoId);
+    const filePath = this.medicaoService.getBoletimPdfFilePath(medicaoId);
+    if (!filePath) throw new NotFoundException('Boletim PDF nao encontrado');
+
+    return { filePath, numero_medicao: medicao.numero_medicao };
+  }
+
   private async validarContratoFornecedor(contratoId: string, fornecedorId: string) {
     const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato nao encontrado');

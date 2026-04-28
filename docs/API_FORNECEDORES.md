@@ -43,6 +43,7 @@ O fluxo tipico de integracao segue estas etapas:
 5. **Anexar documentos** → `POST /medicoes/:id/documentos`
 6. **Enviar medicao** → `POST /medicoes/:id/enviar`
 7. **Consultar status** → `GET /medicoes/:id`
+8. **Download do boletim PDF** → `GET /medicoes/:id/boletim-pdf`
 
 Para ordens de fornecimento, o fluxo e:
 
@@ -434,6 +435,28 @@ Lista os anexos de uma medicao.
 curl -sS "https://compras.cmlem.ba.gov.br/api/ext/v1/medicoes/$MEASUREMENT_ID/documentos" \
   -H "X-Api-Key: $PORTALDCP_API_KEY"
 ```
+
+---
+
+### GET /medicoes/:id/boletim-pdf
+
+Download do boletim de medicao em PDF. O PDF e gerado automaticamente se ainda nao existir (inclui assinaturas digitais, codigo de validacao e QR Code). Disponivel para medicoes com status `SUBMETIDA` ou superior.
+
+**Parametros**:
+
+| Param | Tipo | Local | Descricao |
+| --- | --- | --- | --- |
+| `id` | string (UUID) | path | UUID da medicao |
+
+**Request**:
+
+```bash
+curl -sS "https://compras.cmlem.ba.gov.br/api/ext/v1/medicoes/$MEASUREMENT_ID/boletim-pdf" \
+  -H "X-Api-Key: $PORTALDCP_API_KEY" \
+  -o boletim_medicao.pdf
+```
+
+**Response**: Arquivo PDF binario com header `Content-Type: application/pdf` e `Content-Disposition: attachment; filename="boletim_medicao_N.pdf"`.
 
 ---
 

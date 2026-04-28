@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UploadedFiles,
   UseGuards,
@@ -16,6 +17,8 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import * as fs from 'fs';
+import { createReadStream } from 'fs';
+import type { Response } from 'express';
 import {
   ApiBadRequestResponse,
   ApiBody,
@@ -189,6 +192,28 @@ export class ExtController {
   @ApiParam({ name: 'id', description: 'UUID da medicao' })
   listarDocumentosMedicao(@Param('id') medicaoId: string, @Req() req: any) {
     return this.fornecedorApi.listarAnexosMedicao(medicaoId, req.fornecedor.id);
+  }
+
+  @Get('medicoes/:id/boletim-pdf')
+  @ApiTags('Medições')
+  @ApiOperation({ summary: 'Download do boletim de medicao em PDF' })
+  @ApiParam({ name: 'id', description: 'UUID da medicao' })
+  async downloadBoletimPdf(
+    @Param('id') medicaoId: string,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
+    const { filePath, numero_medicao } = await this.fornecedorApi.getBoletimPdf(
+      medicaoId,
+      req.fornecedor.id,
+    );
+    const filename = `boletim_medicao_${numero_medicao || medicaoId}.pdf`;
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    const stream = createReadStream(filePath);
+    stream.pipe(res);
   }
 
   @Get('ordens')
