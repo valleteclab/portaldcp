@@ -194,6 +194,19 @@ export class FornecedorApiService {
       { skipOSCheck: true },
     );
 
+    // Salvar discriminações da despesa, se fornecidas
+    if (Array.isArray(body.discriminacoes) && body.discriminacoes.length > 0) {
+      await this.medicaoService.salvarDiscriminacoes(
+        medicao.id,
+        fornecedor.id,
+        body.discriminacoes.map((d: any) => ({
+          descricao: String(d.descricao || '').trim(),
+          valor: Number(d.valor || 0),
+          percentual: Number(d.percentual || 0),
+        })),
+      );
+    }
+
     if (body.enviar_imediatamente) {
       return this.submeterMedicao(medicao.id, fornecedor, contrato, undefined);
     }

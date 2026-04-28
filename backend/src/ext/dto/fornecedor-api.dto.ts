@@ -114,6 +114,17 @@ export class ItemMedicaoRequestDto {
   quantidade_medida: number;
 }
 
+export class DiscriminacaoRequestDto {
+  @ApiProperty({ example: 'ISS' })
+  descricao: string;
+
+  @ApiPropertyOptional({ example: 2 })
+  percentual?: number;
+
+  @ApiPropertyOptional({ example: 735.79 })
+  valor?: number;
+}
+
 export class CriarMedicaoRequestDto {
   @ApiProperty({ example: '2026-04-01', description: 'Formato YYYY-MM-DD' })
   periodo_inicio: string;
@@ -138,6 +149,12 @@ export class CriarMedicaoRequestDto {
 
   @ApiPropertyOptional({ type: [ItemMedicaoRequestDto] })
   itens?: ItemMedicaoRequestDto[];
+
+  @ApiPropertyOptional({
+    type: [DiscriminacaoRequestDto],
+    description: 'Composicao financeira da despesa (ISS, despesas operacionais, servicos, etc.). Se percentuais forem informados, os valores sao calculados automaticamente a partir do valor_medido ou nota_fiscal_valor.',
+  })
+  discriminacoes?: DiscriminacaoRequestDto[];
 
   @ApiPropertyOptional({ example: false })
   enviar_imediatamente?: boolean;

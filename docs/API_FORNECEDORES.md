@@ -82,6 +82,11 @@ curl -sS -X POST "https://compras.cmlem.ba.gov.br/api/ext/v1/contratos/$CONTRACT
     "nota_fiscal_valor": 36789.73,
     "nota_fiscal_data": "2026-04-28",
     "valor_medido": 36789.73,
+    "discriminacoes": [
+      { "descricao": "ISS", "percentual": 2 },
+      { "descricao": "Despesas Operacionais", "percentual": 48 },
+      { "descricao": "Servicos", "percentual": 50 }
+    ],
     "observacoes": "Servico executado conforme contrato."
   }'
 ```
@@ -100,11 +105,30 @@ curl -sS -X POST "https://compras.cmlem.ba.gov.br/api/ext/v1/contratos/$CONTRACT
         "item_cronograma_id": "UUID_DO_ITEM",
         "quantidade_medida": 1
       }
+    ],
+    "discriminacoes": [
+      { "descricao": "ISS", "percentual": 2 },
+      { "descricao": "Despesas Operacionais", "percentual": 48 },
+      { "descricao": "Servicos", "percentual": 50 }
     ]
   }'
 ```
 
 Para criar e submeter em uma unica chamada, envie `"enviar_imediatamente": true`.
+
+### Discriminacoes da despesa
+
+O campo `discriminacoes` e opcional e representa a composicao financeira do boletim de medicao (ISS, impostos, despesas operacionais, servicos, materiais, etc.).
+
+Cada item possui:
+
+| Campo | Tipo | Obrigatorio | Descricao |
+| --- | --- | --- | --- |
+| `descricao` | string | sim | Nome da despesa (ex: "ISS", "Servicos") |
+| `percentual` | number | nao | Percentual sobre o valor bruto. Se informado, o valor e calculado automaticamente. |
+| `valor` | number | nao | Valor absoluto em reais. Usado quando nao ha percentual. |
+
+Se `percentual` for informado, o sistema calcula o valor a partir de `nota_fiscal_valor` ou `valor_medido`. Se apenas `valor` for informado, o percentual e derivado automaticamente.
 
 ### 5. Anexar documento da medicao
 
