@@ -189,6 +189,11 @@ function fmtCnpj(cnpj: string): string {
 }
 
 /** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias) */
+function diaFimComercialUtc(ano: number, mes: number, dia: number): number {
+  const ultimoDiaDoMes = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate()
+  return dia === ultimoDiaDoMes ? 30 : Math.min(dia, 30)
+}
+
 function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?: string): number {
   const d1 = new Date(data1)
   const d2 = new Date(data2)
@@ -214,7 +219,10 @@ function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?:
         mes2 === dataFimContratoDate.getUTCMonth() &&
         dia2 === dataFimContratoDate.getUTCDate()
       : false
-    dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30)
+    const dia2Com = ehUltimoDiaDoContrato
+      ? Math.min(dia2 - 1, 30)
+      : diaFimComercialUtc(ano2, mes2, dia2)
+    dias = dia2Com - dia1 + 1
   } else {
     // Dias no primeiro mês (ano comercial) - conta o dia inicial
     const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30)
@@ -227,15 +235,14 @@ function diasEntreDatasComercial(data1: string, data2: string, dataFimContrato?:
     
     // Dias no último mês (ano comercial)
     // Não conta o dia final se for o último dia do contrato
-    let diasUltimoMes = Math.min(dia2, 30)
     const ehUltimoDiaDoContrato = dataFimContratoDate
       ? ano2 === dataFimContratoDate.getUTCFullYear() &&
         mes2 === dataFimContratoDate.getUTCMonth() &&
         dia2 === dataFimContratoDate.getUTCDate()
       : false
-    if (ehUltimoDiaDoContrato) {
-      diasUltimoMes = dia2 - 1
-    }
+    const diasUltimoMes = ehUltimoDiaDoContrato
+      ? Math.min(dia2 - 1, 30)
+      : diaFimComercialUtc(ano2, mes2, dia2)
     
     dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes
   }

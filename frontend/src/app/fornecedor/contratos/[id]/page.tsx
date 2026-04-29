@@ -222,6 +222,11 @@ interface AnexoReaproveitado {
 // ============ FUNÇÕES ============
 
 // Função para calcular dias com ano comercial (360 dias)
+function diaFimComercial(ano: number, mes: number, dia: number): number {
+  const ultimoDiaDoMes = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  return dia === ultimoDiaDoMes ? 30 : Math.min(dia, 30);
+}
+
 function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimContrato?: string): number {
   const d1 = new Date(dataInicio);
   const d2 = new Date(dataFim);
@@ -240,6 +245,9 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
       d2.getUTCMonth() === dataFimContratoDate.getUTCMonth() &&
       d2.getUTCDate() === dataFimContratoDate.getUTCDate()
     : false;
+  const dia2Com = ehUltimoDiaDoContrato
+    ? Math.min(dia2 - 1, 30)
+    : diaFimComercial(ano2, mes2, dia2);
   
   let dias = 0;
   
@@ -247,7 +255,7 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
   if (ano1 === ano2 && mes1 === mes2) {
     // Para períodos normais: conta ambos os dias (dia_fim - dia_início + 1)
     // Apenas não conta o dia final se for o último dia do contrato
-    dias = Math.min(dia2 - dia1 + (ehUltimoDiaDoContrato ? 0 : 1), 30);
+    dias = dia2Com - dia1 + 1;
   } else {
     // Dias no primeiro mês (ano comercial) - conta o dia inicial
     const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
@@ -260,10 +268,7 @@ function calcularDiasMesComercial(dataInicio: string, dataFim: string, dataFimCo
     
     // Dias no último mês (ano comercial)
     // Não conta o dia final se for o último dia do contrato
-    let diasUltimoMes = Math.min(dia2, 30);
-    if (ehUltimoDiaDoContrato) {
-      diasUltimoMes = dia2 - 1;
-    }
+    const diasUltimoMes = dia2Com;
     
     dias = diasPrimeiroMes + (mesesCompletos * 30) + diasUltimoMes;
   }
@@ -914,21 +919,21 @@ export default function FornecedorContratoDetalhePage() {
     const anoFim = fim.getFullYear();
     const mesFim = fim.getMonth();
     const diaFim = fim.getDate();
-    
-    // Se for o mesmo mês e ano, e começar no dia 1
-    if (anoInicio === anoFim && mesInicio === mesFim && diaInicio === 1) {
-      // Último dia do mês
-      const ultimoDiaDoMes = new Date(anoFim, mesFim + 1, 0).getDate();
-      
-      // Se terminar no último dia do mês, é um mês completo = 30 dias (comercial)
-      if (diaFim === ultimoDiaDoMes) {
-        return 30;
+    const diaFimCom = diaFimComercial(anoFim, mesFim, diaFim);
+    let dias = 0;
+
+    if (anoInicio === anoFim && mesInicio === mesFim) {
+      dias = diaFimCom - diaInicio + 1;
+    } else {
+      const diasPrimeiroMes = Math.min(30 - diaInicio + 1, 30);
+      let mesesCompletos = 0;
+      if (anoFim > anoInicio || mesFim > mesInicio + 1) {
+        mesesCompletos = (anoFim - anoInicio) * 12 + (mesFim - mesInicio - 1);
       }
+      dias = diasPrimeiroMes + (mesesCompletos * 30) + diaFimCom;
     }
-    
-    // Para períodos parciais, calcula os dias reais
-    const diffMs = fim.getTime() - inicio.getTime();
-    return Math.round(diffMs / 86400000) + 1;
+
+    return Math.max(0, Math.min(dias, 360));
   };
 
   const replicarMedicaoAnterior = async () => {

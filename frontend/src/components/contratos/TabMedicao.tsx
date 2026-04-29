@@ -344,6 +344,11 @@ function formatarData(d: string | null | undefined) {
 /** Dias entre datas usando ano comercial (30 dias/mês, máx 360).
  *  Regra: dia 31 (ou 29/28 de fev) = dia 30 no calendário comercial.
  *  Clip em dia2 ANTES de subtrair — garante 20/03→31/03 = 11, não 12. */
+function diaFimComercialUtc(ano: number, mes: number, dia: number): number {
+  const ultimoDiaDoMes = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  return dia === ultimoDiaDoMes ? 30 : Math.min(dia, 30);
+}
+
 function calcularDiasMesComercial(
   data1: string,
   data2: string,
@@ -358,7 +363,7 @@ function calcularDiasMesComercial(
   const mes2 = d2.getUTCMonth();
   const dia2 = d2.getUTCDate();
   // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
-  const dia2Com = Math.min(dia2, 30);
+  const dia2Com = diaFimComercialUtc(ano2, mes2, dia2);
   let dias = 0;
   if (ano1 === ano2 && mes1 === mes2) {
     dias = dia2Com - dia1 + 1;

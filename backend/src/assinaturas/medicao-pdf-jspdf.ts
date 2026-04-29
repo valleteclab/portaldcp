@@ -67,6 +67,11 @@ function textoSeguro(valor: unknown, fallback = '-'): string {
 /** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias).
  *  Regra: dia 31 (e fev 29/28) = dia 30 no calendário comercial.
  *  Clip em dia2 ANTES de subtrair — garante 20/03→31/03 = 11, não 12. */
+function diaFimComercialUtc(ano: number, mes: number, dia: number): number {
+  const ultimoDiaDoMes = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  return dia === ultimoDiaDoMes ? 30 : Math.min(dia, 30);
+}
+
 function diasEntreDatasComercial(data1: string, data2: string, _dataFimContrato?: string): number {
   const d1 = new Date(data1);
   const d2 = new Date(data2);
@@ -80,7 +85,7 @@ function diasEntreDatasComercial(data1: string, data2: string, _dataFimContrato?
   const dia2 = d2.getUTCDate();
 
   // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
-  const dia2Com = Math.min(dia2, 30);
+  const dia2Com = diaFimComercialUtc(ano2, mes2, dia2);
 
   let dias = 0;
 

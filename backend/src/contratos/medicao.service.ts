@@ -4828,6 +4828,11 @@ export class MedicaoService {
     return { valoresPorEtapa, valoresPorItem, quantidadesPorItem };
   }
 
+  private diaFimComercialUtc(ano: number, mes: number, dia: number): number {
+    const ultimoDiaDoMes = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+    return dia === ultimoDiaDoMes ? 30 : Math.min(dia, 30);
+  }
+
   private calcularDiasComercialPeriodo(
     dataInicio: string,
     dataFim: string,
@@ -4841,7 +4846,7 @@ export class MedicaoService {
     const ano2 = fim.getUTCFullYear();
     const mes2 = fim.getUTCMonth();
     const dia2 = fim.getUTCDate();
-    const dia2Com = Math.min(dia2, 30);
+    const dia2Com = this.diaFimComercialUtc(ano2, mes2, dia2);
 
     let dias = 0;
     if (ano1 === ano2 && mes1 === mes2) {
@@ -6401,7 +6406,7 @@ export class MedicaoService {
         const dia2 = fim.getUTCDate();
 
         // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
-        const dia2Com = Math.min(dia2, 30);
+        const dia2Com = this.diaFimComercialUtc(ano2, mes2, dia2);
 
         let dias = 0;
 
@@ -6754,7 +6759,8 @@ export class MedicaoService {
 
         // Se mesmo mês
         if (anoInicio === anoFim && mesInicio === mesFim) {
-          diasExecutados = Math.min(diaFim - diaInicio + 1, 30);
+          const diaFimCom = this.diaFimComercialUtc(anoFim, mesFim, diaFim);
+          diasExecutados = diaFimCom - diaInicio + 1;
         } else {
           // Dias no primeiro mês (ano comercial)
           const diasPrimeiroMes = Math.min(30 - diaInicio + 1, 30);
@@ -6767,7 +6773,11 @@ export class MedicaoService {
           }
 
           // Dias no último mês (ano comercial)
-          const diasUltimoMes = Math.min(diaFim, 30);
+          const diasUltimoMes = this.diaFimComercialUtc(
+            anoFim,
+            mesFim,
+            diaFim,
+          );
 
           diasExecutados =
             diasPrimeiroMes + mesesCompletos * 30 + diasUltimoMes;
