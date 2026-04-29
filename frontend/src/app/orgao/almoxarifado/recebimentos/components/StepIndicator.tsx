@@ -19,7 +19,7 @@ export function StepIndicator({ steps, currentStep, completedSteps, onStepClick 
   const currentIndex = steps.findIndex(s => s.key === currentStep)
 
   return (
-    <div className="flex items-center gap-0 bg-white border-b px-6 h-11">
+    <div className="flex items-center gap-0 bg-white border-b border-[#d5deec] px-4 h-12 overflow-x-auto">
       {steps.map((step, i) => {
         const isActive = currentStep === step.key
         const isCompleted = completedSteps.includes(step.key)
@@ -30,11 +30,11 @@ export function StepIndicator({ steps, currentStep, completedSteps, onStepClick 
               onClick={() => canNavigate && onStepClick?.(step.key)}
               disabled={!canNavigate}
               className={cn(
-                'flex items-center gap-2 px-4 h-11 text-sm font-medium transition-all border-b-2',
-                isActive && 'border-blue-600 text-blue-700 font-bold',
-                isCompleted && !isActive && 'border-transparent text-green-600 cursor-pointer hover:text-green-700',
-                !isActive && !isCompleted && canNavigate && 'border-transparent text-gray-500 cursor-pointer hover:text-gray-700',
-                !isActive && !isCompleted && !canNavigate && 'border-transparent text-gray-400 cursor-default',
+                'flex items-center gap-2 px-6 h-12 whitespace-nowrap text-sm font-black transition-all border-b-2',
+                isActive && 'border-[#123f82] text-[#123f82]',
+                isCompleted && !isActive && 'border-transparent text-emerald-600 cursor-pointer hover:text-emerald-700',
+                !isActive && !isCompleted && canNavigate && 'border-transparent text-slate-400 cursor-pointer hover:text-[#123f82]',
+                !isActive && !isCompleted && !canNavigate && 'border-transparent text-slate-400 cursor-default',
               )}
             >
               {isCompleted && !isActive && <Check className="h-4 w-4" />}

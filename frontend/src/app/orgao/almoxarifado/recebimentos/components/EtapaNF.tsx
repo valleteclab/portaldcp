@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye, ListOrdered, BellRing } from 'lucide-react'
+import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye, ListOrdered, BellRing, CheckCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 const getFileUrl = (caminho: string | null) => {
@@ -283,28 +283,21 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
   return (
     <div className="space-y-5">
       {nfsPendentes.length > 1 && onSelecionarNf && (
-        <Card className="border-blue-200 bg-blue-50/30">
+        <Card className="border-[#b8c8f5] bg-white/80 shadow-none">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ListOrdered className="h-5 w-5 text-blue-600" />
+            <CardTitle className="flex items-center gap-2 text-base font-black text-[#123f82]">
+              <ListOrdered className="h-5 w-5 text-[#123f82]" />
               Outras notas na fila ({nfsPendentes.length})
             </CardTitle>
-            <CardDescription>
-              Processando NF {notaFiscal?.numero || ''}. Clique para trocar.
-            </CardDescription>
+            <CardDescription>Processando NF {notaFiscal?.numero || ''}. Clique para trocar.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
               {nfsPendentes
                 .filter((nf: any) => nf.id !== notaFiscal?.id)
                 .map((nf: any) => (
-                  <Button
-                    key={nf.id}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onSelecionarNf(nf.id)}
-                  >
-                    NF {nf.numero || 'S/N'}/{nf.serie || '-'} · {fmt(nf.valor_total)}
+                  <Button key={nf.id} variant="outline" size="sm" onClick={() => onSelecionarNf?.(nf.id)}>
+                    NF {nf.numero || 'S/N'}/{nf.serie || '-'} - {fmt(nf.valor_total)}
                   </Button>
                 ))}
             </div>
@@ -312,189 +305,118 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
         </Card>
       )}
 
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="h-5 w-5 text-blue-600" />
-            Nota Fiscal do Fornecedor
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {[
-            ['Numero / Serie', `${notaFiscal.numero || '-'} / ${notaFiscal.serie || '-'}`],
-            ['Data de Emissao', notaFiscal.data_emissao ? new Date(notaFiscal.data_emissao).toLocaleDateString('pt-BR') : '-'],
-            ['Valor Total', fmt(notaFiscal.valor_total)],
-            ['Emitente', notaFiscal.razao_social_emitente || '-'],
-            ['CNPJ', notaFiscal.cnpj_emitente || '-'],
-          ].map(([label, value]) => (
-            <div key={label} className="flex justify-between py-2 border-b border-gray-100">
-              <span className="text-gray-500">{label}</span>
-              <span className="font-semibold">{value}</span>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_288px]">
+        <Card className="rounded-xl border-[#d8e2f2] bg-white shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-3 text-xl font-black tracking-tight text-[#123f82]">
+              <FileText className="h-5 w-5 text-[#123f82]" />
+              Nota Fiscal do Fornecedor
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Numero / Serie</p>
+                <p className="mt-2 text-lg font-black text-[#06162d]">{notaFiscal.numero || '-'} / {notaFiscal.serie || '-'}</p>
+              </div>
+              <div className="rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Data de Emissao</p>
+                <p className="mt-2 text-lg font-black text-[#06162d]">
+                  {notaFiscal.data_emissao ? new Date(notaFiscal.data_emissao).toLocaleDateString('pt-BR') : '-'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Valor Total</p>
+                <p className="mt-2 text-lg font-black text-[#06162d]">{fmt(notaFiscal.valor_total)}</p>
+              </div>
             </div>
-          ))}
-          {notaFiscal.chave_acesso && (
-            <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-              <p className="text-xs text-gray-400 mb-1">Chave de Acesso NF-e</p>
-              <p className="font-mono text-[10px] break-all text-gray-600">{notaFiscal.chave_acesso}</p>
+
+            <div className="rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Emitente</p>
+              <p className="mt-2 text-base font-black text-[#06162d]">{notaFiscal.razao_social_emitente || '-'}</p>
             </div>
-          )}
-          <div className="mt-2">
-            <Badge variant={notaFiscal.status === 'ERRO' ? 'destructive' : 'default'}>
-              {notaFiscal.status}
-            </Badge>
-            {notaFiscal.produtos_xml?.length > 0 && (
-              <span className="text-xs text-gray-500 ml-2">{notaFiscal.produtos_xml.length} produtos no XML</span>
+            <div className="rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 sm:w-1/2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">CNPJ</p>
+              <p className="mt-2 text-base font-black text-[#06162d]">{notaFiscal.cnpj_emitente || '-'}</p>
+            </div>
+            {notaFiscal.chave_acesso && (
+              <div className="rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Chave de Acesso NF-e</p>
+                <p className="mt-2 break-all font-mono text-sm font-black text-[#06162d]">{notaFiscal.chave_acesso}</p>
+              </div>
             )}
-          </div>
-          <div className="pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleReenviarNotificacao}
-              disabled={reenviandoNotificacao}
-            >
-              {reenviandoNotificacao ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <BellRing className="h-4 w-4 mr-2" />
-              )}
-              {reenviandoNotificacao ? 'Reenviando notificação...' : 'Reenviar notificação ao almoxarifado'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileCode className="h-5 w-5 text-green-600" />
-            XML da Nota Fiscal
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {notaFiscal.xml_raw ? (
-            <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs text-gray-400 max-h-56 overflow-hidden relative mb-4">
-              <pre className="whitespace-pre-wrap break-all">
-                {notaFiscal.xml_raw.substring(0, 800)}
-              </pre>
-              <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-gray-900" />
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-emerald-800">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-5 w-5" />
+                <div>
+                  <p className="text-sm font-black uppercase tracking-widest">{notaFiscal.status || 'VINCULADA'}</p>
+                  {notaFiscal.produtos_xml?.length > 0 && (
+                    <p className="text-xs font-semibold">{notaFiscal.produtos_xml.length} produtos no XML</p>
+                  )}
+                </div>
+              </div>
             </div>
-          ) : (
-            <p className="text-sm text-gray-500 mb-4">XML não disponível para preview</p>
-          )}
+          </CardContent>
+        </Card>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-blue-800 font-medium mb-1">Próximo passo</p>
-            <p className="text-xs text-blue-700">
-              Clique no botão abaixo para extrair os produtos do XML e vinculá-los aos itens da ordem.
-              A IA irá sugerir os vínculos automaticamente.
+        <div className="space-y-4">
+          <div className="rounded-xl bg-[#1c2d47] p-4 font-mono text-[10px] leading-relaxed text-blue-100 shadow-none">
+            <pre className="max-h-[168px] overflow-hidden whitespace-pre-wrap break-all">
+              {(notaFiscal.xml_raw || '<xml>Preview do XML indisponivel</xml>').substring(0, 520)}
+            </pre>
+          </div>
+
+          <div className="rounded-xl border border-[#b8c8f5] bg-[#eef3ff] p-5 text-[#1f32b0]">
+            <p className="mb-3 text-sm font-black">Proximo passo</p>
+            <p className="text-sm leading-relaxed">
+              Clique no botao abaixo para extrair os produtos do XML e vincula-los aos itens da ordem.
             </p>
           </div>
 
           <Button
             onClick={onImportarXml}
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-            size="lg"
+            className="h-[74px] w-full rounded-xl bg-[#123f82] px-6 text-base font-black leading-tight text-white shadow-[0_10px_18px_rgba(16,43,99,0.18)] hover:bg-[#0e3470]"
           >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <FileCode className="h-4 w-4 mr-2" />
-            )}
+            {loading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <FileCode className="h-5 w-5 mr-2 text-[#ffd33d]" />}
             {loading ? 'Processando IA...' : 'Importar XML e Vincular Produtos'}
           </Button>
+        </div>
+      </div>
 
-          <div className="mt-3 pt-3 border-t">
-            <p className="text-xs text-gray-500 mb-2">Enviou a NF errada? Substitua por outra:</p>
-            <label className="cursor-pointer inline-block">
-              <input
-                type="file"
-                multiple
-                accept=".xml,.pdf"
-                onChange={handleUploadManual}
-                disabled={uploading}
-                className="hidden"
-              />
-              <Button variant="outline" size="sm" asChild disabled={uploading}>
-                <span>
-                  {uploading ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <Upload className="h-3 w-3 mr-1" />
-                  )}
-                  {uploading ? 'Enviando...' : 'Substituir NF (XML + PDF)'}
-                </span>
-              </Button>
-            </label>
-            {erroUpload && <p className="text-xs text-red-600 mt-2">{erroUpload}</p>}
-          </div>
-        </CardContent>
-      </Card>
-
-      {(notaFiscal.caminho_pdf || notaFiscal.documentos_extras?.length > 0) && (
-        <Card className="md:col-span-2">
+      {(notaFiscal.caminho_xml || notaFiscal.caminho_pdf || notaFiscal.documentos_extras?.length > 0) && (
+        <Card className="rounded-xl border-[#d8e2f2] bg-white shadow-none">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-5 w-5 text-blue-600" />
-              Documentos Anexados
-            </CardTitle>
+            <CardTitle className="text-base font-black text-[#24324a]">Documentos Anexados</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {notaFiscal.caminho_xml && (
-                <a
-                  href={getFileUrl(notaFiscal.caminho_xml) || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition"
-                >
-                  <FileCode className="h-8 w-8 text-green-600 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">XML da NF-e</p>
-                    <p className="text-xs text-gray-500">Arquivo XML</p>
+                <a href={getFileUrl(notaFiscal.caminho_xml) || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 hover:bg-white">
+                  <FileCode className="h-6 w-6 text-[#b194c8]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-black text-[#06162d]">XML da NF-e</p>
+                    <p className="text-xs font-medium text-slate-500">Arquivo XML</p>
                   </div>
-                  <Download className="h-4 w-4 text-gray-400" />
+                  <Download className="h-4 w-4 text-slate-500" />
                 </a>
               )}
               {notaFiscal.caminho_pdf && (
-                <a
-                  href={getFileUrl(notaFiscal.caminho_pdf) || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition"
-                >
-                  <FileText className="h-8 w-8 text-red-600 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">PDF da Nota Fiscal</p>
-                    <p className="text-xs text-gray-500">Documento PDF</p>
+                <a href={getFileUrl(notaFiscal.caminho_pdf) || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 hover:bg-white">
+                  <FileText className="h-6 w-6 text-[#d83d68]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-black text-[#06162d]">PDF da Nota Fiscal</p>
+                    <p className="text-xs font-medium text-slate-500">Documento PDF</p>
                   </div>
-                  <Download className="h-4 w-4 text-gray-400" />
+                  <Download className="h-4 w-4 text-slate-500" />
                 </a>
               )}
-              {notaFiscal.documentos_extras?.map((doc: any, i: number) => (
-                <a
-                  key={i}
-                  href={getFileUrl(doc.caminho) || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition"
-                >
-                  <Eye className="h-8 w-8 text-orange-500 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{doc.nome}</p>
-                    <p className="text-xs text-gray-500">{doc.tipo || 'Documento'}</p>
-                  </div>
-                  <Download className="h-4 w-4 text-gray-400" />
-                </a>
-              ))}
             </div>
           </CardContent>
         </Card>
       )}
     </div>
-    </div>
   )
+
 }
+

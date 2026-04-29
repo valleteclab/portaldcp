@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Package, Loader2, FileText, FileCode, Download, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Loader2, FileText, FileCode, Download, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -207,33 +207,46 @@ function RecebimentoUnificadoContent() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="min-h-[520px] bg-[#edf3ff] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[#123f82]" />
       </div>
     )
   }
 
   return (
-    <div className="space-y-0">
+    <div className="-m-6 min-h-[calc(100vh-4rem)] bg-[#edf3ff] text-[#0d2342]">
       {/* Header */}
-      <div className="flex items-center gap-4 px-6 py-4 bg-white border-b">
-        <Button variant="ghost" size="sm" onClick={() => router.push('/orgao/almoxarifado/recebimentos')}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
-        </Button>
-        <div className="flex items-center gap-3">
-          <Package className="h-5 w-5 text-blue-600" />
-          <div>
-            <h1 className="text-base font-bold">Recebimento — OF {ordem?.numero || '-'}</h1>
-            <p className="text-xs text-gray-500">
-              {ordem?.fornecedor?.razao_social || '-'} · {fmt(ordem?.valor_total)}
-            </p>
+      <div className="bg-[#102b63] text-white">
+        <div className="mx-auto flex h-[56px] max-w-[1280px] items-center justify-between px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-9 items-center rounded-lg bg-[#ffd33d] px-4 text-[13px] font-black tracking-wide text-[#102b63]">
+              ALMOX
+            </div>
+            <Button
+              className="h-8 rounded-lg bg-white/12 px-4 text-sm font-bold text-white shadow-none hover:bg-white/20"
+              size="sm"
+              onClick={() => router.push('/orgao/almoxarifado/recebimentos')}
+            >
+              <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+            </Button>
+            <div className="min-w-0">
+              <h1 className="truncate text-[17px] font-black leading-tight tracking-tight">
+                Recebimento - OF {ordem?.numero || '-'}
+              </h1>
+              <p className="truncate text-xs font-medium text-blue-100">
+                {ordem?.fornecedor?.razao_social || '-'} - {fmt(ordem?.valor_total)}
+              </p>
+            </div>
           </div>
+          <p className="hidden text-xs font-medium text-blue-100 sm:block">
+            {new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date())}
+          </p>
         </div>
       </div>
 
       {/* Seletor NF quando múltiplas NFs */}
       {notasFiscais.length > 1 && (
-        <div className="px-6 py-2 bg-gray-50 border-b flex gap-2 flex-wrap">
+        <div className="mx-auto max-w-[910px] px-4 py-3 flex gap-2 flex-wrap">
           {notasFiscais.map((nf: any) => (
             <Button
               key={nf.id}
@@ -258,7 +271,7 @@ function RecebimentoUnificadoContent() {
       )}
 
       {/* Content */}
-      <div className="p-6">
+      <div className="mx-auto max-w-[910px] px-4 py-7">
         {etapa === 'concluida' && (
           <Card className="border-green-200 bg-green-50/50">
             <CardContent className="py-10 text-center">
@@ -563,3 +576,4 @@ export default function RecebimentoUnificadoPage() {
     </ModuleGuard>
   )
 }
+

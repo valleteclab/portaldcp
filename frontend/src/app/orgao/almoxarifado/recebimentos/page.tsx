@@ -89,14 +89,14 @@ interface Recebimento {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDENTE: 'bg-yellow-100 text-yellow-800',
-  CONFERIDO: 'bg-blue-100 text-blue-800',
-  ACEITO: 'bg-green-100 text-green-800',
-  REJEITADO: 'bg-red-100 text-red-800',
-  ACEITO_PARCIAL: 'bg-orange-100 text-orange-800',
-  ESTORNADO: 'bg-gray-100 text-gray-800',
-  PENDENTE_ALMOXARIFADO: 'bg-cyan-100 text-cyan-800',
-  PENDENTE_PATRIMONIO: 'bg-purple-100 text-purple-800',
+  PENDENTE: 'border border-amber-300 bg-amber-50 text-amber-700',
+  CONFERIDO: 'border border-blue-200 bg-blue-50 text-blue-700',
+  ACEITO: 'border border-emerald-300 bg-emerald-50 text-emerald-700',
+  REJEITADO: 'border border-red-200 bg-red-50 text-red-700',
+  ACEITO_PARCIAL: 'border border-orange-300 bg-orange-50 text-orange-700',
+  ESTORNADO: 'border border-slate-200 bg-slate-100 text-slate-600',
+  PENDENTE_ALMOXARIFADO: 'border border-cyan-200 bg-cyan-50 text-cyan-700',
+  PENDENTE_PATRIMONIO: 'border border-purple-200 bg-purple-50 text-purple-700',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -121,7 +121,7 @@ function RecebimentosList() {
   const [podeReceberPatrimonio, setPodeReceberPatrimonio] = useState(false);
   
   // Modal
-  const [recebimentoSelecionado, setRecebimentoSelecionado] = useState<Recebimento | null>(null);
+  const [recebimentoSelecionado, setRecebimentoSelecionado] = useState<Recebimento>({} as Recebimento);
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [showAceitar, setShowAceitar] = useState(false);
   const [showAceitarAlmox, setShowAceitarAlmox] = useState(false);
@@ -199,7 +199,8 @@ function RecebimentosList() {
     }).format(valor);
   };
 
-  const formatarData = (data: string) => {
+  const formatarData = (data?: string | null) => {
+    if (!data) return '-';
     return new Date(data).toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
@@ -464,763 +465,206 @@ function RecebimentosList() {
     );
   });
 
+  const dataHoje = new Intl.DateTimeFormat('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date());
+
+  const fornecedorCurto = (nome?: string) => {
+    if (!nome) return '-';
+    return nome.length > 42 ? `${nome.slice(0, 42)}...` : nome;
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="min-h-[520px] bg-[#edf3ff] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[#123f82]" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/orgao/almoxarifado">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Voltar
+    <div className="-m-6 min-h-[calc(100vh-4rem)] bg-[#edf3ff] text-[#0d2342]">
+      <div className="bg-[#102b63] text-white">
+        <div className="mx-auto flex h-[62px] max-w-[1280px] items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/orgao/almoxarifado"
+              className="flex h-9 items-center rounded-lg bg-[#ffd33d] px-4 text-[13px] font-black tracking-wide text-[#102b63]"
+            >
+              ALMOX
             </Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Recebimentos</h1>
-            <p className="text-gray-500">Conferência e aceite de materiais/serviços</p>
+            <div>
+              <h1 className="text-[17px] font-black leading-tight tracking-tight">Recebimentos</h1>
+              <p className="text-xs font-medium text-blue-100">Conferencia e aceite de materiais/servicos</p>
+            </div>
           </div>
+          <p className="hidden text-xs font-medium text-blue-100 sm:block">{dataHoje}</p>
         </div>
       </div>
 
-      {/* Ordens Aguardando Recebimento */}
-      {ordensAguardando.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Package className="h-5 w-5 text-blue-600" />
-              Ordens Aguardando Recebimento ({ordensAguardando.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {ordensAguardando.map((of: any) => (
-                <Link
-                  key={of.id}
-                  href={`/orgao/almoxarifado/recebimentos/${of.id}`}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-blue-50 hover:border-blue-200 border border-transparent transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <p className="font-semibold text-sm">{of.numero}</p>
-                      <p className="text-xs text-gray-500">{of.fornecedor?.razao_social || '-'}</p>
-                    </div>
-                    {of.nf_disponivel ? (
-                      <Badge className="bg-green-100 text-green-800 text-xs flex items-center gap-1">
-                        <FileCheck className="h-3 w-3" />
-                        NF disponível
-                      </Badge>
-                    ) : of.nf_recusada ? (
-                      <Badge className="bg-red-100 text-red-800 text-xs flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        NF recusada
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 text-xs flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        Aguard. NF
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="text-gray-500">{of.itens?.length || 0} itens</span>
-                    <span className="font-semibold">{formatarMoeda(of.valor_total || 0)}</span>
-                    <Badge variant="outline" className="text-xs">Abrir →</Badge>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <div className="mx-auto max-w-[1020px] space-y-7 px-4 py-8 sm:px-6">
+        <section>
+          <div className="mb-4 flex items-center gap-3">
+            <Package className="h-5 w-5 text-[#123f82]" />
+            <h2 className="text-xl font-black tracking-tight text-[#123f82]">Ordens Aguardando Recebimento</h2>
+            <span className="rounded-full bg-[#123f82] px-3 py-0.5 text-xs font-black text-[#ffd33d]">
+              {ordensAguardando.length}
+            </span>
+          </div>
 
-      {/* Filtros */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
+          <div className="overflow-hidden rounded-xl border border-[#d8e2f2] bg-white shadow-[0_10px_24px_rgba(16,43,99,0.08)]">
+            {ordensAguardando.length === 0 ? (
+              <div className="px-6 py-10 text-center text-sm font-semibold text-slate-500">
+                Nenhuma ordem aguardando recebimento.
+              </div>
+            ) : (
+              ordensAguardando.map((of: any) => {
+                const nfDisponivel = !!of.nf_disponivel;
+                return (
+                  <div
+                    key={of.id}
+                    className="grid grid-cols-1 gap-4 border-b border-[#e7edf6] px-5 py-4 last:border-b-0 md:grid-cols-[1fr_170px_72px_132px_96px]"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[17px] font-black tracking-tight text-[#0f4388]">{of.numero}</p>
+                      <p className="mt-1 truncate text-xs font-bold uppercase tracking-wide text-slate-500">
+                        {of.fornecedor?.razao_social || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center md:justify-center">
+                      {nfDisponivel ? (
+                        <Badge className="h-8 rounded-full border border-emerald-300 bg-emerald-50 px-4 text-xs font-black text-emerald-700">
+                          NF Disponivel
+                        </Badge>
+                      ) : of.nf_recusada ? (
+                        <Badge className="h-8 rounded-full border border-red-300 bg-red-50 px-4 text-xs font-black text-red-700">
+                          NF recusada
+                        </Badge>
+                      ) : (
+                        <Badge className="h-8 rounded-full border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-700">
+                          Aguard. NF
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 md:block md:text-center">
+                      <span className="text-[11px] font-semibold text-slate-400">Itens</span>
+                      <p className="text-base font-black text-[#0d2342]">{of.itens?.length || 0}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 md:block md:text-right">
+                      <span className="text-[11px] font-semibold text-slate-400">Valor</span>
+                      <p className="text-base font-black text-[#0d2342]">{formatarMoeda(of.valor_total || 0)}</p>
+                    </div>
+
+                    <div className="flex items-center md:justify-end">
+                      {nfDisponivel ? (
+                        <Button asChild className="h-10 rounded-lg bg-[#123f82] px-5 text-sm font-black text-white shadow-none hover:bg-[#0e3470]">
+                          <Link href={`/orgao/almoxarifado/recebimentos/${of.id}`}>
+                            <span className="mr-2 text-[#ffd33d]">-&gt;</span>
+                            Abrir
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button disabled variant="outline" className="h-10 w-14 rounded-lg border-[#e5ebf5] bg-[#f6f8fc] text-lg font-black text-slate-300">
+                          -
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
+              <FileText className="h-5 w-5 text-[#c98962]" />
+              <h2 className="text-xl font-black tracking-tight text-[#24324a]">Historico de Recebimentos</h2>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
-                  placeholder="Buscar por número, ordem ou fornecedor..."
+                  placeholder="Buscar por numero, ordem ou fornecedor..."
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
-                  className="pl-10"
+                  className="h-9 w-full rounded-lg border-[#d7e0ee] bg-white pl-11 text-sm shadow-none sm:w-[270px]"
                 />
               </div>
+              <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+                <SelectTrigger className="h-9 w-full rounded-lg border-[#d7e0ee] bg-white text-sm font-bold shadow-none sm:w-[154px]">
+                  <SelectValue placeholder="Filtrar por status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todos os status</SelectItem>
+                  <SelectItem value="PENDENTE">Pend. Conferencia</SelectItem>
+                  <SelectItem value="CONFERIDO">Conferido</SelectItem>
+                  <SelectItem value="PENDENTE_ALMOXARIFADO">Pendente almoxarifado</SelectItem>
+                  <SelectItem value="PENDENTE_PATRIMONIO">Pendente patrimonio</SelectItem>
+                  <SelectItem value="ACEITO">Aceito</SelectItem>
+                  <SelectItem value="ACEITO_PARCIAL">Aceito Parcial</SelectItem>
+                  <SelectItem value="REJEITADO">Rejeitado</SelectItem>
+                  <SelectItem value="ESTORNADO">Estornado</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Filtrar por status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Todos os status</SelectItem>
-                <SelectItem value="PENDENTE">Pendente Conferência</SelectItem>
-                <SelectItem value="CONFERIDO">Conferido</SelectItem>
-                <SelectItem value="PENDENTE_ALMOXARIFADO">Pendente aceite almoxarifado</SelectItem>
-                <SelectItem value="PENDENTE_PATRIMONIO">Pendente aceite patrimônio</SelectItem>
-                <SelectItem value="ACEITO">Aceito</SelectItem>
-                <SelectItem value="ACEITO_PARCIAL">Aceito Parcialmente</SelectItem>
-                <SelectItem value="REJEITADO">Rejeitado</SelectItem>
-                <SelectItem value="ESTORNADO">Estornado</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Tabela */}
-      <Card>
-        <CardContent className="pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Número</TableHead>
-                <TableHead>Ordem</TableHead>
-                <TableHead>Fornecedor</TableHead>
-                <TableHead>Data</TableHead>
-                <TableHead>NF</TableHead>
-                <TableHead>Valor</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recebimentosFiltrados.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                    Nenhum recebimento encontrado
-                  </TableCell>
+          <div className="overflow-hidden rounded-xl border border-[#d8e2f2] bg-white shadow-[0_10px_24px_rgba(16,43,99,0.08)]">
+            <Table>
+              <TableHeader className="bg-[#f8fafd]">
+                <TableRow className="border-[#dfe7f2] hover:bg-[#f8fafd]">
+                  <TableHead className="h-10 px-5 text-[11px] font-black uppercase tracking-widest text-slate-500">Numero</TableHead>
+                  <TableHead className="h-10 text-[11px] font-black uppercase tracking-widest text-slate-500">Ordem</TableHead>
+                  <TableHead className="h-10 text-[11px] font-black uppercase tracking-widest text-slate-500">Fornecedor</TableHead>
+                  <TableHead className="h-10 text-[11px] font-black uppercase tracking-widest text-slate-500">Data</TableHead>
+                  <TableHead className="h-10 text-[11px] font-black uppercase tracking-widest text-slate-500">NF</TableHead>
+                  <TableHead className="h-10 text-[11px] font-black uppercase tracking-widest text-slate-500">Valor</TableHead>
+                  <TableHead className="h-10 text-[11px] font-black uppercase tracking-widest text-slate-500">Status</TableHead>
                 </TableRow>
-              ) : (
-                recebimentosFiltrados.map((rec) => (
-                  <TableRow key={rec.id}>
-                    <TableCell className="font-medium">{rec.numero}</TableCell>
-                    <TableCell>{rec.ordem_fornecimento?.numero || '-'}</TableCell>
-                    <TableCell>{rec.ordem_fornecimento?.fornecedor?.razao_social || '-'}</TableCell>
-                    <TableCell>{formatarData(rec.data_recebimento)}</TableCell>
-                    <TableCell>{rec.numero_nota_fiscal || '-'}</TableCell>
-                    <TableCell>{formatarMoeda(rec.valor_total_recebido)}</TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_COLORS[rec.status]}>
-                        {STATUS_LABELS[rec.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        {rec.ordem_fornecimento_id && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            asChild
-                            title="Abrir tela de recebimento unificada"
-                          >
-                            <Link href={`/orgao/almoxarifado/recebimentos/${rec.ordem_fornecimento_id}`}>
-                              <FolderOpen className="h-4 w-4 text-blue-600" />
-                            </Link>
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleVerDetalhes(rec)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {rec.status === 'PENDENTE' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-blue-600 hover:text-blue-700"
-                            onClick={() => handleConferir(rec.id)}
-                            disabled={processando}
-                          >
-                            <ClipboardCheck className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {(rec.status === 'CONFERIDO' || rec.status === 'PENDENTE' || rec.status === 'PENDENTE_ALMOXARIFADO' || rec.status === 'PENDENTE_PATRIMONIO') && (
-                          <>
-                            {/* Fallback: recebimentos legados sem tipo_item usam aceite único */}
-                            {(rec.itens?.length ?? 0) > 0 && !rec.itens?.some((i) => i.tipo_item === 'CONSUMO') && !rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !rec.aceite_almoxarifado_data && !rec.aceite_patrimonio_data && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-green-600 hover:text-green-700"
-                                onClick={() => {
-                                  setRecebimentoSelecionado(rec);
-                                  setShowAceitar(true);
-                                }}
-                                disabled={processando}
-                                title="Aceitar recebimento (itens sem classificação)"
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {rec.itens?.some((i) => i.tipo_item === 'CONSUMO') && !rec.aceite_almoxarifado_data && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-cyan-600 hover:text-cyan-700"
-                                onClick={() => {
-                                  setRecebimentoSelecionado(rec);
-                                  setShowAceitarAlmox(true);
-                                }}
-                                disabled={processando}
-                                title="Aceitar itens de almoxarifado (consumo)"
-                              >
-                                <Warehouse className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {rec.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !rec.aceite_patrimonio_data && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className={podeReceberPatrimonio ? 'text-purple-600 hover:text-purple-700' : 'text-gray-400 cursor-not-allowed'}
-                                onClick={() => {
-                                  if (podeReceberPatrimonio) {
-                                    setRecebimentoSelecionado(rec);
-                                    setShowAceitarPatrimonio(true);
-                                  }
-                                }}
-                                disabled={processando || !podeReceberPatrimonio}
-                                title={podeReceberPatrimonio
-                                  ? 'Aceitar itens de patrimônio (permanente)'
-                                  : 'Requer permissão "Receber patrimônio"'}
-                              >
-                                <Archive className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:text-red-700"
-                              onClick={() => handleAbrirRejeitar(rec)}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
-                        {/* Botão de download PDF (apenas para recebimentos ACEITO ou ACEITO_PARCIAL) */}
-                        {(rec.status === 'ACEITO' || rec.status === 'ACEITO_PARCIAL') && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-blue-600 hover:text-blue-700"
-                            onClick={() => handleDownloadPDF(rec)}
-                            title="Baixar PDF de comprovação de aceite"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {/* Botão de estornar (apenas para recebimentos ACEITO e usuários autorizados) */}
-                        {rec.status === 'ACEITO' && podeCancelarEstornar && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-orange-600 hover:text-orange-700"
-                            onClick={() => handleAbrirEstornar(rec)}
-                            title="Estornar recebimento (reverte baixa no contrato)"
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {/* Botão de excluir - apenas para PENDENTE ou REJEITADO */}
-                        {(rec.status === 'PENDENTE' || rec.status === 'REJEITADO') && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => handleAbrirExcluir(rec)}
-                            title="Excluir recebimento permanentemente"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+              </TableHeader>
+              <TableBody>
+                {recebimentosFiltrados.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-10 text-center text-sm font-semibold text-slate-500">
+                      Nenhum recebimento encontrado
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* Modal Detalhes */}
-      <Dialog open={showDetalhes} onOpenChange={setShowDetalhes}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Recebimento {recebimentoSelecionado?.numero}</DialogTitle>
-            <DialogDescription>
-              Detalhes do recebimento
-            </DialogDescription>
-          </DialogHeader>
-          
-          {recebimentoSelecionado && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Status</label>
-                  <div>
-                    <Badge className={STATUS_COLORS[recebimentoSelecionado.status]}>
-                      {STATUS_LABELS[recebimentoSelecionado.status]}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Tipo</label>
-                  <p>{recebimentoSelecionado.tipo === 'DEFINITIVO' ? 'Recebimento Definitivo' : 'Recebimento Provisório'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Ordem de Fornecimento</label>
-                  <p>{recebimentoSelecionado.ordem_fornecimento?.numero || '-'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Fornecedor</label>
-                  <p>{recebimentoSelecionado.ordem_fornecimento?.fornecedor?.razao_social || '-'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Data do Recebimento</label>
-                  <p>{formatarData(recebimentoSelecionado.data_recebimento)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Nota Fiscal</label>
-                  <p>{recebimentoSelecionado.numero_nota_fiscal || '-'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Valor Recebido</label>
-                  <p className="font-semibold">{formatarMoeda(recebimentoSelecionado.valor_total_recebido)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Valor Aceito</label>
-                  <p className="font-semibold text-green-600">{formatarMoeda(recebimentoSelecionado.valor_aceito)}</p>
-                </div>
-              </div>
-
-              {(recebimentoSelecionado.aceite_almoxarifado_data || recebimentoSelecionado.aceite_patrimonio_data) && (
-                <div className="grid grid-cols-2 gap-4">
-                  {recebimentoSelecionado.aceite_almoxarifado_data && (
-                    <div className="bg-cyan-50 p-3 rounded-lg border border-cyan-200">
-                      <p className="text-sm font-medium text-cyan-800">Almoxarifado (Consumo)</p>
-                      <p className="text-xs text-cyan-700">
-                        Aceito em {formatarData(recebimentoSelecionado.aceite_almoxarifado_data)}
-                        {recebimentoSelecionado.aceite_almoxarifado_usuario_nome && (
-                          <> por {recebimentoSelecionado.aceite_almoxarifado_usuario_nome}</>
-                        )}
-                      </p>
-                    </div>
-                  )}
-                  {recebimentoSelecionado.aceite_patrimonio_data && (
-                    <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
-                      <p className="text-sm font-medium text-purple-800">Patrimônio (Permanente)</p>
-                      <p className="text-xs text-purple-700">
-                        Aceito em {formatarData(recebimentoSelecionado.aceite_patrimonio_data)}
-                        {recebimentoSelecionado.aceite_patrimonio_usuario_nome && (
-                          <> por {recebimentoSelecionado.aceite_patrimonio_usuario_nome}</>
-                        )}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div>
-                <label className="text-sm font-medium text-gray-500 mb-2 block">Itens</label>
-                {recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'CONSUMO') && (
-                  <div className="mb-4">
-                    <p className="text-xs font-medium text-cyan-700 mb-2 flex items-center gap-1">
-                      <Warehouse className="h-3 w-3" /> Almoxarifado — Consumo
-                    </p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>#</TableHead>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead>Esperado</TableHead>
-                          <TableHead>Recebido</TableHead>
-                          <TableHead>Aceito</TableHead>
-                          <TableHead>Valor</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'CONSUMO').map((item, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{item.numero_item}</TableCell>
-                            <TableCell>{item.descricao}</TableCell>
-                            <TableCell>{item.quantidade_esperada}</TableCell>
-                            <TableCell>{item.quantidade_recebida}</TableCell>
-                            <TableCell>
-                              <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
-                                {item.quantidade_aceita}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                ) : (
+                  recebimentosFiltrados.map((rec) => (
+                    <TableRow key={rec.id} className="border-[#edf1f7] hover:bg-[#f8fbff]">
+                      <TableCell className="px-5 py-4 font-black text-[#0f4388]">{rec.numero}</TableCell>
+                      <TableCell className="py-4 font-bold text-[#24324a]">{rec.ordem_fornecimento?.numero || '-'}</TableCell>
+                      <TableCell className="max-w-[260px] truncate py-4 text-xs font-bold text-[#24324a]">
+                        {fornecedorCurto(rec.ordem_fornecimento?.fornecedor?.razao_social)}
+                      </TableCell>
+                      <TableCell className="py-4 font-medium text-slate-600">{formatarData(rec.data_recebimento)}</TableCell>
+                      <TableCell className="py-4 font-black text-[#24324a]">{rec.numero_nota_fiscal || '-'}</TableCell>
+                      <TableCell className="py-4 font-black text-[#24324a]">{formatarMoeda(rec.valor_total_recebido)}</TableCell>
+                      <TableCell className="py-4">
+                        <Badge className={`rounded-full px-3 py-1 text-xs font-black ${STATUS_COLORS[rec.status]}`}>
+                          {STATUS_LABELS[rec.status]}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
-                {recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'PERMANENTE') && (
-                  <div>
-                    <p className="text-xs font-medium text-purple-700 mb-2 flex items-center gap-1">
-                      <Archive className="h-3 w-3" /> Patrimônio — Permanente
-                    </p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>#</TableHead>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead>Esperado</TableHead>
-                          <TableHead>Recebido</TableHead>
-                          <TableHead>Aceito</TableHead>
-                          <TableHead>Valor</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'PERMANENTE').map((item, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{item.numero_item}</TableCell>
-                            <TableCell>{item.descricao}</TableCell>
-                            <TableCell>{item.quantidade_esperada}</TableCell>
-                            <TableCell>{item.quantidade_recebida}</TableCell>
-                            <TableCell>
-                              <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
-                                {item.quantidade_aceita}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-                {!recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'CONSUMO') && !recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'PERMANENTE') && (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>#</TableHead>
-                        <TableHead>Descrição</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Esperado</TableHead>
-                        <TableHead>Recebido</TableHead>
-                        <TableHead>Aceito</TableHead>
-                        <TableHead>Valor</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {recebimentoSelecionado.itens?.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{item.numero_item}</TableCell>
-                          <TableCell>{item.descricao}</TableCell>
-                          <TableCell>
-                            <Badge variant={item.tipo_item === 'PERMANENTE' ? 'secondary' : 'outline'} className={item.tipo_item === 'PERMANENTE' ? 'bg-slate-100 text-slate-800' : ''}>
-                              {item.tipo_item === 'PERMANENTE' ? 'Permanente' : 'Consumo'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{item.quantidade_esperada}</TableCell>
-                          <TableCell>{item.quantidade_recebida}</TableCell>
-                          <TableCell>
-                            <Badge variant={item.quantidade_aceita > 0 ? 'default' : 'secondary'}>
-                              {item.quantidade_aceita}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{formatarMoeda(item.valor_total)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Aceitar */}
-      <Dialog open={showAceitar} onOpenChange={setShowAceitar}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-green-600">Aceitar Recebimento</DialogTitle>
-            <DialogDescription>
-              Ao aceitar, será realizada a baixa definitiva no contrato.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {recebimentoSelecionado && (
-            <div className="space-y-4">
-              {recebimentoSelecionado.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio && (
-                <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-800 text-sm">
-                  Este recebimento contém itens permanentes (patrimônio). Você não tem permissão para aceitar. Solicite ao administrador a permissão &quot;Receber patrimônio&quot;.
-                </div>
-              )}
-              <div className="bg-green-50 p-4 rounded-lg">
-                <p className="font-medium">{recebimentoSelecionado.numero}</p>
-                <p className="text-sm text-gray-600">
-                  Valor: {formatarMoeda(recebimentoSelecionado.valor_total_recebido)}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {recebimentoSelecionado.itens?.length || 0} item(s)
-                </p>
-              </div>
-
-              <div className="bg-yellow-50 p-4 rounded-lg text-sm">
-                <p className="font-medium text-yellow-800 flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4" />
-                  Atenção
-                </p>
-                <p className="text-yellow-700">
-                  Ao aceitar o recebimento:
-                </p>
-                <ul className="list-disc list-inside text-yellow-700 mt-1">
-                  <li>O saldo empenhado será convertido em entregue</li>
-                  <li>A ordem de fornecimento será atualizada</li>
-                  <li>Esta ação não pode ser desfeita</li>
-                </ul>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAceitar(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleAceitar}
-              disabled={processando || (recebimentoSelecionado?.itens?.some((i) => i.tipo_item === 'PERMANENTE') && !podeReceberPatrimonio)}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Confirmar Aceite
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Aceitar Almoxarifado */}
-      <Dialog open={showAceitarAlmox} onOpenChange={setShowAceitarAlmox}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-cyan-600">Aceitar itens Almoxarifado (Consumo)</DialogTitle>
-            <DialogDescription>
-              Será realizada a baixa dos itens de consumo no contrato.
-            </DialogDescription>
-          </DialogHeader>
-          {recebimentoSelecionado && (
-            <div className="space-y-4">
-              <div className="bg-cyan-50 p-4 rounded-lg border border-cyan-200">
-                <p className="font-medium">{recebimentoSelecionado.numero}</p>
-                <p className="text-sm text-gray-600">
-                  {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'CONSUMO').length || 0} item(ns) de consumo
-                </p>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAceitarAlmox(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleAceitarAlmoxarifado}
-              disabled={processando}
-              className="bg-cyan-600 hover:bg-cyan-700"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Confirmar Aceite Almoxarifado
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Aceitar Patrimônio */}
-      <Dialog open={showAceitarPatrimonio} onOpenChange={setShowAceitarPatrimonio}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-purple-600">Aceitar itens Patrimônio (Permanente)</DialogTitle>
-            <DialogDescription>
-              Será realizada a baixa dos itens permanentes no contrato.
-            </DialogDescription>
-          </DialogHeader>
-          {recebimentoSelecionado && (
-            <div className="space-y-4">
-              <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                <p className="font-medium">{recebimentoSelecionado.numero}</p>
-                <p className="text-sm text-gray-600">
-                  {recebimentoSelecionado.itens?.filter((i) => i.tipo_item === 'PERMANENTE').length || 0} item(ns) permanente(s)
-                </p>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAceitarPatrimonio(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleAceitarPatrimonio}
-              disabled={processando || !podeReceberPatrimonio}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Confirmar Aceite Patrimônio
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Rejeitar */}
-      <Dialog open={showRejeitar} onOpenChange={setShowRejeitar}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-red-600">Rejeitar Recebimento</DialogTitle>
-            <DialogDescription>
-              Informe o motivo da rejeição.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {recebimentoSelecionado && (
-            <div className="space-y-4">
-              <div className="bg-red-50 p-4 rounded-lg">
-                <p className="font-medium">{recebimentoSelecionado.numero}</p>
-                <p className="text-sm text-gray-600">
-                  {recebimentoSelecionado.ordem_fornecimento?.fornecedor?.razao_social}
-                </p>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Motivo da Rejeição *</label>
-                <Textarea
-                  value={motivoRejeicao}
-                  onChange={(e) => setMotivoRejeicao(e.target.value)}
-                  placeholder="Descreva o motivo da rejeição..."
-                  rows={3}
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRejeitar(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleRejeitar} 
-              disabled={processando || !motivoRejeicao.trim()} 
-              variant="destructive"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Confirmar Rejeição
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Estornar Recebimento */}
-      <Dialog open={showEstornar} onOpenChange={setShowEstornar}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-orange-600">Estornar Recebimento</DialogTitle>
-            <DialogDescription>
-              Informe o motivo do estorno do recebimento {recebimentoSelecionado?.numero}.
-            </DialogDescription>
-          </DialogHeader>
-          {recebimentoSelecionado && (
-            <div className="space-y-4">
-              <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
-                <p className="font-medium text-orange-900">⚠️ Atenção!</p>
-                <p className="text-sm text-orange-700 mt-1">
-                  O estorno deste recebimento irá reverter a baixa realizada no contrato.
-                  O saldo que estava como "entregue" voltará para "disponível".
-                  Esta ação requer permissão especial e não pode ser desfeita facilmente.
-                </p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <p className="text-sm font-medium text-gray-700">Recebimento:</p>
-                <p className="text-sm text-gray-600">{recebimentoSelecionado.numero}</p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Valor: {formatarMoeda(recebimentoSelecionado.valor_aceito)}
-                </p>
-                {recebimentoSelecionado.ordem_fornecimento && (
-                  <p className="text-sm text-gray-600">
-                    Ordem: {recebimentoSelecionado.ordem_fornecimento.numero}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">
-                  Motivo do Estorno <span className="text-red-500">*</span>
-                </label>
-                <Textarea
-                  placeholder="Descreva o motivo do estorno..."
-                  value={motivoEstorno}
-                  onChange={(e) => setMotivoEstorno(e.target.value)}
-                  rows={4}
-                  className="resize-none"
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEstornar(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleEstornar} 
-              disabled={processando || !motivoEstorno.trim()}
-              className="bg-orange-600 hover:bg-orange-700"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Confirmar Estorno
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Excluir Recebimento */}
-      <Dialog open={showExcluir} onOpenChange={setShowExcluir}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-red-600">Excluir Recebimento</DialogTitle>
-            <DialogDescription>
-              Tem certeza que deseja excluir permanentemente este recebimento? Esta ação não pode ser desfeita.
-            </DialogDescription>
-          </DialogHeader>
-          {recebimentoSelecionado && (
-            <div className="bg-red-50 p-4 rounded-lg">
-              <p className="font-medium">{recebimentoSelecionado.numero}</p>
-              <p className="text-sm text-gray-600">
-                Ordem: {recebimentoSelecionado.ordem_fornecimento?.numero || '-'}
-              </p>
-              <p className="text-sm text-red-700 font-semibold mt-2">
-                ⚠️ Atenção: Esta ação é irreversível!
-              </p>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowExcluir(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleExcluir} 
-              disabled={processando} 
-              variant="destructive"
-            >
-              {processando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Excluir Permanentemente
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              </TableBody>
+            </Table>
+          </div>
+        </section>
+      </div>
     </div>
   );
+
 }
 
 export default function RecebimentosPage() {
@@ -1230,3 +674,4 @@ export default function RecebimentosPage() {
     </ModuleGuard>
   );
 }
+
