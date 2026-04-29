@@ -1431,18 +1431,9 @@ export default function TabMedicao({
           item.quantidade_meses != null ? String(item.quantidade_meses) : "",
         valor_mensal:
           item.unidade_medida === "MENSAL"
-            ? String(Number(item.valor_unitario))
+            ? String(Number(item.valor_mensal || item.valor_unitario))
             : String(Number(item.quantidade) * Number(item.valor_unitario)),
-        valor_total:
-          item.unidade_medida === "MENSAL"
-            ? String(Number(item.quantidade) * Number(item.valor_unitario))
-            : item.quantidade_meses
-              ? String(
-                  Number(item.quantidade) *
-                    Number(item.valor_unitario) *
-                    item.quantidade_meses,
-                )
-              : String(Number(item.quantidade) * Number(item.valor_unitario)),
+        valor_total: String(Number(item.valor_total)),
         observacoes: item.observacoes || "",
         quantidade_medida: String(Number(item.quantidade_medida) || 0),
         valor_medida_reais:
@@ -2901,17 +2892,7 @@ export default function TabMedicao({
                             </TableCell>
                           )}
                           <TableCell className="text-right font-medium whitespace-nowrap">
-                            {formatarMoeda(
-                              i.unidade_medida === "MENSAL"
-                                ? Number(i.quantidade) *
-                                    Number(i.valor_unitario)
-                                : i.quantidade_meses
-                                  ? Number(i.quantidade) *
-                                    Number(i.valor_unitario) *
-                                    Number(i.quantidade_meses)
-                                  : Number(i.quantidade) *
-                                    Number(i.valor_unitario),
-                            )}
+                            {formatarMoeda(i.valor_total)}
                           </TableCell>
                           <TableCell className="text-center whitespace-nowrap">
                             {isAdmin ? (
