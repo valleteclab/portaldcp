@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAssetUrl } from '@/lib/api'
 import {
   ArrowLeft,
   BarChart2,
@@ -53,7 +53,7 @@ interface Contrato {
   data_vigencia_fim: string
   fornecedor_razao_social: string
   fornecedor_cnpj: string
-  orgao: { nome: string; cnpj: string; cidade: string; uf: string }
+  orgao: { nome: string; cnpj: string; cidade: string; uf: string; logo_url?: string | null }
   itens?: ItemContrato[]
 }
 
@@ -79,7 +79,7 @@ interface RelatorioPedidosData {
     data_vigencia_fim: string
     fornecedor_razao_social: string
     fornecedor_cnpj: string
-    orgao: { nome: string; cnpj: string; cidade: string; uf: string } | null
+    orgao: { nome: string; cnpj: string; cidade: string; uf: string; logo_url?: string | null } | null
   }
   resumo: {
     total_ordens_fornecimento: number
@@ -97,6 +97,29 @@ interface RelatorioPedidosData {
 
 interface TabRelatoriosProps {
   contrato: Contrato
+}
+
+type PdfImageCompression = 'NONE' | 'FAST' | 'MEDIUM' | 'SLOW'
+
+interface PdfHeaderDoc {
+  internal: { pageSize: { width: number } }
+  setFillColor: (...args: number[]) => void
+  rect: (x: number, y: number, w: number, h: number, style?: string) => void
+  roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style?: string) => void
+  addImage: (
+    imageData: string,
+    format: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    alias?: string,
+    compression?: PdfImageCompression,
+  ) => void
+  setTextColor: (...args: number[]) => void
+  setFontSize: (size: number) => void
+  setFont: (fontName: string, fontStyle?: string) => void
+  text: (text: string, x: number, y: number, options?: { align?: 'left' | 'center' | 'right' }) => void
 }
 
 const RELATORIOS = [
@@ -153,6 +176,86 @@ function getStatusClasses(status?: string | null) {
     return 'bg-red-50 text-red-700 border-red-200'
   }
   return 'bg-amber-50 text-amber-700 border-amber-200'
+}
+
+function getLogoUrl(contrato: Contrato) {
+  return contrato.orgao.logo_url ? getAssetUrl(contrato.orgao.logo_url) : ''
+}
+
+async function getImageDataUrl(url: string) {
+  if (!url) return null
+  try {
+    const response = await fetch(url)
+    if (!response.ok) return null
+    const blob = await response.blob()
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
+function getImageFormat(dataUrl: string) {
+  return dataUrl.includes('image/png') ? 'PNG' : 'JPEG'
+}
+
+function drawPdfHeader(doc: PdfHeaderDoc, title: string, orgaoNome: string, logoDataUrl: string | null) {
+  const pageW = doc.internal.pageSize.width
+  doc.setFillColor(19, 81, 180)
+  doc.rect(0, 0, pageW, 22, 'F')
+
+  if (logoDataUrl) {
+    doc.setFillColor(255, 255, 255)
+    doc.roundedRect(10, 3, 18, 16, 2, 2, 'F')
+    doc.addImage(logoDataUrl, getImageFormat(logoDataUrl), 12, 4, 14, 14, undefined, 'FAST')
+  }
+
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(13)
+  doc.setFont('helvetica', 'bold')
+  doc.text(title, pageW / 2, 10, { align: 'center' })
+  doc.setFontSize(7.5)
+  doc.setFont('helvetica', 'normal')
+  doc.text(orgaoNome, pageW / 2, 16, { align: 'center' })
+}
+
+function htmlHeader(title: string, contrato: Contrato) {
+  const logoUrl = getLogoUrl(contrato)
+  return `
+<div class="report-header">
+  ${logoUrl ? `<img src="${logoUrl}" alt="Logo do orgao" class="report-logo"/>` : '<div class="report-logo-placeholder"></div>'}
+  <div>
+    <h1>${title}</h1>
+    <div class="report-orgao">${contrato.orgao.nome}</div>
+  </div>
+</div>`
+}
+
+function printWindowWhenReady(w: Window) {
+  const images = Array.from(w.document.images)
+  if (!images.length) {
+    setTimeout(() => w.print(), 300)
+    return
+  }
+
+  let pendentes = images.length
+  const finalizar = () => {
+    pendentes -= 1
+    if (pendentes <= 0) setTimeout(() => w.print(), 150)
+  }
+
+  images.forEach(img => {
+    if (img.complete) {
+      finalizar()
+      return
+    }
+    img.onload = finalizar
+    img.onerror = finalizar
+  })
 }
 
 export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
@@ -224,13 +327,9 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
     const pageW = doc.internal.pageSize.width
+    const logoDataUrl = await getImageDataUrl(getLogoUrl(contrato))
 
-    doc.setFillColor(19, 81, 180)
-    doc.rect(0, 0, pageW, 18, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFontSize(13)
-    doc.setFont('helvetica', 'bold')
-    doc.text('RELATÓRIO DE SALDO DE ITENS DO CONTRATO', pageW / 2, 11, { align: 'center' })
+    drawPdfHeader(doc, 'RELATÓRIO DE SALDO DE ITENS DO CONTRATO', contrato.orgao.nome, logoDataUrl)
 
     doc.setTextColor(30, 30, 30)
     doc.setFontSize(8.5)
@@ -243,7 +342,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       [`Valor Contratado (global): ${fmtMoeda(contrato.valor_global)}`, `Emitido em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`],
     ]
 
-    let y = 24
+    let y = 28
     for (const [col1, col2] of info) {
       doc.text(col1, 10, y)
       doc.text(col2, pageW / 2 + 2, y)
@@ -334,18 +433,14 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       lastAutoTable?: { finalY?: number }
     }
     const pageW = doc.internal.pageSize.width
+    const logoDataUrl = await getImageDataUrl(getLogoUrl(contrato))
     const secoes = [
       { titulo: 'Ordens de Fornecimento', dados: dadosPedidos.secoes.ordens_fornecimento },
       { titulo: 'Requisições', dados: dadosPedidos.secoes.requisicoes },
       { titulo: 'Ordens de Serviço', dados: dadosPedidos.secoes.ordens_servico },
     ]
 
-    doc.setFillColor(19, 81, 180)
-    doc.rect(0, 0, pageW, 18, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFontSize(13)
-    doc.setFont('helvetica', 'bold')
-    doc.text('RELATÓRIO DE PEDIDOS', pageW / 2, 11, { align: 'center' })
+    drawPdfHeader(doc, 'RELATÓRIO DE PEDIDOS', dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome, logoDataUrl)
 
     doc.setTextColor(30, 30, 30)
     doc.setFontSize(8.5)
@@ -358,7 +453,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       [`Documentos: ${dadosPedidos.resumo.total_documentos}`, `Empenhos vinculados: ${dadosPedidos.resumo.total_empenhos_vinculados}`],
     ]
 
-    let y = 24
+    let y = 28
     for (const [col1, col2] of info) {
       doc.text(col1, 10, y)
       doc.text(col2, pageW / 2 + 2, y)
@@ -422,7 +517,10 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 16px; }
-  h1 { font-size: 15px; text-align: center; color: #1351B4; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  h1 { font-size: 15px; color: #1351B4; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; }
+  .report-header { display: grid; grid-template-columns: 58px 1fr 58px; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1351B4; text-align: center; }
+  .report-logo, .report-logo-placeholder { width: 52px; height: 52px; object-fit: contain; justify-self: start; }
+  .report-orgao { color: #555; font-size: 10px; font-weight: bold; text-transform: uppercase; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 20px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid #1351B4; }
   .info-grid span { font-size: 10.5px; }
   .info-grid strong { color: #1351B4; }
@@ -448,7 +546,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 </style>
 </head>
 <body>
-<h1>Relatório de Saldo de Itens do Contrato</h1>
+${htmlHeader('Relatório de Saldo de Itens do Contrato', contrato)}
 <div class="info-grid">
   <span><strong>Órgão:</strong> ${contrato.orgao.nome}</span>
   <span><strong>CNPJ:</strong> ${contrato.orgao.cnpj}</span>
@@ -518,7 +616,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     w.document.write(html)
     w.document.close()
     w.focus()
-    setTimeout(() => w.print(), 500)
+    printWindowWhenReady(w)
   }
 
   function imprimirHTMLPedidos() {
@@ -562,8 +660,11 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 16px; }
-  h1 { font-size: 15px; text-align: center; color: #1351B4; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  h1 { font-size: 15px; color: #1351B4; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; }
   h2 { page-break-after: avoid; }
+  .report-header { display: grid; grid-template-columns: 58px 1fr 58px; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1351B4; text-align: center; }
+  .report-logo, .report-logo-placeholder { width: 52px; height: 52px; object-fit: contain; justify-self: start; }
+  .report-orgao { color: #555; font-size: 10px; font-weight: bold; text-transform: uppercase; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 20px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid #1351B4; }
   .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
   .card { border: 1px solid #dde3f0; border-radius: 6px; padding: 10px 12px; background: #f8faff; }
@@ -579,7 +680,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 </style>
 </head>
 <body>
-<h1>Relatório de Pedidos</h1>
+${htmlHeader('Relatório de Pedidos', contrato)}
 <div class="info-grid">
   <span><strong>Órgão:</strong> ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}</span>
   <span><strong>CNPJ:</strong> ${dadosPedidos.contrato.orgao?.cnpj || contrato.orgao.cnpj}</span>
@@ -609,7 +710,7 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
     w.document.write(html)
     w.document.close()
     w.focus()
-    setTimeout(() => w.print(), 500)
+    printWindowWhenReady(w)
   }
 
   async function exportarPDF() {

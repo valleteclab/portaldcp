@@ -143,7 +143,7 @@ interface Contrato {
   numero_controle_pncp: string
   observacoes: string
   fornecedor?: { id: string; razao_social: string; cpf_cnpj: string; nome_fantasia?: string }
-  orgao: { id: string; nome: string; cnpj: string; cidade: string; uf: string }
+  orgao: { id: string; nome: string; cnpj: string; cidade: string; uf: string; logo_url?: string | null }
   licitacao?: { id: string; numero_processo: string; modalidade: string }
   liberado_por_nome?: string
   liberado_em?: string
