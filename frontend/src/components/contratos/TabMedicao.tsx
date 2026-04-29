@@ -1499,6 +1499,14 @@ export default function TabMedicao({
     frequenciaContrato,
   );
 
+  const aplicarRegraMoedaContrato = (valor: number) => {
+    const n = Number(valor);
+    if (!Number.isFinite(n)) return 0;
+    return contratoProp?.arredondar_calculo ?? true
+      ? Math.round(n * 100) / 100
+      : truncar2Casas(n);
+  };
+
   const totaisFormItemCronograma = (
     qStr: string,
     vlStr: string,
@@ -1509,16 +1517,70 @@ export default function TabMedicao({
     const vl = parseFloat(vlStr) || 0;
     const meses = mesesStr ? parseInt(mesesStr, 10) : null;
     if (isMensal) {
-      const mensal = vl ? String(vl) : "";
-      const total = q && vl ? String(q * vl) : "";
+      const mensal = vl ? String(aplicarRegraMoedaContrato(vl)) : "";
+      const total = q && vl ? String(aplicarRegraMoedaContrato(q * vl)) : "";
       return { valor_mensal: mensal, valor_total: total };
     }
     const vlMensal = q * vl;
     const novoTotal = meses != null && meses > 0 ? q * vl * meses : vlMensal;
     return {
-      valor_mensal: q && vl ? String(vlMensal) : "",
-      valor_total: q && vl ? String(novoTotal) : "",
+      valor_mensal: q && vl ? String(aplicarRegraMoedaContrato(vlMensal)) : "",
+      valor_total: q && vl ? String(aplicarRegraMoedaContrato(novoTotal)) : "",
     };
+  };
+
+  const unidadeFormItemCronograma = modoClausulaContrato
+    ? unidadeClausulaBase
+    : formItemCronograma.unidade_medida;
+  const quantidadeFormItemCronograma =
+    parseFloat(formItemCronograma.quantidade) || 0;
+  const valorUnitarioFormItemCronograma =
+    parseFloat(formItemCronograma.valor_unitario) || 0;
+  const valorDisponivelEdicaoItemCronograma = editandoItemCronograma
+    ? saldoValorItens + Number(editandoItemCronograma.valor_total)
+    : saldoValorItens;
+  const valorTotalFormItemCronograma =
+    parseFloat(formItemCronograma.valor_total) || 0;
+  const diferencaValorItemMensal =
+    unidadeFormItemCronograma === "MENSAL" && quantidadeFormItemCronograma > 0
+      ? aplicarRegraMoedaContrato(
+          valorDisponivelEdicaoItemCronograma - valorTotalFormItemCronograma,
+        )
+      : 0;
+  const deveAvisarDiferencaMensal =
+    unidadeFormItemCronograma === "MENSAL" &&
+    quantidadeFormItemCronograma > 0 &&
+    valorUnitarioFormItemCronograma > 0 &&
+    Math.abs(diferencaValorItemMensal) > 0.01;
+  const valorMensalSugeridoPeloDisponivel =
+    quantidadeFormItemCronograma > 0
+      ? aplicarRegraMoedaContrato(
+          valorDisponivelEdicaoItemCronograma / quantidadeFormItemCronograma,
+        )
+      : 0;
+  const diferencaMensalApenasCentavos =
+    unidadeFormItemCronograma === "MENSAL" &&
+    Math.abs(diferencaValorItemMensal) > 0.01 &&
+    Math.abs(diferencaValorItemMensal) <= 0.05;
+  const valorTotalConsideradoItemMensal =
+    diferencaMensalApenasCentavos
+      ? valorDisponivelEdicaoItemCronograma
+      : valorTotalFormItemCronograma;
+
+  const aplicarValorMensalPeloDisponivel = () => {
+    if (!quantidadeFormItemCronograma || valorMensalSugeridoPeloDisponivel <= 0) {
+      return;
+    }
+    setFormItemCronograma((prev) => ({
+      ...prev,
+      valor_unitario: String(valorMensalSugeridoPeloDisponivel),
+      ...totaisFormItemCronograma(
+        prev.quantidade,
+        String(valorMensalSugeridoPeloDisponivel),
+        "",
+        true,
+      ),
+    }));
   };
 
   const salvarItemCronograma = async () => {
@@ -1533,11 +1595,13 @@ export default function TabMedicao({
       : formItemCronograma.quantidade_meses
         ? parseInt(formItemCronograma.quantidade_meses, 10)
         : null;
-    const vlMensal = isMensalUnit ? vlUnit : qtd * vlUnit;
-    const novoValorTotal = isMensalUnit
-      ? qtd * vlUnit
+    const vlMensal = isMensalUnit
+      ? aplicarRegraMoedaContrato(vlUnit)
+      : aplicarRegraMoedaContrato(qtd * vlUnit);
+    let novoValorTotal = isMensalUnit
+      ? aplicarRegraMoedaContrato(qtd * vlUnit)
       : meses
-        ? qtd * vlUnit * meses
+        ? aplicarRegraMoedaContrato(qtd * vlUnit * meses)
         : vlMensal;
 
     const somaOutras = editandoItemCronograma
@@ -1545,6 +1609,15 @@ export default function TabMedicao({
           .filter((i) => i.id !== editandoItemCronograma.id)
           .reduce((a, b) => a + Number(b.valor_total), 0)
       : somaValorItensCronograma;
+    if (
+      isMensalUnit &&
+      Math.abs(valorGlobalCronograma - somaOutras - novoValorTotal) > 0.01 &&
+      Math.abs(valorGlobalCronograma - somaOutras - novoValorTotal) <= 0.05
+    ) {
+      novoValorTotal = aplicarRegraMoedaContrato(
+        valorGlobalCronograma - somaOutras,
+      );
+    }
     if (somaOutras + novoValorTotal > valorGlobalCronograma + 0.01) {
       const disp = Math.max(0, valorGlobalCronograma - somaOutras);
       alert(
@@ -3999,31 +4072,19 @@ export default function TabMedicao({
                       value={formItemCronograma.unidade_medida}
                       onValueChange={(v) => {
                         // Ao trocar para MENSAL, limpa quantidade_meses e recalcula
-                        const q =
-                          parseFloat(formItemCronograma.quantidade) || 0;
-                        const vl =
-                          parseFloat(formItemCronograma.valor_unitario) || 0;
                         const isMensal = v === "MENSAL";
-                        const mensal = isMensal
-                          ? vl
-                            ? String(vl)
-                            : ""
-                          : q && vl
-                            ? String(q * vl)
-                            : "";
-                        const total = isMensal
-                          ? q && vl
-                            ? String(q * vl)
-                            : ""
-                          : mensal;
                         setFormItemCronograma({
                           ...formItemCronograma,
                           unidade_medida: v,
                           quantidade_meses: isMensal
                             ? ""
                             : formItemCronograma.quantidade_meses,
-                          valor_mensal: mensal,
-                          valor_total: total,
+                          ...totaisFormItemCronograma(
+                            formItemCronograma.quantidade,
+                            formItemCronograma.valor_unitario,
+                            isMensal ? "" : formItemCronograma.quantidade_meses,
+                            isMensal,
+                          ),
                         });
                       }}
                     >
@@ -4058,36 +4119,19 @@ export default function TabMedicao({
                       value={formItemCronograma.quantidade}
                       onChange={(e) => {
                         const q = e.target.value;
-                        const vl =
-                          parseFloat(formItemCronograma.valor_unitario) || 0;
                         const isMensal =
                           formItemCronograma.unidade_medida === "MENSAL";
-                        const meses = isMensal
-                          ? null
-                          : formItemCronograma.quantidade_meses
-                            ? parseInt(formItemCronograma.quantidade_meses)
-                            : null;
                         // MENSAL: Valor Mensal = Valor Unitário (por mês); Valor Total = Qtd. meses × Valor Unitário
                         // OUTROS: Valor Mensal = Qtd × Valor Unitário; Valor Total = Valor Mensal × Qtd.Meses
-                        const mensal = isMensal
-                          ? vl
-                            ? String(vl)
-                            : ""
-                          : q && vl
-                            ? String(parseFloat(q) * vl)
-                            : "";
-                        const total = isMensal
-                          ? q && vl
-                            ? String(parseFloat(q) * vl)
-                            : ""
-                          : mensal && meses
-                            ? String(parseFloat(mensal) * meses)
-                            : mensal;
                         setFormItemCronograma({
                           ...formItemCronograma,
                           quantidade: q,
-                          valor_mensal: mensal,
-                          valor_total: total,
+                          ...totaisFormItemCronograma(
+                            q,
+                            formItemCronograma.valor_unitario,
+                            isMensal ? "" : formItemCronograma.quantidade_meses,
+                            isMensal,
+                          ),
                         });
                       }}
                     />
@@ -4109,34 +4153,17 @@ export default function TabMedicao({
                       value={formItemCronograma.valor_unitario}
                       onChange={(e) => {
                         const v = e.target.value;
-                        const q =
-                          parseFloat(formItemCronograma.quantidade) || 0;
                         const isMensal =
                           formItemCronograma.unidade_medida === "MENSAL";
-                        const meses = isMensal
-                          ? null
-                          : formItemCronograma.quantidade_meses
-                            ? parseInt(formItemCronograma.quantidade_meses)
-                            : null;
-                        const mensal = isMensal
-                          ? v
-                            ? String(parseFloat(v))
-                            : ""
-                          : v && q
-                            ? String(parseFloat(v) * q)
-                            : "";
-                        const total = isMensal
-                          ? q && v
-                            ? String(q * parseFloat(v))
-                            : ""
-                          : mensal && meses
-                            ? String(parseFloat(mensal) * meses)
-                            : mensal;
                         setFormItemCronograma({
                           ...formItemCronograma,
                           valor_unitario: v,
-                          valor_mensal: mensal,
-                          valor_total: total,
+                          ...totaisFormItemCronograma(
+                            formItemCronograma.quantidade,
+                            v,
+                            isMensal ? "" : formItemCronograma.quantidade_meses,
+                            isMensal,
+                          ),
                         });
                       }}
                     />
@@ -4157,7 +4184,11 @@ export default function TabMedicao({
                             parseFloat(formItemCronograma.valor_mensal) || 0;
                           const total =
                             m && mensal
-                              ? String(mensal * parseInt(m))
+                              ? String(
+                                  aplicarRegraMoedaContrato(
+                                    mensal * parseInt(m),
+                                  ),
+                                )
                               : formItemCronograma.valor_mensal;
                           setFormItemCronograma({
                             ...formItemCronograma,
@@ -4201,14 +4232,74 @@ export default function TabMedicao({
                       className="bg-gray-50 font-medium text-blue-700"
                       value={
                         formItemCronograma.valor_total
-                          ? formatarMoeda(
-                              parseFloat(formItemCronograma.valor_total),
-                            )
+                          ? formatarMoeda(valorTotalConsideradoItemMensal)
                           : "0,00"
                       }
                     />
                   </div>
                 </div>
+                {deveAvisarDiferencaMensal && (
+                  <div className={`rounded-lg border p-3 text-sm ${
+                    diferencaMensalApenasCentavos
+                      ? "border-blue-300 bg-blue-50 text-blue-900"
+                      : "border-amber-300 bg-amber-50 text-amber-900"
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="space-y-2">
+                        <p className="font-medium">
+                          {diferencaMensalApenasCentavos
+                            ? "Diferença de centavos detectada no item mensal."
+                            : "O valor mensal informado não fecha com o valor disponível do contrato."}
+                        </p>
+                        <p className="text-xs leading-relaxed">
+                          Total calculado:{" "}
+                          <strong>
+                            {formatarMoeda(valorTotalFormItemCronograma)}
+                          </strong>
+                          . Disponível para este item:{" "}
+                          <strong>
+                            {formatarMoeda(valorDisponivelEdicaoItemCronograma)}
+                          </strong>
+                          . Diferença:{" "}
+                          <strong>
+                            {formatarMoeda(Math.abs(diferencaValorItemMensal))}
+                          </strong>
+                          .
+                          {diferencaMensalApenasCentavos
+                            ? " O sistema vai considerar o total jurídico disponível do contrato e manter o valor mensal em centavos para as notas fiscais."
+                            : (
+                              <>
+                                {" "}Para fechar em{" "}
+                                {formatarMoeda(valorDisponivelEdicaoItemCronograma)}{" "}
+                                com{" "}
+                                {quantidadeFormItemCronograma.toLocaleString(
+                                  "pt-BR",
+                                  { maximumFractionDigits: 4 },
+                                )}{" "}
+                                meses, o mensal deve ser{" "}
+                                <strong>
+                                  {formatarMoeda(valorMensalSugeridoPeloDisponivel)}
+                                </strong>
+                                .
+                              </>
+                            )}
+                        </p>
+                        {!diferencaMensalApenasCentavos && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                            onClick={aplicarValorMensalPeloDisponivel}
+                          >
+                            Usar mensal pelo disponível
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
             {isAdmin && editandoItemCronograma && (

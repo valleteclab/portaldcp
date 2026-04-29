@@ -131,6 +131,21 @@ export class MedicaoService {
       : truncarMoedaReais2Casas(numero);
   }
 
+  private ajustarTotalMensalAoSaldoContrato(
+    valorCalculado: number,
+    valorGlobal: number,
+    valorJaAlocado: number,
+  ): number {
+    const calculado = Number(valorCalculado) || 0;
+    const saldo = Math.round((Number(valorGlobal || 0) - Number(valorJaAlocado || 0)) * 100) / 100;
+    if (saldo <= 0) return calculado;
+
+    // Contratos mensais podem ter valor unitário recorrente com dízima periódica
+    // (ex.: 30.388 / 12 = 2.532,3333...), enquanto as NFs vêm em centavos.
+    // Se a diferença anual for apenas centavos de arredondamento, preserva o total jurídico.
+    return Math.abs(saldo - calculado) <= 0.05 ? saldo : calculado;
+  }
+
   private calcularValorItemCronogramaMedicao(
     contrato: Contrato,
     itemCron: ItemCronograma,
@@ -474,10 +489,21 @@ export class MedicaoService {
       : quantidadeMeses
         ? quantidade * valorUnitario * quantidadeMeses
         : rawMensal;
-    const valorMensal = isMensal
-      ? valorUnitario
-      : truncarMoedaReais2Casas(rawMensal);
-    const valorTotal = truncarMoedaReais2Casas(rawTotal);
+    const valorMensal = this.aplicarRegraArredondamentoContrato(
+      contrato,
+      isMensal ? valorUnitario : rawMensal,
+    );
+    let valorTotal = this.aplicarRegraArredondamentoContrato(
+      contrato,
+      rawTotal,
+    );
+    if (isMensal) {
+      valorTotal = this.ajustarTotalMensalAoSaldoContrato(
+        valorTotal,
+        valorGlobal,
+        somaValorExistente,
+      );
+    }
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
@@ -578,16 +604,27 @@ export class MedicaoService {
       : quantidadeMeses
         ? quantidade * valorUnitario * quantidadeMeses
         : rawMensal;
-    const valorMensal = isMensal
-      ? valorUnitario
-      : truncarMoedaReais2Casas(rawMensal);
-    const valorTotal = truncarMoedaReais2Casas(rawTotal);
+    const valorMensal = this.aplicarRegraArredondamentoContrato(
+      item.contrato,
+      isMensal ? valorUnitario : rawMensal,
+    );
+    let valorTotal = this.aplicarRegraArredondamentoContrato(
+      item.contrato,
+      rawTotal,
+    );
     const itensExistentes = await this.itemCronogramaRepository.find({
       where: { contrato_id: item.contrato_id },
     });
     const somaValorOutros = itensExistentes
       .filter((i) => i.id !== item.id)
       .reduce((sum, i) => sum + Number(i.valor_total), 0);
+    if (isMensal) {
+      valorTotal = this.ajustarTotalMensalAoSaldoContrato(
+        valorTotal,
+        valorGlobal,
+        somaValorOutros,
+      );
+    }
     if (somaValorOutros + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorOutros);
       throw new BadRequestException(
