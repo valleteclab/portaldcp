@@ -4807,13 +4807,16 @@ export class MedicaoService {
         | ItemCronograma
         | undefined;
       const medicao = medicoesPorId.get((item as any).medicao_id as string);
+      const valorArmazenado = Number((item as any).valor_medido);
       const valorCalculadoMensal =
-        this.calcularValorMensalProporcionalExato(
-          itemCronograma,
-          Number((item as any).quantidade_medida || 0),
-          medicao?.periodo_inicio,
-          medicao?.periodo_fim,
-        ) ?? Number((item as any).valor_medido || 0);
+        Number.isFinite(valorArmazenado) && valorArmazenado > 0
+          ? valorArmazenado
+          : this.calcularValorMensalProporcionalExato(
+              itemCronograma,
+              Number((item as any).quantidade_medida || 0),
+              medicao?.periodo_inicio,
+              medicao?.periodo_fim,
+            ) ?? 0;
       valoresPorItem.set(
         itemId,
         (valoresPorItem.get(itemId) || 0) + valorCalculadoMensal,
@@ -4939,7 +4942,7 @@ export class MedicaoService {
       if (valorCorrigido == null) continue;
 
       const valorAtual = Number(item.valor_medido || 0);
-      if (Math.abs(valorAtual - valorCorrigido) < 0.01) continue;
+      if (Math.abs(valorAtual - valorCorrigido) <= 0.011) continue;
 
       item.valor_medido = valorCorrigido as any;
       houveCorrecao = true;
@@ -6144,6 +6147,14 @@ export class MedicaoService {
             itemMedicao: any,
             medicaoReferencia?: Medicao | null,
           ): number => {
+            // O valor salvo no item e autoridade: no proporcional mensal com varios
+            // itens, os centavos sao distribuidos para fechar o total do boletim.
+
+            const valorSalvoItem = Number(itemMedicao?.valor_medido);
+            if (Number.isFinite(valorSalvoItem) && valorSalvoItem > 0) {
+              return valorSalvoItem;
+            }
+
             const valorMensalCorrigido = this.calcularValorMensalProporcionalExato(
               itemMedicao?.itemCronograma,
               Number(itemMedicao?.quantidade_medida || 0),
