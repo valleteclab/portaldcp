@@ -4741,7 +4741,10 @@ export class MedicaoService {
   private async carregarValoresEmAnalisePorReferencia(
     contratoId: string,
     dataCorteCiclo: Date | null,
-    medicaoAtualId?: string,
+    medicaoAtual?: Pick<
+      Medicao,
+      'id' | 'numero_medicao' | 'periodo_inicio' | 'periodo_fim'
+    > | null,
   ): Promise<{
     valoresPorEtapa: Map<string, number>;
     valoresPorItem: Map<string, number>;
@@ -4756,14 +4759,18 @@ export class MedicaoService {
 
     let medicoesEmAnalise = await this.medicaoRepository.find({
       where: { contrato_id: contratoId, status: In(statusEmAnalise) },
-      select: ['id', 'periodo_inicio', 'periodo_fim'],
+      select: ['id', 'numero_medicao', 'periodo_inicio', 'periodo_fim'],
       order: { numero_medicao: 'ASC' },
     });
 
     medicoesEmAnalise = this.filtrarMedicoesPorCiclo(
       medicoesEmAnalise,
       dataCorteCiclo,
-    ).filter((medicao) => medicao.id !== medicaoAtualId);
+    ).filter(
+      (medicao) =>
+        medicao.id !== medicaoAtual?.id &&
+        this.medicaoAteReferencia(medicao, medicaoAtual),
+    );
 
     if (medicoesEmAnalise.length === 0) {
       return {
@@ -4829,6 +4836,25 @@ export class MedicaoService {
     }
 
     return { valoresPorEtapa, valoresPorItem, quantidadesPorItem };
+  }
+
+  private medicaoAteReferencia(
+    medicao: Pick<Medicao, 'numero_medicao' | 'periodo_fim'>,
+    referencia?: Pick<Medicao, 'numero_medicao' | 'periodo_fim'> | null,
+  ): boolean {
+    if (!referencia) return true;
+
+    const numeroMedicao = Number(medicao.numero_medicao);
+    const numeroReferencia = Number(referencia.numero_medicao);
+    if (Number.isFinite(numeroMedicao) && Number.isFinite(numeroReferencia)) {
+      return numeroMedicao <= numeroReferencia;
+    }
+
+    if (medicao.periodo_fim && referencia.periodo_fim) {
+      return new Date(medicao.periodo_fim) <= new Date(referencia.periodo_fim);
+    }
+
+    return true;
   }
 
   private diaFimComercialUtc(ano: number, mes: number, dia: number): number {
@@ -6067,7 +6093,7 @@ export class MedicaoService {
     });
 
     // Buscar a medição atual (se informada)
-    let medicaoAtual = null;
+    let medicaoAtual: Medicao | null = null;
     if (medicaoId) {
       medicaoAtual = await this.medicaoRepository.findOne({
         where: { id: medicaoId },
@@ -6085,22 +6111,21 @@ export class MedicaoService {
     if (!medicaoAtual && medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
+    if (medicaoAtual) {
+      medicoesAprovadas = medicoesAprovadas.filter((m) =>
+        this.medicaoAteReferencia(m, medicaoAtual),
+      );
+    }
+    const emAnalise = await this.carregarValoresEmAnalisePorReferencia(
+      contratoId,
+      dataCorteCiclo,
+      medicaoAtual,
+    );
     const possuiMedicaoAnteriorNoCiclo =
       !!medicaoAtual &&
-      medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id);
-    const incluirEmAnaliseNoAcumulado =
-      !medicaoAtual || medicaoAtual.status !== StatusMedicao.APROVADA;
-    const emAnalise = incluirEmAnaliseNoAcumulado
-      ? await this.carregarValoresEmAnalisePorReferencia(
-          contratoId,
-          dataCorteCiclo,
-          medicaoAtual?.id,
-        )
-      : {
-          valoresPorEtapa: new Map<string, number>(),
-          valoresPorItem: new Map<string, number>(),
-          quantidadesPorItem: new Map<string, number>(),
-        };
+      (medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id) ||
+        emAnalise.valoresPorEtapa.size > 0 ||
+        emAnalise.valoresPorItem.size > 0);
 
     const itensPorMedicao: Record<string, any[]> = {};
     for (const m of medicoesAprovadas) {
@@ -6616,22 +6641,21 @@ export class MedicaoService {
     if (!medicaoAtual && medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
+    if (medicaoAtual) {
+      medicoesAprovadas = medicoesAprovadas.filter((m) =>
+        this.medicaoAteReferencia(m, medicaoAtual),
+      );
+    }
+    const emAnalise = await this.carregarValoresEmAnalisePorReferencia(
+      contratoId,
+      dataCorteCiclo,
+      medicaoAtual,
+    );
     const possuiMedicaoAnteriorNoCiclo =
       !!medicaoAtual &&
-      medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id);
-    const incluirEmAnaliseNoAcumulado =
-      !medicaoAtual || medicaoAtual.status !== StatusMedicao.APROVADA;
-    const emAnalise = incluirEmAnaliseNoAcumulado
-      ? await this.carregarValoresEmAnalisePorReferencia(
-          contratoId,
-          dataCorteCiclo,
-          medicaoAtual?.id,
-        )
-      : {
-          valoresPorEtapa: new Map<string, number>(),
-          valoresPorItem: new Map<string, number>(),
-          quantidadesPorItem: new Map<string, number>(),
-        };
+      (medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id) ||
+        emAnalise.valoresPorEtapa.size > 0 ||
+        emAnalise.valoresPorItem.size > 0);
 
     const itensPorMedicao: Record<string, ItemMedicao[]> = {};
     for (const m of medicoesAprovadas) {
