@@ -1503,6 +1503,62 @@ export default function TabMedicao({
       : truncar2Casas(n);
   };
 
+  const distribuirValoresMensaisPorTotal = (
+    itens: Array<{
+      id: string;
+      valorUnitario: number;
+      quantidadeValor: number;
+      saldoFinanceiro: number;
+    }>,
+  ) => {
+    const arredondar = contratoProp?.arredondar_calculo ?? true;
+    const calculos = itens
+      .map((item, index) => {
+        const valorUnitarioCentavos = Math.round(item.valorUnitario * 100);
+        const brutoCentavos =
+          valorUnitarioCentavos * Math.max(0, item.quantidadeValor);
+        const baseCentavos = Math.floor(brutoCentavos);
+        return {
+          ...item,
+          index,
+          brutoCentavos,
+          baseCentavos,
+          fracao: brutoCentavos - baseCentavos,
+        };
+      })
+      .filter((item) => item.brutoCentavos > 0);
+    const valores = new Map<string, number>();
+    if (calculos.length === 0) return valores;
+
+    const totalBruto = calculos.reduce(
+      (total, item) => total + item.brutoCentavos,
+      0,
+    );
+    const totalCentavos = arredondar
+      ? Math.round(totalBruto)
+      : Math.floor(totalBruto);
+    let ajuste =
+      totalCentavos -
+      calculos.reduce((total, item) => total + item.baseCentavos, 0);
+
+    const centavosPorId = new Map(
+      calculos.map((item) => [item.id, item.baseCentavos]),
+    );
+    const ordem = [...calculos].sort(
+      (a, b) => b.fracao - a.fracao || a.index - b.index,
+    );
+    for (let i = 0; ajuste > 0 && ordem.length > 0; i = (i + 1) % ordem.length) {
+      centavosPorId.set(ordem[i].id, (centavosPorId.get(ordem[i].id) || 0) + 1);
+      ajuste -= 1;
+    }
+
+    for (const item of calculos) {
+      const valor = (centavosPorId.get(item.id) || 0) / 100;
+      valores.set(item.id, Math.min(valor, item.saldoFinanceiro));
+    }
+    return valores;
+  };
+
   const totaisFormItemCronograma = (
     qStr: string,
     vlStr: string,
@@ -4691,6 +4747,29 @@ export default function TabMedicao({
                           contratoProp?.data_vigencia_fim,
                         );
                         const fator = Math.min(dias / 30, 1);
+                        const ar = contratoProp?.arredondar_calculo ?? true;
+                        const valoresMensaisProporcionais =
+                          distribuirValoresMensaisPorTotal(
+                            itensCronograma
+                              .map((ic) => {
+                                const saldo =
+                                  Number(ic.quantidade) -
+                                  Number(ic.quantidade_medida) -
+                                  (resumo?.itens_comprometidos?.[ic.id] || 0);
+                                return {
+                                  id: ic.id,
+                                  valorUnitario: Number(ic.valor_unitario),
+                                  quantidadeValor: Math.max(
+                                    0,
+                                    Math.min(fator, saldo),
+                                  ),
+                                  saldoFinanceiro:
+                                    calcularSaldoFinanceiroItemCronograma(ic),
+                                  isMensal: ic.unidade_medida === "MENSAL",
+                                };
+                              })
+                              .filter((ic) => ic.isMensal),
+                          );
                         const itens = itensCronograma.map((ic) => {
                           const saldo =
                             Number(ic.quantidade) -
@@ -4700,21 +4779,21 @@ export default function TabMedicao({
                             calcularSaldoFinanceiroItemCronograma(ic);
                           const isMensal = ic.unidade_medida === "MENSAL";
                           const qtd = isMensal
-                            ? Math.min(Math.round(fator * 10000) / 10000, saldo)
+                            ? Math.max(
+                                0,
+                                Math.min(
+                                  Math.round(fator * 10000) / 10000,
+                                  saldo,
+                                ),
+                              )
                             : Math.min(
                                 Math.round(fator * saldo * 1000) / 1000,
                                 saldo,
                               );
                           // Para itens MENSAL: calcula o valor proporcional exato em aritmética inteira (dias × vu_centavos / 30)
                           // evitando o erro de arredondamento do fator (ex.: 11/30 = 0,3667 → 0,3667 × 36598,50 ≠ 11/30 × 36598,50)
-                          const vuCentavos = Math.round(
-                            Number(ic.valor_unitario) * 100,
-                          );
-                          const ar = contratoProp?.arredondar_calculo ?? true;
                           const valorProporcional = isMensal
-                            ? (ar
-                                ? Math.round((Math.min(dias, 30) * vuCentavos) / 30) / 100
-                                : Math.floor((Math.min(dias, 30) * vuCentavos) / 30) / 100)
+                            ? (valoresMensaisProporcionais.get(ic.id) || 0)
                             : (ar
                                 ? Math.round(qtd * Number(ic.valor_unitario) * 100) / 100
                                 : Math.floor(qtd * Number(ic.valor_unitario) * 100) / 100);

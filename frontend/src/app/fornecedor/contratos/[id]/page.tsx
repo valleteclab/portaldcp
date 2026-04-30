@@ -356,6 +356,62 @@ const aplicarRegraArredondamentoContrato = (valor: number, arredondar = true) =>
   return Math.trunc(numero * 100) / 100;
 };
 
+const distribuirValoresMensaisPorTotal = (
+  itens: Array<{
+    id: string;
+    valorUnitario: number;
+    quantidadeValor: number;
+    saldoFinanceiro: number;
+  }>,
+  arredondar = true,
+) => {
+  const calculos = itens
+    .map((item, index) => {
+      const valorUnitarioCentavos = Math.round(item.valorUnitario * 100);
+      const brutoCentavos =
+        valorUnitarioCentavos * Math.max(0, item.quantidadeValor);
+      const baseCentavos = Math.floor(brutoCentavos);
+      return {
+        ...item,
+        index,
+        brutoCentavos,
+        baseCentavos,
+        fracao: brutoCentavos - baseCentavos,
+      };
+    })
+    .filter((item) => item.brutoCentavos > 0);
+  const valores = new Map<string, number>();
+  if (calculos.length === 0) return valores;
+
+  const totalBruto = calculos.reduce(
+    (total, item) => total + item.brutoCentavos,
+    0,
+  );
+  const totalCentavos = arredondar
+    ? Math.round(totalBruto)
+    : Math.floor(totalBruto);
+  let ajuste =
+    totalCentavos -
+    calculos.reduce((total, item) => total + item.baseCentavos, 0);
+
+  const centavosPorId = new Map(
+    calculos.map((item) => [item.id, item.baseCentavos]),
+  );
+  const ordem = [...calculos].sort(
+    (a, b) => b.fracao - a.fracao || a.index - b.index,
+  );
+  for (let i = 0; ajuste > 0 && ordem.length > 0; i = (i + 1) % ordem.length) {
+    centavosPorId.set(ordem[i].id, (centavosPorId.get(ordem[i].id) || 0) + 1);
+    ajuste -= 1;
+  }
+
+  for (const item of calculos) {
+    const valor = (centavosPorId.get(item.id) || 0) / 100;
+    valores.set(item.id, Math.min(valor, item.saldoFinanceiro));
+  }
+  return valores;
+};
+
 const calcularSaldoFinanceiroItemCronograma = (ic: ItemCronograma) => {
   const valorTotal = Number(ic.valor_total) || 0;
   const valorUnitario = Number(ic.valor_unitario) || 0;
@@ -2294,6 +2350,28 @@ export default function FornecedorContratoDetalhePage() {
                     // Convenção de mês comercial: 30 dias (padrão em contratos públicos brasileiros)
                     const diasNoMes = 30;
                     const fator = Math.min(diasPeriodo / diasNoMes, 1);
+                    const arredondar = contrato?.arredondar_calculo ?? true;
+                    const valoresMensaisProporcionais = distribuirValoresMensaisPorTotal(
+                      itensCronograma
+                        .map((ic) => {
+                          const qtdTotal = Number(ic.quantidade);
+                          const qtdAprovada = Number(ic.quantidade_medida);
+                          const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
+                          const saldo = qtdTotal - qtdAprovada - emTransito;
+                          const isMensalProp = ic.unidade_medida === 'MENSAL';
+                          const tipoItemProp = isMensalProp ? 'mensal' : 'quantidade';
+                          return {
+                            id: ic.id,
+                            valorUnitario: Number(ic.valor_unitario),
+                            quantidadeValor: Math.max(0, Math.min(fator, saldo)),
+                            saldoFinanceiro: calcularSaldoFinanceiroItemCronograma(ic),
+                            isMensalProp,
+                            tipoItemProp,
+                          };
+                        })
+                        .filter((ic) => ic.isMensalProp && (tipoMedicaoAtual === null || ic.tipoItemProp === tipoMedicaoAtual)),
+                      arredondar,
+                    );
                     const itens = itensCronograma.map((ic, idx) => {
                       const qtdTotal = Number(ic.quantidade);
                       const qtdAprovada = Number(ic.quantidade_medida);
@@ -2307,9 +2385,14 @@ export default function FornecedorContratoDetalhePage() {
                         return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
                       }
                       const qtdProporcional = isMensalProp
-                        ? Math.min(Math.round(fator * 1000) / 1000, saldo)
+                        ? Math.max(0, Math.min(Math.round(fator * 1000) / 1000, saldo))
                         : Math.min(Math.round(fator * saldo * 1000) / 1000, saldo);
-                      const valorProporcional = Math.round(qtdProporcional * Number(ic.valor_unitario) * 100) / 100;
+                      const valorProporcional = isMensalProp
+                        ? (valoresMensaisProporcionais.get(ic.id) || 0)
+                        : aplicarRegraArredondamentoContrato(
+                            qtdProporcional * Number(ic.valor_unitario),
+                            arredondar,
+                          );
                       const valorOverride = limitarValorAoSaldoFinanceiro(valorProporcional, saldoFinanceiro);
                       return {
                         item_cronograma_id: ic.id,
