@@ -47,6 +47,7 @@ interface Props {
   empenho: EmpenhoComposto
   contratoId: string
   contratoNumero: string
+  modalidade?: string
 }
 
 function fmtMoeda(valor: number) {
@@ -78,6 +79,7 @@ export default function SimuladorPedidoModal({
   empenho,
   contratoId,
   contratoNumero,
+  modalidade,
 }: Props) {
   const saldoVirtual = empenho.saldo_virtual ?? empenho.saldo_a_liquidar
 
@@ -94,10 +96,39 @@ export default function SimuladorPedidoModal({
       setMensagemSugestao(null)
       setValorAlvo(fmtMoedaInput(saldoVirtual))
       try {
-        const resposta = await authFetch(`${API_URL}/api/almoxarifado/contratos/${contratoId}/itens/disponiveis`)
-        const data = await resposta.json()
-        setItems(data)
-        setSelections(gerarSugestaoPedido(data, saldoVirtual))
+        let mod = (modalidade || '').toUpperCase()
+        if (!mod) {
+          try {
+            const r = await authFetch(`${API_URL}/api/contratos/${contratoId}`)
+            if (r.ok) {
+              const c = await r.json()
+              mod = (c?.modalidade_execucao || '').toUpperCase()
+            }
+          } catch {}
+        }
+        const usarCronograma = ['MEDICAO', 'CONTINUADO', 'ORDEM_SERVICO'].includes(mod)
+        if (usarCronograma) {
+          const resp = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma`)
+          const raw = await resp.json()
+          const mapped: ItemContrato[] = Array.isArray(raw)
+            ? raw.map((it: any) => ({
+                id: it.id,
+                numero_item: it.numero_item,
+                descricao: it.descricao,
+                unidade_medida: it.unidade_medida,
+                valor_unitario: it.valor_unitario,
+                // saldo_disponivel = quantidade - quantidade_medida (ignora OS em trânsito)
+                saldo_disponivel: Math.max(0, Number(it.quantidade) - Number(it.quantidade_medida || 0)),
+              }))
+            : []
+          setItems(mapped)
+          setSelections(gerarSugestaoPedido(mapped, saldoVirtual))
+        } else {
+          const resposta = await authFetch(`${API_URL}/api/almoxarifado/contratos/${contratoId}/itens/disponiveis`)
+          const data: ItemContrato[] = await resposta.json()
+          setItems(data)
+          setSelections(gerarSugestaoPedido(data, saldoVirtual))
+        }
       } catch {
         setItems([])
       } finally {
