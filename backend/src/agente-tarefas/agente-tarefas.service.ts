@@ -3,10 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { RequisicaoService } from '../almoxarifado/requisicao.service';
+import { ItemContratoService } from '../almoxarifado/item-contrato.service';
+import { ContratosService } from '../contratos/contratos.service';
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
+import { CategoriaContrato, StatusContrato } from '../contratos/entities/contrato.entity';
 
 interface OpenRouterTool {
   type: 'function';
@@ -50,6 +53,8 @@ export class AgenteTarefasService {
     private readonly systemConfigService: SystemConfigService,
     private readonly usuariosService: UsuariosService,
     private readonly requisicaoService: RequisicaoService,
+    private readonly itemContratoService: ItemContratoService,
+    private readonly contratosService: ContratosService,
     private readonly relatoriosService: RelatoriosService,
   ) {}
 
@@ -101,12 +106,63 @@ export class AgenteTarefasService {
     tools.push({
       type: 'function',
       function: {
-        name: 'criar_requisicao',
+        name: 'listar_contratos',
         description:
-          'Cria uma nova requisição de material ou serviço. SEMPRE confirme os dados com o usuário antes de criar.',
+          'Lista contratos vigentes do órgão disponíveis para criar requisições. ' +
+          'Use SEMPRE antes de criar uma requisição para o usuário escolher o contrato. ' +
+          'Filtre por categoria: COMPRAS para materiais, SERVICOS para serviços.',
         parameters: {
           type: 'object',
           properties: {
+            categoria: {
+              type: 'string',
+              enum: Object.values(CategoriaContrato),
+              description: 'Categoria do contrato para filtrar (ex: COMPRAS para materiais)',
+            },
+          },
+          required: [],
+        },
+      },
+    });
+
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'listar_itens_contrato',
+        description:
+          'Lista os itens disponíveis de um contrato específico, com saldo e valor unitário. ' +
+          'Use SEMPRE após o usuário escolher o contrato e ANTES de criar a requisição, ' +
+          'para o usuário escolher os itens e as quantidades desejadas.',
+        parameters: {
+          type: 'object',
+          properties: {
+            contrato_id: {
+              type: 'string',
+              description: 'ID (UUID) do contrato cujos itens devem ser listados',
+            },
+          },
+          required: ['contrato_id'],
+        },
+      },
+    });
+
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'criar_requisicao',
+        description:
+          'Cria uma nova requisição de material ou serviço vinculada a um contrato. ' +
+          'ATENÇÃO: SEMPRE siga o fluxo: 1) listar_contratos → 2) usuário escolhe o contrato → ' +
+          '3) listar_itens_contrato → 4) usuário escolhe itens e quantidades → ' +
+          '5) confirmar com o usuário → 6) criar_requisicao. ' +
+          'Nunca crie sem contrato_id e itens confirmados pelo usuário.',
+        parameters: {
+          type: 'object',
+          properties: {
+            contrato_id: {
+              type: 'string',
+              description: 'ID (UUID) do contrato selecionado pelo usuário',
+            },
             setor_solicitante: {
               type: 'string',
               description: 'Nome do setor solicitante',
@@ -129,8 +185,42 @@ export class AgenteTarefasService {
               type: 'string',
               description: 'Data de necessidade no formato YYYY-MM-DD (opcional)',
             },
+            itens: {
+              type: 'array',
+              description: 'Lista de itens do contrato a solicitar (obrigatório)',
+              items: {
+                type: 'object',
+                properties: {
+                  item_contrato_id: {
+                    type: 'string',
+                    description: 'ID (UUID) do item do contrato',
+                  },
+                  numero_item: {
+                    type: 'number',
+                    description: 'Número do item no contrato',
+                  },
+                  descricao: {
+                    type: 'string',
+                    description: 'Descrição do item',
+                  },
+                  quantidade_solicitada: {
+                    type: 'number',
+                    description: 'Quantidade solicitada (não pode exceder o saldo disponível)',
+                  },
+                  unidade_medida: {
+                    type: 'string',
+                    description: 'Unidade de medida do item',
+                  },
+                  valor_unitario: {
+                    type: 'number',
+                    description: 'Valor unitário do item',
+                  },
+                },
+                required: ['item_contrato_id', 'numero_item', 'descricao', 'quantidade_solicitada'],
+              },
+            },
           },
-          required: ['setor_solicitante', 'justificativa', 'tipo'],
+          required: ['contrato_id', 'setor_solicitante', 'justificativa', 'tipo', 'itens'],
         },
       },
     });
@@ -324,12 +414,25 @@ SUAS RESPONSABILIDADES:
 3. SEMPRE confirmar com o usuário antes de criar ou modificar dados
 4. Apresentar listas de dados em formato de tabela Markdown quando houver múltiplos registros
 
+FLUXO OBRIGATÓRIO PARA CRIAR REQUISIÇÃO DE MATERIAL OU SERVIÇO:
+Nunca pule etapas. Siga rigorosamente esta ordem:
+1. Chame listar_contratos (filtrando por categoria adequada: COMPRAS para material, SERVICOS para serviço)
+2. Apresente os contratos disponíveis e AGUARDE o usuário escolher um
+3. Chame listar_itens_contrato com o contrato escolhido
+4. Apresente os itens disponíveis (com saldo e valor unitário) e AGUARDE o usuário escolher quais itens e as quantidades desejadas
+5. Pergunte o setor solicitante, justificativa, prioridade e data de necessidade (se não informados)
+6. Confirme TODOS os dados com o usuário (contrato, itens, quantidades, setor, justificativa)
+7. Somente após confirmação, chame criar_requisicao com contrato_id e itens preenchidos
+
 REGRAS IMPORTANTES:
 - Responda SEMPRE em português brasileiro
 - Seja objetivo e direto
-- Para ações irreversíveis (criar OS, criar requisição, aprovar/negar), confirme os dados antes de executar
+- NUNCA chame criar_requisicao sem ter contrato_id e itens confirmados pelo usuário
+- Ao apresentar itens, mostre em tabela: Nº | Descrição | Unidade | Saldo disponível | Valor unitário
+- Itens com saldo zero não podem ser solicitados — informe isso ao usuário
+- Para ações irreversíveis (criar requisição, criar OS, aprovar/negar), sempre confirme antes
 - Se o usuário não tiver permissão para uma ação, informe educadamente
-- Use os IDs retornados pelas ferramentas para ações subsequentes (ex: aprovar uma requisição listada)
+- Use os IDs retornados pelas ferramentas para ações subsequentes
 
 Hoje é: ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`;
   }
@@ -470,13 +573,89 @@ Hoje é: ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo
           });
         }
 
+        case 'listar_contratos': {
+          const categoriaArg = args.categoria as CategoriaContrato | undefined;
+          const resultado = await this.contratosService.findAll({
+            orgaoId,
+            vigentes: true,
+            limit: 50,
+          });
+
+          const contratos = categoriaArg
+            ? resultado.data.filter((c) => c.categoria === categoriaArg)
+            : resultado.data;
+
+          if (contratos.length === 0) {
+            return categoriaArg
+              ? `Nenhum contrato vigente encontrado na categoria ${categoriaArg}.`
+              : 'Nenhum contrato vigente encontrado para este órgão.';
+          }
+
+          return JSON.stringify(
+            contratos.map((c) => ({
+              id: c.id,
+              numero_contrato: c.numero_contrato,
+              objeto: c.objeto,
+              categoria: c.categoria,
+              fornecedor: c.fornecedor?.razao_social || 'N/D',
+              valor_global: c.valor_global,
+              saldo_total_em_valor: c.saldo_total_em_valor,
+              data_vigencia_inicio: c.data_vigencia_inicio,
+              data_vigencia_fim: c.data_vigencia_fim,
+            })),
+          );
+        }
+
+        case 'listar_itens_contrato': {
+          const contratoId = args.contrato_id as string;
+
+          await this.itemContratoService.validarPropriedadeContrato(contratoId, orgaoId);
+
+          const itens = await this.itemContratoService.findByContrato(contratoId);
+
+          if (itens.length === 0) {
+            return 'Este contrato não possui itens cadastrados.';
+          }
+
+          return JSON.stringify(
+            itens.map((item) => ({
+              id: item.id,
+              numero_item: item.numero_item,
+              descricao: item.descricao,
+              unidade_medida: item.unidade_medida,
+              quantidade_contratada: item.quantidade_contratada,
+              saldo_disponivel: item.saldo_disponivel,
+              valor_unitario: item.valor_unitario,
+              valor_total_saldo: Number(item.saldo_disponivel) * Number(item.valor_unitario),
+            })),
+          );
+        }
+
         case 'criar_requisicao': {
+          const itensArgs = (args.itens as Array<{
+            item_contrato_id: string;
+            numero_item: number;
+            descricao: string;
+            quantidade_solicitada: number;
+            unidade_medida?: string;
+            valor_unitario?: number;
+          }>) || [];
+
           const dto: any = {
+            contrato_id: args.contrato_id as string,
             setor_solicitante: args.setor_solicitante as string,
             justificativa: args.justificativa as string,
             tipo: (args.tipo as TipoRequisicao) || TipoRequisicao.MATERIAL,
             prioridade: (args.prioridade as string) || 'NORMAL',
             data_necessidade: args.data_necessidade as string | undefined,
+            itens: itensArgs.map((item, idx) => ({
+              item_contrato_id: item.item_contrato_id,
+              numero_item: item.numero_item ?? idx + 1,
+              descricao: item.descricao,
+              quantidade_solicitada: item.quantidade_solicitada,
+              unidade_medida: item.unidade_medida,
+              valor_unitario: item.valor_unitario,
+            })),
           };
 
           const resultado = await this.requisicaoService.criar(
