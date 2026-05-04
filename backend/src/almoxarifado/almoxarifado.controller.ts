@@ -42,6 +42,7 @@ import {
   NegarRequisicaoDto,
   DevolverRequisicaoDto,
   EnviarAoFornecedorDto,
+  CorrigirDataAutorizacaoOSDto,
 } from './dto/criar-requisicao.dto';
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
 import { StatusRequisicao } from './entities/requisicao.entity';
@@ -396,6 +397,30 @@ export class AlmoxarifadoController {
     const orgaoId = this.getOrgaoId(request.user);
     await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
     return this.requisicaoService.regenerarPdf(id, request.user.sub, request.user.email || 'Sistema');
+  }
+
+  @Patch('requisicoes/:id/data-autorizacao')
+  async corrigirDataAutorizacaoOS(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe({ whitelist: true })) dto: CorrigirDataAutorizacaoOSDto,
+  ) {
+    if (request.user.type !== UserType.USUARIO) {
+      throw new ForbiddenException('Apenas usuários ADMIN do órgão podem corrigir a data de autorização da OS.');
+    }
+
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    if (!usuario || usuario.role !== 'ADMIN' || !usuario.orgao_id) {
+      throw new ForbiddenException('Apenas usuários ADMIN do órgão podem corrigir a data de autorização da OS.');
+    }
+
+    await this.requisicaoService.validarOrgaoRequisicao(id, usuario.orgao_id);
+    return this.requisicaoService.corrigirDataAutorizacaoOS(
+      id,
+      dto,
+      usuario.id,
+      usuario.nome || request.user.email || 'Admin',
+    );
   }
 
   @Post('requisicoes/:id/negar')

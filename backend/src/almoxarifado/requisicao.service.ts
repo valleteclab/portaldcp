@@ -28,6 +28,7 @@ import {
   NegarRequisicaoDto,
   DevolverRequisicaoDto,
   EnviarAoFornecedorDto,
+  CorrigirDataAutorizacaoOSDto,
 } from './dto/criar-requisicao.dto';
 
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
@@ -1950,6 +1951,126 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
     this.logger.log(`PDF regenerado para OS ${requisicao.numero} por ${usuarioNome}`);
     return { pdf_url: pdfPath };
+  }
+
+  async corrigirDataAutorizacaoOS(
+    id: string,
+    dto: CorrigirDataAutorizacaoOSDto,
+    adminId: string,
+    adminNome: string,
+  ): Promise<{ requisicao: Requisicao; pdf_url: string; assinaturas_corrigidas: number }> {
+    const requisicao = await this.requisicaoRepository.findOne({
+      where: { id },
+      relations: [
+        'itens', 'itens.item_contrato',
+        'itensOS', 'itensOS.itemCronograma',
+        'etapasOS', 'etapasOS.etapa',
+        'contrato', 'contrato.fornecedor',
+        'orgao',
+      ],
+    });
+
+    if (!requisicao) throw new BadRequestException('OS não encontrada');
+    if (requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+      throw new BadRequestException('Apenas Ordens de Serviço podem ter a data de autorização corrigida.');
+    }
+    if (requisicao.status !== StatusRequisicao.AUTORIZADA && requisicao.status !== StatusRequisicao.ORDEM_GERADA) {
+      throw new BadRequestException('A OS deve estar autorizada ou gerada para corrigir a data de autorização.');
+    }
+
+    const dataCorrigida = this.normalizarDataAutorizacaoCorrigida(dto.data_autorizacao);
+    const dataAnterior = requisicao.data_autorizacao ? new Date(requisicao.data_autorizacao) : null;
+    const assinaturasAtuais = await this.assinaturasService.buscarPorEntidade(id, EntidadeTipo.ORDEM_SERVICO);
+
+    if (assinaturasAtuais.length === 0) {
+      throw new BadRequestException('Nenhuma assinatura digital encontrada para corrigir o quadro de assinaturas da OS.');
+    }
+
+    requisicao.data_autorizacao = dataCorrigida;
+    await this.requisicaoRepository.save(requisicao);
+
+    const assinaturasCorrigidas = await this.assinaturasService.corrigirDataAssinaturasPorEntidade(
+      id,
+      EntidadeTipo.ORDEM_SERVICO,
+      dataCorrigida,
+    );
+
+    const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
+    const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+      requisicao,
+      assinaturasCorrigidas,
+      `${urlBase}/validar-documento`,
+    );
+
+    requisicao.pdf_assinado_url = pdfPath;
+    requisicao.codigo_validacao = assinaturasCorrigidas[0]?.codigo_validacao || requisicao.codigo_validacao;
+    await this.requisicaoRepository.save(requisicao);
+
+    await this.historicoRequisicaoRepository.save(
+      this.historicoRequisicaoRepository.create({
+        requisicao_id: requisicao.id,
+        tipo_acao: 'DATA_AUTORIZACAO_CORRIGIDA',
+        descricao: `Data de autorização e quadro de assinaturas corrigidos por: ${adminNome}`,
+        detalhes: JSON.stringify({
+          data_autorizacao_anterior: dataAnterior ? dataAnterior.toISOString() : null,
+          data_autorizacao_nova: dataCorrigida.toISOString(),
+          assinaturas_corrigidas: assinaturasCorrigidas.map((assinatura) => assinatura.id),
+        }),
+        usuario_id: adminId,
+        usuario_nome: adminNome,
+        data_evento: new Date(),
+      }),
+    );
+
+    this.logger.log(`Data de autorização da OS ${requisicao.numero} corrigida por ${adminNome}`);
+    return {
+      requisicao,
+      pdf_url: pdfPath,
+      assinaturas_corrigidas: assinaturasCorrigidas.length,
+    };
+  }
+
+  private normalizarDataAutorizacaoCorrigida(dataAutorizacao: string): Date {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataAutorizacao || '')) {
+      throw new BadRequestException('Data de autorização deve estar no formato YYYY-MM-DD.');
+    }
+
+    const [ano, mes, dia] = dataAutorizacao.split('-').map(Number);
+    const dataCorrigida = new Date(Date.UTC(ano, mes - 1, dia, 15, 0, 0));
+
+    if (
+      dataCorrigida.getUTCFullYear() !== ano ||
+      dataCorrigida.getUTCMonth() !== mes - 1 ||
+      dataCorrigida.getUTCDate() !== dia
+    ) {
+      throw new BadRequestException('Data de autorização inválida.');
+    }
+
+    const hoje = this.hojeBrasiliaAoMeioDiaUtc();
+    if (dataCorrigida.getTime() > hoje.getTime()) {
+      throw new BadRequestException('Data de autorização não pode ser futura.');
+    }
+
+    return dataCorrigida;
+  }
+
+  private hojeBrasiliaAoMeioDiaUtc(): Date {
+    const partes = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+
+    const valores = Object.fromEntries(partes.map((parte) => [parte.type, parte.value]));
+    return new Date(Date.UTC(
+      Number(valores.year),
+      Number(valores.month) - 1,
+      Number(valores.day),
+      15,
+      0,
+      0,
+    ));
   }
 
   async vincularEmpenhos(id: string, empenhos: string[]): Promise<{ pdf_regenerado: boolean }> {

@@ -299,6 +299,11 @@ export class EnviarAoFornecedorDto {
   tipo?: 'email' | 'whatsapp';
 }
 
+export class CorrigirDataAutorizacaoOSDto {
+  @IsDateString()
+  data_autorizacao: string;
+}
+
 export class NegarRequisicaoDto {
   @IsString()
   motivo: string;

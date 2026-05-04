@@ -243,6 +243,21 @@ export class AssinaturasService {
     });
   }
 
+  async corrigirDataAssinaturasPorEntidade(
+    entidadeId: string,
+    entidadeTipo: EntidadeTipo,
+    novaDataAssinatura: Date,
+  ): Promise<AssinaturaDigital[]> {
+    const assinaturas = await this.buscarPorEntidade(entidadeId, entidadeTipo);
+    if (assinaturas.length === 0) return [];
+
+    assinaturas.forEach((assinatura) => {
+      assinatura.data_assinatura = novaDataAssinatura;
+    });
+
+    return this.assinaturaRepository.save(assinaturas);
+  }
+
   private mascararDocumento(doc: string): string {
     if (!doc) return '';
     const limpo = doc.replace(/\D/g, '');

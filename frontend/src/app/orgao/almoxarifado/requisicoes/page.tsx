@@ -29,6 +29,7 @@ import {
   ShoppingCart,
   Receipt,
   Link2,
+  Calendar,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -179,6 +180,22 @@ const PRIORIDADE_COLORS: Record<string, string> = {
   URGENTE: 'bg-red-100 text-red-600',
 };
 
+const hojeInput = () => {
+  const agora = new Date();
+  const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+};
+
+const dataParaInput = (data?: string | null) => {
+  if (!data) return hojeInput();
+  const dateOnly = String(data).split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return dateOnly;
+  const parsed = new Date(data);
+  if (Number.isNaN(parsed.getTime())) return hojeInput();
+  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+};
+
 function RequisicoesList() {
   const searchParams = useSearchParams();
   const contratoIdUrl = searchParams.get('contrato');
@@ -193,6 +210,7 @@ function RequisicoesList() {
   
   // Permissões do usuário
   const [podeCancelarEstornar, setPodeCancelarEstornar] = useState(false);
+  const [usuarioEhAdmin, setUsuarioEhAdmin] = useState(false);
 
   // Modal de detalhes/autorização
   const [requisicaoSelecionada, setRequisicaoSelecionada] = useState<Requisicao | null>(null);
@@ -243,6 +261,9 @@ function RequisicoesList() {
   const [telefoneEnviarFornecedor, setTelefoneEnviarFornecedor] = useState('');
   const [enviandoFornecedorId, setEnviandoFornecedorId] = useState<string | null>(null);
   const [regenerandoPdfId, setRegenerandoPdfId] = useState<string | null>(null);
+  const [showCorrigirDataAutorizacao, setShowCorrigirDataAutorizacao] = useState(false);
+  const [dataAutorizacaoCorrigida, setDataAutorizacaoCorrigida] = useState('');
+  const [corrigindoDataAutorizacaoId, setCorrigindoDataAutorizacaoId] = useState<string | null>(null);
 
   // Modal Histórico (OS)
   const [showHistoricoOS, setShowHistoricoOS] = useState(false);
@@ -287,12 +308,15 @@ function RequisicoesList() {
           const temPermissao = usuario.pode_cancelar_estornar === true;
           console.log('[Requisicoes] Tem permissão?', temPermissao);
           setPodeCancelarEstornar(temPermissao);
+          setUsuarioEhAdmin(usuario.role === 'ADMIN');
           // Atualiza localStorage para cache (mas sempre busca da API)
           localStorage.setItem('usuario', JSON.stringify(usuario));
         } else {
+          setUsuarioEhAdmin(false);
           console.error('[Requisicoes] Erro ao buscar usuário da API:', response.status);
         }
       } catch (apiError) {
+        setUsuarioEhAdmin(false);
         console.error('[Requisicoes] Erro ao buscar da API:', apiError);
       }
     };
@@ -524,6 +548,47 @@ function RequisicoesList() {
       alert('Erro ao regenerar PDF');
     } finally {
       setRegenerandoPdfId(null);
+    }
+  };
+
+  const handleAbrirCorrigirDataAutorizacao = (req: Requisicao) => {
+    setRequisicaoSelecionada(req);
+    setDataAutorizacaoCorrigida(dataParaInput(req.data_autorizacao));
+    setShowCorrigirDataAutorizacao(true);
+  };
+
+  const handleCorrigirDataAutorizacao = async () => {
+    if (!requisicaoSelecionada || !dataAutorizacaoCorrigida) return;
+
+    const hoje = hojeInput();
+    if (dataAutorizacaoCorrigida > hoje) {
+      alert('A data de autorização não pode ser futura.');
+      return;
+    }
+
+    setCorrigindoDataAutorizacaoId(requisicaoSelecionada.id);
+    try {
+      const response = await authFetch(
+        `${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/data-autorizacao`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ data_autorizacao: dataAutorizacaoCorrigida }),
+        }
+      );
+
+      if (response.ok) {
+        setShowCorrigirDataAutorizacao(false);
+        alert('Data de autorização e quadro de assinaturas atualizados. O PDF foi regenerado.');
+        await carregarRequisicoes();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert(`Erro: ${err.message || 'Erro ao corrigir data de autorização'}`);
+      }
+    } catch (error) {
+      console.error('Erro ao corrigir data de autorização:', error);
+      alert('Erro ao corrigir data de autorização');
+    } finally {
+      setCorrigindoDataAutorizacaoId(null);
     }
   };
 
@@ -1176,6 +1241,23 @@ function RequisicoesList() {
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <RotateCcw className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {/* OS autorizada + admin -> Corrigir data de autorização/quadro de assinaturas */}
+                        {usuarioEhAdmin && req.tipo === 'ORDEM_SERVICO' && (req.status === 'AUTORIZADA' || req.status === 'ORDEM_GERADA') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-violet-600 hover:text-violet-700"
+                            onClick={() => handleAbrirCorrigirDataAutorizacao(req)}
+                            disabled={!!corrigindoDataAutorizacaoId}
+                            title="Corrigir data de autorização e quadro de assinaturas"
+                          >
+                            {corrigindoDataAutorizacaoId === req.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Calendar className="h-4 w-4" />
                             )}
                           </Button>
                         )}
@@ -1856,6 +1938,62 @@ function RequisicoesList() {
         </DialogContent>
       </Dialog>
 
+      {/* Modal Corrigir Data de Autorização */}
+      <Dialog open={showCorrigirDataAutorizacao} onOpenChange={setShowCorrigirDataAutorizacao}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-violet-700">
+              Corrigir data de autorização
+            </DialogTitle>
+            <DialogDescription>
+              Atualiza a data formal da OS e o quadro de assinaturas do PDF. A ação é restrita a usuários ADMIN.
+            </DialogDescription>
+          </DialogHeader>
+          {requisicaoSelecionada && (
+            <div className="space-y-4">
+              <div className="bg-violet-50 p-4 rounded-lg border border-violet-200">
+                <p className="font-medium text-violet-950">{requisicaoSelecionada.numero}</p>
+                <p className="text-sm text-violet-700 mt-1">
+                  Data atual: {requisicaoSelecionada.data_autorizacao ? formatarData(requisicaoSelecionada.data_autorizacao) : '-'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">
+                  Nova data de autorização
+                </label>
+                <Input
+                  type="date"
+                  value={dataAutorizacaoCorrigida}
+                  max={hojeInput()}
+                  onChange={(e) => setDataAutorizacaoCorrigida(e.target.value)}
+                />
+              </div>
+              <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                O PDF será regenerado com a nova data no campo Data Autorização e no quadro de assinaturas.
+                Se a OS já foi enviada ao fornecedor, reenvie o PDF atualizado manualmente.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCorrigirDataAutorizacao(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCorrigirDataAutorizacao}
+              disabled={
+                !!corrigindoDataAutorizacaoId ||
+                !dataAutorizacaoCorrigida ||
+                dataAutorizacaoCorrigida > hojeInput()
+              }
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {corrigindoDataAutorizacaoId && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Salvar e regenerar PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal Enviar/Reenviar ao Fornecedor */}
       <Dialog open={showEnviarFornecedor} onOpenChange={setShowEnviarFornecedor}>
         <DialogContent>
@@ -1948,6 +2086,7 @@ function RequisicoesList() {
                     PEDIDO_CRIADO: 'PEDIDO CRIADO',
                     ENVIADA_APROVACAO: 'ENVIADA PARA APROVAÇÃO',
                     PEDIDO_AUTORIZADO: 'PEDIDO AUTORIZADO',
+                    DATA_AUTORIZACAO_CORRIGIDA: 'DATA DE AUTORIZAÇÃO CORRIGIDA',
                     CRIADA: 'ORDEM CRIADA',
                     EDITADA: 'ORDEM EDITADA',
                     EMITIDA: 'ORDEM EMITIDA',
@@ -1970,6 +2109,7 @@ function RequisicoesList() {
                   const icones: Record<string, string> = {
                     PEDIDO_CRIADO: '📝',
                     PEDIDO_AUTORIZADO: '✅',
+                    DATA_AUTORIZACAO_CORRIGIDA: '📅',
                     ENVIADA_APROVACAO: '📤',
                     CRIADA: '📄',
                     EDITADA: '✏️',
