@@ -109,6 +109,51 @@ const CATEGORIA_LABELS: Record<string, { label: string; cor: string }> = {
   OUTROS: { label: 'Outros', cor: 'bg-gray-100 text-gray-800' },
 };
 
+const MODELOS_JUSTIFICATIVA_REQUISICAO = [
+  {
+    titulo: 'Reposição de estoque',
+    texto: 'Solicita-se o fornecimento dos itens selecionados para recomposição do estoque do setor, garantindo a continuidade das atividades administrativas e evitando interrupção no atendimento das demandas rotineiras.',
+  },
+  {
+    titulo: 'Demanda do setor',
+    texto: 'Os itens solicitados são necessários para atender demanda operacional do setor solicitante, com uso previsto no local informado e consumo compatível com as atividades desempenhadas.',
+  },
+  {
+    titulo: 'Higiene e funcionamento',
+    texto: 'A requisição visa manter as condições adequadas de funcionamento, higiene e organização das dependências, prevenindo desabastecimento e prejuízo às rotinas internas.',
+  },
+];
+
+const MODELOS_JUSTIFICATIVA_OS = [
+  {
+    titulo: 'Execução contratual',
+    texto: 'Solicita-se a emissão da Ordem de Serviço para autorizar a execução do objeto contratado, conforme condições, prazos e quantitativos previstos no contrato e no cronograma vigente.',
+  },
+  {
+    titulo: 'Continuidade do serviço',
+    texto: 'A emissão da Ordem de Serviço é necessária para atender demanda do setor solicitante, garantindo a continuidade do serviço público e o cumprimento das obrigações pactuadas.',
+  },
+  {
+    titulo: 'Início de etapa',
+    texto: 'A Ordem de Serviço visa autorizar o início da etapa ou atividade prevista, possibilitando acompanhamento fiscal, medição e controle da execução contratual.',
+  },
+];
+
+const MODELOS_JUSTIFICATIVA_OBRA = [
+  {
+    titulo: 'Autorização de início',
+    texto: 'Solicita-se a emissão da Ordem de Serviço para início da execução, conforme projeto, termo de referência e contrato, permitindo o acompanhamento da fiscalização desde o início dos serviços.',
+  },
+  {
+    titulo: 'Necessidade técnica',
+    texto: 'A autorização é necessária para atendimento de necessidade técnica previamente identificada, assegurando a execução organizada dos serviços e o cumprimento do cronograma contratado.',
+  },
+  {
+    titulo: 'Continuidade da obra',
+    texto: 'A Ordem de Serviço visa garantir a continuidade da execução da obra ou serviço de engenharia, com controle formal dos prazos, etapas e responsabilidades contratuais.',
+  },
+];
+
 interface ItemContrato {
   id: string;
   numero_item: number;
@@ -589,6 +634,57 @@ function NovaRequisicaoForm() {
           </div>
         </>
       )}
+    </div>
+  );
+
+  const aplicarModeloJustificativa = (texto: string) => {
+    setJustificativa((atual) => {
+      const atualLimpo = atual.trim();
+      if (!atualLimpo) return texto;
+      if (atualLimpo === texto) return atual;
+      return `${atualLimpo}\n\n${texto}`;
+    });
+  };
+
+  const renderJustificativaField = ({
+    placeholder,
+    rows = 3,
+    modelos = MODELOS_JUSTIFICATIVA_REQUISICAO,
+  }: {
+    placeholder: string;
+    rows?: number;
+    modelos?: Array<{ titulo: string; texto: string }>;
+  }) => (
+    <div className="space-y-2">
+      <Label>Justificativa *</Label>
+      <Textarea
+        value={justificativa}
+        onChange={(e) => setJustificativa(e.target.value)}
+        placeholder={placeholder}
+        rows={rows}
+      />
+      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-600">
+          <FileText className="h-3.5 w-3.5" />
+          Exemplos de justificativa
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {modelos.map((modelo) => (
+            <Button
+              key={modelo.titulo}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto min-h-10 items-start justify-start whitespace-normal text-left leading-snug"
+              onClick={() => aplicarModeloJustificativa(modelo.texto)}
+              title="Inserir exemplo"
+            >
+              <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 break-words">{modelo.titulo}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 
@@ -2415,15 +2511,11 @@ function NovaRequisicaoForm() {
             </div>
           </div>
 
-          <div>
-            <Label>Justificativa *</Label>
-            <Textarea
-              value={justificativa}
-              onChange={(e) => setJustificativa(e.target.value)}
-              placeholder="Descreva a necessidade e o motivo da solicitação..."
-              rows={3}
-            />
-          </div>
+          {renderJustificativaField({
+            placeholder: 'Descreva a necessidade e o motivo da solicitação...',
+            rows: 3,
+            modelos: MODELOS_JUSTIFICATIVA_REQUISICAO,
+          })}
 
           <div>
             <Label>Observações</Label>
@@ -2580,15 +2672,11 @@ function NovaRequisicaoForm() {
 
             {renderSetorFields()}
 
-            <div>
-              <Label>Justificativa *</Label>
-              <Textarea
-                value={justificativa}
-                onChange={(e) => setJustificativa(e.target.value)}
-                placeholder="Justificativa para emissão da OS..."
-                rows={2}
-              />
-            </div>
+            {renderJustificativaField({
+              placeholder: 'Justificativa para emissão da OS...',
+              rows: 2,
+              modelos: MODELOS_JUSTIFICATIVA_OS,
+            })}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -2717,15 +2805,11 @@ function NovaRequisicaoForm() {
               </div>
             </div>
             {renderSetorFields()}
-            <div>
-              <Label>Justificativa *</Label>
-              <Textarea
-                value={justificativa}
-                onChange={(e) => setJustificativa(e.target.value)}
-                placeholder="Justificativa para emissão da OS..."
-                rows={2}
-              />
-            </div>
+            {renderJustificativaField({
+              placeholder: 'Justificativa para emissão da OS...',
+              rows: 2,
+              modelos: MODELOS_JUSTIFICATIVA_OS,
+            })}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>Prioridade</Label>
@@ -2775,15 +2859,11 @@ function NovaRequisicaoForm() {
 
             {renderSetorFields()}
 
-            <div>
-              <Label>Justificativa *</Label>
-              <Textarea
-                value={justificativa}
-                onChange={(e) => setJustificativa(e.target.value)}
-                placeholder="Justificativa para emissão da OS..."
-                rows={2}
-              />
-            </div>
+            {renderJustificativaField({
+              placeholder: 'Justificativa para emissão da OS...',
+              rows: 2,
+              modelos: MODELOS_JUSTIFICATIVA_OBRA,
+            })}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
