@@ -3,6 +3,7 @@ import { AgenteTarefasController } from './agente-tarefas.controller';
 import { AgenteTarefasService } from './agente-tarefas.service';
 import { UsuariosModule } from '../usuarios/usuarios.module';
 import { AlmoxarifadoModule } from '../almoxarifado/almoxarifado.module';
+import { ContratosModule } from '../contratos/contratos.module';
 import { RelatoriosModule } from '../relatorios/relatorios.module';
 import { SystemConfigModule } from '../system-config/system-config.module';
 
@@ -10,6 +11,7 @@ import { SystemConfigModule } from '../system-config/system-config.module';
   imports: [
     UsuariosModule,
     AlmoxarifadoModule,
+    ContratosModule,
     RelatoriosModule,
     SystemConfigModule,
   ],
