@@ -353,13 +353,28 @@ export class ItemContratoService {
   /**
    * Busca itens com saldo disponível de um contrato
    */
-  async findComSaldoDisponivel(contratoId: string): Promise<ItemContrato[]> {
+  async findComSaldoDisponivel(contratoId: string): Promise<any[]> {
+    // Calcula o saldo disponível dinamicamente para evitar inconsistências de dados antigos
+    // saldo = quantidade_contratada - quantidade_empenhada - quantidade_entregue
     return this.itemContratoRepository
       .createQueryBuilder('item')
+      .select([
+        'item.id AS id',
+        'item.numero_item AS numero_item',
+        'item.descricao AS descricao',
+        'item.unidade_medida AS unidade_medida',
+        'item.valor_unitario AS valor_unitario',
+      ])
+      .addSelect(
+        '((item.quantidade_contratada - item.quantidade_empenhada) - item.quantidade_entregue)',
+        'saldo_disponivel',
+      )
       .where('item.contrato_id = :contratoId', { contratoId })
-      .andWhere('item.saldo_disponivel > 0')
+      .andWhere(
+        '((item.quantidade_contratada - item.quantidade_empenhada) - item.quantidade_entregue) > 0',
+      )
       .orderBy('item.numero_item', 'ASC')
-      .getMany();
+      .getRawMany();
   }
 
   /**
