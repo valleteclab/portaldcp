@@ -2,8 +2,23 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Notificacao, TipoNotificacao, PrioridadeNotificacao } from './entities/notificacao.entity';
+import { Medicao, StatusMedicao } from '../contratos/entities/medicao.entity';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+
+export interface ResumoLoginItem {
+  id: string;
+  numero: number;
+  fornecedor: string;
+  data: Date | null;
+}
+
+export interface ResumoLoginDto {
+  tem_pendencias: boolean;
+  aguardando_ateste: ResumoLoginItem[];
+  aguardando_aprovacao: ResumoLoginItem[];
+  aprovadas_nao_entregues: ResumoLoginItem[];
+}
 
 export interface CriarNotificacaoDto {
   orgao_id: string;
@@ -28,6 +43,8 @@ export class NotificacoesService {
   constructor(
     @InjectRepository(Notificacao)
     private readonly notificacaoRepository: Repository<Notificacao>,
+    @InjectRepository(Medicao)
+    private readonly medicaoRepository: Repository<Medicao>,
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
   ) {}
@@ -874,5 +891,55 @@ ${fiscalNome}`;
       this.logger.error(`Erro ao criar notificações para contrato ${contratoNumero}: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  // ============================================================================
+  // RESUMO DE LOGIN — medições pendentes do órgão para briefing pós-login
+  // ============================================================================
+
+  async getResumoLogin(orgaoId: string): Promise<ResumoLoginDto> {
+    const baseQuery = () =>
+      this.medicaoRepository
+        .createQueryBuilder('m')
+        .innerJoin('m.contrato', 'c')
+        .where('c.orgao_id = :orgaoId', { orgaoId })
+        .select(['m.id', 'm.numero_medicao', 'm.fornecedor_nome', 'm.data_submissao', 'm.ateste_data', 'm.data_aprovacao']);
+
+    const [aguardandoAteste, aguardandoAprovacao, aprovadas] = await Promise.all([
+      baseQuery()
+        .andWhere('m.status IN (:...statuses)', {
+          statuses: [StatusMedicao.SUBMETIDA, StatusMedicao.AGUARDANDO_ATESTE],
+        })
+        .orderBy('m.data_submissao', 'ASC')
+        .take(10)
+        .getMany(),
+
+      baseQuery()
+        .andWhere('m.status = :status', { status: StatusMedicao.AGUARDANDO_APROVACAO })
+        .orderBy('m.ateste_data', 'ASC')
+        .take(10)
+        .getMany(),
+
+      baseQuery()
+        .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+        .andWhere('m.enviado_contabilidade = false')
+        .orderBy('m.data_aprovacao', 'ASC')
+        .take(10)
+        .getMany(),
+    ]);
+
+    const toItem = (m: Medicao, dataField: keyof Medicao): ResumoLoginItem => ({
+      id: m.id,
+      numero: m.numero_medicao,
+      fornecedor: m.fornecedor_nome || 'Fornecedor não identificado',
+      data: (m[dataField] as Date) ?? null,
+    });
+
+    return {
+      tem_pendencias: aguardandoAteste.length > 0 || aguardandoAprovacao.length > 0 || aprovadas.length > 0,
+      aguardando_ateste: aguardandoAteste.map((m) => toItem(m, 'data_submissao')),
+      aguardando_aprovacao: aguardandoAprovacao.map((m) => toItem(m, 'ateste_data')),
+      aprovadas_nao_entregues: aprovadas.map((m) => toItem(m, 'data_aprovacao')),
+    };
   }
 }
