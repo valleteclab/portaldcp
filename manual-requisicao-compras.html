@@ -1,0 +1,1536 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manual — Criar Requisição de Contratos de Compras</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #f4f6f9;
+      color: #1a202c;
+      line-height: 1.5;
+    }
+
+    /* ─── CAPA ─── */
+    .cover {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+      color: white;
+      padding: 60px 48px;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .cover-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .cover h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    .cover p { font-size: 16px; opacity: 0.85; max-width: 620px; }
+    .cover-meta { margin-top: 28px; font-size: 13px; opacity: 0.7; display: flex; gap: 24px; }
+
+    /* ─── CONTEÚDO ─── */
+    .content { max-width: 960px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* ─── ÍNDICE ─── */
+    .toc {
+      background: white;
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 40px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .toc h2 { font-size: 14px; font-weight: 700; color: #6b7280; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 16px; }
+    .toc ol { list-style: none; counter-reset: toc; }
+    .toc ol li { counter-increment: toc; padding: 6px 0; border-bottom: 1px solid #f3f4f6; display: flex; align-items: center; gap: 12px; }
+    .toc ol li:last-child { border-bottom: none; }
+    .toc ol li::before { content: counter(toc, decimal-leading-zero); font-size: 11px; font-weight: 700; color: #2563eb; min-width: 24px; }
+    .toc ol li a { text-decoration: none; color: #374151; font-size: 14px; font-weight: 500; }
+    .toc ol li a:hover { color: #2563eb; }
+    .toc ol li .step-badge {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #eff6ff;
+      color: #2563eb;
+      white-space: nowrap;
+    }
+
+    /* ─── SEÇÃO ─── */
+    .section { margin-bottom: 56px; }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .section-number {
+      width: 40px; height: 40px;
+      background: #2563eb;
+      color: white;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 16px; flex-shrink: 0;
+    }
+    .section-title { font-size: 22px; font-weight: 700; color: #111827; }
+    .section-subtitle { font-size: 14px; color: #6b7280; margin-top: 2px; }
+
+    /* ─── MOCKUP DE TELA ─── */
+    .screen-wrapper { margin-bottom: 32px; }
+    .screen-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .screen-label::before {
+      content: '';
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+    }
+    .screen {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+      border: 1px solid #e5e7eb;
+    }
+
+    /* Barra do navegador */
+    .browser-bar {
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .browser-dots { display: flex; gap: 6px; }
+    .browser-dots span {
+      width: 12px; height: 12px; border-radius: 50%;
+    }
+    .browser-dots span:nth-child(1) { background: #ef4444; }
+    .browser-dots span:nth-child(2) { background: #f59e0b; }
+    .browser-dots span:nth-child(3) { background: #10b981; }
+    .browser-url {
+      flex: 1;
+      background: white;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #6b7280;
+      font-family: monospace;
+    }
+
+    /* Barra de topo do app */
+    .app-topbar {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .app-topbar-logo {
+      font-weight: 800;
+      font-size: 16px;
+      color: #1e3a5f;
+      letter-spacing: -0.5px;
+    }
+    .app-topbar-logo span { color: #2563eb; }
+    .app-topbar-sep { color: #d1d5db; }
+    .app-topbar-path { font-size: 13px; color: #6b7280; }
+    .app-topbar-path strong { color: #374151; }
+
+    /* Sidebar */
+    .app-layout { display: flex; min-height: 300px; }
+    .sidebar {
+      width: 200px;
+      background: #1e293b;
+      padding: 16px 0;
+      flex-shrink: 0;
+    }
+    .sidebar-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 16px;
+      font-size: 13px;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .sidebar-item.active {
+      background: rgba(255,255,255,0.08);
+      color: white;
+      border-left: 3px solid #2563eb;
+    }
+    .sidebar-icon { width: 16px; height: 16px; opacity: 0.7; }
+
+    /* Área de conteúdo principal */
+    .app-main { flex: 1; padding: 20px; background: #f8fafc; overflow: hidden; }
+
+    /* Breadcrumb */
+    .breadcrumb {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: #6b7280;
+      margin-bottom: 16px;
+    }
+    .breadcrumb a { color: #2563eb; text-decoration: none; }
+    .breadcrumb span { color: #d1d5db; }
+
+    /* Page header */
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+    .page-title { font-size: 20px; font-weight: 700; color: #111827; }
+    .page-desc { font-size: 13px; color: #6b7280; margin-top: 2px; }
+
+    /* Botões */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; border: none; cursor: pointer;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; }
+    .btn-ghost { background: transparent; color: #6b7280; border: 1px solid #e5e7eb; }
+    .btn-success { background: #059669; color: white; }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+    /* Cards */
+    .card {
+      background: white;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid #f3f4f6;
+      background: #fafafa;
+    }
+    .card-title { font-size: 15px; font-weight: 600; color: #111827; display: flex; align-items: center; gap: 8px; }
+    .card-desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .card-body { padding: 16px 18px; }
+
+    /* Step progress */
+    .step-progress {
+      display: flex; align-items: center;
+      background: white; border: 1px solid #e5e7eb;
+      border-radius: 10px; padding: 12px 20px;
+      margin-bottom: 16px;
+      gap: 0;
+    }
+    .step-item {
+      display: flex; align-items: center; gap: 8px; flex: 1;
+    }
+    .step-circle {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; flex-shrink: 0;
+    }
+    .step-circle.done { background: #059669; color: white; }
+    .step-circle.active { background: #2563eb; color: white; }
+    .step-circle.pending { background: #e5e7eb; color: #9ca3af; }
+    .step-name { font-size: 12px; font-weight: 600; }
+    .step-name.done { color: #059669; }
+    .step-name.active { color: #2563eb; }
+    .step-name.pending { color: #9ca3af; }
+    .step-connector { width: 40px; height: 2px; background: #e5e7eb; margin: 0 4px; flex-shrink: 0; }
+    .step-connector.done { background: #059669; }
+
+    /* Filtros */
+    .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .filter-btn {
+      padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      border: 1px solid #e5e7eb; background: white; color: #6b7280; cursor: pointer;
+    }
+    .filter-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
+    .search-bar {
+      display: flex; align-items: center; gap: 8px;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      padding: 7px 12px; background: white; margin-bottom: 14px;
+    }
+    .search-icon { color: #9ca3af; font-size: 14px; }
+    .search-input { border: none; outline: none; font-size: 13px; color: #374151; flex: 1; background: transparent; }
+
+    /* Tabela */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; padding: 10px 14px;
+      background: #f9fafb; border-bottom: 1px solid #e5e7eb;
+      font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    td {
+      padding: 10px 14px; border-bottom: 1px solid #f3f4f6; color: #374151;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr.selected td { background: #eff6ff; }
+    tr:hover td { background: #fafafa; }
+
+    /* Badges */
+    .badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap;
+    }
+    .badge-blue { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .badge-green { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .badge-yellow { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .badge-red { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+    .badge-gray { background: #f9fafb; color: #4b5563; border: 1px solid #e5e7eb; }
+    .badge-purple { background: #faf5ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+    .badge-outline { background: white; border: 1px solid #d1d5db; color: #374151; font-family: monospace; }
+
+    /* Formulário */
+    .form-group { margin-bottom: 14px; }
+    .form-label { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 5px; display: block; }
+    .form-label span { color: #ef4444; }
+    .form-input {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 7px;
+      padding: 8px 12px; font-size: 13px; color: #374151; background: white;
+    }
+    .form-input:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .form-select {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 7px;
+      padding: 8px 12px; font-size: 13px; color: #374151; background: white;
+      appearance: none;
+    }
+    .form-textarea {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 7px;
+      padding: 8px 12px; font-size: 13px; color: #374151; background: white;
+      resize: vertical; min-height: 72px;
+    }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+    /* Cards de contrato */
+    .contracts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .contract-card {
+      border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px;
+      cursor: pointer; transition: all 0.15s; background: white;
+    }
+    .contract-card:hover { border-color: #93c5fd; background: #f8faff; }
+    .contract-card.selected { border-color: #2563eb; background: #eff6ff; }
+    .contract-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+    .contract-card-number { font-family: monospace; font-size: 12px; font-weight: 700; color: #374151; border: 1px solid #e5e7eb; padding: 2px 7px; border-radius: 5px; }
+    .contract-card-check { width: 20px; height: 20px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; }
+    .contract-card-check::after { content: '✓'; color: white; font-size: 11px; font-weight: 700; }
+    .contract-object { font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 6px; line-height: 1.3; }
+    .contract-supplier { font-size: 12px; color: #6b7280; margin-bottom: 10px; }
+    .contract-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .contract-metric { background: #f9fafb; border-radius: 6px; padding: 6px 10px; }
+    .contract-metric-label { font-size: 10px; color: #9ca3af; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .contract-metric-value { font-size: 13px; font-weight: 700; color: #111827; margin-top: 1px; }
+    .contract-metric-value.green { color: #059669; }
+    .progress-bar { height: 4px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+    .progress-fill { height: 100%; background: #2563eb; border-radius: 4px; }
+
+    /* Seleção de itens */
+    .item-row { display: flex; align-items: center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; background: white; gap: 12px; }
+    .item-row.selected { border-color: #2563eb; background: #eff6ff; }
+    .item-check { width: 16px; height: 16px; border-radius: 3px; border: 2px solid #d1d5db; flex-shrink: 0; }
+    .item-check.checked { background: #2563eb; border-color: #2563eb; }
+    .item-info { flex: 1; min-width: 0; }
+    .item-name { font-size: 13px; font-weight: 500; color: #111827; }
+    .item-meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .item-qty { display: flex; align-items: center; gap: 6px; }
+    .qty-btn { width: 26px; height: 26px; border: 1px solid #d1d5db; border-radius: 5px; background: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; cursor: pointer; color: #374151; }
+    .qty-input { width: 56px; border: 1px solid #d1d5db; border-radius: 5px; padding: 3px 6px; font-size: 13px; text-align: center; }
+    .item-value { font-size: 13px; font-weight: 600; color: #059669; min-width: 80px; text-align: right; }
+
+    /* Resumo / Totais */
+    .summary-box {
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+      border: 1px solid #bbf7d0; border-radius: 10px;
+      padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
+      margin-top: 12px;
+    }
+    .summary-label { font-size: 14px; font-weight: 600; color: #15803d; }
+    .summary-value { font-size: 22px; font-weight: 800; color: #15803d; }
+
+    .alert-box {
+      display: flex; gap: 10px; padding: 12px 14px;
+      border-radius: 8px; font-size: 13px;
+    }
+    .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; }
+
+    /* Ações da listagem */
+    .action-btns { display: flex; gap: 6px; }
+    .action-btn {
+      width: 28px; height: 28px; border-radius: 6px; border: 1px solid #e5e7eb;
+      background: white; display: flex; align-items: center; justify-content: center;
+      font-size: 13px; cursor: pointer; color: #6b7280;
+    }
+    .action-btn:hover { background: #f9fafb; color: #374151; }
+
+    /* Navegação de rodapé das etapas */
+    .step-nav {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 0; border-top: 1px solid #e5e7eb; margin-top: 16px;
+    }
+
+    /* Callout / dica */
+    .callout {
+      background: #eff6ff; border-left: 4px solid #2563eb;
+      border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0;
+      font-size: 13px; color: #1e3a5f;
+    }
+    .callout strong { font-weight: 700; display: block; margin-bottom: 3px; }
+
+    .tip {
+      background: #f0fdf4; border-left: 4px solid #059669;
+      border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0;
+      font-size: 13px; color: #14532d;
+    }
+    .tip strong { font-weight: 700; display: block; margin-bottom: 3px; }
+
+    .warn {
+      background: #fffbeb; border-left: 4px solid #d97706;
+      border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0;
+      font-size: 13px; color: #78350f;
+    }
+    .warn strong { font-weight: 700; display: block; margin-bottom: 3px; }
+
+    /* Numeração de passos dentro da seção */
+    .steps-list { list-style: none; counter-reset: steps; }
+    .steps-list li {
+      counter-increment: steps;
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 10px 0; border-bottom: 1px solid #f3f4f6;
+      font-size: 14px; color: #374151;
+    }
+    .steps-list li:last-child { border-bottom: none; }
+    .steps-list li::before {
+      content: counter(steps);
+      width: 24px; height: 24px; border-radius: 50%;
+      background: #eff6ff; color: #2563eb;
+      font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+
+    /* Status workflow */
+    .workflow {
+      display: flex; align-items: center; gap: 0; margin: 20px 0; flex-wrap: wrap;
+    }
+    .workflow-step {
+      display: flex; align-items: center; gap: 6px;
+      background: white; border: 1px solid #e5e7eb;
+      border-radius: 8px; padding: 8px 14px;
+      font-size: 12px; font-weight: 600; color: #374151;
+    }
+    .workflow-step .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .workflow-step.s1 .dot { background: #d1d5db; }
+    .workflow-step.s2 .dot { background: #f59e0b; }
+    .workflow-step.s3 .dot { background: #10b981; }
+    .workflow-step.s4 .dot { background: #ef4444; }
+    .workflow-step.s5 .dot { background: #6366f1; }
+    .workflow-arrow { color: #d1d5db; font-size: 16px; padding: 0 4px; }
+
+    /* Modal */
+    .modal-overlay { background: rgba(0,0,0,0.4); border-radius: 10px; padding: 40px 30px; display: flex; align-items: center; justify-content: center; }
+    .modal { background: white; border-radius: 12px; padding: 24px; width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+    .modal-desc { font-size: 13px; color: #6b7280; margin-bottom: 16px; }
+    .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* Print */
+    @media print {
+      body { background: white; }
+      .screen { box-shadow: none; border: 1px solid #e5e7eb; page-break-inside: avoid; }
+      .section { page-break-before: auto; }
+    }
+
+    /* Inline SVG icons */
+    .icon { display: inline-block; width: 14px; height: 14px; vertical-align: middle; }
+  </style>
+</head>
+<body>
+
+<!-- CAPA -->
+<div class="cover">
+  <div class="cover-badge">Portal DCP — Almoxarifado</div>
+  <h1>Manual de Requisição<br>de Contratos de Compras</h1>
+  <p>Guia passo a passo para criar uma requisição de materiais vinculada a contratos de compras, desde a listagem até o envio para autorização.</p>
+  <div class="cover-meta">
+    <span>Módulo: Almoxarifado</span>
+    <span>Rota: /orgao/almoxarifado/requisicoes</span>
+    <span>Versão: 2026</span>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- ÍNDICE -->
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#s1">Visão Geral do Fluxo</a> <span class="step-badge">Introdução</span></li>
+      <li><a href="#s2">Acessando a Lista de Requisições</a> <span class="step-badge">Tela 1</span></li>
+      <li><a href="#s3">Iniciando uma Nova Requisição</a> <span class="step-badge">Ação</span></li>
+      <li><a href="#s4">Etapa 1 — Selecionar Contrato</a> <span class="step-badge">Step 1/4</span></li>
+      <li><a href="#s5">Etapa 2 — Selecionar Itens</a> <span class="step-badge">Step 2/4</span></li>
+      <li><a href="#s6">Etapa 3 — Dados da Requisição</a> <span class="step-badge">Step 3/4</span></li>
+      <li><a href="#s7">Etapa 4 — Resumo e Envio</a> <span class="step-badge">Step 4/4</span></li>
+      <li><a href="#s8">Após o Envio — Ciclo de Status</a> <span class="step-badge">Pós-envio</span></li>
+    </ol>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 1 ════════════════════════════════ -->
+  <div class="section" id="s1">
+    <div class="section-header">
+      <div class="section-number">1</div>
+      <div>
+        <div class="section-title">Visão Geral do Fluxo</div>
+        <div class="section-subtitle">Entenda o processo completo antes de começar</div>
+      </div>
+    </div>
+
+    <p style="font-size:14px;color:#374151;margin-bottom:16px;">
+      Uma requisição de <strong>contrato de compras</strong> é um pedido formal para o fornecimento de materiais previstos em um contrato ativo. O fluxo é composto por <strong>4 etapas</strong> e possui as seguintes transições de status:
+    </p>
+
+    <div class="workflow">
+      <div class="workflow-step s1"><div class="dot"></div> Rascunho</div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-step s2"><div class="dot"></div> Aguardando Autorização</div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-step s3"><div class="dot"></div> Autorizada</div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-step s5"><div class="dot"></div> Ordem Gerada</div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-step s3"><div class="dot"></div> Atendida</div>
+    </div>
+
+    <div class="callout">
+      <strong>Tipo abordado neste manual</strong>
+      Tipo: <strong>MATERIAL</strong> · Categoria do Contrato: <strong>COMPRAS</strong> · Etapas: 4 (Contrato → Itens → Dados → Resumo)
+    </div>
+
+    <div class="warn">
+      <strong>Importante — Reserva de Saldo</strong>
+      Ao criar a requisição, o saldo dos itens selecionados é <strong>reservado imediatamente</strong> no contrato. Certifique-se de que as quantidades são corretas antes de salvar.
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 2 ════════════════════════════════ -->
+  <div class="section" id="s2">
+    <div class="section-header">
+      <div class="section-number">2</div>
+      <div>
+        <div class="section-title">Acessando a Lista de Requisições</div>
+        <div class="section-subtitle">Rota: /orgao/almoxarifado/requisicoes</div>
+      </div>
+    </div>
+
+    <p style="font-size:14px;color:#374151;margin-bottom:16px;">
+      Acesse o módulo <strong>Almoxarifado</strong> no menu lateral e clique em <strong>Requisições</strong>. Você verá a lista de todas as requisições do órgão com filtros por status, tipo e contrato.
+    </p>
+
+    <div class="screen-wrapper">
+      <div class="screen-label">Tela — Lista de Requisições</div>
+      <div class="screen">
+        <div class="browser-bar">
+          <div class="browser-dots"><span></span><span></span><span></span></div>
+          <div class="browser-url">portaldcp.gov.br/orgao/almoxarifado/requisicoes</div>
+        </div>
+        <div class="app-topbar">
+          <div class="app-topbar-logo">Portal<span>DCP</span></div>
+          <div class="app-topbar-sep">|</div>
+          <div class="app-topbar-path">Almoxarifado <strong>› Requisições</strong></div>
+        </div>
+        <div class="app-layout">
+          <div class="sidebar">
+            <div class="sidebar-item">📊 Dashboard</div>
+            <div class="sidebar-item">📋 Contratos</div>
+            <div class="sidebar-item active">📦 Almoxarifado</div>
+            <div class="sidebar-item" style="padding-left:28px;font-size:12px;color:#64748b;">→ Requisições</div>
+            <div class="sidebar-item" style="padding-left:28px;font-size:12px;color:#64748b;">→ Ordens</div>
+            <div class="sidebar-item" style="padding-left:28px;font-size:12px;color:#64748b;">→ Recebimentos</div>
+            <div class="sidebar-item">⚙️ Configurações</div>
+          </div>
+          <div class="app-main">
+            <div class="page-header">
+              <div>
+                <div class="page-title">Requisições</div>
+                <div class="page-desc">Gerencie as requisições de materiais e serviços</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-secondary btn-sm">🛒 Pedido de Compras</button>
+                <button class="btn btn-primary btn-sm">+ Nova Requisição</button>
+              </div>
+            </div>
+
+            <!-- Filtros -->
+            <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+              <div class="search-bar" style="flex:1;min-width:200px;margin-bottom:0;">
+                <span class="search-icon">🔍</span>
+                <input class="search-input" placeholder="Buscar por número, setor ou usuário..." />
+              </div>
+              <select class="form-select" style="width:auto;height:36px;font-size:12px;">
+                <option>Todos os status</option>
+                <option>Rascunho</option>
+                <option>Aguardando Autorização</option>
+                <option>Autorizada</option>
+              </select>
+              <select class="form-select" style="width:auto;height:36px;font-size:12px;">
+                <option>Todos os tipos</option>
+                <option selected>Material</option>
+                <option>Serviço</option>
+                <option>Ordem de Serviço</option>
+              </select>
+            </div>
+
+            <!-- Tabela -->
+            <div class="card">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nº</th>
+                    <th>Tipo</th>
+                    <th>Contrato</th>
+                    <th>Setor</th>
+                    <th>Prioridade</th>
+                    <th>Valor Total</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="badge badge-outline">REQ-2026-001</span></td>
+                    <td><span class="badge badge-blue">Material</span></td>
+                    <td style="font-size:12px;color:#6b7280;">015/2025</td>
+                    <td style="font-size:12px;">Secretaria Admin.</td>
+                    <td><span class="badge badge-green">Normal</span></td>
+                    <td style="font-weight:600;">R$ 4.850,00</td>
+                    <td><span class="badge badge-yellow">Aguardando</span></td>
+                    <td><div class="action-btns"><div class="action-btn" title="Ver detalhes">👁️</div><div class="action-btn" title="Histórico">📋</div></div></td>
+                  </tr>
+                  <tr>
+                    <td><span class="badge badge-outline">REQ-2026-002</span></td>
+                    <td><span class="badge badge-blue">Material</span></td>
+                    <td style="font-size:12px;color:#6b7280;">015/2025</td>
+                    <td style="font-size:12px;">TI</td>
+                    <td><span class="badge badge-red">Urgente</span></td>
+                    <td style="font-weight:600;">R$ 12.200,00</td>
+                    <td><span class="badge badge-green">Autorizada</span></td>
+                    <td><div class="action-btns"><div class="action-btn">👁️</div><div class="action-btn">📄</div><div class="action-btn">✉️</div></div></td>
+                  </tr>
+                  <tr>
+                    <td><span class="badge badge-outline">REQ-2026-003</span></td>
+                    <td><span class="badge badge-blue">Material</span></td>
+                    <td style="font-size:12px;color:#6b7280;">023/2025</td>
+                    <td style="font-size:12px;">RH</td>
+                    <td><span class="badge badge-gray">Baixa</span></td>
+                    <td style="font-weight:600;">R$ 780,00</td>
+                    <td><span class="badge badge-gray">Rascunho</span></td>
+                    <td><div class="action-btns"><div class="action-btn">✏️</div><div class="action-btn">🗑️</div></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Dica — Botões da tela de listagem</strong>
+      <ul style="margin-top:6px;padding-left:18px;font-size:13px;line-height:1.8;">
+        <li><strong>+ Nova Requisição</strong> — Inicia o fluxo completo de 4 etapas (recomendado para contratos de compras)</li>
+        <li><strong>Pedido de Compras</strong> — Atalho simplificado com catálogo visual (apenas contratos de COMPRAS)</li>
+      </ul>
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 3 ════════════════════════════════ -->
+  <div class="section" id="s3">
+    <div class="section-header">
+      <div class="section-number">3</div>
+      <div>
+        <div class="section-title">Iniciando uma Nova Requisição</div>
+        <div class="section-subtitle">Clique em "+ Nova Requisição" para abrir o formulário</div>
+      </div>
+    </div>
+
+    <p style="font-size:14px;color:#374151;margin-bottom:16px;">
+      Ao clicar em <strong>+ Nova Requisição</strong>, você será redirecionado para a página <code>/orgao/almoxarifado/requisicoes/nova</code>. O sistema inicia na <strong>Etapa 1 — Contrato</strong>.
+    </p>
+
+    <div class="tip">
+      <strong>Auto-save automático</strong>
+      O sistema salva automaticamente um rascunho no navegador a cada 2 segundos de inatividade. Se você fechar a aba por acidente, ao retornar será perguntado se deseja recuperar o rascunho.
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 4 ════════════════════════════════ -->
+  <div class="section" id="s4">
+    <div class="section-header">
+      <div class="section-number">4</div>
+      <div>
+        <div class="section-title">Etapa 1 — Selecionar Contrato</div>
+        <div class="section-subtitle">Escolha o contrato de compras de onde serão solicitados os materiais</div>
+      </div>
+    </div>
+
+    <ul class="steps-list" style="margin-bottom:20px;">
+      <li>Filtre por categoria clicando em <strong>Compras</strong> para ver apenas contratos do tipo correto</li>
+      <li>Use a busca para localizar o contrato pelo número, objeto ou fornecedor</li>
+      <li>Clique no card do contrato desejado (ficará com borda azul e fundo azul claro)</li>
+      <li>Verifique o saldo disponível e os dias restantes de vigência</li>
+      <li>Clique em <strong>Próximo →</strong> para avançar</li>
+    </ul>
+
+    <div class="screen-wrapper">
+      <div class="screen-label">Tela — Etapa 1: Seleção de Contrato</div>
+      <div class="screen">
+        <div class="browser-bar">
+          <div class="browser-dots"><span></span><span></span><span></span></div>
+          <div class="browser-url">portaldcp.gov.br/orgao/almoxarifado/requisicoes/nova</div>
+        </div>
+        <div class="app-main" style="background:#f8fafc;">
+          <!-- Breadcrumb -->
+          <div class="breadcrumb">
+            <a href="#">Almoxarifado</a>
+            <span>›</span>
+            <a href="#">Requisições</a>
+            <span>›</span>
+            <strong style="color:#111827;">Nova Requisição</strong>
+          </div>
+
+          <!-- Step progress -->
+          <div class="step-progress">
+            <div class="step-item">
+              <div class="step-circle active">1</div>
+              <span class="step-name active">Contrato</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item">
+              <div class="step-circle pending">2</div>
+              <span class="step-name pending">Itens</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item">
+              <div class="step-circle pending">3</div>
+              <span class="step-name pending">Dados</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item">
+              <div class="step-circle pending">4</div>
+              <span class="step-name pending">Resumo</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">📄 Selecione o Contrato</div>
+              <div class="card-desc">Escolha o contrato de onde serão solicitados os itens</div>
+            </div>
+            <div class="card-body">
+              <!-- Busca -->
+              <div class="search-bar" style="margin-bottom:10px;">
+                <span class="search-icon">🔍</span>
+                <input class="search-input" placeholder="Buscar por número, objeto ou fornecedor..." />
+              </div>
+
+              <!-- Filtros de categoria -->
+              <div class="filters" style="margin-bottom:14px;">
+                <span style="font-size:12px;color:#9ca3af;">🔽 Filtrar:</span>
+                <button class="filter-btn">Todos (8)</button>
+                <button class="filter-btn active">Compras (3)</button>
+                <button class="filter-btn">Serviços (2)</button>
+                <button class="filter-btn">Obras (2)</button>
+                <button class="filter-btn">Locação (1)</button>
+                <div style="margin-left:auto;display:flex;gap:4px;">
+                  <button class="btn btn-secondary btn-sm">⊞</button>
+                  <button class="btn btn-ghost btn-sm">☰</button>
+                </div>
+              </div>
+
+              <!-- Grid de contratos -->
+              <div class="contracts-grid">
+                <!-- Contrato selecionado -->
+                <div class="contract-card selected">
+                  <div class="contract-card-top">
+                    <div style="display:flex;gap:6px;align-items:center;">
+                      <div class="contract-card-number">015/2025</div>
+                      <span class="badge badge-blue" style="font-size:10px;">Compras</span>
+                    </div>
+                    <div class="contract-card-check"></div>
+                  </div>
+                  <div class="contract-object">Fornecimento de materiais de expediente e papelaria</div>
+                  <div class="contract-supplier">🏢 Distribuidora Central Ltda. · CNPJ 12.345.678/0001-90</div>
+                  <div class="contract-metrics">
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Valor Global</div>
+                      <div class="contract-metric-value">R$ 85.000,00</div>
+                    </div>
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Saldo Disponível</div>
+                      <div class="contract-metric-value green">R$ 32.450,00</div>
+                    </div>
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Vigência</div>
+                      <div class="contract-metric-value" style="font-size:11px;">01/01/2025 – 31/12/2025</div>
+                    </div>
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Prazo</div>
+                      <div class="contract-metric-value" style="font-size:11px;color:#d97706;">241 dias</div>
+                    </div>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill" style="width:62%;"></div></div>
+                  <div style="font-size:10px;color:#6b7280;margin-top:4px;">62% consumido · 18 itens</div>
+                </div>
+
+                <!-- Outro contrato -->
+                <div class="contract-card">
+                  <div class="contract-card-top">
+                    <div style="display:flex;gap:6px;align-items:center;">
+                      <div class="contract-card-number">023/2025</div>
+                      <span class="badge badge-blue" style="font-size:10px;">Compras</span>
+                    </div>
+                  </div>
+                  <div class="contract-object">Aquisição de materiais de limpeza e higiene</div>
+                  <div class="contract-supplier">🏢 Limpe Bem Distribuidora · CNPJ 98.765.432/0001-11</div>
+                  <div class="contract-metrics">
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Valor Global</div>
+                      <div class="contract-metric-value">R$ 48.000,00</div>
+                    </div>
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Saldo Disponível</div>
+                      <div class="contract-metric-value green">R$ 19.800,00</div>
+                    </div>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill" style="width:41%;background:#10b981;"></div></div>
+                  <div style="font-size:10px;color:#6b7280;margin-top:4px;">41% consumido · 12 itens</div>
+                </div>
+
+                <!-- Terceiro contrato -->
+                <div class="contract-card">
+                  <div class="contract-card-top">
+                    <div style="display:flex;gap:6px;align-items:center;">
+                      <div class="contract-card-number">031/2025</div>
+                      <span class="badge badge-blue" style="font-size:10px;">Compras</span>
+                    </div>
+                  </div>
+                  <div class="contract-object">Fornecimento de suprimentos de informática</div>
+                  <div class="contract-supplier">🏢 TechSupply Soluções SA · CNPJ 45.678.901/0001-23</div>
+                  <div class="contract-metrics">
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Valor Global</div>
+                      <div class="contract-metric-value">R$ 120.000,00</div>
+                    </div>
+                    <div class="contract-metric">
+                      <div class="contract-metric-label">Saldo Disponível</div>
+                      <div class="contract-metric-value green">R$ 67.300,00</div>
+                    </div>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill" style="width:44%;background:#10b981;"></div></div>
+                  <div style="font-size:10px;color:#6b7280;margin-top:4px;">44% consumido · 25 itens</div>
+                </div>
+              </div>
+
+              <div style="margin-top:10px;font-size:12px;color:#9ca3af;text-align:center;">3 contrato(s) encontrado(s)</div>
+
+              <!-- Navegação -->
+              <div class="step-nav">
+                <button class="btn btn-ghost">← Voltar</button>
+                <button class="btn btn-primary">Próximo → Itens</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Visualização em lista</strong>
+      Clique no ícone ☰ no canto superior direito do card para alternar entre visualização em <em>cards</em> e <em>tabela</em>. A tabela mostra colunas: Nº Contrato · Categoria · Objeto · Fornecedor · Vigência · Valor Global · Saldo.
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 5 ════════════════════════════════ -->
+  <div class="section" id="s5">
+    <div class="section-header">
+      <div class="section-number">5</div>
+      <div>
+        <div class="section-title">Etapa 2 — Selecionar Itens</div>
+        <div class="section-subtitle">Escolha os itens do contrato e defina as quantidades</div>
+      </div>
+    </div>
+
+    <ul class="steps-list" style="margin-bottom:20px;">
+      <li>O sistema exibe automaticamente os itens do contrato selecionado, com saldo disponível de cada um</li>
+      <li>Clique no item ou na caixa de seleção para adicioná-lo à requisição</li>
+      <li>Ajuste a quantidade usando os botões <strong>−</strong> e <strong>+</strong> ou digitando diretamente no campo</li>
+      <li>Utilize <strong>"Pedir tudo"</strong> para solicitar o saldo máximo de todos os itens com saldo disponível</li>
+      <li>Use a busca para filtrar itens por descrição</li>
+      <li>Clique em <strong>Próximo →</strong> para avançar</li>
+    </ul>
+
+    <div class="screen-wrapper">
+      <div class="screen-label">Tela — Etapa 2: Seleção de Itens</div>
+      <div class="screen">
+        <div class="browser-bar">
+          <div class="browser-dots"><span></span><span></span><span></span></div>
+          <div class="browser-url">portaldcp.gov.br/orgao/almoxarifado/requisicoes/nova</div>
+        </div>
+        <div class="app-main" style="background:#f8fafc;">
+          <!-- Step progress -->
+          <div class="step-progress">
+            <div class="step-item">
+              <div class="step-circle done">✓</div>
+              <span class="step-name done">Contrato</span>
+            </div>
+            <div class="step-connector done"></div>
+            <div class="step-item">
+              <div class="step-circle active">2</div>
+              <span class="step-name active">Itens</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item">
+              <div class="step-circle pending">3</div>
+              <span class="step-name pending">Dados</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item">
+              <div class="step-circle pending">4</div>
+              <span class="step-name pending">Resumo</span>
+            </div>
+          </div>
+
+          <!-- Card do contrato selecionado (header escuro) -->
+          <div style="background:linear-gradient(to right,#1e293b,#0f172a);border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:36px;height:36px;background:rgba(255,255,255,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;">🏢</div>
+              <div>
+                <div style="color:white;font-weight:600;font-size:14px;">Distribuidora Central Ltda.</div>
+                <div style="color:rgba(255,255,255,0.5);font-size:12px;">CNPJ 12.345.678/0001-90 · Contrato nº 015/2025 · Compras</div>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="background:rgba(255,255,255,0.1);color:white;border-color:rgba(255,255,255,0.2);">Trocar</button>
+          </div>
+
+          <!-- Métricas do contrato -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:12px;background:white;">
+            <div style="padding:10px 14px;border-right:1px solid #e5e7eb;">
+              <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;">Valor Global</div>
+              <div style="font-size:14px;font-weight:700;margin-top:2px;">R$ 85.000,00</div>
+            </div>
+            <div style="padding:10px 14px;border-right:1px solid #e5e7eb;">
+              <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;">Saldo Disponível</div>
+              <div style="font-size:14px;font-weight:700;margin-top:2px;color:#059669;">R$ 32.450,00</div>
+            </div>
+            <div style="padding:10px 14px;border-right:1px solid #e5e7eb;">
+              <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;">Vigência</div>
+              <div style="font-size:12px;font-weight:700;margin-top:2px;">01/01 – 31/12/2025</div>
+            </div>
+            <div style="padding:10px 14px;">
+              <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;">Prazo</div>
+              <div style="font-size:14px;font-weight:700;margin-top:2px;color:#d97706;">241 dias</div>
+            </div>
+          </div>
+
+          <!-- Tabela de itens -->
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #f3f4f6;background:#fafafa;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:14px;">📦</span>
+                <span style="font-size:14px;font-weight:600;">Selecionar Itens</span>
+                <span class="badge badge-blue">2 selecionados</span>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <div style="position:relative;">
+                  <input style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px 4px 28px;font-size:12px;width:160px;" placeholder="Buscar item..." />
+                  <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:12px;color:#9ca3af;">🔍</span>
+                </div>
+                <button class="btn btn-ghost btn-sm">↺</button>
+                <button class="btn btn-primary btn-sm">📦 Pedir tudo</button>
+              </div>
+            </div>
+
+            <div style="padding:12px 14px;">
+              <!-- Item 1 selecionado -->
+              <div class="item-row selected">
+                <div class="item-check checked"></div>
+                <div class="item-info">
+                  <div class="item-name">Papel A4 75g/m² — Resma com 500 folhas</div>
+                  <div class="item-meta">Item #01 · Unidade: Resma · Saldo: 80 resmas · Valor unit.: R$ 28,90</div>
+                </div>
+                <div class="item-qty">
+                  <div class="qty-btn">−</div>
+                  <input class="qty-input" value="20" />
+                  <div class="qty-btn">+</div>
+                </div>
+                <div class="item-value">R$ 578,00</div>
+              </div>
+
+              <!-- Item 2 selecionado -->
+              <div class="item-row selected">
+                <div class="item-check checked"></div>
+                <div class="item-info">
+                  <div class="item-name">Caneta esferográfica azul — Caixa com 50 unidades</div>
+                  <div class="item-meta">Item #02 · Unidade: Cx · Saldo: 15 caixas · Valor unit.: R$ 42,50</div>
+                </div>
+                <div class="item-qty">
+                  <div class="qty-btn">−</div>
+                  <input class="qty-input" value="5" />
+                  <div class="qty-btn">+</div>
+                </div>
+                <div class="item-value">R$ 212,50</div>
+              </div>
+
+              <!-- Item 3 não selecionado -->
+              <div class="item-row">
+                <div class="item-check"></div>
+                <div class="item-info">
+                  <div class="item-name">Grampeador de mesa — Capacidade 25 folhas</div>
+                  <div class="item-meta">Item #03 · Unidade: Un · Saldo: 8 un · Valor unit.: R$ 35,00</div>
+                </div>
+                <div class="item-qty">
+                  <div class="qty-btn" style="color:#d1d5db;">−</div>
+                  <input class="qty-input" value="0" style="color:#9ca3af;" />
+                  <div class="qty-btn" style="color:#d1d5db;">+</div>
+                </div>
+                <div class="item-value" style="color:#d1d5db;">R$ 0,00</div>
+              </div>
+
+              <!-- Item 4 sem saldo -->
+              <div class="item-row" style="opacity:0.5;">
+                <div class="item-check"></div>
+                <div class="item-info">
+                  <div class="item-name">Pasta arquivo AZ — Lombo largo 8 cm</div>
+                  <div class="item-meta">Item #04 · Unidade: Un · <span style="color:#ef4444;font-weight:600;">Saldo esgotado</span> · Valor unit.: R$ 18,00</div>
+                </div>
+                <div class="item-qty">
+                  <div class="qty-btn" style="color:#d1d5db;">−</div>
+                  <input class="qty-input" value="0" disabled style="background:#f9fafb;color:#9ca3af;" />
+                  <div class="qty-btn" style="color:#d1d5db;">+</div>
+                </div>
+                <div class="item-value" style="color:#d1d5db;">—</div>
+              </div>
+
+              <!-- Item 5 não selecionado -->
+              <div class="item-row">
+                <div class="item-check"></div>
+                <div class="item-info">
+                  <div class="item-name">Fita adesiva transparente 45mm × 50m</div>
+                  <div class="item-meta">Item #05 · Unidade: Rolo · Saldo: 30 rolos · Valor unit.: R$ 12,80</div>
+                </div>
+                <div class="item-qty">
+                  <div class="qty-btn">−</div>
+                  <input class="qty-input" value="0" />
+                  <div class="qty-btn">+</div>
+                </div>
+                <div class="item-value" style="color:#d1d5db;">R$ 0,00</div>
+              </div>
+            </div>
+
+            <!-- Total parcial -->
+            <div style="padding:0 14px 12px;">
+              <div class="summary-box">
+                <span class="summary-label">Total parcial selecionado</span>
+                <span class="summary-value">R$ 790,50</span>
+              </div>
+            </div>
+
+            <div style="padding:0 14px 14px;">
+              <div class="step-nav">
+                <button class="btn btn-ghost">← Voltar ao Contrato</button>
+                <button class="btn btn-primary">Próximo → Dados</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="warn">
+      <strong>Atenção — Quantidade máxima</strong>
+      Não é possível solicitar quantidade maior que o saldo disponível. O sistema bloqueia a quantidade ao atingir o limite e exibe uma mensagem de erro ao tentar avançar.
+    </div>
+
+    <div class="tip">
+      <strong>Dica — Sugestão automática de Restos a Pagar</strong>
+      Se o contrato possuir empenhos de exercícios anteriores com saldo, o sistema exibirá um aviso em amarelo no topo da lista de itens, oferecendo sugestão automática de quantidades para usar o saldo de restos a pagar.
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 6 ════════════════════════════════ -->
+  <div class="section" id="s6">
+    <div class="section-header">
+      <div class="section-number">6</div>
+      <div>
+        <div class="section-title">Etapa 3 — Dados da Requisição</div>
+        <div class="section-subtitle">Preencha as informações do pedido: setor, justificativa, prioridade e prazo</div>
+      </div>
+    </div>
+
+    <ul class="steps-list" style="margin-bottom:20px;">
+      <li>Selecione o <strong>Setor Solicitante</strong> no menu suspenso (se houver setores cadastrados) ou preencha manualmente</li>
+      <li>Informe o <strong>Local de Entrega</strong> — endereço ou sala onde o material deve ser entregue</li>
+      <li>Preencha a <strong>Justificativa</strong> descrevendo a necessidade — use os modelos prontos para agilizar</li>
+      <li>Defina a <strong>Prioridade</strong>: Baixa, Normal, Alta ou Urgente</li>
+      <li>Informe a <strong>Data de Necessidade</strong> (opcional) — prazo esperado para recebimento</li>
+      <li>Adicione <strong>Observações</strong> adicionais se necessário (campo opcional)</li>
+      <li>Clique em <strong>Próximo →</strong> para ver o resumo</li>
+    </ul>
+
+    <div class="screen-wrapper">
+      <div class="screen-label">Tela — Etapa 3: Dados da Requisição</div>
+      <div class="screen">
+        <div class="browser-bar">
+          <div class="browser-dots"><span></span><span></span><span></span></div>
+          <div class="browser-url">portaldcp.gov.br/orgao/almoxarifado/requisicoes/nova</div>
+        </div>
+        <div class="app-main" style="background:#f8fafc;">
+          <!-- Step progress -->
+          <div class="step-progress">
+            <div class="step-item">
+              <div class="step-circle done">✓</div>
+              <span class="step-name done">Contrato</span>
+            </div>
+            <div class="step-connector done"></div>
+            <div class="step-item">
+              <div class="step-circle done">✓</div>
+              <span class="step-name done">Itens</span>
+            </div>
+            <div class="step-connector done"></div>
+            <div class="step-item">
+              <div class="step-circle active">3</div>
+              <span class="step-name active">Dados</span>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step-item">
+              <div class="step-circle pending">4</div>
+              <span class="step-name pending">Resumo</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">📋 Dados da Requisição</div>
+              <div class="card-desc">Informe os dados do pedido — setor, justificativa, prioridade e prazo</div>
+            </div>
+            <div class="card-body">
+              <div class="form-grid" style="margin-bottom:14px;">
+                <div class="form-group" style="margin-bottom:0;grid-column:1/-1;">
+                  <label class="form-label">Setor Solicitante <span>*</span></label>
+                  <select class="form-select">
+                    <option value="">Selecione o setor</option>
+                    <option selected>ADM01 — Secretaria de Administração</option>
+                    <option>TI02 — Tecnologia da Informação</option>
+                    <option>RH03 — Recursos Humanos</option>
+                    <option>OUTRO">Outro (digitar manualmente)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label">Nome do Setor <span>*</span></label>
+                  <input type="text" class="form-input" value="Secretaria de Administração" />
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label">Código do Setor</label>
+                  <input type="text" class="form-input" value="ADM01" />
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-top:14px;">
+                <label class="form-label">Local de Entrega</label>
+                <input type="text" class="form-input" value="Almoxarifado Central — 1º andar, Sala 102" placeholder="Informe o local de entrega" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Justificativa <span>*</span></label>
+                <!-- Modelos de justificativa -->
+                <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+                  <span style="font-size:11px;color:#6b7280;align-self:center;">Usar modelo:</span>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;height:24px;padding:0 8px;">📝 Reposição de estoque</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;height:24px;padding:0 8px;">📝 Demanda do setor</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;height:24px;padding:0 8px;">📝 Higiene e funcionamento</button>
+                </div>
+                <textarea class="form-textarea">Solicita-se o fornecimento dos itens selecionados para recomposição do estoque do setor, garantindo a continuidade das atividades administrativas e evitando interrupção no atendimento das demandas rotineiras.</textarea>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label">Prioridade</label>
+                  <select class="form-select">
+                    <option>Baixa</option>
+                    <option selected>Normal</option>
+                    <option>Alta</option>
+                    <option>Urgente</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label">Data de Necessidade</label>
+                  <input type="date" class="form-input" value="2026-05-30" />
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-top:14px;margin-bottom:0;">
+                <label class="form-label">Observações <span style="font-weight:400;color:#9ca3af;">(opcional)</span></label>
+                <textarea class="form-textarea" rows="2" placeholder="Observações adicionais sobre o pedido..."></textarea>
+              </div>
+
+              <div class="step-nav">
+                <button class="btn btn-ghost">← Voltar aos Itens</button>
+                <button class="btn btn-primary">Próximo → Resumo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Modelos de Justificativa</strong>
+      Clique em um dos modelos prontos para preencher automaticamente o campo de justificativa. Você pode editar o texto após aplicar o modelo.
+      <ul style="margin-top:6px;padding-left:18px;font-size:13px;line-height:1.8;">
+        <li><strong>Reposição de estoque</strong> — Para pedidos de recomposição do estoque do setor</li>
+        <li><strong>Demanda do setor</strong> — Para atender demanda operacional específica</li>
+        <li><strong>Higiene e funcionamento</strong> — Para materiais de higiene e manutenção rotineira</li>
+      </ul>
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 7 ════════════════════════════════ -->
+  <div class="section" id="s7">
+    <div class="section-header">
+      <div class="section-number">7</div>
+      <div>
+        <div class="section-title">Etapa 4 — Resumo e Envio</div>
+        <div class="section-subtitle">Revise todos os dados antes de salvar ou enviar para autorização</div>
+      </div>
+    </div>
+
+    <ul class="steps-list" style="margin-bottom:20px;">
+      <li>Confira todos os dados: contrato, fornecedor, itens, quantidades e valores</li>
+      <li>Verifique o <strong>valor total</strong> da requisição destacado em verde</li>
+      <li>Leia o alerta sobre reserva de saldo — ao salvar, o saldo é imediatamente reservado</li>
+      <li>Escolha uma das ações: <strong>Salvar como Rascunho</strong> ou <strong>Enviar para Autorização</strong></li>
+    </ul>
+
+    <div class="screen-wrapper">
+      <div class="screen-label">Tela — Etapa 4: Resumo da Requisição</div>
+      <div class="screen">
+        <div class="browser-bar">
+          <div class="browser-dots"><span></span><span></span><span></span></div>
+          <div class="browser-url">portaldcp.gov.br/orgao/almoxarifado/requisicoes/nova</div>
+        </div>
+        <div class="app-main" style="background:#f8fafc;">
+          <!-- Step progress -->
+          <div class="step-progress">
+            <div class="step-item">
+              <div class="step-circle done">✓</div>
+              <span class="step-name done">Contrato</span>
+            </div>
+            <div class="step-connector done"></div>
+            <div class="step-item">
+              <div class="step-circle done">✓</div>
+              <span class="step-name done">Itens</span>
+            </div>
+            <div class="step-connector done"></div>
+            <div class="step-item">
+              <div class="step-circle done">✓</div>
+              <span class="step-name done">Dados</span>
+            </div>
+            <div class="step-connector done"></div>
+            <div class="step-item">
+              <div class="step-circle active">4</div>
+              <span class="step-name active">Resumo</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">✅ Resumo da Requisição</div>
+              <div class="card-desc">Confira os dados antes de enviar para autorização</div>
+            </div>
+            <div class="card-body">
+
+              <!-- Informações gerais -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+                <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;">
+                  <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Tipo</div>
+                  <div style="font-size:13px;font-weight:600;margin-top:3px;">Material</div>
+                </div>
+                <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;">
+                  <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Prioridade</div>
+                  <div style="font-size:13px;font-weight:600;margin-top:3px;">Normal</div>
+                </div>
+                <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;">
+                  <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Contrato</div>
+                  <div style="font-size:13px;font-weight:600;margin-top:3px;">015/2025 — Distribuidora Central Ltda.</div>
+                </div>
+                <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;">
+                  <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Setor Solicitante</div>
+                  <div style="font-size:13px;font-weight:600;margin-top:3px;">ADM01 — Secretaria de Administração</div>
+                </div>
+                <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;">
+                  <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Local de Entrega</div>
+                  <div style="font-size:13px;font-weight:600;margin-top:3px;">Almoxarifado Central — Sala 102</div>
+                </div>
+                <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;">
+                  <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Data de Necessidade</div>
+                  <div style="font-size:13px;font-weight:600;margin-top:3px;">30/05/2026</div>
+                </div>
+              </div>
+
+              <!-- Justificativa -->
+              <div style="background:#f9fafb;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+                <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px;">Justificativa</div>
+                <div style="font-size:13px;color:#374151;line-height:1.5;">Solicita-se o fornecimento dos itens selecionados para recomposição do estoque do setor, garantindo a continuidade das atividades administrativas e evitando interrupção no atendimento das demandas rotineiras.</div>
+              </div>
+
+              <!-- Tabela de itens -->
+              <div style="margin-bottom:12px;">
+                <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Itens (2)</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Descrição</th>
+                      <th style="text-align:right;">Qtd</th>
+                      <th style="text-align:right;">Valor Unit.</th>
+                      <th style="text-align:right;">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>1</td>
+                      <td>Papel A4 75g/m² — Resma com 500 folhas</td>
+                      <td style="text-align:right;">20 Resma</td>
+                      <td style="text-align:right;">R$ 28,90</td>
+                      <td style="text-align:right;font-weight:600;">R$ 578,00</td>
+                    </tr>
+                    <tr>
+                      <td>2</td>
+                      <td>Caneta esferográfica azul — Caixa com 50 un.</td>
+                      <td style="text-align:right;">5 Cx</td>
+                      <td style="text-align:right;">R$ 42,50</td>
+                      <td style="text-align:right;font-weight:600;">R$ 212,50</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Total -->
+              <div class="summary-box">
+                <span class="summary-label">Valor Total da Requisição</span>
+                <span class="summary-value">R$ 790,50</span>
+              </div>
+
+              <!-- Alerta de reserva de saldo -->
+              <div class="alert-box alert-warning" style="margin-top:12px;">
+                <span style="font-size:16px;">⚠️</span>
+                <div><strong>Importante:</strong> Ao criar a requisição, o saldo será <strong>reservado imediatamente</strong> no contrato.</div>
+              </div>
+
+              <!-- Botões de ação -->
+              <div class="step-nav" style="margin-top:20px;">
+                <button class="btn btn-ghost">← Voltar aos Dados</button>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn btn-secondary">
+                    💾 Salvar como Rascunho
+                  </button>
+                  <button class="btn btn-success">
+                    ✉️ Enviar para Autorização
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Diferença entre Rascunho e Envio para Autorização</strong>
+      <ul style="margin-top:6px;padding-left:18px;font-size:13px;line-height:1.8;">
+        <li><strong>Salvar como Rascunho</strong> — A requisição fica com status <em>Rascunho</em> e pode ser editada ou excluída. O saldo já é reservado. Pode ser enviada para autorização mais tarde.</li>
+        <li><strong>Enviar para Autorização</strong> — A requisição vai direto para <em>Aguardando Autorização</em>. O gestor responsável será notificado para aprovar ou negar.</li>
+      </ul>
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════ SEÇÃO 8 ════════════════════════════════ -->
+  <div class="section" id="s8">
+    <div class="section-header">
+      <div class="section-number">8</div>
+      <div>
+        <div class="section-title">Após o Envio — Ciclo de Status</div>
+        <div class="section-subtitle">O que acontece depois que a requisição é enviada para autorização</div>
+      </div>
+    </div>
+
+    <p style="font-size:14px;color:#374151;margin-bottom:20px;">
+      Após enviada, a requisição fica visível na lista com o status <strong>Aguardando Autorização</strong>. O gestor pode autorizar, negar ou cancelar a requisição.
+    </p>
+
+    <div class="screen-wrapper">
+      <div class="screen-label">Tela — Detalhe da Requisição (após envio)</div>
+      <div class="screen">
+        <div class="browser-bar">
+          <div class="browser-dots"><span></span><span></span><span></span></div>
+          <div class="browser-url">portaldcp.gov.br/orgao/almoxarifado/requisicoes</div>
+        </div>
+        <div class="app-main" style="background:#f8fafc;">
+          <div class="page-header" style="margin-bottom:14px;">
+            <div>
+              <div class="page-title">Requisições</div>
+              <div class="page-desc">Acompanhe o status das requisições enviadas</div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-secondary btn-sm">🛒 Pedido de Compras</button>
+              <button class="btn btn-primary btn-sm">+ Nova Requisição</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nº</th>
+                  <th>Tipo</th>
+                  <th>Contrato</th>
+                  <th>Setor</th>
+                  <th>Prioridade</th>
+                  <th>Valor Total</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td><span class="badge badge-outline">REQ-2026-004</span></td>
+                  <td><span class="badge badge-blue">Material</span></td>
+                  <td style="font-size:12px;color:#6b7280;">015/2025</td>
+                  <td style="font-size:12px;">Secretaria Admin.</td>
+                  <td><span class="badge badge-green">Normal</span></td>
+                  <td style="font-weight:600;color:#059669;">R$ 790,50</td>
+                  <td><span class="badge badge-yellow">⏳ Aguardando</span></td>
+                  <td>
+                    <div class="action-btns">
+                      <div class="action-btn" title="Ver detalhes">👁️</div>
+                      <div class="action-btn" title="Histórico">📋</div>
+                      <div class="action-btn" title="Cancelar">✖️</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge-outline">REQ-2026-001</span></td>
+                  <td><span class="badge badge-blue">Material</span></td>
+                  <td style="font-size:12px;color:#6b7280;">015/2025</td>
+                  <td style="font-size:12px;">TI</td>
+                  <td><span class="badge badge-red">Urgente</span></td>
+                  <td style="font-weight:600;">R$ 12.200,00</td>
+                  <td><span class="badge badge-green">✅ Autorizada</span></td>
+                  <td>
+                    <div class="action-btns">
+                      <div class="action-btn">👁️</div>
+                      <div class="action-btn" title="Gerar Ordem">📦</div>
+                      <div class="action-btn" title="Download PDF">📄</div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Status possíveis após envio -->
+          <div style="margin-top:20px;">
+            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:10px;">Status possíveis e ações disponíveis:</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div style="background:white;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:8px;padding:12px 14px;">
+                <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;">⏳ Aguardando Autorização</div>
+                <div style="font-size:12px;color:#374151;">Ações: Ver detalhes · Histórico · Cancelar</div>
+              </div>
+              <div style="background:white;border:1px solid #bbf7d0;border-left:4px solid #10b981;border-radius:8px;padding:12px 14px;">
+                <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:4px;">✅ Autorizada</div>
+                <div style="font-size:12px;color:#374151;">Ações: Ver · Gerar Ordem · Download PDF · Enviar ao Fornecedor</div>
+              </div>
+              <div style="background:white;border:1px solid #fecaca;border-left:4px solid #ef4444;border-radius:8px;padding:12px 14px;">
+                <div style="font-size:12px;font-weight:700;color:#b91c1c;margin-bottom:4px;">❌ Negada</div>
+                <div style="font-size:12px;color:#374151;">Ações: Ver motivo · Reativar (volta a Rascunho)</div>
+              </div>
+              <div style="background:white;border:1px solid #e9d5ff;border-left:4px solid #7c3aed;border-radius:8px;padding:12px 14px;">
+                <div style="font-size:12px;font-weight:700;color:#6b21a8;margin-bottom:4px;">📦 Ordem Gerada</div>
+                <div style="font-size:12px;color:#374151;">Ações: Ver ordem · Download PDF · Histórico</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tip">
+      <strong>Gerar Ordem de Fornecimento</strong>
+      Após a autorização, o botão <em>Gerar Ordem</em> fica disponível. Ao clicar, o sistema cria automaticamente uma <strong>Ordem de Fornecimento</strong> vinculada à requisição e gera o PDF para envio ao fornecedor.
+    </div>
+
+    <div class="callout">
+      <strong>Resumo das Ações por Perfil</strong>
+      <table style="width:100%;font-size:12px;margin-top:8px;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:6px 10px;background:#eff6ff;border-bottom:2px solid #bfdbfe;">Perfil</th>
+            <th style="text-align:left;padding:6px 10px;background:#eff6ff;border-bottom:2px solid #bfdbfe;">Ações disponíveis</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;font-weight:600;">Solicitante</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151;">Criar · Salvar rascunho · Enviar para autorização · Cancelar · Ver detalhes · Histórico</td>
+          </tr>
+          <tr>
+            <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;font-weight:600;">Gestor / Autorizador</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151;">Autorizar · Negar (com motivo) · Ver detalhes · Gerar Ordem · Enviar ao Fornecedor · Download PDF</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Rodapé -->
+  <div style="text-align:center;padding:32px 0 0;border-top:1px solid #e5e7eb;margin-top:32px;">
+    <div style="font-size:13px;color:#9ca3af;">Portal DCP — Módulo Almoxarifado · Manual gerado em 04/05/2026</div>
+    <div style="font-size:12px;color:#d1d5db;margin-top:4px;">Rota: /orgao/almoxarifado/requisicoes/nova · Tipo: MATERIAL · Categoria: COMPRAS</div>
+  </div>
+
+</div>
+</body>
+</html>
