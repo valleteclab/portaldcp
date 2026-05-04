@@ -135,6 +135,16 @@ export class NotificacoesController {
   }
 
   /**
+   * Resumo de medições pendentes para exibir no briefing pós-login.
+   * Retorna contagens e fornecedores por status, sem expor dados sensíveis.
+   */
+  @Get('resumo-login')
+  async getResumoLogin(@Req() request: { user: JwtPayload }) {
+    const orgaoId = this.getOrgaoId(request.user);
+    return this.notificacoesService.getResumoLogin(orgaoId);
+  }
+
+  /**
    * Limpa (deleta) todas as notificações do usuário logado
    */
   @Delete('limpar-todas')
