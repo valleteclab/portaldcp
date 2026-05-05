@@ -898,48 +898,55 @@ ${fiscalNome}`;
   // ============================================================================
 
   async getResumoLogin(orgaoId: string): Promise<ResumoLoginDto> {
-    const baseQuery = () =>
+    // Usa getRawMany + COALESCE para resolver o nome do fornecedor:
+    // fornecedor_nome na medição pode ser nulo → fallback via contrato.fornecedor.razao_social
+    const baseQuery = (dataCol: string) =>
       this.medicaoRepository
         .createQueryBuilder('m')
         .innerJoin('m.contrato', 'c')
+        .leftJoin('c.fornecedor', 'f')
         .where('c.orgao_id = :orgaoId', { orgaoId })
-        .select(['m.id', 'm.numero_medicao', 'm.fornecedor_nome', 'm.data_submissao', 'm.ateste_data', 'm.data_aprovacao']);
+        .select('m.id', 'id')
+        .addSelect('m.numero_medicao', 'numero')
+        .addSelect('COALESCE(NULLIF(m.fornecedor_nome, \'\'), f.razao_social)', 'fornecedor')
+        .addSelect(dataCol, 'data');
 
     const [aguardandoAteste, aguardandoAprovacao, aprovadas] = await Promise.all([
-      baseQuery()
+      baseQuery('m.data_submissao')
         .andWhere('m.status IN (:...statuses)', {
           statuses: [StatusMedicao.SUBMETIDA, StatusMedicao.AGUARDANDO_ATESTE],
         })
         .orderBy('m.data_submissao', 'ASC')
-        .take(10)
-        .getMany(),
+        .limit(10)
+        .getRawMany(),
 
-      baseQuery()
+      baseQuery('m.ateste_data')
         .andWhere('m.status = :status', { status: StatusMedicao.AGUARDANDO_APROVACAO })
         .orderBy('m.ateste_data', 'ASC')
-        .take(10)
-        .getMany(),
+        .limit(10)
+        .getRawMany(),
 
-      baseQuery()
+      baseQuery('m.data_aprovacao')
         .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
         .andWhere('m.enviado_contabilidade = false')
         .orderBy('m.data_aprovacao', 'ASC')
-        .take(10)
-        .getMany(),
+        .limit(10)
+        .getRawMany(),
     ]);
 
-    const toItem = (m: Medicao, dataField: keyof Medicao): ResumoLoginItem => ({
-      id: m.id,
-      numero: m.numero_medicao,
-      fornecedor: m.fornecedor_nome || 'Fornecedor não identificado',
-      data: (m[dataField] as Date) ?? null,
+    // getRawMany retorna objetos planos com as aliases definidas no select
+    const toItem = (row: Record<string, any>): ResumoLoginItem => ({
+      id: row.id,
+      numero: Number(row.numero),
+      fornecedor: row.fornecedor || 'Fornecedor não informado',
+      data: row.data ?? null,
     });
 
     return {
       tem_pendencias: aguardandoAteste.length > 0 || aguardandoAprovacao.length > 0 || aprovadas.length > 0,
-      aguardando_ateste: aguardandoAteste.map((m) => toItem(m, 'data_submissao')),
-      aguardando_aprovacao: aguardandoAprovacao.map((m) => toItem(m, 'ateste_data')),
-      aprovadas_nao_entregues: aprovadas.map((m) => toItem(m, 'data_aprovacao')),
+      aguardando_ateste: aguardandoAteste.map(toItem),
+      aguardando_aprovacao: aguardandoAprovacao.map(toItem),
+      aprovadas_nao_entregues: aprovadas.map(toItem),
     };
   }
 }

@@ -113,7 +113,7 @@ export function MedicoesBriefingModal() {
 
   function irParaMedicoes() {
     fechar();
-    router.push('/orgao/medicoes');
+    router.push('/orgao/medicoes-v2');
   }
 
   if (!resumo) return null;
