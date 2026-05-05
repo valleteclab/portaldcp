@@ -111,14 +111,20 @@ export class GeradorPdfService {
           doc.fontSize(9).font('Helvetica').fillColor('#111827').text(valor || '-', x + labelW, y, { width: w });
         };
 
+        const alturaLinha = (texto: string, largura: number) => {
+          doc.fontSize(9).font('Helvetica');
+          return Math.max(18, doc.heightOfString(texto || '-', { width: largura }) + 6);
+        };
+
         let rowY = doc.y;
 
         campo('Número da OS:', numOS, marginL, rowY, valueW);
         campo('Data Autorização:', dadosOS.data_autorizacao ? new Date(dadosOS.data_autorizacao).toLocaleDateString('pt-BR') : '-', col2X, rowY, valueW);
-        rowY += 16;
+        rowY += 18;
 
-        campo('Órgão:', (orgao.nome || '-').toUpperCase(), marginL, rowY, contentW - labelW);
-        rowY += 16;
+        const nomeOrgao = (orgao.nome || '-').toUpperCase();
+        campo('Órgão:', nomeOrgao, marginL, rowY, contentW - labelW);
+        rowY += alturaLinha(nomeOrgao, contentW - labelW);
 
         const tipoInstrumentoLabels: Record<string, string> = {
           CONTRATO: 'Contrato', NOTA_EMPENHO: 'Nota de Empenho', ORDEM_SERVICO: 'Ordem de Serviço',
@@ -132,30 +138,32 @@ export class GeradorPdfService {
           if (dadosOS.contrato?.fornecedor?.cpf_cnpj) {
             campo('CNPJ/CPF:', dadosOS.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
           }
-          rowY += 16;
+          rowY += 18;
         }
 
         if (dadosOS.contrato?.numero_processo) {
           campo('Proc. Administrativo:', dadosOS.contrato.numero_processo, marginL, rowY, contentW - labelW);
-          rowY += 16;
+          rowY += alturaLinha(dadosOS.contrato.numero_processo, contentW - labelW);
         }
 
         if (dadosOS.contrato?.fornecedor?.razao_social) {
-          campo('Fornecedor:', (dadosOS.contrato.fornecedor.razao_social || '-').toUpperCase(), marginL, rowY, contentW - labelW);
-          rowY += 16;
+          const nomeForn = (dadosOS.contrato.fornecedor.razao_social || '-').toUpperCase();
+          campo('Fornecedor:', nomeForn, marginL, rowY, contentW - labelW);
+          rowY += alturaLinha(nomeForn, contentW - labelW);
         }
 
         if (dadosOS.setor_solicitante) {
+          const altSetor = alturaLinha(dadosOS.setor_solicitante, valueW);
           campo('Setor:', dadosOS.setor_solicitante, marginL, rowY, valueW);
           if (dadosOS.prioridade) {
             campo('Prioridade:', dadosOS.prioridade, col2X, rowY, valueW);
           }
-          rowY += 16;
+          rowY += altSetor;
         }
 
         if (dadosOS.local_execucao) {
           campo('Local de Execução:', dadosOS.local_execucao, marginL, rowY, contentW - labelW);
-          rowY += 16;
+          rowY += alturaLinha(dadosOS.local_execucao, contentW - labelW);
         }
 
         // ── EMPENHOS VINCULADOS ──────────────────────────────────────────────
@@ -168,7 +176,7 @@ export class GeradorPdfService {
           if (numsEmpenho.length > 0) {
             const empenhoStr = numsEmpenho.map(n => `#${n}`).join(', ');
             campo('Nota de Empenho:', empenhoStr, marginL, rowY, contentW - labelW);
-            rowY += 16;
+            rowY += alturaLinha(empenhoStr, contentW - labelW);
           }
         }
 
@@ -371,14 +379,20 @@ export class GeradorPdfService {
           doc.fontSize(9).font('Helvetica').fillColor('#111827').text(valor || '-', x + labelW, y, { width: w });
         };
 
+        const alturaLinha = (texto: string, largura: number) => {
+          doc.fontSize(9).font('Helvetica');
+          return Math.max(18, doc.heightOfString(texto || '-', { width: largura }) + 6);
+        };
+
         let rowY = doc.y;
 
         campo('Número:', numOF, marginL, rowY, valueW);
         campo('Data Emissão:', ordem.data_emissao ? new Date(ordem.data_emissao).toLocaleDateString('pt-BR') : '-', col2X, rowY, valueW);
-        rowY += 16;
+        rowY += 18;
 
-        campo('Órgão:', (orgao.nome || '-').toUpperCase(), marginL, rowY, contentW - labelW);
-        rowY += 16;
+        const nomeOrgaoOF = (orgao.nome || '-').toUpperCase();
+        campo('Órgão:', nomeOrgaoOF, marginL, rowY, contentW - labelW);
+        rowY += alturaLinha(nomeOrgaoOF, contentW - labelW);
 
         const tipoInstrumentoLabelsOF: Record<string, string> = {
           CONTRATO: 'Contrato', NOTA_EMPENHO: 'Nota de Empenho', ORDEM_SERVICO: 'Ordem de Serviço',
@@ -392,35 +406,37 @@ export class GeradorPdfService {
           if (ordem.contrato?.fornecedor?.cpf_cnpj) {
             campo('CNPJ/CPF:', ordem.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
           }
-          rowY += 16;
+          rowY += 18;
         }
 
         if (ordem.contrato?.numero_processo) {
           campo('Proc. Administrativo:', ordem.contrato.numero_processo, marginL, rowY, contentW - labelW);
-          rowY += 16;
+          rowY += alturaLinha(ordem.contrato.numero_processo, contentW - labelW);
         }
 
         if (ordem.contrato?.fornecedor?.razao_social) {
-          campo('Fornecedor:', (ordem.contrato.fornecedor.razao_social || '-').toUpperCase(), marginL, rowY, contentW - labelW);
-          rowY += 16;
+          const nomeFornOF = (ordem.contrato.fornecedor.razao_social || '-').toUpperCase();
+          campo('Fornecedor:', nomeFornOF, marginL, rowY, contentW - labelW);
+          rowY += alturaLinha(nomeFornOF, contentW - labelW);
         }
 
         if (ordem.requisicao?.setor_solicitante) {
+          const altSetorOF = alturaLinha(ordem.requisicao.setor_solicitante, valueW);
           campo('Setor:', ordem.requisicao.setor_solicitante, marginL, rowY, valueW);
           if (ordem.requisicao?.prioridade) {
             campo('Prioridade:', ordem.requisicao.prioridade, col2X, rowY, valueW);
           }
-          rowY += 16;
+          rowY += altSetorOF;
         }
 
         if (ordem.local_entrega) {
           campo('Local de Entrega:', ordem.local_entrega, marginL, rowY, contentW - labelW);
-          rowY += 16;
+          rowY += alturaLinha(ordem.local_entrega, contentW - labelW);
         }
 
         if (ordem.requisicao?.usuario_solicitante_nome) {
           campo('Solicitante:', ordem.requisicao.usuario_solicitante_nome, marginL, rowY, contentW - labelW);
-          rowY += 16;
+          rowY += alturaLinha(ordem.requisicao.usuario_solicitante_nome, contentW - labelW);
         }
 
         // ── EMPENHOS VINCULADOS ──────────────────────────────────────────────
@@ -434,7 +450,7 @@ export class GeradorPdfService {
           if (numsEmpenho.length > 0) {
             const empenhoStr = numsEmpenho.map(n => `#${n}`).join(', ');
             campo('Nota de Empenho:', empenhoStr, marginL, rowY, contentW - labelW);
-            rowY += 16;
+            rowY += alturaLinha(empenhoStr, contentW - labelW);
           }
         }
 
