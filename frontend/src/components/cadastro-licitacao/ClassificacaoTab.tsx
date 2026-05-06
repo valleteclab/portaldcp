@@ -77,18 +77,39 @@ interface ClassificacaoTabProps {
   orgaoId?: string
 }
 
+// Limites de valor para Dispensa Eletrônica (Art. 75, Lei 14.133/2021)
+const LIMITES_DISPENSA: Record<string, { limite: number; artigo: string; descricao: string }> = {
+  OBRA: { limite: 100000, artigo: 'Art. 75, I', descricao: 'obras e serviços de engenharia' },
+  SERVICO_ENGENHARIA: { limite: 100000, artigo: 'Art. 75, I', descricao: 'obras e serviços de engenharia' },
+  COMPRA: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
+  SERVICO: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
+  LOCACAO: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
+  ALIENACAO: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
+}
+
 export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabProps) {
   const [itensPca, setItensPca] = useState<ItemPCA[]>([])
   const [loadingPca, setLoadingPca] = useState(false)
   const [showPcaSelector, setShowPcaSelector] = useState(false)
-  
+
   // Filtros do PCA
   const [filtroPcaAno, setFiltroPcaAno] = useState<number>(new Date().getFullYear())
   const [filtroPcaTipo, setFiltroPcaTipo] = useState<string>('TODOS')
   const [filtroPcaBusca, setFiltroPcaBusca] = useState('')
 
+  const isDispensaEletronica = dados.modalidade === 'DISPENSA_ELETRONICA'
+
   const updateField = (field: keyof Classificacao, value: any) => {
     onChange({ ...dados, [field]: value })
+  }
+
+  // Ao selecionar DISPENSA_ELETRONICA, forçar modo ABERTO e critério MENOR_PRECO
+  const handleModalidadeChange = (v: string) => {
+    if (v === 'DISPENSA_ELETRONICA') {
+      onChange({ ...dados, modalidade: v, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO' })
+    } else {
+      updateField('modalidade', v)
+    }
   }
 
   // Carregar itens do PCA quando modo é POR_LICITACAO
@@ -172,12 +193,39 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Alerta de regras da Dispensa Eletrônica */}
+        {isDispensaEletronica && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-sm text-amber-800 space-y-1">
+                <p className="font-semibold">Dispensa Eletrônica — Art. 75, §3º da Lei 14.133/2021</p>
+                <ul className="list-disc list-inside space-y-1 text-amber-700">
+                  <li>Obras e serviços de engenharia: valor estimado até <strong>R$ 100.000,00</strong> (Art. 75, I)</li>
+                  <li>Compras e outros serviços: valor estimado até <strong>R$ 50.000,00</strong> (Art. 75, II)</li>
+                  <li>Prazo mínimo para propostas: <strong>3 dias úteis</strong> (IN SEGES/ME 67/2021, Art. 4º)</li>
+                  <li>Modo de disputa: <strong>Aberto</strong> (cotação eletrônica pública)</li>
+                  <li>Critério de julgamento: <strong>Menor Preço</strong></li>
+                </ul>
+              </div>
+            </div>
+            {dados.tipo_contratacao && LIMITES_DISPENSA[dados.tipo_contratacao] && (
+              <div className="flex items-center gap-2 mt-2 p-2 bg-amber-100 rounded text-xs text-amber-900 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" />
+                Limite legal para {LIMITES_DISPENSA[dados.tipo_contratacao].descricao}:{' '}
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(LIMITES_DISPENSA[dados.tipo_contratacao].limite)}{' '}
+                ({LIMITES_DISPENSA[dados.tipo_contratacao].artigo})
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Modalidade *</Label>
-            <Select 
-              value={dados.modalidade} 
-              onValueChange={(v) => updateField('modalidade', v)}
+            <Select
+              value={dados.modalidade}
+              onValueChange={handleModalidadeChange}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a modalidade" />
@@ -192,8 +240,8 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
 
           <div className="space-y-2">
             <Label>Tipo de Contratação *</Label>
-            <Select 
-              value={dados.tipo_contratacao} 
+            <Select
+              value={dados.tipo_contratacao}
               onValueChange={(v) => updateField('tipo_contratacao', v)}
             >
               <SelectTrigger>
@@ -209,9 +257,10 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
 
           <div className="space-y-2">
             <Label>Critério de Julgamento *</Label>
-            <Select 
-              value={dados.criterio_julgamento} 
+            <Select
+              value={dados.criterio_julgamento}
               onValueChange={(v) => updateField('criterio_julgamento', v)}
+              disabled={isDispensaEletronica}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o critério" />
@@ -222,13 +271,17 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                 ))}
               </SelectContent>
             </Select>
+            {isDispensaEletronica && (
+              <p className="text-xs text-amber-700">Fixado em Menor Preço para Dispensa Eletrônica</p>
+            )}
           </div>
 
           <div className="space-y-2">
             <Label>Modo de Disputa *</Label>
-            <Select 
-              value={dados.modo_disputa} 
+            <Select
+              value={dados.modo_disputa}
               onValueChange={(v) => updateField('modo_disputa', v)}
+              disabled={isDispensaEletronica}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o modo" />
@@ -239,6 +292,9 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                 ))}
               </SelectContent>
             </Select>
+            {isDispensaEletronica && (
+              <p className="text-xs text-amber-700">Fixado em Aberto para Dispensa Eletrônica</p>
+            )}
           </div>
         </div>
 
