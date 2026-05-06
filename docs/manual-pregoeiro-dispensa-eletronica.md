@@ -86,7 +86,30 @@ CONTRATOS GERADOS AUTOMATICAMENTE (1 por fornecedor vencedor)
 
 ### Tela inicial — Escolha como iniciar
 
-O sistema apresenta três opções:
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Portal DCP                                         [👤 Pregoeiro José]  ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║   Nova Licitação                                                         ║
+║   Escolha como deseja iniciar o processo                                 ║
+║                                                                          ║
+║   ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐    ║
+║   │       ✏️           │  │       ⬇️           │  │       📤          │   ║
+║   │                   │  │                   │  │                   │    ║
+║   │ Elaborar no       │  │ Importar de       │  │ Anexar            │    ║
+║   │ Sistema           │  │ Outro Sistema     │  │ Documentos        │    ║
+║   │                   │  │                   │  │                   │    ║
+║   │ Crie todos os     │  │ Importe um        │  │ A fase interna    │    ║
+║   │ documentos da     │  │ processo já       │  │ já foi feita fora │    ║
+║   │ fase interna      │  │ existente do      │  │ do sistema. Apenas│    ║
+║   │ diretamente aqui  │  │ PNCP, SEI, ...    │  │ anexe documentos. │    ║
+║   │                   │  │                   │  │                   │    ║
+║   │   [ Selecionar ]  │  │   [ Selecionar ]  │  │   [ Selecionar ]  │    ║
+║   └───────────────────┘  └───────────────────┘  └───────────────────┘    ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 | Opção | Quando usar |
 |-------|------------|
@@ -101,6 +124,42 @@ O sistema apresenta três opções:
 ## 4. Passo 2 — Fase Interna (Planejamento)
 
 Ao escolher **"Elaborar no Sistema"**, você acessa a **Fase Interna** com 5 etapas obrigatórias:
+
+### Tela da Fase Interna
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Nova Licitação - Fase Interna                                           ║
+║  Art. 12, Lei 14.133/2021 — Planejamento obrigatório antes do edital     ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  Progresso: ▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░ 40% (2 de 5 etapas)                 ║
+║                                                                          ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │  ✅ 📋 Etapa 1: Planejamento                            [Editar] │    ║
+║  │     Estudo Técnico Preliminar e Análise de Riscos                │    ║
+║  │     • ETP_compras_2026.pdf  (✓ enviado)                          │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │  ✅ 📄 Etapa 2: Termo de Referência                     [Editar] │    ║
+║  │     Especificação do objeto e requisitos                         │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │  ⏳ 🔍 Etapa 3: Pesquisa de Preços                      [Abrir]  │    ║
+║  │     Cotações e estimativa de valor                               │    ║
+║  │                                                                  │    ║
+║  │     [ ✨ Gerar com IA ]   [+ Adicionar Documento]                │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │  ⚪ ⚖️  Etapa 4: Análise Jurídica                       [Abrir]  │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │  ⚪ ✓  Etapa 5: Aprovação                               [Abrir]  │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║                                                                          ║
+║                         [ Continuar para Dados Básicos → ] (desabilitado)║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Etapas da Fase Interna
 
@@ -147,6 +206,41 @@ Preencha os campos:
 
 **Aba 2 de 6 — Campos automáticos para Dispensa Eletrônica**
 
+### Tela da aba Classificação
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  ◯ Dados Básicos │ ● Classificação │ ◯ Itens │ ◯ Cronograma │ ...        ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  Classificação                                                           ║
+║                                                                          ║
+║  Modalidade *                          Tipo de Contratação *             ║
+║  ┌────────────────────────────────┐    ┌────────────────────────────┐   ║
+║  │ Dispensa Eletrônica       ▼    │    │ Compra                ▼    │   ║
+║  └────────────────────────────────┘    └────────────────────────────┘   ║
+║                                                                          ║
+║  ╔══════════════════════════════════════════════════════════════════╗   ║
+║  ║ ⚠️  Dispensa Eletrônica — Art. 75, II da Lei 14.133/2021         ║   ║
+║  ║                                                                  ║   ║
+║  ║ Limite legal para Compras: R$ 50.000,00 (Art. 75, II)            ║   ║
+║  ║ Verifique se o valor estimado da contratação respeita o limite.  ║   ║
+║  ╚══════════════════════════════════════════════════════════════════╝   ║
+║                                                                          ║
+║  Critério de Julgamento *              Modo de Disputa *                 ║
+║  ┌────────────────────────────────┐    ┌────────────────────────────┐   ║
+║  │ Menor Preço          🔒 (fixo) │    │ Aberto         🔒 (fixo)   │   ║
+║  └────────────────────────────────┘    └────────────────────────────┘   ║
+║  ℹ️ Fixado em Menor Preço para        ℹ️ Fixado em Aberto para           ║
+║    Dispensa Eletrônica                  Dispensa Eletrônica              ║
+║                                                                          ║
+║  ─── Tratamento Diferenciado ME/EPP (LC 123/2006) ───                    ║
+║  ( ) Sem Benefício     (•) Exclusivo ME/EPP    ( ) Cota Reservada        ║
+║                                                                          ║
+║  [ ← Anterior ]  [ Salvar Rascunho ]                       [ Próximo → ]║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
 ### Campos a preencher manualmente
 
 | Campo | Valor para Dispensa Eletrônica |
@@ -186,6 +280,33 @@ Configure se haverá benefício para Microempresas e Empresas de Pequeno Porte (
 
 **Aba 3 de 6**
 
+### Tela da aba Itens
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  ◯ Dados Básicos │ ◯ Classificação │ ● Itens │ ◯ Cronograma │ ...        ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  Itens da Licitação                                                      ║
+║                                                                          ║
+║  [📚 Catálogo ComprasGov]  [📊 Importar Planilha]  [+ Adicionar Manual]  ║
+║                                                                          ║
+║  ┌───┬──────────────────────────┬──────┬─────────┬──────────┬─────────┐  ║
+║  │ # │ Descrição                │ Qtd  │ Unidade │ V. Unit. │ Subtot. │  ║
+║  ├───┼──────────────────────────┼──────┼─────────┼──────────┼─────────┤  ║
+║  │ 1 │ Papel A4 75g/m² Branco   │ 200  │ PACOTE  │ R$ 25,00 │ 5.000,00│  ║
+║  │   │ ↳ CATMAT 12345           │      │         │          │ [✏️][🗑️]│  ║
+║  ├───┼──────────────────────────┼──────┼─────────┼──────────┼─────────┤  ║
+║  │ 2 │ Caneta esferográfica azul│ 2000 │ UNIDADE │ R$  2,00 │ 4.000,00│  ║
+║  │   │ ↳ CATMAT 67890           │      │         │          │ [✏️][🗑️]│  ║
+║  └───┴──────────────────────────┴──────┴─────────┴──────────┴─────────┘  ║
+║                                                                          ║
+║  Total estimado: R$ 9.000,00                                             ║
+║                                                                          ║
+║  [ ← Anterior ]  [ Salvar Rascunho ]                       [ Próximo → ]║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
 ### Adicionar itens
 
 Clique em **"Adicionar Manual"** ou use as opções:
@@ -213,6 +334,45 @@ Se a contratação estiver vinculada ao Plano de Contratações Anual, utilize o
 ## 8. Passo 6 — Cronograma
 
 **Aba 4 de 6**
+
+### Tela da aba Cronograma
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  ... │ ● Cronograma │ ◯ Documentos │ ◯ Configurações                     ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  Cronograma                              [🔄 Recalcular Datas]           ║
+║                                                                          ║
+║  Data de Publicação do Edital                                            ║
+║  ┌────────────────────────┐                                              ║
+║  │ 06/05/2026             │  ℹ️ A partir de hoje                         ║
+║  └────────────────────────┘                                              ║
+║                                                                          ║
+║  Limite para Impugnações                                                 ║
+║  ┌────────────────────────┐                                              ║
+║  │ 08/05/2026  10:00      │                                              ║
+║  └────────────────────────┘                                              ║
+║                                                                          ║
+║  Fim do Acolhimento de Propostas *                                       ║
+║  ┌────────────────────────┐                                              ║
+║  │ 11/05/2026  18:00      │  ⚠️ Mínimo 3 dias úteis (Art. 75, §3º)       ║
+║  └────────────────────────┘                                              ║
+║                                                                          ║
+║  Data/Hora da Sessão Pública *                                           ║
+║  ┌────────────────────────┐                                              ║
+║  │ 12/05/2026  10:00      │                                              ║
+║  └────────────────────────┘                                              ║
+║                                                                          ║
+║  ─── Linha do tempo ───                                                  ║
+║                                                                          ║
+║   06/05      08/05         11/05         12/05                           ║
+║     ●──────────●─────────────●─────────────●                             ║
+║   Publica   Impugn.       Propostas      Sessão                          ║
+║                                                                          ║
+║  [ ← Anterior ]  [ Salvar Rascunho ]                       [ Próximo → ]║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Datas obrigatórias
 
@@ -299,6 +459,36 @@ Após verificar todos os campos (indicadores verdes em todas as abas), clique em
 
 Após o encerramento do prazo de acolhimento, você analisa as propostas recebidas.
 
+### Tela de Análise de Propostas
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Análise de Propostas — DE-001/2026                                      ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  ┌─────────┬───────────┬─────────────┬─────────────┬─────────────────┐   ║
+║  │ Total: 3│ Aguard.: 1│ Classif.: 2 │ Desclas.: 0 │ Estimado: R$9k  │   ║
+║  └─────────┴───────────┴─────────────┴─────────────┴─────────────────┘   ║
+║                                                                          ║
+║  Item 1 — Papel A4 75g/m²                                                ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Fornecedor A 🔒  (sigilo até disputa)                            │    ║
+║  │ Marca: Chamex   Valor: R$ 23,00/un   Total: R$ 4.600,00          │    ║
+║  │ Prazo de entrega: 15 dias                                        │    ║
+║  │                            [✓ Classificar]   [✗ Desclassificar]  │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Fornecedor B 🔒                                                  │    ║
+║  │ Marca: Report   Valor: R$ 24,00/un   Total: R$ 4.800,00          │    ║
+║  │ Status: ✅ CLASSIFICADA                                          │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║                                                                          ║
+║  Menor Proposta: R$ 4.600,00   |   Economia: 8,0%                        ║
+║                                                                          ║
+║                          [ ▶ Concluir Análise e Iniciar Disputa ]        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
 ### Painel de Análise
 
 O sistema exibe:
@@ -336,20 +526,42 @@ Após analisar todas as propostas, clique em **"Concluir Análise e Iniciar Disp
 
 **Caminho:** Licitações → selecione a licitação → botão **"Abrir Sala de Disputa V3"**
 
-### Layout da Sala
-
-A sala de disputa possui **três colunas**:
+### Layout da Sala (vista do Pregoeiro)
 
 ```
-┌─────────────────┬──────────────────────────┬──────────────────┐
-│  FILA           │    ITEM EM FOCO           │   PAINEL         │
-│  OPERACIONAL    │                           │   LATERAL        │
-│                 │  ┌──────────────────────┐ │                  │
-│  Em disputa     │  │ Timer: 05:00         │ │  (muda conforme  │
-│  Aguardando     │  │ Melhor lance: R$...  │ │   a etapa atual) │
-│  Encerrados     │  │ Participantes: 3     │ │                  │
-│                 │  └──────────────────────┘ │                  │
-└─────────────────┴──────────────────────────┴──────────────────┘
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Sala de Disputa V3   DE-001/2026 — Aquisição de material de escritório  ║
+║  [EM_DISPUTA] [ABERTO] [Por item]  🟢 WS online   [Suspender] [Reiniciar]║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  Aguardando: 1   Em disputa: 1   Encerrados: 0   Base: IN 73/2022        ║
+║                                                                          ║
+║ ┌──────────────┬─────────────────────────────────┬─────────────────────┐ ║
+║ │ FILA         │ ITEM EM FOCO                    │ COMUNICAÇÃO         │ ║
+║ │              │                                 │                     │ ║
+║ │ Em disputa   │ Item 1 — Papel A4 75g/m²        │ 💬 Mensagens        │ ║
+║ │ ┌──────────┐ │ ┌─────────────────────────────┐ │                     │ ║
+║ │ │ Item 1   │ │ │  ⏱  Etapa aberta            │ │ [10:15] Pregoeiro:  │ ║
+║ │ │ EM_DISP. │ │ │       04:32                 │ │  Sessão aberta.     │ ║
+║ │ │ 5 lances │ │ └─────────────────────────────┘ │                     │ ║
+║ │ └──────────┘ │                                 │ [10:18] Forn. B:    │ ║
+║ │              │ ┌──────────┬──────────┬───────┐ │  Bom dia.           │ ║
+║ │ Aguardando   │ │ Melhor   │ Particip.│ Qtd.  │ │                     │ ║
+║ │ ┌──────────┐ │ │ R$4.350  │   3      │ 200   │ │ ┌─────────────────┐ │ ║
+║ │ │ ☐ Item 2 │ │ └──────────┴──────────┴───────┘ │ │ Envie mensagem  │ │ ║
+║ │ │ AGUARD.  │ │                                 │ │ oficial...      │ │ ║
+║ │ └──────────┘ │ Ritmo: ▓▓▓▓▓▓▓▓░░ 80%           │ └─────────────────┘ │ ║
+║ │              │                                 │ [ Enviar mensagem ] │ ║
+║ │ [▶ Iniciar   │ Sinais de decisão               │                     │ ║
+║ │  selec.]     │  ✓ 5 lances registrados         │                     │ ║
+║ │              │  🕒 Fase atual: Lances          │                     │ ║
+║ │              │  ⚠ 3 participantes elegíveis    │                     │ ║
+║ │              │                                 │                     │ ║
+║ │              │ [ Encerrar item ]               │                     │ ║
+║ └──────────────┴─────────────────────────────────┴─────────────────────┘ ║
+║                                                                          ║
+║  Stepper: [Abertura]→[Análise]→[●Lances]→[Negociação]→[Habilitação]→...  ║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 ### Etapas da Sessão (Stepper)
@@ -415,6 +627,43 @@ Tentar obter um preço ainda mais vantajoso com o **1º classificado** antes de 
 
 A habilitação verifica se o fornecedor vencedor possui os documentos regulatórios em dia.
 
+### Tela do Painel de Habilitação
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Habilitação — DE-001/2026                              [HABILITACAO]    ║
+║  Art. 62-70, Lei 14.133/2021                                             ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║ ┌──────────────────────────┬─────────────────────────────────────────┐   ║
+║ │ Ordem de Classificação   │ ALFA Materiais Ltda    📋 Convocado     │   ║
+║ │                          │ CNPJ: 11.111.111/0001-11 · ME · #1      │   ║
+║ │ ┌─────────────────────┐  │                Proposta: R$ 4.350,00    │   ║
+║ │ │ #1 🏆 Menor Preço   │  ├─────────────────────────────────────────┤   ║
+║ │ │ ALFA Materiais      │  │ 📄 Documentos de Habilitação            │   ║
+║ │ │ R$ 4.350,00         │  │                                         │   ║
+║ │ │ ✓ Convocado         │  │ ✅ Contrato Social         [👍] [👎]    │   ║
+║ │ └─────────────────────┘  │ ✅ CND Federais            [👍] [👎]    │   ║
+║ │ ┌─────────────────────┐  │ ✅ FGTS                    [👍] [👎]    │   ║
+║ │ │ #2 BETA Suprimentos │  │ ✅ CNDT Trabalhistas       [👍] [👎]    │   ║
+║ │ │ R$ 4.500,00         │  │ ⏳ CND Estadual            [👍] [👎]    │   ║
+║ │ │ [Convocar]          │  │ ⏳ CND Municipal           [👍] [👎]    │   ║
+║ │ └─────────────────────┘  │                                         │   ║
+║ │ ┌─────────────────────┐  │ Documentos verificados: 4/6             │   ║
+║ │ │ #3 GAMA Comércio    │  │ ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 67%                │   ║
+║ │ │ R$ 4.700,00         │  │                                         │   ║
+║ │ │ [Convocar]          │  │ ─── Decisão ───                         │   ║
+║ │ └─────────────────────┘  │                                         │   ║
+║ │                          │ [ ✓ Habilitar — avançar ] (desabilitado)│   ║
+║ │                          │                                         │   ║
+║ │                          │ Motivo da inabilitação (obrigatório):   │   ║
+║ │                          │ ┌─────────────────────────────────────┐ │   ║
+║ │                          │ │                                     │ │   ║
+║ │                          │ └─────────────────────────────────────┘ │   ║
+║ │                          │ [ ✗ Inabilitar — convocar próximo ]     │   ║
+║ └──────────────────────────┴─────────────────────────────────────────┘   ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
 ### Convocar o fornecedor
 
 1. O painel exibe o ranking dos classificados
@@ -462,6 +711,31 @@ Após a habilitação, o sistema avança para **ADJUDICAÇÃO**.
 
 Ato formal que designa ao vencedor o objeto da licitação. Na dispensa eletrônica, pode ser feita diretamente pelo pregoeiro (Art. 71, I).
 
+### Tela do Painel de Adjudicação
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Adjudicação (Art. 71)                                  [ADJUDICACAO]    ║
+║  Confirme o vencedor de cada item antes de encerrar.                     ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Item 1 — Papel A4 75g/m²                                         │    ║
+║  │ R$ 4.350,00   ALFA Materiais Ltda                                │    ║
+║  │ CNPJ: 11.111.111/0001-11                                         │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Item 2 — Caneta esferográfica azul                               │    ║
+║  │ R$ 3.600,00   BETA Suprimentos S.A.                              │    ║
+║  │ CNPJ: 22.222.222/0001-22                                         │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║                                                                          ║
+║  Total adjudicado: R$ 7.950,00 (economia de 11,67% sobre o estimado)     ║
+║                                                                          ║
+║              [ ✓ Confirmar adjudicação de todos os itens ]               ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
 ### Como adjudicar
 
 1. O painel lateral exibe todos os itens com seus respectivos vencedores
@@ -482,6 +756,39 @@ Ato formal que designa ao vencedor o objeto da licitação. Na dispensa eletrôn
 **Caminho:** Licitações → selecione a licitação → aba **Homologação**
 
 A homologação é ato da **autoridade competente** (não necessariamente o pregoeiro) que ratifica o procedimento.
+
+### Tela de Homologação
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Homologação — DE-001/2026                            [ADJUDICACAO]      ║
+║                                                          [← Voltar]      ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  ╔══════════════════════════════════════════════════════════════════╗   ║
+║  ║ ℹ️  Art. 71, §2º — Lei 14.133/2021                               ║   ║
+║  ║ A homologação é ato da autoridade competente que ratifica o      ║   ║
+║  ║ procedimento e autoriza a celebração do contrato.                ║   ║
+║  ╚══════════════════════════════════════════════════════════════════╝   ║
+║                                                                          ║
+║  Itens Adjudicados                                                       ║
+║                                                                          ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Item 1: Papel A4 75g/m²    Qtd: 200 PACOTE    Valor: R$ 4.350,00 │    ║
+║  │ Fornecedor: ALFA Materiais Ltda  CNPJ: 11.111.111/0001-11        │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Item 2: Caneta esferográfica  Qtd: 2000 UN    Valor: R$ 3.600,00 │    ║
+║  │ Fornecedor: BETA Suprimentos S.A.  CNPJ: 22.222.222/0001-22      │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║                                                                          ║
+║  Valor total adjudicado: R$ 7.950,00                                     ║
+║                                                                          ║
+║  ─── Ação de Homologação ───                                             ║
+║                                                                          ║
+║                  [ ✓ Homologar processo licitatório ]                    ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Verificar antes de homologar
 

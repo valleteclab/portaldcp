@@ -84,21 +84,93 @@ Faça upload dos documentos:
 
 ### Verificar status do cadastro
 
-Após o login, o **Painel do Fornecedor** exibe:
+### Tela do Painel do Fornecedor
 
-**Cadastro Ativo (verde):**
-> "Você está habilitado para participar de licitações"
-> Progresso: 100%
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Portal do Fornecedor                          [👤 ALFA Materiais] [Sair]║
+║  Bem-vindo ao Sistema de Licitações                                      ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  ╔═══════════════════════════════════════════════════════════════════╗  ║
+║  ║  🛡️  Cadastro Ativo                                               ║  ║
+║  ║  Você está habilitado para participar de licitações               ║  ║
+║  ║                                                                   ║  ║
+║  ║  Progresso: ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 100%                             ║  ║
+║  ║                                                                   ║  ║
+║  ║                            [Gerenciar Cadastro]                   ║  ║
+║  ║                            [Ver Licitações Disponíveis →]         ║  ║
+║  ╚═══════════════════════════════════════════════════════════════════╝  ║
+║                                                                          ║
+║  ┌──────────────┬──────────────┬──────────────┬──────────────────┐       ║
+║  │ Licitações   │ Propostas    │ Em Disputa   │ Vencidas         │       ║
+║  │ Disponíveis  │ Enviadas     │              │                  │       ║
+║  │     12       │      3       │      1       │       2          │       ║
+║  └──────────────┴──────────────┴──────────────┴──────────────────┘       ║
+║                                                                          ║
+║  📋 Medições pendentes e histórico                                       ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ Contrato CT-2025/0042  📌 Pendente                               │    ║
+║  │ Fornecimento de papel — Medição Mensal Nov/2025                  │    ║
+║  │                                              [Abrir medição →]   │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
-**Cadastro Pendente (laranja):**
-> "Complete o credenciamento para participar de licitações"
-> Lista com o que falta completar
+**Quando o cadastro está pendente, o cabeçalho aparece em laranja:**
+
+```
+╔═══════════════════════════════════════════════════════════════════╗
+║  ⚠️  Cadastro Pendente                                            ║
+║  Complete o credenciamento para participar de licitações          ║
+║                                                                   ║
+║  Progresso: ▓▓▓▓▓▓▓▓░░░░░░░░░░░░ 40%                              ║
+║                                                                   ║
+║  O que falta:                                                     ║
+║  ✗ Certidão Negativa de Débitos Federais                          ║
+║  ✗ Certidão Negativa de Débitos Trabalhistas                      ║
+║  ✗ Certidão Negativa de Débitos Estaduais                         ║
+║                                                                   ║
+║                        [Completar Cadastro]                       ║
+╚═══════════════════════════════════════════════════════════════════╝
+```
 
 > **Importante:** Você só pode enviar propostas com cadastro ativo ou com os documentos básicos em dia. Mantenha as certidões atualizadas — elas têm prazo de validade.
 
 ---
 
 ## 3. Acessar Oportunidades Disponíveis
+
+### Tela de Licitações Disponíveis
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Licitações Disponíveis                                                  ║
+║  Encontre oportunidades de negócio                                       ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  🔍 [Buscar por objeto, número ou órgão...                          ]   ║
+║                                                                          ║
+║  Modalidade: [Dispensa Eletrônica ▼]   Status: [Acolhimento ▼]           ║
+║                                                                          ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ 🏛️  Câmara Municipal de Pacatuba                                 │    ║
+║  │ Processo: DE-001/2026                  [DISPENSA ELETRÔNICA]     │    ║
+║  │ Aquisição de material de escritório (papel A4 e canetas)         │    ║
+║  │ 📍 Pacatuba — CE     💰 R$ 9.000,00     📅 Abertura: 12/05/2026  │    ║
+║  │ Fase: ACOLHIMENTO_PROPOSTAS                                      │    ║
+║  │                          [ Ver Detalhes ]   [ Enviar Proposta ]  │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+║  ┌──────────────────────────────────────────────────────────────────┐    ║
+║  │ 🏛️  Prefeitura de Barreira                                       │    ║
+║  │ Processo: DE-007/2026                  [DISPENSA ELETRÔNICA]     │    ║
+║  │ Contratação de serviços de manutenção predial                    │    ║
+║  │ 📍 Barreira — CE     💰 R$ 18.500,00    📅 Abertura: 15/05/2026  │    ║
+║  │ Fase: ACOLHIMENTO_PROPOSTAS                                      │    ║
+║  │                          [ Ver Detalhes ]   [ Enviar Proposta ]  │    ║
+║  └──────────────────────────────────────────────────────────────────┘    ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Opção A — Pelo Portal Público (sem login)
 
@@ -140,6 +212,50 @@ O botão **"Enviar Proposta"** aparece diretamente no card quando a dispensa est
 Você pode enviar proposta enquanto a dispensa está com status **"Acolhimento de Propostas"** ou **"Análise de Propostas"**.
 
 > O prazo de encerramento fica visível no card da licitação. Não perca o prazo — após o encerramento, não é possível enviar.
+
+### Tela de Envio de Proposta
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Enviar Proposta — DE-001/2026                                           ║
+║  Aquisição de material de escritório                                     ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║  ⏰ Prazo encerra em: 5 dias 12:34:56                                    ║
+║                                                                          ║
+║  Item 1 — Papel A4 75g/m² Branco                                         ║
+║  Quantidade: 200 PACOTE                                                  ║
+║                                                                          ║
+║  Marca / Modelo                       Valor Unitário *                   ║
+║  ┌──────────────────────┐             ┌──────────────────┐               ║
+║  │ Chamex Office        │             │ R$ 23,00         │               ║
+║  └──────────────────────┘             └──────────────────┘               ║
+║  Subtotal calculado: R$ 4.600,00                                         ║
+║                                                                          ║
+║  Prazo de Entrega (dias) *                                               ║
+║  ┌──────────────────────┐                                                ║
+║  │ 15                   │  ⚠️ Este prazo será o prazo do contrato        ║
+║  └──────────────────────┘                                                ║
+║                                                                          ║
+║  ─────────────────────────────────────────────────────────────────────   ║
+║  Item 2 — Caneta esferográfica azul                                      ║
+║  Quantidade: 2000 UNIDADE                                                ║
+║                                                                          ║
+║  Marca / Modelo                       Valor Unitário *                   ║
+║  ┌──────────────────────┐             ┌──────────────────┐               ║
+║  │ BIC Cristal          │             │ R$ 1,90          │               ║
+║  └──────────────────────┘             └──────────────────┘               ║
+║  Subtotal calculado: R$ 3.800,00                                         ║
+║                                                                          ║
+║  Prazo de Entrega: ┌──────┐                                              ║
+║                    │ 10   │                                              ║
+║                    └──────┘                                              ║
+║  ─────────────────────────────────────────────────────────────────────   ║
+║                                                                          ║
+║  Valor Total da Proposta: R$ 8.400,00                                    ║
+║                                                                          ║
+║  [ Salvar Rascunho ]                              [ ✓ Enviar Proposta ] ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Como enviar
 
@@ -185,6 +301,33 @@ Ao clicar em **"Enviar Proposta"**, o status muda para **ENVIADA**. Você recebe
 ## 5. Acompanhar suas Propostas
 
 **Caminho:** Login → **Minhas Propostas**
+
+### Tela "Minhas Propostas"
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Minhas Propostas                                       [+ Nova Proposta]║
+║  Gerencie suas propostas enviadas                                        ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  ┌────────┬──────────┬──────────┬───────────┬──────────────────┐         ║
+║  │ Total: │Rascunhos:│Enviadas: │Vencedoras:│ Valor Total:     │         ║
+║  │   5    │    1     │    2     │     2     │  R$ 12.350,00    │         ║
+║  └────────┴──────────┴──────────┴───────────┴──────────────────┘         ║
+║                                                                          ║
+║  🔍 [Buscar...]                       Status: [Todos ▼]                  ║
+║                                                                          ║
+║  ┌──────────────┬──────────┬──────────┬──────────┬────────────┬───────┐  ║
+║  │ Órgão        │ Processo │ Modalid. │ Fase     │ Proposta   │ Ação  │  ║
+║  ├──────────────┼──────────┼──────────┼──────────┼────────────┼───────┤  ║
+║  │ Câmara Pacat.│DE-001/26 │Disp.Elet.│EM_DISPUTA│ ENVIADA    │[Ver]  │  ║
+║  │ Pref. Barreir│DE-007/26 │Disp.Elet.│ACOLH_PROP│ ENVIADA    │[Ver]  │  ║
+║  │ Câmara Carlos│DE-012/26 │Disp.Elet.│HOMOLOGADO│ 🏆VENCEDORA│[Ver]  │  ║
+║  │ Pref. Limoeir│DE-005/26 │Disp.Elet.│CONCLUIDO │ 🏆VENCEDORA│[Ver]  │  ║
+║  │ Pref. Aracoiab│DE-003/26│Disp.Elet.│CONCLUIDO │❌DESCLASS. │[motivo│  ║
+║  └──────────────┴──────────┴──────────┴──────────┴────────────┴───────┘  ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Painel de Estatísticas
 
@@ -239,22 +382,58 @@ Na data e hora agendadas, a sessão de disputa é aberta automaticamente pelo pr
 
 ou acesse diretamente pelo link enviado por e-mail.
 
-### Layout da Sala de Disputa
-
-A sala exibe **três áreas principais**:
+### Layout da Sala de Disputa (vista do Fornecedor)
 
 ```
-┌─────────────────────────────────────────┬───────────────────┐
-│         ITEM EM FOCO (centro)           │   MEU PAINEL      │
-│                                         │   (direita)       │
-│  Timer: 05:00 ← tempo restante          │                   │
-│  Minha posição: 1º / 2º / 3º ...        │   Meus itens      │
-│  Melhor lance atual: R$ 4.350,00        │   Mensagens       │
-│  Meu melhor lance: R$ 4.600,00          │   Regras          │
-│                                         │                   │
-│  [   NOVO LANCE: R$ ___________   ]     │                   │
-│  [     ENVIAR LANCE     ]               │                   │
-└─────────────────────────────────────────┴───────────────────┘
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Sala de Disputa V3 — DE-001/2026                                        ║
+║  [EM_DISPUTA]  [ABERTO]   🟢 WS online                  [Abrir sala V2] ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║ ┌────────────────────────────────────────────┬─────────────────────────┐ ║
+║ │ ITEM EM FOCO                               │ Meus itens              │ ║
+║ │ Item 1 — Papel A4 75g/m²                   │ ┌─────────────────────┐ │ ║
+║ │                                            │ │ ▶ Item 1   🏆 Líder │ │ ║
+║ │  ╔═══════════════════════════════════════╗ │ │   Papel A4...       │ │ ║
+║ │  ║       ⏱  04:32 (Etapa aberta)         ║ │ └─────────────────────┘ │ ║
+║ │  ╚═══════════════════════════════════════╝ │ ┌─────────────────────┐ │ ║
+║ │                                            │ │   Item 2   2º lugar │ │ ║
+║ │  ┌─────────────┬─────────────┬───────────┐ │ │   Caneta...         │ │ ║
+║ │  │ Minha pos.  │ Melhor      │ Meu       │ │ └─────────────────────┘ │ ║
+║ │  │ 🥇 LIDER    │ R$ 4.350,00 │ R$ 4.350  │ │                         │ ║
+║ │  └─────────────┴─────────────┴───────────┘ │ 💬 Mensagens            │ ║
+║ │                                            │ ┌─────────────────────┐ │ ║
+║ │  Ritmo: ▓▓▓▓▓▓▓▓░░ 80%                     │ │ [10:18] Pregoeiro:  │ ║
+║ │                                            │ │ Sessão aberta.      │ ║
+║ │  ┌──────────────────────────────────────┐  │ │                     │ ║
+║ │  │ Meu painel de decisão                │  │ │ [10:25] Pregoeiro:  │ ║
+║ │  │ Diferença para o líder: -            │  │ │ Item 1 prorrogado.  │ ║
+║ │  │ Proposta inicial: R$ 4.600,00        │  │ └─────────────────────┘ │ ║
+║ │  │ Status: EM_DISPUTA                   │  │ ┌─────────────────────┐ │ ║
+║ │  └──────────────────────────────────────┘  │ │ Mensagem para o     │ ║
+║ │                                            │ │ pregoeiro...        │ ║
+║ │  ┌──────────────────────────────────────┐  │ └─────────────────────┘ │ ║
+║ │  │ NOVO LANCE                           │  │ [ Enviar mensagem ]     │ ║
+║ │  │ ┌────────────────┐                   │  │                         │ ║
+║ │  │ │ R$ 4.300,00    │  Sugestão: 4.300 │  │ Regras visíveis         │ ║
+║ │  │ └────────────────┘                   │  │ ⏱ Etapa aberta: 5 min  │ ║
+║ │  │           [ ▶ Enviar lance ]         │  │ ⏱ Prorrogação: 2 min   │ ║
+║ │  └──────────────────────────────────────┘  │                         │ ║
+║ │                                            │                         │ ║
+║ │  Meus lances neste item:                   │                         │ ║
+║ │  • R$ 4.350,00  10:25:30  [Cancelar (12s)] │                         │ ║
+║ │  • R$ 4.600,00  10:18:42  (proposta inic.) │                         │ ║
+║ └────────────────────────────────────────────┴─────────────────────────┘ ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
+### Indicadores de posição
+
+```
+🥇 LIDER         (verde)   — seu lance é o menor
+🥈 2º LUGAR      (âmbar)   — há um lance menor que o seu
+🥉 3º LUGAR      (laranja) — dois lances menores
+   Nº LUGAR      (cinza)   — fora do top 3
 ```
 
 ### Entender a posição
