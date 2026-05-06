@@ -155,11 +155,13 @@ export class ContratacaoDiretaService {
     contratacao.status = StatusContratacaoDireta.PUBLICADO;
     contratacao.data_publicacao = new Date();
 
-    // Se for dispensa eletrônica, definir prazo mínimo de 3 horas
+    // Se for dispensa eletrônica, definir prazo mínimo de 3 dias úteis (IN SEGES/ME 67/2021, Art. 4º)
+    // O aviso deve ficar disponível por no mínimo 3 dias úteis antes da abertura da sessão
     if (contratacao.dispensa_eletronica) {
       contratacao.status = StatusContratacaoDireta.EM_COTACAO;
-      if (!contratacao.prazo_propostas_horas) {
-        contratacao.prazo_propostas_horas = 3;
+      const PRAZO_MINIMO_HORAS = 72; // 3 dias úteis = 72h (conservador; dias não úteis podem prorrogar)
+      if (!contratacao.prazo_propostas_horas || contratacao.prazo_propostas_horas < PRAZO_MINIMO_HORAS) {
+        contratacao.prazo_propostas_horas = PRAZO_MINIMO_HORAS;
       }
       const prazo = new Date();
       prazo.setHours(prazo.getHours() + contratacao.prazo_propostas_horas);
