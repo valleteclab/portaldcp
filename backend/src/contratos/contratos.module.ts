@@ -60,6 +60,8 @@ import { AtualizacaoLida } from './entities/atualizacao-lida.entity';
 import { AtualizacoesService } from './atualizacoes.service';
 import { AtualizacoesController } from './atualizacoes.controller';
 import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
+import { Proposta } from '../propostas/entities/proposta.entity';
+import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 
 @Module({
   imports: [
@@ -70,6 +72,7 @@ import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
       EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
+      Proposta, PropostaItem,
     ]),
     NotificacoesModule,
     UploadModule,
