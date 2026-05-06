@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SystemConfigService } from '../system-config/system-config.service';
+import { EtpDados } from '../fase-interna/types/etp-dados.type';
+import { TrDados } from '../fase-interna/types/tr-dados.type';
+import { PesquisaPrecosDados } from '../fase-interna/types/pesquisa-precos.type';
+import { MatrizRiscosDados } from '../fase-interna/types/matriz-riscos.type';
 
 // Prompts especializados para cada tipo de documento da Lei 14.133/2021
 const PROMPTS_DOCUMENTOS: Record<string, string> = {
@@ -1186,5 +1190,358 @@ INSTRUÇÕES:
       this.logger.error(`[analisarContrato] Erro: ${error.message}`);
       throw error;
     }
+  }
+
+  // =========================================================================
+  // GERAÇÃO ESTRUTURADA (JSON tipado) — Lei 14.133/2021
+  // =========================================================================
+
+  /**
+   * Extrai JSON de uma resposta da IA, removendo cercas markdown (```json ... ```)
+   * e textos antes/depois do bloco JSON, retornando objeto tipado.
+   */
+  extrairJsonDeResposta<T>(resposta: string): T {
+    if (!resposta || typeof resposta !== 'string') {
+      throw new Error('Resposta vazia ou inválida da IA');
+    }
+
+    let limpo = resposta.trim();
+
+    // Remove cercas markdown ```json ... ``` ou ``` ... ```
+    limpo = limpo.replace(/^```(?:json|JSON)?\s*/i, '').replace(/```\s*$/i, '').trim();
+
+    // Tenta parse direto
+    try {
+      return JSON.parse(limpo) as T;
+    } catch {
+      // Fallback: extrai primeiro objeto/array JSON balanceado
+      const matchObj = limpo.match(/\{[\s\S]*\}/);
+      const matchArr = limpo.match(/\[[\s\S]*\]/);
+      const candidato = matchObj?.[0] || matchArr?.[0];
+      if (!candidato) {
+        throw new Error('Resposta da IA não contém JSON válido');
+      }
+      try {
+        return JSON.parse(candidato) as T;
+      } catch (err: any) {
+        throw new Error(`Falha ao fazer parse do JSON da IA: ${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * Invoca a IA solicitando uma resposta estritamente em JSON.
+   * Reaproveita a configuração padrão (OpenRouter) sem alterar o chat conversacional.
+   */
+  private async chatJson(systemPrompt: string, userPrompt: string): Promise<string> {
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
+
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.com.br',
+        'X-Title': 'Portal DCP',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      this.logger.error(`[chatJson] Erro OpenRouter: ${response.status} — ${error}`);
+      throw new Error(`Erro na API de IA: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || '';
+  }
+
+  /**
+   * Gera ETP estruturado (JSON tipado conforme EtpDados — 13 incisos do Art. 18, §1º).
+   */
+  async gerarEtpEstruturado(contexto: string): Promise<EtpDados> {
+    const systemPrompt = `Você é um especialista em Estudos Técnicos Preliminares (ETP) conforme a Lei 14.133/2021 (Art. 18, §1º) e IN SEGES/ME 81/2022.
+
+Sua tarefa é PREENCHER um JSON estruturado contendo TODOS os 13 incisos do ETP.
+
+REGRAS OBRIGATÓRIAS:
+1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
+2. Não invente dados sensíveis (CNPJ, valores reais): se faltar informação, escreva "[INFORMAR]" no campo string ou use 0 em campos numéricos.
+3. Use português brasileiro técnico, em todos os campos textuais com no mínimo 30 caracteres quando aplicável.
+4. Cite artigos da Lei 14.133/2021 quando relevante.
+
+SCHEMA EXATO (chaves obrigatórias):
+{
+  "descricao_necessidade": "string (I — Art. 18, §1º)",
+  "previsao_pca": {
+    "consta_no_pca": boolean,
+    "pca_id": "string opcional",
+    "item_pca": "string opcional",
+    "justificativa_se_nao": "string opcional (obrigatória se consta_no_pca=false)"
+  },
+  "requisitos_contratacao": "string (III)",
+  "estimativas_quantidades": {
+    "descricao": "string (IV)",
+    "memoria_calculo": "string",
+    "documentos_suporte": ["string"]
+  },
+  "levantamento_mercado": {
+    "alternativas_analisadas": [
+      { "descricao": "string", "vantagens": "string", "desvantagens": "string" }
+    ],
+    "solucao_escolhida": "string",
+    "justificativa_tecnica": "string",
+    "justificativa_economica": "string"
+  },
+  "estimativa_valor": {
+    "valor_total": number,
+    "moeda": "BRL",
+    "metodo_calculo": "string",
+    "referencia_pesquisa_id": "string opcional"
+  },
+  "descricao_solucao": "string (VII)",
+  "justificativa_parcelamento": {
+    "tipo": "PARCELADO" | "INTEGRAL",
+    "justificativa": "string"
+  },
+  "resultados_pretendidos": "string (IX)",
+  "providencias_previas": "string (X)",
+  "contratacoes_correlatas": [
+    { "numero_processo": "string opcional", "descricao": "string", "tipo_relacao": "CORRELATA" | "INTERDEPENDENTE" }
+  ],
+  "impactos_ambientais": {
+    "aplicavel": boolean,
+    "impactos_identificados": "string opcional",
+    "medidas_mitigadoras": "string opcional",
+    "criterios_sustentabilidade": "string opcional"
+  },
+  "posicionamento_conclusivo": {
+    "contratacao_viavel": boolean,
+    "justificativa": "string",
+    "recomendacoes": "string opcional"
+  }
+}`;
+
+    const userPrompt = `Com base no CONTEXTO abaixo, gere o ETP completo em JSON conforme o schema do system prompt.
+
+CONTEXTO:
+${contexto}
+
+Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
+
+    const resposta = await this.chatJson(systemPrompt, userPrompt);
+    return this.extrairJsonDeResposta<EtpDados>(resposta);
+  }
+
+  /**
+   * Gera TR estruturado (JSON tipado conforme TrDados — 11 elementos do Art. 6º, XXIII).
+   */
+  async gerarTrEstruturado(contexto: string): Promise<TrDados> {
+    const systemPrompt = `Você é um especialista em Termo de Referência (TR) conforme a Lei 14.133/2021 (Art. 6º, XXIII).
+
+Sua tarefa é PREENCHER um JSON estruturado contendo TODOS os 11 elementos do TR.
+
+REGRAS OBRIGATÓRIAS:
+1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
+2. Se faltar informação, use "[INFORMAR]" em strings ou 0 em números.
+3. Português brasileiro técnico, mínimo 30 caracteres em campos textuais relevantes.
+4. Cite artigos da Lei 14.133/2021 onde couber.
+
+SCHEMA EXATO:
+{
+  "definicao_objeto": {
+    "natureza": "string",
+    "descricao_detalhada": "string",
+    "prazo_contrato_meses": number,
+    "permite_prorrogacao": boolean,
+    "limite_prorrogacao": "string opcional"
+  },
+  "fundamentacao_contratacao": "string",
+  "descricao_solucao": "string",
+  "requisitos_contratacao": {
+    "requisitos_gerais": "string",
+    "sustentabilidade": "string opcional",
+    "acessibilidade": "string opcional",
+    "seguranca": "string opcional"
+  },
+  "modelo_execucao": "string",
+  "modelo_gestao": {
+    "descricao": "string",
+    "fiscal_titular": "string opcional",
+    "fiscal_substituto": "string opcional",
+    "gestor_contrato": "string opcional"
+  },
+  "criterios_medicao_pagamento": {
+    "forma_medicao": "string",
+    "periodicidade": "MENSAL" | "QUINZENAL" | "POR_ENTREGA" | "POR_ETAPA" | "OUTRA",
+    "forma_pagamento": "string",
+    "prazo_pagamento_dias": number,
+    "instrumento_medicao": "string opcional"
+  },
+  "forma_criterios_selecao": {
+    "modalidade": "string (PREGAO, DISPENSA_ELETRONICA, CONCORRENCIA, etc.)",
+    "criterio_julgamento": "string (MENOR_PRECO, TECNICA_E_PRECO, etc.)",
+    "modo_disputa": "string",
+    "requisitos_habilitacao": {
+      "juridica": ["string"],
+      "fiscal_trabalhista": ["string"],
+      "tecnica": ["string"],
+      "economica_financeira": ["string"]
+    }
+  },
+  "estimativas_valor": {
+    "valor_total": number,
+    "valor_unitario_medio": number,
+    "referencia_pesquisa_id": "string opcional",
+    "sigilo_orcamento": boolean,
+    "justificativa_sigilo": "string opcional (obrigatória se sigilo_orcamento=true)"
+  },
+  "adequacao_orcamentaria": {
+    "fonte_recurso": "string",
+    "elemento_despesa": "string",
+    "dotacao_orcamentaria": "string",
+    "exercicio_financeiro": number
+  },
+  "quantitativos": [
+    { "item_numero": number, "descricao": "string", "quantidade": number, "unidade": "string", "valor_unitario_estimado": number }
+  ]
+}`;
+
+    const userPrompt = `Com base no CONTEXTO abaixo, gere o TR completo em JSON conforme o schema do system prompt.
+
+CONTEXTO:
+${contexto}
+
+Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
+
+    const resposta = await this.chatJson(systemPrompt, userPrompt);
+    return this.extrairJsonDeResposta<TrDados>(resposta);
+  }
+
+  /**
+   * Gera Pesquisa de Preços estruturada (JSON tipado conforme PesquisaPrecosDados — Art. 23 + IN 65/2021).
+   */
+  async gerarPesquisaPrecosEstruturada(contexto: string): Promise<PesquisaPrecosDados> {
+    const systemPrompt = `Você é um especialista em Pesquisa de Preços para licitações conforme Art. 23 da Lei 14.133/2021 e IN SEGES/ME 65/2021.
+
+Sua tarefa é PREENCHER um JSON estruturado contendo os itens da pesquisa, cada um com cotações de FONTES DISTINTAS (mínimo 3 fontes diferentes por item).
+
+REGRAS OBRIGATÓRIAS:
+1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
+2. Cada item deve ter pelo menos 3 cotações de fontes DIFERENTES (campo "fonte" distinto).
+3. Não invente CNPJs reais; se desconhecidos, use "[INFORMAR]".
+4. Datas em formato ISO (YYYY-MM-DD).
+5. Valores numéricos como números (não strings).
+
+Tipos válidos para "fonte":
+PAINEL_DE_PRECOS, PNCP, CONTRATO_VIGENTE_SISTEMA, MIDIA_ESPECIALIZADA, FORNECEDOR_DIRETO, NOTA_FISCAL_ELETRONICA, OUTRA
+
+SCHEMA EXATO:
+{
+  "itens": [
+    {
+      "item_numero": number,
+      "descricao": "string",
+      "quantidade": number,
+      "unidade": "string",
+      "cotacoes": [
+        {
+          "fonte": "PAINEL_DE_PRECOS|PNCP|CONTRATO_VIGENTE_SISTEMA|MIDIA_ESPECIALIZADA|FORNECEDOR_DIRETO|NOTA_FISCAL_ELETRONICA|OUTRA",
+          "descricao_fonte": "string",
+          "url_referencia": "string opcional",
+          "data_pesquisa": "YYYY-MM-DD",
+          "fornecedor_cnpj": "string opcional (obrigatório se fonte=FORNECEDOR_DIRETO)",
+          "fornecedor_razao_social": "string opcional",
+          "valor_unitario": number,
+          "observacao": "string opcional"
+        }
+      ],
+      "metodologia": "MEDIA" | "MEDIANA" | "MENOR_VALOR" | "OUTRA",
+      "justificativa_metodologia": "string opcional (obrigatória se OUTRA)",
+      "valor_referencial": number
+    }
+  ],
+  "metodologia_geral": "string opcional",
+  "observacoes": "string opcional",
+  "valor_total_estimado": number
+}`;
+
+    const userPrompt = `Com base no CONTEXTO abaixo, gere a Pesquisa de Preços completa em JSON conforme o schema do system prompt.
+
+CONTEXTO:
+${contexto}
+
+Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
+
+    const resposta = await this.chatJson(systemPrompt, userPrompt);
+    return this.extrairJsonDeResposta<PesquisaPrecosDados>(resposta);
+  }
+
+  /**
+   * Gera Matriz de Riscos estruturada (JSON tipado conforme MatrizRiscosDados — Art. 22 da Lei 14.133/2021).
+   */
+  async gerarMatrizRiscosEstruturada(contexto: string): Promise<MatrizRiscosDados> {
+    const systemPrompt = `Você é um especialista em Análise de Riscos / Matriz de Riscos conforme Art. 22 da Lei 14.133/2021.
+
+Sua tarefa é PREENCHER um JSON estruturado contendo os riscos identificados, com probabilidade (1-5), impacto (1-5) e tratamento.
+
+REGRAS OBRIGATÓRIAS:
+1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
+2. Numere os riscos sequencialmente (numero: 1, 2, 3...).
+3. Use no mínimo 2 categorias diferentes.
+4. probabilidade e impacto: inteiros de 1 a 5 (1=muito baixa/o, 5=muito alta/o).
+5. Cada risco deve ter descricao, causa, consequencia, acoes_preventivas e acoes_contingencia preenchidos.
+
+Categorias válidas:
+TECNICO, JURIDICO, ECONOMICO_FINANCEIRO, OPERACIONAL, AMBIENTAL, SEGURANCA_TRABALHO, IMAGEM_REPUTACAO, EXTERNO_FORCA_MAIOR
+
+Responsável (alocação Art. 22, §1º): CONTRATANTE | CONTRATADO | AMBOS
+Fase aplicável: PLANEJAMENTO | SELECAO | EXECUCAO | TODAS
+Status: IDENTIFICADO | EM_TRATAMENTO | MITIGADO | MATERIALIZADO | ENCERRADO
+
+SCHEMA EXATO:
+{
+  "riscos": [
+    {
+      "id": "string (UUID ou identificador)",
+      "numero": number,
+      "categoria": "TECNICO|JURIDICO|ECONOMICO_FINANCEIRO|OPERACIONAL|AMBIENTAL|SEGURANCA_TRABALHO|IMAGEM_REPUTACAO|EXTERNO_FORCA_MAIOR",
+      "descricao": "string (o que pode acontecer)",
+      "causa": "string (por que pode acontecer)",
+      "consequencia": "string (impacto se ocorrer)",
+      "fase_aplicavel": "PLANEJAMENTO|SELECAO|EXECUCAO|TODAS",
+      "probabilidade": 1|2|3|4|5,
+      "impacto": 1|2|3|4|5,
+      "responsavel": "CONTRATANTE|CONTRATADO|AMBOS",
+      "acoes_preventivas": "string",
+      "acoes_contingencia": "string",
+      "responsavel_monitoramento": "string opcional",
+      "status": "IDENTIFICADO|EM_TRATAMENTO|MITIGADO|MATERIALIZADO|ENCERRADO",
+      "observacoes": "string opcional"
+    }
+  ],
+  "resumo_executivo": "string opcional"
+}`;
+
+    const userPrompt = `Com base no CONTEXTO abaixo, gere a Matriz de Riscos completa em JSON conforme o schema do system prompt.
+
+CONTEXTO:
+${contexto}
+
+Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
+
+    const resposta = await this.chatJson(systemPrompt, userPrompt);
+    return this.extrairJsonDeResposta<MatrizRiscosDados>(resposta);
   }
 }

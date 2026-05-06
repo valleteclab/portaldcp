@@ -1,16 +1,31 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
+import { LogFaseInterna } from './entities/log-fase-interna.entity';
 import { FaseInternaService } from './fase-interna.service';
 import { FaseInternaController } from './fase-interna.controller';
+import { AuditLogService } from './audit-log.service';
+import { DocumentoEstruturadoService } from './documento-estruturado.service';
+import { DocumentoEstruturadoController } from './documento-estruturado.controller';
+import { GeradorDocumentoService } from './gerador-documento.service';
+import { PncpPublicacaoService } from './pncp-publicacao.service';
+import { AnaliseContratosService } from './analise-contratos.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { Contrato } from '../contratos/entities/contrato.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DocumentoFaseInterna, Licitacao]),
+    TypeOrmModule.forFeature([DocumentoFaseInterna, LogFaseInterna, Licitacao, Contrato]),
   ],
-  controllers: [FaseInternaController],
-  providers: [FaseInternaService],
-  exports: [FaseInternaService],
+  controllers: [FaseInternaController, DocumentoEstruturadoController],
+  providers: [
+    FaseInternaService,
+    AuditLogService,
+    DocumentoEstruturadoService,
+    GeradorDocumentoService,
+    PncpPublicacaoService,
+    AnaliseContratosService,
+  ],
+  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService],
 })
 export class FaseInternaModule {}
