@@ -429,15 +429,18 @@ export class LicitacoesService {
 
     const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
 
-    // Gera contrato automaticamente após homologação
+    // Gera contratos automaticamente após homologação (1 por fornecedor vencedor)
     try {
-      const contrato = await this.contratosService.gerarContratoAutomatico(id);
-      if (contrato) {
-        this.logger.log(`Contrato ${contrato.numero_contrato} gerado automaticamente para licitação ${id}`);
+      const contratos = await this.contratosService.gerarContratoAutomatico(id);
+      if (contratos.length > 0) {
+        const numeros = contratos.map((c) => c.numero_contrato).join(', ');
+        this.logger.log(
+          `${contratos.length} contrato(s) gerado(s) automaticamente para licitação ${id}: ${numeros}`,
+        );
       }
     } catch (error) {
-      // Não falha a homologação se houver erro na geração do contrato
-      this.logger.error(`Erro ao gerar contrato automaticamente para licitação ${id}:`, error);
+      // Não falha a homologação se houver erro na geração dos contratos
+      this.logger.error(`Erro ao gerar contratos automaticamente para licitação ${id}:`, error);
     }
 
     return licitacaoSalva;
