@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual do Fornecedor — Dispensa Eletrônica | Portal DCP</title>
+<style>
+  :root {
+    --primary: #1d4ed8; --primary-light: #eff6ff;
+    --green: #16a34a; --green-light: #f0fdf4;
+    --amber: #d97706; --amber-light: #fffbeb;
+    --red: #dc2626; --red-light: #fef2f2;
+    --gray: #6b7280; --gray-light: #f9fafb;
+    --border: #e5e7eb; --text: #111827; --text-muted: #6b7280;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text); background: #f3f4f6; }
+  .wrapper { display: flex; min-height: 100vh; }
+  .sidebar { width: 260px; min-width: 260px; background: #064e3b; color: #a7f3d0; position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 0; }
+  .sidebar .logo { padding: 0 20px 20px; border-bottom: 1px solid #065f46; margin-bottom: 16px; }
+  .sidebar .logo h2 { color: #f0fdf4; font-size: 14px; font-weight: 700; }
+  .sidebar .logo p { color: #6ee7b7; font-size: 12px; margin-top: 2px; }
+  .sidebar nav a { display: block; padding: 8px 20px; font-size: 13px; color: #6ee7b7; text-decoration: none; border-left: 3px solid transparent; }
+  .sidebar nav a:hover { background: #065f46; color: #f0fdf4; }
+  .sidebar nav .section { padding: 12px 20px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #059669; font-weight: 600; }
+  .main { flex: 1; overflow-x: hidden; }
+  .page-header { background: white; border-bottom: 1px solid var(--border); padding: 24px 40px; }
+  .page-header .badge { display: inline-block; background: var(--green-light); color: var(--green); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; }
+  .page-header h1 { font-size: 26px; font-weight: 700; }
+  .page-header p { color: var(--text-muted); margin-top: 4px; font-size: 14px; }
+  .content { padding: 32px 40px; max-width: 1000px; }
+  .section-title { font-size: 20px; font-weight: 700; margin: 40px 0 8px; padding-top: 16px; border-top: 2px solid var(--border); }
+  .section-title:first-child { border-top: none; margin-top: 0; }
+  p { font-size: 14px; line-height: 1.6; color: #374151; margin-bottom: 12px; }
+  .alert { border-radius: var(--radius); padding: 12px 16px; margin: 16px 0; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
+  .alert-info { background: var(--primary-light); border-left: 4px solid var(--primary); color: #1e40af; }
+  .alert-warn { background: var(--amber-light); border-left: 4px solid var(--amber); color: #92400e; }
+  .alert-success { background: var(--green-light); border-left: 4px solid var(--green); color: #14532d; }
+  .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0 20px; }
+  th { background: #f8fafc; border: 1px solid var(--border); padding: 10px 14px; text-align: left; font-weight: 600; }
+  td { border: 1px solid var(--border); padding: 10px 14px; color: #4b5563; }
+  .screen { background: white; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 20px 0; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+  .screen-bar { background: #f1f5f9; border-bottom: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 6px; }
+  .screen-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .screen-bar .dot.r { background: #ef4444; } .screen-bar .dot.y { background: #f59e0b; } .screen-bar .dot.g { background: #22c55e; }
+  .screen-bar .url { flex: 1; background: white; border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 10px; font-size: 11px; color: #64748b; margin: 0 8px; font-family: monospace; }
+  .mock-nav { background: #1e293b; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .mock-nav .brand { color: white; font-weight: 700; font-size: 14px; }
+  .mock-nav .user { color: #94a3b8; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .mock-nav .user span { background: #334155; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; }
+  .mock-page { padding: 20px; }
+  .mock-h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .mock-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+  .card-grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .card-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .card-grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .card-grid5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .mock-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-amber { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-gray { background: #f3f4f6; color: #4b5563; }
+  .badge-purple { background: #ede9fe; color: #5b21b6; }
+  .badge-teal { background: #ccfbf1; color: #115e59; }
+  .badge-cyan { background: #cffafe; color: #155e75; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-green { background: var(--green); color: white; }
+  .btn-red { background: var(--red); color: white; }
+  .btn-outline { background: white; color: #374151; border: 1px solid var(--border); }
+  .btn-disabled { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn-row.right { justify-content: flex-end; }
+  .btn-row.space { justify-content: space-between; }
+  .form-row { display: grid; gap: 14px; margin-bottom: 14px; }
+  .form-row.cols2 { grid-template-columns: 1fr 1fr; }
+  .form-row.cols3 { grid-template-columns: 1fr 1fr 1fr; }
+  .form-group label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+  .form-group label span { color: #ef4444; }
+  .mock-input { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #374151; width: 100%; background: white; }
+  .mock-input.filled { background: #f9fafb; }
+  .mock-select { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 28px 8px 10px; font-size: 12px; color: #374151; width: 100%; background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E") no-repeat right 10px center; -webkit-appearance: none; }
+  .field-hint { font-size: 11px; color: #6b7280; margin-top: 3px; }
+  .field-hint.warn { color: #d97706; }
+  .mock-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mock-table th { background: #f8fafc; border-bottom: 1px solid var(--border); padding: 8px 12px; text-align: left; font-weight: 600; }
+  .mock-table td { border-bottom: 1px solid #f3f4f6; padding: 10px 12px; color: #4b5563; }
+  .mock-table tr.win td { background: #f0fdf4; }
+  .mock-table tr.loss td { background: #fef2f2; }
+  .metric-card { background: #f8fafc; border-radius: 6px; padding: 10px; text-align: center; border: 1px solid var(--border); }
+  .metric-card .mlabel { font-size: 10px; color: var(--text-muted); }
+  .metric-card .mvalue { font-size: 16px; font-weight: 700; }
+  .progress-bar { height: 6px; background: #e5e7eb; border-radius: 3px; margin: 8px 0; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--green); border-radius: 3px; }
+  .caption { font-size: 12px; color: var(--text-muted); margin-top: -12px; margin-bottom: 16px; padding-left: 4px; font-style: italic; }
+
+  /* Credenciamento levels */
+  .cred-level { display: flex; align-items: flex-start; gap: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .cred-level.done { border-color: #16a34a; background: #f0fdf4; }
+  .cred-level.active { border-color: #1d4ed8; background: #eff6ff; }
+  .cred-num { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .cred-num.done { background: #16a34a; color: white; }
+  .cred-num.active { background: #1d4ed8; color: white; }
+  .cred-num.pending { background: #e5e7eb; color: #6b7280; }
+  .cred-body h4 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .cred-body p { font-size: 12px; color: #6b7280; margin: 0; }
+
+  /* Disputa fornecedor */
+  .disp-forn-grid { display: grid; grid-template-columns: 1fr 220px; gap: 0; }
+  .disp-col { border-right: 1px solid var(--border); }
+  .disp-col:last-child { border-right: none; }
+  .disp-col-head { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+  .disp-col-body { padding: 14px; }
+  .timer-box { background: #064e3b; color: white; border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 12px; }
+  .timer-box .label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #6ee7b7; margin-bottom: 4px; }
+  .timer-box .time { font-size: 36px; font-weight: 700; font-family: monospace; letter-spacing: 3px; }
+  .pos-card { border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 8px; }
+  .pos-card.lider { background: #f0fdf4; border: 1px solid #16a34a; }
+  .pos-card.segundo { background: #fffbeb; border: 1px solid #d97706; }
+  .pos-card .pos-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+  .pos-card .pos-value { font-size: 13px; font-weight: 700; }
+  .metrics-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .item-sidebar { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; cursor: pointer; font-size: 12px; }
+  .item-sidebar.active { border-color: #16a34a; background: #f0fdf4; }
+  .item-sidebar h5 { font-weight: 600; margin-bottom: 2px; }
+  .item-sidebar p { color: #6b7280; font-size: 11px; margin: 0; }
+  .lance-box { border: 2px solid #1d4ed8; border-radius: 8px; padding: 14px; background: #eff6ff; margin-bottom: 12px; }
+  .lance-box h4 { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: #1e40af; }
+  .suggestao { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #4b5563; }
+  .suggestao-btn { background: #dbeafe; color: #1e40af; border: none; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; font-weight: 600; }
+  .my-lance-row { display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; background: white; font-size: 12px; }
+  .my-lance-value { font-size: 14px; font-weight: 700; color: #16a34a; }
+  .cancel-btn { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 4px; padding: 4px 8px; font-size: 10px; font-weight: 600; cursor: pointer; }
+  .steps { display: flex; flex-direction: column; gap: 0; margin: 16px 0; }
+  .step { display: flex; gap: 16px; padding: 0 0 24px; position: relative; }
+  .step:not(:last-child)::before { content: ''; position: absolute; left: 15px; top: 32px; bottom: 0; width: 2px; background: var(--border); }
+  .step-num { width: 32px; height: 32px; border-radius: 50%; background: #16a34a; color: white; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-body h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; padding-top: 6px; }
+  .step-body p { font-size: 13px; margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="logo">
+    <h2>Portal DCP</h2>
+    <p>Manual do Fornecedor</p>
+  </div>
+  <nav>
+    <div class="section">Introdução</div>
+    <a href="#intro">O que é Dispensa Eletrônica</a>
+    <a href="#fluxo">Visão geral do fluxo</a>
+    <div class="section">Passo a Passo</div>
+    <a href="#cadastro">1 — Cadastro no Portal</a>
+    <a href="#painel">2 — Painel do Fornecedor</a>
+    <a href="#oportunidades">3 — Buscar Oportunidades</a>
+    <a href="#proposta">4 — Enviar Proposta</a>
+    <a href="#minhas">5 — Minhas Propostas</a>
+    <a href="#disputa">6 — Sala de Disputa</a>
+    <a href="#negociacao">7 — Negociação</a>
+    <a href="#habilitacao">8 — Habilitação</a>
+    <a href="#resultado">9 — Resultado e Contrato</a>
+    <div class="section">Referência</div>
+    <a href="#docs">Documentos Necessários</a>
+    <a href="#faq">Perguntas Frequentes</a>
+  </nav>
+</aside>
+
+<!-- Main -->
+<div class="main">
+<div class="page-header">
+  <div class="badge">Guia para Fornecedores · Lei 14.133/2021</div>
+  <h1>Manual do Fornecedor</h1>
+  <p>Dispensa Eletrônica — como participar, enviar proposta, dar lances e fechar contrato</p>
+</div>
+
+<div class="content">
+
+<!-- INTRO -->
+<div id="intro">
+<h2 class="section-title">O que é a Dispensa Eletrônica?</h2>
+<p>A Dispensa Eletrônica é uma <strong>compra pública realizada totalmente pela internet</strong>, sem presença física, para contratos de até R$ 50.000,00 (compras/serviços). É regulamentada pelo Art. 75, II da Lei 14.133/2021.</p>
+
+<div class="card-grid3">
+  <div class="mock-card" style="border-top:3px solid #1d4ed8;text-align:center;">
+    <div style="font-size:28px;margin-bottom:8px;">💻</div>
+    <h3 style="font-size:13px;">100% Online</h3>
+    <p style="font-size:12px;">Sem deslocamento. Participe de qualquer lugar com internet.</p>
+  </div>
+  <div class="mock-card" style="border-top:3px solid #16a34a;text-align:center;">
+    <div style="font-size:28px;margin-bottom:8px;">⚡</div>
+    <h3 style="font-size:13px;">Processo Rápido</h3>
+    <p style="font-size:12px;">Prazo mínimo de 3 dias úteis (vs. 8+ dias do pregão).</p>
+  </div>
+  <div class="mock-card" style="border-top:3px solid #d97706;text-align:center;">
+    <div style="font-size:28px;margin-bottom:8px;">🏷️</div>
+    <h3 style="font-size:13px;">Menor Preço</h3>
+    <p style="font-size:12px;">Quem oferecer o menor preço vence. Simples e transparente.</p>
+  </div>
+</div>
+
+<table>
+  <tr><th>Característica</th><th>Detalhe</th></tr>
+  <tr><td>Valor máximo do contrato</td><td>R$ 50.000,00 (compras/serviços) · R$ 100.000,00 (obras)</td></tr>
+  <tr><td>Prazo para enviar proposta</td><td>Mínimo <strong>3 dias úteis</strong> após publicação</td></tr>
+  <tr><td>Como ganhar</td><td>Menor preço por item</td></tr>
+  <tr><td>Participação de MEI/ME/EPP</td><td>Permitida — com tratamento diferenciado (LC 123/2006)</td></tr>
+  <tr><td>Taxa de participação</td><td><strong>Gratuita</strong></td></tr>
+</table>
+</div>
+
+<!-- FLUXO -->
+<div id="fluxo">
+<h2 class="section-title">Visão Geral do Fluxo</h2>
+<div class="steps">
+  <div class="step"><div class="step-num">1</div><div class="step-body"><h4>Cadastrar no Portal</h4><p>Criar conta com CNPJ e enviar documentos de habilitação</p></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-body"><h4>Buscar Oportunidades</h4><p>Ver licitações com fase "Acolhimento de Propostas"</p></div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-body"><h4>Enviar Proposta</h4><p>Informar valores e prazo de entrega para cada item</p></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-body"><h4>Sessão de Lances</h4><p>Na data agendada, entrar na sala e dar lances em tempo real</p></div></div>
+  <div class="step"><div class="step-num">5</div><div class="step-body"><h4>Negociação (se 1º colocado)</h4><p>Pregoeiro pode solicitar redução de preço antes da habilitação</p></div></div>
+  <div class="step"><div class="step-num">6</div><div class="step-body"><h4>Habilitação (se vencedor)</h4><p>Enviar certidões e documentos para verificação</p></div></div>
+  <div class="step"><div class="step-num">7</div><div class="step-body"><h4>Contrato</h4><p>Sistema gera o contrato automaticamente após a homologação</p></div></div>
+</div>
+</div>
+
+<!-- 1. CADASTRO -->
+<div id="cadastro">
+<h2 class="section-title">1 — Cadastro no Portal</h2>
+<p>Acesse o Portal DCP e clique em <strong>"Sou Fornecedor"</strong> ou <strong>"Credenciamento"</strong>.</p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/fornecedor/cadastro</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span style="background:#16a34a;">✓</span> Novo Fornecedor</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Credenciamento de Fornecedor</div>
+    <div class="mock-sub">Complete todos os níveis para participar de licitações</div>
+
+    <div class="cred-level done">
+      <div class="cred-num done">✓</div>
+      <div class="cred-body"><h4>Nível 1 — Dados da Empresa</h4><p>CNPJ, razão social, porte, endereço completo</p></div>
+    </div>
+    <div class="cred-level done">
+      <div class="cred-num done">✓</div>
+      <div class="cred-body"><h4>Nível 2 — Contato e Responsável</h4><p>Nome do responsável legal, e-mail, telefone, senha</p></div>
+    </div>
+    <div class="cred-level active">
+      <div class="cred-num active">3</div>
+      <div class="cred-body">
+        <h4>Nível 3 — Documentos Básicos</h4>
+        <p>Contrato Social, CND Federal, Regularidade FGTS</p>
+        <div style="margin-top:10px;">
+          <div class="form-row cols3" style="margin-bottom:10px;">
+            <div class="form-group"><label>Contrato Social <span>*</span></label><div style="border:2px dashed #d1d5db;border-radius:6px;padding:12px;text-align:center;font-size:11px;color:#6b7280;">📎 Clique para enviar<br>PDF · máx. 10MB</div></div>
+            <div class="form-group"><label>CND Federal <span>*</span></label><div style="border:2px dashed #d1d5db;border-radius:6px;padding:12px;text-align:center;font-size:11px;color:#6b7280;">📎 Clique para enviar<br>PDF · máx. 10MB</div></div>
+            <div class="form-group"><label>FGTS <span>*</span></label><div style="border:2px dashed #d1d5db;border-radius:6px;padding:12px;text-align:center;font-size:11px;color:#6b7280;">📎 Clique para enviar<br>PDF · máx. 10MB</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cred-level">
+      <div class="cred-num pending">4</div>
+      <div class="cred-body"><h4>Nível 4 — Regularidade Fiscal Completa</h4><p>CNDT Trabalhista, CND Estadual, CND Municipal</p></div>
+    </div>
+    <div class="cred-level">
+      <div class="cred-num pending">5</div>
+      <div class="cred-body"><h4>Nível 5 — Qualificação Técnica</h4><p>Atestados (quando exigidos em obras e serviços especializados)</p></div>
+    </div>
+
+    <div style="margin-top:16px;"><span class="btn btn-green" style="padding:10px 24px;">Salvar e Continuar</span></div>
+  </div>
+</div>
+
+<div class="alert alert-warn"><span class="alert-icon">⚠️</span><div>As certidões têm <strong>validade de 6 meses</strong>. Mantenha-as sempre atualizadas — certidões vencidas causam inabilitação na hora de vencer.</div></div>
+</div>
+
+<!-- 2. PAINEL -->
+<div id="painel">
+<h2 class="section-title">2 — Painel do Fornecedor</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/fornecedor</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>AL</span> ALFA Materiais Ltda</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Portal do Fornecedor</div>
+    <div class="mock-sub">Bem-vindo ao Sistema de Licitações</div>
+
+    <!-- Status ativo -->
+    <div style="background:#f0fdf4;border:1px solid #16a34a;border-radius:10px;padding:20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:22px;">🛡️</span><div><div style="font-size:15px;font-weight:700;color:#15803d;">Cadastro Ativo</div><div style="font-size:12px;color:#16a34a;">Você está habilitado para participar de licitações</div></div></div>
+        <div class="progress-bar" style="width:200px;"><div class="progress-fill" style="width:100%;"></div></div>
+        <div style="font-size:11px;color:#16a34a;margin-top:4px;">100% concluído</div>
+      </div>
+      <div class="btn-row">
+        <span class="btn btn-outline" style="font-size:11px;">Gerenciar Cadastro</span>
+        <span class="btn btn-green" style="font-size:11px;">Ver Licitações →</span>
+      </div>
+    </div>
+
+    <!-- Métricas -->
+    <div class="card-grid4" style="margin-bottom:20px;">
+      <div class="metric-card"><div class="mlabel">Disponíveis</div><div class="mvalue" style="color:#1d4ed8;">12</div></div>
+      <div class="metric-card"><div class="mlabel">Propostas Enviadas</div><div class="mvalue" style="color:#d97706;">3</div></div>
+      <div class="metric-card"><div class="mlabel">Em Disputa</div><div class="mvalue" style="color:#dc2626;">1</div></div>
+      <div class="metric-card"><div class="mlabel">Vencidas</div><div class="mvalue" style="color:#16a34a;">2</div></div>
+    </div>
+
+    <!-- Medições -->
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;">📋 Medições pendentes</div>
+      <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;">
+        <div><span class="badge badge-blue" style="margin-right:8px;">CT-2025/0042</span><span style="font-size:13px;">Fornecimento de papel — Nov/2025</span></div>
+        <span class="btn btn-primary" style="font-size:11px;">Abrir medição →</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">Quando o cadastro está incompleto, o cabeçalho aparece em laranja com a lista do que falta.</p>
+</div>
+
+<!-- 3. OPORTUNIDADES -->
+<div id="oportunidades">
+<h2 class="section-title">3 — Buscar Oportunidades</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/fornecedor/licitacoes</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>AL</span> ALFA Materiais Ltda</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Licitações Disponíveis</div>
+    <div class="mock-sub">Encontre oportunidades de negócio</div>
+    <div style="display:flex;gap:10px;margin-bottom:16px;">
+      <input class="mock-input" placeholder="🔍 Buscar por objeto, número ou órgão..." style="flex:1;">
+      <select class="mock-select" style="width:180px;"><option>Dispensa Eletrônica</option></select>
+      <select class="mock-select" style="width:160px;"><option>Acolhimento Propostas</option></select>
+    </div>
+
+    <!-- Card 1 -->
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px;background:white;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">🏛️ Câmara Municipal de Pacatuba — CE</div>
+          <div style="font-size:15px;font-weight:700;">DE-001/2026</div>
+          <div style="font-size:13px;color:#374151;margin-top:2px;">Aquisição de material de escritório (papel A4 e canetas esferográficas)</div>
+        </div>
+        <span class="badge badge-cyan">ACOLHIMENTO_PROPOSTAS</span>
+      </div>
+      <div style="display:flex;gap:20px;font-size:12px;color:#6b7280;margin-bottom:12px;">
+        <span>📍 Pacatuba — CE</span>
+        <span>💰 Estimado: R$ 9.000,00</span>
+        <span>📅 Sessão: 12/05/2026  10:00</span>
+        <span>⏰ Propostas até: 11/05/2026  18:00</span>
+      </div>
+      <div class="btn-row">
+        <span class="btn btn-outline" style="font-size:11px;">Ver Detalhes</span>
+        <span class="btn btn-green" style="font-size:11px;">Enviar Proposta →</span>
+      </div>
+    </div>
+
+    <!-- Card 2 -->
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;background:white;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">🏛️ Prefeitura de Barreira — CE</div>
+          <div style="font-size:15px;font-weight:700;">DE-007/2026</div>
+          <div style="font-size:13px;color:#374151;margin-top:2px;">Contratação de serviços de manutenção predial</div>
+        </div>
+        <span class="badge badge-cyan">ACOLHIMENTO_PROPOSTAS</span>
+      </div>
+      <div style="display:flex;gap:20px;font-size:12px;color:#6b7280;margin-bottom:12px;">
+        <span>📍 Barreira — CE</span>
+        <span>💰 Estimado: R$ 18.500,00</span>
+        <span>📅 Sessão: 15/05/2026  14:00</span>
+      </div>
+      <div class="btn-row">
+        <span class="btn btn-outline" style="font-size:11px;">Ver Detalhes</span>
+        <span class="btn btn-green" style="font-size:11px;">Enviar Proposta →</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">O botão "Enviar Proposta" aparece apenas quando a licitação está na fase de Acolhimento de Propostas.</p>
+</div>
+
+<!-- 4. PROPOSTA -->
+<div id="proposta">
+<h2 class="section-title">4 — Enviar Proposta</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/fornecedor/propostas/nova?licitacaoId=…</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>AL</span> ALFA Materiais Ltda</div></div>
+  <div class="mock-page">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div><div class="mock-h1">Enviar Proposta — DE-001/2026</div><div class="mock-sub">Aquisição de material de escritório</div></div>
+      <div style="text-align:right;"><div style="font-size:11px;color:#6b7280;">Prazo encerra em</div><div style="font-size:16px;font-weight:700;color:#dc2626;">2d 14:32:55</div></div>
+    </div>
+
+    <!-- Item 1 -->
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:14px;overflow:hidden;">
+      <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;">Item 1 — Papel A4 75g/m² Branco <span style="color:#6b7280;font-weight:400;">· Qtd: 200 PACOTE · Est.: R$ 25,00/un</span></div>
+      <div style="padding:14px;">
+        <div class="form-row cols3">
+          <div class="form-group">
+            <label>Marca / Modelo</label>
+            <input class="mock-input filled" value="Chamex Office">
+          </div>
+          <div class="form-group">
+            <label>Valor Unitário <span>*</span></label>
+            <input class="mock-input filled" value="R$ 23,00">
+            <div class="field-hint">Subtotal: <strong>R$ 4.600,00</strong></div>
+          </div>
+          <div class="form-group">
+            <label>Prazo de Entrega (dias) <span>*</span></label>
+            <input class="mock-input filled" value="15">
+            <div class="field-hint warn">⚠️ Este prazo será o prazo do contrato</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Item 2 -->
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:16px;overflow:hidden;">
+      <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;">Item 2 — Caneta esferográfica azul <span style="color:#6b7280;font-weight:400;">· Qtd: 2000 UN · Est.: R$ 2,00/un</span></div>
+      <div style="padding:14px;">
+        <div class="form-row cols3">
+          <div class="form-group">
+            <label>Marca / Modelo</label>
+            <input class="mock-input filled" value="BIC Cristal">
+          </div>
+          <div class="form-group">
+            <label>Valor Unitário <span>*</span></label>
+            <input class="mock-input filled" value="R$ 1,90">
+            <div class="field-hint">Subtotal: <strong>R$ 3.800,00</strong></div>
+          </div>
+          <div class="form-group">
+            <label>Prazo de Entrega (dias) <span>*</span></label>
+            <input class="mock-input filled" value="10">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#f0fdf4;border:1px solid #16a34a;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <span style="font-size:13px;font-weight:600;color:#15803d;">Valor Total da Proposta</span>
+      <span style="font-size:20px;font-weight:700;color:#16a34a;">R$ 8.400,00</span>
+    </div>
+
+    <div class="btn-row space">
+      <span class="btn btn-outline">Salvar Rascunho</span>
+      <span class="btn btn-green" style="padding:10px 24px;">✓ Enviar Proposta</span>
+    </div>
+  </div>
+</div>
+<p class="caption">O prazo de entrega informado aqui vira o prazo de execução do contrato. Informe um prazo realista.</p>
+
+<div class="alert alert-warn"><span class="alert-icon">⚠️</span><div>Uma vez enviada, a proposta <strong>não pode ser alterada</strong>. Revise todos os valores antes de confirmar. Você melhora seu preço durante a fase de lances.</div></div>
+</div>
+
+<!-- 5. MINHAS PROPOSTAS -->
+<div id="minhas">
+<h2 class="section-title">5 — Minhas Propostas</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/fornecedor/propostas</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>AL</span> ALFA Materiais Ltda</div></div>
+  <div class="mock-page">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div class="mock-h1">Minhas Propostas</div>
+      <span class="btn btn-green" style="font-size:11px;">+ Nova Proposta</span>
+    </div>
+    <div class="card-grid5" style="margin-bottom:16px;">
+      <div class="metric-card"><div class="mlabel">Total</div><div class="mvalue">5</div></div>
+      <div class="metric-card"><div class="mlabel">Rascunhos</div><div class="mvalue" style="color:#6b7280;">1</div></div>
+      <div class="metric-card"><div class="mlabel">Enviadas</div><div class="mvalue" style="color:#1d4ed8;">2</div></div>
+      <div class="metric-card"><div class="mlabel">Vencedoras</div><div class="mvalue" style="color:#16a34a;">2</div></div>
+      <div class="metric-card"><div class="mlabel">Valor Total</div><div class="mvalue" style="font-size:12px;color:#16a34a;">R$12.350</div></div>
+    </div>
+
+    <table class="mock-table">
+      <thead><tr><th>Órgão / Processo</th><th>Modalidade</th><th>Fase</th><th>Proposta</th><th>Sessão</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><strong>Câmara Pacatuba</strong><br><span style="font-size:10px;color:#6b7280;">DE-001/2026</span></td><td><span class="badge badge-blue" style="font-size:10px;">Disp. Eletrônica</span></td><td><span class="badge badge-purple" style="font-size:10px;">EM_DISPUTA</span></td><td><span class="badge badge-blue" style="font-size:10px;">ENVIADA</span></td><td style="font-size:11px;">12/05/2026</td><td><span class="btn btn-outline" style="font-size:10px;padding:4px 8px;">Ver</span></td></tr>
+        <tr><td><strong>Pref. Barreira</strong><br><span style="font-size:10px;color:#6b7280;">DE-007/2026</span></td><td><span class="badge badge-blue" style="font-size:10px;">Disp. Eletrônica</span></td><td><span class="badge badge-cyan" style="font-size:10px;">ACOLH_PROPOSTAS</span></td><td><span class="badge badge-blue" style="font-size:10px;">ENVIADA</span></td><td style="font-size:11px;">15/05/2026</td><td><span class="btn btn-outline" style="font-size:10px;padding:4px 8px;">Ver</span></td></tr>
+        <tr class="win"><td><strong>Câmara Carlos Barbosa</strong><br><span style="font-size:10px;color:#6b7280;">DE-012/2026</span></td><td><span class="badge badge-blue" style="font-size:10px;">Disp. Eletrônica</span></td><td><span class="badge badge-green" style="font-size:10px;">HOMOLOGADO</span></td><td><span class="badge badge-green" style="font-size:10px;">🏆 VENCEDORA</span></td><td style="font-size:11px;">04/05/2026</td><td><span class="btn btn-outline" style="font-size:10px;padding:4px 8px;">Ver</span></td></tr>
+        <tr class="loss"><td><strong>Pref. Aracoiaba</strong><br><span style="font-size:10px;color:#6b7280;">DE-003/2026</span></td><td><span class="badge badge-blue" style="font-size:10px;">Disp. Eletrônica</span></td><td><span class="badge badge-green" style="font-size:10px;">CONCLUIDO</span></td><td><span class="badge badge-red" style="font-size:10px;">❌ DESCLASSIFICADA</span><br><span class="btn" style="background:#fef2f2;color:#dc2626;font-size:9px;padding:2px 6px;margin-top:4px;border:1px solid #fca5a5;">Ver motivo</span></td><td style="font-size:11px;">28/04/2026</td><td><span class="btn btn-outline" style="font-size:10px;padding:4px 8px;">Ver</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<p class="caption">Linhas verdes = propostas vencedoras. Linhas vermelhas = propostas desclassificadas (clique "Ver motivo" para saber o porquê).</p>
+
+<table>
+  <tr><th>Status</th><th>Cor</th><th>Significado</th></tr>
+  <tr><td>RASCUNHO</td><td><span class="badge badge-gray">Cinza</span></td><td>Ainda não enviada</td></tr>
+  <tr><td>ENVIADA</td><td><span class="badge badge-blue">Azul</span></td><td>Enviada, aguardando análise</td></tr>
+  <tr><td>VENCEDORA</td><td><span class="badge badge-green">Verde</span></td><td>Você venceu este processo!</td></tr>
+  <tr><td>DESCLASSIFICADA</td><td><span class="badge badge-red">Vermelho</span></td><td>Reprovada pelo pregoeiro</td></tr>
+</table>
+</div>
+
+<!-- 6. DISPUTA -->
+<div id="disputa">
+<h2 class="section-title">6 — Sala de Disputa (Lances)</h2>
+<p>Na data e hora agendadas, o pregoeiro abre a sessão. Acesse pelo link enviado por e-mail ou em <strong>Minhas Propostas → "Entrar na sala"</strong>.</p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/fornecedor/disputa-v3?licitacaoId=…</div></div>
+  <div class="mock-nav">
+    <div class="brand">Sala de Disputa V3 — DE-001/2026</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span class="badge badge-red">EM_DISPUTA</span>
+      <span class="badge badge-green" style="font-size:10px;">🟢 WS online</span>
+    </div>
+  </div>
+  <div class="disp-forn-grid">
+    <!-- Coluna principal -->
+    <div class="disp-col">
+      <div class="disp-col-head">Item em Foco — Item 1: Papel A4 75g/m²</div>
+      <div class="disp-col-body">
+        <div class="timer-box"><div class="label">Etapa aberta</div><div class="time">04:32</div></div>
+
+        <div class="metrics-row3">
+          <div class="pos-card lider"><div class="pos-label" style="color:#16a34a;">Minha posição</div><div class="pos-value" style="color:#16a34a;">🥇 LÍDER</div><div style="font-size:10px;color:#16a34a;">Você está liderando</div></div>
+          <div class="metric-card"><div class="mlabel">Melhor lance atual</div><div class="mvalue" style="color:#16a34a;">R$ 4.350</div></div>
+          <div class="metric-card"><div class="mlabel">Meu melhor lance</div><div class="mvalue">R$ 4.350</div></div>
+        </div>
+
+        <div style="font-size:11px;margin-bottom:4px;font-weight:600;">Ritmo da etapa</div>
+        <div class="progress-bar" style="margin-bottom:12px;"><div class="progress-fill" style="width:80%;background:#16a34a;"></div></div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div class="mock-card" style="padding:10px;">
+            <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:#374151;">Meu painel de decisão</div>
+            <div style="font-size:12px;display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#6b7280;">Diferença para o líder</span><span>—</span></div>
+            <div style="font-size:12px;display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#6b7280;">Proposta inicial</span><span>R$ 4.600,00</span></div>
+            <div style="font-size:12px;display:flex;justify-content:space-between;"><span style="color:#6b7280;">Status item</span><span class="badge badge-red" style="font-size:10px;">EM_DISPUTA</span></div>
+          </div>
+          <div class="lance-box">
+            <h4>Novo Lance</h4>
+            <p style="font-size:11px;color:#1e40af;margin-bottom:8px;">Lance abaixo do melhor atual e do seu último lance.</p>
+            <input class="mock-input" placeholder="Digite o valor em R$" value="4.300,00">
+            <div class="suggestao">Sugestão: <span class="suggestao-btn">R$ 4.300,00</span></div>
+            <span class="btn btn-green" style="width:100%;justify-content:center;margin-top:10px;font-size:11px;">▶ Enviar lance</span>
+          </div>
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:8px 12px;background:#f8fafc;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;">Meus lances neste item</div>
+          <div style="padding:10px 12px;">
+            <div class="my-lance-row"><div><span class="my-lance-value">R$ 4.350,00</span><div style="font-size:10px;color:#6b7280;">10:25:30</div></div><span class="cancel-btn">Cancelar (12s)</span></div>
+            <div class="my-lance-row"><div><span class="my-lance-value" style="color:#374151;">R$ 4.600,00</span><div style="font-size:10px;color:#6b7280;">10:18:42 · proposta inicial</div></div><span class="badge badge-gray" style="font-size:10px;">Proposta</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Sidebar -->
+    <div class="disp-col">
+      <div class="disp-col-head">Meus itens</div>
+      <div class="disp-col-body">
+        <div class="item-sidebar active"><div style="display:flex;justify-content:space-between;"><h5>Item 1</h5><span class="badge badge-green" style="font-size:10px;">🏆 Líder</span></div><p>Papel A4 75g/m²...</p><span class="badge badge-red" style="font-size:10px;margin-top:4px;">EM_DISPUTA</span></div>
+        <div class="item-sidebar"><div style="display:flex;justify-content:space-between;"><h5>Item 2</h5><span class="badge badge-amber" style="font-size:10px;">2º lugar</span></div><p>Caneta esferográfica...</p><span class="badge badge-red" style="font-size:10px;margin-top:4px;">EM_DISPUTA</span></div>
+
+        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+          <div style="font-size:11px;font-weight:600;margin-bottom:8px;">💬 Mensagens</div>
+          <div style="height:100px;overflow-y:auto;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:8px;background:#f9fafb;margin-bottom:8px;">
+            <div style="margin-bottom:6px;"><span class="badge badge-blue" style="font-size:9px;">OFICIAL</span> <span style="color:#6b7280;font-size:10px;">10:15</span><br><strong>Pregoeiro:</strong> Sessão aberta.</div>
+          </div>
+          <textarea class="mock-input" style="height:48px;font-size:11px;resize:none;" placeholder="Mensagem ao pregoeiro…"></textarea>
+          <span class="btn btn-outline" style="width:100%;justify-content:center;margin-top:6px;font-size:11px;">Enviar</span>
+        </div>
+
+        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;font-size:11px;">
+          <div style="font-weight:600;margin-bottom:6px;">Regras visíveis</div>
+          <div>⏱ Etapa aberta: 5 min</div>
+          <div>⏱ Prorrogação: 2 min</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">Coluna esquerda: foco no item com timer, posição, e campo para dar lance. Coluna direita: lista de itens e mensagens.</p>
+
+<table>
+  <tr><th>Indicador</th><th>Cor</th><th>Significado</th></tr>
+  <tr><td>🥇 LÍDER</td><td style="background:#f0fdf4;">Verde</td><td>Seu lance é o menor — você está vencendo</td></tr>
+  <tr><td>🥈 2º LUGAR</td><td style="background:#fffbeb;">Âmbar</td><td>Há um lance menor — envie um lance mais baixo</td></tr>
+  <tr><td>🥉 3º LUGAR</td><td style="background:#fff7ed;">Laranja</td><td>Dois lances menores que o seu</td></tr>
+  <tr><td>Timer vermelho</td><td style="background:#fef2f2;">Vermelho</td><td>Menos de 1 minuto restante — fique atento!</td></tr>
+</table>
+
+<div class="alert alert-info"><span class="alert-icon">ℹ️</span><div>Você tem <strong>15 segundos</strong> após enviar um lance para cancelá-lo diretamente. Depois disso, precisa solicitar ao pregoeiro com justificativa.</div></div>
+</div>
+
+<!-- 7. NEGOCIAÇÃO -->
+<div id="negociacao">
+<h2 class="section-title">7 — Negociação</h2>
+<p>Se você for o <strong>1º classificado</strong> ao final dos lances, o pregoeiro pode iniciar uma rodada de negociação (Art. 61). Mensagens são trocadas pelo chat da sessão e ficam registradas na ata oficial.</p>
+
+<div class="alert alert-info"><span class="alert-icon">💡</span><div>A negociação é uma oportunidade de fechar o contrato com um valor ainda melhor. Se possível, ofereça uma redução — isso não é obrigatório, mas é bem visto e pode fortalecer a relação com o órgão.</div></div>
+</div>
+
+<!-- 8. HABILITAÇÃO -->
+<div id="habilitacao">
+<h2 class="section-title">8 — Habilitação</h2>
+<p>Se você vencer, o pregoeiro irá <strong>convocá-lo para habilitação</strong>. Você receberá uma notificação por e-mail. Envie os documentos pelo portal.</p>
+
+<div id="docs">
+<h3 style="font-size:15px;font-weight:600;margin:20px 0 10px;">Documentos necessários</h3>
+<table>
+  <tr><th>Documento</th><th>Onde obter</th><th>Validade</th></tr>
+  <tr><td>Contrato Social ou Estatuto Social</td><td>Junta Comercial / Cartório</td><td>Permanente</td></tr>
+  <tr><td>Certidão Negativa de Débitos Federais</td><td>sites.receita.fazenda.gov.br</td><td>6 meses</td></tr>
+  <tr><td>Certidão de Regularidade do FGTS</td><td>conectividade.caixa.gov.br</td><td>30 dias</td></tr>
+  <tr><td>Certidão Negativa de Débitos Trabalhistas (CNDT)</td><td>tst.jus.br</td><td>6 meses</td></tr>
+  <tr><td>Certidão Negativa de Débitos Estaduais</td><td>Site da Secretaria da Fazenda do seu estado</td><td>6 meses</td></tr>
+  <tr><td>Certidão Negativa de Débitos Municipais</td><td>Site da Prefeitura do seu município</td><td>6 meses</td></tr>
+</table>
+</div>
+
+<div class="alert alert-warn"><span class="alert-icon">⚠️</span><div>Se qualquer certidão estiver <strong>vencida</strong>, você será inabilitado e o 2º colocado será convocado. Emita as certidões com antecedência — todas são gratuitas.</div></div>
+</div>
+
+<!-- 9. RESULTADO -->
+<div id="resultado">
+<h2 class="section-title">9 — Resultado e Contrato</h2>
+<p>Após a homologação pela autoridade competente, o sistema gera um contrato automaticamente com seus dados.</p>
+
+<div class="card-grid2">
+  <div class="mock-card" style="border-left:4px solid #16a34a;">
+    <div class="badge badge-green" style="margin-bottom:8px;">CT-2026/0001</div>
+    <h3 style="font-size:14px;margin-bottom:6px;">ALFA Materiais Ltda</h3>
+    <table style="font-size:12px;margin:8px 0;">
+      <tr><td style="border:none;padding:3px 0;color:#6b7280;">Objeto</td><td style="border:none;padding:3px 0;">Item 1 — Papel A4 · 200 PCTE</td></tr>
+      <tr><td style="border:none;padding:3px 0;color:#6b7280;">Valor global</td><td style="border:none;padding:3px 0;font-weight:700;color:#16a34a;">R$ 4.350,00</td></tr>
+      <tr><td style="border:none;padding:3px 0;color:#6b7280;">Prazo execução</td><td style="border:none;padding:3px 0;">15 dias <span style="color:#6b7280;font-size:10px;">(da proposta)</span></td></tr>
+      <tr><td style="border:none;padding:3px 0;color:#6b7280;">Status</td><td style="border:none;padding:3px 0;"><span class="badge badge-amber" style="font-size:10px;">AGUARDANDO_LIBERACAO</span></td></tr>
+    </table>
+  </div>
+  <div class="mock-card" style="border-left:4px solid #1d4ed8;background:#eff6ff;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#1e40af;">Próximos passos após o contrato</div>
+    <div class="steps" style="margin:0;">
+      <div class="step" style="padding-bottom:16px;"><div class="step-num" style="background:#1d4ed8;width:24px;height:24px;font-size:11px;">1</div><div class="step-body" style="padding-top:2px;"><p style="font-size:12px;margin:0;color:#374151;">Aguardar o órgão assinar e liberar o contrato</p></div></div>
+      <div class="step" style="padding-bottom:16px;"><div class="step-num" style="background:#1d4ed8;width:24px;height:24px;font-size:11px;">2</div><div class="step-body" style="padding-top:2px;"><p style="font-size:12px;margin:0;color:#374151;">Assinar digitalmente (se configurado)</p></div></div>
+      <div class="step" style="padding-bottom:16px;"><div class="step-num" style="background:#1d4ed8;width:24px;height:24px;font-size:11px;">3</div><div class="step-body" style="padding-top:2px;"><p style="font-size:12px;margin:0;color:#374151;">Executar dentro do prazo (15 dias)</p></div></div>
+      <div class="step" style="padding-bottom:0;"><div class="step-num" style="background:#1d4ed8;width:24px;height:24px;font-size:11px;">4</div><div class="step-body" style="padding-top:2px;"><p style="font-size:12px;margin:0;color:#374151;">Registrar medição/entrega no portal</p></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- FAQ -->
+<div id="faq">
+<h2 class="section-title">Perguntas Frequentes</h2>
+
+<div style="display:flex;flex-direction:column;gap:12px;">
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">Preciso estar em Brasília para participar?</div>
+    <div style="padding:12px 16px;font-size:13px;">Não. Todo o processo é <strong>100% online</strong>. Você participa de qualquer lugar com acesso à internet.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">Minha empresa é MEI — posso participar?</div>
+    <div style="padding:12px 16px;font-size:13px;">Sim! MEI é equiparado à Microempresa (LC 123/2006). Você tem direito ao tratamento diferenciado quando houver cota reservada ou exclusividade para ME/EPP.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">Tem taxa para participar?</div>
+    <div style="padding:12px 16px;font-size:13px;"><strong>Não.</strong> O cadastro e a participação em dispensas eletrônicas são completamente gratuitos.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">O prazo de entrega da proposta realmente vira o prazo do contrato?</div>
+    <div style="padding:12px 16px;font-size:13px;">Sim. O Portal DCP usa o prazo informado na proposta para definir o prazo do contrato automaticamente. Informe um prazo realista que você consiga cumprir.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">E se minha internet cair durante os lances?</div>
+    <div style="padding:12px 16px;font-size:13px;">Seus lances já enviados continuam válidos. Reconecte o mais rápido possível. O indicador <span class="badge badge-green" style="font-size:10px;">🟢 WS online</span> mostra o status da conexão.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">Posso participar em outros estados?</div>
+    <div style="padding:12px 16px;font-size:13px;">Sim. Não há restrição geográfica para fornecedores. Avalie apenas os custos de entrega ao formular seu preço.</div>
+  </div>
+</div>
+
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:8px;border:1px solid var(--border);text-align:center;color:#6b7280;font-size:12px;">
+  Portal DCP · versão 2026 · Lei 14.133/2021 · Desenvolvido por Valleteclab
+</div>
+</div>
+
+</div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /wrapper -->
+</body>
+</html>

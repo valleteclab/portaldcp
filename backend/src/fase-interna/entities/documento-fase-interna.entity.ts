@@ -92,6 +92,50 @@ export class DocumentoFaseInterna {
   @Column({ nullable: true })
   hash_arquivo: string; // SHA-256 para integridade
 
+  // === DADOS ESTRUTURADOS (Lei 14.133/2021) ===
+  // JSON tipado por TipoDocumentoFaseInterna; permite validar conteúdo mínimo
+  // Ver shared/types: EtpDados, TrDados, PesquisaPrecosDados, MatrizRiscosDados, etc.
+  @Column({ type: 'jsonb', nullable: true })
+  dados_estruturados: any;
+
+  // === DOCUMENTO GERADO (PDF/DOCX) ===
+  @Column({ nullable: true })
+  arquivo_pdf_path: string;
+
+  @Column({ nullable: true })
+  arquivo_docx_path: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_geracao_arquivo: Date;
+
+  // === ASSINATURA DIGITAL ===
+  @Column({ type: 'jsonb', nullable: true })
+  assinaturas: Array<{
+    assinante_id: string;
+    assinante_nome: string;
+    assinante_cargo?: string;
+    cpf?: string;
+    tipo: 'ICP_BRASIL' | 'GOVBR' | 'INTERNA';
+    data_assinatura: string;
+    hash_documento: string;
+  }>;
+
+  @Column({ default: false })
+  exige_assinatura: boolean;
+
+  @Column({ default: false })
+  totalmente_assinado: boolean;
+
+  // === PUBLICAÇÃO PNCP ===
+  @Column({ default: false })
+  publicado_pncp: boolean;
+
+  @Column({ nullable: true })
+  pncp_id_externo: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  data_publicacao_pncp: Date;
+
   // === ORIGEM ===
   @Column({ type: 'enum', enum: OrigemDocumento, default: OrigemDocumento.INTERNO })
   origem: OrigemDocumento;

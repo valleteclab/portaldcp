@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual do Pregoeiro — Dispensa Eletrônica | Portal DCP</title>
+<style>
+  :root {
+    --primary: #1d4ed8;
+    --primary-light: #eff6ff;
+    --green: #16a34a;
+    --green-light: #f0fdf4;
+    --amber: #d97706;
+    --amber-light: #fffbeb;
+    --red: #dc2626;
+    --red-light: #fef2f2;
+    --gray: #6b7280;
+    --gray-light: #f9fafb;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text-muted: #6b7280;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text); background: #f3f4f6; }
+
+  /* Layout */
+  .wrapper { display: flex; min-height: 100vh; }
+  .sidebar { width: 260px; min-width: 260px; background: #1e293b; color: #cbd5e1; position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 0; }
+  .sidebar .logo { padding: 0 20px 20px; border-bottom: 1px solid #334155; margin-bottom: 16px; }
+  .sidebar .logo h2 { color: #f1f5f9; font-size: 14px; font-weight: 700; }
+  .sidebar .logo p { color: #94a3b8; font-size: 12px; margin-top: 2px; }
+  .sidebar nav a { display: block; padding: 8px 20px; font-size: 13px; color: #94a3b8; text-decoration: none; border-left: 3px solid transparent; transition: all .15s; }
+  .sidebar nav a:hover { background: #334155; color: #f1f5f9; }
+  .sidebar nav a.active { border-left-color: #3b82f6; background: #1e3a5f; color: #93c5fd; }
+  .sidebar nav .section { padding: 12px 20px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #475569; font-weight: 600; }
+  .main { flex: 1; padding: 0; overflow-x: hidden; }
+
+  /* Header */
+  .page-header { background: white; border-bottom: 1px solid var(--border); padding: 24px 40px; }
+  .page-header .badge { display: inline-block; background: var(--primary-light); color: var(--primary); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; }
+  .page-header h1 { font-size: 26px; font-weight: 700; color: var(--text); }
+  .page-header p { color: var(--text-muted); margin-top: 4px; font-size: 14px; }
+
+  /* Content */
+  .content { padding: 32px 40px; max-width: 1000px; }
+  .section-title { font-size: 20px; font-weight: 700; margin: 40px 0 8px; padding-top: 16px; border-top: 2px solid var(--border); }
+  .section-title:first-child { border-top: none; margin-top: 0; }
+  .section-sub { font-size: 15px; font-weight: 600; margin: 24px 0 10px; color: #374151; }
+  p { font-size: 14px; line-height: 1.6; color: #374151; margin-bottom: 12px; }
+
+  /* Alerts */
+  .alert { border-radius: var(--radius); padding: 12px 16px; margin: 16px 0; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
+  .alert-info { background: var(--primary-light); border-left: 4px solid var(--primary); color: #1e40af; }
+  .alert-warn { background: var(--amber-light); border-left: 4px solid var(--amber); color: #92400e; }
+  .alert-success { background: var(--green-light); border-left: 4px solid var(--green); color: #14532d; }
+  .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0 20px; }
+  th { background: #f8fafc; border: 1px solid var(--border); padding: 10px 14px; text-align: left; font-weight: 600; color: #374151; }
+  td { border: 1px solid var(--border); padding: 10px 14px; color: #4b5563; }
+  tr:hover td { background: #fafafa; }
+
+  /* Steps */
+  .steps { display: flex; flex-direction: column; gap: 0; margin: 16px 0; }
+  .step { display: flex; gap: 16px; padding: 0 0 24px; position: relative; }
+  .step:not(:last-child)::before { content: ''; position: absolute; left: 15px; top: 32px; bottom: 0; width: 2px; background: var(--border); }
+  .step-num { width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: white; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-body h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; padding-top: 6px; }
+  .step-body p { font-size: 13px; margin: 0; }
+
+  /* ===== SCREEN MOCKUPS ===== */
+  .screen { background: white; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 20px 0; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+  .screen-bar { background: #f1f5f9; border-bottom: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 6px; }
+  .screen-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .screen-bar .dot.r { background: #ef4444; }
+  .screen-bar .dot.y { background: #f59e0b; }
+  .screen-bar .dot.g { background: #22c55e; }
+  .screen-bar .url { flex: 1; background: white; border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 10px; font-size: 11px; color: #64748b; margin: 0 8px; font-family: monospace; }
+  .screen-title { font-size: 11px; color: #94a3b8; font-weight: 500; }
+  .screen-body { padding: 0; }
+
+  /* Mock top navbar */
+  .mock-nav { background: #1e293b; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .mock-nav .brand { color: white; font-weight: 700; font-size: 14px; }
+  .mock-nav .user { color: #94a3b8; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .mock-nav .user span { background: #334155; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; }
+
+  /* Mock page content inside screen */
+  .mock-page { padding: 20px; }
+  .mock-h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .mock-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+
+  /* Cards (3-col) */
+  .card-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .card-grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .card-grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .mock-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .mock-card.selectable { cursor: pointer; transition: box-shadow .15s; }
+  .mock-card.selectable:hover { box-shadow: 0 0 0 2px var(--primary); }
+  .mock-card.selected { box-shadow: 0 0 0 2px var(--primary); background: var(--primary-light); }
+  .mock-card .card-icon { font-size: 24px; margin-bottom: 10px; }
+  .mock-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .mock-card p { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+  .mock-card .card-btn { display: block; text-align: center; background: var(--primary); color: white; border-radius: 6px; padding: 7px; font-size: 12px; font-weight: 600; }
+
+  /* Form elements */
+  .form-row { display: grid; gap: 14px; margin-bottom: 14px; }
+  .form-row.cols2 { grid-template-columns: 1fr 1fr; }
+  .form-row.cols3 { grid-template-columns: 1fr 1fr 1fr; }
+  .form-group label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+  .form-group label span { color: #ef4444; }
+  .mock-input { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #374151; width: 100%; background: white; }
+  .mock-input.filled { background: #f9fafb; }
+  .mock-input.locked { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; cursor: not-allowed; }
+  .mock-select { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 28px 8px 10px; font-size: 12px; color: #374151; width: 100%; background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E") no-repeat right 10px center; -webkit-appearance: none; }
+  .mock-select.locked { background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; }
+  .field-hint { font-size: 11px; color: #6b7280; margin-top: 3px; display: flex; align-items: center; gap: 4px; }
+  .field-hint.warn { color: #d97706; }
+  .field-hint.lock { color: #3b82f6; }
+
+  /* Tabs */
+  .mock-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 0; background: white; padding: 0 20px; }
+  .mock-tab { padding: 10px 14px; font-size: 12px; font-weight: 500; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .mock-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+  .mock-tab.done { color: var(--green); }
+  .mock-tab.done::before { content: '✓'; font-size: 10px; }
+  .mock-tab.error { color: var(--red); }
+
+  /* Badge */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-amber { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-gray { background: #f3f4f6; color: #4b5563; }
+  .badge-purple { background: #ede9fe; color: #5b21b6; }
+  .badge-teal { background: #ccfbf1; color: #115e59; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-green { background: var(--green); color: white; }
+  .btn-red { background: var(--red); color: white; }
+  .btn-outline { background: white; color: #374151; border: 1px solid var(--border); }
+  .btn-ghost { background: transparent; color: var(--primary); }
+  .btn-disabled { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn-row.right { justify-content: flex-end; }
+  .btn-row.space { justify-content: space-between; }
+
+  /* Table mockup */
+  .mock-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mock-table th { background: #f8fafc; border-bottom: 1px solid var(--border); padding: 8px 12px; text-align: left; font-weight: 600; color: #374151; }
+  .mock-table td { border-bottom: 1px solid #f3f4f6; padding: 10px 12px; color: #4b5563; }
+  .mock-table tr:hover td { background: #fafafa; }
+  .mock-table .win-row td { background: #f0fdf4; }
+  .mock-table .loss-row td { background: #fef2f2; }
+
+  /* Disputa layout */
+  .disputa-grid { display: grid; grid-template-columns: 200px 1fr 210px; gap: 0; background: #f1f5f9; }
+  .disputa-col { background: white; border-right: 1px solid var(--border); }
+  .disputa-col:last-child { border-right: none; }
+  .disputa-col-head { padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: #374151; }
+  .disputa-col-body { padding: 12px 14px; }
+  .item-card { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; font-size: 12px; }
+  .item-card.active { border-color: #3b82f6; background: #eff6ff; }
+  .item-card h5 { font-weight: 600; margin-bottom: 4px; }
+  .item-card p { color: var(--text-muted); font-size: 11px; margin: 0; }
+  .timer-box { background: #1e293b; color: white; border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 12px; }
+  .timer-box .label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 4px; }
+  .timer-box .time { font-size: 32px; font-weight: 700; font-family: monospace; letter-spacing: 2px; }
+  .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .metric-card { background: #f8fafc; border-radius: 6px; padding: 10px; text-align: center; border: 1px solid var(--border); }
+  .metric-card .mlabel { font-size: 10px; color: var(--text-muted); }
+  .metric-card .mvalue { font-size: 14px; font-weight: 700; color: var(--text); }
+  .signal-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #374151; margin-bottom: 6px; }
+  .lance-input-row { display: flex; gap: 8px; align-items: center; }
+  .lance-input-row .mock-input { flex: 1; }
+
+  /* Habilitacao */
+  .hab-grid { display: grid; grid-template-columns: 240px 1fr; gap: 0; }
+  .hab-col { padding: 16px; }
+  .ranking-item { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; font-size: 12px; }
+  .ranking-item.convoked { border-color: #16a34a; background: #f0fdf4; }
+  .ranking-item h5 { font-weight: 600; margin-bottom: 4px; }
+  .doc-row { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+  .doc-row:last-child { border-bottom: none; }
+  .doc-icon { font-size: 14px; }
+  .doc-name { flex: 1; }
+  .doc-status { }
+  .doc-actions { display: flex; gap: 4px; }
+  .doc-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+  .doc-btn.approve { border-color: #16a34a; }
+  .doc-btn.reject { border-color: #dc2626; }
+  .progress-bar { height: 6px; background: #e5e7eb; border-radius: 3px; margin: 8px 0; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--green); border-radius: 3px; }
+
+  /* Homologacao */
+  .homo-item { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .homo-item-left h5 { font-size: 13px; font-weight: 600; }
+  .homo-item-left p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .homo-item-right { text-align: right; }
+  .homo-item-right .valor { font-size: 15px; font-weight: 700; color: var(--green); }
+  .homo-item-right .forn { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Stepper */
+  .stepper { display: flex; align-items: center; padding: 10px 20px; background: white; border-top: 1px solid var(--border); overflow-x: auto; gap: 0; }
+  .stepper-step { display: flex; align-items: center; gap: 0; flex-shrink: 0; }
+  .stepper-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .stepper-dot.done { background: var(--green); color: white; }
+  .stepper-dot.active { background: var(--primary); color: white; }
+  .stepper-dot.pending { background: #e5e7eb; color: #9ca3af; }
+  .stepper-label { font-size: 10px; margin-left: 4px; margin-right: 4px; color: #374151; white-space: nowrap; }
+  .stepper-label.active { color: var(--primary); font-weight: 700; }
+  .stepper-label.done { color: var(--green); }
+  .stepper-arrow { color: #d1d5db; font-size: 12px; margin: 0 2px; }
+
+  /* Cronograma visual */
+  .timeline { display: flex; align-items: flex-start; padding: 16px 0; gap: 0; }
+  .timeline-item { flex: 1; text-align: center; position: relative; }
+  .timeline-item::before { content: ''; position: absolute; top: 11px; left: 50%; right: -50%; height: 2px; background: var(--border); z-index: 0; }
+  .timeline-item:last-child::before { display: none; }
+  .timeline-dot { width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin: 0 auto 6px; position: relative; z-index: 1; }
+  .timeline-label { font-size: 11px; font-weight: 600; color: #374151; }
+  .timeline-date { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Fase interna accordion */
+  .fi-step { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .fi-step-head { padding: 12px 16px; display: flex; align-items: center; gap: 12px; background: white; }
+  .fi-step-head.done { background: #f0fdf4; }
+  .fi-step-head.active { background: #eff6ff; }
+  .fi-icon { font-size: 18px; }
+  .fi-info { flex: 1; }
+  .fi-info h4 { font-size: 13px; font-weight: 600; }
+  .fi-info p { font-size: 11px; color: var(--text-muted); margin: 0; }
+  .fi-status { font-size: 20px; }
+
+  /* Callout numbers */
+  .callout { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: white; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+
+  /* Separator */
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  .caption { font-size: 12px; color: var(--text-muted); margin-top: -12px; margin-bottom: 16px; padding-left: 4px; font-style: italic; }
+
+  @media print {
+    .sidebar { display: none; }
+    .wrapper { display: block; }
+    .content { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="logo">
+    <h2>Portal DCP</h2>
+    <p>Manual do Pregoeiro</p>
+  </div>
+  <nav>
+    <div class="section">Introdução</div>
+    <a href="#intro">O que é Dispensa Eletrônica</a>
+    <a href="#fluxo">Visão geral do fluxo</a>
+    <div class="section">Passo a Passo</div>
+    <a href="#nova">1 — Nova Licitação</a>
+    <a href="#fase-interna">2 — Fase Interna</a>
+    <a href="#classificacao">3 — Classificação</a>
+    <a href="#itens">4 — Itens</a>
+    <a href="#cronograma">5 — Cronograma</a>
+    <a href="#documentos">6 — Documentos</a>
+    <a href="#publicar">7 — Publicar</a>
+    <a href="#propostas">8 — Análise de Propostas</a>
+    <a href="#disputa">9 — Sala de Disputa</a>
+    <a href="#negociacao">10 — Negociação</a>
+    <a href="#habilitacao">11 — Habilitação</a>
+    <a href="#adjudicacao">12 — Adjudicação</a>
+    <a href="#homologacao">13 — Homologação</a>
+    <a href="#contratos">14 — Contratos</a>
+    <div class="section">Referência</div>
+    <a href="#faq">Perguntas Frequentes</a>
+  </nav>
+</aside>
+
+<!-- Main -->
+<div class="main">
+<div class="page-header">
+  <div class="badge">Lei 14.133/2021 · Art. 75</div>
+  <h1>Manual do Pregoeiro</h1>
+  <p>Dispensa Eletrônica — guia completo para o agente de contratação e equipe de apoio</p>
+</div>
+
+<div class="content">
+
+<!-- INTRO -->
+<div id="intro">
+<h2 class="section-title">O que é a Dispensa Eletrônica?</h2>
+<p>A Dispensa Eletrônica é a modalidade de contratação direta prevista no <strong>Art. 75, II da Lei 14.133/2021</strong> para aquisições de até <strong>R$ 50.000,00</strong> em compras/serviços (ou R$ 100.000,00 para obras e engenharia). Todo o processo ocorre online, sem sessão presencial.</p>
+
+<div class="alert alert-info"><span class="alert-icon">ℹ️</span><div>O Portal DCP gerencia a Dispensa Eletrônica pelo <strong>módulo de Licitações</strong> via Sala de Disputa V3. Dispensas manuais e inexigibilidades são gerenciadas pelo módulo de <em>Contratações Diretas</em>.</div></div>
+
+<table>
+  <tr><th>Característica</th><th>Regra</th><th>Base Legal</th></tr>
+  <tr><td>Valor máximo (compras/serviços)</td><td>R$ 50.000,00</td><td>Art. 75, II</td></tr>
+  <tr><td>Valor máximo (obras/engenharia)</td><td>R$ 100.000,00</td><td>Art. 75, I</td></tr>
+  <tr><td>Prazo mínimo para propostas</td><td><strong>3 dias úteis</strong></td><td>IN SEGES/ME 67/2021, Art. 4º</td></tr>
+  <tr><td>Critério de julgamento</td><td>Menor Preço (fixo)</td><td>Art. 75, §3º</td></tr>
+  <tr><td>Modo de disputa</td><td>Aberto (fixo)</td><td>Art. 56, I</td></tr>
+</table>
+</div>
+
+<!-- FLUXO -->
+<div id="fluxo">
+<h2 class="section-title">Visão Geral do Fluxo</h2>
+<div class="steps">
+  <div class="step"><div class="step-num">1</div><div class="step-body"><h4>Criar Licitação</h4><p>Escolher como iniciar: elaborar no sistema, importar ou anexar documentos</p></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-body"><h4>Fase Interna</h4><p>ETP, Termo de Referência, Pesquisa de Preços, Parecer Jurídico e Aprovação</p></div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-body"><h4>Formulário (6 abas)</h4><p>Dados Básicos → Classificação → Itens → Cronograma → Documentos → Configurações</p></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-body"><h4>Publicar</h4><p>Status: ACOLHIMENTO_PROPOSTAS — prazo mínimo 3 dias úteis para propostas</p></div></div>
+  <div class="step"><div class="step-num">5</div><div class="step-body"><h4>Análise de Propostas</h4><p>Classificar ou desclassificar cada proposta recebida</p></div></div>
+  <div class="step"><div class="step-num">6</div><div class="step-body"><h4>Sala de Disputa V3</h4><p>Gerenciar lances em tempo real por item</p></div></div>
+  <div class="step"><div class="step-num">7</div><div class="step-body"><h4>Negociação (Art. 61)</h4><p>Tentar obter preço ainda mais vantajoso com o 1º classificado</p></div></div>
+  <div class="step"><div class="step-num">8</div><div class="step-body"><h4>Habilitação (Art. 62–70)</h4><p>Verificar documentos do fornecedor vencedor</p></div></div>
+  <div class="step"><div class="step-num">9</div><div class="step-body"><h4>Adjudicação (Art. 71)</h4><p>Confirmar o vencedor de cada item</p></div></div>
+  <div class="step"><div class="step-num">10</div><div class="step-body"><h4>Homologação</h4><p>Autoridade competente ratifica o processo</p></div></div>
+  <div class="step"><div class="step-num">11</div><div class="step-body"><h4>Contratos</h4><p>Geração automática — 1 contrato por fornecedor vencedor</p></div></div>
+</div>
+</div>
+
+<!-- 1. NOVA LICITAÇÃO -->
+<div id="nova">
+<h2 class="section-title">1 — Nova Licitação</h2>
+<p>Acesse: <strong>Menu lateral → Licitações → + Nova Licitação</strong></p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/nova</div><span class="screen-title">Nova Licitação</span></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>PJ</span> Pregoeiro José</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Nova Licitação</div>
+    <div class="mock-sub">Escolha como deseja iniciar o processo</div>
+    <div class="card-grid3">
+      <div class="mock-card selectable selected">
+        <div class="card-icon">✏️</div>
+        <h3>Elaborar no Sistema</h3>
+        <p>Crie todos os documentos da fase interna diretamente aqui: ETP, Termo de Referência, Pesquisa de Preços, etc.</p>
+        <span class="card-btn" style="background:#1d4ed8">Selecionar</span>
+      </div>
+      <div class="mock-card selectable">
+        <div class="card-icon">⬇️</div>
+        <h3>Importar de Outro Sistema</h3>
+        <p>Importe um processo já existente do PNCP, SEI ou sistema próprio do órgão.</p>
+        <span class="card-btn" style="background:#e5e7eb;color:#6b7280">Selecionar</span>
+      </div>
+      <div class="mock-card selectable">
+        <div class="card-icon">📤</div>
+        <h3>Anexar Documentos</h3>
+        <p>A fase interna já foi feita fora do sistema. Apenas anexe os documentos para registro.</p>
+        <span class="card-btn" style="background:#e5e7eb;color:#6b7280">Selecionar</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">Tela inicial — selecione "Elaborar no Sistema" para uma dispensa nova.</p>
+
+<div class="alert alert-info"><span class="alert-icon">💡</span><div>Para dispensas novas, escolha <strong>"Elaborar no Sistema"</strong>. Use "Anexar Documentos" quando a fase interna já foi concluída fora do portal.</div></div>
+</div>
+
+<!-- 2. FASE INTERNA -->
+<div id="fase-interna">
+<h2 class="section-title">2 — Fase Interna (Planejamento)</h2>
+<p>A fase interna documenta o planejamento obrigatório (Art. 12, Lei 14.133/2021). São <strong>5 etapas</strong> com documentos obrigatórios.</p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/nova/fase-interna</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>PJ</span> Pregoeiro José</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Nova Licitação — Fase Interna</div>
+    <div class="mock-sub">Art. 12, Lei 14.133/2021 — Planejamento obrigatório antes do edital</div>
+    <div style="margin-bottom:6px;font-size:12px;color:#374151;font-weight:600;">Progresso: 2 de 5 etapas concluídas</div>
+    <div class="progress-bar" style="height:8px;margin-bottom:16px;"><div class="progress-fill" style="width:40%"></div></div>
+
+    <div class="fi-step"><div class="fi-step-head done"><span class="fi-icon">📋</span><div class="fi-info"><h4>Etapa 1 — Planejamento</h4><p>Estudo Técnico Preliminar e Análise de Riscos</p></div><span class="fi-status">✅</span></div></div>
+    <div class="fi-step"><div class="fi-step-head done"><span class="fi-icon">📄</span><div class="fi-info"><h4>Etapa 2 — Termo de Referência</h4><p>Especificação do objeto e requisitos</p></div><span class="fi-status">✅</span></div></div>
+    <div class="fi-step"><div class="fi-step-head active"><span class="fi-icon">🔍</span><div class="fi-info"><h4>Etapa 3 — Pesquisa de Preços</h4><p>Cotações e estimativa de valor</p></div><span class="fi-status">⏳</span></div>
+      <div style="padding:12px 16px;background:#f8fafc;border-top:1px solid #e5e7eb;display:flex;gap:10px;">
+        <span class="btn btn-outline" style="font-size:11px;">✨ Gerar com IA</span>
+        <span class="btn btn-outline" style="font-size:11px;">+ Adicionar Documento</span>
+      </div>
+    </div>
+    <div class="fi-step"><div class="fi-step-head"><span class="fi-icon">⚖️</span><div class="fi-info"><h4>Etapa 4 — Análise Jurídica</h4><p>Parecer jurídico e minuta do edital</p></div><span class="fi-status">⚪</span></div></div>
+    <div class="fi-step"><div class="fi-step-head"><span class="fi-icon">✔️</span><div class="fi-info"><h4>Etapa 5 — Aprovação</h4><p>Autorizações e designações</p></div><span class="fi-status">⚪</span></div></div>
+
+    <div style="margin-top:20px;" class="btn-row right">
+      <span class="btn btn-disabled">Continuar para Dados Básicos →</span>
+    </div>
+  </div>
+</div>
+<p class="caption">O botão "Continuar" só fica ativo após concluir as 5 etapas obrigatórias.</p>
+
+<table>
+  <tr><th>Etapa</th><th>Documento Obrigatório</th><th>Opcional</th></tr>
+  <tr><td>1 — Planejamento</td><td>ETP (Estudo Técnico Preliminar)</td><td>MR (Matriz de Riscos)</td></tr>
+  <tr><td>2 — Termo de Referência</td><td>TR (Termo de Referência)</td><td>PB (Projeto Básico)</td></tr>
+  <tr><td>3 — Pesquisa de Preços</td><td>PP (Pesquisa de Preços)</td><td>—</td></tr>
+  <tr><td>4 — Análise Jurídica</td><td>PJ (Parecer Jurídico), ME (Minuta do Edital)</td><td>—</td></tr>
+  <tr><td>5 — Aprovação</td><td>AA, DP (Designação do Pregoeiro), DO (Dotação Orçamentária)</td><td>—</td></tr>
+</table>
+</div>
+
+<!-- 3. CLASSIFICAÇÃO -->
+<div id="classificacao">
+<h2 class="section-title">3 — Classificação</h2>
+<p>Aba 2 do formulário. Ao selecionar <strong>Dispensa Eletrônica</strong>, o sistema bloqueia automaticamente Critério de Julgamento e Modo de Disputa.</p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/nova</div></div>
+  <div class="mock-tabs">
+    <div class="mock-tab done">Dados Básicos</div>
+    <div class="mock-tab active">Classificação</div>
+    <div class="mock-tab">Itens</div>
+    <div class="mock-tab">Cronograma</div>
+    <div class="mock-tab">Documentos</div>
+    <div class="mock-tab">Configurações</div>
+  </div>
+  <div class="mock-page">
+    <div class="form-row cols2">
+      <div class="form-group">
+        <label>Modalidade <span>*</span></label>
+        <select class="mock-select"><option>Dispensa Eletrônica</option></select>
+      </div>
+      <div class="form-group">
+        <label>Tipo de Contratação <span>*</span></label>
+        <select class="mock-select"><option>Compra</option></select>
+      </div>
+    </div>
+
+    <div class="alert alert-warn" style="margin-bottom:14px;">
+      <span class="alert-icon">⚠️</span>
+      <div><strong>Dispensa Eletrônica — Art. 75, II da Lei 14.133/2021</strong><br>Limite legal para Compras: <strong>R$ 50.000,00</strong>. Verifique se o valor estimado respeita este limite.</div>
+    </div>
+
+    <div class="form-row cols2">
+      <div class="form-group">
+        <label>Critério de Julgamento <span>*</span></label>
+        <input class="mock-input locked" value="Menor Preço 🔒" readonly>
+        <div class="field-hint lock">🔒 Fixado em Menor Preço para Dispensa Eletrônica</div>
+      </div>
+      <div class="form-group">
+        <label>Modo de Disputa <span>*</span></label>
+        <input class="mock-input locked" value="Aberto 🔒" readonly>
+        <div class="field-hint lock">🔒 Fixado em Aberto para Dispensa Eletrônica</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Tratamento Diferenciado ME/EPP (LC 123/2006)</div>
+      <div style="display:flex;gap:20px;font-size:13px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="mpe"> Sem Benefício</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="mpe" checked> Exclusivo ME/EPP</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="mpe"> Cota Reservada</label>
+      </div>
+    </div>
+
+    <div class="btn-row space" style="padding-top:8px;border-top:1px solid var(--border);">
+      <span class="btn btn-outline">← Anterior</span>
+      <div style="display:flex;gap:8px;">
+        <span class="btn btn-outline">Salvar Rascunho</span>
+        <span class="btn btn-primary">Próximo →</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">Campos bloqueados são preenchidos automaticamente ao escolher Dispensa Eletrônica.</p>
+</div>
+
+<!-- 4. ITENS -->
+<div id="itens">
+<h2 class="section-title">4 — Itens</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/nova</div></div>
+  <div class="mock-tabs">
+    <div class="mock-tab done">Dados Básicos</div>
+    <div class="mock-tab done">Classificação</div>
+    <div class="mock-tab active">Itens</div>
+    <div class="mock-tab">Cronograma</div>
+    <div class="mock-tab">Documentos</div>
+    <div class="mock-tab">Configurações</div>
+  </div>
+  <div class="mock-page">
+    <div class="btn-row" style="margin-bottom:14px;">
+      <span class="btn btn-outline" style="font-size:11px;">📚 Catálogo ComprasGov</span>
+      <span class="btn btn-outline" style="font-size:11px;">📊 Importar Planilha</span>
+      <span class="btn btn-primary" style="font-size:11px;">+ Adicionar Manual</span>
+    </div>
+    <table class="mock-table">
+      <tr><th>#</th><th>Descrição</th><th>Qtd</th><th>Unidade</th><th>Valor Unit.</th><th>Subtotal</th><th></th></tr>
+      <tr><td>1</td><td>Papel A4 75g/m² Branco<br><span style="font-size:10px;color:#94a3b8;">CATMAT 12345</span></td><td>200</td><td>PACOTE</td><td>R$ 25,00</td><td style="font-weight:600;color:#15803d;">R$ 5.000,00</td><td><span style="font-size:14px;cursor:pointer;">✏️ 🗑️</span></td></tr>
+      <tr><td>2</td><td>Caneta esferográfica azul<br><span style="font-size:10px;color:#94a3b8;">CATMAT 67890</span></td><td>2000</td><td>UNIDADE</td><td>R$ 2,00</td><td style="font-weight:600;color:#15803d;">R$ 4.000,00</td><td><span style="font-size:14px;cursor:pointer;">✏️ 🗑️</span></td></tr>
+    </table>
+    <div style="text-align:right;font-size:13px;font-weight:700;color:#374151;margin-top:4px;">Total estimado: <span style="color:#15803d;">R$ 9.000,00</span></div>
+    <div class="btn-row space" style="padding-top:14px;border-top:1px solid var(--border);margin-top:14px;">
+      <span class="btn btn-outline">← Anterior</span>
+      <div style="display:flex;gap:8px;"><span class="btn btn-outline">Salvar Rascunho</span><span class="btn btn-primary">Próximo →</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 5. CRONOGRAMA -->
+<div id="cronograma">
+<h2 class="section-title">5 — Cronograma</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/nova</div></div>
+  <div class="mock-tabs">
+    <div class="mock-tab done">Dados Básicos</div><div class="mock-tab done">Classificação</div><div class="mock-tab done">Itens</div>
+    <div class="mock-tab active">Cronograma</div><div class="mock-tab">Documentos</div><div class="mock-tab">Configurações</div>
+  </div>
+  <div class="mock-page">
+    <div class="btn-row" style="justify-content:flex-end;margin-bottom:14px;"><span class="btn btn-outline" style="font-size:11px;">🔄 Recalcular Datas</span></div>
+    <div class="form-row cols2">
+      <div class="form-group">
+        <label>Data de Publicação do Edital</label>
+        <input class="mock-input filled" value="06/05/2026">
+        <div class="field-hint">A publicação deve ser a partir de hoje</div>
+      </div>
+      <div class="form-group">
+        <label>Limite para Impugnações</label>
+        <input class="mock-input filled" value="08/05/2026  10:00">
+      </div>
+    </div>
+    <div class="form-row cols2">
+      <div class="form-group">
+        <label>Fim do Acolhimento de Propostas <span>*</span></label>
+        <input class="mock-input filled" value="11/05/2026  18:00">
+        <div class="field-hint warn">⚠️ Mínimo 3 dias úteis após publicação (Art. 75, §3º / IN SEGES 67/2021)</div>
+      </div>
+      <div class="form-group">
+        <label>Data/Hora da Sessão Pública <span>*</span></label>
+        <input class="mock-input filled" value="12/05/2026  10:00">
+      </div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:4px;">
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:12px;">Linha do tempo</div>
+      <div class="timeline">
+        <div class="timeline-item"><div class="timeline-dot">P</div><div class="timeline-label">Publicação</div><div class="timeline-date">06/05</div></div>
+        <div class="timeline-item"><div class="timeline-dot" style="background:#d97706;">I</div><div class="timeline-label">Impugnação</div><div class="timeline-date">08/05</div></div>
+        <div class="timeline-item"><div class="timeline-dot">R</div><div class="timeline-label">Propostas</div><div class="timeline-date">11/05</div></div>
+        <div class="timeline-item"><div class="timeline-dot" style="background:#16a34a;">S</div><div class="timeline-label">Sessão</div><div class="timeline-date">12/05</div></div>
+      </div>
+    </div>
+    <div class="btn-row space" style="padding-top:14px;border-top:1px solid var(--border);margin-top:14px;">
+      <span class="btn btn-outline">← Anterior</span>
+      <div style="display:flex;gap:8px;"><span class="btn btn-outline">Salvar Rascunho</span><span class="btn btn-primary">Próximo →</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 6. DOCUMENTOS -->
+<div id="documentos">
+<h2 class="section-title">6 — Documentos</h2>
+<table>
+  <tr><th>Documento</th><th>Obrigatório</th><th>Descrição</th></tr>
+  <tr><td>Edital / Aviso de Contratação</td><td><span class="badge badge-red">Sim</span></td><td>Documento principal com todas as regras</td></tr>
+  <tr><td>Termo de Referência</td><td><span class="badge badge-red">Sim</span></td><td>Especificações técnicas e condições de execução</td></tr>
+  <tr><td>Pesquisa de Preços</td><td><span class="badge badge-red">Sim</span></td><td>Levantamento de preços de mercado</td></tr>
+  <tr><td>Estudo Técnico Preliminar</td><td><span class="badge badge-gray">Não</span></td><td>Análise de viabilidade e alternativas</td></tr>
+  <tr><td>Parecer Jurídico</td><td><span class="badge badge-gray">Não</span></td><td>Análise jurídica do processo</td></tr>
+  <tr><td>Minuta do Contrato</td><td><span class="badge badge-gray">Não</span></td><td>Modelo do contrato a ser firmado</td></tr>
+</table>
+</div>
+
+<!-- 7. PUBLICAR -->
+<div id="publicar">
+<h2 class="section-title">7 — Publicar a Licitação</h2>
+<p>Na aba <strong>Configurações</strong> (aba 6), após preencher o pregoeiro responsável e revisar os parâmetros de sessão, clique em <strong>"Criar Licitação"</strong>. O status passa para <span class="badge badge-blue">ACOLHIMENTO_PROPOSTAS</span> e o processo fica visível para os fornecedores.</p>
+<div class="alert alert-success"><span class="alert-icon">✅</span><div>Ao publicar, o sistema envia notificações automáticas e disponibiliza o processo no portal público.</div></div>
+</div>
+
+<!-- 8. PROPOSTAS -->
+<div id="propostas">
+<h2 class="section-title">8 — Análise de Propostas</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/DE-001-2026/propostas</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>PJ</span> Pregoeiro José</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Análise de Propostas — DE-001/2026</div>
+    <div class="card-grid4" style="margin-bottom:20px;">
+      <div class="mock-card" style="text-align:center;"><div class="metric-card"><div class="mlabel">Total</div><div class="mvalue">3</div></div></div>
+      <div class="mock-card" style="text-align:center;"><div class="metric-card"><div class="mlabel">Aguard. Análise</div><div class="mvalue" style="color:#d97706;">1</div></div></div>
+      <div class="mock-card" style="text-align:center;"><div class="metric-card"><div class="mlabel">Classificadas</div><div class="mvalue" style="color:#16a34a;">2</div></div></div>
+      <div class="mock-card" style="text-align:center;"><div class="metric-card"><div class="mlabel">Desclassificadas</div><div class="mvalue" style="color:#dc2626;">0</div></div></div>
+    </div>
+
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px;">
+      <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;">Item 1 — Papel A4 75g/m² · Qtd: 200 PACOTE</div>
+      <div style="padding:12px 14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;background:#fffbeb;">
+          <div><span class="badge badge-amber" style="margin-right:8px;">Aguardando</span> <strong>Fornecedor A</strong> 🔒 (sigilo ativo)<br><span style="font-size:12px;color:#6b7280;">Marca: Chamex · R$ 23,00/un · Total: R$ 4.600,00 · Prazo: 15 dias</span></div>
+          <div class="btn-row"><span class="btn btn-green" style="font-size:11px;">✓ Classificar</span><span class="btn btn-outline" style="font-size:11px;color:#dc2626;border-color:#dc2626;">✗ Desclassificar</span></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid #16a34a;border-radius:6px;background:#f0fdf4;">
+          <div><span class="badge badge-green" style="margin-right:8px;">Classificada</span> <strong>Fornecedor B</strong> 🔒<br><span style="font-size:12px;color:#6b7280;">Marca: Report · R$ 24,00/un · Total: R$ 4.800,00 · Prazo: 20 dias</span></div>
+          <div class="btn-row"><span class="badge badge-green">✓ Classificada</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:right;font-size:12px;color:#16a34a;margin-bottom:16px;">Menor Proposta: R$ 4.600,00 · Economia potencial: 8,0%</div>
+
+    <div class="btn-row right"><span class="btn btn-primary">▶ Concluir Análise e Iniciar Disputa</span></div>
+  </div>
+</div>
+<p class="caption">Fornecedores ficam anônimos durante a análise quando o sigilo de orçamento está ativo.</p>
+
+<div class="alert alert-warn"><span class="alert-icon">⚠️</span><div>Para desclassificar uma proposta, informe obrigatoriamente o <strong>motivo</strong>. O fornecedor será notificado com a justificativa.</div></div>
+</div>
+
+<!-- 9. DISPUTA -->
+<div id="disputa">
+<h2 class="section-title">9 — Sala de Disputa V3</h2>
+<p>Acesse pelo botão <strong>"Abrir Sala de Disputa V3"</strong> na página da licitação na data e hora agendadas.</p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/disputa-v3?licitacaoId=…</div></div>
+  <div class="mock-nav">
+    <div class="brand">Sala de Disputa V3</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span class="badge badge-red">EM_DISPUTA</span>
+      <span class="badge badge-blue">ABERTO</span>
+      <span class="badge badge-green" style="font-size:10px;">🟢 WS online</span>
+      <span class="btn btn-outline" style="font-size:11px;padding:4px 10px;">Suspender</span>
+    </div>
+  </div>
+  <div style="padding:10px 20px;background:#f8fafc;border-bottom:1px solid var(--border);">
+    <div class="card-grid4">
+      <div class="metric-card"><div class="mlabel">Aguardando</div><div class="mvalue">1</div></div>
+      <div class="metric-card"><div class="mlabel">Em disputa</div><div class="mvalue" style="color:#dc2626;">1</div></div>
+      <div class="metric-card"><div class="mlabel">Encerrados</div><div class="mvalue" style="color:#16a34a;">0</div></div>
+      <div class="metric-card"><div class="mlabel">Base legal</div><div class="mvalue" style="font-size:11px;">IN 73/2022</div></div>
+    </div>
+  </div>
+  <div class="disputa-grid">
+    <!-- Col Fila -->
+    <div class="disputa-col">
+      <div class="disputa-col-head">Fila Operacional</div>
+      <div class="disputa-col-body">
+        <div style="font-size:11px;font-weight:600;color:#dc2626;margin-bottom:6px;">EM DISPUTA</div>
+        <div class="item-card active">
+          <h5>Item 1</h5>
+          <p>Papel A4 75g/m²...</p>
+          <div style="margin-top:6px;"><span class="badge badge-red" style="font-size:10px;">EM_DISPUTA</span></div>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px;">5 lances</div>
+        </div>
+        <div style="font-size:11px;font-weight:600;color:#6b7280;margin:10px 0 6px;">AGUARDANDO</div>
+        <div class="item-card">
+          <div style="display:flex;gap:6px;align-items:flex-start;"><input type="checkbox" style="margin-top:2px;"><div><h5>Item 2</h5><p>Caneta esferográfica...</p><div style="margin-top:6px;"><span class="badge badge-gray" style="font-size:10px;">AGUARDANDO</span></div></div></div>
+        </div>
+        <div style="margin-top:12px;"><span class="btn btn-primary" style="width:100%;justify-content:center;font-size:11px;">▶ Iniciar selecionados</span></div>
+      </div>
+    </div>
+    <!-- Col Foco -->
+    <div class="disputa-col">
+      <div class="disputa-col-head">Item em Foco — Item 1: Papel A4</div>
+      <div class="disputa-col-body">
+        <div class="timer-box"><div class="label">Etapa aberta</div><div class="time">04:32</div></div>
+        <div class="metrics-row">
+          <div class="metric-card"><div class="mlabel">Melhor lance</div><div class="mvalue">R$4.350</div></div>
+          <div class="metric-card"><div class="mlabel">Participantes</div><div class="mvalue">3</div></div>
+          <div class="metric-card"><div class="mlabel">Quantidade</div><div class="mvalue">200 PCTE</div></div>
+        </div>
+        <div style="font-size:11px;margin-bottom:4px;color:#374151;font-weight:600;">Ritmo da etapa</div>
+        <div class="progress-bar" style="margin-bottom:12px;"><div class="progress-fill" style="width:80%;"></div></div>
+        <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:600;margin-bottom:8px;">Sinais de decisão</div>
+          <div class="signal-row"><span>✅</span><span>5 lances registrados neste item</span></div>
+          <div class="signal-row"><span>🕒</span><span>Fase atual: EM_DISPUTA</span></div>
+          <div class="signal-row"><span>⚠️</span><span>3 participantes elegíveis</span></div>
+        </div>
+        <span class="btn btn-red" style="width:100%;justify-content:center;">Encerrar item</span>
+      </div>
+    </div>
+    <!-- Col Lateral -->
+    <div class="disputa-col">
+      <div class="disputa-col-head">Comunicação da Sessão</div>
+      <div class="disputa-col-body">
+        <div style="height:120px;overflow-y:auto;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:10px;background:#f9fafb;">
+          <div style="margin-bottom:6px;"><span class="badge badge-blue" style="font-size:10px;">OFICIAL</span><span style="color:#6b7280;margin-left:4px;">10:15</span><br><strong>Pregoeiro:</strong> Sessão aberta.</div>
+          <div><span class="badge badge-gray" style="font-size:10px;">INFO</span><span style="color:#6b7280;margin-left:4px;">10:25</span><br><strong>Pregoeiro:</strong> Item 1 prorrogado por novo lance.</div>
+        </div>
+        <textarea class="mock-input" style="height:60px;font-size:11px;resize:none;" placeholder="Envie uma orientação oficial…"></textarea>
+        <div style="margin-top:8px;"><span class="btn btn-primary" style="width:100%;justify-content:center;font-size:11px;">Enviar mensagem</span></div>
+      </div>
+    </div>
+  </div>
+  <!-- Stepper -->
+  <div class="stepper">
+    <div class="stepper-step"><div class="stepper-dot done">✓</div><span class="stepper-label done">Abertura</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot done">✓</div><span class="stepper-label done">Análise</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot active">3</div><span class="stepper-label active">Lances</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">4</div><span class="stepper-label">Negociação</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">5</div><span class="stepper-label">Habilitação</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">6</div><span class="stepper-label">Benefício ME</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">7</div><span class="stepper-label">Recursos</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">8</div><span class="stepper-label">Adjudicação</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">9</div><span class="stepper-label">Homologação</span></div><span class="stepper-arrow">›</span>
+    <div class="stepper-step"><div class="stepper-dot pending">10</div><span class="stepper-label">Encerramento</span></div>
+  </div>
+</div>
+<p class="caption">Coluna esquerda: fila de itens. Centro: item em foco com timer e lances. Direita: comunicação e painel da etapa atual.</p>
+
+<table>
+  <tr><th>Ação</th><th>Como fazer</th></tr>
+  <tr><td>Iniciar um item</td><td>Marque o item na fila (checkbox) → "Iniciar selecionados"</td></tr>
+  <tr><td>Encerrar um item</td><td>Botão "Encerrar item" no painel central (ou aguardar timer zerar)</td></tr>
+  <tr><td>Cancelar lance (até 15s)</td><td>Fornecedor cancela diretamente. Após 15s solicita ao pregoeiro</td></tr>
+  <tr><td>Suspender sessão</td><td>"Suspender" → escolher motivo (Administrativo / Cautelar / Judicial)</td></tr>
+</table>
+</div>
+
+<!-- 10. NEGOCIAÇÃO -->
+<div id="negociacao">
+<h2 class="section-title">10 — Negociação (Art. 61)</h2>
+<p>Após encerrar todos os lances, a sessão avança para a fase de Negociação. O painel lateral muda automaticamente.</p>
+<table>
+  <tr><th>Passo</th><th>Ação</th></tr>
+  <tr><td>1</td><td>O 1º Classificado é exibido automaticamente no painel lateral</td></tr>
+  <tr><td>2</td><td>Troque mensagens pelo campo de chat (registradas oficialmente na ata)</td></tr>
+  <tr><td>3a</td><td>Houve acordo → informe o <strong>Valor Negociado</strong> → "Registrar e avançar para habilitação"</td></tr>
+  <tr><td>3b</td><td>Sem acordo → "Pular negociação → habilitação"</td></tr>
+</table>
+</div>
+
+<!-- 11. HABILITAÇÃO -->
+<div id="habilitacao">
+<h2 class="section-title">11 — Habilitação (Art. 62–70)</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/DE-001-2026/habilitacao</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>PJ</span> Pregoeiro José</div></div>
+  <div class="mock-page">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div><div class="mock-h1">Habilitação</div><div class="mock-sub">Art. 62-70, Lei 14.133/2021</div></div>
+      <span class="badge badge-teal">HABILITACAO</span>
+    </div>
+    <div class="hab-grid">
+      <div class="hab-col" style="border-right:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:600;margin-bottom:12px;">Ordem de Classificação</div>
+        <div class="ranking-item convoked">
+          <div style="display:flex;justify-content:space-between;"><h5>ALFA Materiais Ltda</h5><span class="badge badge-green" style="font-size:10px;">Convocado</span></div>
+          <div style="font-size:11px;color:#6b7280;">ME · #1 · R$ 4.350,00</div>
+        </div>
+        <div class="ranking-item">
+          <h5>BETA Suprimentos S.A.</h5>
+          <div style="font-size:11px;color:#6b7280;">#2 · R$ 4.500,00</div>
+          <span class="btn btn-outline" style="font-size:10px;margin-top:8px;padding:4px 10px;">Convocar</span>
+        </div>
+        <div class="ranking-item">
+          <h5>GAMA Comércio Ltda</h5>
+          <div style="font-size:11px;color:#6b7280;">#3 · R$ 4.700,00</div>
+          <span class="btn btn-outline" style="font-size:10px;margin-top:8px;padding:4px 10px;">Convocar</span>
+        </div>
+      </div>
+      <div class="hab-col">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div><div style="font-size:14px;font-weight:700;">ALFA Materiais Ltda</div><div style="font-size:11px;color:#6b7280;">CNPJ: 11.111.111/0001-11 · ME · #1</div></div>
+          <div style="font-size:18px;font-weight:700;color:#16a34a;">R$ 4.350,00</div>
+        </div>
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px;">Documentos de Habilitação</div>
+        <div class="doc-row"><span class="doc-icon">📄</span><span class="doc-name">Contrato Social ou Estatuto</span><span class="badge badge-green" style="margin-right:6px;">Válido</span><div class="doc-actions"><div class="doc-btn approve">👍</div><div class="doc-btn reject">👎</div></div></div>
+        <div class="doc-row"><span class="doc-icon">📄</span><span class="doc-name">Certidão Negativa Débitos Federais</span><span class="badge badge-green" style="margin-right:6px;">Válido</span><div class="doc-actions"><div class="doc-btn approve">👍</div><div class="doc-btn reject">👎</div></div></div>
+        <div class="doc-row"><span class="doc-icon">📄</span><span class="doc-name">Certidão Regularidade FGTS</span><span class="badge badge-green" style="margin-right:6px;">Válido</span><div class="doc-actions"><div class="doc-btn approve">👍</div><div class="doc-btn reject">👎</div></div></div>
+        <div class="doc-row"><span class="doc-icon">📄</span><span class="doc-name">Certidão Negativa Débitos Trabalhistas</span><span class="badge badge-green" style="margin-right:6px;">Válido</span><div class="doc-actions"><div class="doc-btn approve">👍</div><div class="doc-btn reject">👎</div></div></div>
+        <div class="doc-row"><span class="doc-icon">📄</span><span class="doc-name">Certidão Negativa Débitos Estaduais</span><span class="badge badge-amber" style="margin-right:6px;">Pendente</span><div class="doc-actions"><div class="doc-btn approve">👍</div><div class="doc-btn reject">👎</div></div></div>
+        <div class="doc-row"><span class="doc-icon">📄</span><span class="doc-name">Certidão Negativa Débitos Municipais</span><span class="badge badge-amber" style="margin-right:6px;">Pendente</span><div class="doc-actions"><div class="doc-btn approve">👍</div><div class="doc-btn reject">👎</div></div></div>
+        <div style="margin-top:10px;font-size:12px;color:#374151;">Documentos verificados: <strong>4/6</strong></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:67%;"></div></div>
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+          <span class="btn btn-disabled" style="width:100%;justify-content:center;margin-bottom:10px;">✓ Habilitar — avançar para intenção de recurso</span>
+          <textarea class="mock-input" style="height:56px;resize:none;font-size:11px;" placeholder="Motivo da inabilitação (obrigatório)…"></textarea>
+          <span class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;color:#dc2626;border-color:#dc2626;font-size:11px;">✗ Inabilitar — convocar próximo classificado</span>
+          <div style="font-size:10px;color:#6b7280;margin-top:6px;text-align:center;">Art. 68 — se reprovado, o próximo classificado é convocado automaticamente</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">Botão "Habilitar" fica ativo somente quando todos os 6 documentos estão marcados como Válido.</p>
+</div>
+
+<!-- 12. ADJUDICAÇÃO -->
+<div id="adjudicacao">
+<h2 class="section-title">12 — Adjudicação (Art. 71)</h2>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">disputa-v3 — Painel Adjudicação</div></div>
+  <div class="mock-page" style="border-top:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div><strong>Adjudicação (Art. 71)</strong><br><span style="font-size:12px;color:#6b7280;">Confirme o vencedor de cada item antes de encerrar.</span></div>
+      <span class="badge badge-green">ADJUDICACAO</span>
+    </div>
+    <div class="homo-item">
+      <div class="homo-item-left"><h5>Item 1 — Papel A4 75g/m²</h5><p>Qtd: 200 PACOTE</p></div>
+      <div class="homo-item-right"><div class="valor">R$ 4.350,00</div><div class="forn">ALFA Materiais Ltda · 11.111.111/0001-11</div></div>
+    </div>
+    <div class="homo-item">
+      <div class="homo-item-left"><h5>Item 2 — Caneta esferográfica azul</h5><p>Qtd: 2000 UNIDADE</p></div>
+      <div class="homo-item-right"><div class="valor">R$ 3.600,00</div><div class="forn">BETA Suprimentos S.A. · 22.222.222/0001-22</div></div>
+    </div>
+    <div style="text-align:right;font-size:13px;font-weight:700;color:#374151;margin:8px 0 16px;">Total: <span style="color:#16a34a;">R$ 7.950,00</span> <span style="color:#6b7280;font-weight:400;font-size:12px;">(economia de 11,67%)</span></div>
+    <span class="btn btn-green" style="width:100%;justify-content:center;">✓ Confirmar adjudicação de todos os itens</span>
+  </div>
+</div>
+</div>
+
+<!-- 13. HOMOLOGAÇÃO -->
+<div id="homologacao">
+<h2 class="section-title">13 — Homologação</h2>
+<p>A homologação é ato da <strong>autoridade competente</strong> (não necessariamente o pregoeiro) que ratifica todo o procedimento.</p>
+
+<div class="screen">
+  <div class="screen-bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="url">portaldcp.com.br/orgao/licitacoes/DE-001-2026/homologacao</div></div>
+  <div class="mock-nav"><div class="brand">Portal DCP</div><div class="user"><span>AC</span> Autoridade Competente</div></div>
+  <div class="mock-page">
+    <div class="mock-h1">Homologação — DE-001/2026</div>
+    <div class="alert alert-info" style="margin-bottom:16px;"><span class="alert-icon">ℹ️</span><div><strong>Art. 71, §2º — Lei 14.133/2021</strong><br>A homologação é ato da autoridade competente que ratifica o procedimento licitatório e autoriza a celebração do contrato.</div></div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px;">Itens Adjudicados</div>
+    <div class="homo-item">
+      <div class="homo-item-left"><h5>Item 1 — Papel A4 75g/m²</h5><p>Qtd: 200 PACOTE · CNPJ: 11.111.111/0001-11</p></div>
+      <div class="homo-item-right"><div class="valor">R$ 4.350,00</div><div class="forn">ALFA Materiais Ltda</div></div>
+    </div>
+    <div class="homo-item">
+      <div class="homo-item-left"><h5>Item 2 — Caneta esferográfica azul</h5><p>Qtd: 2000 UNIDADE · CNPJ: 22.222.222/0001-22</p></div>
+      <div class="homo-item-right"><div class="valor">R$ 3.600,00</div><div class="forn">BETA Suprimentos S.A.</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:#f0fdf4;border-radius:8px;border:1px solid #16a34a;margin:12px 0;">
+      <div style="font-size:13px;font-weight:600;color:#15803d;">Valor total adjudicado</div>
+      <div style="font-size:20px;font-weight:700;color:#16a34a;">R$ 7.950,00</div>
+    </div>
+    <span class="btn btn-green" style="width:100%;justify-content:center;padding:12px;">✓ Homologar processo licitatório</span>
+  </div>
+</div>
+<p class="caption">Após confirmar o diálogo de homologação, a ação é irreversível. Os contratos são gerados automaticamente.</p>
+</div>
+
+<!-- 14. CONTRATOS -->
+<div id="contratos">
+<h2 class="section-title">14 — Geração Automática de Contratos</h2>
+<p>Imediatamente após a homologação, o sistema cria <strong>um contrato por fornecedor vencedor</strong> automaticamente.</p>
+
+<div class="card-grid2">
+  <div class="mock-card" style="border-left:4px solid #16a34a;">
+    <div class="badge badge-green" style="margin-bottom:8px;">CT-2026/0001</div>
+    <h3>ALFA Materiais Ltda</h3>
+    <p>Item 1 — Papel A4 · 200 PACOTE</p>
+    <table style="margin:8px 0;font-size:12px;">
+      <tr><td style="border:none;padding:2px 0;color:#6b7280;">Valor global</td><td style="border:none;padding:2px 0;font-weight:600;color:#16a34a;">R$ 4.350,00</td></tr>
+      <tr><td style="border:none;padding:2px 0;color:#6b7280;">Prazo execução</td><td style="border:none;padding:2px 0;">15 dias</td></tr>
+      <tr><td style="border:none;padding:2px 0;color:#6b7280;">Status</td><td style="border:none;padding:2px 0;"><span class="badge badge-amber" style="font-size:10px;">AGUARDANDO_LIBERACAO</span></td></tr>
+    </table>
+  </div>
+  <div class="mock-card" style="border-left:4px solid #16a34a;">
+    <div class="badge badge-green" style="margin-bottom:8px;">CT-2026/0002</div>
+    <h3>BETA Suprimentos S.A.</h3>
+    <p>Item 2 — Caneta esferográfica · 2000 UN</p>
+    <table style="margin:8px 0;font-size:12px;">
+      <tr><td style="border:none;padding:2px 0;color:#6b7280;">Valor global</td><td style="border:none;padding:2px 0;font-weight:600;color:#16a34a;">R$ 3.600,00</td></tr>
+      <tr><td style="border:none;padding:2px 0;color:#6b7280;">Prazo execução</td><td style="border:none;padding:2px 0;">10 dias</td></tr>
+      <tr><td style="border:none;padding:2px 0;color:#6b7280;">Status</td><td style="border:none;padding:2px 0;"><span class="badge badge-amber" style="font-size:10px;">AGUARDANDO_LIBERACAO</span></td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="alert alert-success" style="margin-top:16px;"><span class="alert-icon">✅</span><div>O prazo de execução de cada contrato é extraído do campo <strong>Prazo de Entrega</strong> informado pelo fornecedor na proposta.</div></div>
+</div>
+
+<!-- FAQ -->
+<div id="faq">
+<h2 class="section-title">Perguntas Frequentes</h2>
+
+<div style="display:flex;flex-direction:column;gap:12px;">
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">O sistema exige edital para dispensa eletrônica?</div>
+    <div style="padding:12px 16px;font-size:13px;">Não há edital formal obrigatório. O Portal usa um "Aviso de Contratação Direta". O Termo de Referência é o documento central do processo.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">Posso ter mais de um fornecedor vencedor?</div>
+    <div style="padding:12px 16px;font-size:13px;">Sim. Cada item pode ter um vencedor diferente. O sistema gera um contrato automático para cada fornecedor vencedor, não apenas um contrato único.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">O prazo mínimo de 3 dias é corrido ou úteis?</div>
+    <div style="padding:12px 16px;font-size:13px;"><strong>3 dias úteis</strong> (IN SEGES/ME 67/2021, Art. 4º). O sistema já considera isso ao calcular as datas no cronograma automaticamente.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">A sessão funciona sem internet do lado do pregoeiro?</div>
+    <div style="padding:12px 16px;font-size:13px;">Não. A Sala de Disputa usa WebSocket em tempo real. O indicador <span class="badge badge-green" style="font-size:10px;">🟢 WS online</span> / <span class="badge badge-red" style="font-size:10px;">🔴 WS offline</span> mostra o status. Em queda, a sessão é preservada — reconecte e retome.</div>
+  </div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div style="padding:12px 16px;background:#f8fafc;font-size:13px;font-weight:600;">O que fazer se o valor estimado ultrapassar R$ 50.000?</div>
+    <div style="padding:12px 16px;font-size:13px;">O sistema exibe alerta na aba Classificação. A licitação não poderá ser publicada como Dispensa Eletrônica acima do limite. Use Pregão Eletrônico ou Concorrência.</div>
+  </div>
+</div>
+
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:8px;border:1px solid var(--border);text-align:center;color:#6b7280;font-size:12px;">
+  Portal DCP · versão 2026 · Lei 14.133/2021 · Desenvolvido por Valleteclab
+</div>
+</div>
+
+</div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /wrapper -->
+</body>
+</html>
