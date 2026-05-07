@@ -5,6 +5,7 @@ import { EtpDados } from '../fase-interna/types/etp-dados.type';
 import { TrDados } from '../fase-interna/types/tr-dados.type';
 import { PesquisaPrecosDados } from '../fase-interna/types/pesquisa-precos.type';
 import { MatrizRiscosDados } from '../fase-interna/types/matriz-riscos.type';
+import { getEtpFewShotContext } from './etp-fewshot-examples';
 
 // Prompts especializados para cada tipo de documento da Lei 14.133/2021
 const PROMPTS_DOCUMENTOS: Record<string, string> = {
@@ -348,9 +349,15 @@ REGRAS ABSOLUTAS:
 7. Linguagem: português brasileiro formal e técnico.
 8. Temperatura intelectual: profissional experiente que conhece o objeto, não um modelo genérico.`;
 
+    // Injeta few-shot se for ETP (o tipo de maior valor agregado)
+    const isEtp = tipoDocumento === 'ETP' || tipoDocumento === 'Estudo Técnico Preliminar';
+    const fewShotInject = isEtp
+      ? `\n\nEXEMPLO DE REFERÊNCIA (ETP real de alta qualidade — siga este padrão):\n${getEtpFewShotContext((objeto || contexto).split(/\s+/).slice(0, 20))}\n\n---\nAplique o mesmo nível de detalhamento ao objeto abaixo.\n`
+      : '';
+
     const mensagemUsuario = objeto
-      ? `Objeto da licitação: ${objeto}\n\nContexto adicional: ${contexto}`
-      : contexto;
+      ? `${fewShotInject}Objeto da licitação: ${objeto}\n\nContexto adicional: ${contexto}`
+      : `${fewShotInject}${contexto}`;
 
     try {
       console.log('Chamando OpenRouter com modelo:', model);
@@ -1388,12 +1395,21 @@ SCHEMA EXATO (chaves obrigatórias):
   }
 }`;
 
-    const userPrompt = `Com base no CONTEXTO abaixo, gere o ETP completo em JSON conforme o schema do system prompt.
+    // Seleciona o exemplo few-shot mais relevante para o domínio do objeto
+    const palavrasChave = contexto.split(/\s+/).slice(0, 30);
+    const fewShot = getEtpFewShotContext(palavrasChave);
 
-CONTEXTO:
+    const userPrompt = `EXEMPLOS DE REFERÊNCIA (ETPs reais de alta qualidade — siga este padrão de conteúdo):
+${fewShot}
+
+---
+Agora gere o ETP para o seguinte OBJETO:
 ${contexto}
 
-Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
+IMPORTANTE:
+- Adapte o conteúdo ao objeto específico acima — não copie os exemplos
+- Siga o mesmo nível de detalhamento técnico e substancial dos exemplos
+- Retorne APENAS o JSON válido conforme o schema. Sem markdown. Sem texto fora do JSON.`;
 
     const resposta = await this.chatJson(systemPrompt, userPrompt);
     return this.extrairJsonDeResposta<EtpDados>(resposta);
